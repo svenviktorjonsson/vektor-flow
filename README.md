@@ -277,6 +277,39 @@ Read this as:
 
 ## Install And Run
 
+For normal Windows use, download `vektor-flow-windows-x64-setup.exe` from the
+latest GitHub release. The installer can add `vkf` to the current user's `PATH`.
+It installs the native compiler and VKF standard library; Python,
+a C++ compiler, and an assembler are not required.
+
+The downloadable native release is deliberately strict and incomplete. It
+ships only the proven direct core plus `math`, `stat`, `random`, `time`, native
+`io`, `physics`, and the `rigid_body` compatibility import. Incomplete modules
+such as `collections` and `errors` are excluded. Unsupported source fails with a
+compiler error; the release never switches to a C++, Python, or assembler path.
+
+After opening a new terminal:
+
+```powershell
+vkf -e ':: "hello, world"'
+vkf .\program.vkf
+vkf .\program.vkf -o app.exe
+vkf -b .\program.vkf
+vkf -b .\program.vkf -o app.exe
+vkf -t .\tests
+```
+
+Linux releases include a native `.deb`; Linux and macOS archives also contain
+`install.sh`, which installs under
+`~/.local/opt` and links `vkf` into `~/.local/bin`. macOS ARM64 releases also
+contain a standard `.pkg` installer.
+
+File builds embed a source/compiler/import fingerprint inside the native
+executable. Running the same `.vkf` file again reuses the named executable when
+the fingerprint matches; changed source, compiler, or imports rebuild it.
+
+### Build From Source
+
 Install from this repository:
 
 ```powershell

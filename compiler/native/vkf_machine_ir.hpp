@@ -9,7 +9,7 @@
 
 namespace vkf::machine_ir {
 
-inline constexpr std::uint32_t schema_version = 13;
+inline constexpr std::uint32_t schema_version = 15;
 inline constexpr std::uint32_t runtime_output_base = 192;
 inline constexpr std::uint32_t assertion_error_mask = 0b1000011;
 inline constexpr std::uint32_t index_error_mask = 0b1000100001;
@@ -102,6 +102,11 @@ enum class Opcode : std::uint8_t {
     WallTimeF64,
     SleepF64,
     LocalTimeParts,
+    SystemCpuCount,
+    SystemCwdString,
+    SystemEnvString,
+    ProcessRun,
+    CaptureRegex,
     SumF64Values,
     MeanF64Values,
     VarianceF64Values,

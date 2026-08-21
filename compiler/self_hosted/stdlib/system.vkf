@@ -1,0 +1,17 @@
+# Portable host properties. The compiler lowers these calls directly to the
+# target operating system; no Python or C++ runtime participates.
+
+os() -> str:
+    system.os_name()
+
+arch() -> str:
+    system.arch_name()
+
+cpu_count() -> int:
+    system.cpu_count_native()
+
+cwd() -> str:
+    system.cwd_native()
+
+env(name:str) -> (found:bit,value:str):
+    system.env_native(name)

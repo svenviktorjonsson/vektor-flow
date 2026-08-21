@@ -5,10 +5,11 @@ This guide is the practical install path for community testers.
 If you are trying Vektor Flow as a user, start here instead of the contributor
 bootstrap flow.
 
-If you are preparing a bundle for someone else to test, verify it first with:
+If you are preparing a bundle for someone else to test, verify its installed
+compiler directly:
 
 ```bash
-python scripts/verify_release_bundle.py dist/releases/<channel>
+vkf -e ':: "release ready"'
 ```
 
 For first macOS/Linux bundle bring-up from source, use:
@@ -30,6 +31,29 @@ You do **not** need:
 
 ## Windows
 
+### Installer
+
+1. Open the repository's latest GitHub release.
+2. Download `vektor-flow-windows-x64-setup.exe`.
+3. Run it and leave **Add VKF to my PATH** selected.
+4. Open a new PowerShell window.
+5. Verify:
+
+```powershell
+vkf -e ':: "hello, world"'
+```
+
+The installer is per-user and needs no administrator access. It installs the
+compiler, integrated test command, stdlib, samples, and uninstaller. Uninstall removes only
+the exact PATH entry created by the installer.
+
+Python, a C++ compiler, and an assembler are not runtime dependencies.
+
+This installer is the strict native edition. It contains only `math`, `stat`,
+`random`, `time`, `physics`, and `rigid_body`. Other standard-library modules
+remain absent until their complete public surfaces are direct-native. There is
+no compatibility fallback.
+
 Current UI modes:
 
 - `overlay`
@@ -49,7 +73,7 @@ C:\Tools\vektorflow
 4. Verify the compiler works:
 
 ```powershell
-.\vkf.exe -e ':: "hello, world"'
+.\bin\vkf.exe -e ':: "hello, world"'
 ```
 
 Expected output:
@@ -110,13 +134,13 @@ Current UI modes:
 
 ### Install
 
-1. Download the macOS release archive.
-2. Extract it.
-3. Open Terminal in the extracted folder.
-4. Verify the compiler works:
+1. Download `vektor-flow-macos-arm64.pkg` on Apple Silicon and run it, or
+   download and extract the macOS archive and run `./install.sh`.
+2. Open a new Terminal.
+3. Verify the compiler works:
 
 ```bash
-./vkf -e ':: "hello, world"'
+vkf -e ':: "hello, world"'
 ```
 
 Expected output:
@@ -162,6 +186,18 @@ From source:
 
 ## Linux
 
+On Debian/Ubuntu, install `vektor-flow-linux-x64.deb`. Other distributions can
+extract `vektor-flow-linux-x64.tar.gz`, then run:
+
+```bash
+./install.sh
+vkf -e ':: "hello, world"'
+```
+
+This installs under `~/.local/opt/vektor-flow` and creates commands under
+`~/.local/bin`. It does not install or invoke Python, a C++ compiler, or an
+assembler.
+
 Current UI modes:
 
 - `browser`
@@ -175,7 +211,7 @@ Current UI modes:
 4. Verify the compiler works:
 
 ```bash
-./vkf -e ':: "hello, world"'
+./bin/vkf -e ':: "hello, world"'
 ```
 
 Expected output:

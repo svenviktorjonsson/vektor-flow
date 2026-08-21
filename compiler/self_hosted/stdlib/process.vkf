@@ -1,0 +1,5 @@
+# Synchronous, shell-free child-process execution. `run` waits for completion
+# and captures byte-exact stdout/stderr in string-backed buffers.
+
+run(program:str, args:any) -> (code:int,out:str,err:str):
+    process.run_native(program, args)

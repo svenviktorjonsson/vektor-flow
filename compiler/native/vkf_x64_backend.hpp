@@ -34,7 +34,9 @@ ArtifactResult compile(
     const std::filesystem::path& source,
     const std::filesystem::path& typed_ir_path,
     const std::filesystem::path& runner_template,
-    bool emit_debug_files = true
+    bool emit_debug_files = true,
+    const std::filesystem::path& requested_artifact = {},
+    const std::string& cache_fingerprint = {}
 );
 
 }  // namespace vkf_x64_backend

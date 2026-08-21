@@ -52,6 +52,11 @@ inline const char* opcode_name(Opcode opcode) {
         case Opcode::WallTimeF64: return "wall_time_f64";
         case Opcode::SleepF64: return "sleep_f64";
         case Opcode::LocalTimeParts: return "local_time_parts";
+        case Opcode::SystemCpuCount: return "system_cpu_count";
+        case Opcode::SystemCwdString: return "system_cwd_string";
+        case Opcode::SystemEnvString: return "system_env_string";
+        case Opcode::ProcessRun: return "process_run";
+        case Opcode::CaptureRegex: return "capture_regex";
         case Opcode::SumF64Values: return "sum_f64_values";
         case Opcode::MeanF64Values: return "mean_f64_values";
         case Opcode::VarianceF64Values: return "variance_f64_values";
@@ -180,6 +185,7 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
     }
     if (instruction.opcode == Opcode::WriteString ||
         instruction.opcode == Opcode::ReadFileString ||
+        instruction.opcode == Opcode::SystemEnvString ||
         instruction.opcode == Opcode::LoadF64ListIndex ||
         instruction.opcode == Opcode::SumF64List ||
         instruction.opcode == Opcode::MeanF64List ||
@@ -188,6 +194,19 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
         instruction.opcode == Opcode::RangeF64List ||
         instruction.opcode == Opcode::CountF64List) {
         object["owns_input"] = instruction.owns_input;
+    }
+    if (instruction.opcode == Opcode::ProcessRun) {
+        object["argument_count"] = static_cast<double>(instruction.argument_count);
+        object["offset"] = static_cast<double>(instruction.index);
+        object["owns_input"] = instruction.owns_input;
+    }
+    if (instruction.opcode == Opcode::CaptureRegex) {
+        object["group_count"] = static_cast<double>(instruction.argument_count);
+        object["pattern"] = instruction.symbol;
+        object["owns_input"] = instruction.owns_input;
+    }
+    if (instruction.opcode == Opcode::SystemEnvString) {
+        object["offset"] = static_cast<double>(instruction.index);
     }
     if (instruction.opcode == Opcode::WriteFileString) {
         object["owns_left"] = instruction.owns_left;

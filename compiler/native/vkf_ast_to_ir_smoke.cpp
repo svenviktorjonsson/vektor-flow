@@ -1,6 +1,7 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_native_frontend.hpp"
 #include "compiler/native/vkf_symbolic_lowering.hpp"
+#include "compiler/native/vkf_capture_pattern.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -236,6 +237,14 @@ vf::JsonValue stdlib_function(std::string module, std::string name) {
     } else if (module == "io") {
         if (name == "read_text" || name == "read_bytes") type = "fn(str)->str";
         else if (name == "write_text" || name == "write_bytes") type = "fn(str,str)->null";
+    } else if (module == "system") {
+        if (name == "os_name" || name == "arch_name" || name == "cwd_native") type = "fn()->str";
+        else if (name == "cpu_count_native") type = "fn()->int";
+        else if (name == "env_native") type = "fn(str)->record{found:bit,value:str}";
+    } else if (module == "process" && name == "run_native") {
+        type = "fn(str,any)->record{code:int,out:str,err:str}";
+    } else if (module == "capture" && (name == "regex" || name == "groups")) {
+        type = "fn(str,str)->any";
     }
     out["type"] = vf::JsonValue(type);
     return vf::JsonValue(std::move(out));
@@ -2074,6 +2083,46 @@ private:
                 call_type = "list<" + element_type + ">";
             }
             if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
+                string_field(callee_ir, "module", "call callee IR") == "capture") {
+                const std::string capture_name = string_field(
+                    callee_ir, "name", "capture call");
+                if (args.size() != 2 || !named_args.empty() || !spread_args.empty()) {
+                    throw IRFailure("capture." + capture_name +
+                        " requires source and a constant pattern");
+                }
+                const auto& pattern_value = object_of(args[1], "capture pattern");
+                const auto value = pattern_value.find("value");
+                if (string_field(pattern_value, "kind", "capture pattern") != "const" ||
+                    value == pattern_value.end() || !value->second.is_string()) {
+                    throw IRFailure("capture pattern must be a compile-time string constant");
+                }
+                vkf::capture::Pattern pattern;
+                try {
+                    pattern = vkf::capture::parse(value->second.as_string());
+                } catch (const vkf::capture::PatternFailure& error) {
+                    throw IRFailure(error.what());
+                }
+                if (capture_name == "regex") {
+                    call_type = "record{";
+                    for (std::size_t index = 0; index < pattern.group_names.size(); ++index) {
+                        if (index != 0) call_type += ",";
+                        call_type += pattern.group_names[index] + ":str";
+                    }
+                    call_type += "}";
+                } else if (capture_name == "groups") {
+                    call_type = "tuple<";
+                    for (std::size_t index = 0; index < pattern.group_names.size(); ++index) {
+                        if (index != 0) call_type += ",";
+                        call_type += "str";
+                    }
+                    call_type += ">";
+                } else {
+                    throw IRFailure("unknown stdlib capture member " + capture_name);
+                }
+                callee_type = "fn(str,str)->" + call_type;
+                callee.as_object()["type"] = vf::JsonValue(callee_type);
+            }
+            if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
                 string_field(callee_ir, "module", "call callee IR") == "math" &&
                 arg_types.size() == 1 && arg_types.front().is_string()) {
                 const std::string argument_type = arg_types.front().as_string();
@@ -2672,6 +2721,24 @@ private:
                         return stdlib_function("io", field_name);
                     }
                     throw IRFailure("unknown stdlib io member " + field_name);
+                }
+                if (canonical_module == "system") {
+                    if (field_name == "os_name" || field_name == "arch_name" ||
+                        field_name == "cpu_count_native" || field_name == "cwd_native" ||
+                        field_name == "env_native") {
+                        return stdlib_function("system", field_name);
+                    }
+                    throw IRFailure("unknown stdlib system member " + field_name);
+                }
+                if (canonical_module == "process") {
+                    if (field_name == "run_native") return stdlib_function("process", field_name);
+                    throw IRFailure("unknown stdlib process member " + field_name);
+                }
+                if (canonical_module == "capture") {
+                    if (field_name == "regex" || field_name == "groups") {
+                        return stdlib_function("capture", field_name);
+                    }
+                    throw IRFailure("unknown stdlib capture member " + field_name);
                 }
             }
             vf::JsonValue object_ir = lower_expr(field(object, "object", "attribute"), env);

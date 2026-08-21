@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/native/vkf_machine_ir.hpp"
+#include "compiler/native/vkf_capture_pattern.hpp"
 #include "native/VfOverlay/vf/json.hpp"
 
 #include <algorithm>
@@ -15,6 +16,10 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+
+#if defined(_WIN32) && defined(_MSC_VER)
+#pragma comment(linker, "/STACK:8388608")
+#endif
 
 namespace vkf::machine_ir {
 
@@ -2921,6 +2926,19 @@ public:
             ++stack_depth_;
         } else if (opcode == Opcode::MonotonicF64 || opcode == Opcode::WallTimeF64) {
             ++stack_depth_;
+        } else if (opcode == Opcode::SystemCpuCount) {
+            ++stack_depth_;
+        } else if (opcode == Opcode::SystemCwdString) {
+            stack_depth_ += 2;
+        } else if (opcode == Opcode::SystemEnvString) {
+            require_stack(2);
+            ++stack_depth_;
+        } else if (opcode == Opcode::ProcessRun) {
+            require_stack(2 + instruction.argument_count * 2);
+            stack_depth_ = stack_depth_ - 2 - instruction.argument_count * 2 + 5;
+        } else if (opcode == Opcode::CaptureRegex) {
+            require_stack(2);
+            stack_depth_ = stack_depth_ - 2 + instruction.argument_count * 2;
         } else if (opcode == Opcode::PushString) {
             stack_depth_ += 2;
         } else if (opcode == Opcode::FormatF64String || opcode == Opcode::FormatBitString ||
@@ -3548,6 +3566,102 @@ inline bool is_numeric_layout(const ValueLayout& layout) {
     return std::none_of(layout.selectors.begin(), layout.selectors.end(), [](const auto& item) {
         return item.second.kind == ValueKind::String;
     });
+}
+
+inline bool is_flat_fixed_numeric_vector(const ValueLayout& layout) {
+    if (layout.kind != ValueKind::Aggregate || is_record_layout(layout)) return false;
+    const auto elements = indexed_element_layouts(layout);
+    return !elements.empty() &&
+        std::all_of(elements.begin(), elements.end(), [](const auto& element) {
+            return element.kind == ValueKind::Numeric && element.width == 1 &&
+                element.selectors.empty();
+        });
+}
+
+inline bool can_project_call_layout(const ValueLayout& source, const ValueLayout& target) {
+    if (same_layout(source, target)) return true;
+    if (source.kind == ValueKind::DynamicF64List && is_flat_fixed_numeric_vector(target)) {
+        return true;
+    }
+    if (!is_record_layout(source) || !is_record_layout(target)) return false;
+    for (const auto& [name, target_slice] : ordered_record_fields(target)) {
+        const auto found = source.selectors.find(name);
+        if (found == source.selectors.end()) return false;
+        if (!can_project_call_layout(
+                record_field_layout(source, name, found->second),
+                record_field_layout(target, name, target_slice))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline void emit_projected_call_layout(
+    FunctionBuilder& builder,
+    StringPool& strings,
+    std::uint32_t source_local,
+    const ValueLayout& source,
+    const ValueLayout& target,
+    const std::string& context
+) {
+    if (same_layout(source, target)) {
+        for (std::uint32_t component = 0; component < source.width; ++component) {
+            Instruction load;
+            load.opcode = Opcode::LoadLocal;
+            load.index = source_local + component;
+            builder.emit(std::move(load));
+        }
+        return;
+    }
+    if (source.kind == ValueKind::DynamicF64List && is_flat_fixed_numeric_vector(target)) {
+        Instruction load;
+        load.opcode = Opcode::LoadLocal;
+        load.index = source_local;
+        builder.emit(std::move(load));
+        builder.emit({Opcode::CountF64List});
+        Instruction expected_count;
+        expected_count.opcode = Opcode::PushF64;
+        expected_count.f64 = static_cast<double>(target.width);
+        builder.emit(std::move(expected_count));
+        builder.emit({Opcode::OrderedEqualF64});
+        Instruction arity;
+        arity.opcode = Opcode::AssertTruthy;
+        const std::string message = "fixed-vector argument length mismatch for " + context;
+        arity.index = strings.intern(message);
+        arity.byte_count = static_cast<std::uint32_t>(message.size());
+        arity.error_type_mask = value_error_mask;
+        if (const auto handler = builder.error_handler()) {
+            arity.has_error_handler = true;
+            arity.label = *handler;
+            arity.error_value_local = *builder.error_value_local();
+            arity.error_type_local = *builder.error_type_local();
+        }
+        builder.emit(std::move(arity));
+        builder.emit({Opcode::Drop});
+        for (std::uint32_t component = 0; component < target.width; ++component) {
+            Instruction list;
+            list.opcode = Opcode::LoadLocal;
+            list.index = source_local;
+            builder.emit(std::move(list));
+            Instruction index;
+            index.opcode = Opcode::PushF64;
+            index.f64 = static_cast<double>(component);
+            builder.emit(std::move(index));
+            builder.emit({Opcode::LoadF64ListIndex});
+        }
+        return;
+    }
+    for (const auto& [name, target_slice] : ordered_record_fields(target)) {
+        const auto found = source.selectors.find(name);
+        const auto source_field = record_field_layout(source, name, found->second);
+        emit_projected_call_layout(
+            builder,
+            strings,
+            source_local + found->second.offset,
+            source_field,
+            record_field_layout(target, name, target_slice),
+            context + "." + name);
+    }
 }
 
 inline bool expression_produces_owned_f64_list(
@@ -7746,6 +7860,151 @@ inline ValueLayout lower_expression(
                     "direct machine IR stdlib call does not accept named arguments " +
                     module + "." + name);
             }
+            if (module == "system" && (name == "os_name" || name == "arch_name")) {
+                if (!args.empty()) {
+                    throw LoweringFailure("machine IR system." + name + " takes no arguments");
+                }
+                std::string value;
+                if (name == "os_name") {
+#if defined(_WIN32)
+                    value = "windows";
+#elif defined(__APPLE__)
+                    value = "macos";
+#else
+                    value = "linux";
+#endif
+                } else {
+#if defined(__aarch64__) || defined(_M_ARM64)
+                    value = "arm64";
+#else
+                    value = "x86_64";
+#endif
+                }
+                Instruction literal;
+                literal.opcode = Opcode::PushString;
+                literal.index = strings.intern(value);
+                literal.byte_count = static_cast<std::uint32_t>(value.size());
+                builder.emit(std::move(literal));
+                return {2, ValueKind::String, {}};
+            }
+            if (module == "system" && name == "cpu_count_native") {
+                if (!args.empty()) {
+                    throw LoweringFailure("machine IR system.cpu_count_native takes no arguments");
+                }
+                builder.emit({Opcode::SystemCpuCount});
+                return {};
+            }
+            if (module == "system" && name == "cwd_native") {
+                if (!args.empty()) {
+                    throw LoweringFailure("machine IR system.cwd_native takes no arguments");
+                }
+                builder.emit({Opcode::SystemCwdString});
+                return {2, ValueKind::String, {}};
+            }
+            if (module == "system" && name == "env_native") {
+                if (args.size() != 1) {
+                    throw LoweringFailure("machine IR system.env_native requires one name");
+                }
+                const auto& key = object_of(args.front(), "system environment name");
+                const auto key_layout = lower_expression(key, builder, signatures, strings);
+                if (key_layout.kind != ValueKind::String || key_layout.width != 2) {
+                    throw LoweringFailure("machine IR system.env_native requires a string name");
+                }
+                if (!expression_transfers_string_value(key, signatures)) {
+                    builder.emit({Opcode::CloneString});
+                }
+                Instruction environment;
+                environment.opcode = Opcode::SystemEnvString;
+                environment.index = strings.intern("");
+                environment.owns_input = true;
+                builder.emit(std::move(environment));
+                ValueLayout result{3, ValueKind::Aggregate, {}};
+                result.selectors["found"] = {0, 1, ValueKind::Numeric};
+                result.selectors["value"] = {1, 2, ValueKind::String};
+                return result;
+            }
+            if (module == "process" && name == "run_native") {
+                if (args.size() != 2) {
+                    throw LoweringFailure("machine IR process.run_native requires program and args");
+                }
+                const auto& program = object_of(args[0], "process program");
+                const auto program_layout = lower_expression(program, builder, signatures, strings);
+                if (program_layout.kind != ValueKind::String || program_layout.width != 2) {
+                    throw LoweringFailure("machine IR process.run_native program must be str");
+                }
+                if (!expression_transfers_string_value(program, signatures)) {
+                    builder.emit({Opcode::CloneString});
+                }
+
+                const auto& arguments = object_of(args[1], "process arguments");
+                const auto arguments_layout = lower_expression(
+                    arguments, builder, signatures, strings);
+                if (arguments_layout.kind != ValueKind::Aggregate ||
+                    arguments_layout.width % 2 != 0) {
+                    throw LoweringFailure(
+                        "machine IR process.run_native args must be a fixed str vector");
+                }
+                const auto resources = owned_resource_slices(arguments_layout);
+                const auto argument_count = arguments_layout.width / 2;
+                if (resources.size() != argument_count ||
+                    std::any_of(resources.begin(), resources.end(), [](const auto& slice) {
+                        return slice.kind != ValueKind::String || slice.width != 2;
+                    })) {
+                    throw LoweringFailure(
+                        "machine IR process.run_native args must contain only str values");
+                }
+                clone_nested_resource_values(arguments_layout, builder);
+                Instruction run;
+                run.opcode = Opcode::ProcessRun;
+                run.argument_count = argument_count;
+                run.index = strings.intern("\0");
+                run.owns_input = true;
+                builder.emit(std::move(run));
+                ValueLayout result{5, ValueKind::Aggregate, {}};
+                result.selectors["code"] = {0, 1, ValueKind::Numeric};
+                result.selectors["out"] = {1, 2, ValueKind::String};
+                result.selectors["err"] = {3, 2, ValueKind::String};
+                return result;
+            }
+            if (module == "capture" && (name == "regex" || name == "groups")) {
+                if (args.size() != 2) {
+                    throw LoweringFailure("machine IR capture." + name +
+                        " requires source and pattern");
+                }
+                const auto& source = object_of(args[0], "capture source");
+                const auto source_layout = lower_expression(source, builder, signatures, strings);
+                if (source_layout.kind != ValueKind::String || source_layout.width != 2) {
+                    throw LoweringFailure("machine IR capture source must be str");
+                }
+                const auto& pattern_value = object_of(args[1], "capture pattern");
+                const auto value = pattern_value.find("value");
+                if (string_field(pattern_value, "kind", "capture pattern") != "const" ||
+                    value == pattern_value.end() || !value->second.is_string()) {
+                    throw LoweringFailure("capture pattern must be a compile-time string constant");
+                }
+                vkf::capture::Pattern pattern;
+                try {
+                    pattern = vkf::capture::parse(value->second.as_string());
+                } catch (const vkf::capture::PatternFailure& error) {
+                    throw LoweringFailure(error.what());
+                }
+                Instruction capture;
+                capture.opcode = Opcode::CaptureRegex;
+                capture.argument_count = static_cast<std::uint32_t>(pattern.group_names.size());
+                capture.symbol = value->second.as_string();
+                capture.owns_input = expression_transfers_string_value(source, signatures);
+                builder.emit(std::move(capture));
+                ValueLayout result{
+                    static_cast<std::uint32_t>(pattern.group_names.size() * 2u),
+                    ValueKind::Aggregate,
+                    {}};
+                for (std::uint32_t index = 0; index < pattern.group_names.size(); ++index) {
+                    const std::string selector = name == "regex"
+                        ? pattern.group_names[index] : std::to_string(index);
+                    result.selectors[selector] = {index * 2u, 2, ValueKind::String};
+                }
+                return result;
+            }
             if (module == "collections" && name == "list") {
                 for (const auto& arg : args) {
                     const auto element = lower_expression(
@@ -8778,17 +9037,13 @@ inline ValueLayout lower_expression(
                     ? *fixed_indexed
                     : lower_expression(argument_expression, builder, signatures, strings);
             bool projected_from_temporary = false;
-            if (!projected && is_record_layout(parameter_layout) && is_record_layout(layout) &&
-                !same_layout(layout, parameter_layout)) {
-                std::vector<ValueSlice> slices;
-                if (!collect_record_projection("", layout, parameter_layout, slices)) {
-                    throw LoweringFailure(
-                        "machine IR call argument structure mismatch for " + symbol + "." +
-                        signature->second.parameter_names[index] + ": expected " +
-                        describe_layout(parameter_layout) + ", got " + describe_layout(layout));
-                }
-                const bool owns_value = has_owned_resources(layout) &&
-                    expression_transfers_aggregate_value(argument_expression, signatures);
+            if (!projected && !same_layout(layout, parameter_layout) &&
+                can_project_call_layout(layout, parameter_layout)) {
+                const bool owns_value =
+                    (layout.kind == ValueKind::DynamicF64List &&
+                     expression_produces_owned_f64_list(argument_expression, signatures)) ||
+                    (has_owned_resources(layout) &&
+                     expression_transfers_aggregate_value(argument_expression, signatures));
                 const auto temporary = owns_value
                     ? builder.add_owned_temporary(layout)
                     : builder.add_borrowed_temporary(layout);
@@ -8798,17 +9053,23 @@ inline ValueLayout lower_expression(
                     store.index = temporary + component - 1;
                     builder.emit(std::move(store));
                 }
-                for (const auto& slice : slices) {
-                    for (std::uint32_t component = 0; component < slice.width; ++component) {
-                        Instruction load;
-                        load.opcode = Opcode::LoadLocal;
-                        load.index = temporary + slice.offset + component;
-                        builder.emit(std::move(load));
-                    }
-                }
+                emit_projected_call_layout(
+                    builder,
+                    strings,
+                    temporary,
+                    layout,
+                    parameter_layout,
+                    symbol + "." + signature->second.parameter_names[index]);
                 if (owns_value) owned_argument_temporaries.push_back({temporary, layout});
                 layout = parameter_layout;
                 projected_from_temporary = true;
+            }
+            if (!projected && is_record_layout(parameter_layout) && is_record_layout(layout) &&
+                !same_layout(layout, parameter_layout)) {
+                throw LoweringFailure(
+                    "machine IR call argument structure mismatch for " + symbol + "." +
+                    signature->second.parameter_names[index] + ": expected " +
+                    describe_layout(parameter_layout) + ", got " + describe_layout(layout));
             }
             if (layout.width != parameter_layout.width) {
                 throw LoweringFailure(
@@ -11262,10 +11523,18 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                     signature.variadic_positional_index = signature.parameters.size();
                     signature.parameters.push_back({1, ValueKind::DynamicF64List, {}});
                 } else {
-                    signature.parameters.push_back(
-                        inferred_parameter
-                            ? inferred_parameter_layout(statement, signature.parameter_names.back())
-                            : explicit_parameter_layout);
+                    if (inferred_parameter && complex_capable_fixed_vector) {
+                        auto parameter_layout = explicit_parameter_layout;
+                        merge_inferred_layout(
+                            parameter_layout,
+                            inferred_parameter_layout(statement, signature.parameter_names.back()));
+                        signature.parameters.push_back(std::move(parameter_layout));
+                    } else {
+                        signature.parameters.push_back(
+                            inferred_parameter
+                                ? inferred_parameter_layout(statement, signature.parameter_names.back())
+                                : explicit_parameter_layout);
+                    }
                 }
                 if (bool_field(parameter, "variadic_named", "param")) {
                     auto display = display_shape_from_layout(signature.parameters.back());

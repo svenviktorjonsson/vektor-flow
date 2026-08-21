@@ -2,12 +2,27 @@
 
 ## Windows
 
+Download `vektor-flow-windows-x64-setup.exe` from GitHub Releases. The per-user
+installer offers an **Add VKF to my PATH** checkbox and needs no administrator
+access. Open a new terminal after installation:
+
+```powershell
+vkf -e ':: "hello, world"'
+```
+
+The installed compiler/runtime has no Python, C++ compiler, or assembler
+dependency.
+
+The installer is strict-native and deliberately incomplete. It ships only the
+direct core plus `math`, `stat`, `random`, `time`, `physics`, and `rigid_body`.
+Unsupported modules hard-fail instead of activating a compatibility path.
+
 1. Download and extract the Windows package
 2. Open PowerShell in the extracted folder
 3. Run:
 
 ```powershell
-.\vkf.exe -e ':: "hello, world"'
+.\bin\vkf.exe -e ':: "hello, world"'
 ```
 
 You should see:
@@ -19,8 +34,8 @@ hello, world
 Then try:
 
 ```powershell
-.\vkf.exe .\samples\01_hello.vkf
-.\vkf.exe .\samples\100_axis_4_panel.vkf
+.\bin\vkf.exe .\samples\01_hello.vkf
+.\bin\vkf.exe -b .\samples\01_hello.vkf -o hello.exe
 ```
 
 For the supported native subset, `vkf.exe <file.vkf>` uses the native
@@ -47,34 +62,38 @@ with these low-startup binaries:
 ```powershell
 .\scripts\build-native-compiler.ps1
 .\build\native-compiler-clang\bin\vkf.exe -e ':: "hello"'
-.\build\native-compiler-clang\bin\vkf.exe --aot .\samples\numeric.vkf
+.\build\native-compiler-clang\bin\vkf-strict.exe .\samples\numeric.vkf
 ```
 
 `compiler/native/CMakeLists.txt` remains the portable build Interface.
-`--aot` produces a real executable: scalar numeric typed IR lowers directly to
-x64 machine code; supported records and vectors currently use the lean
-C++/Clang fallback. It remains opt-in until full language parity is proven.
+The strict target produces a real executable directly. Unsupported language or
+stdlib surfaces fail; no C++/Clang compatibility fallback is shipped.
 
 ## macOS / Linux
+
+Debian/Ubuntu users can install `vektor-flow-linux-x64.deb`; other Linux users
+can extract `vektor-flow-linux-x64.tar.gz` and run `./install.sh`. macOS Apple
+Silicon users can run
+`vektor-flow-macos-arm64.pkg`, or use its archive and `install.sh`. Archive
+installers use `~/.local/opt/vektor-flow` and link `vkf` into `~/.local/bin`.
 
 1. Download and extract the package for your OS
 2. Open a shell in the extracted folder
 3. Run:
 
 ```bash
-./vkf -e ':: "hello, world"'
+./bin/vkf -e ':: "hello, world"'
 ```
 
 Then try:
 
 ```bash
-./vkf ./samples/01_hello.vkf
-./vkf ./samples/100_axis_4_panel.vkf
+./bin/vkf ./samples/01_hello.vkf
+./bin/vkf -b ./samples/01_hello.vkf -o hello
 ```
 
 For the supported native subset, `vkf <file.vkf>` uses the native Python-free
-default path. Unsupported UI/scene programs are not covered by that guarantee
-yet and may require legacy or development tooling.
+path. Unsupported UI/scene programs hard-fail in this release.
 
 Supported-subset package manifests carry the same Python-free contract. UI and
 scene packages remain excluded from that guarantee until their native lowering

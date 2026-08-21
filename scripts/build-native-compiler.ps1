@@ -1,5 +1,6 @@
 param(
-    [string]$OutputDirectory = "build/native-compiler-clang/bin"
+    [string]$OutputDirectory = "build/native-compiler-clang/bin",
+    [string[]]$OnlyTargets = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,8 +18,9 @@ if (-not $outputRoot.StartsWith($repoPrefix, [System.StringComparison]::OrdinalI
 
 $clang = (Get-Command clang++ -ErrorAction Stop).Source
 $jsonSource = Join-Path $repoRoot "native/VfOverlay/vf/json.cpp"
-$targets = @(
+$targetDefinitions = @(
     @{ Name = "vkf"; Source = "compiler/native/vkf_driver_artifact_smoke.cpp"; ExtraSources = @("compiler/native/vkf_x64_artifact.cpp", "compiler/native/vkf_lexer_cursor_smoke.cpp", "compiler/native/vkf_parser_token_stream_smoke.cpp", "compiler/native/vkf_ast_to_ir_smoke.cpp"); Defines = @("-DVKF_X64_BACKEND_LIBRARY", "-DVKF_NATIVE_FRONTEND_LIBRARY"); Json = $true },
+    @{ Name = "vkf-strict"; Source = "compiler/native/vkf_driver_artifact_smoke.cpp"; ExtraSources = @("compiler/native/vkf_x64_artifact.cpp", "compiler/native/vkf_lexer_cursor_smoke.cpp", "compiler/native/vkf_parser_token_stream_smoke.cpp", "compiler/native/vkf_ast_to_ir_smoke.cpp"); Defines = @("-DVKF_X64_BACKEND_LIBRARY", "-DVKF_NATIVE_FRONTEND_LIBRARY", "-DVKF_STRICT_DIRECT_ONLY"); Json = $true },
     @{ Name = "vkf_lexer_cursor_smoke"; Source = "compiler/native/vkf_lexer_cursor_smoke.cpp"; Json = $false },
     @{ Name = "vkf_parser_token_stream_smoke"; Source = "compiler/native/vkf_parser_token_stream_smoke.cpp"; Json = $true },
     @{ Name = "vkf_ast_to_ir_smoke"; Source = "compiler/native/vkf_ast_to_ir_smoke.cpp"; Json = $true },
@@ -27,13 +29,15 @@ $targets = @(
     @{ Name = "vkf_x64_artifact"; Source = "compiler/native/vkf_x64_artifact.cpp"; Json = $true },
     @{ Name = "vkf_arm64_artifact"; Source = "compiler/native/vkf_arm64_artifact.cpp"; Json = $true },
     @{ Name = "vkf_x64_runner_template"; Source = "compiler/native/vkf_x64_runner_template.cpp"; Json = $false },
-    @{ Name = "vkftest"; Source = "compiler/native/vkftest.cpp"; ExtraSources = @("compiler/native/vkf_lexer_cursor_smoke.cpp", "compiler/native/vkf_parser_token_stream_smoke.cpp", "compiler/native/vkf_ast_to_ir_smoke.cpp", "compiler/native/vkf_x64_artifact.cpp"); Defines = @("-DVKF_NATIVE_FRONTEND_LIBRARY", "-DVKF_X64_BACKEND_LIBRARY"); Json = $true },
     @{ Name = "vkf_wasm_artifact_smoke"; Source = "compiler/native/vkf_wasm_artifact_smoke.cpp"; Json = $true },
     @{ Name = "vkf_webgpu_artifact_smoke"; Source = "compiler/native/vkf_webgpu_artifact_smoke.cpp"; Json = $true }
 )
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
-foreach ($target in $targets) {
+foreach ($target in $targetDefinitions) {
+    if ($OnlyTargets.Count -gt 0 -and $OnlyTargets -notcontains $target.Name) {
+        continue
+    }
     $arguments = @(
         "-std=c++17",
         "-O2",

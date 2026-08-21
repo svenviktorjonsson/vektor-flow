@@ -6,6 +6,7 @@
 #include "compiler/native/vkf_machine_ir_lowering.hpp"
 #include "compiler/native/vkf_machine_ir_json.hpp"
 #include "compiler/native/vkf_target.hpp"
+#include "compiler/native/vkf_capture_pattern.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -635,6 +636,7 @@ private:
         unsigned max_stack = 0;
         unsigned context_slot = 0;
         unsigned scratch_slot = 0;
+        unsigned scratch_slots = 0;
         unsigned error_pointer_slot = 0;
         unsigned error_length_slot = 0;
         unsigned error_type_slot = 0;
@@ -670,13 +672,25 @@ private:
                     instruction.opcode == Opcode::FormatF64String ||
                     instruction.opcode == Opcode::FormatChrString ||
                     instruction.opcode == Opcode::ReadFileString ||
-                    instruction.opcode == Opcode::WriteFileString;
+                    instruction.opcode == Opcode::WriteFileString ||
+                    instruction.opcode == Opcode::SystemCwdString ||
+                    instruction.opcode == Opcode::SystemEnvString;
             });
-        frame.error_pointer_slot = frame.scratch_slot + static_cast<unsigned>(needs_scratch);
+        const bool needs_process_scratch = std::any_of(
+            function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
+                return instruction.opcode == vkf::machine_ir::Opcode::ProcessRun;
+            });
+        const bool needs_capture_scratch = std::any_of(
+            function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
+                return instruction.opcode == vkf::machine_ir::Opcode::CaptureRegex;
+            });
+        frame.scratch_slots = needs_process_scratch ? 9u
+            : needs_capture_scratch ? 4u : static_cast<unsigned>(needs_scratch);
+        frame.error_pointer_slot = frame.scratch_slot + frame.scratch_slots;
         frame.error_length_slot = frame.error_pointer_slot + 1u;
         frame.error_type_slot = frame.error_length_slot + 1u;
         const unsigned value_slots = frame.local_count + frame.max_stack + 1u +
-            static_cast<unsigned>(needs_scratch) + (function.may_error ? 3u : 0u);
+            frame.scratch_slots + (function.may_error ? 3u : 0u);
         const unsigned used = value_slots * 8 + target.caller_shadow_bytes;
         frame.frame_bytes = (used + target.stack_alignment - 1) & ~(target.stack_alignment - 1u);
         return frame;
@@ -750,7 +764,7 @@ private:
     }
 
     void call_runtime_slot(unsigned slot) {
-        if (slot > 23) throw BackendFailure("x64 runtime slot overflow");
+        if (slot > 36) throw BackendFailure("x64 runtime slot overflow");
         if (slot < 16) {
             code_.raw({0x41, 0xff, 0x54, 0x24, slot * 8});
         } else {
@@ -799,6 +813,335 @@ private:
     void emit_string_address(std::uint32_t offset) {
         emit_string_pointer_to_rax(offset);
         code_.raw({0x66, 0x48, 0x0f, 0x6e, 0xc0});
+    }
+
+    void emit_owned_string_from_cstring(
+        const Frame& frame,
+        unsigned first,
+        bool release_source
+    ) {
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot));
+#ifdef _WIN32
+        code_.raw({0x48, 0x89, 0xc1});
+#else
+        code_.raw({0x48, 0x89, 0xc7});
+#endif
+        call_runtime_slot(27);
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+        code_.raw({0x48, 0x83, 0xc0, 0x09, 0x0f, 0x83});
+        const auto size_valid = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(size_valid, code_.position());
+        move_pointer_argument_from_rax();
+        call_runtime_slot(8);
+        code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+        const auto allocated = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(allocated, code_.position());
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+        code_.raw({0x48, 0x89, 0x08});
+#ifdef _WIN32
+        code_.raw({0x48, 0x8d, 0x48, 0x08, 0x48, 0x8b, 0x95});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        code_.raw({0x4c, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+#else
+        code_.raw({0x48, 0x8d, 0x78, 0x08, 0x48, 0x8b, 0xb5});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        code_.raw({0x48, 0x8b, 0x95});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+#endif
+        call_runtime_slot(28);
+        code_.raw({0x48, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+        code_.raw({0xc6, 0x44, 0x08, 0x08, 0x00, 0x48, 0x8d, 0x40, 0x08,
+                   0x66, 0x48, 0x0f, 0x6e, 0xc0});
+        store_xmm(0, frame.displacement(frame.temp_base + first));
+        code_.raw({0x48, 0xff, 0xc1, 0x48, 0xf7, 0xd9,
+                   0xf2, 0x48, 0x0f, 0x2a, 0xc1});
+        store_xmm(0, frame.displacement(frame.temp_base + first + 1));
+        if (release_source) {
+            code_.raw({0x48, 0x8b, 0x85});
+            code_.i32(frame.displacement(frame.scratch_slot));
+            release_pointer_in_rax();
+        }
+    }
+
+    void emit_owned_substring(
+        const Frame& frame,
+        unsigned output,
+        std::int32_t start_displacement,
+        std::int32_t end_displacement
+    ) {
+        code_.raw({0x48, 0x8b, 0x95});
+        code_.i32(end_displacement);
+        code_.raw({0x48, 0x2b, 0x95});
+        code_.i32(start_displacement);
+        code_.raw({0x48, 0x89, 0x95});
+        code_.i32(frame.displacement(frame.scratch_slot + 3));
+        code_.raw({0x48, 0x8d, 0x42, 0x09, 0x0f, 0x83});
+        const auto size_valid = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(size_valid, code_.position());
+#ifdef _WIN32
+        code_.raw({0x48, 0x89, 0xc1});
+#else
+        code_.raw({0x48, 0x89, 0xc7});
+#endif
+        call_runtime_slot(8);
+        code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+        const auto allocated = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(allocated, code_.position());
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot + 2));
+        code_.raw({0x48, 0x8b, 0x95});
+        code_.i32(frame.displacement(frame.scratch_slot + 3));
+        code_.raw({0x48, 0x89, 0x10});
+#ifdef _WIN32
+        code_.raw({0x48, 0x8d, 0x48, 0x08, 0x4c, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        code_.raw({0x4c, 0x03, 0x85});
+        code_.i32(start_displacement);
+        code_.raw({0x4c, 0x89, 0xc2, 0x4c, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot + 3));
+#else
+        code_.raw({0x48, 0x8d, 0x78, 0x08, 0x48, 0x8b, 0xb5});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        code_.raw({0x48, 0x03, 0xb5});
+        code_.i32(start_displacement);
+        code_.raw({0x48, 0x8b, 0x95});
+        code_.i32(frame.displacement(frame.scratch_slot + 3));
+#endif
+        call_runtime_slot(28);
+        code_.raw({0x48, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot + 2));
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.scratch_slot + 3));
+        code_.raw({0xc6, 0x44, 0x08, 0x08, 0x00, 0x48, 0x8d, 0x50, 0x08,
+                   0x48, 0x89, 0x95});
+        code_.i32(frame.displacement(frame.temp_base + output));
+        code_.raw({0x48, 0xff, 0xc1, 0x48, 0xf7, 0xd9,
+                   0xf2, 0x48, 0x0f, 0x2a, 0xc1});
+        store_xmm(0, frame.displacement(frame.temp_base + output + 1));
+    }
+
+    void emit_capture_regex(
+        const Frame& frame,
+        unsigned first,
+        const vkf::machine_ir::Instruction& instruction
+    ) {
+        const auto pattern = vkf::capture::parse(instruction.symbol);
+        if (pattern.group_names.size() != instruction.argument_count) {
+            throw BackendFailure("capture group count changed after machine lowering");
+        }
+        code_.raw({0x48, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        load_xmm(0, frame.displacement(frame.temp_base + first + 1));
+        code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc0, 0x48, 0x85, 0xc0, 0x0f, 0x89});
+        const auto decoded = code_.rel32_placeholder();
+        code_.raw({0x48, 0xf7, 0xd8, 0x48, 0xff, 0xc8});
+        code_.patch_rel32(decoded, code_.position());
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot + 1));
+        code_.raw({0x48, 0xc7, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot + 2));
+        code_.i32(0);
+
+        const auto search = code_.position();
+        code_.raw({0x4c, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        code_.raw({0x4c, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.scratch_slot + 1));
+        code_.raw({0x48, 0x8b, 0x95});
+        code_.i32(frame.displacement(frame.scratch_slot + 2));
+        std::vector<std::size_t> failures;
+
+        for (const auto& op : pattern.ops) {
+            if (op.kind == vkf::capture::OpKind::BeginCapture ||
+                op.kind == vkf::capture::OpKind::EndCapture) {
+                if (op.capture >= instruction.argument_count) {
+                    throw BackendFailure("invalid capture group id");
+                }
+                code_.raw({0x48, 0x89, 0x95});
+                code_.i32(frame.displacement(
+                    frame.temp_base + first + op.capture * 2u +
+                    (op.kind == vkf::capture::OpKind::EndCapture ? 1u : 0u)));
+                continue;
+            }
+            code_.raw({0x48, 0x31, 0xc9});
+            const auto scan = code_.position();
+            std::vector<std::size_t> scan_ends;
+            code_.raw({0x4c, 0x39, 0xca, 0x0f, 0x83});
+            scan_ends.push_back(code_.rel32_placeholder());
+            if (op.maximum != std::numeric_limits<std::uint32_t>::max()) {
+                code_.raw({0x48, 0x81, 0xf9});
+                code_.i32(static_cast<std::int32_t>(op.maximum));
+                code_.raw({0x0f, 0x83});
+                scan_ends.push_back(code_.rel32_placeholder());
+            }
+            code_.raw({0x41, 0x8a, 0x04, 0x10});
+            std::vector<std::size_t> matched;
+            unsigned byte = 0;
+            while (byte < 256) {
+                while (byte < 256 && !op.bytes.contains(byte)) ++byte;
+                if (byte == 256) break;
+                const unsigned begin = byte;
+                while (byte + 1 < 256 && op.bytes.contains(byte + 1)) ++byte;
+                const unsigned end = byte++;
+                if (begin == end) {
+                    code_.raw({0x3c, begin, 0x0f, 0x84});
+                    matched.push_back(code_.rel32_placeholder());
+                } else {
+                    code_.raw({0x3c, begin, 0x0f, 0x82});
+                    const auto below = code_.rel32_placeholder();
+                    code_.raw({0x3c, end, 0x0f, 0x86});
+                    matched.push_back(code_.rel32_placeholder());
+                    code_.patch_rel32(below, code_.position());
+                }
+            }
+            code_.byte(0xe9);
+            scan_ends.push_back(code_.rel32_placeholder());
+            const auto consume = code_.position();
+            for (const auto patch : matched) code_.patch_rel32(patch, consume);
+            code_.raw({0x48, 0xff, 0xc2, 0x48, 0xff, 0xc1, 0xe9});
+            const auto repeat = code_.rel32_placeholder();
+            code_.patch_rel32(repeat, scan);
+            const auto scan_end = code_.position();
+            for (const auto patch : scan_ends) code_.patch_rel32(patch, scan_end);
+            code_.raw({0x48, 0x81, 0xf9});
+            code_.i32(static_cast<std::int32_t>(op.minimum));
+            code_.raw({0x0f, 0x82});
+            failures.push_back(code_.rel32_placeholder());
+        }
+        if (pattern.anchor_end) {
+            code_.raw({0x4c, 0x39, 0xca, 0x0f, 0x85});
+            failures.push_back(code_.rel32_placeholder());
+        }
+        if (pattern.synthetic_full_capture) {
+            code_.raw({0x48, 0x8b, 0x85});
+            code_.i32(frame.displacement(frame.scratch_slot + 2));
+            code_.raw({0x48, 0x89, 0x85});
+            code_.i32(frame.displacement(frame.temp_base + first));
+            code_.raw({0x48, 0x89, 0x95});
+            code_.i32(frame.displacement(frame.temp_base + first + 1));
+        }
+        for (unsigned group = 0; group < instruction.argument_count; ++group) {
+            emit_owned_substring(
+                frame,
+                first + group * 2u,
+                frame.displacement(frame.temp_base + first + group * 2u),
+                frame.displacement(frame.temp_base + first + group * 2u + 1u));
+        }
+        if (instruction.owns_input) {
+            code_.raw({0x48, 0x8b, 0x85});
+            code_.i32(frame.displacement(frame.scratch_slot));
+            code_.raw({0x48, 0x83, 0xe8, 0x08});
+            release_pointer_in_rax();
+        }
+        code_.byte(0xe9);
+        const auto done = code_.rel32_placeholder();
+
+        const auto failed = code_.position();
+        for (const auto patch : failures) code_.patch_rel32(patch, failed);
+        if (pattern.anchor_start) {
+            emit_abort();
+        } else {
+            code_.raw({0x48, 0x8b, 0x85});
+            code_.i32(frame.displacement(frame.scratch_slot + 2));
+            code_.raw({0x48, 0xff, 0xc0, 0x48, 0x89, 0x85});
+            code_.i32(frame.displacement(frame.scratch_slot + 2));
+            code_.raw({0x48, 0x3b, 0x85});
+            code_.i32(frame.displacement(frame.scratch_slot + 1));
+            code_.raw({0x0f, 0x86});
+            const auto retry = code_.rel32_placeholder();
+            code_.patch_rel32(retry, search);
+            emit_abort();
+        }
+        code_.patch_rel32(done, code_.position());
+    }
+
+    void emit_read_descriptor_string(
+        const Frame& frame,
+        unsigned first,
+        unsigned descriptor_scratch
+    ) {
+#ifdef _WIN32
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.scratch_slot + descriptor_scratch));
+        code_.raw({0x31, 0xd2, 0x41, 0xb8, 0x02, 0x00, 0x00, 0x00});
+        call_runtime_slot(23);
+        code_.raw({0x48, 0x98});
+#else
+        code_.raw({0x48, 0x8b, 0xbd});
+        code_.i32(frame.displacement(frame.scratch_slot + descriptor_scratch));
+        code_.raw({0x31, 0xf6, 0xba, 0x02, 0x00, 0x00, 0x00,
+                   0xb8, 0x08, 0x00, 0x00, 0x00, 0x0f, 0x05});
+#endif
+        code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x89});
+        const auto size_ready = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(size_ready, code_.position());
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+        code_.raw({0x48, 0x83, 0xc0, 0x09, 0x0f, 0x83});
+        const auto allocation_size_ready = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(allocation_size_ready, code_.position());
+        move_pointer_argument_from_rax();
+        call_runtime_slot(8);
+        code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+        const auto allocated = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(allocated, code_.position());
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+        code_.raw({0x48, 0x89, 0x08});
+#ifdef _WIN32
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.scratch_slot + descriptor_scratch));
+        code_.raw({0x31, 0xd2, 0x45, 0x31, 0xc0});
+        call_runtime_slot(23);
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.scratch_slot + descriptor_scratch));
+        code_.raw({0x48, 0x8b, 0x95});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0x48, 0x83, 0xc2, 0x08, 0x4c, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+        call_runtime_slot(21);
+#else
+        code_.raw({0x48, 0x8b, 0xbd});
+        code_.i32(frame.displacement(frame.scratch_slot + descriptor_scratch));
+        code_.raw({0x31, 0xf6, 0x31, 0xd2, 0xb8, 0x08, 0x00, 0x00, 0x00, 0x0f, 0x05});
+        code_.raw({0x48, 0x8b, 0xbd});
+        code_.i32(frame.displacement(frame.scratch_slot + descriptor_scratch));
+        code_.raw({0x48, 0x8b, 0xb5});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0x48, 0x83, 0xc6, 0x08, 0x48, 0x8b, 0x95});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+        code_.raw({0x31, 0xc0, 0x0f, 0x05});
+#endif
+        code_.raw({0x48, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.temp_base + first));
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.temp_base + first + 1));
+        code_.raw({0xc6, 0x44, 0x08, 0x08, 0x00, 0x48, 0x8d, 0x40, 0x08,
+                   0x66, 0x48, 0x0f, 0x6e, 0xc0});
+        store_xmm(0, frame.displacement(frame.temp_base + first));
+        code_.raw({0x48, 0xff, 0xc1, 0x48, 0xf7, 0xd9,
+                   0xf2, 0x48, 0x0f, 0x2a, 0xc1});
+        store_xmm(0, frame.displacement(frame.temp_base + first + 1));
     }
 
     void emit_format_f64_string(
@@ -2183,6 +2526,294 @@ private:
                 code_.i32(frame.displacement(frame.scratch_slot));
                 release_pointer_in_rax();
                 stack_depth = first + 9;
+            } else if (opcode == Opcode::SystemCpuCount) {
+#ifdef _WIN32
+                code_.raw({0xb9, 0xff, 0xff, 0x00, 0x00});
+#else
+                code_.raw({0xbf});
+#if defined(__APPLE__)
+                code_.i32(58);
+#else
+                code_.i32(84);
+#endif
+#endif
+                call_runtime_slot(24);
+                code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc0});
+                store_xmm(0, frame.displacement(frame.temp_base + stack_depth));
+                ++stack_depth;
+            } else if (opcode == Opcode::SystemCwdString) {
+                const unsigned first = stack_depth;
+#ifdef _WIN32
+                code_.raw({0x31, 0xc9, 0x31, 0xd2});
+#else
+                code_.raw({0x31, 0xff, 0x31, 0xf6});
+#endif
+                call_runtime_slot(25);
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+                const auto cwd_ready = code_.rel32_placeholder();
+                emit_abort();
+                code_.patch_rel32(cwd_ready, code_.position());
+                emit_owned_string_from_cstring(frame, first, true);
+                stack_depth = first + 2;
+            } else if (opcode == Opcode::SystemEnvString) {
+                require_stack(stack_depth, 2);
+                const unsigned first = stack_depth - 2;
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.temp_base + first));
+#ifdef _WIN32
+                code_.raw({0x48, 0x89, 0xc1});
+#else
+                code_.raw({0x48, 0x89, 0xc7});
+#endif
+                call_runtime_slot(26);
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                if (instruction.owns_input) {
+                    release_owned_string(
+                        frame.displacement(frame.temp_base + first),
+                        frame.displacement(frame.temp_base + first + 1));
+                }
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x84});
+                const auto missing = code_.rel32_placeholder();
+                emit_number(1.0);
+                store_xmm(0, frame.displacement(frame.temp_base + first));
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                emit_owned_string_from_cstring(frame, first + 1, false);
+                code_.raw({0xe9});
+                const auto done = code_.rel32_placeholder();
+                code_.patch_rel32(missing, code_.position());
+                emit_number(0.0);
+                store_xmm(0, frame.displacement(frame.temp_base + first));
+                emit_string_address(instruction.index);
+                store_xmm(0, frame.displacement(frame.temp_base + first + 1));
+                emit_number(0.0);
+                store_xmm(0, frame.displacement(frame.temp_base + first + 2));
+                code_.patch_rel32(done, code_.position());
+                stack_depth = first + 3;
+            } else if (opcode == Opcode::ProcessRun) {
+                require_stack(stack_depth, 2 + instruction.argument_count * 2);
+                const unsigned first = stack_depth - 2 - instruction.argument_count * 2;
+                const std::uint64_t argv_bytes =
+                    static_cast<std::uint64_t>(instruction.argument_count + 2u) * 8u;
+#ifdef _WIN32
+                code_.raw({0x48, 0xb9}); code_.u64(argv_bytes);
+#else
+                code_.raw({0x48, 0xbf}); code_.u64(argv_bytes);
+#endif
+                call_runtime_slot(8);
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+                const auto argv_allocated = code_.rel32_placeholder();
+                emit_abort();
+                code_.patch_rel32(argv_allocated, code_.position());
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                for (unsigned index = 0; index <= instruction.argument_count; ++index) {
+                    code_.raw({0x48, 0x8b, 0x8d});
+                    code_.i32(frame.displacement(frame.temp_base + first + index * 2u));
+                    code_.raw({0x48, 0x89, 0x88});
+                    code_.i32(static_cast<std::int32_t>(index * 8u));
+                }
+                code_.raw({0x48, 0xc7, 0x80});
+                code_.i32(static_cast<std::int32_t>((instruction.argument_count + 1u) * 8u));
+                code_.i32(0);
+#ifdef _WIN32
+                emit_string_pointer_to_rax(instruction.index);
+                code_.raw({0x48, 0x89, 0xc2, 0x31, 0xc9});
+                call_runtime_slot(29);
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+                const auto stdout_file_ready = code_.rel32_placeholder();
+                emit_abort();
+                code_.patch_rel32(stdout_file_ready, code_.position());
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 1));
+                code_.raw({0x48, 0x89, 0xc1, 0xba, 0x02, 0x83, 0x00, 0x00,
+                           0x41, 0xb8, 0x80, 0x01, 0x00, 0x00});
+                call_runtime_slot(20);
+                code_.raw({0x48, 0x98, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 3));
+                emit_string_pointer_to_rax(instruction.index);
+                code_.raw({0x48, 0x89, 0xc2, 0x31, 0xc9});
+                call_runtime_slot(29);
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+                const auto stderr_file_ready = code_.rel32_placeholder();
+                emit_abort();
+                code_.patch_rel32(stderr_file_ready, code_.position());
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 2));
+                code_.raw({0x48, 0x89, 0xc1, 0xba, 0x02, 0x83, 0x00, 0x00,
+                           0x41, 0xb8, 0x80, 0x01, 0x00, 0x00});
+                call_runtime_slot(20);
+                code_.raw({0x48, 0x98, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 4));
+#else
+                call_runtime_slot(29);
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+                const auto stdout_file_ready = code_.rel32_placeholder();
+                emit_abort();
+                code_.patch_rel32(stdout_file_ready, code_.position());
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 1));
+                call_runtime_slot(29);
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+                const auto stderr_file_ready = code_.rel32_placeholder();
+                emit_abort();
+                code_.patch_rel32(stderr_file_ready, code_.position());
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 2));
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 1));
+                code_.raw({0x48, 0x89, 0xc7});
+                call_runtime_slot(30);
+                code_.raw({0x48, 0x98, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 3));
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 2));
+                code_.raw({0x48, 0x89, 0xc7});
+                call_runtime_slot(30);
+                code_.raw({0x48, 0x98, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 4));
+#endif
+#ifdef _WIN32
+                code_.raw({0xb9, 0x01, 0x00, 0x00, 0x00});
+                call_runtime_slot(33);
+                code_.raw({0x48, 0x98, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 5));
+                code_.raw({0xb9, 0x02, 0x00, 0x00, 0x00});
+                call_runtime_slot(33);
+                code_.raw({0x48, 0x98, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 6));
+                code_.raw({0x48, 0x8b, 0x8d});
+                code_.i32(frame.displacement(frame.scratch_slot + 3));
+                code_.raw({0xba, 0x01, 0x00, 0x00, 0x00});
+                call_runtime_slot(32);
+                code_.raw({0x48, 0x8b, 0x8d});
+                code_.i32(frame.displacement(frame.scratch_slot + 4));
+                code_.raw({0xba, 0x02, 0x00, 0x00, 0x00});
+                call_runtime_slot(32);
+                code_.raw({0x31, 0xc9, 0x48, 0x8b, 0x95});
+                code_.i32(frame.displacement(frame.temp_base + first));
+                code_.raw({0x4c, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                call_runtime_slot(34);
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 7));
+                code_.raw({0x48, 0x8b, 0x8d});
+                code_.i32(frame.displacement(frame.scratch_slot + 5));
+                code_.raw({0xba, 0x01, 0x00, 0x00, 0x00});
+                call_runtime_slot(32);
+                code_.raw({0x48, 0x8b, 0x8d});
+                code_.i32(frame.displacement(frame.scratch_slot + 6));
+                code_.raw({0xba, 0x02, 0x00, 0x00, 0x00});
+                call_runtime_slot(32);
+                for (unsigned saved = 5; saved <= 6; ++saved) {
+                    code_.raw({0x48, 0x8b, 0x8d});
+                    code_.i32(frame.displacement(frame.scratch_slot + saved));
+                    call_runtime_slot(22);
+                }
+#else
+                call_runtime_slot(33);
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+                const auto parent = code_.rel32_placeholder();
+                code_.raw({0x48, 0x8b, 0xbd});
+                code_.i32(frame.displacement(frame.scratch_slot + 3));
+                code_.raw({0xbe, 0x01, 0x00, 0x00, 0x00});
+                call_runtime_slot(32);
+                code_.raw({0x48, 0x8b, 0xbd});
+                code_.i32(frame.displacement(frame.scratch_slot + 4));
+                code_.raw({0xbe, 0x02, 0x00, 0x00, 0x00});
+                call_runtime_slot(32);
+                code_.raw({0x48, 0x8b, 0xbd});
+                code_.i32(frame.displacement(frame.temp_base + first));
+                code_.raw({0x48, 0x8b, 0xb5});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                call_runtime_slot(34);
+                code_.raw({0xbf, 0x7f, 0x00, 0x00, 0x00});
+                call_runtime_slot(36);
+                code_.byte(0xcc);
+                code_.patch_rel32(parent, code_.position());
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 5));
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x89});
+                const auto fork_succeeded = code_.rel32_placeholder();
+                code_.raw({0x48, 0xc7, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 7));
+                code_.i32(-1);
+                code_.raw({0xe9});
+                const auto child_done = code_.rel32_placeholder();
+                code_.patch_rel32(fork_succeeded, code_.position());
+                code_.raw({0x48, 0x8b, 0xbd});
+                code_.i32(frame.displacement(frame.scratch_slot + 5));
+                code_.raw({0x48, 0x8d, 0xb5});
+                code_.i32(frame.displacement(frame.scratch_slot + 6));
+                code_.raw({0x31, 0xd2});
+                call_runtime_slot(35);
+                code_.raw({0x85, 0xc0, 0x0f, 0x89});
+                const auto wait_succeeded = code_.rel32_placeholder();
+                code_.raw({0x48, 0xc7, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 7));
+                code_.i32(-1);
+                code_.raw({0xe9});
+                const auto status_done = code_.rel32_placeholder();
+                code_.patch_rel32(wait_succeeded, code_.position());
+                code_.raw({0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 6));
+                code_.raw({0x89, 0xc1, 0x83, 0xe1, 0x7f, 0x0f, 0x85});
+                const auto signaled = code_.rel32_placeholder();
+                code_.raw({0xc1, 0xe8, 0x08, 0x25, 0xff, 0x00, 0x00, 0x00, 0xe9});
+                const auto decoded = code_.rel32_placeholder();
+                code_.patch_rel32(signaled, code_.position());
+                code_.raw({0x8d, 0x81, 0x80, 0x00, 0x00, 0x00});
+                code_.patch_rel32(decoded, code_.position());
+                code_.raw({0x48, 0x98, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 7));
+                code_.patch_rel32(status_done, code_.position());
+                code_.patch_rel32(child_done, code_.position());
+#endif
+                for (unsigned index = 0; index <= instruction.argument_count; ++index) {
+                    release_owned_string(
+                        frame.displacement(frame.temp_base + first + index * 2u),
+                        frame.displacement(frame.temp_base + first + index * 2u + 1u));
+                }
+                emit_read_descriptor_string(frame, first + 1, 3);
+                emit_read_descriptor_string(frame, first + 3, 4);
+#ifdef _WIN32
+                for (unsigned descriptor = 3; descriptor <= 4; ++descriptor) {
+                    code_.raw({0x48, 0x8b, 0x8d});
+                    code_.i32(frame.displacement(frame.scratch_slot + descriptor));
+                    call_runtime_slot(22);
+                }
+                for (unsigned path = 1; path <= 2; ++path) {
+                    code_.raw({0x48, 0x8b, 0x8d});
+                    code_.i32(frame.displacement(frame.scratch_slot + path));
+                    call_runtime_slot(30);
+                    code_.raw({0x48, 0x8b, 0x85});
+                    code_.i32(frame.displacement(frame.scratch_slot + path));
+                    release_pointer_in_rax();
+                }
+#else
+                for (unsigned file = 1; file <= 2; ++file) {
+                    code_.raw({0x48, 0x8b, 0x85});
+                    code_.i32(frame.displacement(frame.scratch_slot + file));
+                    code_.raw({0x48, 0x89, 0xc7});
+                    call_runtime_slot(31);
+                }
+#endif
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                release_pointer_in_rax();
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot + 7));
+                code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc0});
+                store_xmm(0, frame.displacement(frame.temp_base + first));
+                stack_depth = first + 5;
+            } else if (opcode == Opcode::CaptureRegex) {
+                require_stack(stack_depth, 2);
+                const unsigned first = stack_depth - 2;
+                emit_capture_regex(frame, first, instruction);
+                stack_depth = first + instruction.argument_count * 2u;
             } else if (opcode == Opcode::RangeF64Values) {
                 require_stack(stack_depth, instruction.argument_count);
                 if (instruction.argument_count == 0) {
@@ -3183,13 +3814,20 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     const std::filesystem::path& source,
     const std::filesystem::path& typed_ir_path,
     const std::filesystem::path& runner_template,
-    bool emit_debug_files
+    bool emit_debug_files,
+    const std::filesystem::path& requested_artifact,
+    const std::string& cache_fingerprint
 ) {
     constexpr auto target = vkf::target::host_x64_contract();
     std::vector<unsigned char> code;
     vkf::machine_ir::Module machine_ir;
     try {
         machine_ir = vkf::machine_ir::lower(typed_ir);
+        if (!cache_fingerprint.empty()) {
+            const std::string marker = "VKF-CACHE-V1:" + cache_fingerprint;
+            machine_ir.string_data.insert(
+                machine_ir.string_data.end(), marker.begin(), marker.end());
+        }
         code = MachineX64Emitter(machine_ir).emit();
     } catch (const vkf::machine_ir::LoweringFailure& error) {
         throw vkf_x64_backend::Unsupported(error.what());
@@ -3257,12 +3895,13 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     const auto artifact_name = emit_debug_files ? stem : stem + ".native";
 #endif
     ArtifactResult result{
-        build_dir / artifact_name,
+        requested_artifact.empty() ? build_dir / artifact_name : std::filesystem::absolute(requested_artifact),
         build_dir / (emit_debug_files ? "x64-manifest.json" : stem + "-x64-manifest.json"),
         build_dir / "machine-ir.json",
         code.size(),
     };
-    std::filesystem::create_directories(build_dir);
+    std::filesystem::create_directories(result.artifact_path.parent_path());
+    if (emit_debug_files) std::filesystem::create_directories(build_dir);
     const auto code_path = build_dir / "x64-code.bin";
     const auto data_path = build_dir / "x64-data.bin";
     if (emit_debug_files) {

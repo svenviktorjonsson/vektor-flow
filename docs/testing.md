@@ -1,25 +1,24 @@
 # Testing Vektor Flow
 
-Language tests are ordinary `.vkf` files. Every public top-level function
-with no required parameters is a test and ends in an assertion:
+Language tests are explicitly tagged top-level functions. A compatible test
+accepts no required parameters and returns `bit`:
 
 ```vkf
-addition_is_exact() -> bit:
-    (2 + 2 == 4)?!
+test addition_is_exact() -> bit:
+    @: 2 + 2 = 4
 ```
 
 Run a file, folder, or one named function without Python:
 
 ```text
-vkftest tests/vkf
-vkftest tests/vkf/core_assertions.vkf addition_is_exact
-vkftest tests/vkf --function addition_is_exact
+vkf -t tests/vkf
+vkf -t tests/vkf/core_assertions.vkf
 ```
 
-Passing functions print one `PASS` row. A failure prints the function source
-and assertion error. Prefix helper functions with `_`. Parameters with VKF
-defaults are called without arguments. Required parameter fixtures will later
-come from `.testing`.
+Passing functions print one `PASS` row plus their output. Failures print
+`FAIL`; required parameters or a non-`bit` result print `INCOMPATIBLE`.
+Parameters with VKF defaults are called without arguments. Required parameter
+fixtures will later come from `.testing`.
 
 If you are trying a package build and want to help with debugging:
 

@@ -6,6 +6,7 @@ import os
 import shutil
 import struct
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -4733,6 +4734,25 @@ def test_x64_artifact_emits_runnable_machine_code(tmp_path: Path, smoke_exes: di
     assert float(result.stdout.strip()) == pytest.approx(1.0000056920949698)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="ELF SysV x64 regression")
+def test_x64_elf_numeric_wrapper_preserves_stack_alignment(
+    tmp_path: Path, smoke_exes: dict[str, Path]
+) -> None:
+    source_path = tmp_path / "numeric-stack-alignment.vkf"
+    source_path.write_text(":: 1\n", encoding="utf-8")
+    typed_ir_path = tmp_path / "numeric-stack-alignment.typed-ir.json"
+    typed_ir_path.write_text(_typed_ir_json(":: 1\n", smoke_exes), encoding="utf-8")
+
+    summary = json.loads(_run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout)
+    artifact_path = Path(summary["artifact_path"])
+    result = subprocess.run(
+        [str(artifact_path)], cwd=artifact_path.parent, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "1\n"
+
+
 def test_arm64_artifact_emits_apple_abi_machine_code(tmp_path: Path, smoke_exes: dict[str, Path]) -> None:
     source_path = tmp_path / "scalar-arm64.vkf"
     source_path.write_text(
@@ -5048,6 +5068,168 @@ def test_time_stdlib_is_direct_and_has_no_language_toolchain_runtime(
     arm64_artifact = Path(arm64["artifact_path"]).read_bytes()
     for runtime_import in (b"_clock_gettime\0", b"_nanosleep\0", b"_localtime_r\0"):
         assert runtime_import in arm64_artifact
+    for forbidden in (b"python", b"clang", b"g++", b"c++", b".cpp", b"assembler"):
+        assert forbidden not in arm64_artifact.lower()
+
+
+def test_system_stdlib_uses_native_host_apis_on_x64_and_arm64(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / "direct-system.vkf"
+    source_path.write_text(
+        "system_api: .system\n"
+        "present: system_api.env_native(\"PATH\")\n"
+        "missing: system_api.env_native(\"VKF_MISSING_SYSTEM_TEST_0_1_0\")\n"
+        ":: system_api.os_name()\n"
+        ":: system_api.arch_name()\n"
+        ":: system_api.cpu_count_native() > 0\n"
+        ":: system_api.cwd_native()\n"
+        ":: present.found\n"
+        ":: missing.found\n",
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "direct-system.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(
+        _run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout
+    )
+    executable_path = Path(x64["artifact_path"])
+    executed = subprocess.run(
+        [str(executable_path)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    output = executed.stdout.splitlines()
+    assert output[0] in {"windows", "linux"}
+    assert output[1] == "x86_64"
+    assert output[2] == "true"
+    assert Path(output[3]).resolve() == tmp_path.resolve()
+    assert output[4:] == ["true", "false"]
+    executable = executable_path.read_bytes()
+    expected_x64_imports = (
+        (b"GetActiveProcessorCount\0", b"_getcwd\0")
+        if os.name == "nt"
+        else (b"sysconf\0", b"getcwd\0")
+    )
+    for runtime_import in (*expected_x64_imports, b"getenv\0", b"strlen\0", b"memcpy\0"):
+        assert runtime_import in executable
+
+    arm64 = json.loads(
+        _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
+    )
+    arm64_artifact = Path(arm64["artifact_path"]).read_bytes()
+    for runtime_import in (
+        b"_sysconf\0", b"_getcwd\0", b"_getenv\0", b"_strlen\0", b"_memcpy\0"
+    ):
+        assert runtime_import in arm64_artifact
+    for forbidden in (b"python", b"clang", b"g++", b"c++", b".cpp", b"assembler"):
+        assert forbidden not in arm64_artifact.lower()
+
+
+def test_process_stdlib_runs_exact_argv_and_captures_both_streams(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    if os.name == "nt":
+        program = "cmd.exe"
+        arguments = '["/d", "/c", "(<nul set /p =hello)&(<nul set /p =error>&2)&exit /b 7"]'
+    else:
+        program = "/bin/sh"
+        arguments = '["-c", "printf hello; printf error >&2; exit 7"]'
+    source_path = tmp_path / "direct-process.vkf"
+    source_path.write_text(
+        "process_api: .process\n"
+        f'result: process_api.run_native("{program}", {arguments})\n'
+        ":: result.code\n"
+        ":: result.out\n"
+        ":: result.err\n",
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "direct-process.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(
+        _run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout
+    )
+    executable_path = Path(x64["artifact_path"])
+    executed = subprocess.run(
+        [str(executable_path)], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    assert executed.stdout.splitlines() == ["7", "hello", "error"]
+
+    arm64 = json.loads(
+        _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
+    )
+    arm64_artifact = Path(arm64["artifact_path"]).read_bytes()
+    for runtime_import in (
+        b"_tmpfile\0", b"_fileno\0", b"_fclose\0", b"_dup2\0",
+        b"_fork\0", b"_execvp\0", b"_waitpid\0", b"__exit\0",
+    ):
+        assert runtime_import in arm64_artifact
+    for forbidden in (b"python", b"clang", b"g++", b"c++", b".cpp", b"assembler"):
+        assert forbidden not in arm64_artifact.lower()
+
+
+def test_capture_stdlib_compiles_typed_linear_patterns_to_native_code(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / "direct-capture.vkf"
+    source_path.write_text(
+        "capture_api: .capture\n"
+        "named: capture_api.regex(\"values are 123 and 45\", "
+        "'values are (?P<a>\\d+) and (?P<b>\\d+)')\n"
+        "positional: capture_api.groups(\"id=A_19\", 'id=([A-Z]\\w+)')\n"
+        "whole: capture_api.regex(\"prefix needle suffix\", 'needle')\n"
+        "anchored: capture_api.regex(\"2026-08\", "
+        "'^(?P<year>\\d{4})-(?P<month>\\d{2})$')\n"
+        ":: named.a\n"
+        ":: named.b\n"
+        ":: positional.(0)\n"
+        ":: whole._\n"
+        ":: anchored.year\n"
+        ":: anchored.month\n",
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "direct-capture.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(
+        _run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout
+    )
+    executable_path = Path(x64["artifact_path"])
+    executed = subprocess.run(
+        [str(executable_path)], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    assert executed.stdout.splitlines() == ["123", "45", "A_19", "needle", "2026", "08"]
+    machine_ir = json.loads(Path(x64["machine_ir_path"]).read_text(encoding="utf-8"))
+    captures = [
+        instruction
+        for function in [machine_ir["entry"], *machine_ir["functions"]]
+        for instruction in function["instructions"]
+        if instruction["kind"] == "capture_regex"
+    ]
+    assert len(captures) == 4
+    assert [capture["group_count"] for capture in captures] == [2, 1, 1, 2]
+
+    arm64 = json.loads(
+        _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
+    )
+    arm64_artifact = Path(arm64["artifact_path"]).read_bytes()
+    assert len(arm64_artifact) > 0
     for forbidden in (b"python", b"clang", b"g++", b"c++", b".cpp", b"assembler"):
         assert forbidden not in arm64_artifact.lower()
 
@@ -5732,6 +5914,78 @@ def test_x64_and_arm64_artifacts_scalarize_fixed_records(
     )
 
 
+def test_x64_and_arm64_project_top_level_dynamic_list_into_fixed_call_parameter(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / "top-level-fixed-call.vkf"
+    source_path.write_text(
+        "sum2(values:[num:2]) -> num:\n"
+        "    values.0 + values.1\n\n"
+        "values: [1, 2]\n"
+        ":: sum2(values)\n",
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "top-level-fixed-call.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(_run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout)
+    artifact = Path(x64["artifact_path"])
+    result = subprocess.run(
+        [str(artifact)], cwd=artifact.parent, capture_output=True, text=True, check=True
+    )
+    arm64 = json.loads(_run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout)
+    machine_ir = json.loads(Path(arm64["machine_ir_path"]).read_text(encoding="utf-8"))
+
+    assert float(result.stdout.strip()) == 3
+    assert Path(arm64["artifact_path"]).read_bytes()[:4] == b"\xcf\xfa\xed\xfe"
+    assert any(
+        instruction["kind"] == "call" and instruction["argument_count"] == 2
+        for function in [machine_ir["entry"], *machine_ir["functions"]]
+        for instruction in function["instructions"]
+    )
+
+
+def test_x64_and_arm64_project_dynamic_list_nested_in_record_call_parameter(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / "nested-list-record-call.vkf"
+    source_path.write_text(
+        "total(state:(pts:[num:2], weight:num), extra:[num:2]) -> num:\n"
+        "    moved: state.pts + extra\n"
+        "    moved.0 + moved.1 + state.weight\n\n"
+        "state: (pts: [1, 2], weight: 3)\n"
+        "extra: [10, 20]\n"
+        ":: total(state, extra)\n",
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "nested-list-record-call.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(_run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout)
+    artifact = Path(x64["artifact_path"])
+    result = subprocess.run(
+        [str(artifact)], cwd=artifact.parent, capture_output=True, text=True, check=True
+    )
+    arm64 = json.loads(_run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout)
+    machine_ir = json.loads(Path(arm64["machine_ir_path"]).read_text(encoding="utf-8"))
+
+    assert float(result.stdout.strip()) == 36
+    assert Path(arm64["artifact_path"]).read_bytes()[:4] == b"\xcf\xfa\xed\xfe"
+    assert any(
+        instruction["kind"] == "call" and instruction["argument_count"] == 5
+        for function in [machine_ir["entry"], *machine_ir["functions"]]
+        for instruction in function["instructions"]
+    )
+
+
 def test_private_aggregate_abi_carries_values_beyond_register_count(
     tmp_path: Path,
     smoke_exes: dict[str, Path],
@@ -5932,11 +6186,11 @@ def test_x64_and_arm64_artifacts_compute_variance_and_std_for_fixed_and_dynamic_
     ]
 
     assert float(result.stdout.strip()) == 26
+    # Fixed literals are materialized once; reductions operate on fixed locals
+    # or owned lists rather than rebuilding transient value packs.
     assert {
-        "variance_f64_values",
         "variance_f64_locals",
         "variance_f64_list",
-        "stddev_f64_values",
         "stddev_f64_locals",
         "stddev_f64_list",
     } <= instruction_kinds
@@ -5983,7 +6237,10 @@ def test_x64_and_arm64_artifacts_compute_range_for_fixed_and_dynamic_lists(
     ]
 
     assert float(result.stdout.strip()) == 28
-    assert {"range_f64_values", "range_f64_locals", "range_f64_list"} <= {
+    # Fixed literals are materialized once as owned lists, so the current direct
+    # path needs local and list reductions; no transient values reduction is
+    # required.
+    assert {"range_f64_locals", "range_f64_list"} <= {
         instruction["kind"] for instruction in instructions
     }
     range_locals = next(
