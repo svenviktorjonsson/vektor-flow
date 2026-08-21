@@ -157,12 +157,14 @@ missing: system.env("VKF_MISSING_RELEASE_TEST_0_1_0")
     @"
 process: .process
 result: process.run("cmd.exe", ["/d", "/c", "(<nul set /p =hello)&(<nul set /p =error>&2)&exit /b 7"])
+shell_result: process.shell("exit /b 0")
 :: result.code
 :: result.out
 :: result.err
+:: shell_result.code
 "@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_process.vkf") -Encoding utf8
     $processOutput = & $compiler (Join-Path $smokeRoot "installed_process.vkf")
-    if ($LASTEXITCODE -ne 0 -or ($processOutput -join "`n").Trim() -ne "7`nhello`nerror") {
+    if ($LASTEXITCODE -ne 0 -or ($processOutput -join "`n").Trim() -ne "7`nhello`nerror`n0") {
         throw "Packaged native process smoke failed"
     }
     @"

@@ -244,8 +244,9 @@ vf::JsonValue stdlib_function(std::string module, std::string name) {
         if (name == "os_name" || name == "arch_name" || name == "cwd_native") type = "fn()->str";
         else if (name == "cpu_count_native") type = "fn()->int";
         else if (name == "env_native") type = "fn(str)->record{found:bit,value:str}";
-    } else if (module == "process" && name == "run_native") {
-        type = "fn(str,any)->record{code:int,out:str,err:str}";
+    } else if (module == "process") {
+        if (name == "run_native") type = "fn(str,any)->record{code:int,out:str,err:str}";
+        else if (name == "shell_native") type = "fn(str)->record{code:int,out:str,err:str}";
     } else if (module == "capture" && (name == "regex" || name == "groups")) {
         type = "fn(str,str)->any";
     }
@@ -2735,7 +2736,9 @@ private:
                     throw IRFailure("unknown stdlib system member " + field_name);
                 }
                 if (canonical_module == "process") {
-                    if (field_name == "run_native") return stdlib_function("process", field_name);
+                    if (field_name == "run_native" || field_name == "shell_native") {
+                        return stdlib_function("process", field_name);
+                    }
                     throw IRFailure("unknown stdlib process member " + field_name);
                 }
                 if (canonical_module == "capture") {

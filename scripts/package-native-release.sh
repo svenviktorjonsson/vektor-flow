@@ -130,13 +130,16 @@ false"
   cat > installed_process.vkf <<'EOF'
 process: .process
 result: process.run("/bin/sh", ["-c", "printf hello; printf error >&2; exit 7"])
+shell_result: process.shell("exit 0")
 :: result.code
 :: result.out
 :: result.err
+:: shell_result.code
 EOF
   test "$("$stage_root/bin/vkf" installed_process.vkf)" = "7
 hello
-error"
+error
+0"
   cat > installed_capture.vkf <<'EOF'
 capture: .capture
 result: capture.regex("values are 123 and 45", 'values are (?P<a>\d+) and (?P<b>\d+)')

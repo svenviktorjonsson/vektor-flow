@@ -5291,6 +5291,50 @@ def test_process_stdlib_runs_exact_argv_and_captures_both_streams(
         assert forbidden not in arm64_artifact.lower()
 
 
+def test_process_shell_is_explicit_and_uses_the_platform_shell(
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    command = "echo shell-ok" if os.name == "nt" else "printf shell-ok"
+    source_path = tmp_path / "direct-process-shell.vkf"
+    source_path.write_text(
+        "process_api: .process\n"
+        f'result: process_api.shell_native("{command}")\n'
+        ":: result.code\n"
+        ":: result.out\n"
+        ":: result.err\n",
+        encoding="utf-8",
+    )
+    typed_ir_path = tmp_path / "direct-process-shell.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json(source_path.read_text(encoding="utf-8"), smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(
+        _run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout
+    )
+    executable_path = Path(x64["artifact_path"])
+    executed = subprocess.run(
+        [str(executable_path)], cwd=tmp_path, capture_output=True, text=True, check=True
+    )
+    assert executed.stdout.replace("\r", "").rstrip("\n") == "0\nshell-ok"
+    machine_ir = json.loads(Path(x64["machine_ir_path"]).read_text(encoding="utf-8"))
+    runs = [
+        instruction
+        for function in [machine_ir["entry"], *machine_ir["functions"]]
+        for instruction in function["instructions"]
+        if instruction["kind"] == "process_run"
+    ]
+    assert [run["argument_count"] for run in runs] == [4 if os.name == "nt" else 2]
+
+    arm64 = json.loads(
+        _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
+    )
+    arm64_artifact = Path(arm64["artifact_path"]).read_bytes()
+    assert b"_execvp\0" in arm64_artifact
+
+
 def test_capture_stdlib_compiles_typed_linear_patterns_to_native_code(
     tmp_path: Path,
     smoke_exes: dict[str, Path],

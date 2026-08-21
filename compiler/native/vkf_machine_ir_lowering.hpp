@@ -7978,6 +7978,46 @@ inline ValueLayout lower_expression(
                 result.selectors["err"] = {3, 2, ValueKind::String};
                 return result;
             }
+            if (module == "process" && name == "shell_native") {
+                if (args.size() != 1) {
+                    throw LoweringFailure("machine IR process.shell_native requires one command");
+                }
+                const auto emit_owned_literal = [&](const std::string& value) {
+                    emit_static_string(builder, strings, value);
+                    builder.emit({Opcode::CloneString});
+                };
+#if defined(_WIN32)
+                emit_owned_literal("cmd.exe");
+                emit_owned_literal("/d");
+                emit_owned_literal("/s");
+                emit_owned_literal("/c");
+                constexpr std::uint32_t shell_argument_count = 4;
+#else
+                emit_owned_literal("/bin/sh");
+                emit_owned_literal("-c");
+                constexpr std::uint32_t shell_argument_count = 2;
+#endif
+                const auto& command = object_of(args.front(), "process shell command");
+                const auto command_layout = lower_expression(
+                    command, builder, signatures, strings);
+                if (command_layout.kind != ValueKind::String || command_layout.width != 2) {
+                    throw LoweringFailure("machine IR process.shell_native command must be str");
+                }
+                if (!expression_transfers_string_value(command, signatures)) {
+                    builder.emit({Opcode::CloneString});
+                }
+                Instruction run;
+                run.opcode = Opcode::ProcessRun;
+                run.argument_count = shell_argument_count;
+                run.index = strings.intern("\0");
+                run.owns_input = true;
+                builder.emit(std::move(run));
+                ValueLayout result{5, ValueKind::Aggregate, {}};
+                result.selectors["code"] = {0, 1, ValueKind::Numeric};
+                result.selectors["out"] = {1, 2, ValueKind::String};
+                result.selectors["err"] = {3, 2, ValueKind::String};
+                return result;
+            }
             if (module == "capture" && (name == "regex" || name == "groups")) {
                 if (args.size() != 2) {
                     throw LoweringFailure("machine IR capture." + name +
