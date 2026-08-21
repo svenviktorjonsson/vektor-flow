@@ -1593,12 +1593,16 @@ private:
         const bool owns_data = instruction.owns_right;
         const bool append = instruction.index != 0;
         load_x(0, frame.offset(frame.temp_base + first));
-        // Darwin's open() returns a 32-bit int. Sign-extend it before testing
-        // errors. Append currently targets the single-process release contract:
-        // open without truncation, then seek to the current end before writing.
-        emit_u64(1, append ? 0x001u : 0x601u);
-        emit_u64(2, 0600u);
+        // Darwin places variadic arguments on the stack. open(path, flags,
+        // mode) therefore receives mode in the first variadic stack slot,
+        // unlike ordinary fixed x2 arguments. Its int result must also be
+        // sign-extended before testing for failure.
+        emit_u64(1, append ? 0x209u : 0x601u);
+        adjust_stack_pointer(16, false);
+        emit_u64(9, 0600u);
+        words_.emit(0xf90003e9u);
         call_runtime_slot(20);
+        adjust_stack_pointer(16, true);
         words_.emit(0x93407c00u);
         words_.emit(0xf100001fu);
         const auto opened = words_.emit(0x5400000au);
@@ -1612,10 +1616,6 @@ private:
                 frame.offset(frame.temp_base + first + 2),
                 frame.offset(frame.temp_base + first + 3));
         }
-        if (append && entry) {
-            emit_u64(0, 81);
-            call_runtime_slot(14);
-        }
         emit_instruction_error(
             function, frame, instruction,
             machine_ir::runtime_error_mask, entry, branches);
@@ -1625,30 +1625,6 @@ private:
             load_x(0, frame.offset(frame.temp_base + first));
             words_.emit(0xd1002000u);
             call_runtime_slot(9);
-        }
-
-        if (append) {
-            load_x(0, frame.offset(frame.scratch_slot));
-            emit_u64(1, 0);
-            emit_u64(2, 2);
-            call_runtime_slot(23);
-            words_.emit(0xf100001fu);
-            const auto positioned = words_.emit(0x5400000au);
-            load_x(0, frame.offset(frame.scratch_slot));
-            call_runtime_slot(22);
-            if (owns_data) {
-                release_owned_string(
-                    frame.offset(frame.temp_base + first + 2),
-                    frame.offset(frame.temp_base + first + 3));
-            }
-            if (entry) {
-                emit_u64(0, 82);
-                call_runtime_slot(14);
-            }
-            emit_instruction_error(
-                function, frame, instruction,
-                machine_ir::runtime_error_mask, entry, branches);
-            words_.patch_compare_branch19(positioned, words_.offset());
         }
 
         load_x(1, frame.offset(frame.temp_base + first + 2));
@@ -1669,10 +1645,6 @@ private:
             release_owned_string(
                 frame.offset(frame.temp_base + first + 2),
                 frame.offset(frame.temp_base + first + 3));
-        }
-        if (append && entry) {
-            emit_u64(0, 83);
-            call_runtime_slot(14);
         }
         emit_instruction_error(
             function, frame, instruction,
