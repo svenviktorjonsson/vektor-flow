@@ -1,8 +1,10 @@
-# Native compiler-specialized regular expressions. Patterns are compile-time
-# constants; source text remains runtime data.
+# Native compiler-specialized byte regular expressions. Patterns are compile-time
+# constants; source text remains runtime data. The 0.1 grammar includes literals,
+# dot (except newline), classes, captures, anchors, and atom quantifiers. It
+# rejects alternation and quantified groups instead of silently changing meaning.
 
 regex_stdlib_capability:
     name: "regex"
-    pattern_policy: "compile-time regular expression"
+    pattern_policy: "compile-time portable byte regex"
     direct: ["match", "groups"]
     :

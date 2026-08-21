@@ -5487,7 +5487,13 @@ def test_regex_no_match_is_a_native_value_error(
         "    regex.match(source, '^(?P<number>\\d+)$')!?\n"
         "        errors.ValueError => result: $.message\n"
         "    result\n\n"
-        ":: match_or_message(\"not-a-number\")\n",
+        "dot_or_message(source:str) -> str:\n"
+        "    result: \"\"\n"
+        "    regex.match(source, '^a.*b$')!?\n"
+        "        errors.ValueError => result: $.message\n"
+        "    result\n\n"
+        ":: match_or_message(\"not-a-number\")\n"
+        ":: dot_or_message(\"a\\nb\")\n",
         encoding="utf-8",
     )
     typed_ir_path = tmp_path / "regex-no-match.typed-ir.json"
@@ -5516,11 +5522,48 @@ def test_regex_no_match_is_a_native_value_error(
         if instruction["kind"] == "capture_regex"
     )
 
-    assert executed.stdout == "regular expression did not match\n"
+    assert executed.stdout == (
+        "regular expression did not match\nregular expression did not match\n"
+    )
     assert match_function["may_error"] is True
     assert capture["may_error"] is True
     assert capture["has_error_handler"] is True
     assert Path(arm64["raw_code_path"]).stat().st_size > 0
+
+
+@pytest.mark.parametrize(
+    ("pattern", "message"),
+    [
+        ("cat|dog", "alternation is not supported"),
+        ("(ab)+", "quantified groups are not supported"),
+        ("a**", "only one quantifier"),
+    ],
+)
+def test_regex_rejects_syntax_outside_the_native_contract(
+    pattern: str,
+    message: str,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source = f"regex: .regex\n:: regex.match(\"dog\", '{pattern}')\n"
+    tokens = subprocess.run(
+        [str(smoke_exes["lexer"]), source, "<regex-contract>"],
+        cwd=ROOT,
+        capture_output=True,
+        encoding="utf-8",
+        check=True,
+    ).stdout
+    ast_json = _run(smoke_exes["parser"], tokens).stdout
+    lowered = subprocess.run(
+        [str(smoke_exes["ir"])],
+        cwd=ROOT,
+        input=ast_json,
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert lowered.returncode != 0
+    assert message in lowered.stderr
 
 
 def test_driver_eval_shorthand_does_not_invent_stdlib_dependency(

@@ -21,6 +21,7 @@ struct ByteSet {
     std::array<std::uint64_t, 4> words{};
 
     void add(unsigned byte) { words[byte >> 6] |= std::uint64_t{1} << (byte & 63u); }
+    void remove(unsigned byte) { words[byte >> 6] &= ~(std::uint64_t{1} << (byte & 63u)); }
     bool contains(unsigned byte) const {
         return (words[byte >> 6] & (std::uint64_t{1} << (byte & 63u))) != 0;
     }
@@ -263,7 +264,7 @@ private:
         if (position_ < source_.size() &&
             (source_[position_] == '?' || source_[position_] == '*' ||
              source_[position_] == '+' || source_[position_] == '{')) {
-            fail("quantified groups are not in the portable capture grammar");
+            fail("quantified groups are not supported by the native regex grammar");
         }
     }
 
@@ -280,15 +281,27 @@ private:
                 parse_group();
                 continue;
             }
+            if (source_[position_] == '|') {
+                fail("alternation is not supported by the native regex grammar");
+            }
+            if (source_[position_] == '?' || source_[position_] == '*' ||
+                source_[position_] == '+' || source_[position_] == '{') {
+                fail("quantifier has no preceding atom");
+            }
             Op atom;
             atom.kind = OpKind::Atom;
             const unsigned byte = take();
             last_was_unescaped_dollar_ = byte == '$' && position_ == source_.size() && !in_group;
             if (byte == '\\') atom.bytes = escaped_atom();
-            else if (byte == '.') { atom.bytes.invert(); }
+            else if (byte == '.') { atom.bytes.invert(); atom.bytes.remove('\n'); }
             else if (byte == '[') atom.bytes = character_class();
             else atom.bytes = one_byte(byte);
             apply_quantifier(atom);
+            if (position_ < source_.size() &&
+                (source_[position_] == '?' || source_[position_] == '*' ||
+                 source_[position_] == '+' || source_[position_] == '{')) {
+                fail("an atom may have only one quantifier");
+            }
             pattern_.ops.push_back(atom);
         }
         if (in_group) fail("unterminated group");
