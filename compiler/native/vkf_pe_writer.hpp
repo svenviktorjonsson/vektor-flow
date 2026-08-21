@@ -51,7 +51,9 @@ inline MathImports math_imports_for(const vkf::machine_ir::Module& module) {
             imports.ln = imports.ln || instruction.opcode == Opcode::LnF64;
             imports.write = imports.write || instruction.opcode == Opcode::WriteString;
             imports.files = imports.files || instruction.opcode == Opcode::ReadFileString ||
-                instruction.opcode == Opcode::WriteFileString;
+                instruction.opcode == Opcode::ReadLineString ||
+                instruction.opcode == Opcode::WriteFileString ||
+                instruction.opcode == Opcode::ProcessRun;
         }
     };
     inspect(module.entry);
@@ -138,7 +140,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const std::uint32_t sequence_count = display_plan
         ? static_cast<std::uint32_t>(output_tokens.size()) : sequence_outputs.empty()
         ? numeric_output_count : static_cast<std::uint32_t>(sequence_outputs.size());
-    const std::uint32_t wrapper_size = 512u + sequence_count * 96u;
+    const std::uint32_t wrapper_size = 768u + sequence_count * 96u;
     const auto generated_offset = detail::align_up(wrapper_size, 16);
     const std::string numeric_format = "%.17g\n";
     const std::string string_format = "%.*s\n";
@@ -181,6 +183,16 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
         msvcrt_imports.push_back({"_close", 0});
         msvcrt_imports.push_back({"_lseek", 0});
     }
+    msvcrt_imports.push_back({"_getcwd", 0});
+    msvcrt_imports.push_back({"getenv", 0});
+    msvcrt_imports.push_back({"strlen", 0});
+    msvcrt_imports.push_back({"memcpy", 0});
+    msvcrt_imports.push_back({"_tempnam", 0});
+    msvcrt_imports.push_back({"_unlink", 0});
+    msvcrt_imports.push_back({"fclose", 0});
+    msvcrt_imports.push_back({"_dup2", 0});
+    msvcrt_imports.push_back({"_dup", 0});
+    msvcrt_imports.push_back({"_spawnvp", 0});
     msvcrt_imports.push_back({"malloc", 0});
     msvcrt_imports.push_back({"free", 0});
     msvcrt_imports.push_back({"abort", 0});
@@ -193,6 +205,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
         {"QueryPerformanceFrequency", 0},
         {"GetSystemTimePreciseAsFileTime", 0},
         {"Sleep", 0},
+        {"GetActiveProcessorCount", 0},
     };
     const auto kernel_lookup_patch = rdata.values.size();
     for (std::size_t index = 0; index <= kernel_imports.size(); ++index) rdata.u64(0);
@@ -308,6 +321,16 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto free_iat = imported_iat("free");
     const auto abort_iat = imported_iat("abort");
     const auto localtime_iat = imported_iat("_localtime64_s");
+    const auto getcwd_iat = imported_iat("_getcwd");
+    const auto getenv_iat = imported_iat("getenv");
+    const auto strlen_iat = imported_iat("strlen");
+    const auto memcpy_iat = imported_iat("memcpy");
+    const auto tempnam_iat = imported_iat("_tempnam");
+    const auto unlink_iat = imported_iat("_unlink");
+    const auto fclose_iat = imported_iat("fclose");
+    const auto dup2_iat = imported_iat("_dup2");
+    const auto dup_iat = imported_iat("_dup");
+    const auto spawnvp_iat = imported_iat("_spawnvp");
     const auto imported_kernel_iat = [&](const std::string& name) -> std::uint64_t {
         for (std::size_t index = 0; index < kernel_imports.size(); ++index) {
             if (kernel_imports[index].name == name) {
@@ -321,6 +344,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto performance_frequency_iat = imported_kernel_iat("QueryPerformanceFrequency");
     const auto wall_time_iat = imported_kernel_iat("GetSystemTimePreciseAsFileTime");
     const auto sleep_iat = imported_kernel_iat("Sleep");
+    const auto cpu_count_iat = imported_kernel_iat("GetActiveProcessorCount");
     const auto wrapper_start = out.values.size();
     const auto emit_display_plan = [&]() {
         std::uint32_t component = 0;
@@ -387,13 +411,13 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     };
     if (sequence_output) {
         const std::uint32_t required = std::max(
-            0xe0u,
+            0x138u,
             0x20u + vkf::machine_ir::runtime_output_base + output_components * 8u);
         std::uint32_t frame_bytes = detail::align_up(required, 16u);
         if ((frame_bytes & 15u) == 0) frame_bytes += 8u;
         out.raw({0x48, 0x81, 0xec}); out.u32(frame_bytes);
     } else {
-        out.raw({0x48, 0x81, 0xec}); out.u32(0xe8);
+        out.raw({0x48, 0x81, 0xec}); out.u32(0x138);
     }
     const auto emit_runtime_import = [&](std::uint64_t iat, std::uint32_t offset) {
         if (iat != 0) {
@@ -435,6 +459,17 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     emit_runtime_import(read_iat, 0xc8);
     emit_runtime_import(close_iat, 0xd0);
     emit_runtime_import(lseek_iat, 0xd8);
+    emit_runtime_import(cpu_count_iat, 0xe0);
+    emit_runtime_import(getcwd_iat, 0xe8);
+    emit_runtime_import(getenv_iat, 0xf0);
+    emit_runtime_import(strlen_iat, 0xf8);
+    emit_runtime_import(memcpy_iat, 0x100);
+    emit_runtime_import(tempnam_iat, 0x108);
+    emit_runtime_import(unlink_iat, 0x110);
+    emit_runtime_import(fclose_iat, 0x118);
+    emit_runtime_import(dup2_iat, 0x120);
+    emit_runtime_import(dup_iat, 0x128);
+    emit_runtime_import(spawnvp_iat, 0x130);
     if (sequence_output) {
         out.raw({0x4c, 0x8d, 0x64, 0x24, 0x20, 0x4c, 0x89, 0xe1, 0xe8});
     } else {

@@ -14,11 +14,13 @@ or a generated C++ translation unit.
 | `math` | constants; trigonometric, hyperbolic, inverse, logarithmic, gamma, and erf compositions | scalar/complex `abs`; complex elementary formulas; core structural-call lifting with scalar broadcast for multi-argument functions | real-scalar `sqrt`, `sin`, `cos`, `exp`, and `ln` | complete real-number namespace and compatibility-filtered structural lifting direct; complex `abs`, `sqrt`, `sin`, `cos`, `exp`, and `ln` direct |
 | `stat` | min/max, percentile, median, mode, IQR, z-score, normalize, covariance, correlation, clamp, sign | fixed/dynamic numeric `sum`, `mean`, `range`, population/sample `variance` and `std`, count; result-shape preservation | none | complete deterministic fixed-vector and dynamic-list namespace direct |
 | `random` | explicit-state Park-Miller generator; uniform scaling; Box-Muller normal distribution | none | wall/monotonic clock only for optional non-reproducible seed construction | direct and seed-threaded; no hidden mutable state and no claim of cryptographic entropy |
-| `collections` | constructor policy and persistent transformations | list/map/queue layout, indexing, update, ownership | none | numeric list construction/index/update/concat direct; statically named heterogeneous maps direct through typed-record layout; numeric FIFO queues direct; runtime-key maps and heterogeneous queues remain Stage 0 |
-| `io` | UTF-8 text and string-backed byte-buffer policy | string ownership at the capability boundary | stdout and files | print plus text/byte read/write direct on Windows x64 and Linux x64; macOS ARM64 emission direct; `read_numbers`, alternate encodings, and typed file-error propagation remain Stage 0 |
-| `errors` | domain error constructors | all public type masks, propagation, catch ranking, unwind | process abort for uncaught errors | every public error type value direct; assertion/index/value construction and propagation direct; explicit constructors and file-error translation remain Stage 0 |
+| `collections` | constructor policy and persistent transformations | list/map/queue layout, indexing, update, ownership | none | complete 0.1 surface: numeric lists, numeric FIFO queues, and statically named heterogeneous maps through typed-record layout |
+| `io` | UTF-8 text and string-backed byte-buffer policy | string ownership at the capability boundary | stdin, stdout, stderr, and files | complete 0.1 surface: print, line input, append, and text/byte file operations direct on all three release targets with typed failures |
+| `errors` | domain error constructors | all public type masks, propagation, catch ranking, unwind | process abort for uncaught errors | every public error type value, explicit construction, propagation, catch selection, owned-message lifetime, and file-error translation direct |
+| `system` | stable host-fact records and optional environment lookup | result shaping | OS name, architecture, CPU count, current directory, environment | direct on all three release targets |
+| `process` | exact argument-vector and explicit-shell policy | owned result shaping | spawn/exec, wait, captured stdout/stderr | complete 0.1 synchronous surface: exact-argv `run` and explicit `shell` direct on all three release targets |
 | `physics` | collision, contact, material, rigid-body mass, inertia, and momentum algorithms | numeric vector/matrix primitives only | none | rigid smoke slices execute directly on Windows/Linux x64 and emit macOS ARM64; `rigid_body` is a compatibility import only |
-| `capture` | capture-result shaping | none | regex engine | Stage 0 |
+| `regex` | result shaping and compile-time pattern validation | search and capture extraction | none | complete 0.1 portable byte-regex grammar and direct native search/capture engine |
 | `events` | event decoding, specificity, state transitions | event match primitive | host event queue | Stage 0 |
 | `time` | validation, portable formatting, and pure Gregorian UTC conversion | local calendar-parts record construction | wall/monotonic clock, sleep, and local-time conversion | direct on Windows x64, Linux x64, and macOS ARM64 emission |
 | `screen` / `ui` | scene, widget, geometry, styling, packet construction | typed arena/buffer layout where required | window/input/GPU host seam | Stage 0 except existing WASM/WebGPU packet slices |
@@ -36,13 +38,11 @@ Rules:
 
 ## Current promotion
 
-Machine IR v12 includes `stat.variance` and `stat.std` with population semantics
-(`ddof = 0`) and sample semantics (`ddof:1`) for numeric fixed vectors and
+Machine IR v12 includes `stat.variance` and `stat.std` with any non-negative
+constant `ddof` smaller than the input count for numeric fixed vectors and
 owned/borrowed dynamic numeric lists.
 Backends use two passes: mean, then squared deviations, matching the established
 stdlib oracle. Empty dynamic inputs fail instead of producing a silent NaN.
-Other `ddof` values remain Stage 0. Direct lowering rejects them instead of
-silently changing the denominator.
 It also includes `stat.range` for fixed vectors and owned/borrowed
 dynamic numeric lists. Backends compute maximum minus minimum in one pass;
 empty dynamic inputs fail.
@@ -65,16 +65,16 @@ Python. Named `collections.map` construction lowers to the ordinary typed-record
 layout, including mixed metadata and persistent field extension; it does not
 allocate a dynamic hash table when all keys are statically known.
 
-Machine IR v13 adds byte-exact file reads and writes over the existing owned
+Machine IR v18 provides byte-exact file reads and writes over the existing owned
 string layout. `read_text`/`write_text` define UTF-8 policy while
 `read_bytes`/`write_bytes` expose the same storage as an uninterpreted byte
 buffer; Vektor Flow intentionally has no separate `bytes` primitive. Windows
 x64 maps the capability to `_open`, `_read`, `_write`, `_lseek`, and `_close`;
 Linux x64 uses direct kernel syscalls; macOS ARM64 maps to the corresponding
 libSystem calls. File contents never pass through Python, generated C++, an
-assembler, a compiler, or a linker. OS failures still abort at this promotion
-stage and must be translated to typed `FileNotFoundError`/`RuntimeError` before
-the filesystem namespace can be classified complete.
+assembler, a compiler, or a linker. Missing files propagate as
+`FileNotFoundError`; other file-operation failures propagate as `RuntimeError`
+through the ordinary native error path.
 
 Fixed aggregate calls specialize list, tuple, and record literals to the
 callee's compatible projected shape. Unused metadata fields remain untouched,
@@ -115,9 +115,10 @@ parts. Target writers map them directly to platform APIs:
 
 No direct time artifact embeds or launches Python, generated C++, an assembler,
 a compiler, or a linker. OS/C runtime calls are the versioned capability ABI,
-not a language implementation dependency. Direct `current_time` currently
-accepts the portable set `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, `%Y-%m-%d`,
-`%Y/%m/%d`, `%H:%M`, `%H:%M:%S`, `%Y-%m-%d %H:%M:%S`, and RFC 3339 UTC
-`%Y-%m-%dT%H:%M:%SZ`. Both `format_time` and `current_time` accept an explicit
-`utc` flag. Arbitrary `strftime` programs remain an explicit unsupported
-surface because portable output may not delegate formatting to a host library.
+not a language implementation dependency. Direct `format_time` and
+`current_time` parse arbitrary portable format programs in VKF source. Literal
+text may freely compose `%Y`, `%y`, `%m`, `%d`, `%H`, `%M`, `%S`, `%j`, `%w`,
+`%u`, `%F`, `%T`, and `%%`; unsupported or incomplete directives fail
+explicitly. Both functions accept an explicit `utc` flag. The implementation
+does not delegate formatting to a host library, so output stays identical
+across the three release targets.

@@ -1,6 +1,7 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_native_frontend.hpp"
 #include "compiler/native/vkf_symbolic_lowering.hpp"
+#include "compiler/native/vkf_capture_pattern.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -235,7 +236,19 @@ vf::JsonValue stdlib_function(std::string module, std::string name) {
         }
     } else if (module == "io") {
         if (name == "read_text" || name == "read_bytes") type = "fn(str)->str";
-        else if (name == "write_text" || name == "write_bytes") type = "fn(str,str)->null";
+        else if (name == "read_line") type = "fn()->str";
+        else if (name == "write_text" || name == "write_bytes" || name == "append_text") {
+            type = "fn(str,str)->null";
+        } else if (name == "print" || name == "eprint") type = "fn(any)->any";
+    } else if (module == "system") {
+        if (name == "os_name" || name == "arch_name" || name == "cwd_native") type = "fn()->str";
+        else if (name == "cpu_count_native") type = "fn()->int";
+        else if (name == "env_native") type = "fn(str)->record{found:bit,value:str}";
+    } else if (module == "process") {
+        if (name == "run_native") type = "fn(str,any)->record{code:int,out:str,err:str}";
+        else if (name == "shell_native") type = "fn(str)->record{code:int,out:str,err:str}";
+    } else if (module == "regex" && (name == "match" || name == "groups")) {
+        type = "fn(str,str)->any";
     }
     out["type"] = vf::JsonValue(type);
     return vf::JsonValue(std::move(out));
@@ -1583,6 +1596,18 @@ private:
             out["value"] = vf::JsonValue(nullptr);
             return vf::JsonValue(std::move(out));
         }
+        if (kind == "raise_expr") {
+            vf::JsonValue value = lower_expr(field(object, "value", "raise expression"), env);
+            const std::string value_type = string_field(
+                value.as_object(), "type", "raise expression value");
+            if (value_type != "record{message:str,type:str,mask:num}") {
+                throw IRFailure("`!` expects an error value");
+            }
+            auto out = node("raise_expr");
+            out["value"] = std::move(value);
+            out["type"] = vf::JsonValue("any");
+            return vf::JsonValue(std::move(out));
+        }
         if (kind == "identifier") {
             const std::string name = string_field(object, "name", "identifier");
             if ((name == "i" || name == "j") && !env.contains(name)) {
@@ -2006,6 +2031,52 @@ private:
                 }
             }
             const auto& callee_ir = object_of(callee, "call callee IR");
+            if (string_field(callee_ir, "kind", "call callee IR") == "error_type") {
+                if (!named_args.empty() || !spread_args.empty() || args.size() > 1) {
+                    throw IRFailure("error constructors accept at most one positional message");
+                }
+                vf::JsonValue message;
+                if (args.empty()) {
+                    auto empty = node("const");
+                    empty["type"] = vf::JsonValue("str");
+                    empty["value"] = vf::JsonValue("");
+                    message = vf::JsonValue(std::move(empty));
+                } else {
+                    const std::string message_type = string_field(
+                        args.front().as_object(), "type", "error constructor message");
+                    if (message_type != "str") {
+                        throw IRFailure("error constructor message must be str");
+                    }
+                    message = std::move(args.front());
+                }
+                const std::string error_name = string_field(
+                    callee_ir, "name", "error constructor type");
+                const auto& mask_value = field(callee_ir, "mask", "error constructor type");
+                if (!mask_value.is_number()) {
+                    throw IRFailure("error constructor type needs a mask");
+                }
+                auto type_name = node("const");
+                type_name["type"] = vf::JsonValue("str");
+                type_name["value"] = vf::JsonValue(error_name);
+                auto mask = node("const");
+                mask["type"] = vf::JsonValue("num");
+                mask["value"] = mask_value;
+                vf::JsonValue::Array fields;
+                const auto add_field = [&](std::string name, std::string type, vf::JsonValue value) {
+                    auto record_field = node("record_field");
+                    record_field["name"] = vf::JsonValue(std::move(name));
+                    record_field["value"] = std::move(value);
+                    record_field["type"] = vf::JsonValue(std::move(type));
+                    fields.emplace_back(std::move(record_field));
+                };
+                add_field("message", "str", std::move(message));
+                add_field("type", "str", vf::JsonValue(std::move(type_name)));
+                add_field("mask", "num", vf::JsonValue(std::move(mask)));
+                auto error = node("record");
+                error["fields"] = vf::JsonValue(std::move(fields));
+                error["type"] = vf::JsonValue("record{message:str,type:str,mask:num}");
+                return vf::JsonValue(std::move(error));
+            }
             if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
                 string_field(callee_ir, "module", "call callee IR") == "collections" &&
                 string_field(callee_ir, "name", "call callee IR") == "map") {
@@ -2072,6 +2143,46 @@ private:
                     first = false;
                 }
                 call_type = "list<" + element_type + ">";
+            }
+            if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
+                string_field(callee_ir, "module", "call callee IR") == "regex") {
+                const std::string regex_name = string_field(
+                    callee_ir, "name", "regex call");
+                if (args.size() != 2 || !named_args.empty() || !spread_args.empty()) {
+                    throw IRFailure("regex." + regex_name +
+                        " requires source and a constant pattern");
+                }
+                const auto& pattern_value = object_of(args[1], "regex pattern");
+                const auto value = pattern_value.find("value");
+                if (string_field(pattern_value, "kind", "regex pattern") != "const" ||
+                    value == pattern_value.end() || !value->second.is_string()) {
+                    throw IRFailure("regex pattern must be a compile-time string constant");
+                }
+                vkf::capture::Pattern pattern;
+                try {
+                    pattern = vkf::capture::parse(value->second.as_string());
+                } catch (const vkf::capture::PatternFailure& error) {
+                    throw IRFailure(error.what());
+                }
+                if (regex_name == "match") {
+                    call_type = "record{";
+                    for (std::size_t index = 0; index < pattern.group_names.size(); ++index) {
+                        if (index != 0) call_type += ",";
+                        call_type += pattern.group_names[index] + ":str";
+                    }
+                    call_type += "}";
+                } else if (regex_name == "groups") {
+                    call_type = "tuple<";
+                    for (std::size_t index = 0; index < pattern.group_names.size(); ++index) {
+                        if (index != 0) call_type += ",";
+                        call_type += "str";
+                    }
+                    call_type += ">";
+                } else {
+                    throw IRFailure("unknown stdlib regex member " + regex_name);
+                }
+                callee_type = "fn(str,str)->" + call_type;
+                callee.as_object()["type"] = vf::JsonValue(callee_type);
             }
             if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
                 string_field(callee_ir, "module", "call callee IR") == "math" &&
@@ -2666,12 +2777,33 @@ private:
                     throw IRFailure("unknown stdlib collections member " + field_name);
                 }
                 if (canonical_module == "io") {
-                    if (field_name == "print" || field_name == "read_text" ||
+                    if (field_name == "print" || field_name == "eprint" ||
+                        field_name == "read_line" || field_name == "read_text" ||
                         field_name == "write_text" || field_name == "read_bytes" ||
-                        field_name == "write_bytes") {
+                        field_name == "write_bytes" || field_name == "append_text") {
                         return stdlib_function("io", field_name);
                     }
                     throw IRFailure("unknown stdlib io member " + field_name);
+                }
+                if (canonical_module == "system") {
+                    if (field_name == "os_name" || field_name == "arch_name" ||
+                        field_name == "cpu_count_native" || field_name == "cwd_native" ||
+                        field_name == "env_native") {
+                        return stdlib_function("system", field_name);
+                    }
+                    throw IRFailure("unknown stdlib system member " + field_name);
+                }
+                if (canonical_module == "process") {
+                    if (field_name == "run_native" || field_name == "shell_native") {
+                        return stdlib_function("process", field_name);
+                    }
+                    throw IRFailure("unknown stdlib process member " + field_name);
+                }
+                if (canonical_module == "regex") {
+                    if (field_name == "match" || field_name == "groups") {
+                        return stdlib_function("regex", field_name);
+                    }
+                    throw IRFailure("unknown stdlib regex member " + field_name);
                 }
             }
             vf::JsonValue object_ir = lower_expr(field(object, "object", "attribute"), env);

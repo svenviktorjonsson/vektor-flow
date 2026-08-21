@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/native/vkf_machine_ir.hpp"
+#include "compiler/native/vkf_capture_pattern.hpp"
 #include "native/VfOverlay/vf/json.hpp"
 
 #include <algorithm>
@@ -9,12 +10,17 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
+
+#if defined(_WIN32) && defined(_MSC_VER)
+#pragma comment(linker, "/STACK:8388608")
+#endif
 
 namespace vkf::machine_ir {
 
@@ -1007,6 +1013,7 @@ inline void collect_error_effects(
     const auto kind = object.find("kind");
     if (kind != object.end() && kind->second.is_string()) {
         if (kind->second.as_string() == "assert_expr" ||
+            kind->second.as_string() == "raise_expr" ||
             kind->second.as_string() == "dotted_index" ||
             kind->second.as_string() == "update_index") {
             directly_raises = true;
@@ -1022,6 +1029,25 @@ inline void collect_error_effects(
                     callee_name != callee_object.end() && callee_name->second.is_string()) {
                     if (callee_name->second.as_string() == "int") directly_raises = true;
                     callees.push_back(callee_name->second.as_string());
+                } else if (callee_kind != callee_object.end() && callee_kind->second.is_string() &&
+                           callee_kind->second.as_string() == "stdlib_function") {
+                    const auto module = callee_object.find("module");
+                    if (module != callee_object.end() && module->second.is_string() &&
+                        module->second.as_string() == "io" &&
+                        callee_name != callee_object.end() && callee_name->second.is_string()) {
+                        const std::string name = callee_name->second.as_string();
+                        if (name == "read_text" || name == "read_bytes" ||
+                            name == "write_text" || name == "write_bytes" ||
+                            name == "append_text") {
+                            directly_raises = true;
+                        }
+                    } else if (module != callee_object.end() && module->second.is_string() &&
+                               module->second.as_string() == "regex" &&
+                               callee_name != callee_object.end() &&
+                               callee_name->second.is_string()) {
+                        const std::string name = callee_name->second.as_string();
+                        if (name == "match" || name == "groups") directly_raises = true;
+                    }
                 }
             }
         } else if (kind->second.as_string() == "binary_op") {
@@ -2921,6 +2947,22 @@ public:
             ++stack_depth_;
         } else if (opcode == Opcode::MonotonicF64 || opcode == Opcode::WallTimeF64) {
             ++stack_depth_;
+        } else if (opcode == Opcode::SystemCpuCount) {
+            ++stack_depth_;
+        } else if (opcode == Opcode::SystemCwdString) {
+            stack_depth_ += 2;
+        } else if (opcode == Opcode::SystemEnvString) {
+            require_stack(2);
+            ++stack_depth_;
+        } else if (opcode == Opcode::ProcessRun) {
+            require_stack(2 + instruction.argument_count * 2);
+            stack_depth_ = stack_depth_ - 2 - instruction.argument_count * 2 + 5;
+        } else if (opcode == Opcode::RaiseErrorValue) {
+            require_stack(5);
+            stack_depth_ -= 4;
+        } else if (opcode == Opcode::CaptureRegex) {
+            require_stack(2);
+            stack_depth_ = stack_depth_ - 2 + instruction.argument_count * 2;
         } else if (opcode == Opcode::PushString) {
             stack_depth_ += 2;
         } else if (opcode == Opcode::FormatF64String || opcode == Opcode::FormatBitString ||
@@ -2938,6 +2980,8 @@ public:
         } else if (opcode == Opcode::WriteString) {
             require_stack(2);
             stack_depth_ -= 2;
+        } else if (opcode == Opcode::ReadLineString) {
+            stack_depth_ += 2;
         } else if (opcode == Opcode::ReadFileString) {
             require_stack(2);
         } else if (opcode == Opcode::WriteFileString) {
@@ -3548,6 +3592,102 @@ inline bool is_numeric_layout(const ValueLayout& layout) {
     return std::none_of(layout.selectors.begin(), layout.selectors.end(), [](const auto& item) {
         return item.second.kind == ValueKind::String;
     });
+}
+
+inline bool is_flat_fixed_numeric_vector(const ValueLayout& layout) {
+    if (layout.kind != ValueKind::Aggregate || is_record_layout(layout)) return false;
+    const auto elements = indexed_element_layouts(layout);
+    return !elements.empty() &&
+        std::all_of(elements.begin(), elements.end(), [](const auto& element) {
+            return element.kind == ValueKind::Numeric && element.width == 1 &&
+                element.selectors.empty();
+        });
+}
+
+inline bool can_project_call_layout(const ValueLayout& source, const ValueLayout& target) {
+    if (same_layout(source, target)) return true;
+    if (source.kind == ValueKind::DynamicF64List && is_flat_fixed_numeric_vector(target)) {
+        return true;
+    }
+    if (!is_record_layout(source) || !is_record_layout(target)) return false;
+    for (const auto& [name, target_slice] : ordered_record_fields(target)) {
+        const auto found = source.selectors.find(name);
+        if (found == source.selectors.end()) return false;
+        if (!can_project_call_layout(
+                record_field_layout(source, name, found->second),
+                record_field_layout(target, name, target_slice))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline void emit_projected_call_layout(
+    FunctionBuilder& builder,
+    StringPool& strings,
+    std::uint32_t source_local,
+    const ValueLayout& source,
+    const ValueLayout& target,
+    const std::string& context
+) {
+    if (same_layout(source, target)) {
+        for (std::uint32_t component = 0; component < source.width; ++component) {
+            Instruction load;
+            load.opcode = Opcode::LoadLocal;
+            load.index = source_local + component;
+            builder.emit(std::move(load));
+        }
+        return;
+    }
+    if (source.kind == ValueKind::DynamicF64List && is_flat_fixed_numeric_vector(target)) {
+        Instruction load;
+        load.opcode = Opcode::LoadLocal;
+        load.index = source_local;
+        builder.emit(std::move(load));
+        builder.emit({Opcode::CountF64List});
+        Instruction expected_count;
+        expected_count.opcode = Opcode::PushF64;
+        expected_count.f64 = static_cast<double>(target.width);
+        builder.emit(std::move(expected_count));
+        builder.emit({Opcode::OrderedEqualF64});
+        Instruction arity;
+        arity.opcode = Opcode::AssertTruthy;
+        const std::string message = "fixed-vector argument length mismatch for " + context;
+        arity.index = strings.intern(message);
+        arity.byte_count = static_cast<std::uint32_t>(message.size());
+        arity.error_type_mask = value_error_mask;
+        if (const auto handler = builder.error_handler()) {
+            arity.has_error_handler = true;
+            arity.label = *handler;
+            arity.error_value_local = *builder.error_value_local();
+            arity.error_type_local = *builder.error_type_local();
+        }
+        builder.emit(std::move(arity));
+        builder.emit({Opcode::Drop});
+        for (std::uint32_t component = 0; component < target.width; ++component) {
+            Instruction list;
+            list.opcode = Opcode::LoadLocal;
+            list.index = source_local;
+            builder.emit(std::move(list));
+            Instruction index;
+            index.opcode = Opcode::PushF64;
+            index.f64 = static_cast<double>(component);
+            builder.emit(std::move(index));
+            builder.emit({Opcode::LoadF64ListIndex});
+        }
+        return;
+    }
+    for (const auto& [name, target_slice] : ordered_record_fields(target)) {
+        const auto found = source.selectors.find(name);
+        const auto source_field = record_field_layout(source, name, found->second);
+        emit_projected_call_layout(
+            builder,
+            strings,
+            source_local + found->second.offset,
+            source_field,
+            record_field_layout(target, name, target_slice),
+            context + "." + name);
+    }
 }
 
 inline bool expression_produces_owned_f64_list(
@@ -7548,6 +7688,35 @@ inline ValueLayout lower_expression(
         builder.emit({*opcode});
         return {};
     }
+    if (kind == "raise_expr") {
+        const auto& value = object_of(
+            field(expression, "value", "raise expression"), "raise error value");
+        const auto layout = lower_expression(value, builder, signatures, strings);
+        const auto message = layout.selectors.find("message");
+        const auto type_name = layout.selectors.find("type");
+        const auto mask = layout.selectors.find("mask");
+        if (layout.kind != ValueKind::Aggregate || layout.width != 5 ||
+            message == layout.selectors.end() || message->second.offset != 0 ||
+            message->second.width != 2 || message->second.kind != ValueKind::String ||
+            type_name == layout.selectors.end() || type_name->second.offset != 2 ||
+            type_name->second.width != 2 || type_name->second.kind != ValueKind::String ||
+            mask == layout.selectors.end() || mask->second.offset != 4 ||
+            mask->second.width != 1) {
+            throw LoweringFailure("machine IR `!` expects an error value");
+        }
+        ensure_independent_value(value, layout, builder, signatures);
+        Instruction raise;
+        raise.opcode = Opcode::RaiseErrorValue;
+        raise.owns_input = true;
+        if (const auto handler = builder.error_handler()) {
+            raise.has_error_handler = true;
+            raise.label = *handler;
+            raise.error_value_local = *builder.error_value_local();
+            raise.error_type_local = *builder.error_type_local();
+        }
+        builder.emit(std::move(raise));
+        return {1, ValueKind::Null, {}};
+    }
     if (kind == "assert_expr") {
         const auto condition = lower_expression(
             object_of(field(expression, "condition", "assert expression"), "assert condition"),
@@ -7633,7 +7802,7 @@ inline ValueLayout lower_expression(
         if (callee_kind == "stdlib_function") {
             const std::string module = string_field(callee, "module", "stdlib callee");
             const std::string name = string_field(callee, "name", "stdlib callee");
-            if (module == "io" && name == "print") {
+            if (module == "io" && (name == "print" || name == "eprint")) {
                 if (args.size() != 1) {
                     throw LoweringFailure("machine IR print requires one argument");
                 }
@@ -7652,6 +7821,7 @@ inline ValueLayout lower_expression(
                 emit_interpolation_concat(builder, owns_text, false);
                 Instruction write;
                 write.opcode = Opcode::WriteString;
+                write.index = name == "eprint" ? 2u : 1u;
                 write.owns_input = true;
                 builder.emit(std::move(write));
                 for (std::uint32_t component = 0; component < layout.width; ++component) {
@@ -7669,6 +7839,13 @@ inline ValueLayout lower_expression(
                 throw LoweringFailure(
                     "direct machine IR stdlib calls do not accept spread arguments");
             }
+            if (module == "io" && name == "read_line") {
+                if (!args.empty() || !named_args.empty()) {
+                    throw LoweringFailure("machine IR io.read_line takes no arguments");
+                }
+                builder.emit({Opcode::ReadLineString});
+                return {2, ValueKind::String, {}};
+            }
             if (module == "io" && (name == "read_text" || name == "read_bytes")) {
                 if (args.size() != 1 || !named_args.empty()) {
                     throw LoweringFailure(
@@ -7685,10 +7862,21 @@ inline ValueLayout lower_expression(
                 Instruction read;
                 read.opcode = Opcode::ReadFileString;
                 read.owns_input = true;
+                const std::string message = "file read failed";
+                read.error_message_offset = strings.intern(message);
+                read.byte_count = static_cast<std::uint32_t>(message.size());
+                read.may_error = true;
+                if (const auto handler = builder.error_handler()) {
+                    read.has_error_handler = true;
+                    read.label = *handler;
+                    read.error_value_local = *builder.error_value_local();
+                    read.error_type_local = *builder.error_type_local();
+                }
                 builder.emit(std::move(read));
                 return {2, ValueKind::String, {}};
             }
-            if (module == "io" && (name == "write_text" || name == "write_bytes")) {
+            if (module == "io" &&
+                (name == "write_text" || name == "write_bytes" || name == "append_text")) {
                 if (args.size() != 2 || !named_args.empty()) {
                     throw LoweringFailure(
                         "machine IR io." + name + " requires path and data; direct files are byte-exact UTF-8");
@@ -7713,8 +7901,19 @@ inline ValueLayout lower_expression(
                 }
                 Instruction write;
                 write.opcode = Opcode::WriteFileString;
+                write.index = name == "append_text" ? 1u : 0u;
                 write.owns_left = true;
                 write.owns_right = data_owned;
+                const std::string message = "file write failed";
+                write.error_message_offset = strings.intern(message);
+                write.byte_count = static_cast<std::uint32_t>(message.size());
+                write.may_error = true;
+                if (const auto handler = builder.error_handler()) {
+                    write.has_error_handler = true;
+                    write.label = *handler;
+                    write.error_value_local = *builder.error_value_local();
+                    write.error_type_local = *builder.error_type_local();
+                }
                 builder.emit(std::move(write));
                 return {1, ValueKind::Null, {}};
             }
@@ -7736,8 +7935,10 @@ inline ValueLayout lower_expression(
                     if (string_field(value, "kind", "stat.std ddof value") != "const" ||
                         !raw.is_number() || !std::isfinite(raw.as_number()) ||
                         std::floor(raw.as_number()) != raw.as_number() ||
-                        raw.as_number() < 0 || raw.as_number() > 1) {
-                        throw LoweringFailure("stat." + name + " ddof must be constant 0 or 1");
+                        raw.as_number() < 0 ||
+                        raw.as_number() > static_cast<double>(std::numeric_limits<std::int32_t>::max())) {
+                        throw LoweringFailure(
+                            "stat." + name + " ddof must be a non-negative integer constant");
                     }
                     degrees_of_freedom = static_cast<std::uint32_t>(raw.as_number());
                 }
@@ -7745,6 +7946,201 @@ inline ValueLayout lower_expression(
                 throw LoweringFailure(
                     "direct machine IR stdlib call does not accept named arguments " +
                     module + "." + name);
+            }
+            if (module == "system" && (name == "os_name" || name == "arch_name")) {
+                if (!args.empty()) {
+                    throw LoweringFailure("machine IR system." + name + " takes no arguments");
+                }
+                std::string value;
+                if (name == "os_name") {
+#if defined(_WIN32)
+                    value = "windows";
+#elif defined(__APPLE__)
+                    value = "macos";
+#else
+                    value = "linux";
+#endif
+                } else {
+#if defined(__aarch64__) || defined(_M_ARM64)
+                    value = "arm64";
+#else
+                    value = "x86_64";
+#endif
+                }
+                Instruction literal;
+                literal.opcode = Opcode::PushString;
+                literal.index = strings.intern(value);
+                literal.byte_count = static_cast<std::uint32_t>(value.size());
+                builder.emit(std::move(literal));
+                return {2, ValueKind::String, {}};
+            }
+            if (module == "system" && name == "cpu_count_native") {
+                if (!args.empty()) {
+                    throw LoweringFailure("machine IR system.cpu_count_native takes no arguments");
+                }
+                builder.emit({Opcode::SystemCpuCount});
+                return {};
+            }
+            if (module == "system" && name == "cwd_native") {
+                if (!args.empty()) {
+                    throw LoweringFailure("machine IR system.cwd_native takes no arguments");
+                }
+                builder.emit({Opcode::SystemCwdString});
+                return {2, ValueKind::String, {}};
+            }
+            if (module == "system" && name == "env_native") {
+                if (args.size() != 1) {
+                    throw LoweringFailure("machine IR system.env_native requires one name");
+                }
+                const auto& key = object_of(args.front(), "system environment name");
+                const auto key_layout = lower_expression(key, builder, signatures, strings);
+                if (key_layout.kind != ValueKind::String || key_layout.width != 2) {
+                    throw LoweringFailure("machine IR system.env_native requires a string name");
+                }
+                if (!expression_transfers_string_value(key, signatures)) {
+                    builder.emit({Opcode::CloneString});
+                }
+                Instruction environment;
+                environment.opcode = Opcode::SystemEnvString;
+                environment.index = strings.intern("");
+                environment.owns_input = true;
+                builder.emit(std::move(environment));
+                ValueLayout result{3, ValueKind::Aggregate, {}};
+                result.selectors["found"] = {0, 1, ValueKind::Numeric};
+                result.selectors["value"] = {1, 2, ValueKind::String};
+                return result;
+            }
+            if (module == "process" && name == "run_native") {
+                if (args.size() != 2) {
+                    throw LoweringFailure("machine IR process.run_native requires program and args");
+                }
+                const auto& program = object_of(args[0], "process program");
+                const auto program_layout = lower_expression(program, builder, signatures, strings);
+                if (program_layout.kind != ValueKind::String || program_layout.width != 2) {
+                    throw LoweringFailure("machine IR process.run_native program must be str");
+                }
+                if (!expression_transfers_string_value(program, signatures)) {
+                    builder.emit({Opcode::CloneString});
+                }
+
+                const auto& arguments = object_of(args[1], "process arguments");
+                const auto arguments_layout = lower_expression(
+                    arguments, builder, signatures, strings);
+                if (arguments_layout.kind != ValueKind::Aggregate ||
+                    arguments_layout.width % 2 != 0) {
+                    throw LoweringFailure(
+                        "machine IR process.run_native args must be a fixed str vector");
+                }
+                const auto resources = owned_resource_slices(arguments_layout);
+                const auto argument_count = arguments_layout.width / 2;
+                if (resources.size() != argument_count ||
+                    std::any_of(resources.begin(), resources.end(), [](const auto& slice) {
+                        return slice.kind != ValueKind::String || slice.width != 2;
+                    })) {
+                    throw LoweringFailure(
+                        "machine IR process.run_native args must contain only str values");
+                }
+                clone_nested_resource_values(arguments_layout, builder);
+                Instruction run;
+                run.opcode = Opcode::ProcessRun;
+                run.argument_count = argument_count;
+                run.index = strings.intern("\0");
+                run.owns_input = true;
+                builder.emit(std::move(run));
+                ValueLayout result{5, ValueKind::Aggregate, {}};
+                result.selectors["code"] = {0, 1, ValueKind::Numeric};
+                result.selectors["out"] = {1, 2, ValueKind::String};
+                result.selectors["err"] = {3, 2, ValueKind::String};
+                return result;
+            }
+            if (module == "process" && name == "shell_native") {
+                if (args.size() != 1) {
+                    throw LoweringFailure("machine IR process.shell_native requires one command");
+                }
+                const auto emit_owned_literal = [&](const std::string& value) {
+                    emit_static_string(builder, strings, value);
+                    builder.emit({Opcode::CloneString});
+                };
+#if defined(_WIN32)
+                emit_owned_literal("cmd.exe");
+                emit_owned_literal("/d");
+                emit_owned_literal("/s");
+                emit_owned_literal("/c");
+                constexpr std::uint32_t shell_argument_count = 4;
+#else
+                emit_owned_literal("/bin/sh");
+                emit_owned_literal("-c");
+                constexpr std::uint32_t shell_argument_count = 2;
+#endif
+                const auto& command = object_of(args.front(), "process shell command");
+                const auto command_layout = lower_expression(
+                    command, builder, signatures, strings);
+                if (command_layout.kind != ValueKind::String || command_layout.width != 2) {
+                    throw LoweringFailure("machine IR process.shell_native command must be str");
+                }
+                if (!expression_transfers_string_value(command, signatures)) {
+                    builder.emit({Opcode::CloneString});
+                }
+                Instruction run;
+                run.opcode = Opcode::ProcessRun;
+                run.argument_count = shell_argument_count;
+                run.index = strings.intern("\0");
+                run.owns_input = true;
+                builder.emit(std::move(run));
+                ValueLayout result{5, ValueKind::Aggregate, {}};
+                result.selectors["code"] = {0, 1, ValueKind::Numeric};
+                result.selectors["out"] = {1, 2, ValueKind::String};
+                result.selectors["err"] = {3, 2, ValueKind::String};
+                return result;
+            }
+            if (module == "regex" && (name == "match" || name == "groups")) {
+                if (args.size() != 2) {
+                    throw LoweringFailure("machine IR regex." + name +
+                        " requires source and pattern");
+                }
+                const auto& source = object_of(args[0], "regex source");
+                const auto source_layout = lower_expression(source, builder, signatures, strings);
+                if (source_layout.kind != ValueKind::String || source_layout.width != 2) {
+                    throw LoweringFailure("machine IR regex source must be str");
+                }
+                const auto& pattern_value = object_of(args[1], "regex pattern");
+                const auto value = pattern_value.find("value");
+                if (string_field(pattern_value, "kind", "regex pattern") != "const" ||
+                    value == pattern_value.end() || !value->second.is_string()) {
+                    throw LoweringFailure("regex pattern must be a compile-time string constant");
+                }
+                vkf::capture::Pattern pattern;
+                try {
+                    pattern = vkf::capture::parse(value->second.as_string());
+                } catch (const vkf::capture::PatternFailure& error) {
+                    throw LoweringFailure(error.what());
+                }
+                Instruction capture;
+                capture.opcode = Opcode::CaptureRegex;
+                capture.argument_count = static_cast<std::uint32_t>(pattern.group_names.size());
+                capture.symbol = value->second.as_string();
+                capture.owns_input = expression_transfers_string_value(source, signatures);
+                const std::string message = "regular expression did not match";
+                capture.error_message_offset = strings.intern(message);
+                capture.byte_count = static_cast<std::uint32_t>(message.size());
+                capture.may_error = true;
+                if (const auto handler = builder.error_handler()) {
+                    capture.has_error_handler = true;
+                    capture.label = *handler;
+                    capture.error_value_local = *builder.error_value_local();
+                    capture.error_type_local = *builder.error_type_local();
+                }
+                builder.emit(std::move(capture));
+                ValueLayout result{
+                    static_cast<std::uint32_t>(pattern.group_names.size() * 2u),
+                    ValueKind::Aggregate,
+                    {}};
+                for (std::uint32_t index = 0; index < pattern.group_names.size(); ++index) {
+                    const std::string selector = name == "match"
+                        ? pattern.group_names[index] : std::to_string(index);
+                    result.selectors[selector] = {index * 2u, 2, ValueKind::String};
+                }
+                return result;
             }
             if (module == "collections" && name == "list") {
                 for (const auto& arg : args) {
@@ -8778,17 +9174,13 @@ inline ValueLayout lower_expression(
                     ? *fixed_indexed
                     : lower_expression(argument_expression, builder, signatures, strings);
             bool projected_from_temporary = false;
-            if (!projected && is_record_layout(parameter_layout) && is_record_layout(layout) &&
-                !same_layout(layout, parameter_layout)) {
-                std::vector<ValueSlice> slices;
-                if (!collect_record_projection("", layout, parameter_layout, slices)) {
-                    throw LoweringFailure(
-                        "machine IR call argument structure mismatch for " + symbol + "." +
-                        signature->second.parameter_names[index] + ": expected " +
-                        describe_layout(parameter_layout) + ", got " + describe_layout(layout));
-                }
-                const bool owns_value = has_owned_resources(layout) &&
-                    expression_transfers_aggregate_value(argument_expression, signatures);
+            if (!projected && !same_layout(layout, parameter_layout) &&
+                can_project_call_layout(layout, parameter_layout)) {
+                const bool owns_value =
+                    (layout.kind == ValueKind::DynamicF64List &&
+                     expression_produces_owned_f64_list(argument_expression, signatures)) ||
+                    (has_owned_resources(layout) &&
+                     expression_transfers_aggregate_value(argument_expression, signatures));
                 const auto temporary = owns_value
                     ? builder.add_owned_temporary(layout)
                     : builder.add_borrowed_temporary(layout);
@@ -8798,17 +9190,23 @@ inline ValueLayout lower_expression(
                     store.index = temporary + component - 1;
                     builder.emit(std::move(store));
                 }
-                for (const auto& slice : slices) {
-                    for (std::uint32_t component = 0; component < slice.width; ++component) {
-                        Instruction load;
-                        load.opcode = Opcode::LoadLocal;
-                        load.index = temporary + slice.offset + component;
-                        builder.emit(std::move(load));
-                    }
-                }
+                emit_projected_call_layout(
+                    builder,
+                    strings,
+                    temporary,
+                    layout,
+                    parameter_layout,
+                    symbol + "." + signature->second.parameter_names[index]);
                 if (owns_value) owned_argument_temporaries.push_back({temporary, layout});
                 layout = parameter_layout;
                 projected_from_temporary = true;
+            }
+            if (!projected && is_record_layout(parameter_layout) && is_record_layout(layout) &&
+                !same_layout(layout, parameter_layout)) {
+                throw LoweringFailure(
+                    "machine IR call argument structure mismatch for " + symbol + "." +
+                    signature->second.parameter_names[index] + ": expected " +
+                    describe_layout(parameter_layout) + ", got " + describe_layout(layout));
             }
             if (layout.width != parameter_layout.width) {
                 throw LoweringFailure(
@@ -11262,10 +11660,18 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                     signature.variadic_positional_index = signature.parameters.size();
                     signature.parameters.push_back({1, ValueKind::DynamicF64List, {}});
                 } else {
-                    signature.parameters.push_back(
-                        inferred_parameter
-                            ? inferred_parameter_layout(statement, signature.parameter_names.back())
-                            : explicit_parameter_layout);
+                    if (inferred_parameter && complex_capable_fixed_vector) {
+                        auto parameter_layout = explicit_parameter_layout;
+                        merge_inferred_layout(
+                            parameter_layout,
+                            inferred_parameter_layout(statement, signature.parameter_names.back()));
+                        signature.parameters.push_back(std::move(parameter_layout));
+                    } else {
+                        signature.parameters.push_back(
+                            inferred_parameter
+                                ? inferred_parameter_layout(statement, signature.parameter_names.back())
+                                : explicit_parameter_layout);
+                    }
                 }
                 if (bool_field(parameter, "variadic_named", "param")) {
                     auto display = display_shape_from_layout(signature.parameters.back());
@@ -11820,6 +12226,210 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
     return lowered;
 }
 
+inline bool is_small_numeric_inline_candidate(const Function& function) {
+    if (function.may_error || function.parameter_mask_local ||
+        !function.owned_f64_list_locals.empty() || !function.owned_string_locals.empty() ||
+        function.instructions.empty() || function.instructions.size() > 32) {
+        return false;
+    }
+    bool has_return = false;
+    for (const auto& instruction : function.instructions) {
+        switch (instruction.opcode) {
+            case Opcode::PushF64:
+            case Opcode::LoadLocal:
+            case Opcode::StoreLocal:
+            case Opcode::Drop:
+            case Opcode::Duplicate:
+            case Opcode::IdentityF64:
+            case Opcode::NegateF64:
+            case Opcode::LogicalNotF64:
+            case Opcode::BooleanizeF64:
+            case Opcode::AddF64:
+            case Opcode::SubtractF64:
+            case Opcode::MultiplyF64:
+            case Opcode::DivideF64:
+            case Opcode::FloorDivideF64:
+            case Opcode::AbsF64:
+            case Opcode::SqrtF64:
+            case Opcode::SinF64:
+            case Opcode::CosF64:
+            case Opcode::ExpF64:
+            case Opcode::LnF64:
+            case Opcode::RemainderF64:
+            case Opcode::PowerF64:
+            case Opcode::LogicalXorF64:
+            case Opcode::OrderedLessF64:
+            case Opcode::OrderedLessEqualF64:
+            case Opcode::OrderedGreaterF64:
+            case Opcode::OrderedGreaterEqualF64:
+            case Opcode::OrderedEqualF64:
+            case Opcode::UnorderedNotEqualF64:
+            case Opcode::EqualBits:
+            case Opcode::NotEqualBits:
+            case Opcode::Label:
+            case Opcode::Jump:
+            case Opcode::JumpIfFalse:
+            case Opcode::JumpIfTrue:
+                break;
+            case Opcode::ReturnF64:
+                has_return = true;
+                break;
+            default:
+                return false;
+        }
+    }
+    return has_return;
+}
+
+inline void inline_small_numeric_calls(Module& module) {
+    std::map<std::string, const Function*> candidates;
+    for (const auto& function : module.functions) {
+        if (is_small_numeric_inline_candidate(function)) {
+            candidates.emplace(function.name, &function);
+        }
+    }
+
+    auto inline_calls = [&](Function& caller) {
+        const auto original_max_stack = caller.max_stack;
+        std::uint32_t next_label = 0;
+        for (const auto& instruction : caller.instructions) {
+            if (instruction.opcode == Opcode::Label || instruction.opcode == Opcode::Jump ||
+                instruction.opcode == Opcode::JumpIfFalse || instruction.opcode == Opcode::JumpIfTrue) {
+                next_label = std::max(next_label, instruction.label + 1);
+            }
+        }
+        std::vector<Instruction> rewritten;
+        rewritten.reserve(caller.instructions.size());
+        const auto is_in_loop = [&](std::size_t call_index) {
+            for (std::size_t jump_index = call_index + 1;
+                 jump_index < caller.instructions.size(); ++jump_index) {
+                const auto& jump = caller.instructions[jump_index];
+                if (jump.opcode != Opcode::Jump && jump.opcode != Opcode::JumpIfFalse &&
+                    jump.opcode != Opcode::JumpIfTrue) {
+                    continue;
+                }
+                for (std::size_t label_index = 0; label_index < call_index; ++label_index) {
+                    const auto& label = caller.instructions[label_index];
+                    if (label.opcode == Opcode::Label && label.label == jump.label) return true;
+                }
+            }
+            return false;
+        };
+        for (std::size_t caller_index = 0; caller_index < caller.instructions.size(); ++caller_index) {
+            const auto& call = caller.instructions[caller_index];
+            const auto found = call.opcode == Opcode::Call ? candidates.find(call.symbol) : candidates.end();
+            if (found == candidates.end() || !is_in_loop(caller_index) ||
+                found->second->name == caller.name || call.may_error ||
+                call.has_error_handler || call.uses_parameter_mask || call.result_count != 1 ||
+                call.argument_count != found->second->parameters.size()) {
+                rewritten.push_back(call);
+                continue;
+            }
+            const Function& callee = *found->second;
+            const std::uint32_t expected_mask = callee.parameters.size() >= 32
+                ? std::numeric_limits<std::uint32_t>::max()
+                : (1u << static_cast<std::uint32_t>(callee.parameters.size())) - 1u;
+            if (call.provided_parameter_mask != expected_mask ||
+                rewritten.size() + callee.instructions.size() > 512) {
+                rewritten.push_back(call);
+                continue;
+            }
+
+            bool parameters_are_read_only = true;
+            for (const auto& instruction : callee.instructions) {
+                if (instruction.opcode == Opcode::StoreLocal &&
+                    instruction.index < callee.parameters.size()) {
+                    parameters_are_read_only = false;
+                    break;
+                }
+            }
+            bool direct_local_arguments = parameters_are_read_only &&
+                rewritten.size() >= call.argument_count;
+            const auto argument_begin = rewritten.size() -
+                (direct_local_arguments ? call.argument_count : 0u);
+            if (direct_local_arguments) {
+                for (std::size_t index = argument_begin; index < rewritten.size(); ++index) {
+                    if (rewritten[index].opcode != Opcode::LoadLocal) {
+                        direct_local_arguments = false;
+                        break;
+                    }
+                }
+            }
+
+            std::vector<std::uint32_t> local_map(callee.locals.size());
+            const auto allocated_begin = direct_local_arguments
+                ? static_cast<std::uint32_t>(callee.parameters.size()) : 0u;
+            if (direct_local_arguments) {
+                for (std::uint32_t index = 0; index < call.argument_count; ++index) {
+                    local_map[index] = rewritten[argument_begin + index].index;
+                }
+                rewritten.resize(argument_begin);
+            }
+            for (std::uint32_t index = allocated_begin; index < callee.locals.size(); ++index) {
+                local_map[index] = static_cast<std::uint32_t>(caller.locals.size());
+                caller.locals.push_back("$inline$" + callee.name + "$" + callee.locals[index]);
+            }
+            if (!direct_local_arguments) {
+                for (std::uint32_t index = call.argument_count; index > 0; --index) {
+                    Instruction store;
+                    store.opcode = Opcode::StoreLocal;
+                    store.index = local_map[index - 1];
+                    rewritten.push_back(std::move(store));
+                }
+            }
+
+            const bool store_result_directly = caller_index + 1 < caller.instructions.size() &&
+                caller.instructions[caller_index + 1].opcode == Opcode::StoreLocal;
+            const auto result_local = store_result_directly
+                ? caller.instructions[++caller_index].index
+                : static_cast<std::uint32_t>(caller.locals.size());
+            if (!store_result_directly) {
+                caller.locals.push_back("$inline$" + callee.name + "$result");
+            }
+
+            std::map<std::uint32_t, std::uint32_t> labels;
+            for (const auto& instruction : callee.instructions) {
+                if (instruction.opcode == Opcode::Label) labels.emplace(instruction.label, next_label++);
+            }
+            const auto end_label = next_label++;
+            for (auto instruction : callee.instructions) {
+                if (instruction.opcode == Opcode::LoadLocal || instruction.opcode == Opcode::StoreLocal) {
+                    instruction.index = local_map.at(instruction.index);
+                }
+                if (instruction.opcode == Opcode::Label || instruction.opcode == Opcode::Jump ||
+                    instruction.opcode == Opcode::JumpIfFalse || instruction.opcode == Opcode::JumpIfTrue) {
+                    instruction.label = labels.at(instruction.label);
+                }
+                if (instruction.opcode == Opcode::ReturnF64) {
+                    instruction.opcode = Opcode::StoreLocal;
+                    instruction.index = result_local;
+                    rewritten.push_back(std::move(instruction));
+                    instruction = Instruction{};
+                    instruction.opcode = Opcode::Jump;
+                    instruction.label = end_label;
+                }
+                rewritten.push_back(std::move(instruction));
+            }
+            Instruction end;
+            end.opcode = Opcode::Label;
+            end.label = end_label;
+            rewritten.push_back(std::move(end));
+            if (!store_result_directly) {
+                Instruction load_result;
+                load_result.opcode = Opcode::LoadLocal;
+                load_result.index = result_local;
+                rewritten.push_back(std::move(load_result));
+            }
+            caller.max_stack = std::max(
+                caller.max_stack, original_max_stack + callee.max_stack);
+        }
+        caller.instructions = std::move(rewritten);
+    };
+
+    inline_calls(module.entry);
+    for (auto& function : module.functions) inline_calls(function);
+}
+
 inline Module lower(const vf::JsonValue& typed_ir) {
     const auto variadics = specialize_heterogeneous_variadics(typed_ir);
     const vf::JsonValue& variadic_shaped = variadics ? *variadics : typed_ir;
@@ -11840,7 +12450,9 @@ inline Module lower(const vf::JsonValue& typed_ir) {
     const vf::JsonValue& recursive_shaped = recursive_locals
         ? *recursive_locals : immediate_shaped;
     const auto local_calls = specialize_direct_local_calls(recursive_shaped);
-    return lower_monomorphic(local_calls ? *local_calls : recursive_shaped);
+    auto lowered = lower_monomorphic(local_calls ? *local_calls : recursive_shaped);
+    inline_small_numeric_calls(lowered);
+    return lowered;
 }
 
 }  // namespace vkf::machine_ir

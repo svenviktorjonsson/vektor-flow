@@ -2,6 +2,7 @@
 
 #include "compiler/native/vkf_machine_ir.hpp"
 #include "compiler/native/vkf_target.hpp"
+#include "compiler/native/vkf_capture_pattern.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -85,8 +86,9 @@ struct Frame {
     std::uint32_t data_base = 16;
     std::uint32_t local_count = 0;
     std::uint32_t temp_base = 0;
-    std::uint32_t max_stack = 0;
-    std::uint32_t scratch_slot = 0;
+        std::uint32_t max_stack = 0;
+        std::uint32_t scratch_slot = 0;
+        std::uint32_t scratch_slots = 0;
     std::uint32_t error_pointer_slot = 0;
     std::uint32_t error_length_slot = 0;
     std::uint32_t error_type_slot = 0;
@@ -148,13 +150,39 @@ private:
                     instruction.opcode == Opcode::SubtractF64MultisetScalar ||
                     instruction.opcode == Opcode::FloorDivideF64MultisetScalar ||
                     instruction.opcode == Opcode::ReadFileString ||
-                    instruction.opcode == Opcode::WriteFileString;
+                    instruction.opcode == Opcode::WriteFileString ||
+                    instruction.opcode == Opcode::SystemCwdString ||
+                    instruction.opcode == Opcode::SystemEnvString;
             });
-        frame.error_pointer_slot = frame.scratch_slot + static_cast<std::uint32_t>(needs_scratch);
+        const bool needs_process_scratch = std::any_of(
+            function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
+                return instruction.opcode == machine_ir::Opcode::ProcessRun;
+            });
+        std::uint32_t capture_scratch_slots = 0;
+        for (const auto& instruction : function.instructions) {
+            if (instruction.opcode != machine_ir::Opcode::CaptureRegex) continue;
+            const auto pattern = capture::parse(instruction.symbol);
+            const auto atoms = static_cast<std::uint32_t>(std::count_if(
+                pattern.ops.begin(), pattern.ops.end(), [](const auto& op) {
+                    return op.kind == capture::OpKind::Atom;
+                }));
+            capture_scratch_slots = std::max(capture_scratch_slots, 3u + atoms * 2u);
+        }
+        const bool needs_line_scratch = std::any_of(
+            function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
+                return instruction.opcode == machine_ir::Opcode::ReadLineString;
+            });
+        frame.scratch_slots = std::max({
+            needs_process_scratch ? 9u : 0u,
+            needs_line_scratch ? 4u : 0u,
+            capture_scratch_slots,
+            static_cast<std::uint32_t>(needs_scratch),
+        });
+        frame.error_pointer_slot = frame.scratch_slot + frame.scratch_slots;
         frame.error_length_slot = frame.error_pointer_slot + 1u;
         frame.error_type_slot = frame.error_length_slot + 1u;
         const std::uint32_t used = frame.data_base +
-            (frame.local_count + frame.max_stack + static_cast<std::uint32_t>(needs_scratch) +
+            (frame.local_count + frame.max_stack + frame.scratch_slots +
              (function.may_error ? 3u : 0u)) * 8;
         frame.frame_bytes = std::max(16u, (used + 15u) & ~15u);
         return frame;
@@ -314,6 +342,311 @@ private:
     void emit_string_address(std::uint32_t offset) {
         emit_string_pointer(9, offset);
         words_.emit(0x9e670120u);
+    }
+
+    void emit_owned_string_from_cstring(
+        const Frame& frame,
+        std::uint32_t first,
+        bool release_source
+    ) {
+        store_x(0, frame.offset(frame.scratch_slot));
+        call_runtime_slot(27);
+        store_x(0, frame.offset(frame.temp_base + first + 1));
+        words_.emit(0xb1002400u);
+        const auto size_valid = words_.emit(0x54000003u);
+        emit_abort();
+        words_.patch_compare_branch19(size_valid, words_.offset());
+        call_runtime_slot(8);
+        const auto allocated = words_.emit(0xb5000000u);
+        emit_abort();
+        words_.patch_compare_branch19(allocated, words_.offset());
+        store_x(0, frame.offset(frame.temp_base + first));
+        load_x(1, frame.offset(frame.temp_base + first + 1));
+        words_.emit(0xf9000001u);
+        words_.emit(0x91002000u);
+        load_x(1, frame.offset(frame.scratch_slot));
+        load_x(2, frame.offset(frame.temp_base + first + 1));
+        call_runtime_slot(28);
+        load_x(9, frame.offset(frame.temp_base + first));
+        load_x(10, frame.offset(frame.temp_base + first + 1));
+        words_.emit(0x8b0a012bu);
+        words_.emit(0x3900217fu);
+        words_.emit(0x91002129u);
+        words_.emit(0x9e670120u);
+        store_d(0, frame.offset(frame.temp_base + first));
+        words_.emit(0x9100054au);
+        words_.emit(0xcb0a03eau);
+        words_.emit(0x9e620140u);
+        store_d(0, frame.offset(frame.temp_base + first + 1));
+        if (release_source) {
+            load_x(0, frame.offset(frame.scratch_slot));
+            call_runtime_slot(9);
+        }
+    }
+
+    void emit_owned_substring(
+        const Frame& frame,
+        std::uint32_t output,
+        std::uint32_t start_offset,
+        std::uint32_t end_offset
+    ) {
+        load_x(2, end_offset);
+        load_x(1, start_offset);
+        words_.emit(0xcb010042u);
+        store_x(2, frame.offset(frame.scratch_slot + 3));
+        words_.emit(0x91002440u);
+        call_runtime_slot(8);
+        const auto allocated = words_.emit(0xb5000000u);
+        emit_abort();
+        words_.patch_compare_branch19(allocated, words_.offset());
+        store_x(0, frame.offset(frame.scratch_slot + 2));
+        load_x(2, frame.offset(frame.scratch_slot + 3));
+        words_.emit(0xf9000002u);
+        words_.emit(0x91002000u);
+        load_x(1, frame.offset(frame.scratch_slot));
+        load_x(9, start_offset);
+        words_.emit(0x8b090021u);
+        call_runtime_slot(28);
+        load_x(9, frame.offset(frame.scratch_slot + 2));
+        load_x(10, frame.offset(frame.scratch_slot + 3));
+        words_.emit(0x8b0a012bu);
+        words_.emit(0x3900217fu);
+        words_.emit(0x91002129u);
+        store_x(9, frame.offset(frame.temp_base + output));
+        words_.emit(0x9100054au);
+        words_.emit(0xcb0a03eau);
+        words_.emit(0x9e620140u);
+        store_d(0, frame.offset(frame.temp_base + output + 1));
+    }
+
+    void emit_capture_regex(
+        const machine_ir::Function& function,
+        const Frame& frame,
+        std::uint32_t first,
+        const machine_ir::Instruction& instruction,
+        bool entry,
+        std::vector<BranchPatch>& branches
+    ) {
+        const auto pattern = capture::parse(instruction.symbol);
+        if (pattern.group_names.size() != instruction.argument_count) {
+            throw EncodingFailure("capture group count changed after machine lowering");
+        }
+        load_x(9, frame.offset(frame.temp_base + first));
+        store_x(9, frame.offset(frame.scratch_slot));
+        load_d(0, frame.offset(frame.temp_base + first + 1));
+        words_.emit(0x9e78000du);
+        words_.emit(0xf10001bfu);
+        const auto decoded = words_.emit(0x5400000au);
+        words_.emit(0xcb0d03edu);
+        words_.emit(0xd10005adu);
+        words_.patch_compare_branch19(decoded, words_.offset());
+        store_x(13, frame.offset(frame.scratch_slot + 1));
+        store_x(31, frame.offset(frame.scratch_slot + 2));
+
+        const auto search = words_.offset();
+        load_x(12, frame.offset(frame.scratch_slot));
+        load_x(13, frame.offset(frame.scratch_slot + 1));
+        load_x(14, frame.offset(frame.scratch_slot + 2));
+        struct RegexFailurePatch {
+            std::size_t branch = 0;
+            std::uint32_t processed_atoms = 0;
+        };
+        std::vector<RegexFailurePatch> failures;
+        std::vector<std::uint32_t> resumes;
+        std::vector<capture::Op> atoms;
+        for (const auto& op : pattern.ops) {
+            if (op.kind == capture::OpKind::BeginCapture ||
+                op.kind == capture::OpKind::EndCapture) {
+                if (op.capture >= instruction.argument_count) {
+                    throw EncodingFailure("invalid capture group id");
+                }
+                store_x(14, frame.offset(
+                    frame.temp_base + first + op.capture * 2u +
+                    (op.kind == capture::OpKind::EndCapture ? 1u : 0u)));
+                continue;
+            }
+            words_.emit(0xaa1f03efu);
+            const auto scan = words_.offset();
+            std::vector<std::size_t> scan_ends;
+            words_.emit(0xeb0d01dfu);
+            scan_ends.push_back(words_.emit(0x54000002u));
+            if (op.maximum != std::numeric_limits<std::uint32_t>::max()) {
+                emit_u64(17, op.maximum);
+                words_.emit(0xeb1101ffu);
+                scan_ends.push_back(words_.emit(0x54000002u));
+            }
+            words_.emit(0x8b0e0191u);
+            words_.emit(0x39400230u);
+            std::vector<std::size_t> matched;
+            unsigned byte = 0;
+            while (byte < 256) {
+                while (byte < 256 && !op.bytes.contains(byte)) ++byte;
+                if (byte == 256) break;
+                const unsigned begin = byte;
+                while (byte + 1 < 256 && op.bytes.contains(byte + 1)) ++byte;
+                const unsigned end = byte++;
+                words_.emit(0x7100021fu | (begin << 10));
+                if (begin == end) {
+                    matched.push_back(words_.emit(0x54000000u));
+                } else {
+                    const auto below = words_.emit(0x54000003u);
+                    words_.emit(0x7100021fu | (end << 10));
+                    matched.push_back(words_.emit(0x54000009u));
+                    words_.patch_compare_branch19(below, words_.offset());
+                }
+            }
+            scan_ends.push_back(words_.emit(0x14000000u));
+            const auto consume = words_.offset();
+            for (const auto patch : matched) words_.patch_compare_branch19(patch, consume);
+            words_.emit(0x910005ceu);
+            words_.emit(0x910005efu);
+            const auto repeat = words_.emit(0x14000000u);
+            words_.patch_branch26(repeat, scan);
+            const auto scan_end = words_.offset();
+            for (const auto patch : scan_ends) {
+                if ((words_.values[patch] & 0xfc000000u) == 0x14000000u) {
+                    words_.patch_branch26(patch, scan_end);
+                } else {
+                    words_.patch_compare_branch19(patch, scan_end);
+                }
+            }
+            emit_u64(17, op.minimum);
+            words_.emit(0xeb1101ffu);
+            failures.push_back({
+                words_.emit(0x54000003u), static_cast<std::uint32_t>(atoms.size())});
+            store_x(15, frame.offset(
+                frame.scratch_slot + 3u + static_cast<std::uint32_t>(atoms.size()) * 2u));
+            store_x(14, frame.offset(
+                frame.scratch_slot + 4u + static_cast<std::uint32_t>(atoms.size()) * 2u));
+            atoms.push_back(op);
+            resumes.push_back(words_.offset());
+        }
+        if (pattern.anchor_end) {
+            words_.emit(0xeb0d01dfu);
+            failures.push_back({
+                words_.emit(0x54000001u), static_cast<std::uint32_t>(atoms.size())});
+        }
+        if (pattern.synthetic_full_capture) {
+            load_x(9, frame.offset(frame.scratch_slot + 2));
+            store_x(9, frame.offset(frame.temp_base + first));
+            store_x(14, frame.offset(frame.temp_base + first + 1));
+        }
+        for (std::uint32_t group = 0; group < instruction.argument_count; ++group) {
+            emit_owned_substring(
+                frame,
+                first + group * 2u,
+                frame.offset(frame.temp_base + first + group * 2u),
+                frame.offset(frame.temp_base + first + group * 2u + 1u));
+        }
+        if (instruction.owns_input) {
+            load_x(0, frame.offset(frame.scratch_slot));
+            words_.emit(0xd1002000u);
+            call_runtime_slot(9);
+        }
+        const auto done = words_.emit(0x14000000u);
+
+        std::vector<std::uint32_t> failure_labels(atoms.size() + 1u);
+        std::vector<std::size_t> no_candidate_jumps;
+        for (std::uint32_t processed = 0; processed <= atoms.size(); ++processed) {
+            failure_labels[processed] = words_.offset();
+            for (std::uint32_t candidate = processed; candidate > 0; --candidate) {
+                const std::uint32_t index = candidate - 1u;
+                const auto& atom = atoms[index];
+                if (atom.maximum == atom.minimum) continue;
+                load_x(9, frame.offset(frame.scratch_slot + 3u + index * 2u));
+                emit_u64(10, atom.minimum);
+                words_.emit(0xeb0a013fu);
+                const auto exhausted = words_.emit(0x54000009u);
+                words_.emit(0xd1000529u);
+                store_x(9, frame.offset(frame.scratch_slot + 3u + index * 2u));
+                load_x(14, frame.offset(frame.scratch_slot + 4u + index * 2u));
+                words_.emit(0xd10005ceu);
+                store_x(14, frame.offset(frame.scratch_slot + 4u + index * 2u));
+                load_x(12, frame.offset(frame.scratch_slot));
+                load_x(13, frame.offset(frame.scratch_slot + 1));
+                const auto resume = words_.emit(0x14000000u);
+                words_.patch_branch26(resume, resumes[index]);
+                words_.patch_compare_branch19(exhausted, words_.offset());
+            }
+            no_candidate_jumps.push_back(words_.emit(0x14000000u));
+        }
+
+        const auto failed = words_.offset();
+        for (const auto& failure : failures) {
+            words_.patch_compare_branch19(
+                failure.branch, failure_labels[failure.processed_atoms]);
+        }
+        for (const auto patch : no_candidate_jumps) words_.patch_branch26(patch, failed);
+        const auto emit_no_match = [&]() {
+            if (instruction.owns_input) {
+                load_x(0, frame.offset(frame.scratch_slot));
+                words_.emit(0xd1002000u);
+                call_runtime_slot(9);
+            }
+            emit_instruction_error(
+                function, frame, instruction,
+                machine_ir::value_error_mask, entry, branches);
+        };
+        if (pattern.anchor_start) {
+            emit_no_match();
+        } else {
+            load_x(9, frame.offset(frame.scratch_slot + 2));
+            words_.emit(0x91000529u);
+            store_x(9, frame.offset(frame.scratch_slot + 2));
+            load_x(10, frame.offset(frame.scratch_slot + 1));
+            words_.emit(0xeb0a013fu);
+            const auto retry = words_.emit(0x54000009u);
+            words_.patch_compare_branch19(retry, search);
+            emit_no_match();
+        }
+        words_.patch_branch26(done, words_.offset());
+    }
+
+    void emit_read_descriptor_string(
+        const Frame& frame,
+        std::uint32_t first,
+        std::uint32_t descriptor_scratch
+    ) {
+        load_x(0, frame.offset(frame.scratch_slot + descriptor_scratch));
+        words_.emit(0xaa1f03e1u);
+        words_.emit(0xd2800042u);
+        call_runtime_slot(23);
+        words_.emit(0xf100001fu);
+        const auto size_ready = words_.emit(0x5400000au);
+        emit_abort();
+        words_.patch_compare_branch19(size_ready, words_.offset());
+        store_x(0, frame.offset(frame.temp_base + first + 1));
+        words_.emit(0xb1002400u);
+        const auto allocation_size_ready = words_.emit(0x54000003u);
+        emit_abort();
+        words_.patch_compare_branch19(allocation_size_ready, words_.offset());
+        call_runtime_slot(8);
+        const auto allocated = words_.emit(0xb5000000u);
+        emit_abort();
+        words_.patch_compare_branch19(allocated, words_.offset());
+        store_x(0, frame.offset(frame.temp_base + first));
+        load_x(1, frame.offset(frame.temp_base + first + 1));
+        words_.emit(0xf9000001u);
+        load_x(0, frame.offset(frame.scratch_slot + descriptor_scratch));
+        words_.emit(0xaa1f03e1u);
+        words_.emit(0xaa1f03e2u);
+        call_runtime_slot(23);
+        load_x(0, frame.offset(frame.scratch_slot + descriptor_scratch));
+        load_x(1, frame.offset(frame.temp_base + first));
+        words_.emit(0x91002021u);
+        load_x(2, frame.offset(frame.temp_base + first + 1));
+        call_runtime_slot(21);
+        load_x(9, frame.offset(frame.temp_base + first));
+        load_x(10, frame.offset(frame.temp_base + first + 1));
+        words_.emit(0x8b0a012bu);
+        words_.emit(0x3900217fu);
+        words_.emit(0x91002129u);
+        words_.emit(0x9e670120u);
+        store_d(0, frame.offset(frame.temp_base + first));
+        words_.emit(0x9100054au);
+        words_.emit(0xcb0a03eau);
+        words_.emit(0x9e620140u);
+        store_d(0, frame.offset(frame.temp_base + first + 1));
     }
 
     void emit_format_f64_string(
@@ -662,6 +995,35 @@ private:
             call_runtime_slot(9);
             words_.patch_compare_branch19(empty, words_.offset());
         }
+    }
+
+    void emit_instruction_error(
+        const machine_ir::Function& function,
+        const Frame& frame,
+        const machine_ir::Instruction& instruction,
+        std::uint32_t type_mask,
+        bool entry,
+        std::vector<BranchPatch>& branches
+    ) {
+        emit_error_message_registers(
+            instruction.error_message_offset, instruction.byte_count);
+        if (instruction.has_error_handler) {
+            store_error_message_local(frame, instruction.error_value_local);
+            store_error_type_constant(frame, instruction.error_type_local, type_mask);
+            branches.push_back({words_.emit(0x14000000u), instruction.label, false});
+            return;
+        }
+        if (entry) {
+            emit_abort();
+            return;
+        }
+        store_x(12, frame.offset(frame.error_pointer_slot));
+        store_d(7, frame.offset(frame.error_length_slot));
+        emit_error_cleanup(function, frame);
+        load_x(12, frame.offset(frame.error_pointer_slot));
+        load_d(7, frame.offset(frame.error_length_slot));
+        emit_u64(11, type_mask);
+        emit_epilogue(frame, false);
     }
 
     [[gnu::noinline]] void emit_normalize_f64_multiset(
@@ -1070,14 +1432,121 @@ private:
         store_d(0, frame.offset(frame.temp_base + first));
     }
 
-    void emit_read_file_string(const Frame& frame, std::uint32_t first, bool owns_path) {
+    void emit_read_line_string(const Frame& frame, std::uint32_t first) {
+        constexpr std::uint64_t initial_capacity = 256u;
+        emit_u64(9, initial_capacity);
+        store_x(9, frame.offset(frame.scratch_slot + 1));
+        store_x(31, frame.offset(frame.scratch_slot + 2));
+        emit_u64(0, initial_capacity + 9u);
+        call_runtime_slot(8);
+        const auto allocated = words_.emit(0xb5000000u);
+        emit_abort();
+        words_.patch_compare_branch19(allocated, words_.offset());
+        store_x(0, frame.offset(frame.scratch_slot));
+
+        const auto read_loop = words_.offset();
+        load_x(1, frame.offset(frame.scratch_slot));
+        words_.emit(0x91002021u);
+        load_x(9, frame.offset(frame.scratch_slot + 2));
+        words_.emit(0x8b090021u);
+        words_.emit(0xaa1f03e0u);
+        emit_u64(2, 1u);
+        call_runtime_slot(21);
+        words_.emit(0xf100001fu);
+        const auto eof = words_.emit(0x54000000u);
+        const auto read_ok = words_.emit(0x5400000au);
+        emit_abort();
+        words_.patch_compare_branch19(read_ok, words_.offset());
+
+        load_x(10, frame.offset(frame.scratch_slot));
+        words_.emit(0x9100214au);
+        load_x(11, frame.offset(frame.scratch_slot + 2));
+        words_.emit(0x386b6949u);
+        words_.emit(0x7100293fu);
+        const auto newline = words_.emit(0x54000000u);
+        words_.emit(0x9100056bu);
+        store_x(11, frame.offset(frame.scratch_slot + 2));
+        load_x(10, frame.offset(frame.scratch_slot + 1));
+        words_.emit(0xeb0a017fu);
+        const auto continue_reading = words_.emit(0x54000001u);
+
+        words_.emit(0x8b0a0149u);
+        store_x(9, frame.offset(frame.scratch_slot + 1));
+        words_.emit(0x91002520u);
+        call_runtime_slot(8);
+        const auto grown = words_.emit(0xb5000000u);
+        emit_abort();
+        words_.patch_compare_branch19(grown, words_.offset());
+        store_x(0, frame.offset(frame.scratch_slot + 3));
+        words_.emit(0x91002000u);
+        load_x(1, frame.offset(frame.scratch_slot));
+        words_.emit(0x91002021u);
+        load_x(2, frame.offset(frame.scratch_slot + 2));
+        call_runtime_slot(28);
+        load_x(0, frame.offset(frame.scratch_slot));
+        call_runtime_slot(9);
+        load_x(9, frame.offset(frame.scratch_slot + 3));
+        store_x(9, frame.offset(frame.scratch_slot));
+        const auto repeat_after_grow = words_.emit(0x14000000u);
+
+        const auto repeat = words_.offset();
+        words_.patch_compare_branch19(continue_reading, repeat);
+        const auto repeat_without_grow = words_.emit(0x14000000u);
+        words_.patch_branch26(repeat_after_grow, read_loop);
+        words_.patch_branch26(repeat_without_grow, read_loop);
+
+        const auto complete = words_.offset();
+        words_.patch_compare_branch19(eof, complete);
+        words_.patch_compare_branch19(newline, complete);
+        load_x(10, frame.offset(frame.scratch_slot + 2));
+        const auto no_carriage_return = words_.emit(0xb400000au);
+        load_x(9, frame.offset(frame.scratch_slot));
+        words_.emit(0x8b0a012bu);
+        words_.emit(0x39401d69u);
+        words_.emit(0x7100353fu);
+        const auto keep_length = words_.emit(0x54000001u);
+        words_.emit(0xd100054au);
+        store_x(10, frame.offset(frame.scratch_slot + 2));
+        const auto finalized_length = words_.offset();
+        words_.patch_compare_branch19(no_carriage_return, finalized_length);
+        words_.patch_compare_branch19(keep_length, finalized_length);
+        load_x(9, frame.offset(frame.scratch_slot));
+        load_x(10, frame.offset(frame.scratch_slot + 2));
+        words_.emit(0xf900012au);
+        words_.emit(0x8b0a012bu);
+        words_.emit(0x3900217fu);
+        words_.emit(0x91002129u);
+        store_x(9, frame.offset(frame.temp_base + first));
+        words_.emit(0x9100054au);
+        words_.emit(0xcb0a03eau);
+        words_.emit(0x9e620140u);
+        store_d(0, frame.offset(frame.temp_base + first + 1));
+    }
+
+    void emit_read_file_string(
+        const machine_ir::Function& function,
+        const Frame& frame,
+        std::uint32_t first,
+        const machine_ir::Instruction& instruction,
+        bool entry,
+        std::vector<BranchPatch>& branches
+    ) {
+        const bool owns_path = instruction.owns_input;
         load_x(0, frame.offset(frame.temp_base + first));
         emit_u64(1, 0);
         emit_u64(2, 0);
         call_runtime_slot(20);
+        words_.emit(0x93407c00u);
         words_.emit(0xf100001fu);
         const auto opened = words_.emit(0x5400000au);
-        emit_abort();
+        if (owns_path) {
+            release_owned_string(
+                frame.offset(frame.temp_base + first),
+                frame.offset(frame.temp_base + first + 1));
+        }
+        emit_instruction_error(
+            function, frame, instruction,
+            machine_ir::file_not_found_error_mask, entry, branches);
         words_.patch_compare_branch19(opened, words_.offset());
         store_x(0, frame.offset(frame.scratch_slot));
         if (owns_path) {
@@ -1094,7 +1563,11 @@ private:
         call_runtime_slot(23);
         words_.emit(0xf100001fu);
         const auto sized = words_.emit(0x5400000au);
-        emit_abort();
+        load_x(0, frame.offset(frame.temp_base + first));
+        call_runtime_slot(22);
+        emit_instruction_error(
+            function, frame, instruction,
+            machine_ir::runtime_error_mask, entry, branches);
         words_.patch_compare_branch19(sized, words_.offset());
         store_x(0, frame.offset(frame.temp_base + first + 1));
 
@@ -1105,7 +1578,11 @@ private:
         call_runtime_slot(23);
         words_.emit(0xf100001fu);
         const auto rewound = words_.emit(0x5400000au);
-        emit_abort();
+        load_x(0, frame.offset(frame.temp_base + first));
+        call_runtime_slot(22);
+        emit_instruction_error(
+            function, frame, instruction,
+            machine_ir::runtime_error_mask, entry, branches);
         words_.patch_compare_branch19(rewound, words_.offset());
 
         load_x(0, frame.offset(frame.temp_base + first + 1));
@@ -1130,7 +1607,13 @@ private:
         call_runtime_slot(21);
         words_.emit(0xf100001fu);
         const auto read_ok = words_.emit(0x5400000au);
-        emit_abort();
+        load_x(0, frame.offset(frame.temp_base + first));
+        call_runtime_slot(22);
+        load_x(0, frame.offset(frame.scratch_slot));
+        call_runtime_slot(9);
+        emit_instruction_error(
+            function, frame, instruction,
+            machine_ir::runtime_error_mask, entry, branches);
         words_.patch_compare_branch19(read_ok, words_.offset());
         words_.emit(0xaa0003eau);
         load_x(9, frame.offset(frame.scratch_slot));
@@ -1153,14 +1636,43 @@ private:
     }
 
     void emit_write_file_string(
-        const Frame& frame, std::uint32_t first, bool owns_path, bool owns_data) {
+        const machine_ir::Function& function,
+        const Frame& frame,
+        std::uint32_t first,
+        const machine_ir::Instruction& instruction,
+        bool entry,
+        std::vector<BranchPatch>& branches
+    ) {
+        const bool owns_path = instruction.owns_left;
+        const bool owns_data = instruction.owns_right;
+        const bool append = instruction.index != 0;
         load_x(0, frame.offset(frame.temp_base + first));
-        emit_u64(1, 0x601u);
-        emit_u64(2, 0600u);
+        // Darwin places variadic arguments on the stack. open(path, flags,
+        // mode) therefore receives mode in the first variadic stack slot,
+        // unlike ordinary fixed x2 arguments. Its int result must also be
+        // sign-extended before testing for failure.
+        emit_u64(1, append ? 0x209u : 0x601u);
+        adjust_stack_pointer(16, false);
+        emit_u64(9, 0600u);
+        words_.emit(0xf90003e9u);
         call_runtime_slot(20);
+        adjust_stack_pointer(16, true);
+        words_.emit(0x93407c00u);
         words_.emit(0xf100001fu);
         const auto opened = words_.emit(0x5400000au);
-        emit_abort();
+        if (owns_path) {
+            release_owned_string(
+                frame.offset(frame.temp_base + first),
+                frame.offset(frame.temp_base + first + 1));
+        }
+        if (owns_data) {
+            release_owned_string(
+                frame.offset(frame.temp_base + first + 2),
+                frame.offset(frame.temp_base + first + 3));
+        }
+        emit_instruction_error(
+            function, frame, instruction,
+            machine_ir::runtime_error_mask, entry, branches);
         words_.patch_compare_branch19(opened, words_.offset());
         store_x(0, frame.offset(frame.scratch_slot));
         if (owns_path) {
@@ -1181,7 +1693,16 @@ private:
         call_runtime_slot(13);
         words_.emit(0xf100001fu);
         const auto wrote = words_.emit(0x5400000au);
-        emit_abort();
+        load_x(0, frame.offset(frame.scratch_slot));
+        call_runtime_slot(22);
+        if (owns_data) {
+            release_owned_string(
+                frame.offset(frame.temp_base + first + 2),
+                frame.offset(frame.temp_base + first + 3));
+        }
+        emit_instruction_error(
+            function, frame, instruction,
+            machine_ir::runtime_error_mask, entry, branches);
         words_.patch_compare_branch19(wrote, words_.offset());
 
         load_x(0, frame.offset(frame.scratch_slot));
@@ -1411,7 +1932,7 @@ private:
                 words_.emit(0xcb0203e2u);
                 words_.emit(0xd1000442u);
                 words_.patch_compare_branch19(decoded, words_.offset());
-                words_.emit(0xd2800020u);
+                emit_u64(0, instruction.index);
                 call_runtime_slot(13);
                 if (instruction.owns_input) {
                     load_x(0, frame.offset(frame.temp_base + first));
@@ -1419,16 +1940,21 @@ private:
                     call_runtime_slot(9);
                 }
                 stack_depth = first;
+            } else if (opcode == Opcode::ReadLineString) {
+                const std::uint32_t first = stack_depth;
+                emit_read_line_string(frame, first);
+                stack_depth = first + 2;
             } else if (opcode == Opcode::ReadFileString) {
                 require_stack(stack_depth, 2);
                 const auto first = stack_depth - 2;
-                emit_read_file_string(frame, first, instruction.owns_input);
+                emit_read_file_string(
+                    function, frame, first, instruction, entry, branches);
                 stack_depth = first + 2;
             } else if (opcode == Opcode::WriteFileString) {
                 require_stack(stack_depth, 4);
                 const auto first = stack_depth - 4;
                 emit_write_file_string(
-                    frame, first, instruction.owns_left, instruction.owns_right);
+                    function, frame, first, instruction, entry, branches);
                 stack_depth = first + 1;
             } else if (opcode == Opcode::StringEqual || opcode == Opcode::StringNotEqual ||
                        opcode == Opcode::StringLess || opcode == Opcode::StringLessEqual ||
@@ -1553,6 +2079,147 @@ private:
                 load_x(0, frame.offset(frame.scratch_slot));
                 call_runtime_slot(9);
                 stack_depth = first + 9;
+            } else if (opcode == Opcode::SystemCpuCount) {
+                emit_u64(0, 58);
+                call_runtime_slot(24);
+                words_.emit(0x9e620000u);
+                store_d(0, frame.offset(frame.temp_base + stack_depth));
+                ++stack_depth;
+            } else if (opcode == Opcode::SystemCwdString) {
+                const std::uint32_t first = stack_depth;
+                words_.emit(0xaa1f03e0u);
+                words_.emit(0xaa1f03e1u);
+                call_runtime_slot(25);
+                const auto cwd_ready = words_.emit(0xb5000000u);
+                emit_abort();
+                words_.patch_compare_branch19(cwd_ready, words_.offset());
+                emit_owned_string_from_cstring(frame, first, true);
+                stack_depth = first + 2;
+            } else if (opcode == Opcode::SystemEnvString) {
+                require_stack(stack_depth, 2);
+                const std::uint32_t first = stack_depth - 2;
+                load_x(0, frame.offset(frame.temp_base + first));
+                call_runtime_slot(26);
+                store_x(0, frame.offset(frame.scratch_slot));
+                if (instruction.owns_input) {
+                    release_owned_string(
+                        frame.offset(frame.temp_base + first),
+                        frame.offset(frame.temp_base + first + 1));
+                }
+                load_x(0, frame.offset(frame.scratch_slot));
+                const auto missing = words_.emit(0xb4000000u);
+                emit_number(1.0);
+                store_d(0, frame.offset(frame.temp_base + first));
+                load_x(0, frame.offset(frame.scratch_slot));
+                emit_owned_string_from_cstring(frame, first + 1, false);
+                const auto done = words_.emit(0x14000000u);
+                words_.patch_compare_branch19(missing, words_.offset());
+                emit_number(0.0);
+                store_d(0, frame.offset(frame.temp_base + first));
+                emit_string_address(instruction.index);
+                store_d(0, frame.offset(frame.temp_base + first + 1));
+                emit_number(0.0);
+                store_d(0, frame.offset(frame.temp_base + first + 2));
+                words_.patch_branch26(done, words_.offset());
+                stack_depth = first + 3;
+            } else if (opcode == Opcode::ProcessRun) {
+                require_stack(stack_depth, 2 + instruction.argument_count * 2);
+                const std::uint32_t first =
+                    stack_depth - 2 - instruction.argument_count * 2;
+                emit_u64(0, static_cast<std::uint64_t>(instruction.argument_count + 2u) * 8u);
+                call_runtime_slot(8);
+                const auto argv_allocated = words_.emit(0xb5000000u);
+                emit_abort();
+                words_.patch_compare_branch19(argv_allocated, words_.offset());
+                store_x(0, frame.offset(frame.scratch_slot));
+                for (std::uint32_t index = 0; index <= instruction.argument_count; ++index) {
+                    load_x(9, frame.offset(frame.temp_base + first + index * 2u));
+                    words_.emit(0xf9000009u | (index << 10));
+                }
+                words_.emit(0xf900001fu | ((instruction.argument_count + 1u) << 10));
+                call_runtime_slot(29);
+                const auto stdout_file_ready = words_.emit(0xb5000000u);
+                emit_abort();
+                words_.patch_compare_branch19(stdout_file_ready, words_.offset());
+                store_x(0, frame.offset(frame.scratch_slot + 1));
+                call_runtime_slot(29);
+                const auto stderr_file_ready = words_.emit(0xb5000000u);
+                emit_abort();
+                words_.patch_compare_branch19(stderr_file_ready, words_.offset());
+                store_x(0, frame.offset(frame.scratch_slot + 2));
+                load_x(0, frame.offset(frame.scratch_slot + 1));
+                call_runtime_slot(30);
+                store_x(0, frame.offset(frame.scratch_slot + 3));
+                load_x(0, frame.offset(frame.scratch_slot + 2));
+                call_runtime_slot(30);
+                store_x(0, frame.offset(frame.scratch_slot + 4));
+                call_runtime_slot(33);
+                const auto parent = words_.emit(0xb5000000u);
+                load_x(0, frame.offset(frame.scratch_slot + 3));
+                words_.emit(0xd2800021u);
+                call_runtime_slot(32);
+                load_x(0, frame.offset(frame.scratch_slot + 4));
+                words_.emit(0xd2800041u);
+                call_runtime_slot(32);
+                load_x(0, frame.offset(frame.temp_base + first));
+                load_x(1, frame.offset(frame.scratch_slot));
+                call_runtime_slot(34);
+                words_.emit(0xd2800fe0u);
+                call_runtime_slot(36);
+                words_.emit(0xd4200000u);
+                words_.patch_compare_branch19(parent, words_.offset());
+                store_x(0, frame.offset(frame.scratch_slot + 5));
+                words_.emit(0xf100001fu);
+                const auto fork_succeeded = words_.emit(0x5400000au);
+                emit_u64(9, UINT64_MAX);
+                store_x(9, frame.offset(frame.scratch_slot + 7));
+                const auto child_done = words_.emit(0x14000000u);
+                words_.patch_compare_branch19(fork_succeeded, words_.offset());
+                load_x(0, frame.offset(frame.scratch_slot + 5));
+                emit_frame_address(1, frame.offset(frame.scratch_slot + 6));
+                words_.emit(0xaa1f03e2u);
+                call_runtime_slot(35);
+                words_.emit(0xf100001fu);
+                const auto wait_succeeded = words_.emit(0x5400000au);
+                emit_u64(9, UINT64_MAX);
+                store_x(9, frame.offset(frame.scratch_slot + 7));
+                const auto status_done = words_.emit(0x14000000u);
+                words_.patch_compare_branch19(wait_succeeded, words_.offset());
+                load_x(9, frame.offset(frame.scratch_slot + 6));
+                words_.emit(0x1200192au);
+                const auto signaled = words_.emit(0x3500000au);
+                words_.emit(0x53087d29u);
+                words_.emit(0x12001d29u);
+                const auto decoded = words_.emit(0x14000000u);
+                words_.patch_compare_branch19(signaled, words_.offset());
+                words_.emit(0x11020149u);
+                words_.patch_branch26(decoded, words_.offset());
+                words_.emit(0x93407d29u);
+                store_x(9, frame.offset(frame.scratch_slot + 7));
+                words_.patch_branch26(status_done, words_.offset());
+                words_.patch_branch26(child_done, words_.offset());
+                for (std::uint32_t index = 0; index <= instruction.argument_count; ++index) {
+                    release_owned_string(
+                        frame.offset(frame.temp_base + first + index * 2u),
+                        frame.offset(frame.temp_base + first + index * 2u + 1u));
+                }
+                emit_read_descriptor_string(frame, first + 1, 3);
+                emit_read_descriptor_string(frame, first + 3, 4);
+                for (std::uint32_t file = 1; file <= 2; ++file) {
+                    load_x(0, frame.offset(frame.scratch_slot + file));
+                    call_runtime_slot(31);
+                }
+                load_x(0, frame.offset(frame.scratch_slot));
+                call_runtime_slot(9);
+                load_x(9, frame.offset(frame.scratch_slot + 7));
+                words_.emit(0x9e620120u);
+                store_d(0, frame.offset(frame.temp_base + first));
+                stack_depth = first + 5;
+            } else if (opcode == Opcode::CaptureRegex) {
+                require_stack(stack_depth, 2);
+                const std::uint32_t first = stack_depth - 2;
+                emit_capture_regex(function, frame, first, instruction, entry, branches);
+                stack_depth = first + instruction.argument_count * 2u;
             } else if (opcode == Opcode::RangeF64Values) {
                 require_stack(stack_depth, instruction.argument_count);
                 const auto first = stack_depth - instruction.argument_count;
@@ -1807,8 +2474,8 @@ private:
                         const auto ddof = (opcode == Opcode::VarianceF64List ||
                                            opcode == Opcode::StdDevF64List)
                             ? instruction.degrees_of_freedom : 0u;
-                        if (ddof > 4095) throw EncodingFailure("arm64 stat.std ddof is too large");
-                        words_.emit(0xf100019fu | (ddof << 10));
+                        emit_u64(17, ddof);
+                        words_.emit(0xeb11019fu);
                         const auto nonempty = words_.emit(0x54000008u);
                         emit_abort();
                         words_.patch_compare_branch19(nonempty, words_.offset());
@@ -1844,8 +2511,8 @@ private:
                         const auto variance_repeat = words_.emit(0x54000001u);
                         words_.patch_compare_branch19(variance_repeat, variance_loop);
                         if (instruction.degrees_of_freedom != 0) {
-                            words_.emit(0xd100018cu |
-                                (instruction.degrees_of_freedom << 10));
+                            emit_u64(17, instruction.degrees_of_freedom);
+                            words_.emit(0xcb11018cu);
                         }
                         words_.emit(0x9e620182u);
                         words_.emit(0x1e621821u);
@@ -2306,6 +2973,39 @@ private:
                     words_.emit(0x9e78000bu);
                     emit_epilogue(frame, false);
                 }
+            } else if (opcode == Opcode::RaiseErrorValue) {
+                require_stack(stack_depth, 5);
+                const std::uint32_t first = stack_depth - 5;
+                if (instruction.owns_input) {
+                    release_owned_string(
+                        frame.offset(frame.temp_base + first + 2),
+                        frame.offset(frame.temp_base + first + 3));
+                }
+                load_x(12, frame.offset(frame.temp_base + first));
+                load_d(7, frame.offset(frame.temp_base + first + 1));
+                load_d(0, frame.offset(frame.temp_base + first + 4));
+                words_.emit(0x9e78000bu);
+                if (instruction.has_error_handler) {
+                    store_error_message_local(frame, instruction.error_value_local);
+                    store_error_type_local(frame, instruction.error_type_local);
+                    branches.push_back({words_.emit(0x14000000u), instruction.label, false});
+                } else if (entry) {
+                    emit_abort();
+                } else {
+                    store_x(12, frame.offset(frame.error_pointer_slot));
+                    store_d(7, frame.offset(frame.error_length_slot));
+                    load_d(0, frame.offset(frame.temp_base + first + 4));
+                    store_d(0, frame.offset(frame.error_type_slot));
+                    emit_error_cleanup(function, frame);
+                    load_x(12, frame.offset(frame.error_pointer_slot));
+                    load_d(7, frame.offset(frame.error_length_slot));
+                    load_d(0, frame.offset(frame.error_type_slot));
+                    words_.emit(0x9e78000bu);
+                    emit_epilogue(frame, false);
+                }
+                emit_number(machine_ir::null_value());
+                store_d(0, frame.offset(frame.temp_base + first));
+                stack_depth = first + 1;
             } else if (opcode == Opcode::AssertTruthyString) {
                 require_stack(stack_depth, 3);
                 const std::uint32_t first = stack_depth - 3;

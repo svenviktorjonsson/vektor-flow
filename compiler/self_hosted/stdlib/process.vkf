@@ -1,0 +1,8 @@
+# Synchronous child-process execution. `run` passes an exact argument vector;
+# `shell` is the explicit platform-shell boundary.
+
+run(program:str, args:any) -> (code:int,out:str,err:str):
+    process.run_native(program, args)
+
+shell(command:str) -> (code:int,out:str,err:str):
+    process.shell_native(command)

@@ -92,6 +92,8 @@ function compile(compiler, output, ...sources) {
       `/Fo${dirname(output).replaceAll("\\", "/")}/`,
       ...sources.map((source) => join(root, source)),
       `/Fe${output}`,
+      "/link",
+      "/STACK:8388608",
     ];
     if (compiler.developerEnvironment) {
       run(
@@ -104,6 +106,11 @@ function compile(compiler, output, ...sources) {
     }
     return;
   }
+  const windowsStack = process.platform !== "win32"
+    ? []
+    : /clang/i.test(basename(compiler.command))
+      ? ["-Wl,/STACK:8388608"]
+      : ["-Wl,--stack,8388608"];
   run(compiler.command, [
     "-std=c++17",
     "-Wall",
@@ -114,6 +121,7 @@ function compile(compiler, output, ...sources) {
     "-I",
     join(root, "native", "VfOverlay"),
     ...sources.map((source) => join(root, source)),
+    ...windowsStack,
     "-o",
     output,
   ]);

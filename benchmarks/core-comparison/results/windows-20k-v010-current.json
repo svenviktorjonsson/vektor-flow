@@ -1,0 +1,95 @@
+{
+  "schema": "vektor-flow/core-language-comparison-v1",
+  "generatedAt": "2026-08-21T21:55:11.995Z",
+  "environment": {
+    "platform": "win32 10.0.26200",
+    "architecture": "x64",
+    "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+    "logicalCpuCount": 14,
+    "node": "v24.11.0"
+  },
+  "cases": [
+    {
+      "template": "scalar-control",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "largeCount": 2000000,
+      "requiresDirectVkf": true,
+      "tolerance": 1e-9,
+      "pythonExtension": "py",
+      "languages": [
+        "vkf",
+        "c",
+        "cpp",
+        "python-efficient",
+        "rust"
+      ],
+      "id": "scalar-control-small",
+      "size": "small",
+      "count": 20000
+    }
+  ],
+  "options": {
+    "caseId": "scalar-control-small",
+    "languageId": "vkf",
+    "outputStem": "windows-20k-v010-current",
+    "compileRuns": 100,
+    "compileWarmups": 1,
+    "runs": 100,
+    "warmups": 5
+  },
+  "results": [
+    {
+      "case": "scalar-control-small",
+      "operation": "arithmetic + branch",
+      "data": "scalar f64",
+      "size": "small",
+      "count": 20000,
+      "language": "vkf",
+      "version": "Vektor Flow 0.1.0 native compiler; clang version 22.1.4 (https://github.com/llvm/llvm-project 35990504507d79e0b9deb809c8ee5e1b34ceef20)",
+      "compileModel": "persistent Python-free integrated frontend + compiler-owned direct x64 artifact",
+      "artifactFallback": false,
+      "artifactFallbackReason": "",
+      "source": {
+        "bytes": 243,
+        "lines": 15
+      },
+      "compile": {
+        "count": 100,
+        "meanMs": 4.996851,
+        "medianMs": 4.5464,
+        "minMs": 3.7227,
+        "maxMs": 10.7957,
+        "p95Ms": 7.5834,
+        "stddevMs": 1.336343,
+        "ci95LowerMs": 4.734928,
+        "ci95UpperMs": 5.258774
+      },
+      "runtime": {
+        "count": 100,
+        "meanMs": 11.583873,
+        "medianMs": 10.11335,
+        "minMs": 7.6449,
+        "maxMs": 35.2216,
+        "p95Ms": 24.0371,
+        "stddevMs": 5.081056,
+        "ci95LowerMs": 10.587986,
+        "ci95UpperMs": 12.57976,
+        "startupAdjustedMeanMs": 11.583873
+      },
+      "nativeRuntime": {
+        "count": 100,
+        "meanMs": 0.18905,
+        "medianMs": 0.1725,
+        "minMs": 0.1639,
+        "maxMs": 0.3071,
+        "p95Ms": 0.2719,
+        "stddevMs": 0.034175,
+        "ci95LowerMs": 0.182352,
+        "ci95UpperMs": 0.195748
+      },
+      "nativeCodeSha256": "76a41701a70ded54c37511fcfaee275f5b9f7745f34138bfb9707a01c79babc0",
+      "value": 21.017288693559877
+    }
+  ]
+}

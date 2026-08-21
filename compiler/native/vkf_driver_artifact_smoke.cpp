@@ -3,6 +3,12 @@
 #ifdef VKF_X64_BACKEND_LIBRARY
 #include "compiler/native/vkf_x64_backend.hpp"
 #endif
+#ifdef VKF_ARM64_BACKEND_LIBRARY
+#include "compiler/native/vkf_arm64_encoder.hpp"
+#include "compiler/native/vkf_machine_ir_json.hpp"
+#include "compiler/native/vkf_machine_ir_lowering.hpp"
+#include "compiler/native/vkf_macho_writer.hpp"
+#endif
 #ifdef VKF_NATIVE_FRONTEND_LIBRARY
 #include "compiler/native/vkf_native_frontend.hpp"
 #endif
@@ -26,9 +32,14 @@
 #include <vector>
 
 #ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
 #include <windows.h>
 #else
 #include <cerrno>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -37,6 +48,8 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+std::filesystem::path bundled_stdlib_root;
 
 class DriverFailure : public std::runtime_error {
 public:
@@ -61,8 +74,14 @@ struct Args {
     std::filesystem::path x64_template;
     std::filesystem::path wasm_artifact;
     std::filesystem::path webgpu_artifact;
+    std::filesystem::path output;
+    std::string cache_fingerprint;
     std::string eval_source;
+#ifdef VKF_STRICT_DIRECT_ONLY
+    bool aot = true;
+#else
     bool aot = false;
+#endif
     bool run = false;
     bool emit_wasm = false;
     bool emit_webgpu = false;
@@ -73,6 +92,12 @@ struct Args {
 struct Dependency {
     std::string name;
     std::filesystem::path path;
+};
+
+struct TaggedTest {
+    std::string name;
+    bool compatible = false;
+    std::string incompatibility;
 };
 
 std::string read_file(const std::filesystem::path& path) {
@@ -111,6 +136,17 @@ void write_file(const std::filesystem::path& path, const std::string& text) {
     output << text;
 }
 
+void write_binary_file(
+    const std::filesystem::path& path,
+    const std::vector<std::uint8_t>& bytes
+) {
+    std::ofstream output(path, std::ios::binary);
+    if (!output) throw DriverFailure("could not write " + path.string());
+    output.write(
+        reinterpret_cast<const char*>(bytes.data()),
+        static_cast<std::streamsize>(bytes.size()));
+}
+
 std::string stem_of(const std::filesystem::path& source) {
     const std::string stem = source.stem().string();
     return stem.empty() ? "stdin" : stem;
@@ -130,6 +166,64 @@ std::filesystem::path sibling_tool_path(const std::filesystem::path& self, const
 #else
     return dir / stem;
 #endif
+}
+
+std::filesystem::path current_executable(const std::filesystem::path& fallback) {
+#ifdef _WIN32
+    std::wstring buffer(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length > 0 && length < buffer.size()) {
+        buffer.resize(length);
+        return std::filesystem::path(buffer);
+    }
+#else
+#ifdef __APPLE__
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> buffer(size);
+    if (_NSGetExecutablePath(buffer.data(), &size) == 0) {
+        return std::filesystem::weakly_canonical(buffer.data());
+    }
+#else
+    std::error_code error;
+    const auto path = std::filesystem::read_symlink("/proc/self/exe", error);
+    if (!error && !path.empty()) return path;
+#endif
+#endif
+    return std::filesystem::absolute(fallback);
+}
+
+std::vector<std::filesystem::path> test_source_files(const std::filesystem::path& target) {
+    std::vector<std::filesystem::path> files;
+    if (std::filesystem::is_regular_file(target)) {
+        if (target.extension() != ".vkf") {
+            throw DriverFailure("test file must end in .vkf");
+        }
+        files.push_back(target);
+    } else if (std::filesystem::is_directory(target)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(target)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".vkf") continue;
+            bool generated = false;
+            for (const auto& component : entry.path()) {
+                if (component == ".vkfbuild") generated = true;
+            }
+            if (!generated) files.push_back(entry.path());
+        }
+    } else {
+        throw DriverFailure("test path does not exist: " + target.string());
+    }
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
+void locate_bundled_stdlib(const std::filesystem::path& self) {
+    if (self.empty()) return;
+    const auto bin_dir = current_executable(self).parent_path();
+    // Release layout is <root>/bin/vkf[.exe]. Keep this startup path lexical:
+    // probing/canonicalizing the filesystem here materially taxes every small
+    // compilation. Actual module resolution performs the existence check only
+    // when source imports a module.
+    bundled_stdlib_root = bin_dir.parent_path() / "compiler" / "self_hosted" / "stdlib";
 }
 
 void fill_default_tool_paths(Args& args) {
@@ -154,7 +248,7 @@ void fill_default_tool_paths(Args& args) {
         args.artifact = sibling_tool_path(args.self, args.aot ? "vkf_x64_artifact" : "vkf_compiler_artifact_smoke");
     }
     if (args.aot) {
-#if defined(__APPLE__)
+#if defined(__APPLE__) && defined(VKF_X64_BACKEND_LIBRARY)
         if (args.x64_template.empty()) args.x64_template = sibling_tool_path(args.self, "vkf_x64_runner_template");
 #endif
     }
@@ -182,7 +276,7 @@ void validate_tool_paths(const Args& args) {
 #ifdef VKF_NATIVE_FRONTEND_LIBRARY
     }
 #endif
-#if defined(VKF_X64_BACKEND_LIBRARY)
+#if defined(VKF_X64_BACKEND_LIBRARY) || defined(VKF_ARM64_BACKEND_LIBRARY)
     if (!args.aot) require_tool_exists(args.artifact, "artifact");
 #else
     require_tool_exists(args.artifact, "artifact");
@@ -203,6 +297,9 @@ void validate_tool_paths(const Args& args) {
 
 std::vector<Dependency> resolve_stdlib_dependencies(const std::string& source_text) {
     std::vector<Dependency> deps;
+    const auto stdlib_root = bundled_stdlib_root.empty()
+        ? std::filesystem::current_path() / "compiler" / "self_hosted" / "stdlib"
+        : bundled_stdlib_root;
     auto add_dep = [&](const std::string& name, const std::filesystem::path& path) {
         for (const auto& dep : deps) {
             if (dep.name == name) {
@@ -215,26 +312,35 @@ std::vector<Dependency> resolve_stdlib_dependencies(const std::string& source_te
         deps.push_back({name, path});
     };
     if (source_text.find("math.") != std::string::npos) {
-        add_dep("math", std::filesystem::current_path() / "compiler" / "self_hosted" / "stdlib" / "math.vkf");
+        add_dep("math", stdlib_root / "math.vkf");
     }
     if (source_text.find("io.") != std::string::npos || source_text.find("print(") != std::string::npos) {
-        add_dep("io", std::filesystem::current_path() / "compiler" / "self_hosted" / "stdlib" / "io.vkf");
+        add_dep("io", stdlib_root / "io.vkf");
+    }
+    if (source_text.find(".system") != std::string::npos || source_text.find("system.") != std::string::npos) {
+        add_dep("system", stdlib_root / "system.vkf");
+    }
+    if (source_text.find(".process") != std::string::npos || source_text.find("process.") != std::string::npos) {
+        add_dep("process", stdlib_root / "process.vkf");
+    }
+    if (source_text.find(".regex") != std::string::npos || source_text.find("regex.") != std::string::npos) {
+        add_dep("regex", stdlib_root / "regex.vkf");
     }
     if (source_text.find(".random") != std::string::npos || source_text.find("random.") != std::string::npos) {
-        add_dep("random", std::filesystem::current_path() / "compiler" / "self_hosted" / "stdlib" / "random.vkf");
+        add_dep("random", stdlib_root / "random.vkf");
     }
     if (source_text.find(".errors") != std::string::npos || source_text.find("errors.") != std::string::npos) {
-        add_dep("errors", std::filesystem::current_path() / "compiler" / "self_hosted" / "stdlib" / "errors.vkf");
+        add_dep("errors", stdlib_root / "errors.vkf");
     }
     if (source_text.find(".collections") != std::string::npos || source_text.find("collections.") != std::string::npos) {
-        add_dep("collections", std::filesystem::current_path() / "compiler" / "self_hosted" / "stdlib" / "collections.vkf");
+        add_dep("collections", stdlib_root / "collections.vkf");
     }
     if (source_text.find(".physics") != std::string::npos || source_text.find("physics.") != std::string::npos ||
         source_text.find(".rigid_body") != std::string::npos || source_text.find("rigid_body.") != std::string::npos) {
-        add_dep("physics", std::filesystem::current_path() / "compiler" / "self_hosted" / "stdlib" / "physics.vkf");
+        add_dep("physics", stdlib_root / "physics.vkf");
     }
     if (source_text.find("stat.") != std::string::npos || source_text.find("collections.") != std::string::npos) {
-        add_dep("stdlib", std::filesystem::current_path() / "compiler" / "self_hosted" / "stdlib.vkf");
+        add_dep("stdlib", stdlib_root.parent_path() / "stdlib.vkf");
     }
     return deps;
 }
@@ -560,8 +666,123 @@ std::optional<std::filesystem::path> resolve_dot_module(
     if (std::filesystem::is_regular_file(bundled)) {
         return std::filesystem::weakly_canonical(bundled);
     }
+    if (!bundled_stdlib_root.empty()) {
+        const auto installed = bundled_stdlib_root / relative;
+        if (std::filesystem::is_regular_file(installed)) {
+            return std::filesystem::weakly_canonical(installed);
+        }
+    }
     return std::nullopt;
 }
+
+void append_fingerprint_source(
+    const std::filesystem::path& source,
+    std::set<std::filesystem::path>& visited,
+    std::string& material
+) {
+    const auto canonical = std::filesystem::weakly_canonical(source);
+    if (!visited.insert(canonical).second) return;
+    const std::string text = read_file(canonical);
+    material += "\nFILE:" + canonical.filename().string() + "\n" + text;
+
+    std::istringstream lines(text);
+    std::string line;
+    while (std::getline(lines, line)) {
+        const auto first = line.find_first_not_of(" \t");
+        if (first == std::string::npos || line.compare(first, 3, "::.") != 0) continue;
+        std::size_t end = first + 3;
+        while (end < line.size() &&
+               (std::isalnum(static_cast<unsigned char>(line[end])) ||
+                line[end] == '_' || line[end] == '-')) {
+            ++end;
+        }
+        if (end == first + 3) continue;
+        const std::string module = line.substr(first + 3, end - first - 3);
+        const auto resolved = resolve_dot_module(canonical, module);
+        if (resolved) append_fingerprint_source(*resolved, visited, material);
+    }
+}
+
+std::string native_build_fingerprint(
+    const std::filesystem::path& self,
+    const std::filesystem::path& source
+) {
+    (void)self;
+    std::string material = "VKF-NATIVE-BUILD-V2\n" __DATE__ "\n" __TIME__ "\n";
+    std::set<std::filesystem::path> visited;
+    append_fingerprint_source(source, visited, material);
+    return sha256_hex(material);
+}
+
+bool executable_has_fingerprint(
+    const std::filesystem::path& executable,
+    const std::string& fingerprint
+) {
+    if (!std::filesystem::is_regular_file(executable)) return false;
+    const std::string expected = "VKF-CACHE-V1:" + fingerprint;
+    const std::string binary = read_file(executable);
+    return binary.find(expected) != std::string::npos;
+}
+
+#ifdef VKF_ARM64_BACKEND_LIBRARY
+struct Arm64DirectArtifact {
+    std::filesystem::path artifact_path;
+    std::filesystem::path manifest_path;
+};
+
+Arm64DirectArtifact compile_arm64_direct(
+    const vf::JsonValue& typed_ir,
+    const std::filesystem::path& source,
+    const std::filesystem::path& requested_artifact,
+    const std::string& cache_fingerprint
+) {
+    try {
+        auto machine_ir = vkf::machine_ir::lower(typed_ir);
+        if (!cache_fingerprint.empty()) {
+            const std::string marker = "VKF-CACHE-V1:" + cache_fingerprint;
+            machine_ir.string_data.insert(
+                machine_ir.string_data.end(), marker.begin(), marker.end());
+        }
+        const auto encoded = vkf::arm64::encode(machine_ir);
+        const std::string stem = source.stem().string().empty()
+            ? "program" : source.stem().string();
+        const auto build_dir = build_dir_for(source);
+        const auto artifact_path = requested_artifact.empty()
+            ? build_dir / stem
+            : std::filesystem::absolute(requested_artifact);
+        std::filesystem::create_directories(build_dir);
+        std::filesystem::create_directories(artifact_path.parent_path());
+        const auto code_path = build_dir / "arm64-code.bin";
+        const auto data_path = build_dir / "arm64-data.bin";
+        const auto manifest_path = build_dir / "arm64-manifest.json";
+        const auto executable = vkf::macho::executable_arm64(
+            encoded.code, stem, machine_ir.string_data,
+            machine_ir.output_kind == vkf::machine_ir::OutputKind::String,
+            machine_ir.output_kind == vkf::machine_ir::OutputKind::None,
+            machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64
+                ? machine_ir.output_count : 0u,
+            machine_ir.outputs, machine_ir.output_tokens);
+        write_binary_file(artifact_path, executable.bytes);
+        write_binary_file(code_path, encoded.code);
+        write_binary_file(data_path, machine_ir.string_data);
+        vf::JsonValue::Object manifest;
+        manifest["artifact_path"] = std::filesystem::absolute(artifact_path).string();
+        manifest["code_path"] = std::filesystem::absolute(code_path).string();
+        manifest["data_path"] = std::filesystem::absolute(data_path).string();
+        manifest["target_architecture"] = "arm64";
+        write_file(manifest_path, vf::json_stringify(vf::JsonValue(manifest), 2) + "\n");
+        std::filesystem::permissions(
+            artifact_path,
+            std::filesystem::perms::owner_exec
+                | std::filesystem::perms::group_exec
+                | std::filesystem::perms::others_exec,
+            std::filesystem::perm_options::add);
+        return {artifact_path, manifest_path};
+    } catch (const std::exception& error) {
+        throw DriverFailure(std::string("direct arm64 backend unsupported: ") + error.what());
+    }
+}
+#endif
 
 std::optional<std::filesystem::path> spilled_module_path(
     const vf::JsonValue& statement_value,
@@ -809,12 +1030,72 @@ vf::JsonValue link_spilled_file_modules(
     linked_module["body"] = vf::JsonValue(std::move(rewritten_body));
     return vf::JsonValue(std::move(linked_module));
 }
+
+#ifdef VKF_STRICT_DIRECT_ONLY
+const std::set<std::string>& unavailable_release_modules() {
+    static const std::set<std::string> modules{
+        "events", "physics", "rigid_body", "screen", "symbolic", "ui"
+    };
+    return modules;
+}
+
+[[noreturn]] void fail_unavailable_release_module(const std::string& name) {
+    throw DriverFailure(
+        "stdlib module '" + name +
+        "' is not included in the strict native release; no compatibility fallback is available"
+    );
+}
+
+void enforce_strict_release_surface(const vf::JsonValue& value) {
+    if (value.is_array()) {
+        for (const auto& item : value.as_array()) enforce_strict_release_surface(item);
+        return;
+    }
+    if (!value.is_object()) return;
+    const auto& object = value.as_object();
+    const auto kind = object.find("kind");
+    if (kind != object.end() && kind->second.is_string()) {
+        if (kind->second.as_string() == "spill_import") {
+            const auto path = object.find("path");
+            if (path != object.end() && path->second.is_object()) {
+                const auto segments = path->second.as_object().find("segments");
+                if (segments != path->second.as_object().end() && segments->second.is_array()
+                    && segments->second.as_array().size() == 1
+                    && segments->second.as_array().front().is_string()) {
+                    const auto& name = segments->second.as_array().front().as_string();
+                    if (unavailable_release_modules().count(name) != 0) {
+                        fail_unavailable_release_module(name);
+                    }
+                }
+            }
+        }
+        if (kind->second.as_string() == "attribute") {
+            const auto base = object.find("object");
+            if (base != object.end() && base->second.is_object()) {
+                const auto& base_object = base->second.as_object();
+                const auto base_kind = base_object.find("kind");
+                const auto base_name = base_object.find("name");
+                if (base_kind != base_object.end() && base_kind->second.is_string()
+                    && base_kind->second.as_string() == "identifier"
+                    && base_name != base_object.end() && base_name->second.is_string()
+                    && unavailable_release_modules().count(base_name->second.as_string()) != 0) {
+                    fail_unavailable_release_module(base_name->second.as_string());
+                }
+            }
+        }
+    }
+    for (const auto& [_, child] : object) enforce_strict_release_surface(child);
+}
+#endif
 #endif
 
 ProcessResult run_checked(const std::vector<std::string>& args, const std::string& phase) {
     ProcessResult result = run_process(args);
     if (result.exit_code != 0) {
-        throw DriverFailure(phase + " failed: " + result.stderr_text);
+        std::string detail = phase + " failed (exit " + std::to_string(result.exit_code) + ")";
+        if (!result.stdout_text.empty()) detail += "\n" + result.stdout_text;
+        if (!result.stderr_text.empty()) detail += "\n" + result.stderr_text;
+        throw DriverFailure(std::move(detail));
     }
     return result;
 }
@@ -834,11 +1115,146 @@ std::string string_field(const vf::JsonValue::Object& object, const std::string&
     return found->second.as_string();
 }
 
+int run_inherited(const std::filesystem::path& executable) {
+#ifdef _WIN32
+    STARTUPINFOA startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    const auto absolute_executable = std::filesystem::absolute(executable);
+    std::string command = command_line({absolute_executable.string()});
+    std::vector<char> mutable_command(command.begin(), command.end());
+    mutable_command.push_back('\0');
+    if (!CreateProcessA(
+            nullptr, mutable_command.data(), nullptr, nullptr, TRUE, 0, nullptr,
+            nullptr, &startup, &process)) {
+        throw DriverFailure("could not run cached executable " + executable.string());
+    }
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 1;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return static_cast<int>(exit_code);
+#else
+    const pid_t child = fork();
+    if (child < 0) throw DriverFailure("could not fork cached executable");
+    if (child == 0) {
+        const std::string path = std::filesystem::absolute(executable).string();
+        execl(path.c_str(), path.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) throw DriverFailure("could not wait for cached executable");
+    }
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    return 128 + WTERMSIG(status);
+#endif
+}
+
+#ifdef VKF_NATIVE_FRONTEND_LIBRARY
+std::vector<TaggedTest> discover_tagged_tests(
+    const std::string& source,
+    const std::filesystem::path& file
+) {
+    const auto tokens = vkf::native_frontend::lex_value(source, file.string());
+    const auto ast = vkf::native_frontend::parse_value(tokens);
+    const auto& module = object_of(ast, "test module");
+    const auto body = module.find("body");
+    if (body == module.end() || !body->second.is_array()) {
+        throw DriverFailure("test module has no body");
+    }
+
+    std::vector<TaggedTest> tests;
+    for (const auto& statement : body->second.as_array()) {
+        if (!statement.is_object()) continue;
+        const auto& function = statement.as_object();
+        const auto kind = function.find("kind");
+        const auto tag = function.find("test");
+        if (kind == function.end() || !kind->second.is_string() ||
+            kind->second.as_string() != "function_definition" ||
+            tag == function.end() || !tag->second.is_boolean() || !tag->second.as_boolean()) {
+            continue;
+        }
+
+        TaggedTest test;
+        test.name = string_field(function, "name", "tagged test");
+        test.compatible = true;
+
+        const auto params = function.find("params");
+        if (params == function.end() || !params->second.is_array()) {
+            test.compatible = false;
+            test.incompatibility = "invalid parameter list";
+        } else {
+            for (const auto& param_value : params->second.as_array()) {
+                const auto& param = object_of(param_value, "test parameter");
+                const auto default_value = param.find("default");
+                if (default_value == param.end() || default_value->second.is_null()) {
+                    test.compatible = false;
+                    test.incompatibility = "required parameters need fixtures";
+                    break;
+                }
+            }
+        }
+
+        const auto return_type = function.find("return_type");
+        if (test.compatible &&
+            (return_type == function.end() || !return_type->second.is_object())) {
+            test.compatible = false;
+            test.incompatibility = "test must return bit";
+        } else if (test.compatible) {
+            const auto& type = return_type->second.as_object();
+            const auto name = type.find("name");
+            if (name == type.end() || !name->second.is_string() || name->second.as_string() != "bit") {
+                test.compatible = false;
+                test.incompatibility = "test must return bit";
+            }
+        }
+        tests.push_back(std::move(test));
+    }
+    return tests;
+}
+#endif
+
 Args parse_args(int argc, char** argv) {
     Args args;
     if (argc > 0) {
         args.self = argv[0];
     }
+#ifdef VKF_STRICT_DIRECT_ONLY
+    if (argc == 2 && !std::string(argv[1]).empty() && std::string(argv[1]).front() != '-') {
+        args.source = argv[1];
+        args.run = true;
+        args.output = args.source;
+#ifdef _WIN32
+        args.output.replace_extension(".exe");
+#else
+        args.output.replace_extension();
+#endif
+    } else if (argc == 4 && !std::string(argv[1]).empty() &&
+               std::string(argv[1]).front() != '-' && std::string(argv[2]) == "-o") {
+        args.source = argv[1];
+        args.output = argv[3];
+        args.run = true;
+    } else if (argc == 3 && std::string(argv[1]) == "-e") {
+        args.eval_source = argv[2];
+        args.run = true;
+    } else if (argc == 3 && std::string(argv[1]) == "-b") {
+        args.source = argv[2];
+        args.output = args.source;
+#ifdef _WIN32
+        args.output.replace_extension(".exe");
+#else
+        args.output.replace_extension();
+#endif
+    } else if (argc == 5 && std::string(argv[1]) == "-b" &&
+               std::string(argv[3]) == "-o") {
+        args.source = argv[2];
+        args.output = argv[4];
+    } else {
+        throw DriverFailure("usage: vkf file.vkf [-o executable] | -e source | -b file.vkf [-o executable] | -t file-or-folder");
+    }
+#else
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--source" && i + 1 < argc) {
@@ -915,6 +1331,7 @@ Args parse_args(int argc, char** argv) {
     if (args.source.empty() && args.eval_source.empty()) {
         throw DriverFailure("usage: vkf_driver_artifact_smoke [file.vkf | --source file.vkf | -e snippet] [--aot] [--lexer exe --parser exe --ir exe --artifact exe --wasm-artifact exe --webgpu-artifact exe --emit-wasm --emit-webgpu] [--run]");
     }
+#endif
     fill_default_tool_paths(args);
     return args;
 }
@@ -923,6 +1340,7 @@ Args parse_args(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     try {
+        if (argc > 0) locate_bundled_stdlib(argv[0]);
         const auto compile_one = [](Args args) -> std::string {
         const auto total_started = Clock::now();
         validate_tool_paths(args);
@@ -997,6 +1415,9 @@ int main(int argc, char** argv) {
 #ifdef VKF_NATIVE_FRONTEND_LIBRARY
         if (!args.external_frontend) {
             integrated_ast = vkf::native_frontend::parse_value(*integrated_tokens);
+#ifdef VKF_STRICT_DIRECT_ONLY
+            enforce_strict_release_surface(*integrated_ast);
+#endif
             linked_integrated_ast = link_spilled_file_modules(
                 *integrated_ast, args.source, stdlib_cache_stats);
             ast = {
@@ -1057,16 +1478,16 @@ int main(int argc, char** argv) {
         std::string manifest_path;
         std::string artifact_path;
         if (args.aot) {
-#ifdef VKF_X64_BACKEND_LIBRARY
             std::optional<vf::JsonValue> parsed_direct_ir;
             if (!integrated_typed_ir) parsed_direct_ir = vf::parse_json(typed_ir.stdout_text);
             const vf::JsonValue& direct_ir = integrated_typed_ir
                 ? *integrated_typed_ir
                 : *parsed_direct_ir;
+#ifdef VKF_X64_BACKEND_LIBRARY
             try {
                 const auto direct = vkf_x64_backend::compile(
                     direct_ir, args.source, typed_ir_path, args.x64_template,
-                    materialize_frontend
+                    materialize_frontend, args.output, args.cache_fingerprint
                 );
                 status = "compiled";
                 manifest_path = direct.manifest_path.string();
@@ -1084,8 +1505,14 @@ int main(int argc, char** argv) {
                 artifact_path = string_field(fallback_summary, "artifact_path", "fallback artifact summary");
                 used_fallback_artifact = true;
             }
+#elif defined(VKF_ARM64_BACKEND_LIBRARY)
+            const auto direct = compile_arm64_direct(
+                direct_ir, args.source, args.output, args.cache_fingerprint);
+            status = "compiled";
+            manifest_path = direct.manifest_path.string();
+            artifact_path = direct.artifact_path.string();
 #else
-            throw DriverFailure("driver was built without the integrated x64 backend");
+            throw DriverFailure("driver was built without an integrated native backend");
 #endif
         } else {
             ProcessResult artifact = run_process(artifact_args);
@@ -1100,6 +1527,29 @@ int main(int argc, char** argv) {
             status = string_field(artifact_summary, "status", "artifact summary");
             manifest_path = string_field(artifact_summary, "manifest_path", "artifact summary");
             artifact_path = string_field(artifact_summary, "artifact_path", "artifact summary");
+        }
+        if (!args.output.empty()) {
+            const auto requested_output = std::filesystem::absolute(args.output);
+            if (!requested_output.parent_path().empty()) {
+                std::filesystem::create_directories(requested_output.parent_path());
+            }
+            const auto generated_artifact = std::filesystem::absolute(artifact_path);
+            if (generated_artifact != requested_output) {
+                std::filesystem::copy_file(
+                    generated_artifact, requested_output,
+                    std::filesystem::copy_options::overwrite_existing);
+                std::error_code ignore;
+                std::filesystem::remove(generated_artifact, ignore);
+                std::filesystem::remove(generated_artifact.parent_path(), ignore);
+            }
+            artifact_path = requested_output.string();
+        }
+        if (!materialize_frontend && !args.output.empty()) {
+            std::error_code ignore;
+            const auto transient_build_dir = build_dir_for(args.source);
+            std::filesystem::remove_all(transient_build_dir, ignore);
+            ignore.clear();
+            std::filesystem::remove(transient_build_dir.parent_path(), ignore);
         }
         const auto artifact_finished = Clock::now();
         std::string wasm_status;
@@ -1155,6 +1605,7 @@ int main(int argc, char** argv) {
 
         bool ran = false;
         std::string run_stdout;
+        std::string run_stderr;
         double run_ms = 0.0;
         if (args.run) {
             const auto run_started = Clock::now();
@@ -1165,6 +1616,7 @@ int main(int argc, char** argv) {
             const auto run_finished = Clock::now();
             ran = true;
             run_stdout = run_result.stdout_text;
+            run_stderr = run_result.stderr_text;
             run_ms = std::chrono::duration<double, std::milli>(run_finished - run_started).count();
         }
         const auto total_finished = Clock::now();
@@ -1191,6 +1643,7 @@ int main(int argc, char** argv) {
         summary["run_ms"] = vf::JsonValue(run_ms);
         summary["status"] = vf::JsonValue(status);
         summary["stdout"] = vf::JsonValue(run_stdout);
+        summary["stderr"] = vf::JsonValue(run_stderr);
         if (materialize_frontend) summary["token_path"] = vf::JsonValue(token_path.string());
         summary["total_ms"] = vf::JsonValue(std::chrono::duration<double, std::milli>(total_finished - total_started).count());
         if (materialize_frontend) summary["typed_ir_path"] = vf::JsonValue(typed_ir_path.string());
@@ -1214,6 +1667,64 @@ int main(int argc, char** argv) {
         return rendered;
         };
 
+#ifdef VKF_NATIVE_FRONTEND_LIBRARY
+        if (argc >= 2 && std::string(argv[1]) == "-t") {
+            if (argc != 3) {
+                throw DriverFailure("usage: vkf -t file-or-folder");
+            }
+            unsigned passed = 0;
+            unsigned failed = 0;
+            unsigned discovered = 0;
+            for (const auto& file : test_source_files(argv[2])) {
+                std::string source = read_file(file);
+                normalize_source_for_lexer(source);
+                for (const auto& test : discover_tagged_tests(source, file)) {
+                    ++discovered;
+                    const std::string label = file.generic_string() + "::" + test.name;
+                    if (!test.compatible) {
+                        ++failed;
+                        std::cout << "INCOMPATIBLE " << label << ": "
+                                  << test.incompatibility << '\n';
+                        continue;
+                    }
+
+                    std::string generated = source;
+                    if (generated.empty() || generated.back() != '\n') generated.push_back('\n');
+                    generated += "(" + test.name + "())?!\n";
+                    const auto key = stable_source_key(
+                        file.generic_string() + "\n" + test.name + "\n" + generated);
+                    const auto unit = std::filesystem::absolute(file).parent_path() /
+                        (".vkf-test-" + std::to_string(key) + ".vkf");
+                    write_file(unit, generated);
+                    try {
+                        Args test_args;
+                        test_args.self = argv[0];
+                        test_args.source = unit;
+                        test_args.aot = true;
+                        test_args.run = true;
+                        fill_default_tool_paths(test_args);
+                        const auto summary = object_of(
+                            vf::parse_json(compile_one(std::move(test_args))), "test summary");
+                        ++passed;
+                        std::cout << "PASS " << label << '\n';
+                        const std::string output = string_field(summary, "stdout", "test summary");
+                        if (!output.empty()) std::cout << output;
+                    } catch (const std::exception& error) {
+                        ++failed;
+                        std::cout << "FAIL " << label << '\n' << error.what() << '\n';
+                    }
+                    std::error_code ignore;
+                    std::filesystem::remove(unit, ignore);
+                }
+            }
+            if (discovered == 0) {
+                throw DriverFailure("no tagged tests found");
+            }
+            std::cout << passed << " passed, " << failed << " failed\n";
+            return failed == 0 ? 0 : 1;
+        }
+#endif
+
         if (argc == 3 && std::string(argv[1]) == "--batch-sources") {
             std::ifstream sources(argv[2], std::ios::binary);
             if (!sources) throw DriverFailure("could not read batch source list " + std::string(argv[2]));
@@ -1222,6 +1733,7 @@ int main(int argc, char** argv) {
                 if (!source.empty() && source.back() == '\r') source.pop_back();
                 if (source.empty()) continue;
                 Args args;
+                args.self = argv[0];
                 args.source = source;
                 args.aot = true;
                 fill_default_tool_paths(args);
@@ -1234,8 +1746,45 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        const std::string rendered = compile_one(parse_args(argc, argv));
+        Args parsed_args = parse_args(argc, argv);
+#if defined(VKF_STRICT_DIRECT_ONLY) && defined(VKF_NATIVE_FRONTEND_LIBRARY)
+        if (!parsed_args.source.empty() && !parsed_args.output.empty()) {
+            parsed_args.cache_fingerprint = native_build_fingerprint(
+                parsed_args.self, parsed_args.source);
+            if (parsed_args.run && executable_has_fingerprint(
+                    parsed_args.output, parsed_args.cache_fingerprint)) {
+                const int cached_exit_code = run_inherited(parsed_args.output);
+#ifdef _WIN32
+                std::cout.flush();
+                std::cerr.flush();
+                TerminateProcess(GetCurrentProcess(), static_cast<UINT>(cached_exit_code));
+#endif
+                return cached_exit_code;
+            }
+        }
+#endif
+        const bool ran_program = parsed_args.run;
+#ifdef VKF_STRICT_DIRECT_ONLY
+        // Strict CLI execution inherits the caller's streams directly. This
+        // preserves byte-exact interactive/stdin behavior and avoids running a
+        // freshly signed Mach-O behind the compiler's capture pipes.
+        if (ran_program) parsed_args.run = false;
+#endif
+        const std::string rendered = compile_one(std::move(parsed_args));
+#ifdef VKF_STRICT_DIRECT_ONLY
+        if (ran_program) {
+            const auto summary = object_of(vf::parse_json(rendered), "strict direct summary");
+            return run_inherited(std::filesystem::path(
+                string_field(summary, "artifact_path", "strict direct summary")));
+        } else {
+            const auto summary = object_of(vf::parse_json(rendered), "strict direct summary");
+            std::cout << "Built "
+                      << string_field(summary, "artifact_path", "strict direct summary")
+                      << "\n";
+        }
+#else
         std::cout << rendered << "\n";
+#endif
 #ifdef _WIN32
         // The compiler process is intentionally one-shot. Reclaiming the large
         // token/AST/IR trees during normal C++ stack teardown adds tens of

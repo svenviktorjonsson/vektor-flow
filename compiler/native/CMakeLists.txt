@@ -39,16 +39,24 @@ set(VKF_AOT_TARGETS)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|x86_64)")
     vkf_native_target(vkf_x64_artifact vkf_x64_artifact.cpp TRUE)
     vkf_native_target(vkf_x64_runner_template vkf_x64_runner_template.cpp FALSE)
-    vkf_native_target(vkftest vkftest.cpp TRUE)
-    target_sources(vkftest PRIVATE
+    target_sources(vkf PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vkf_x64_artifact.cpp")
+    target_compile_definitions(vkf PRIVATE VKF_X64_BACKEND_LIBRARY)
+    vkf_native_target(vkf_strict vkf_driver_artifact_smoke.cpp TRUE)
+    target_sources(vkf_strict PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_lexer_cursor_smoke.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_parser_token_stream_smoke.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_ast_to_ir_smoke.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_x64_artifact.cpp"
     )
-    target_compile_definitions(vkftest PRIVATE VKF_NATIVE_FRONTEND_LIBRARY VKF_X64_BACKEND_LIBRARY)
-    target_sources(vkf PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vkf_x64_artifact.cpp")
-    target_compile_definitions(vkf PRIVATE VKF_X64_BACKEND_LIBRARY)
+    target_compile_definitions(vkf_strict PRIVATE
+        VKF_NATIVE_FRONTEND_LIBRARY
+        VKF_X64_BACKEND_LIBRARY
+        VKF_STRICT_DIRECT_ONLY
+    )
+    set_target_properties(vkf_strict PROPERTIES OUTPUT_NAME "vkf-strict")
+    if(UNIX AND NOT APPLE)
+        target_link_options(vkf_strict PRIVATE "-static-libstdc++" "-static-libgcc")
+    endif()
     if(WIN32)
         vkf_native_target(vkf_cpp_aot_artifact vkf_cpp_aot_artifact.cpp TRUE)
         target_link_options(vkf_x64_runner_template PRIVATE "/NODEFAULTLIB")
@@ -67,8 +75,23 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|
     list(APPEND VKF_AOT_TARGETS
         vkf_x64_artifact
         vkf_x64_runner_template
-        vkftest
+        vkf_strict
     )
+endif()
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "(arm64|aarch64|ARM64)")
+    vkf_native_target(vkf_strict vkf_driver_artifact_smoke.cpp TRUE)
+    target_sources(vkf_strict PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/vkf_lexer_cursor_smoke.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vkf_parser_token_stream_smoke.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vkf_ast_to_ir_smoke.cpp"
+    )
+    target_compile_definitions(vkf_strict PRIVATE
+        VKF_NATIVE_FRONTEND_LIBRARY
+        VKF_ARM64_BACKEND_LIBRARY
+        VKF_STRICT_DIRECT_ONLY
+    )
+    set_target_properties(vkf_strict PROPERTIES OUTPUT_NAME "vkf-strict")
+    list(APPEND VKF_AOT_TARGETS vkf_strict)
 endif()
 vkf_native_target(vkf_wasm_artifact_smoke vkf_wasm_artifact_smoke.cpp TRUE)
 vkf_native_target(vkf_webgpu_artifact_smoke vkf_webgpu_artifact_smoke.cpp TRUE)

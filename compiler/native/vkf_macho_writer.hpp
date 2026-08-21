@@ -52,6 +52,13 @@ inline std::uint32_t arm64_add_imm(unsigned reg, std::uint32_t target_offset) {
     return 0x91000000u | ((target_offset & 0xfffu) << 10) | (reg << 5) | reg;
 }
 
+inline std::uint32_t arm64_pair_fp_lr(std::uint32_t offset, bool load) {
+    if ((offset & 7u) != 0 || offset > 504u) {
+        throw WriterFailure("Mach-O frame-register offset exceeds arm64 pair range");
+    }
+    return (load ? 0xa9407bfdu : 0xa9007bfdu) | ((offset / 8u) << 15);
+}
+
 class Bytes {
 public:
     std::vector<std::uint8_t> values;
@@ -164,11 +171,11 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
     const std::uint32_t sequence_count = display_plan
         ? static_cast<std::uint32_t>(output_tokens.size()) : sequence_outputs.empty()
         ? numeric_output_count : static_cast<std::uint32_t>(sequence_outputs.size());
-    const std::uint32_t wrapper_size = 448u + sequence_count * 96u;
+    const std::uint32_t wrapper_size = 704u + sequence_count * 96u;
     const std::uint32_t generated_offset = entry_offset + wrapper_size;
-    const std::string numeric_format = "%g\n";
+    const std::string numeric_format = "%.17g\n";
     const std::string string_format = "%.*s\n";
-    const std::string token_numeric_format = "%g";
+    const std::string token_numeric_format = "%.17g";
     const std::string token_string_format = "%.*s";
     const auto numeric_format_offset = detail::align_up(
         generated_offset + static_cast<std::uint32_t>(generated_code.size()), 4);
@@ -221,6 +228,19 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
         0x40, '_', 'r', 'e', 'a', 'd', 0x00, 0x90,
         0x40, '_', 'c', 'l', 'o', 's', 'e', 0x00, 0x90,
         0x40, '_', 'l', 's', 'e', 'e', 'k', 0x00, 0x90,
+        0x40, '_', 's', 'y', 's', 'c', 'o', 'n', 'f', 0x00, 0x90,
+        0x40, '_', 'g', 'e', 't', 'c', 'w', 'd', 0x00, 0x90,
+        0x40, '_', 'g', 'e', 't', 'e', 'n', 'v', 0x00, 0x90,
+        0x40, '_', 's', 't', 'r', 'l', 'e', 'n', 0x00, 0x90,
+        0x40, '_', 'm', 'e', 'm', 'c', 'p', 'y', 0x00, 0x90,
+        0x40, '_', 't', 'm', 'p', 'f', 'i', 'l', 'e', 0x00, 0x90,
+        0x40, '_', 'f', 'i', 'l', 'e', 'n', 'o', 0x00, 0x90,
+        0x40, '_', 'f', 'c', 'l', 'o', 's', 'e', 0x00, 0x90,
+        0x40, '_', 'd', 'u', 'p', '2', 0x00, 0x90,
+        0x40, '_', 'f', 'o', 'r', 'k', 0x00, 0x90,
+        0x40, '_', 'e', 'x', 'e', 'c', 'v', 'p', 0x00, 0x90,
+        0x40, '_', 'w', 'a', 'i', 't', 'p', 'i', 'd', 0x00, 0x90,
+        0x40, '_', '_', 'e', 'x', 'i', 't', 0x00, 0x90,
         0x00,
     };
     binding.resize(detail::align_up(static_cast<std::uint32_t>(binding.size()), 16), 0);
@@ -246,7 +266,7 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
     detail::segment(out, "__DATA_CONST", image_base + data_offset, page_size,
                     data_offset, page_size, 3, 3, 1);
     out.fixed("__got", 16); out.fixed("__DATA_CONST", 16);
-    out.le64(image_base + data_offset); out.le64(168);
+    out.le64(image_base + data_offset); out.le64(272);
     out.le32(data_offset); out.le32(3); out.le32(0); out.le32(0);
     out.le32(0x06u); out.le32(0); out.le32(0); out.le32(0);
     detail::segment(out, "__LINKEDIT", image_base + linkedit_offset, linkedit_vm_size,
@@ -264,13 +284,18 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
     if (out.values.size() != entry_offset) throw WriterFailure("invalid Mach-O load command size");
 
     const auto wrapper_start = out.values.size();
-    const std::uint32_t wrapper_frame_bytes = sequence_output
-        ? detail::align_up(std::max(
-            208u, vkf::machine_ir::runtime_output_base + output_components * 8u), 16u)
-        : 208u;
+    const std::uint32_t saved_register_offset = detail::align_up(
+        vkf::machine_ir::runtime_slot_count * 8u, 16u);
+    if (vkf::machine_ir::runtime_output_base < saved_register_offset + 16u) {
+        throw WriterFailure("Mach-O runtime output overlaps saved frame registers");
+    }
+    const std::uint32_t output_end = vkf::machine_ir::runtime_output_base +
+        (sequence_output ? output_components * 8u : 0u);
+    const std::uint32_t wrapper_frame_bytes = detail::align_up(output_end, 16u);
     if (wrapper_frame_bytes > 4095u) throw WriterFailure("Mach-O output frame exceeds immediate range");
     out.le32(0xd10003ffu | (wrapper_frame_bytes << 10));
-    out.le32(0xa9087bfdu); out.le32(0x910203fdu);
+    out.le32(detail::arm64_pair_fp_lr(saved_register_offset, false));
+    out.le32(0x910003fdu | (saved_register_offset << 10));
     out.le32(detail::arm64_adrp(9, static_cast<std::uint32_t>(out.values.size()), data_offset));
     out.le32(0xf940052au); out.le32(0xf90003eau);
     out.le32(0xf940092au); out.le32(0xf90007eau);
@@ -294,6 +319,19 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
     out.le32(0xf940492au); out.le32(0xf90057eau);
     out.le32(0xf9404d2au); out.le32(0xf9005beau);
     out.le32(0xf940512au); out.le32(0xf9005feau);
+    out.le32(0xf940552au); out.le32(0xf90063eau);
+    out.le32(0xf940592au); out.le32(0xf90067eau);
+    out.le32(0xf9405d2au); out.le32(0xf9006beau);
+    out.le32(0xf940612au); out.le32(0xf9006feau);
+    out.le32(0xf940652au); out.le32(0xf90073eau);
+    out.le32(0xf940692au); out.le32(0xf90077eau);
+    out.le32(0xf9406d2au); out.le32(0xf9007beau);
+    out.le32(0xf940712au); out.le32(0xf9007feau);
+    out.le32(0xf940752au); out.le32(0xf90083eau);
+    out.le32(0xf940792au); out.le32(0xf90087eau);
+    out.le32(0xf9407d2au); out.le32(0xf9008beau);
+    out.le32(0xf940812au); out.le32(0xf9008feau);
+    out.le32(0xf940852au); out.le32(0xf90093eau);
     out.le32(0x910003e0u);
     const auto branch_offset = out.values.size(); out.le32(0x94000000u);
     if (display_plan) {
@@ -425,7 +463,8 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
         out.le32(0xf9402fe0u); out.le32(0xd1002000u);
         out.le32(0xf94027e9u); out.le32(0xd63f0120u);
     }
-    out.le32(0x52800000u); out.le32(0xa9487bfdu);
+    out.le32(0x52800000u);
+    out.le32(detail::arm64_pair_fp_lr(saved_register_offset, true));
     out.le32(0x910003ffu | (wrapper_frame_bytes << 10)); out.le32(0xd65f03c0u);
     while (out.values.size() - wrapper_start < wrapper_size) out.le32(0xd503201fu);
     if (out.values.size() - wrapper_start != wrapper_size) throw WriterFailure("invalid Mach-O wrapper size");

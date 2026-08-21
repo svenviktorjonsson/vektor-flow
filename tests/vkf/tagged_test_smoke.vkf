@@ -1,0 +1,6 @@
+test tagged_output_passes() -> bit:
+    :: "test output"
+    @: 2 + 2 = 4
+
+test tagged_required_parameter_is_incompatible(value:int) -> bit:
+    @: value = 1

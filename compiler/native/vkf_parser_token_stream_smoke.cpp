@@ -188,9 +188,10 @@ public:
                 skip_newlines();
                 continue;
             }
-            if (starts_function_definition() || is_at("IDENT") || is_at("EMIT") ||
+            if (starts_test_function_definition() || starts_function_definition() ||
+                is_at("IDENT") || is_at("EMIT") ||
                 is_at("DOT") || is_at("COLON") || is_at("AT_COLON") ||
-                is_at("LBRACKET")) {
+                is_at("LBRACKET") || is_at("LPAREN")) {
                 continue;
             }
             if (!is_at("EOF")) {
@@ -447,6 +448,9 @@ private:
             out["type"] = parse_type_annotation();
             return vf::JsonValue(std::move(out));
         }
+        if (starts_test_function_definition()) {
+            return parse_function_definition(true);
+        }
         if (starts_function_definition()) {
             return parse_function_definition();
         }
@@ -685,7 +689,17 @@ private:
         return false;
     }
 
-    vf::JsonValue parse_function_definition() {
+    bool starts_test_function_definition() const {
+        return index_ + 2 < tokens_.size()
+            && tokens_[index_].kind == "IDENT"
+            && tokens_[index_].value.is_string()
+            && tokens_[index_].value.as_string() == "test"
+            && is_function_name_kind(tokens_[index_ + 1].kind)
+            && tokens_[index_ + 2].kind == "LPAREN";
+    }
+
+    vf::JsonValue parse_function_definition(bool is_test = false) {
+        if (is_test) advance();
         const Token& name = advance();
         expect("LPAREN");
         skip_newlines();
@@ -717,6 +731,7 @@ private:
         out["name"] = vf::JsonValue(function_name_text(name));
         out["params"] = vf::JsonValue(std::move(params));
         out["return_type"] = std::move(return_type);
+        if (is_test) out["test"] = vf::JsonValue(true);
         return vf::JsonValue(std::move(out));
     }
 
@@ -1488,6 +1503,13 @@ private:
                 } else {
                     out["message"] = parse_expression();
                 }
+                expr = vf::JsonValue(std::move(out));
+                continue;
+            }
+            if (is_at("BANG")) {
+                advance();
+                auto out = node("raise_expr");
+                out["value"] = std::move(expr);
                 expr = vf::JsonValue(std::move(out));
                 continue;
             }

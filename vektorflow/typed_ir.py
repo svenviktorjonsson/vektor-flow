@@ -796,7 +796,7 @@ class IRTypeAnalyzer:
             if name in {"pi", "e", "tau"}:
                 return ast.PrimTypeRef("num")
             return StdlibFunctionType(module_name, name)
-        if module_name in {"stat", "io", "collections", "time", "capture", "errors", "ui"}:
+        if module_name in {"stat", "io", "collections", "time", "regex", "errors", "ui"}:
             return StdlibFunctionType(module_name, name)
         if module_name == "symbolic" and name in SYMBOLIC_STDLIB_EXPORTS:
             return StdlibFunctionType(module_name, name)

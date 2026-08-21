@@ -19,6 +19,7 @@ inline const char* opcode_name(Opcode opcode) {
         case Opcode::CloneString: return "clone_string";
         case Opcode::ConcatStrings: return "concat_strings";
         case Opcode::WriteString: return "write_string";
+        case Opcode::ReadLineString: return "read_line_string";
         case Opcode::ReadFileString: return "read_file_string";
         case Opcode::WriteFileString: return "write_file_string";
         case Opcode::StringEqual: return "string_equal";
@@ -52,6 +53,11 @@ inline const char* opcode_name(Opcode opcode) {
         case Opcode::WallTimeF64: return "wall_time_f64";
         case Opcode::SleepF64: return "sleep_f64";
         case Opcode::LocalTimeParts: return "local_time_parts";
+        case Opcode::SystemCpuCount: return "system_cpu_count";
+        case Opcode::SystemCwdString: return "system_cwd_string";
+        case Opcode::SystemEnvString: return "system_env_string";
+        case Opcode::ProcessRun: return "process_run";
+        case Opcode::CaptureRegex: return "capture_regex";
         case Opcode::SumF64Values: return "sum_f64_values";
         case Opcode::MeanF64Values: return "mean_f64_values";
         case Opcode::VarianceF64Values: return "variance_f64_values";
@@ -107,6 +113,7 @@ inline const char* opcode_name(Opcode opcode) {
         case Opcode::JumpIfParameterProvided: return "jump_if_parameter_provided";
         case Opcode::ErrorTypeMatches: return "error_type_matches";
         case Opcode::RethrowError: return "rethrow_error";
+        case Opcode::RaiseErrorValue: return "raise_error_value";
         case Opcode::AssertTruthy: return "assert_truthy";
         case Opcode::AssertTruthyString: return "assert_truthy_string";
         case Opcode::ExitProgram: return "exit_program";
@@ -180,6 +187,7 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
     }
     if (instruction.opcode == Opcode::WriteString ||
         instruction.opcode == Opcode::ReadFileString ||
+        instruction.opcode == Opcode::SystemEnvString ||
         instruction.opcode == Opcode::LoadF64ListIndex ||
         instruction.opcode == Opcode::SumF64List ||
         instruction.opcode == Opcode::MeanF64List ||
@@ -189,9 +197,42 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
         instruction.opcode == Opcode::CountF64List) {
         object["owns_input"] = instruction.owns_input;
     }
+    if (instruction.opcode == Opcode::WriteString) {
+        object["file_descriptor"] = static_cast<double>(instruction.index);
+    }
+    if (instruction.opcode == Opcode::ProcessRun) {
+        object["argument_count"] = static_cast<double>(instruction.argument_count);
+        object["offset"] = static_cast<double>(instruction.index);
+        object["owns_input"] = instruction.owns_input;
+    }
+    if (instruction.opcode == Opcode::CaptureRegex) {
+        object["group_count"] = static_cast<double>(instruction.argument_count);
+        object["pattern"] = instruction.symbol;
+        object["owns_input"] = instruction.owns_input;
+    }
+    if (instruction.opcode == Opcode::SystemEnvString) {
+        object["offset"] = static_cast<double>(instruction.index);
+    }
     if (instruction.opcode == Opcode::WriteFileString) {
+        object["append"] = instruction.index != 0;
         object["owns_left"] = instruction.owns_left;
         object["owns_right"] = instruction.owns_right;
+    }
+    if (instruction.opcode == Opcode::ReadFileString ||
+        instruction.opcode == Opcode::WriteFileString ||
+        instruction.opcode == Opcode::CaptureRegex) {
+        object["may_error"] = instruction.may_error;
+        object["has_error_handler"] = instruction.has_error_handler;
+        object["error_message_offset"] =
+            static_cast<double>(instruction.error_message_offset);
+        object["byte_count"] = static_cast<double>(instruction.byte_count);
+        if (instruction.has_error_handler) {
+            object["error_label"] = static_cast<double>(instruction.label);
+            object["error_value_local"] =
+                static_cast<double>(instruction.error_value_local);
+            object["error_type_local"] =
+                static_cast<double>(instruction.error_type_local);
+        }
     }
     if (instruction.opcode == Opcode::StoreF64ListIndex ||
         instruction.opcode == Opcode::StoreF64LocalsIndex) {
@@ -237,9 +278,15 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
     if (instruction.opcode == Opcode::ReturnValues) {
         object["result_count"] = static_cast<double>(instruction.result_count);
     }
-    if (instruction.opcode == Opcode::AssertTruthy) {
+    if (instruction.opcode == Opcode::AssertTruthy ||
+        instruction.opcode == Opcode::RaiseErrorValue) {
         object["has_error_handler"] = instruction.has_error_handler;
-        object["error_type_mask"] = static_cast<double>(instruction.error_type_mask);
+        if (instruction.opcode == Opcode::AssertTruthy) {
+            object["error_type_mask"] = static_cast<double>(instruction.error_type_mask);
+        }
+        if (instruction.opcode == Opcode::RaiseErrorValue) {
+            object["owns_input"] = instruction.owns_input;
+        }
         if (instruction.has_error_handler) {
             object["error_label"] = static_cast<double>(instruction.label);
             object["error_value_local"] = static_cast<double>(instruction.error_value_local);

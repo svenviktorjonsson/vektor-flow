@@ -2373,11 +2373,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 237736,
-    "bytecodeLength": 237729,
+    "argumentsPointer": 237728,
+    "bytecodeLength": 237728,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 237992
+    "resultsPointer": 237984
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

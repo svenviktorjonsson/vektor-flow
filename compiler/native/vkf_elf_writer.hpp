@@ -116,7 +116,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const std::uint32_t sequence_count = display_plan
         ? static_cast<std::uint32_t>(output_tokens.size()) : sequence_outputs.empty()
         ? numeric_output_count : static_cast<std::uint32_t>(sequence_outputs.size());
-    const std::uint32_t wrapper_size = 512u + sequence_count * 128u;
+    const std::uint32_t wrapper_size = 768u + sequence_count * 128u;
     const auto generated_offset = detail::align_up(wrapper_offset + wrapper_size, 16);
     const std::string numeric_format = "%.17g\n";
     const std::string token_numeric_format = "%.17g";
@@ -148,7 +148,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto data_offset = detail::align_up(text_end, 4096);
 
     static constexpr char string_bytes[] =
-        "\0libc.so.6\0libm.so.6\0snprintf\0pow\0fmod\0floor\0log\0\0sin\0cos\0exp\0malloc\0free\0abort\0exit\0clock_gettime\0nanosleep\0localtime_r\0";
+        "\0libc.so.6\0libm.so.6\0snprintf\0pow\0fmod\0floor\0log\0\0sin\0cos\0exp\0malloc\0free\0abort\0exit\0clock_gettime\0nanosleep\0localtime_r\0sysconf\0getcwd\0getenv\0strlen\0memcpy\0tmpfile\0fileno\0fclose\0dup2\0fork\0execvp\0waitpid\0_exit\0";
     const std::string strings(string_bytes, sizeof(string_bytes) - 1);
     constexpr std::uint32_t libc_name = 1;
     constexpr std::uint32_t libm_name = 11;
@@ -167,12 +167,25 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     constexpr std::uint32_t clock_gettime_name = 85;
     constexpr std::uint32_t nanosleep_name = 99;
     constexpr std::uint32_t localtime_name = 109;
+    constexpr std::uint32_t sysconf_name = 121;
+    constexpr std::uint32_t getcwd_name = 129;
+    constexpr std::uint32_t getenv_name = 136;
+    constexpr std::uint32_t strlen_name = 143;
+    constexpr std::uint32_t memcpy_name = 150;
+    constexpr std::uint32_t tmpfile_name = 157;
+    constexpr std::uint32_t fileno_name = 165;
+    constexpr std::uint32_t fclose_name = 172;
+    constexpr std::uint32_t dup2_name = 179;
+    constexpr std::uint32_t fork_name = 184;
+    constexpr std::uint32_t execvp_name = 189;
+    constexpr std::uint32_t waitpid_name = 196;
+    constexpr std::uint32_t child_exit_name = 204;
     const auto dynstr_offset = data_offset;
     const auto dynsym_offset = detail::align_up(dynstr_offset + static_cast<std::uint32_t>(strings.size()), 8);
-    const auto hash_offset = detail::align_up(dynsym_offset + 16u * 24u, 4);
-    const auto rela_offset = detail::align_up(hash_offset + 19u * 4u, 8);
-    const auto got_offset = detail::align_up(rela_offset + 15u * 24u, 8);
-    const auto dynamic_offset = detail::align_up(got_offset + 120u, 8);
+    const auto hash_offset = detail::align_up(dynsym_offset + 29u * 24u, 4);
+    const auto rela_offset = detail::align_up(hash_offset + 32u * 4u, 8);
+    const auto got_offset = detail::align_up(rela_offset + 28u * 24u, 8);
+    const auto dynamic_offset = detail::align_up(got_offset + 224u, 8);
     constexpr std::uint32_t dynamic_entries = 13;
     const auto data_end = dynamic_offset + dynamic_entries * 16u;
 
@@ -192,6 +205,19 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto clock_gettime_got = address(got_offset + 96);
     const auto nanosleep_got = address(got_offset + 104);
     const auto localtime_got = address(got_offset + 112);
+    const auto sysconf_got = address(got_offset + 120);
+    const auto getcwd_got = address(got_offset + 128);
+    const auto getenv_got = address(got_offset + 136);
+    const auto strlen_got = address(got_offset + 144);
+    const auto memcpy_got = address(got_offset + 152);
+    const auto tmpfile_got = address(got_offset + 160);
+    const auto fileno_got = address(got_offset + 168);
+    const auto fclose_got = address(got_offset + 176);
+    const auto dup2_got = address(got_offset + 184);
+    const auto fork_got = address(got_offset + 192);
+    const auto execvp_got = address(got_offset + 200);
+    const auto waitpid_got = address(got_offset + 208);
+    const auto child_exit_got = address(got_offset + 216);
 
     detail::Bytes out;
     out.raw({0x7f, 'E', 'L', 'F', 2, 1, 1, 0});
@@ -216,10 +242,11 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     out.pad_to(interpreter_offset); out.text(interpreter); out.u8(0);
     out.pad_to(wrapper_offset);
     const auto wrapper_start = out.values.size();
-    const std::uint32_t frame_bytes = sequence_output
-        ? detail::align_up(std::max(
-            0xd0u, vkf::machine_ir::runtime_output_base + output_components * 8u), 16u)
-        : 0xd0u;
+    const std::uint32_t frame_bytes = detail::align_up(
+        sequence_output
+            ? std::max(0x128u, vkf::machine_ir::runtime_output_base + output_components * 8u)
+            : 0x128u,
+        16u);
     out.raw({0x48, 0x81, 0xec}); out.u32(frame_bytes);
     out.raw({0x48, 0xb8}); out.u64(pow_got); out.raw({0x48, 0x8b, 0x00});
     out.raw({0x48, 0x89, 0x04, 0x24});
@@ -254,6 +281,32 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0x90);
     out.raw({0x48, 0xb8}); out.u64(localtime_got); out.raw({0x48, 0x8b, 0x00});
     out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0x98);
+    out.raw({0x48, 0xb8}); out.u64(sysconf_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0xc0);
+    out.raw({0x48, 0xb8}); out.u64(getcwd_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0xc8);
+    out.raw({0x48, 0xb8}); out.u64(getenv_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0xd0);
+    out.raw({0x48, 0xb8}); out.u64(strlen_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0xd8);
+    out.raw({0x48, 0xb8}); out.u64(memcpy_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0xe0);
+    out.raw({0x48, 0xb8}); out.u64(tmpfile_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0xe8);
+    out.raw({0x48, 0xb8}); out.u64(fileno_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0xf0);
+    out.raw({0x48, 0xb8}); out.u64(fclose_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0xf8);
+    out.raw({0x48, 0xb8}); out.u64(dup2_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0x100);
+    out.raw({0x48, 0xb8}); out.u64(fork_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0x108);
+    out.raw({0x48, 0xb8}); out.u64(execvp_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0x110);
+    out.raw({0x48, 0xb8}); out.u64(waitpid_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0x118);
+    out.raw({0x48, 0xb8}); out.u64(child_exit_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0x89, 0x84, 0x24}); out.u32(0x120);
     const auto emit_display_plan = [&]() {
         std::uint32_t component = 0;
         const auto emit_write = [&](std::uint64_t pointer, std::uint32_t length) {
@@ -395,10 +448,20 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     detail::symbol(out, free_name); detail::symbol(out, abort_name); detail::symbol(out, exit_name);
     detail::symbol(out, clock_gettime_name); detail::symbol(out, nanosleep_name);
     detail::symbol(out, localtime_name);
+    detail::symbol(out, sysconf_name); detail::symbol(out, getcwd_name);
+    detail::symbol(out, getenv_name); detail::symbol(out, strlen_name);
+    detail::symbol(out, memcpy_name);
+    detail::symbol(out, tmpfile_name); detail::symbol(out, fileno_name);
+    detail::symbol(out, fclose_name); detail::symbol(out, dup2_name);
+    detail::symbol(out, fork_name); detail::symbol(out, execvp_name);
+    detail::symbol(out, waitpid_name); detail::symbol(out, child_exit_name);
     out.pad_to(hash_offset);
-    out.u32(1); out.u32(16); out.u32(1); out.u32(0); out.u32(2); out.u32(3);
+    out.u32(1); out.u32(29); out.u32(1); out.u32(0); out.u32(2); out.u32(3);
     out.u32(4); out.u32(5); out.u32(6); out.u32(7); out.u32(8); out.u32(9);
-    out.u32(10); out.u32(11); out.u32(12); out.u32(13); out.u32(14); out.u32(15); out.u32(0);
+    out.u32(10); out.u32(11); out.u32(12); out.u32(13); out.u32(14); out.u32(15);
+    out.u32(16); out.u32(17); out.u32(18); out.u32(19); out.u32(20);
+    out.u32(21); out.u32(22); out.u32(23); out.u32(24); out.u32(25);
+    out.u32(26); out.u32(27); out.u32(28); out.u32(0);
     out.pad_to(rela_offset);
     detail::relocation(out, snprintf_got, 1); detail::relocation(out, pow_got, 2);
     detail::relocation(out, fmod_got, 3);
@@ -409,14 +472,21 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     detail::relocation(out, abort_got, 11); detail::relocation(out, exit_got, 12);
     detail::relocation(out, clock_gettime_got, 13); detail::relocation(out, nanosleep_got, 14);
     detail::relocation(out, localtime_got, 15);
-    out.pad_to(got_offset); for (unsigned index = 0; index < 15; ++index) out.u64(0);
+    detail::relocation(out, sysconf_got, 16); detail::relocation(out, getcwd_got, 17);
+    detail::relocation(out, getenv_got, 18); detail::relocation(out, strlen_got, 19);
+    detail::relocation(out, memcpy_got, 20);
+    detail::relocation(out, tmpfile_got, 21); detail::relocation(out, fileno_got, 22);
+    detail::relocation(out, fclose_got, 23); detail::relocation(out, dup2_got, 24);
+    detail::relocation(out, fork_got, 25); detail::relocation(out, execvp_got, 26);
+    detail::relocation(out, waitpid_got, 27); detail::relocation(out, child_exit_got, 28);
+    out.pad_to(got_offset); for (unsigned index = 0; index < 28; ++index) out.u64(0);
     out.pad_to(dynamic_offset);
     detail::dynamic_entry(out, 1, libc_name); detail::dynamic_entry(out, 1, libm_name);
     detail::dynamic_entry(out, 4, address(hash_offset));
     detail::dynamic_entry(out, 5, address(dynstr_offset));
     detail::dynamic_entry(out, 6, address(dynsym_offset));
     detail::dynamic_entry(out, 7, address(rela_offset));
-    detail::dynamic_entry(out, 8, 15u * 24u);
+    detail::dynamic_entry(out, 8, 28u * 24u);
     detail::dynamic_entry(out, 9, 24);
     detail::dynamic_entry(out, 10, strings.size());
     detail::dynamic_entry(out, 11, 24);

@@ -277,6 +277,39 @@ Read this as:
 
 ## Install And Run
 
+For normal Windows use, download `vektor-flow-windows-x64-setup.exe` from the
+latest GitHub release. The installer can add `vkf` to the current user's `PATH`.
+It installs the native compiler and VKF standard library; Python,
+a C++ compiler, and an assembler are not required.
+
+The downloadable 0.1 native release is deliberately strict. It ships the direct
+core plus `math`, `stat`, `random`, `time`, `io`, `collections`, `errors`,
+`system`, `process`, and `regex`. The partial `physics`, `ui`, and `symbolic`
+modules are not present. Unsupported source fails with a compiler error; the
+release never switches to a C++, Python, or assembler path.
+
+After opening a new terminal:
+
+```powershell
+vkf -e ':: "hello, world"'
+vkf .\program.vkf
+vkf .\program.vkf -o app.exe
+vkf -b .\program.vkf
+vkf -b .\program.vkf -o app.exe
+vkf -t .\tests
+```
+
+Linux releases include a native `.deb`; Linux and macOS archives also contain
+`install.sh`, which installs under
+`~/.local/opt` and links `vkf` into `~/.local/bin`. macOS ARM64 releases also
+contain a standard `.pkg` installer.
+
+File builds embed a source/compiler/import fingerprint inside the native
+executable. Running the same `.vkf` file again reuses the named executable when
+the fingerprint matches; changed source, compiler, or imports rebuild it.
+
+### Build From Source
+
 Install from this repository:
 
 ```powershell
@@ -1445,7 +1478,7 @@ Current public modules:
 - `time`: timing surface; use `time.sleep(seconds)`, `time.current_time()`, `time.time_stamp()`.
 - `io`: file IO: `read_text`, `write_text`, `read_bytes`, `write_bytes`, `read_numbers`.
 - `collections`: mutable runtime containers: `map`, `list`, `queue`.
-- `capture`: regex helpers: `regex`, `groups`.
+- `regex`: regular-expression helpers: `match`, `groups`.
 - `errors`: catchable error types such as `ParseError`, `EvalError`, `TypeError`.
 - `symbolic`: symbolic domains, expression transforms, LaTeX, solving, `diff`, `integ`, and `grad`.
 - `ui`: interactive display namespace. `sleep` is not in `ui`; import `time` for delays.

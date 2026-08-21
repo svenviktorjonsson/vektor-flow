@@ -1,0 +1,51 @@
+m: .math
+s: .stat
+r: .random
+t: .time
+
+test release_math_source_surface() -> bit:
+    logarithms: m.lg(100) + m.lg2(8) + m.log(8, 2)
+    inverses_a: m.asinh(0) + m.acosh(1) + m.atanh(0) + m.atan(0)
+    inverses_b: m.atan2(0, 1) + m.asin(0) + m.acos(1) + m.asec(1)
+    trigonometry: m.tan(0) + m.sinh(0) + m.tanh(0)
+    (math.abs(logarithms - 8) < 0.0000001 /\
+     math.abs(inverses_a + inverses_b) < 0.0000001 /\
+     math.abs(trigonometry) < 0.0000001 /\
+     m.sec(0) = 1 /\ m.cosh(0) = 1 /\
+     math.abs(m.cot(math.pi / 4) - 1) < 0.0000001 /\
+     math.abs(m.csc(math.pi / 2) - 1) < 0.0000001 /\
+     math.abs(m.acot(1) - math.pi / 4) < 0.0000001 /\
+     math.abs(m.acsc(1) - math.pi / 2) < 0.0000001 /\
+     math.abs(m.gamma(5) - 24) < 0.000001 /\ m.erf(0) = 0)?!
+
+test release_stat_source_surface() -> bit:
+    [num:4] values: [1, 2, 3, 4]
+    normalized: s.normalize(values)
+    scores: s.zscore(values)
+    (s.min(values) = 1 /\ s.max(values) = 4 /\
+     s.percentile(values, 25) = 1.75 /\ s.median(values) = 2.5 /\
+     s.iqr(values) = 1.5 /\ s.mode([1, 2, 2, 3]) = 2 /\
+     normalized.0 = 0 /\
+     math.abs(normalized.1 - 0.3333333333333333) < 0.0000001 /\
+     math.abs(normalized.2 - 0.6666666666666666) < 0.0000001 /\ normalized.3 = 1 /\
+     math.abs(stat.mean(scores)) < 0.0000001 /\
+     s.covariance(values, values) = 1.25 /\
+     math.abs(s.correlation(values, values) - 1) < 0.0000001 /\
+     s.clamp(12, 0, 10) = 10 /\ s.sign(-4) = -1)?!
+
+test release_random_source_surface() -> bit:
+    first: r.next(12345)
+    repeated: r.next(12345)
+    uniform: r.uniform(42, -3, 7)
+    normal: r.normal(99, 10, 4)
+    (first == repeated /\ first.value > 0 /\ first.value < 1 /\
+     uniform.value >= -3 /\ uniform.value <= 7 /\
+     normal == r.normal(99, 10, 4) /\ r.clock_seed() > 0)?!
+
+test release_time_source_surface() -> bit:
+    (t.format_time(
+        0, "year=%Y short=%y date=%F time=%T day=%j week=%w/%u %%", true) =
+        "year=1970 short=70 date=1970-01-01 time=00:00:00 day=001 week=4/4 %" /\
+     t.format_time(-86400, "%F day=%j week=%w/%u", true) =
+        "1969-12-31 day=365 week=3/3" /\
+     t.wall_time() > 1700000000 /\ t.monotonic() >= 0)?!
