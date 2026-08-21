@@ -917,7 +917,6 @@ export function main(argv = process.argv.slice(2)) {
       ).toFixed(6))
     })
   }));
-  assertVkfAcceptanceBudgets(normalizedResults);
   const payload = Object.freeze({
     schema: 'vektor-flow/core-language-comparison-v1',
     generatedAt: new Date().toISOString(),
@@ -937,6 +936,7 @@ export function main(argv = process.argv.slice(2)) {
   const report = createReport(payload);
   writeFileSync(reportPath, report, 'utf8');
   printReport(payload, report, resultsPath, reportPath);
+  assertVkfAcceptanceBudgets(normalizedResults);
   return payload;
 }
 
