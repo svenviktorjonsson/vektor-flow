@@ -100,6 +100,43 @@ byte exact" ] || [ "$io_error" != "native stderr" ]; then
     cat io.txt >&2
     echo "stderr:" >&2
     cat io.err >&2
+    cat > io_write_text.vkf <<'EOF'
+io: .io
+io.write_text("probe.txt", "hello")
+:: 1
+EOF
+    cat > io_append_text.vkf <<'EOF'
+io: .io
+io.append_text("probe.txt", " world")
+:: 2
+EOF
+    cat > io_write_bytes.vkf <<'EOF'
+io: .io
+io.write_bytes("probe.bin", "bytes")
+:: 3
+EOF
+    cat > io_eprint.vkf <<'EOF'
+io: .io
+io.eprint("probe stderr")
+:: 4
+EOF
+    cat > io_read_text.vkf <<'EOF'
+io: .io
+:: io.read_text("probe.txt")
+EOF
+    cat > io_read_bytes.vkf <<'EOF'
+io: .io
+:: io.read_bytes("probe.bin")
+EOF
+    for probe in io_write_text io_append_text io_write_bytes io_eprint io_read_text io_read_bytes; do
+      set +e
+      "$stage_root/bin/vkf" "$probe.vkf" > "$probe.out" 2> "$probe.err"
+      probe_status=$?
+      set -e
+      echo "$probe status $probe_status" >&2
+      sed 's/^/  out: /' "$probe.out" >&2
+      sed 's/^/  err: /' "$probe.err" >&2
+    done
     exit 1
   fi
   cat > installed_read_line.vkf <<'EOF'
