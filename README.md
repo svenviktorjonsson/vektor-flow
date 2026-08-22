@@ -41,8 +41,8 @@ result: double(point)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 1.716 ± 0.131 ms | 0.586 ± 0.016 ms | 0.854 ± 0.088 ms |
-| Runtime | 15.297 ± 1.760 ms | 1.861 ± 0.056 ms | 1.768 ± 0.693 ms |
+| Compile | 3.345 ± 0.417 ms | 0.464 ± 0.051 ms | 1.396 ± 1.555 ms |
+| Runtime | 24.356 ± 35.366 ms | 1.514 ± 0.050 ms | 3.109 ± 1.427 ms |
 
 <!-- readme-evidence:end -->
 
@@ -80,8 +80,8 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.305 ± 0.107 ms | 0.943 ± 0.016 ms | 1.031 ± 0.099 ms |
-| Runtime | 14.495 ± 0.553 ms | 1.947 ± 0.067 ms | 2.081 ± 0.744 ms |
+| Compile | 5.212 ± 0.504 ms | 0.780 ± 0.545 ms | 1.478 ± 0.598 ms |
+| Runtime | 19.901 ± 2.058 ms | 1.578 ± 0.055 ms | 3.522 ± 3.505 ms |
 
 <!-- readme-evidence:end -->
 
@@ -139,13 +139,13 @@ case keeps its workload fixed even when timings change.
 <!-- readme-platform-evidence:start -->
 | Detail | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | --- | --- | --- |
-| Measured UTC | `2026-08-22T10:04:32.353Z` | `2026-08-22T10:03:31.358Z` | `2026-08-22T10:01:58.498Z` |
+| Measured UTC | `2026-08-22T13:05:20.754Z` | `2026-08-22T13:02:11.852Z` | `2026-08-22T13:01:41.735Z` |
 | OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
 | Architecture | `x64` | `x64` | `arm64` |
-| CPU | INTEL(R) XEON(R) PLATINUM 8573C | AMD EPYC 7763 64-Core Processor | Apple M1 (Virtual) |
+| CPU | AMD EPYC 9V74 80-Core Processor | AMD EPYC 9V74 80-Core Processor | Apple M1 (Virtual) |
 | Logical CPUs | 4 | 4 | 3 |
-| Compiler size | 3,677,184 bytes | 4,754,240 bytes | 2,169,272 bytes |
-| Compiler SHA-256 | `5a588e22975536b5ef6fae53620316889ed4cf3b9e1fe0c77776a3eabcbd6f0e` | `16c65418f3aedf164cf95c350fab534272e997def536cc87040876729464e68b` | `0daa41d9304ca9182e4bc195b33ff11eb557f5b1454b070cc56784df4e7334bf` |
+| Compiler size | 3,692,032 bytes | 4,844,792 bytes | 2,186,792 bytes |
+| Compiler SHA-256 | `19ff09914f4ba6ded29aae2f31876621e33715d6f2bdbf07e3dc214ceb65bffe` | `18bcda7d18321f8841ca2fa394992d14b24dddfdf9f6e00f1c20c4fd68ac23f7` | `882df4117dc3ad7307f9a488dd305181790edef98330cbadb5baf91d15728d1e` |
 | Timing host | v22.23.2 `Node performance.now()` | v22.23.2 `Node performance.now()` | v22.23.1 `Node performance.now()` |
 <!-- readme-platform-evidence:end -->
 
@@ -162,7 +162,7 @@ every other implementation is linked exactly. Tool versions, source hashes,
 work counts, output parity, compile models, and 100-run dispersion are retained.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 7763 64-Core Processor, 4 logical CPUs, at `2026-08-22T10:13:39.518Z`.
+Measured on `linux 6.17.0-1022-azure`, `x64`, Intel(R) Xeon(R) 6973P-C, 4 logical CPUs, at `2026-08-22T13:09:38.840Z`.
 
 Every table cell is mean ± sample standard deviation from 100 measured runs. Fresh-process compile includes tool startup for every language. Julia parses source and JIT-compiles during runtime; Python produces bytecode; native toolchains emit executables. VKF compiler-core time excludes compiler startup and is the separate <10 ms gate. Raw VKF machine-entry time is the separate <500 µs gate.
 
@@ -178,13 +178,13 @@ All implementations returned the same checked numeric result within tolerance: `
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw VKF machine entry | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 2.511 ± 0.059 ms | 0.132 ± 0.012 ms | 1.869 ± 0.129 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/vkf.vkf) |
-| C | 59.460 ± 0.551 ms | — | 1.665 ± 0.114 ms | — | [source](benchmarks/core-comparison/published/startup/c.c) |
-| Rust | 55.826 ± 0.725 ms | — | 1.746 ± 0.061 ms | — | [source](benchmarks/core-comparison/published/startup/rust.rs) |
-| Zig | 146.039 ± 1.732 ms | — | 1.629 ± 0.070 ms | — | [source](benchmarks/core-comparison/published/startup/zig.zig) |
-| Go | 83.062 ± 1.897 ms | — | 2.353 ± 0.104 ms | — | [source](benchmarks/core-comparison/published/startup/go.go) |
-| Julia | 183.065 ± 1.523 ms | — | 209.920 ± 2.612 ms | — | [source](benchmarks/core-comparison/published/startup/julia.jl) |
-| Python | 41.834 ± 0.342 ms | — | 13.736 ± 0.164 ms | — | [source](benchmarks/core-comparison/published/startup/python-efficient.py) |
+| VKF | 1.947 ± 0.067 ms | 0.066 ± 0.017 ms | 1.242 ± 0.106 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/vkf.vkf) |
+| C | 40.644 ± 4.059 ms | — | 1.157 ± 0.090 ms | — | [source](benchmarks/core-comparison/published/startup/c.c) |
+| Rust | 43.006 ± 2.579 ms | — | 1.253 ± 0.076 ms | — | [source](benchmarks/core-comparison/published/startup/rust.rs) |
+| Zig | 98.652 ± 5.187 ms | — | 1.134 ± 0.068 ms | — | [source](benchmarks/core-comparison/published/startup/zig.zig) |
+| Go | 58.197 ± 2.937 ms | — | 1.993 ± 0.224 ms | — | [source](benchmarks/core-comparison/published/startup/go.go) |
+| Julia | 148.505 ± 6.905 ms | — | 164.874 ± 4.421 ms | — | [source](benchmarks/core-comparison/published/startup/julia.jl) |
+| Python | 28.026 ± 0.841 ms | — | 9.785 ± 0.384 ms | — | [source](benchmarks/core-comparison/published/startup/python-efficient.py) |
 
 ### arithmetic + branch — small, 20,000 iterations
 
@@ -212,13 +212,13 @@ All implementations returned the same checked numeric result within tolerance: `
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw VKF machine entry | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 3.501 ± 0.118 ms | 0.761 ± 0.019 ms | 2.236 ± 0.110 ms | 0.401 ± 0.006 ms | [source](benchmarks/core-comparison/published/scalar-control-small/vkf.vkf) |
-| C | 63.722 ± 0.515 ms | — | 1.798 ± 0.138 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/c.c) |
-| Rust | 61.130 ± 0.509 ms | — | 1.860 ± 0.077 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/rust.rs) |
-| Zig | 149.915 ± 2.380 ms | — | 1.737 ± 0.064 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/zig.zig) |
-| Go | 83.834 ± 2.309 ms | — | 2.427 ± 0.102 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/go.go) |
-| Julia | 183.883 ± 2.832 ms | — | 545.368 ± 4.142 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/julia.jl) |
-| Python | 42.037 ± 0.344 ms | — | 16.240 ± 0.168 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/python-efficient.py) |
+| VKF | 2.469 ± 0.095 ms | 0.567 ± 0.022 ms | 1.515 ± 0.155 ms | 0.082 ± 0.003 ms | [source](benchmarks/core-comparison/published/scalar-control-small/vkf.vkf) |
+| C | 40.594 ± 17.799 ms | — | 1.353 ± 0.142 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/c.c) |
+| Rust | 45.887 ± 0.809 ms | — | 1.382 ± 0.092 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/rust.rs) |
+| Zig | 98.223 ± 4.134 ms | — | 1.288 ± 0.111 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/zig.zig) |
+| Go | 58.964 ± 4.252 ms | — | 2.046 ± 0.154 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/go.go) |
+| Julia | 146.256 ± 6.642 ms | — | 400.179 ± 13.427 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/julia.jl) |
+| Python | 27.961 ± 1.022 ms | — | 11.563 ± 0.539 ms | — | [source](benchmarks/core-comparison/published/scalar-control-small/python-efficient.py) |
 
 ### linear recurrence — medium, 75,000 iterations
 
@@ -244,17 +244,17 @@ run(n:num) -> num:
 :: run(75000)
 ```
 
-All implementations returned the same checked numeric result within tolerance: `10.099567298080487`.
+All implementations returned the same checked numeric result within tolerance: `10.099567298080492`.
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw VKF machine entry | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 4.088 ± 0.091 ms | 1.232 ± 0.020 ms | 3.538 ± 0.111 ms | 1.478 ± 0.006 ms | [source](benchmarks/core-comparison/published/fixed-vector-medium/vkf.vkf) |
-| C | 65.118 ± 0.627 ms | — | 2.157 ± 0.117 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/c.c) |
-| Rust | 65.701 ± 0.397 ms | — | 2.354 ± 0.085 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/rust.rs) |
-| Zig | 150.698 ± 3.039 ms | — | 2.191 ± 0.266 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/zig.zig) |
-| Go | 82.989 ± 1.526 ms | — | 2.717 ± 0.123 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/go.go) |
-| Julia | 183.832 ± 1.584 ms | — | 1097.008 ± 4.858 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/julia.jl) |
-| Python | 42.171 ± 0.451 ms | — | 105.554 ± 0.788 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/python-efficient.py) |
+| VKF | 2.897 ± 0.667 ms | 0.864 ± 0.027 ms | 1.782 ± 0.206 ms | 0.183 ± 0.009 ms | [source](benchmarks/core-comparison/published/fixed-vector-medium/vkf.vkf) |
+| C | 42.781 ± 5.919 ms | — | 1.576 ± 0.163 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/c.c) |
+| Rust | 53.091 ± 3.153 ms | — | 1.584 ± 0.100 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/rust.rs) |
+| Zig | 100.504 ± 3.792 ms | — | 1.467 ± 0.120 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/zig.zig) |
+| Go | 58.787 ± 2.204 ms | — | 2.178 ± 0.164 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/go.go) |
+| Julia | 147.972 ± 7.064 ms | — | 734.944 ± 22.509 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/julia.jl) |
+| Python | 28.292 ± 1.166 ms | — | 73.106 ± 2.424 ms | — | [source](benchmarks/core-comparison/published/fixed-vector-medium/python-efficient.py) |
 
 ### record update — medium, 75,000 iterations
 
@@ -282,22 +282,22 @@ run(n:num) -> num:
 :: run(75000)
 ```
 
-All implementations returned the same checked numeric result within tolerance: `-2.0473715203632542e+23`.
+All implementations returned the same checked numeric result within tolerance: `-2.0473715203632314e+23`.
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw VKF machine entry | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 4.143 ± 0.140 ms | 1.168 ± 0.019 ms | 3.496 ± 0.149 ms | 1.438 ± 0.025 ms | [source](benchmarks/core-comparison/published/record-value-medium/vkf.vkf) |
-| C | 65.086 ± 0.565 ms | — | 1.983 ± 0.121 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/c.c) |
-| Rust | 65.297 ± 0.593 ms | — | 2.137 ± 0.094 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/rust.rs) |
-| Zig | 150.322 ± 1.942 ms | — | 1.940 ± 0.079 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/zig.zig) |
-| Go | 83.398 ± 1.360 ms | — | 2.659 ± 0.116 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/go.go) |
-| Julia | 183.387 ± 1.584 ms | — | 1097.656 ± 4.596 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/julia.jl) |
-| Python | 42.203 ± 1.061 ms | — | 105.453 ± 0.674 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/python-efficient.py) |
+| VKF | 2.831 ± 0.308 ms | 0.822 ± 0.017 ms | 1.660 ± 0.185 ms | 0.100 ± 0.004 ms | [source](benchmarks/core-comparison/published/record-value-medium/vkf.vkf) |
+| C | 43.385 ± 10.440 ms | — | 1.504 ± 0.179 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/c.c) |
+| Rust | 53.315 ± 1.836 ms | — | 1.491 ± 0.103 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/rust.rs) |
+| Zig | 103.911 ± 4.873 ms | — | 1.371 ± 0.115 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/zig.zig) |
+| Go | 62.982 ± 15.378 ms | — | 2.164 ± 0.175 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/go.go) |
+| Julia | 150.089 ± 6.037 ms | — | 728.966 ± 19.962 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/julia.jl) |
+| Python | 27.735 ± 0.500 ms | — | 73.054 ± 1.896 ms | — | [source](benchmarks/core-comparison/published/record-value-medium/python-efficient.py) |
 
 <details>
 <summary>Exact toolchains and compile models</summary>
 
-- VKF: `VKF 0.1.2; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
+- VKF: `VKF 0.1.3; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
 - C: `Ubuntu clang version 18.1.3 (1ubuntu1)`; Clang -O3 -march=native native link
 - Rust: `rustc 1.98.0 (88d9e12ae 2026-08-18)`; rustc -O -C target-cpu=native native link
 - Zig: `0.16.0`; zig build-exe -O ReleaseFast -mcpu native -lc
