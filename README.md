@@ -361,6 +361,7 @@ vector; `process.shell` invokes a platform shell and must be treated as unsafe.
 - supported x64 hosts use AVX2/FMA for recognized four-lane affine recurrences;
 - the SysV four-field record recurrence stays entirely in registers;
 - pure numeric Linux programs launch through a minimal executable shell;
+- that shell uses dedicated numeric conversion plus a direct write syscall;
 - detected x64 CPU features are included in build fingerprints, preventing unsafe cache reuse;
 - two native VKF optimizer regression tests preserve vector and record results.
 

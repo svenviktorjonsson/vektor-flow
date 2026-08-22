@@ -98,17 +98,17 @@ inline Result minimal_numeric_executable_x64(
     const auto wrapper_offset = detail::align_up(
         interpreter_offset + static_cast<std::uint32_t>(interpreter.size() + 1), 16);
     const auto generated_offset = detail::align_up(wrapper_offset + wrapper_size, 16);
-    const std::string numeric_format = "%.17g\n";
+    const std::string numeric_format = "%.17g";
     const auto numeric_format_offset = detail::align_up(
         generated_offset + static_cast<std::uint32_t>(generated_code.size()), 8);
     const auto text_end = numeric_format_offset +
         static_cast<std::uint32_t>(numeric_format.size() + 1);
     const auto data_offset = detail::align_up(text_end, 4096);
 
-    static constexpr char string_bytes[] = "\0libc.so.6\0sprintf\0";
+    static constexpr char string_bytes[] = "\0libc.so.6\0strfromd\0";
     const std::string strings(string_bytes, sizeof(string_bytes) - 1);
     constexpr std::uint32_t libc_name = 1;
-    constexpr std::uint32_t sprintf_name = 11;
+    constexpr std::uint32_t strfromd_name = 11;
     const auto dynstr_offset = data_offset;
     const auto dynsym_offset = detail::align_up(
         dynstr_offset + static_cast<std::uint32_t>(strings.size()), 8);
@@ -119,7 +119,7 @@ inline Result minimal_numeric_executable_x64(
     constexpr std::uint32_t dynamic_entries = 12;
     const auto data_end = dynamic_offset + dynamic_entries * 16u;
     const auto address = [=](std::uint32_t offset) { return base + offset; };
-    const auto sprintf_got = address(got_offset);
+    const auto strfromd_got = address(got_offset);
 
     detail::Bytes out;
     out.raw({0x7f, 'E', 'L', 'F', 2, 1, 1, 0});
@@ -147,12 +147,14 @@ inline Result minimal_numeric_executable_x64(
     out.raw({0x48, 0x81, 0xec}); out.u32(0x90);
     out.raw({0x48, 0x89, 0xe7, 0xe8});
     const auto call_patch = out.values.size(); out.u32(0);
-    out.raw({0x48, 0x8d, 0x7c, 0x24, 0x10, 0x48, 0xbe});
+    out.raw({0x48, 0x8d, 0x7c, 0x24, 0x10});
+    out.raw({0xbe, 0x80, 0x00, 0x00, 0x00, 0x48, 0xba});
     out.u64(address(numeric_format_offset));
-    out.raw({0xb8, 0x01, 0x00, 0x00, 0x00});
-    out.raw({0x49, 0xbb}); out.u64(sprintf_got);
+    out.raw({0x49, 0xbb}); out.u64(strfromd_got);
     out.raw({0x4d, 0x8b, 0x1b, 0x41, 0xff, 0xd3});
-    out.raw({0x89, 0xc2, 0x48, 0x8d, 0x74, 0x24, 0x10});
+    out.raw({0xc6, 0x44, 0x04, 0x10, 0x0a, 0x8d, 0x50, 0x01});
+    out.raw({0x48, 0x8d, 0x74, 0x24, 0x10});
+    out.raw({0xbf, 0x01, 0x00, 0x00, 0x00, 0xb8, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x05});
     out.raw({0xbf, 0x01, 0x00, 0x00, 0x00, 0xb8, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x05});
     out.raw({0xb8, 0x3c, 0x00, 0x00, 0x00, 0x31, 0xff, 0x0f, 0x05});
     if (out.values.size() - wrapper_start > wrapper_size) {
@@ -166,10 +168,10 @@ inline Result minimal_numeric_executable_x64(
 
     out.pad_to(dynstr_offset); out.text(strings);
     out.pad_to(dynsym_offset); out.values.resize(out.values.size() + 24, 0);
-    detail::symbol(out, sprintf_name);
+    detail::symbol(out, strfromd_name);
     out.pad_to(hash_offset);
     out.u32(1); out.u32(2); out.u32(1); out.u32(0); out.u32(0);
-    out.pad_to(rela_offset); detail::relocation(out, sprintf_got, 1);
+    out.pad_to(rela_offset); detail::relocation(out, strfromd_got, 1);
     out.pad_to(got_offset); out.u64(0);
     out.pad_to(dynamic_offset);
     detail::dynamic_entry(out, 1, libc_name);

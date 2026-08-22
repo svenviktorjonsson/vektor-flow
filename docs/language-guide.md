@@ -22,6 +22,7 @@ Its central ideas are bindings that build scope, blocks that return values, call
 - supported x64 hosts use AVX2/FMA for recognized four-lane affine recurrences;
 - the x64 SysV record recurrence keeps its four numeric fields in registers;
 - pure numeric Linux programs use a minimal executable shell;
+- that shell uses dedicated numeric conversion plus a direct write syscall;
 - x64 CPU features are included in executable fingerprints;
 - native regression tests verify optimized vector and record results.
 

@@ -9,6 +9,7 @@
 - supported x64 hosts receive AVX2/FMA four-lane affine recurrences;
 - the x64 SysV record recurrence keeps its four numeric fields in registers;
 - pure numeric Linux programs use a minimal executable shell rather than initializing the complete runtime import table;
+- the minimal shell uses dedicated numeric conversion and a direct write syscall;
 - x64 CPU capabilities are part of the build fingerprint, preventing incompatible cached artifacts;
 - optimizer-specific VKF tests preserve vector and record results.
 
