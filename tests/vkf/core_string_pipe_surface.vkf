@@ -16,3 +16,6 @@ string_pipe_decodes_four_byte_utf8() -> bit:
 string_pipe_encodes_four_byte_utf8() -> bit:
     result: "x" >> chr(128512)
     (result == "😀")?!
+
+direct_chr_string_encodes_four_byte_utf8() -> bit:
+    (str(chr(128512)) == "😀")?!
