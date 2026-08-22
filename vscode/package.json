@@ -2,7 +2,7 @@
   "name": "vektorflow",
   "displayName": "Vektor Flow",
   "description": "Syntax highlighting and run support for Vektor Flow (.vkf) files",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "publisher": "vektorflow",
   "license": "MIT",
   "repository": {
@@ -32,7 +32,6 @@
     "onCommand:vektorflow.checkFile",
     "onCommand:vektorflow.showOutput",
     "onCommand:vektorflow.runFile",
-    "onCommand:vektorflow.parseFile",
     "onCommand:vektorflow.buildFile"
   ],
   "contributes": {
@@ -80,11 +79,6 @@
         "icon": "$(output)"
       },
       {
-        "command": "vektorflow.parseFile",
-        "title": "Parse Vektor Flow File",
-        "icon": "$(search)"
-      },
-      {
         "command": "vektorflow.buildFile",
         "title": "Build Vektor Flow File",
         "icon": "$(gear)"
@@ -93,30 +87,22 @@
     "menus": {
       "editor/title": [
         {
-          "command": "vektorflow.parseFile",
+          "command": "vektorflow.checkFile",
           "when": "editorLangId == vektorflow",
           "group": "navigation@1"
         },
         {
-          "command": "vektorflow.checkFile",
+          "command": "vektorflow.runFile",
           "when": "editorLangId == vektorflow",
           "group": "navigation@2"
         },
         {
-          "command": "vektorflow.runFile",
-          "when": "editorLangId == vektorflow",
-          "group": "navigation@3"
-        },
-        {
           "command": "vektorflow.buildFile",
           "when": "editorLangId == vektorflow",
-          "group": "navigation@4"
+          "group": "navigation@3"
         }
       ],
       "commandPalette": [
-        {
-          "command": "vektorflow.parseFile"
-        },
         {
           "command": "vektorflow.checkFile"
         },
@@ -145,12 +131,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Extra arguments inserted before the Vektor Flow subcommand."
-        },
-        "vektorflow.useNativeCoreCommands": {
-          "type": "boolean",
-          "default": true,
-          "description": "Use native-core compiler subcommands for build flows. Parse always uses parse-native-core in this MVP."
+          "description": "Extra arguments inserted before VKF command flags and file paths."
         },
         "vektorflow.enableDiagnostics": {
           "type": "boolean",

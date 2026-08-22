@@ -2278,7 +2278,7 @@ vkf -t tests/vkf
 
 The expected result is `298 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
 
-VS Code syntax support is under `editors/vscode-vektor-flow`.
+VS Code syntax support is under [`vscode/`](../vscode/README.md).
 
 ## Status
 

@@ -79,7 +79,7 @@ Good extra editor checks:
 
 - syntax highlighting looks correct
 - diagnostics appear for real mistakes
-- `Parse Vektor Flow File` works
+- `Check Vektor Flow File` reports compiler errors without running the program
 - `Build Vektor Flow File` behaves sensibly for supported native subsets
 
 ## What Feedback Helps Most

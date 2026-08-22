@@ -7,11 +7,10 @@ What it gives you today:
 - `.vkf` language association
 - syntax highlighting
 - title-bar commands for:
-  - parse
+  - check
   - run
   - build
 - compiler-backed diagnostics for `.vkf` files when enabled
-- compatibility with the checked-in workspace run/debug helpers for contributors
 
 What it is not yet:
 
@@ -30,19 +29,9 @@ For normal users and community testers, the preferred setup is:
 
 That is better than pointing the extension at a repository build.
 
-## Platform Notes
-
-| Platform | Recommended UI mode today |
-| --- | --- |
-| Windows | `overlay`, `browser`, or `headless` |
-| macOS | `browser` or `headless` |
-| Linux | `browser` or `headless` |
-
-The extension itself is cross-platform. The current host limitation is the runtime UI mode, not the editor integration.
-
 For the full tester checklist after installation, see:
 
-- [TESTING.md](C:\Users\viktor.jonsson\Documents\Codex\2026-04-24-c-dev-vektor-flow-cleanfix-and\vektor-flow-orch-fresh\TESTING.md)
+- [TESTING.md](../TESTING.md)
 
 ## Prerequisites
 
@@ -58,13 +47,6 @@ vkf -e ':: "hello, world"'
 ```
 
 If that works, the extension path is usually easy.
-
-### Optional for native builds
-
-If you want the build command to succeed for native subsets, you still need a C++ compiler on `PATH`, for example:
-
-- `clang++`
-- `g++`
 
 ## Install The Extension
 
@@ -130,7 +112,6 @@ If `vkf` is already on `PATH`, the simplest setup is:
 ```json
 {
   "vektorflow.compilerArgs": [],
-  "vektorflow.useNativeCoreCommands": true,
   "vektorflow.enableDiagnostics": true,
   "vektorflow.diagnosticsDebounceMs": 250
 }
@@ -140,16 +121,13 @@ If `vkf` is already on `PATH`, the simplest setup is:
 
 - `Run Vektor Flow File`
   - launches the configured compiler command in a terminal against the current file
-- `Parse Vektor Flow File`
-  - runs `parse-native-core <file>` and writes output to the `Vektor Flow` output channel
 - `Build Vektor Flow File`
-  - runs `build-native-core <file>` when `vektorflow.useNativeCoreCommands` is `true`
-  - otherwise runs `build <file>`
+  - runs `vkf -b <file>` and writes output to the `Vektor Flow` output channel
+- `Check Vektor Flow File`
+  - builds to a temporary executable and reports compiler diagnostics without running it
 
-Diagnostics currently use:
-
-- `cpp-native-core <file>` when `vektorflow.useNativeCoreCommands` is `true`
-- `cpp <file>` otherwise
+Background diagnostics use the same temporary native build and remove its
+artifact afterward.
 
 ## Quick Start
 
@@ -233,20 +211,14 @@ Expected output:
 hello, world
 ```
 
-### Parse path
+### Check path
 
-Open:
+Introduce an invalid binding in a scratch `.vkf` file, then run:
 
-- `examples/native_core/hello_native.vkf`
+- `Check Vektor Flow File`
 
-Run:
-
-- `Parse Vektor Flow File`
-
-Expected result:
-
-- the `Vektor Flow` output channel opens
-- parse output appears there
+Expected result: the compiler error appears in VS Code Problems without running
+the program or leaving an executable beside the source.
 
 ### Explicit stdlib import surface
 
@@ -271,9 +243,7 @@ Expected output:
 
 ### Native build path
 
-If a C++ compiler is installed, open:
-
-- `examples/native_core/hello_native.vkf`
+Open any valid `.vkf` program.
 
 Run:
 
@@ -286,16 +256,15 @@ Expected result:
 ## Known Boundaries
 
 - The extension is command-driven, not language-server-driven.
-- Native build is only guaranteed for the current native/native-core subsets.
-- Windows currently has the best full UI story because overlay support exists there.
-- macOS and Linux are still expected to use browser/headless runtime UI modes.
+- It exposes only the native 0.1.3 compiler surface; unavailable `ui`, `physics`,
+  and `symbolic` modules remain unavailable in the editor.
 
 ## Contributor / Dev Path
 
 If you are working on the extension or compiler from source:
 
 1. Open the repo in VS Code.
-2. Build the native compiler with `./build.ps1` on Windows or CMake on Linux/macOS.
+2. Install VKF 0.1.3 or build the native compiler using the repository installation guide.
 3. Press `F5` in the `vscode/` folder to open an Extension Development Host.
 4. Repeat the smoke tests above.
 

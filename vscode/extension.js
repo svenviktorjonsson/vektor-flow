@@ -31,24 +31,6 @@ function activate(context) {
     launchTerminalCommand(doc, compiler, [doc.uri.fsPath], "Vektor Flow Run");
   };
 
-  const parseFile = async () => {
-    const doc = await prepareActiveVkfDocument("parse");
-    if (!doc) {
-      return;
-    }
-    const compiler = getCompilerInvocation();
-    if (!(await ensureCompilerAvailable(compiler))) {
-      return;
-    }
-    await runCapturedCommand(
-      doc,
-      compiler,
-      [preferredParseCommand(), doc.uri.fsPath],
-      output,
-      "parse"
-    );
-  };
-
   const buildFile = async () => {
     const doc = await prepareActiveVkfDocument("build");
     if (!doc) {
@@ -61,7 +43,7 @@ function activate(context) {
     await runCapturedCommand(
       doc,
       compiler,
-      [preferredBuildCommand(), doc.uri.fsPath],
+      ["-b", doc.uri.fsPath],
       output,
       "build"
     );
@@ -104,7 +86,6 @@ function activate(context) {
     output,
     diagnostics,
     vscode.commands.registerCommand("vektorflow.runFile", runFile),
-    vscode.commands.registerCommand("vektorflow.parseFile", parseFile),
     vscode.commands.registerCommand("vektorflow.buildFile", buildFile),
     vscode.commands.registerCommand("vektorflow.checkFile", checkFile),
     vscode.commands.registerCommand("vektorflow.showOutput", showOutput),
@@ -142,24 +123,6 @@ function getCompilerInvocation() {
   }
 
   return { command: "vkf", args: compilerArgs };
-}
-
-function preferredParseCommand() {
-  return "parse-native-core";
-}
-
-function preferredBuildCommand() {
-  const config = vscode.workspace.getConfiguration("vektorflow");
-  return config.get("useNativeCoreCommands", true)
-    ? "build-native-core"
-    : "build";
-}
-
-function diagnosticsCommand() {
-  const config = vscode.workspace.getConfiguration("vektorflow");
-  return config.get("useNativeCoreCommands", true)
-    ? "cpp-native-core"
-    : "cpp";
 }
 
 function diagnosticsDebounceMs() {
@@ -216,7 +179,7 @@ function shouldLintDocument(doc) {
 
 async function ensureCompilerAvailable(compiler) {
   try {
-    await execFileAsync(compiler.command, [...compiler.args, "--version"], {
+    await execFileAsync(compiler.command, [...compiler.args, "-v"], {
       windowsHide: true,
     });
     return true;
@@ -251,8 +214,10 @@ async function refreshDiagnostics(doc, diagnostics, output, markMissingToolNotif
   diagnosticsRuns.set(key, runId);
 
   const sourceRef = await createDiagnosticsSourceRef(doc);
+  const outputRef = await createDiagnosticsOutputRef();
+  const cliArgs = ["-b", sourceRef.path, "-o", outputRef.path];
   try {
-    await execFileAsync(compiler.command, [...compiler.args, "--version"], {
+    await execFileAsync(compiler.command, [...compiler.args, "-v"], {
       windowsHide: true,
     });
   } catch {
@@ -264,6 +229,7 @@ async function refreshDiagnostics(doc, diagnostics, output, markMissingToolNotif
       );
     }
     await sourceRef.cleanup();
+    await outputRef.cleanup();
     return;
   }
 
@@ -272,7 +238,7 @@ async function refreshDiagnostics(doc, diagnostics, output, markMissingToolNotif
   try {
     await execFileAsync(
       compiler.command,
-      [...compiler.args, diagnosticsCommand(), sourceRef.path],
+      [...compiler.args, ...cliArgs],
       { cwd, windowsHide: true }
     );
     if (diagnosticsRuns.get(key) !== runId) {
@@ -288,7 +254,7 @@ async function refreshDiagnostics(doc, diagnostics, output, markMissingToolNotif
     diagnostics.set(doc.uri, parsed);
     if (parsed.length > 0 || stderr.trim()) {
       output.clear();
-      output.appendLine(`> ${[compiler.command, ...compiler.args, diagnosticsCommand(), sourceRef.path].join(" ")}`);
+      output.appendLine(`> ${[compiler.command, ...compiler.args, ...cliArgs].join(" ")}`);
       output.append(stderr.endsWith("\n") ? stderr : `${stderr}\n`);
     }
     if (parsed.length === 0 && stderr.trim()) {
@@ -299,7 +265,22 @@ async function refreshDiagnostics(doc, diagnostics, output, markMissingToolNotif
     }
   } finally {
     await sourceRef.cleanup();
+    await outputRef.cleanup();
   }
+}
+
+async function createDiagnosticsOutputRef() {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "vektorflow-vscode-output-"));
+  return {
+    path: path.join(tempDir, process.platform === "win32" ? "check.exe" : "check"),
+    cleanup: async () => {
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort cleanup for temporary diagnostics artifacts.
+      }
+    },
+  };
 }
 
 async function createDiagnosticsSourceRef(doc) {
@@ -332,12 +313,13 @@ function parseCompilerDiagnostics(doc, sourcePath, stderr) {
     if (!line) {
       continue;
     }
-    const match = /^error:\s+(.+):(\d+):(\d+):\s+(.*)$/.exec(line);
+    const match = /^(?:error:\s+)?(.+):(\d+):(\d+):\s+(.*)$/.exec(line);
     if (!match) {
       continue;
     }
     const [, reportedPath, lineText, characterText, message] = match;
-    if (path.normalize(reportedPath) !== normalizedSourcePath) {
+    if (reportedPath !== "<driver-smoke>" &&
+        path.normalize(reportedPath) !== normalizedSourcePath) {
       continue;
     }
     const lineIndex = Math.max(0, Number.parseInt(lineText, 10) - 1);
@@ -414,9 +396,10 @@ async function runCapturedCommand(doc, compiler, cliArgs, output, label) {
 
 async function runCheckCommand(doc, compiler, diagnostics, output) {
   const sourceRef = await createDiagnosticsSourceRef(doc);
+  const outputRef = await createDiagnosticsOutputRef();
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
   const cwd = folder?.uri.fsPath ?? path.dirname(doc.uri.fsPath);
-  const cliArgs = [diagnosticsCommand(), sourceRef.path];
+  const cliArgs = ["-b", sourceRef.path, "-o", outputRef.path];
   const commandText = [compiler.command, ...compiler.args, ...cliArgs].join(" ");
   output.clear();
   output.appendLine(`> ${commandText}`);
@@ -476,6 +459,7 @@ async function runCheckCommand(doc, compiler, diagnostics, output) {
         }
       } finally {
         await sourceRef.cleanup();
+        await outputRef.cleanup();
       }
     }
   );
