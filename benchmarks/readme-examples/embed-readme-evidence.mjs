@@ -129,7 +129,7 @@ readme = readme.replace(tagPattern, (snippet, path) => {
     if (!example) fail(`${label} report is missing ${path}`);
     return example;
   });
-  const source = /^.*?```vkf\r?\n([\s\S]*?)\r?\n```$/.exec(snippet)?.[1];
+  const source = /```vkf\r?\n([\s\S]*?)\r?\n```/.exec(snippet)?.[1];
   if (source === undefined) fail(`could not extract source for ${path}`);
   const sourceHash = sha256(canonicalSource(source));
   for (let index = 0; index < examples.length; index += 1) {

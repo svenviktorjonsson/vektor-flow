@@ -114,7 +114,16 @@ process startup, program work, output capture, and teardown.
 These are the machines and conditions behind every inline table:
 
 <!-- readme-platform-evidence:start -->
-Fresh 0.1.2 release measurements will replace this line before publication.
+| Detail | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | --- | --- | --- |
+| Measured UTC | `2026-08-22T09:51:01.458Z` | `2026-08-22T09:48:21.376Z` | `2026-08-22T09:47:19.920Z` |
+| OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
+| Architecture | `x64` | `x64` | `arm64` |
+| CPU | AMD EPYC 7763 64-Core Processor | AMD EPYC 7763 64-Core Processor | Apple M1 (Virtual) |
+| Logical CPUs | 4 | 4 | 3 |
+| Compiler size | 3,677,184 bytes | 4,754,240 bytes | 2,169,272 bytes |
+| Compiler SHA-256 | `be8620b66c2581b888b35f602d1b140e24b0e5c9e3e6fb09551631746d81660f` | `81cbcb6a2f27c4382c259d19af424bbd4657c209b42f4d4fa31e841ae0a5b44f` | `96d74dba30aee633828b49ea8607da9a15bc90f8039bca8d448a0760ed489f6e` |
+| Timing host | v22.23.2 `Node performance.now()` | v22.23.2 `Node performance.now()` | v22.23.1 `Node performance.now()` |
 <!-- readme-platform-evidence:end -->
 
 The dedicated `core/12b-container-stress.vkf` example always performs 10
@@ -171,6 +180,22 @@ num scaled: value * 2
 :: scaled
 ```
 
+<!-- readme-evidence:start core/01-bindings.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+7
+6
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.139 ± 0.300 ms | 0.431 ± 0.014 ms | 0.757 ± 0.209 ms |
+| Runtime | 17.316 ± 1.006 ms | 1.838 ± 0.083 ms | 1.580 ± 0.118 ms |
+
+<!-- readme-evidence:end -->
+
 Declarations and updates are expressions; each returns the value it stored.
 The same strict name rule applies inside an expression.
 
@@ -180,6 +205,22 @@ b: (a: 3) + 1
 :: a
 :: b
 ```
+
+<!-- readme-evidence:start core/02-bind-expression.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+3
+4
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 1.839 ± 0.305 ms | 0.315 ± 0.020 ms | 0.681 ± 0.144 ms |
+| Runtime | 17.323 ± 0.774 ms | 1.828 ± 0.070 ms | 1.559 ± 0.126 ms |
+
+<!-- readme-evidence:end -->
 
 ### 1.2 Blocks Produce Values And Scopes
 
@@ -208,6 +249,24 @@ colored: make_colored(3, 4, "red")
 :: colored.color
 ```
 
+<!-- readme-evidence:start core/03-blocks.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+hello world
+make_base(x:3, y:4)
+3
+red
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 12.193 ± 30.833 ms | 1.013 ± 0.031 ms | 1.075 ± 0.123 ms |
+| Runtime | 17.269 ± 0.998 ms | 1.869 ± 0.082 ms | 1.563 ± 0.134 ms |
+
+<!-- readme-evidence:end -->
+
 ### 1.3 Output, Comments, And Assertions
 
 `:: value` writes a value. `condition?!` asserts truth. An optional following expression is the error message.
@@ -219,6 +278,21 @@ answer: 6 * 7
 (answer == 42)?! "the answer changed"
 :: answer
 ```
+
+<!-- readme-evidence:start core/04-output-assert.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+42
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 1.875 ± 0.321 ms | 0.340 ± 0.020 ms | 0.729 ± 0.119 ms |
+| Runtime | 17.307 ± 1.023 ms | 1.821 ± 0.062 ms | 1.553 ± 0.119 ms |
+
+<!-- readme-evidence:end -->
 
 ### 1.4 Tagged Tests
 
@@ -232,6 +306,17 @@ test addition_works() -> bit:
 test needs_input(value:int) -> bit:
     value = 1
 ```
+
+<!-- readme-evidence:start core/05-tagged-test.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty):** no output.
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 1.912 ± 0.562 ms | 0.366 ± 0.014 ms | 0.702 ± 0.086 ms |
+| Runtime | 17.178 ± 0.955 ms | 1.820 ± 0.092 ms | 1.536 ± 0.125 ms |
+
+<!-- readme-evidence:end -->
 
 ## 2. Values, Types, And Containers
 
@@ -257,6 +342,25 @@ empty():
 :: empty()
 ```
 
+<!-- readme-evidence:start core/06-primitives.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+true
+A
+1.5
+7
+null
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.738 ± 0.372 ms | 0.735 ± 0.014 ms | 0.941 ± 0.158 ms |
+| Runtime | 17.199 ± 0.952 ms | 1.876 ± 0.097 ms | 1.533 ± 0.120 ms |
+
+<!-- readme-evidence:end -->
+
 Primitive names are values. Calling one converts a compatible value; postfix `.` reflects a value or type. Primitive type values also expose their members when spilled.
 
 <!-- readme-example: core/07-reflection.vkf -->
@@ -271,6 +375,24 @@ type_scope:
     :
 :: type_scope
 ```
+
+<!-- readme-evidence:start core/07-reflection.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+4
+(any) -> int
+[int:2]
+(NumberType:num, reflected:(any) -> int)
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.281 ± 0.460 ms | 0.524 ± 0.016 ms | 0.808 ± 0.076 ms |
+| Runtime | 17.235 ± 1.047 ms | 1.848 ± 0.049 ms | 1.531 ± 0.106 ms |
+
+<!-- readme-evidence:end -->
 
 `bool`, `byte`, `bytes`, and `float` are not primitive names. Use `bit`, `chr`, `str`, `num`, or a vector of `chr` values.
 
@@ -290,6 +412,24 @@ point: (x:2, y:false)
 :: chr(128512)
 ```
 
+<!-- readme-evidence:start core/08-strings.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+Hej världen
+value=4.23
+sum=5 point=(x:2, y:false) cost=$5
+😀
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.588 ± 0.427 ms | 0.653 ± 0.019 ms | 0.885 ± 0.181 ms |
+| Runtime | 17.154 ± 0.950 ms | 1.855 ± 0.061 ms | 1.540 ± 0.118 ms |
+
+<!-- readme-evidence:end -->
+
 ### 2.3 Tuples And Records
 
 Tuples use positional fields. Records use named fields. Fields are read with `.field` or `.index` and updated with `:`.
@@ -306,6 +446,23 @@ point.z: 5
 :: point.name
 :: point.x + point.y + point.z
 ```
+
+<!-- readme-evidence:start core/09-tuples-records.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+12
+origin
+12
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.568 ± 0.643 ms | 0.656 ± 0.037 ms | 0.876 ± 0.130 ms |
+| Runtime | 17.225 ± 0.887 ms | 1.855 ± 0.082 ms | 1.538 ± 0.115 ms |
+
+<!-- readme-evidence:end -->
 
 ### 2.4 Fixed And Dynamic Vectors
 
@@ -324,6 +481,23 @@ dynamic.1: 20
 :: repeated
 ```
 
+<!-- readme-evidence:start core/11-vectors.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[1, 2, 3]
+[4, 20, 6]
+[7, 7, 7, 7, 9, 9]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.443 ± 0.392 ms | 0.575 ± 0.038 ms | 0.833 ± 0.140 ms |
+| Runtime | 17.152 ± 0.815 ms | 1.893 ± 0.076 ms | 1.548 ± 0.130 ms |
+
+<!-- readme-evidence:end -->
+
 `&` concatenates vectors. Fixed vectors preserve their compile-time shape; dynamic vectors produce a dynamic result.
 
 <!-- readme-example: core/12-vector-concat.vkf -->
@@ -333,6 +507,22 @@ dynamic: collections.list(1, 2) & collections.list(3)
 :: fixed
 :: dynamic
 ```
+
+<!-- readme-evidence:start core/12-vector-concat.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[1, 2, 3]
+[1, 2, 3]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.256 ± 0.192 ms | 0.551 ± 0.038 ms | 0.828 ± 0.256 ms |
+| Runtime | 17.234 ± 0.980 ms | 1.863 ± 0.060 ms | 1.541 ± 0.129 ms |
+
+<!-- readme-evidence:end -->
 
 This deliberately heavy example performs 10 million fixed-container element
 updates and reads. It is the runtime stress case in the per-example release
@@ -354,6 +544,21 @@ container_work(n:int) -> int:
 
 :: container_work(1000000)
 ```
+
+<!-- readme-evidence:start core/12b-container-stress.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+10000000
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.289 ± 0.412 ms | 0.996 ± 0.065 ms | 1.027 ± 0.082 ms |
+| Runtime | 59.724 ± 2.049 ms | 43.582 ± 0.650 ms | 38.832 ± 1.004 ms |
+
+<!-- readme-evidence:end -->
 
 ### 2.5 Aggregate Updates And Aliases
 
@@ -382,6 +587,22 @@ p: Point(3, 4)
 :: p
 ```
 
+<!-- readme-evidence:start core/13-updates-aliases.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[3, 4]
+Point(x:5, y:6, name:my point)
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.121 ± 0.519 ms | 0.980 ± 0.062 ms | 1.030 ± 0.117 ms |
+| Runtime | 22.350 ± 43.246 ms | 1.989 ± 0.098 ms | 1.632 ± 0.190 ms |
+
+<!-- readme-evidence:end -->
+
 The exact output is `[3, 4]` followed by `Point(x:5, y:6, name:my point)`. This
 behavior is compiler-tested. Do not assume that an aggregate update leaves an
 older alias unchanged.
@@ -401,6 +622,24 @@ right: {"a":2, "c":2}
 :: left % right
 ```
 
+<!-- readme-evidence:start core/14-multisets.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+{a:7, b:1, c:2}
+{a:1, b:1}
+{a:2}
+{a:1}
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.509 ± 1.468 ms | 1.234 ± 0.065 ms | 1.657 ± 0.206 ms |
+| Runtime | 24.572 ± 71.039 ms | 1.863 ± 0.055 ms | 1.559 ± 0.141 ms |
+
+<!-- readme-evidence:end -->
+
 ### 2.7 Inclusive Ranges
 
 `start..end` is inclusive. Omitting the start uses zero. Descending ranges infer a negative step. Omitting the end creates an infinite range, which must be stopped by its consumer.
@@ -411,6 +650,23 @@ right: {"a":2, "c":2}
 :: [3..0]
 :: (1..4)
 ```
+
+<!-- readme-evidence:start core/15-ranges.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[0, 1, 2, 3]
+[3, 2, 1, 0]
+(1, 2, 3, 4)
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 1.971 ± 0.321 ms | 0.370 ± 0.026 ms | 0.700 ± 0.146 ms |
+| Runtime | 18.386 ± 12.558 ms | 1.861 ± 0.052 ms | 1.528 ± 0.112 ms |
+
+<!-- readme-evidence:end -->
 
 ### 2.8 Complex Numbers
 
@@ -423,6 +679,22 @@ z: num(1, 2)
 :: str(z * z)
 ```
 
+<!-- readme-evidence:start core/16-complex.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+1 + 2i
+-3 + 4i
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.127 ± 0.638 ms | 0.451 ± 0.027 ms | 0.798 ± 0.144 ms |
+| Runtime | 19.294 ± 20.459 ms | 1.837 ± 0.067 ms | 1.544 ± 0.140 ms |
+
+<!-- readme-evidence:end -->
+
 ### 2.9 Equality Has Two Forms
 
 `==` and `!=` reduce exact aggregate equality to one `bit`. Single `=` is semantic and remains element-wise for structures.
@@ -433,6 +705,23 @@ z: num(1, 2)
 :: [1, 2] != [1, 3]
 :: [1, 2] = [1, 2]
 ```
+
+<!-- readme-evidence:start core/17-equality.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+1
+1
+[1, 1]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.224 ± 0.510 ms | 0.481 ± 0.042 ms | 0.748 ± 0.093 ms |
+| Runtime | 17.494 ± 3.188 ms | 1.837 ± 0.082 ms | 1.553 ± 0.162 ms |
+
+<!-- readme-evidence:end -->
 
 ### 2.10 Member Reflection And Spill
 
@@ -450,11 +739,43 @@ member_names: {:point.}
 :: member_names
 ```
 
+<!-- readme-evidence:start core/46-member-reflection.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+(x:int, y:int)
+[int, int]
+{x:1, y:1}
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.862 ± 2.698 ms | 0.634 ± 0.014 ms | 0.984 ± 0.610 ms |
+| Runtime | 17.250 ± 0.826 ms | 1.877 ± 0.096 ms | 1.511 ± 0.072 ms |
+
+<!-- readme-evidence:end -->
+
 <!-- readme-example: core/47-primitive-spill.vkf -->
 ```vkf
 :int
 :: size(1)
 ```
+
+<!-- readme-evidence:start core/47-primitive-spill.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+64
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 1.692 ± 0.764 ms | 0.225 ± 0.014 ms | 0.610 ± 0.084 ms |
+| Runtime | 17.255 ± 0.940 ms | 1.833 ± 0.078 ms | 1.512 ± 0.081 ms |
+
+<!-- readme-evidence:end -->
 
 ## 3. Functions And Calls
 
@@ -477,6 +798,23 @@ do_nothing():
 :: do_nothing()
 ```
 
+<!-- readme-evidence:start core/18-functions.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+7
+3
+null
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 6.655 ± 15.737 ms | 0.585 ± 0.045 ms | 0.798 ± 0.090 ms |
+| Runtime | 18.578 ± 14.099 ms | 1.826 ± 0.073 ms | 1.538 ± 0.128 ms |
+
+<!-- readme-evidence:end -->
+
 ### 3.2 Typed, Default, And Named Arguments
 
 Parameters and results may be typed. Defaults can use earlier parameters. Named arguments bind by name and may be mixed with positional arguments.
@@ -490,6 +828,23 @@ weighted(x:num, y:num=x + 1, z:num=y + 1) -> num:
 :: weighted(y:4, x:3, z:5)
 :: weighted(3, z:5, y:4)
 ```
+
+<!-- readme-evidence:start core/19-call-arguments.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+234
+345
+345
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.799 ± 0.884 ms | 0.737 ± 0.059 ms | 0.901 ± 0.127 ms |
+| Runtime | 20.386 ± 31.236 ms | 1.839 ± 0.095 ms | 1.532 ± 0.122 ms |
+
+<!-- readme-evidence:end -->
 
 ### 3.3 Local Functions, Recursion, And Closures
 
@@ -513,6 +868,22 @@ add_two: make_offset(2)
 :: add_two(5)
 ```
 
+<!-- readme-evidence:start core/20-recursion-closures.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+720
+7
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.038 ± 0.326 ms | 0.897 ± 0.075 ms | 0.966 ± 0.086 ms |
+| Runtime | 18.919 ± 14.322 ms | 1.827 ± 0.070 ms | 1.524 ± 0.127 ms |
+
+<!-- readme-evidence:end -->
+
 ### 3.4 Lambdas And Higher-Order Functions
 
 Functions are values and may be passed to typed function parameters. `(parameters): expression` creates a lambda; it can be called immediately or stored.
@@ -531,6 +902,23 @@ square: (value): value^2
 :: square(5)
 :: ((value): value + 1)(8)
 ```
+
+<!-- readme-evidence:start core/21-lambdas.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+10
+25
+9
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.753 ± 0.295 ms | 0.811 ± 0.055 ms | 0.919 ± 0.111 ms |
+| Runtime | 18.795 ± 14.313 ms | 1.852 ± 0.081 ms | 1.525 ± 0.127 ms |
+
+<!-- readme-evidence:end -->
 
 ### 3.5 Variadics And Spreads
 
@@ -555,6 +943,23 @@ point: (y:4, x:3)
 :: capture_named(1, flag:true, mode:"fast")
 ```
 
+<!-- readme-evidence:start core/22-variadics-spreads.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+10
+7
+(flag:true, mode:fast)
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.322 ± 0.381 ms | 1.028 ± 0.073 ms | 1.059 ± 0.110 ms |
+| Runtime | 17.574 ± 1.221 ms | 1.865 ± 0.059 ms | 1.525 ± 0.131 ms |
+
+<!-- readme-evidence:end -->
+
 Empty heterogeneous variadics are valid. Call-site spread keeps owned values and structural shapes.
 
 Spread also flattens fixed values inside tuple and vector literals.
@@ -565,6 +970,22 @@ values: (:(1, 2), :[3, 4])
 :: values
 :: values.3
 ```
+
+<!-- readme-evidence:start core/22b-literal-spreads.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+(1, 2, 3, 4)
+4
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 1.996 ± 0.236 ms | 0.405 ± 0.029 ms | 0.698 ± 0.082 ms |
+| Runtime | 17.471 ± 1.207 ms | 1.851 ± 0.095 ms | 1.529 ± 0.121 ms |
+
+<!-- readme-evidence:end -->
 
 ### 3.6 Compile-Time Shape Parameters
 
@@ -578,6 +999,21 @@ join(x:[int:n], y:[int:m]) -> [int:n+m]:
 [int:5] joined: join([1, 2], [3, 4, 5])
 :: joined
 ```
+
+<!-- readme-evidence:start core/23-shape-parameters.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[1, 2, 3, 4, 5]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.511 ± 0.492 ms | 0.682 ± 0.042 ms | 1.185 ± 2.912 ms |
+| Runtime | 17.695 ± 1.490 ms | 1.842 ± 0.067 ms | 1.528 ± 0.131 ms |
+
+<!-- readme-evidence:end -->
 
 ### 3.7 Open `any` Inference
 
@@ -594,6 +1030,22 @@ sum_pair(value:any) -> num:
 :: read_x((x:2, metadata:"kept"))
 :: sum_pair([3, 4])
 ```
+
+<!-- readme-evidence:start core/24-open-any.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+2
+7
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.408 ± 0.278 ms | 0.654 ± 0.039 ms | 0.860 ± 0.163 ms |
+| Runtime | 17.475 ± 1.248 ms | 1.821 ± 0.061 ms | 1.517 ± 0.110 ms |
+
+<!-- readme-evidence:end -->
 
 ## 4. Automatic Element-Wise Function Application
 
@@ -614,6 +1066,21 @@ result: double(point)
 :: result
 ```
 
+<!-- readme-evidence:start core/25-structural-compatibility.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+(name:origin, enabled:true, x:4, y:6)
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.477 ± 1.238 ms | 0.580 ± 0.040 ms | 0.829 ± 0.104 ms |
+| Runtime | 17.724 ± 1.403 ms | 1.865 ± 0.051 ms | 1.521 ± 0.115 ms |
+
+<!-- readme-evidence:end -->
+
 The result is `(name:origin, enabled:true, x:4, y:6)`. `str` and `bit` are not compatible with `int`, so metadata survives untouched.
 
 ### 4.2 Normal Conversions Still Apply
@@ -632,6 +1099,22 @@ unchanged: halve((name:"only metadata", enabled:true))
 :: unchanged
 ```
 
+<!-- readme-evidence:start core/26-structural-conversions.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+(name:sample, whole:4, fraction:1.5)
+(name:only metadata, enabled:true)
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 7.928 ± 25.374 ms | 0.671 ± 0.043 ms | 0.884 ± 0.131 ms |
+| Runtime | 17.658 ± 1.264 ms | 1.887 ± 0.082 ms | 1.520 ± 0.118 ms |
+
+<!-- readme-evidence:end -->
+
 ### 4.3 Application Is Recursive
 
 Structural application descends through nested vectors, tuples, and records. It keeps the original structure while replacing compatible leaves.
@@ -648,6 +1131,21 @@ data: [
 
 :: increment(data)
 ```
+
+<!-- readme-evidence:start core/27-structural-recursion.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[(name:a, point:(x:2, y:3)), (name:b, point:(x:4, y:5))]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.522 ± 0.336 ms | 0.687 ± 0.045 ms | 0.876 ± 0.091 ms |
+| Runtime | 17.546 ± 1.174 ms | 1.893 ± 0.082 ms | 1.519 ± 0.124 ms |
+
+<!-- readme-evidence:end -->
 
 ### 4.4 Structured Functions Map Outer Containers
 
@@ -668,6 +1166,22 @@ matrix: [[1, 2], [3, 4], [5, 6]]
 :: row_sum(matrix)
 ```
 
+<!-- readme-evidence:start core/28-structural-records.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[(x:11, y:-8), (x:13, y:-6)]
+[3, 7, 11]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.349 ± 0.506 ms | 1.091 ± 0.073 ms | 1.105 ± 0.139 ms |
+| Runtime | 17.493 ± 1.095 ms | 1.884 ± 0.084 ms | 1.529 ± 0.130 ms |
+
+<!-- readme-evidence:end -->
+
 ### 4.5 Exact Container Matches Take Priority
 
 If the complete argument matches the declared type, VKF calls the function once. It does not descend. Declare the complete container type whenever whole-container behavior is intended.
@@ -679,6 +1193,21 @@ rotate(values:[int:3]) -> [int:3]:
 
 :: rotate([1, 2, 3])
 ```
+
+<!-- readme-evidence:start core/29-structural-exact-match.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[2, 3, 1]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.093 ± 0.265 ms | 0.503 ± 0.033 ms | 0.754 ± 0.085 ms |
+| Runtime | 17.529 ± 1.214 ms | 1.843 ± 0.078 ms | 1.537 ± 0.142 ms |
+
+<!-- readme-evidence:end -->
 
 ### 4.6 Math Uses The Same Rule
 
@@ -698,6 +1227,38 @@ data: (
 :: math.sqrt(data)
 ```
 
+<!-- readme-evidence:start core/30-math-structural.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty):**
+
+**Windows x64:**
+
+```text
+(name:measurements, values:[1, 4, 9], nested:(x:16, label:kept))
+(name:measurements, values:[-1.#IND, 2, 3], nested:(x:-1.#IND, label:kept))
+```
+
+**Linux x64:**
+
+```text
+(name:measurements, values:[1, 4, 9], nested:(x:16, label:kept))
+(name:measurements, values:[-nan, 2, 3], nested:(x:-nan, label:kept))
+```
+
+**macOS ARM64:**
+
+```text
+(name:measurements, values:[1, 4, 9], nested:(x:16, label:kept))
+(name:measurements, values:[nan, 2, 3], nested:(x:nan, label:kept))
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 17.120 ± 1.640 ms | 5.393 ± 0.366 ms | 3.958 ± 0.256 ms |
+| Runtime | 17.367 ± 1.148 ms | 1.946 ± 0.097 ms | 1.529 ± 0.130 ms |
+
+<!-- readme-evidence:end -->
+
 ## 5. Control Flow And Errors
 
 ### 5.1 Conditionals
@@ -716,6 +1277,38 @@ missing: (false? 99)
 :: missing
 ```
 
+<!-- readme-evidence:start core/31-conditionals.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty):**
+
+**Windows x64:**
+
+```text
+1
+1.#QNAN
+```
+
+**Linux x64:**
+
+```text
+1
+nan
+```
+
+**macOS ARM64:**
+
+```text
+1
+nan
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.040 ± 0.148 ms | 0.423 ± 0.018 ms | 0.728 ± 0.131 ms |
+| Runtime | 17.222 ± 1.059 ms | 1.824 ± 0.085 ms | 1.526 ± 0.125 ms |
+
+<!-- readme-evidence:end -->
+
 ### 5.2 Match Values And Types
 
 `value??` selects an arm with `=>`. Exact values beat type arms. More specific type, intersection, and shape arms beat broader unions or `any`. The final unlabelled row is the fallback.
@@ -731,6 +1324,22 @@ classify(value:int) -> str:
 :: classify(3)
 :: classify(4)
 ```
+
+<!-- readme-evidence:start core/32-match.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+exact three
+another integer
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.269 ± 11.557 ms | 0.494 ± 0.026 ms | 0.801 ± 0.161 ms |
+| Runtime | 17.272 ± 0.969 ms | 1.811 ± 0.072 ms | 1.519 ± 0.105 ms |
+
+<!-- readme-evidence:end -->
 
 Union and intersection patterns use `|` and `&`. Record, tuple, and fixed-vector shapes may also be patterns.
 
@@ -764,6 +1373,22 @@ switch_loop() -> int:
 :: switch_loop()
 ```
 
+<!-- readme-evidence:start core/33-loops.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+10
+2
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.503 ± 4.099 ms | 0.838 ± 0.047 ms | 0.941 ± 0.090 ms |
+| Runtime | 17.350 ± 1.238 ms | 1.829 ± 0.070 ms | 1.520 ± 0.113 ms |
+
+<!-- readme-evidence:end -->
+
 ### 5.4 Return, Continue, And Break
 
 `@:` returns a value, `@` returns `null`, `@>` continues the nearest loop/pipe, and `@|` breaks it.
@@ -790,6 +1415,21 @@ message: ""
 :: message
 ```
 
+<!-- readme-evidence:start core/34-errors.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+specific value
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.397 ± 0.471 ms | 0.965 ± 0.044 ms | 1.239 ± 0.126 ms |
+| Runtime | 17.153 ± 0.945 ms | 1.823 ± 0.081 ms | 1.536 ± 0.110 ms |
+
+<!-- readme-evidence:end -->
+
 The exact output is `specific value`. Native errors include the common base
 `Error` plus specific types such as `AssertionError`, `IndexError`, and
 `ValueError`. Use `errors: .errors` instead when you prefer qualified names such
@@ -809,6 +1449,24 @@ as `errors.ValueError`.
 :: "åA" >> $ & $
 ```
 
+<!-- readme-evidence:start core/35-pipes.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[2, 4, 6]
+(11, 12, 13)
+16
+ååAA
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.309 ± 0.303 ms | 0.562 ± 0.031 ms | 0.829 ± 0.073 ms |
+| Runtime | 17.372 ± 1.038 ms | 1.899 ± 0.098 ms | 1.531 ± 0.106 ms |
+
+<!-- readme-evidence:end -->
+
 Multiset pipes preserve multiplicity. String pipes decode characters from UTF-8 and encode their results back to UTF-8.
 
 ### 6.2 Pipe Blocks And Infinite Ranges
@@ -827,6 +1485,21 @@ values: (1..) >>
 :: values
 ```
 
+<!-- readme-evidence:start core/36-pipe-blocks.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[1, 20, 3, 4]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 7.571 ± 33.420 ms | 0.465 ± 0.030 ms | 0.768 ± 0.089 ms |
+| Runtime | 17.409 ± 1.205 ms | 1.862 ± 0.087 ms | 1.530 ± 0.114 ms |
+
+<!-- readme-evidence:end -->
+
 ## 7. Operators And Overloads
 
 ### 7.1 Built-In Operators
@@ -843,6 +1516,26 @@ Arithmetic uses `+ - * / // % ^`; concatenation uses `&`. Logic uses `/\ \/ >< ~
 :: ~(2 > 3)
 ```
 
+<!-- readme-evidence:start core/37-operators.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+14
+3
+2
+256
+true
+true
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.390 ± 0.325 ms | 0.566 ± 0.034 ms | 0.802 ± 0.119 ms |
+| Runtime | 17.350 ± 1.175 ms | 1.863 ± 0.077 ms | 1.520 ± 0.095 ms |
+
+<!-- readme-evidence:end -->
+
 `/\` and `\/` short-circuit. Power binds more tightly than multiplication. Unary `-` and `~` are supported.
 
 ### 7.2 Absolute Value And Vector Norm
@@ -854,6 +1547,22 @@ Arithmetic uses `+ - * / // % ^`; concatenation uses `&`. Logic uses `/\ \/ >< ~
 :: |-5|
 :: |[3, 4]|
 ```
+
+<!-- readme-evidence:start core/38-absolute-norm.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+5
+5
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 1.688 ± 0.325 ms | 0.275 ± 0.221 ms | 0.621 ± 0.064 ms |
+| Runtime | 17.309 ± 1.187 ms | 1.819 ± 0.064 ms | 1.519 ± 0.102 ms |
+
+<!-- readme-evidence:end -->
 
 ### 7.3 Operator Overloads
 
@@ -872,6 +1581,22 @@ Point: (x:num, y:num)
 :: (x:1, y:2) + (x:3, y:4)
 :: -(x:3, y:4)
 ```
+
+<!-- readme-evidence:start core/39-overloads.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+(x:4, y:6)
+(x:-3, y:-4)
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.960 ± 0.491 ms | 0.863 ± 0.040 ms | 0.972 ± 0.106 ms |
+| Runtime | 17.260 ± 1.006 ms | 1.847 ± 0.109 ms | 1.516 ± 0.087 ms |
+
+<!-- readme-evidence:end -->
 
 Overloading `str(custom)` controls conversion and interpolation. Overloading `::(custom)` controls direct output.
 
@@ -893,6 +1618,22 @@ Pair pair: (x:3, y:4)
 :: pair.("right")
 ```
 
+<!-- readme-evidence:start core/48-dot-overload.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+3
+4
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.867 ± 1.975 ms | 0.681 ± 0.014 ms | 1.338 ± 4.311 ms |
+| Runtime | 17.182 ± 1.031 ms | 1.817 ± 0.079 ms | 1.527 ± 0.085 ms |
+
+<!-- readme-evidence:end -->
+
 ## 8. Shapes, Axes, And Indexing
 
 ### 8.1 Fixed Shapes
@@ -907,6 +1648,21 @@ cross(matrix:[[int:2]:2]) -> int:
 :: cross([[1, 2], [3, 4]])
 ```
 
+<!-- readme-evidence:start core/40-fixed-shapes.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+5
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.252 ± 0.849 ms | 0.557 ± 0.032 ms | 0.780 ± 0.078 ms |
+| Runtime | 17.330 ± 1.127 ms | 1.818 ± 0.077 ms | 1.508 ± 0.076 ms |
+
+<!-- readme-evidence:end -->
+
 ### 8.2 Single And Multi-Index Access
 
 Use `.index` for a fixed literal index and `.(expression)` for runtime or multiple indices. The same syntax followed by `:` updates selected positions.
@@ -920,6 +1676,23 @@ values: [10, 20, 30, 40]
 values.(1, 3): (21, 41)
 :: values
 ```
+
+<!-- readme-evidence:start core/41-indexing.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+20
+[10, 30]
+[10, 21, 30, 41]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.229 ± 0.329 ms | 0.499 ± 0.021 ms | 0.799 ± 0.134 ms |
+| Runtime | 17.321 ± 1.011 ms | 1.874 ± 0.067 ms | 1.511 ± 0.069 ms |
+
+<!-- readme-evidence:end -->
 
 Out-of-range dynamic indexing raises `errors.IndexError`.
 
@@ -938,6 +1711,23 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 :: tensor
 ```
 
+<!-- readme-evidence:start core/42-axes.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[[1, 2, 3], [2, 4, 6], [3, 6, 9]]
+[4, 10, 18]
+[[[15, 18], [20, 24]], [[30, 36], [40, 48]]]
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.025 ± 0.333 ms | 0.934 ± 0.014 ms | 1.000 ± 0.167 ms |
+| Runtime | 17.326 ± 0.996 ms | 1.948 ± 0.066 ms | 1.521 ± 0.099 ms |
+
+<!-- readme-evidence:end -->
+
 The first result is a `3 x 3` matrix on axes `i,j`; the second remains a length-three vector on `i`; the third is rank three.
 
 ## 9. Modules, Scope, And Dispatch
@@ -954,6 +1744,22 @@ m: .math
 :.math
 :: sin(pi / 2)
 ```
+
+<!-- readme-evidence:start core/43-modules.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+3
+1
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 31.893 ± 3.491 ms | 9.766 ± 0.141 ms | 6.764 ± 0.448 ms |
+| Runtime | 17.232 ± 0.906 ms | 1.843 ± 0.069 ms | 1.513 ± 0.074 ms |
+
+<!-- readme-evidence:end -->
 
 ### 9.2 Shadowing And Qualification
 
@@ -976,6 +1782,22 @@ local() -> int:
 :: local()
 ```
 
+<!-- readme-evidence:start core/44-shadowing.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+0
+4
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 16.087 ± 1.839 ms | 5.317 ± 0.098 ms | 3.980 ± 1.360 ms |
+| Runtime | 17.194 ± 0.976 ms | 1.843 ± 0.075 ms | 1.516 ± 0.090 ms |
+
+<!-- readme-evidence:end -->
+
 ### 9.3 Overload Families And Type Dispatch
 
 Multiple functions with the same name form an overload family selected by parameter compatibility. Match arms use the same type-specificity rules.
@@ -991,6 +1813,22 @@ describe(value:str) -> str:
 :: describe(3)
 :: describe("three")
 ```
+
+<!-- readme-evidence:start core/45-overloads-dispatch.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+integer
+text
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 10.747 ± 32.740 ms | 0.486 ± 0.013 ms | 0.805 ± 0.161 ms |
+| Runtime | 17.365 ± 0.954 ms | 1.803 ± 0.090 ms | 1.513 ± 0.084 ms |
+
+<!-- readme-evidence:end -->
 
 ## 10. Native Standard Library
 
@@ -1010,6 +1848,23 @@ math: .math
 :: math.log(8, 2)
 ```
 
+<!-- readme-evidence:start stdlib/01-math.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+9
+1
+3
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 17.092 ± 2.902 ms | 5.230 ± 0.052 ms | 3.809 ± 0.313 ms |
+| Runtime | 17.300 ± 1.107 ms | 1.853 ± 0.077 ms | 1.529 ± 0.098 ms |
+
+<!-- readme-evidence:end -->
+
 All compatible unary math functions use the structural rule in section 4.
 
 ### 10.2 `stat`
@@ -1024,6 +1879,24 @@ values: [2, 4, 4, 4, 5, 5, 7, 9]
 :: stat.std(values)
 :: stat.range(values)
 ```
+
+<!-- readme-evidence:start stdlib/02-stat.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+5
+4
+2
+7
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 2.514 ± 0.492 ms | 0.582 ± 0.017 ms | 0.893 ± 0.736 ms |
+| Runtime | 17.292 ± 1.136 ms | 1.834 ± 0.093 ms | 1.521 ± 0.098 ms |
+
+<!-- readme-evidence:end -->
 
 `variance` and `std` accept `ddof`; zero is the population form and one is the sample form.
 
@@ -1040,6 +1913,22 @@ second: random.uniform(first.seed, low:0, high:10)
 :: second.value
 ```
 
+<!-- readme-evidence:start stdlib/03-random.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+0.009626434189093501
+1.791479416094478
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 6.170 ± 4.008 ms | 2.039 ± 0.032 ms | 2.203 ± 4.388 ms |
+| Runtime | 17.225 ± 0.987 ms | 1.847 ± 0.088 ms | 1.530 ± 0.112 ms |
+
+<!-- readme-evidence:end -->
+
 ### 10.4 `time`
 
 `wall_time`, `monotonic`, `sleep`, `time_stamp`, `format_time`, and `current_time` are native. Formatting accepts UTC selection and percent directives.
@@ -1054,6 +1943,21 @@ after: time.monotonic()
 :: time.format_time(0, "%Y-%m-%d %H:%M:%S", utc:true)
 ```
 
+<!-- readme-evidence:start stdlib/04-time.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+1970-01-01 00:00:00
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 23.777 ± 4.445 ms | 8.431 ± 0.074 ms | 5.982 ± 0.596 ms |
+| Runtime | 17.990 ± 1.223 ms | 1.945 ± 0.113 ms | 1.926 ± 0.122 ms |
+
+<!-- readme-evidence:end -->
+
 ### 10.5 `io`
 
 `print`, `eprint`, `read_line`, `read_text`, `read_bytes`, `write_text`, `write_bytes`, and `append_text` perform native stream and file I/O.
@@ -1065,6 +1969,21 @@ io.write_text("vkf-example.txt", "hello")
 io.append_text("vkf-example.txt", " world")
 :: io.read_text("vkf-example.txt")
 ```
+
+<!-- readme-evidence:start stdlib/05-io.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+hello world
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 10.929 ± 33.986 ms | 1.071 ± 0.016 ms | 1.335 ± 0.149 ms |
+| Runtime | 22.644 ± 46.123 ms | 1.956 ± 0.087 ms | 1.884 ± 0.111 ms |
+
+<!-- readme-evidence:end -->
 
 File operations use the current user's permissions. Paths are not sandboxed.
 
@@ -1086,6 +2005,24 @@ queue.put(10)
 :: queue.empty()
 ```
 
+<!-- readme-evidence:start stdlib/06-collections.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[1, 2, 3]
+origin
+10
+true
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 4.293 ± 0.898 ms | 1.324 ± 0.021 ms | 1.610 ± 2.820 ms |
+| Runtime | 17.472 ± 1.019 ms | 1.873 ± 0.081 ms | 1.560 ± 0.102 ms |
+
+<!-- readme-evidence:end -->
+
 An empty queue returns `null` from `get`.
 
 ### 10.7 `errors`
@@ -1100,6 +2037,21 @@ int(1.5)!?
     errors.ValueError => .caught: true
 :: caught
 ```
+
+<!-- readme-evidence:start stdlib/07-errors.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+true
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.232 ± 0.311 ms | 0.920 ± 0.017 ms | 1.221 ± 0.152 ms |
+| Runtime | 17.292 ± 0.929 ms | 1.839 ± 0.092 ms | 1.545 ± 0.093 ms |
+
+<!-- readme-evidence:end -->
 
 ### 10.8 `system`
 
@@ -1116,6 +2068,47 @@ path: system.env("PATH")
 :: path.found
 ```
 
+<!-- readme-evidence:start stdlib/08-system.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty):**
+
+**Windows x64:**
+
+```text
+windows
+x86_64
+4
+C:\Users\RUNNER~1\AppData\Local\Temp\vkf-readme-proof-X0WOzS\runtime\stdlib\08-system
+true
+```
+
+**Linux x64:**
+
+```text
+linux
+x86_64
+4
+/tmp/vkf-readme-proof-6h8Ofb/runtime/stdlib/08-system
+true
+```
+
+**macOS ARM64:**
+
+```text
+macos
+arm64
+3
+/private/var/folders/_5/zjnzxgh147qcg3bb5cg2wvqw0000gn/T/vkf-readme-proof-uXNPIn/runtime/stdlib/08-system
+true
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.539 ± 1.242 ms | 0.992 ± 0.016 ms | 1.127 ± 0.120 ms |
+| Runtime | 17.341 ± 1.163 ms | 1.889 ± 0.083 ms | 1.546 ± 0.093 ms |
+
+<!-- readme-evidence:end -->
+
 There is no portable raw-syscall function in the stable library.
 
 ### 10.9 `process`
@@ -1130,6 +2123,44 @@ result: process.run("git", ["--version"])
 :: result.out
 :: result.err
 ```
+
+<!-- readme-evidence:start stdlib/09-process.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty):**
+
+**Windows x64:**
+
+```text
+0
+git version 2.55.0.windows.4
+
+
+```
+
+**Linux x64:**
+
+```text
+0
+git version 2.55.0
+
+
+```
+
+**macOS ARM64:**
+
+```text
+0
+git version 2.55.0
+
+
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.349 ± 1.708 ms | 0.813 ± 0.013 ms | 1.027 ± 0.109 ms |
+| Runtime | 46.131 ± 2.494 ms | 3.404 ± 0.104 ms | 6.076 ± 0.310 ms |
+
+<!-- readme-evidence:end -->
 
 Use `run` for ordinary commands. It keeps arguments separate and avoids shell interpolation. Use `shell` only when shell syntax is genuinely required, and never insert untrusted text into its command.
 
@@ -1146,6 +2177,23 @@ positional: regex.groups("vkf-101", '([a-z]+)-([0-9]+)')
 :: positional.0
 :: positional.1
 ```
+
+<!-- readme-evidence:start stdlib/10-regex.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+vektor
+vkf
+101
+```
+
+| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Compile | 3.276 ± 1.458 ms | 0.855 ± 0.016 ms | 1.065 ± 0.153 ms |
+| Runtime | 17.740 ± 1.017 ms | 1.857 ± 0.085 ms | 1.707 ± 0.145 ms |
+
+<!-- readme-evidence:end -->
 
 ## 11. Coming Soon
 
