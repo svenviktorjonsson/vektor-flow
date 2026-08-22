@@ -97,9 +97,9 @@ calibrated to run for roughly 100 ms after warmup on the Windows proof machine.
 
 | 0.1.1 proof target | Conditions | Examples | Compile/run samples per example | Result | Full report |
 | --- | --- | ---: | ---: | --- | --- |
-| Windows x64 | Windows 11 build 26100; AMD EPYC 7763, 4 logical CPUs | 59 | 100 / 100 | all stable; container mean 103.219 ms | [exact output and timings](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.1.1/windows-x64-011.md) |
-| Linux x64 | Linux 6.8.0-1064-azure; AMD EPYC 7763, 4 logical CPUs | 59 | 100 / 100 | all stable; container mean 84.872 ms | [exact output and timings](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.1.1/linux-x64-011.md) |
-| macOS ARM64 | Darwin 24.6.0; virtual Apple M1, 3 logical CPUs | 59 | 100 / 100 | all stable; container mean 74.602 ms | [exact output and timings](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.1.1/macos-arm64-011.md) |
+| Windows x64 | Windows 11 build 26100; AMD EPYC 7763, 4 logical CPUs | 59 | 100 / 100 | all stable; container mean 103.030 ms | [exact output and timings](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.1.1/windows-x64-011.md) |
+| Linux x64 | Linux 6.8.0-1064-azure; AMD EPYC 9V74, 4 logical CPUs | 59 | 100 / 100 | all stable; container mean 73.931 ms | [exact output and timings](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.1.1/linux-x64-011.md) |
+| macOS ARM64 | Darwin 24.6.0; virtual Apple M1, 3 logical CPUs | 59 | 100 / 100 | all stable; container mean 94.163 ms | [exact output and timings](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.1.1/macos-arm64-011.md) |
 
 ### Native 0.1.1 Scope
 
