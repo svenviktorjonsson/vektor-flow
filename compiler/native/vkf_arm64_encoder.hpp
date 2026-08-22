@@ -772,7 +772,7 @@ private:
         words_.emit(0xaa0f01adu);
         words_.emit(0x390001cdu);
         emit_u64(15, 0x3fu);
-        words_.emit(0x8a0f018du);
+        words_.emit(0x8a0f01adu);
         emit_u64(15, 0x80u);
         words_.emit(0xaa0f01adu);
         words_.emit(0x390005cdu);
@@ -788,7 +788,7 @@ private:
         words_.emit(0x390001cdu);
         words_.emit(0xd346fd8du);
         emit_u64(15, 0x3fu);
-        words_.emit(0x8a0f018du);
+        words_.emit(0x8a0f01adu);
         emit_u64(15, 0x80u);
         words_.emit(0xaa0f01adu);
         words_.emit(0x390005cdu);
@@ -806,13 +806,13 @@ private:
         words_.emit(0x390001cdu);
         words_.emit(0xd34cfd8du);
         emit_u64(15, 0x3fu);
-        words_.emit(0x8a0f018du);
+        words_.emit(0x8a0f01adu);
         emit_u64(15, 0x80u);
         words_.emit(0xaa0f01adu);
         words_.emit(0x390005cdu);
         words_.emit(0xd346fd8du);
         emit_u64(15, 0x3fu);
-        words_.emit(0x8a0f018du);
+        words_.emit(0x8a0f01adu);
         emit_u64(15, 0x80u);
         words_.emit(0xaa0f01adu);
         words_.emit(0x390009cdu);

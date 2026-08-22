@@ -23,6 +23,7 @@ linker. The release contains no compatibility fallback.
 - native complex output formatting;
 - chained distinct-axis tensor products;
 - local shadowing of stdlib module names;
+- correct four-byte UTF-8 formatting and monotonic time on macOS ARM64;
 - source-first regex capture documentation;
 - integrated full-suite discovery and isolated native test artifacts;
 - per-example 100-compile/100-run reports with exact output and host conditions;
@@ -81,7 +82,7 @@ build. An unchanged requested artifact runs without recompilation.
 Every platform job must:
 
 1. build the strict native compiler;
-2. run `vkf -t tests/vkf` with 277 passes and zero failures;
+2. run `vkf -t tests/vkf` with 279 passes and zero failures;
 3. compile all 59 generated README examples 100 times from fresh source paths;
 4. execute every generated README example in 100 fresh operating-system processes;
 5. require byte-identical stdout/stderr and the same exit code across all 100 runs;

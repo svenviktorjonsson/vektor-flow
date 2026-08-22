@@ -24,11 +24,12 @@ Its central ideas are bindings that build scope, blocks that return values, call
 - fixed multiple complex outputs through the native formatter;
 - fixed chained named-axis products so `i * j * k` preserves tensor rank;
 - fixed local values shadowing stdlib module names;
+- fixed macOS ARM64 four-byte UTF-8 formatting and monotonic-clock selection;
 - corrected regex documentation to use source-first arguments and its real capture results;
 - moved native test artifacts out of source discovery, restored the original public-test convention, and added the full `vkf -t tests/vkf` release gate;
 - replaced the narrow synthetic release benchmark with 100 fresh compiles and 100 full-process runs of every documented example, including exact output proof and a 20-million-operation container stress case.
 
-Windows verification currently reports **277 passed, 0 failed** through the native VKF test runner. Linux x64 and macOS ARM64 must produce the same result before the release workflow can publish 0.1.1.
+Windows verification currently reports **279 passed, 0 failed** through the native VKF test runner. Linux x64 and macOS ARM64 must produce the same result before the release workflow can publish 0.1.1.
 
 ### 0.1.0 — First Native Preview
 
@@ -1127,7 +1128,7 @@ The 0.1.1 acceptance suite is run by VKF itself:
 vkf -t tests/vkf
 ```
 
-The expected result is `277 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs described in [TESTING.md](TESTING.md). Build and packaging details are in [INSTALL.md](INSTALL.md), and release procedures are in [RELEASES.md](RELEASES.md).
+The expected result is `279 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs described in [TESTING.md](TESTING.md). Build and packaging details are in [INSTALL.md](INSTALL.md), and release procedures are in [RELEASES.md](RELEASES.md).
 
 VS Code syntax support is under `editors/vscode-vektor-flow`.
 
