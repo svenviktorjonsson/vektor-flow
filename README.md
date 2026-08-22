@@ -133,8 +133,7 @@ to reuse their executable.
 The 0.1.3 release compiles every documented program 100 times from fresh paths
 and executes it 100 times in fresh operating-system processes on Windows x64,
 Linux x64, and macOS ARM64. Reports record every sample, exact output, source
-hash, compiler hash, and machine conditions. The 10-million-operation container
-case keeps its workload fixed even when timings change.
+hash, compiler hash, and machine conditions.
 
 <!-- readme-platform-evidence:start -->
 | Detail | Windows x64 | Linux x64 | macOS ARM64 |
