@@ -12318,10 +12318,59 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
     return lowered;
 }
 
+inline bool instruction_intrinsically_raises(const Instruction& instruction) {
+    if (instruction.opcode != Opcode::Call && instruction.may_error) return true;
+    return instruction.opcode == Opcode::RethrowError ||
+        instruction.opcode == Opcode::RaiseErrorValue ||
+        instruction.opcode == Opcode::AssertTruthy ||
+        instruction.opcode == Opcode::AssertTruthyString;
+}
+
+inline void refine_machine_error_effects(Module& module) {
+    std::map<std::string, bool> raises;
+    for (const auto& function : module.functions) {
+        raises[function.name] = std::any_of(
+            function.instructions.begin(), function.instructions.end(),
+            [](const auto& instruction) {
+                return instruction_intrinsically_raises(instruction);
+            });
+    }
+
+    for (std::size_t pass = 0; pass <= module.functions.size(); ++pass) {
+        bool changed = false;
+        for (const auto& function : module.functions) {
+            bool may_raise = raises.at(function.name);
+            for (const auto& instruction : function.instructions) {
+                if (instruction.opcode != Opcode::Call) continue;
+                const auto callee = raises.find(instruction.symbol);
+                may_raise = may_raise || (callee == raises.end()
+                    ? instruction.may_error : callee->second);
+            }
+            if (may_raise != raises.at(function.name)) {
+                raises[function.name] = may_raise;
+                changed = true;
+            }
+        }
+        if (!changed) break;
+    }
+
+    const auto refine = [&](Function& function) {
+        for (auto& instruction : function.instructions) {
+            if (instruction.opcode != Opcode::Call) continue;
+            const auto callee = raises.find(instruction.symbol);
+            if (callee != raises.end()) instruction.may_error = callee->second;
+        }
+        const auto known = raises.find(function.name);
+        if (known != raises.end()) function.may_error = known->second;
+    };
+    refine(module.entry);
+    for (auto& function : module.functions) refine(function);
+}
+
 inline bool is_small_numeric_inline_candidate(const Function& function) {
     if (function.may_error || function.parameter_mask_local ||
         !function.owned_f64_list_locals.empty() || !function.owned_string_locals.empty() ||
-        function.instructions.empty() || function.instructions.size() > 32) {
+        function.instructions.empty() || function.instructions.size() > 64) {
         return false;
     }
     bool has_return = false;
@@ -12364,6 +12413,7 @@ inline bool is_small_numeric_inline_candidate(const Function& function) {
             case Opcode::JumpIfTrue:
                 break;
             case Opcode::ReturnF64:
+            case Opcode::ReturnValues:
                 has_return = true;
                 break;
             default:
@@ -12410,10 +12460,79 @@ inline void inline_small_numeric_calls(Module& module) {
         for (std::size_t caller_index = 0; caller_index < caller.instructions.size(); ++caller_index) {
             const auto& call = caller.instructions[caller_index];
             const auto found = call.opcode == Opcode::Call ? candidates.find(call.symbol) : candidates.end();
+            const auto aggregate_candidate = [&]() {
+                if (found == candidates.end() || call.result_count <= 1 ||
+                    call.result_count > 8 || call.argument_count != found->second->parameters.size() ||
+                    call.may_error || call.has_error_handler || call.uses_parameter_mask ||
+                    found->second->name == caller.name || !is_in_loop(caller_index)) {
+                    return false;
+                }
+                const auto& instructions = found->second->instructions;
+                if (instructions.empty() || instructions.back().opcode != Opcode::ReturnValues ||
+                    instructions.back().result_count != call.result_count) {
+                    return false;
+                }
+                return std::none_of(
+                    instructions.begin(), instructions.end() - 1,
+                    [](const auto& instruction) {
+                        return instruction.opcode == Opcode::Call ||
+                            instruction.opcode == Opcode::Label ||
+                            instruction.opcode == Opcode::Jump ||
+                            instruction.opcode == Opcode::JumpIfFalse ||
+                            instruction.opcode == Opcode::JumpIfTrue ||
+                            instruction.opcode == Opcode::ReturnF64 ||
+                            instruction.opcode == Opcode::ReturnValues;
+                    });
+            }();
+            if (aggregate_candidate) {
+                const Function& callee = *found->second;
+                bool direct_local_arguments = rewritten.size() >= call.argument_count;
+                const auto argument_begin = rewritten.size() -
+                    (direct_local_arguments ? call.argument_count : 0u);
+                for (std::size_t index = argument_begin;
+                     direct_local_arguments && index < rewritten.size(); ++index) {
+                    if (rewritten[index].opcode != Opcode::LoadLocal) {
+                        direct_local_arguments = false;
+                    }
+                }
+                for (const auto& instruction : callee.instructions) {
+                    if (instruction.opcode == Opcode::StoreLocal &&
+                        instruction.index < callee.parameters.size()) {
+                        direct_local_arguments = false;
+                    }
+                }
+                if (direct_local_arguments &&
+                    rewritten.size() + callee.instructions.size() <= 512) {
+                    std::vector<std::uint32_t> local_map(callee.locals.size());
+                    for (std::uint32_t index = 0; index < call.argument_count; ++index) {
+                        local_map[index] = rewritten[argument_begin + index].index;
+                    }
+                    rewritten.resize(argument_begin);
+                    for (std::uint32_t index = call.argument_count;
+                         index < callee.locals.size(); ++index) {
+                        local_map[index] = static_cast<std::uint32_t>(caller.locals.size());
+                        caller.locals.push_back("$inline$" + callee.name + "$" + callee.locals[index]);
+                    }
+                    for (auto instruction : callee.instructions) {
+                        if (instruction.opcode == Opcode::ReturnValues) break;
+                        if (instruction.opcode == Opcode::LoadLocal ||
+                            instruction.opcode == Opcode::StoreLocal) {
+                            instruction.index = local_map.at(instruction.index);
+                        }
+                        rewritten.push_back(std::move(instruction));
+                    }
+                    caller.max_stack = std::max(
+                        caller.max_stack, original_max_stack + callee.max_stack);
+                    continue;
+                }
+            }
+            const bool scalar_return = found != candidates.end() && std::any_of(
+                found->second->instructions.begin(), found->second->instructions.end(),
+                [](const auto& instruction) { return instruction.opcode == Opcode::ReturnF64; });
             if (found == candidates.end() || !is_in_loop(caller_index) ||
                 found->second->name == caller.name || call.may_error ||
                 call.has_error_handler || call.uses_parameter_mask || call.result_count != 1 ||
-                call.argument_count != found->second->parameters.size()) {
+                !scalar_return || call.argument_count != found->second->parameters.size()) {
                 rewritten.push_back(call);
                 continue;
             }
@@ -12543,6 +12662,7 @@ inline Module lower(const vf::JsonValue& typed_ir) {
         ? *recursive_locals : immediate_shaped;
     const auto local_calls = specialize_direct_local_calls(recursive_shaped);
     auto lowered = lower_monomorphic(local_calls ? *local_calls : recursive_shaped);
+    refine_machine_error_effects(lowered);
     inline_small_numeric_calls(lowered);
     return lowered;
 }

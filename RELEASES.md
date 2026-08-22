@@ -1,5 +1,26 @@
 # Vektor Flow Native Releases
 
+## 0.1.3 — Native Numeric Optimization
+
+0.1.3 closes runtime gaps exposed by the pinned comparison suite:
+
+- small straight-line numeric functions can inline aggregate arguments and results;
+- numeric loop lowering fuses arithmetic, branches, stores, and repeated local loads;
+- supported x64 hosts receive AVX2/FMA four-lane affine recurrences;
+- the x64 SysV record recurrence keeps its four numeric fields in registers;
+- pure numeric Linux programs use a minimal executable shell rather than initializing the complete runtime import table;
+- x64 CPU capabilities are part of the build fingerprint, preventing incompatible cached artifacts;
+- optimizer-specific VKF tests preserve vector and record results.
+
+The release gate is **298 VKF tests**, 59 documented-program checks, 100 fresh
+compiles and 100 fresh-process runs per program on Windows x64, Linux x64, and
+macOS ARM64, plus the pinned seven-language Linux comparison. The fixed
+10-million-operation container workload is unchanged.
+
+The native library boundary is unchanged: `math`, `stat`, `random`, `time`,
+`io`, `collections`, `errors`, `system`, `process`, and `regex` ship;
+`physics`, `ui`, and `symbolic` remain absent.
+
 ## 0.1.2 — Strict Bindings, Structural Updates, Typed Raises
 
 0.1.2 closes concrete semantic and proof gaps found after 0.1.1:

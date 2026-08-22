@@ -1,6 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
+
+#if defined(_M_X64)
+#include <intrin.h>
+#endif
 
 namespace vkf::target {
 
@@ -35,6 +40,51 @@ constexpr Contract host_x64_contract() {
 constexpr Contract macos_arm64_contract() {
     return {OperatingSystem::MacOS, Architecture::Arm64, ObjectFormat::MachO,
             CallingConvention::AppleArm64, 8, 16, 0};
+}
+
+inline bool host_x64_supports_avx2() {
+#if defined(_M_X64)
+    int registers[4]{};
+    __cpuid(registers, 0);
+    if (registers[0] < 7) return false;
+    __cpuid(registers, 1);
+    constexpr int osxsave = 1 << 27;
+    constexpr int avx = 1 << 28;
+    if ((registers[2] & (osxsave | avx)) != (osxsave | avx) ||
+        (_xgetbv(0) & 0x6) != 0x6) {
+        return false;
+    }
+    __cpuidex(registers, 7, 0);
+    return (registers[1] & (1 << 5)) != 0;
+#elif defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+    __builtin_cpu_init();
+    return __builtin_cpu_supports("avx2");
+#else
+    return false;
+#endif
+}
+
+inline bool host_x64_supports_fma() {
+#if defined(_M_X64)
+    int registers[4]{};
+    __cpuid(registers, 1);
+    constexpr int fma = 1 << 12;
+    constexpr int osxsave = 1 << 27;
+    constexpr int avx = 1 << 28;
+    return (registers[2] & (fma | osxsave | avx)) == (fma | osxsave | avx) &&
+        (_xgetbv(0) & 0x6) == 0x6;
+#elif defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+    __builtin_cpu_init();
+    return __builtin_cpu_supports("fma");
+#else
+    return false;
+#endif
+}
+
+inline std::string_view host_x64_feature_key() {
+    return host_x64_supports_avx2() && host_x64_supports_fma()
+        ? "x64-avx2-fma"
+        : host_x64_supports_avx2() ? "x64-avx2" : "x64-sse2";
 }
 
 constexpr const char* name(OperatingSystem value) {

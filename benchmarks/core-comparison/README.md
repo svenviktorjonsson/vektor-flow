@@ -1,7 +1,7 @@
 # Core language comparison
 
 This suite provides narrow language-to-language evidence and compiler
-regression checks. It is not the only 0.1.2 release gate. Release acceptance also uses every
+regression checks. It is not the only 0.1.3 release gate. Release acceptance also uses every
 documented program, exact output, and full-process runtime through
 [`benchmarks/readme-examples`](../readme-examples/README.md).
 
@@ -91,7 +91,7 @@ tools, verifies Zig's official SHA-256, then runs this exact command on
 Linux-local storage:
 
 ```bash
-node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,fixed-vector-medium,record-value-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-012
+node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,fixed-vector-medium,record-value-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-013
 ```
 
 `native-entry-timer` isolates generated-program execution. `native-process-timer`

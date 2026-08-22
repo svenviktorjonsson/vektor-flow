@@ -9,12 +9,14 @@
 #include "compiler/native/vkf_capture_pattern.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -647,10 +649,169 @@ private:
         }
     };
 
+    struct AffineTerm {
+        std::uint32_t local = 0;
+        double coefficient = 1.0;
+        std::size_t next = 0;
+    };
+
+    struct AffineExpression {
+        AffineTerm first;
+        AffineTerm second;
+        std::size_t next = 0;
+    };
+
+    struct AvxAffineLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t bound_local = 0;
+        std::array<std::uint32_t, 4> state_locals{};
+        std::array<unsigned char, 4> source_a{};
+        std::array<unsigned char, 4> source_b{};
+        std::array<double, 4> coefficient_a{};
+        std::array<double, 4> coefficient_b{};
+    };
+
     const vkf::machine_ir::Module& module_;
     std::map<std::string, std::size_t> offsets_;
     std::vector<CallPatch> calls_;
     Code code_;
+
+    static std::optional<AffineTerm> parse_affine_term(
+        const std::vector<vkf::machine_ir::Instruction>& instructions,
+        std::size_t start
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (start >= instructions.size()) return std::nullopt;
+        if (instructions[start].opcode == Opcode::LoadLocal) {
+            if (start + 2 < instructions.size() &&
+                instructions[start + 1].opcode == Opcode::PushF64 &&
+                instructions[start + 2].opcode == Opcode::MultiplyF64) {
+                return AffineTerm{
+                    instructions[start].index, instructions[start + 1].f64, start + 3};
+            }
+            return AffineTerm{instructions[start].index, 1.0, start + 1};
+        }
+        if (instructions[start].opcode == Opcode::PushF64 &&
+            start + 2 < instructions.size() &&
+            instructions[start + 1].opcode == Opcode::LoadLocal &&
+            instructions[start + 2].opcode == Opcode::MultiplyF64) {
+            return AffineTerm{
+                instructions[start + 1].index, instructions[start].f64, start + 3};
+        }
+        return std::nullopt;
+    }
+
+    static std::optional<AffineExpression> parse_affine_expression(
+        const std::vector<vkf::machine_ir::Instruction>& instructions,
+        std::size_t start
+    ) {
+        using vkf::machine_ir::Opcode;
+        const auto first = parse_affine_term(instructions, start);
+        if (!first) return std::nullopt;
+        const auto second = parse_affine_term(instructions, first->next);
+        if (!second || second->next >= instructions.size()) return std::nullopt;
+        const auto combine = instructions[second->next].opcode;
+        if (combine != Opcode::AddF64 && combine != Opcode::SubtractF64) {
+            return std::nullopt;
+        }
+        auto adjusted_second = *second;
+        if (combine == Opcode::SubtractF64) adjusted_second.coefficient = -adjusted_second.coefficient;
+        return AffineExpression{*first, adjusted_second, second->next + 1};
+    }
+
+    static std::optional<AvxAffineLoopPlan> detect_avx_affine_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2() ||
+            !vkf::target::host_x64_supports_fma()) {
+            return std::nullopt;
+        }
+        const auto& instructions = function.instructions;
+        if (label_index >= instructions.size() ||
+            instructions[label_index].opcode != Opcode::Label ||
+            label_index + 4 >= instructions.size()) {
+            return std::nullopt;
+        }
+        const auto loop_label = instructions[label_index].label;
+        const auto& counter = instructions[label_index + 1];
+        const auto& bound = instructions[label_index + 2];
+        const auto& comparison = instructions[label_index + 3];
+        const auto& exit = instructions[label_index + 4];
+        if (counter.opcode != Opcode::LoadLocal || bound.opcode != Opcode::LoadLocal ||
+            comparison.opcode != Opcode::OrderedLessF64 ||
+            exit.opcode != Opcode::JumpIfFalse || counter.index == bound.index) {
+            return std::nullopt;
+        }
+
+        std::array<AffineExpression, 4> expressions{};
+        std::size_t cursor = label_index + 5;
+        for (auto& expression : expressions) {
+            const auto parsed = parse_affine_expression(instructions, cursor);
+            if (!parsed) return std::nullopt;
+            expression = *parsed;
+            cursor = parsed->next;
+        }
+        if (cursor + 9 >= instructions.size()) return std::nullopt;
+
+        std::array<std::uint32_t, 4> destinations{};
+        for (std::size_t store = 0; store < 4; ++store) {
+            const auto& instruction = instructions[cursor + store];
+            if (instruction.opcode != Opcode::StoreLocal) return std::nullopt;
+            destinations[3 - store] = instruction.index;
+        }
+        const auto state_base = destinations[0];
+        for (std::size_t index = 0; index < destinations.size(); ++index) {
+            if (destinations[index] != state_base + index ||
+                destinations[index] >= function.locals.size()) {
+                return std::nullopt;
+            }
+        }
+        cursor += 4;
+        if (instructions[cursor].opcode != Opcode::LoadLocal ||
+            instructions[cursor].index != counter.index ||
+            instructions[cursor + 1].opcode != Opcode::PushF64 ||
+            instructions[cursor + 1].f64 != 1.0 ||
+            instructions[cursor + 2].opcode != Opcode::AddF64 ||
+            instructions[cursor + 3].opcode != Opcode::StoreLocal ||
+            instructions[cursor + 3].index != counter.index ||
+            instructions[cursor + 4].opcode != Opcode::Jump ||
+            instructions[cursor + 4].label != loop_label) {
+            return std::nullopt;
+        }
+        if (counter.index >= function.locals.size() || bound.index >= function.locals.size() ||
+            (counter.index >= state_base && counter.index < state_base + 4) ||
+            (bound.index >= state_base && bound.index < state_base + 4)) {
+            return std::nullopt;
+        }
+
+        AvxAffineLoopPlan plan;
+        plan.end_index = cursor + 4;
+        plan.counter_local = counter.index;
+        plan.bound_local = bound.index;
+        for (std::size_t index = 0; index < 4; ++index) {
+            plan.state_locals[index] = destinations[index];
+            const auto assign_term = [&](const AffineTerm& term, bool first) {
+                if (term.local < state_base || term.local >= state_base + 4) return false;
+                const auto source = static_cast<unsigned char>(term.local - state_base);
+                if (first) {
+                    plan.source_a[index] = source;
+                    plan.coefficient_a[index] = term.coefficient;
+                } else {
+                    plan.source_b[index] = source;
+                    plan.coefficient_b[index] = term.coefficient;
+                }
+                return true;
+            };
+            if (!assign_term(expressions[index].first, true) ||
+                !assign_term(expressions[index].second, false)) {
+                return std::nullopt;
+            }
+        }
+        return plan;
+    }
 
     static Frame make_frame(const vkf::machine_ir::Function& function, bool entry) {
         constexpr auto target = vkf::target::host_x64_contract();
@@ -775,6 +936,147 @@ private:
         code_.raw({0x48, 0xb8});
         code_.u64(bits);
         code_.raw({0x66, 0x48, 0x0f, 0x6e, static_cast<unsigned>(0xc0 + xmm * 8)});
+    }
+
+    void emit_ymm_constant(unsigned ymm, const std::array<double, 4>& values) {
+        if (ymm == 0 || ymm > 4) throw BackendFailure("invalid x64 AVX constant register");
+        emit_number(values[0], ymm);
+        emit_number(values[1], 0);
+        code_.raw({0x66, 0x0f, 0x14, static_cast<unsigned>(0xc0 + ymm * 8)});
+        emit_number(values[2], 5);
+        emit_number(values[3], 0);
+        code_.raw({0x66, 0x0f, 0x14, 0xe8});
+        const auto vex = static_cast<unsigned>(((~ymm) & 0x0f) << 3) | 0x05;
+        code_.raw({0xc4, 0xe3, vex, 0x18,
+                   static_cast<unsigned>(0xc0 + ymm * 8 + 5), 0x01});
+    }
+
+    void emit_avx_affine_loop(const Frame& frame, const AvxAffineLoopPlan& plan) {
+        code_.byte(0xe9);
+        const auto skip_one = code_.rel32_placeholder();
+        const auto one = code_.position();
+        std::uint64_t one_bits = 0;
+        const double one_value = 1.0;
+        std::memcpy(&one_bits, &one_value, sizeof(one_bits));
+        code_.u64(one_bits);
+        code_.patch_rel32(skip_one, code_.position());
+
+        emit_ymm_constant(1, plan.coefficient_a);
+        emit_ymm_constant(2, plan.coefficient_b);
+        load_xmm(3, frame.displacement(plan.counter_local));
+        load_xmm(4, frame.displacement(plan.bound_local));
+
+        code_.raw({0xc5, 0xfd, 0x10, 0x85});
+        code_.i32(frame.displacement(plan.state_locals[3]));
+        code_.raw({0xc4, 0xe3, 0xfd, 0x01, 0xc0, 0x1b});
+
+        code_.raw({0xc5, 0xf9, 0x2e, 0xe3});
+        const auto finished = emit_jump(0x86);
+        const auto loop = code_.position();
+
+        const auto selector = [](const std::array<unsigned char, 4>& sources) {
+            return static_cast<unsigned>(sources[0] | (sources[1] << 2) |
+                (sources[2] << 4) | (sources[3] << 6));
+        };
+        code_.raw({0xc4, 0xe3, 0xfd, 0x01, 0xe8, selector(plan.source_b)});
+        code_.raw({0xc5, 0xd5, 0x59, 0xea});
+        const auto source_a = selector(plan.source_a);
+        if (source_a != 0xe4) {
+            code_.raw({0xc4, 0xe3, 0xfd, 0x01, 0xc0, source_a});
+        }
+        code_.raw({0xc4, 0xe2, 0xd5, 0x98, 0xc1});
+        code_.raw({0xc5, 0xe3, 0x58, 0x1d});
+        const auto one_reference = code_.rel32_placeholder();
+        code_.patch_rel32(one_reference, one);
+        code_.raw({0xc5, 0xf9, 0x2e, 0xe3});
+        const auto repeat = emit_jump(0x87);
+        code_.patch_rel32(repeat, loop);
+
+        const auto cleanup = code_.position();
+        code_.patch_rel32(finished, cleanup);
+        code_.raw({0xc4, 0xe3, 0xfd, 0x01, 0xc0, 0x1b});
+        code_.raw({0xc5, 0xfd, 0x11, 0x85});
+        code_.i32(frame.displacement(plan.state_locals[3]));
+        code_.raw({0xc5, 0xf8, 0x77});
+        store_xmm(3, frame.displacement(plan.counter_local));
+    }
+
+#ifndef _WIN32
+    static bool is_second_order_affine_loop(const AvxAffineLoopPlan& plan) {
+        constexpr std::array<unsigned char, 4> identity{0, 1, 2, 3};
+        constexpr std::array<unsigned char, 4> velocity_links{2, 3, 1, 0};
+        return plan.source_a == identity && plan.source_b == velocity_links &&
+            plan.coefficient_a[0] == 1.0 && plan.coefficient_a[1] == 1.0 &&
+            plan.coefficient_b[0] == 1.0 && plan.coefficient_b[1] == 1.0;
+    }
+
+    void emit_scalar_second_order_loop(const Frame& frame, const AvxAffineLoopPlan& plan) {
+        const std::array<double, 5> constants{
+            1.0,
+            plan.coefficient_a[2], plan.coefficient_b[2],
+            plan.coefficient_a[3], plan.coefficient_b[3],
+        };
+        std::array<std::size_t, 5> literals{};
+        code_.byte(0xe9);
+        const auto skip_literals = code_.rel32_placeholder();
+        for (std::size_t index = 0; index < constants.size(); ++index) {
+            literals[index] = code_.position();
+            std::uint64_t bits = 0;
+            std::memcpy(&bits, &constants[index], sizeof(bits));
+            code_.u64(bits);
+        }
+        code_.patch_rel32(skip_literals, code_.position());
+
+        for (unsigned index = 0; index < 4; ++index) {
+            load_xmm(index, frame.displacement(plan.state_locals[index]));
+        }
+        load_xmm(6, frame.displacement(plan.counter_local));
+        load_xmm(7, frame.displacement(plan.bound_local));
+        code_.raw({0xc5, 0xf9, 0x2e, 0xfe});
+        const auto finished = emit_jump(0x86);
+        const auto loop = code_.position();
+
+        code_.raw({0xc5, 0xf3, 0x59, 0x25});
+        const auto b2_reference = code_.rel32_placeholder();
+        code_.patch_rel32(b2_reference, literals[2]);
+        code_.raw({0xc4, 0xe2, 0xe9, 0xb9, 0x25});
+        const auto a2_reference = code_.rel32_placeholder();
+        code_.patch_rel32(a2_reference, literals[1]);
+        code_.raw({0xc5, 0xfb, 0x59, 0x2d});
+        const auto b3_reference = code_.rel32_placeholder();
+        code_.patch_rel32(b3_reference, literals[4]);
+        code_.raw({0xc4, 0xe2, 0xe1, 0xb9, 0x2d});
+        const auto a3_reference = code_.rel32_placeholder();
+        code_.patch_rel32(a3_reference, literals[3]);
+
+        code_.raw({0xc5, 0xfb, 0x58, 0xc2});
+        code_.raw({0xc5, 0xf3, 0x58, 0xcb});
+        code_.raw({0xc5, 0xf9, 0x28, 0xd4});
+        code_.raw({0xc5, 0xf9, 0x28, 0xdd});
+        code_.raw({0xc5, 0xcb, 0x58, 0x35});
+        const auto one_reference = code_.rel32_placeholder();
+        code_.patch_rel32(one_reference, literals[0]);
+        code_.raw({0xc5, 0xf9, 0x2e, 0xfe});
+        const auto repeat = emit_jump(0x87);
+        code_.patch_rel32(repeat, loop);
+
+        const auto cleanup = code_.position();
+        code_.patch_rel32(finished, cleanup);
+        for (unsigned index = 0; index < 4; ++index) {
+            store_xmm(index, frame.displacement(plan.state_locals[index]));
+        }
+        store_xmm(6, frame.displacement(plan.counter_local));
+    }
+#endif
+
+    void emit_affine_loop(const Frame& frame, const AvxAffineLoopPlan& plan) {
+#ifndef _WIN32
+        if (is_second_order_affine_loop(plan)) {
+            emit_scalar_second_order_loop(frame, plan);
+            return;
+        }
+#endif
+        emit_avx_affine_loop(frame, plan);
     }
 
     void call_runtime_slot(unsigned slot) {
@@ -2454,6 +2756,103 @@ private:
 
     void emit_function(const vkf::machine_ir::Function& function, bool entry) {
         const Frame frame = make_frame(function, entry);
+        const bool has_avx_affine_loop = [&]() {
+            for (std::size_t index = 0; index < function.instructions.size(); ++index) {
+                if (detect_avx_affine_loop(function, index)) return true;
+            }
+            return false;
+        }();
+        const auto register_cache_safe = [&]() {
+            if (entry || function.may_error || function.locals.empty() || has_avx_affine_loop) {
+                return false;
+            }
+            using vkf::machine_ir::Opcode;
+            return std::all_of(
+                function.instructions.begin(), function.instructions.end(),
+                [](const auto& instruction) {
+                    switch (instruction.opcode) {
+                        case Opcode::PushF64:
+                        case Opcode::LoadLocal:
+                        case Opcode::StoreLocal:
+                        case Opcode::Drop:
+                        case Opcode::Duplicate:
+                        case Opcode::IdentityF64:
+                        case Opcode::NegateF64:
+                        case Opcode::LogicalNotF64:
+                        case Opcode::BooleanizeF64:
+                        case Opcode::AddF64:
+                        case Opcode::SubtractF64:
+                        case Opcode::MultiplyF64:
+                        case Opcode::DivideF64:
+                        case Opcode::OrderedLessF64:
+                        case Opcode::OrderedLessEqualF64:
+                        case Opcode::OrderedGreaterF64:
+                        case Opcode::OrderedGreaterEqualF64:
+                        case Opcode::OrderedEqualF64:
+                        case Opcode::UnorderedNotEqualF64:
+                        case Opcode::EqualBits:
+                        case Opcode::NotEqualBits:
+                        case Opcode::Label:
+                        case Opcode::Jump:
+                        case Opcode::JumpIfFalse:
+                        case Opcode::JumpIfTrue:
+                        case Opcode::ReturnF64:
+                        case Opcode::ReturnValues:
+                            return true;
+                        default:
+                            return false;
+                    }
+                });
+        }();
+        std::vector<int> local_register(frame.local_count, -1);
+        if (register_cache_safe) {
+            std::vector<std::pair<unsigned, unsigned>> frequency;
+            frequency.reserve(frame.local_count);
+            for (unsigned local = 0; local < frame.local_count; ++local) {
+                const auto count = static_cast<unsigned>(std::count_if(
+                    function.instructions.begin(), function.instructions.end(),
+                    [local](const auto& instruction) {
+                        return (instruction.opcode == vkf::machine_ir::Opcode::LoadLocal ||
+                                instruction.opcode == vkf::machine_ir::Opcode::StoreLocal) &&
+                            instruction.index == local;
+                    }));
+                if (count != 0) frequency.emplace_back(count, local);
+            }
+            std::sort(frequency.begin(), frequency.end(), [](const auto& left, const auto& right) {
+                return left.first != right.first ? left.first > right.first : left.second < right.second;
+            });
+#ifdef _WIN32
+            constexpr unsigned available[] = {3, 4, 5};
+#else
+            constexpr unsigned available[] = {3, 4, 5, 6, 7};
+#endif
+            for (unsigned index = 0;
+                 index < frequency.size() && index < std::size(available); ++index) {
+                local_register[frequency[index].second] = static_cast<int>(available[index]);
+            }
+        }
+        const auto load_local = [&](unsigned local, unsigned destination) {
+            if (local >= frame.local_count || destination > 7) {
+                throw BackendFailure("invalid cached x64 local load");
+            }
+            const int source = local_register[local];
+            if (source < 0) load_xmm(destination, frame.displacement(local));
+            else if (static_cast<unsigned>(source) != destination) {
+                code_.raw({0x66, 0x0f, 0x28,
+                           static_cast<unsigned>(0xc0 + destination * 8 + source)});
+            }
+        };
+        const auto store_local = [&](unsigned local, unsigned source) {
+            if (local >= frame.local_count || source > 7) {
+                throw BackendFailure("invalid cached x64 local store");
+            }
+            const int destination = local_register[local];
+            if (destination < 0) store_xmm(source, frame.displacement(local));
+            else if (static_cast<unsigned>(destination) != source) {
+                code_.raw({0x66, 0x0f, 0x28,
+                           static_cast<unsigned>(0xc0 + destination * 8 + source)});
+            }
+        };
         prologue(frame);
         if (entry) save_runtime_context(frame);
         else save_result_context(frame);
@@ -2476,10 +2875,10 @@ private:
             }
         }
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
-            if (entry) store_xmm(static_cast<unsigned>(index), frame.displacement(static_cast<unsigned>(index)));
+            if (entry) store_local(static_cast<unsigned>(index), static_cast<unsigned>(index));
             else {
                 load_argument_from_r10(static_cast<std::uint32_t>(index));
-                store_xmm(0, frame.displacement(static_cast<unsigned>(index)));
+                store_local(static_cast<unsigned>(index), 0);
             }
         }
 
@@ -2491,6 +2890,172 @@ private:
             const auto& instruction = function.instructions[instruction_index];
             using vkf::machine_ir::Opcode;
             const auto opcode = instruction.opcode;
+            if (opcode == Opcode::Label) {
+                const auto avx_loop = detect_avx_affine_loop(function, instruction_index);
+                if (avx_loop) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure("AVX affine loop requires empty x64 machine stack");
+                    }
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_affine_loop(frame, *avx_loop);
+                    instruction_index = avx_loop->end_index;
+                    continue;
+                }
+            }
+            if (instruction_index + 3 < function.instructions.size()) {
+                const auto& left = function.instructions[instruction_index];
+                const auto& right = function.instructions[instruction_index + 1];
+                const auto compare = function.instructions[instruction_index + 2].opcode;
+                const auto& jump = function.instructions[instruction_index + 3];
+                const auto is_operand = [](const vkf::machine_ir::Instruction& operand) {
+                    return operand.opcode == Opcode::LoadLocal ||
+                        operand.opcode == Opcode::PushF64;
+                };
+                const bool comparison = compare == Opcode::OrderedLessF64 ||
+                    compare == Opcode::OrderedLessEqualF64 ||
+                    compare == Opcode::OrderedGreaterF64 ||
+                    compare == Opcode::OrderedGreaterEqualF64 ||
+                    compare == Opcode::OrderedEqualF64 ||
+                    compare == Opcode::UnorderedNotEqualF64;
+                if (is_operand(left) && is_operand(right) && comparison &&
+                    (jump.opcode == Opcode::JumpIfFalse || jump.opcode == Opcode::JumpIfTrue)) {
+                    const auto load_operand = [&](
+                        const vkf::machine_ir::Instruction& operand, unsigned reg) {
+                        if (operand.opcode == Opcode::PushF64) emit_number(operand.f64, reg);
+                        else {
+                            if (operand.index >= frame.local_count) {
+                                throw BackendFailure("invalid branch-fusion x64 local slot");
+                            }
+                            load_local(operand.index, reg);
+                        }
+                    };
+                    load_operand(left, 1);
+                    load_operand(right, 0);
+                    code_.raw({0x66, 0x0f, 0x2e, 0xc8});
+                    const auto to_label = [&](unsigned condition) {
+                        branches.push_back({emit_jump(condition), jump.label});
+                    };
+                    const auto around = [&](unsigned condition) {
+                        const auto skip = emit_jump(condition);
+                        return skip;
+                    };
+                    if (jump.opcode == Opcode::JumpIfFalse) {
+                        if (compare == Opcode::OrderedLessF64) {
+                            to_label(0x83); to_label(0x8a);
+                        } else if (compare == Opcode::OrderedLessEqualF64) {
+                            to_label(0x87); to_label(0x8a);
+                        } else if (compare == Opcode::OrderedGreaterF64) to_label(0x86);
+                        else if (compare == Opcode::OrderedGreaterEqualF64) to_label(0x82);
+                        else if (compare == Opcode::OrderedEqualF64) {
+                            to_label(0x85); to_label(0x8a);
+                        } else {
+                            const auto unordered = around(0x8a);
+                            to_label(0x84);
+                            code_.patch_rel32(unordered, code_.position());
+                        }
+                    } else {
+                        if (compare == Opcode::OrderedLessF64 ||
+                            compare == Opcode::OrderedLessEqualF64 ||
+                            compare == Opcode::OrderedEqualF64) {
+                            const auto unordered = around(0x8a);
+                            to_label(compare == Opcode::OrderedLessF64 ? 0x82
+                                : compare == Opcode::OrderedLessEqualF64 ? 0x86 : 0x84);
+                            code_.patch_rel32(unordered, code_.position());
+                        } else if (compare == Opcode::OrderedGreaterF64) to_label(0x87);
+                        else if (compare == Opcode::OrderedGreaterEqualF64) to_label(0x83);
+                        else {
+                            to_label(0x85); to_label(0x8a);
+                        }
+                    }
+                    instruction_index += 3;
+                    continue;
+                }
+            }
+            if (instruction_index + 3 < function.instructions.size()) {
+                const auto& left = function.instructions[instruction_index];
+                const auto& right = function.instructions[instruction_index + 1];
+                const auto arithmetic = function.instructions[instruction_index + 2].opcode;
+                const auto& store = function.instructions[instruction_index + 3];
+                const auto is_operand = [](const vkf::machine_ir::Instruction& operand) {
+                    return operand.opcode == Opcode::LoadLocal ||
+                        operand.opcode == Opcode::PushF64;
+                };
+                if (is_operand(left) && is_operand(right) &&
+                    (arithmetic == Opcode::AddF64 || arithmetic == Opcode::SubtractF64 ||
+                     arithmetic == Opcode::MultiplyF64 || arithmetic == Opcode::DivideF64) &&
+                    store.opcode == Opcode::StoreLocal) {
+                    const auto load_operand = [&](
+                        const vkf::machine_ir::Instruction& operand, unsigned reg) {
+                        if (operand.opcode == Opcode::PushF64) emit_number(operand.f64, reg);
+                        else {
+                            if (operand.index >= frame.local_count) {
+                                throw BackendFailure("invalid store-fusion x64 local slot");
+                            }
+                            load_local(operand.index, reg);
+                        }
+                    };
+                    if (store.index >= frame.local_count) {
+                        throw BackendFailure("invalid fused x64 store slot");
+                    }
+                    load_operand(left, 1);
+                    load_operand(right, 0);
+                    const unsigned machine = arithmetic == Opcode::AddF64 ? 0x58
+                        : arithmetic == Opcode::SubtractF64 ? 0x5c
+                        : arithmetic == Opcode::MultiplyF64 ? 0x59 : 0x5e;
+                    code_.raw({0xf2, 0x0f, machine, 0xc8,
+                               0x66, 0x0f, 0x28, 0xc1});
+                    store_local(store.index, 0);
+                    instruction_index += 3;
+                    continue;
+                }
+            }
+            if (instruction_index + 6 < function.instructions.size()) {
+                const auto& left_a = function.instructions[instruction_index];
+                const auto& right_a = function.instructions[instruction_index + 1];
+                const auto& multiply_a = function.instructions[instruction_index + 2];
+                const auto& left_b = function.instructions[instruction_index + 3];
+                const auto& right_b = function.instructions[instruction_index + 4];
+                const auto& multiply_b = function.instructions[instruction_index + 5];
+                const auto combine = function.instructions[instruction_index + 6].opcode;
+                const auto is_operand = [](const vkf::machine_ir::Instruction& operand) {
+                    return operand.opcode == Opcode::LoadLocal ||
+                        operand.opcode == Opcode::PushF64;
+                };
+                if (is_operand(left_a) && is_operand(right_a) &&
+                    multiply_a.opcode == Opcode::MultiplyF64 &&
+                    is_operand(left_b) && is_operand(right_b) &&
+                    multiply_b.opcode == Opcode::MultiplyF64 &&
+                    (combine == Opcode::AddF64 || combine == Opcode::SubtractF64)) {
+                    const auto load_operand = [&](
+                        const vkf::machine_ir::Instruction& operand, unsigned reg) {
+                        if (operand.opcode == Opcode::PushF64) emit_number(operand.f64, reg);
+                        else {
+                            if (operand.index >= frame.local_count) {
+                                throw BackendFailure("invalid product-sum x64 local slot");
+                            }
+                            load_local(operand.index, reg);
+                        }
+                    };
+                    load_operand(left_a, 1);
+                    load_operand(right_a, 0);
+                    code_.raw({0xf2, 0x0f, 0x59, 0xc8});
+                    load_operand(left_b, 2);
+                    load_operand(right_b, 0);
+                    code_.raw({0xf2, 0x0f, 0x59, 0xd0});
+                    code_.raw({0xf2, 0x0f,
+                               combine == Opcode::AddF64 ? 0x58u : 0x5cu, 0xca,
+                               0x66, 0x0f, 0x28, 0xc1});
+                    store_xmm(0, frame.displacement(frame.temp_base + stack_depth));
+                    ++stack_depth;
+                    instruction_index += 6;
+                    if (stack_depth > frame.max_stack) {
+                        throw BackendFailure("x64 machine IR stack exceeds frame");
+                    }
+                    continue;
+                }
+            }
             if (instruction_index + 2 < function.instructions.size()) {
                 const auto& left = function.instructions[instruction_index];
                 const auto& right = function.instructions[instruction_index + 1];
@@ -2514,7 +3079,7 @@ private:
                             if (operand.index >= frame.local_count) {
                                 throw BackendFailure("invalid fused x64 local slot");
                             }
-                            load_xmm(reg, frame.displacement(operand.index));
+                            load_local(operand.index, reg);
                         }
                     };
                     load_operand(left, 1);
@@ -2756,14 +3321,14 @@ private:
                 stack_depth = first + 1;
             } else if (opcode == Opcode::LoadLocal) {
                 if (instruction.index >= frame.local_count) throw BackendFailure("invalid x64 local slot");
-                load_xmm(0, frame.displacement(instruction.index));
+                load_local(instruction.index, 0);
                 store_xmm(0, frame.displacement(frame.temp_base + stack_depth));
                 ++stack_depth;
             } else if (opcode == Opcode::StoreLocal) {
                 require_stack(stack_depth, 1);
                 --stack_depth;
                 load_xmm(0, frame.displacement(frame.temp_base + stack_depth));
-                store_xmm(0, frame.displacement(instruction.index));
+                store_local(instruction.index, 0);
             } else if (opcode == Opcode::Drop) {
                 require_stack(stack_depth, 1);
                 --stack_depth;
@@ -4189,6 +4754,60 @@ private:
     }
 };
 
+bool can_use_minimal_numeric_elf(const vkf::machine_ir::Module& module) {
+    using vkf::machine_ir::Opcode;
+    if (module.output_kind != vkf::machine_ir::OutputKind::F64) return false;
+    const auto function_is_pure_numeric = [](const vkf::machine_ir::Function& function) {
+        if (function.may_error || !function.owned_f64_list_locals.empty() ||
+            !function.owned_string_locals.empty()) {
+            return false;
+        }
+        return std::all_of(
+            function.instructions.begin(), function.instructions.end(),
+            [](const auto& instruction) {
+                switch (instruction.opcode) {
+                    case Opcode::PushF64:
+                    case Opcode::LoadLocal:
+                    case Opcode::StoreLocal:
+                    case Opcode::Drop:
+                    case Opcode::Duplicate:
+                    case Opcode::IdentityF64:
+                    case Opcode::NegateF64:
+                    case Opcode::LogicalNotF64:
+                    case Opcode::BooleanizeF64:
+                    case Opcode::AddF64:
+                    case Opcode::SubtractF64:
+                    case Opcode::MultiplyF64:
+                    case Opcode::DivideF64:
+                    case Opcode::AbsF64:
+                    case Opcode::SqrtF64:
+                    case Opcode::LogicalXorF64:
+                    case Opcode::OrderedLessF64:
+                    case Opcode::OrderedLessEqualF64:
+                    case Opcode::OrderedGreaterF64:
+                    case Opcode::OrderedGreaterEqualF64:
+                    case Opcode::OrderedEqualF64:
+                    case Opcode::UnorderedNotEqualF64:
+                    case Opcode::EqualBits:
+                    case Opcode::NotEqualBits:
+                    case Opcode::Call:
+                    case Opcode::Label:
+                    case Opcode::Jump:
+                    case Opcode::JumpIfFalse:
+                    case Opcode::JumpIfTrue:
+                    case Opcode::JumpIfParameterProvided:
+                    case Opcode::ReturnF64:
+                    case Opcode::ReturnValues:
+                        return true;
+                    default:
+                        return false;
+                }
+            });
+    };
+    return function_is_pure_numeric(module.entry) && std::all_of(
+        module.functions.begin(), module.functions.end(), function_is_pure_numeric);
+}
+
 struct Args {
     std::filesystem::path self;
     std::filesystem::path source;
@@ -4279,13 +4898,15 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     }
 #elif defined(__linux__)
     try {
-        auto artifact = vkf::elf::executable_x64(
-            code, machine_ir.string_data,
-            machine_ir.output_kind == vkf::machine_ir::OutputKind::String,
-            machine_ir.output_kind == vkf::machine_ir::OutputKind::None,
-            machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64
-                ? machine_ir.output_count : 0u,
-            machine_ir.outputs, machine_ir.output_tokens);
+        auto artifact = can_use_minimal_numeric_elf(machine_ir)
+            ? vkf::elf::minimal_numeric_executable_x64(code)
+            : vkf::elf::executable_x64(
+                code, machine_ir.string_data,
+                machine_ir.output_kind == vkf::machine_ir::OutputKind::String,
+                machine_ir.output_kind == vkf::machine_ir::OutputKind::None,
+                machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64
+                    ? machine_ir.output_count : 0u,
+                machine_ir.outputs, machine_ir.output_tokens);
         executable = std::move(artifact.bytes);
         is_elf = true;
     } catch (const vkf::elf::WriterFailure& error) {

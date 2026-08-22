@@ -2,6 +2,7 @@
 #include "compiler/native/vkf_sha256.hpp"
 #ifdef VKF_X64_BACKEND_LIBRARY
 #include "compiler/native/vkf_x64_backend.hpp"
+#include "compiler/native/vkf_target.hpp"
 #endif
 #ifdef VKF_ARM64_BACKEND_LIBRARY
 #include "compiler/native/vkf_arm64_encoder.hpp"
@@ -48,7 +49,7 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
-constexpr const char* vkf_release_version = "0.1.2";
+constexpr const char* vkf_release_version = "0.1.3";
 
 std::filesystem::path bundled_stdlib_root;
 
@@ -735,6 +736,9 @@ std::string native_build_fingerprint(
 ) {
     (void)self;
     std::string material = "VKF-NATIVE-BUILD-V2\n" __DATE__ "\n" __TIME__ "\n";
+#ifdef VKF_X64_BACKEND_LIBRARY
+    material += std::string(vkf::target::host_x64_feature_key()) + "\n";
+#endif
     std::set<std::filesystem::path> visited;
     append_fingerprint_source(source, visited, material);
     return sha256_hex(material);

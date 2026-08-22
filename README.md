@@ -8,7 +8,7 @@ Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
 > [!WARNING]
-> VKF 0.1.2 is an unsupported experimental preview. It has bugs, incomplete
+> VKF 0.1.3 is an unsupported experimental preview. It has bugs, incomplete
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
@@ -88,9 +88,9 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Install VKF 0.1.2
+## Install VKF 0.1.3
 
-Download the [0.1.2 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.2).
+Download the [0.1.3 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.3).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -130,7 +130,7 @@ to reuse their executable.
 
 ## Performance Evidence—And Its Limits
 
-The 0.1.2 release compiles every documented program 100 times from fresh paths
+The 0.1.3 release compiles every documented program 100 times from fresh paths
 and executes it 100 times in fresh operating-system processes on Windows x64,
 Linux x64, and macOS ARM64. Reports record every sample, exact output, source
 hash, compiler hash, and machine conditions. The 10-million-operation container
@@ -319,11 +319,11 @@ source hashes.
 
 ## Status And Native Scope
 
-The 0.1.2 native release includes `math`, `stat`, `random`, `time`, `io`,
+The 0.1.3 native release includes `math`, `stat`, `random`, `time`, `io`,
 `collections`, `errors`, `system`, `process`, and `regex`. Only fully native,
 verified libraries ship. `physics`, `ui`, and `symbolic` remain future work.
 
-The release gate currently contains **296 VKF tests** plus 59 documented-program
+The release gate currently contains **298 VKF tests** plus 59 documented-program
 checks. Final Windows/Linux/macOS pass counts and timing evidence are inserted
 only from the exact tagged release compilers.
 
@@ -351,6 +351,21 @@ folders, and unrelated existing `vkf` commands.
 VKF programs still run with the current user's permissions. `io` can modify
 files and `process` can launch programs. `process.run` passes an exact argument
 vector; `process.shell` invokes a platform shell and must be treated as unsafe.
+
+## 0.1.3 Changes
+
+0.1.3 closes the numeric runtime gaps exposed by the comparison suite:
+
+- aggregate-return numeric helpers now inline into hot loops;
+- x64 lowering fuses arithmetic, comparisons, branches, stores, and repeated local loads;
+- supported x64 hosts use AVX2/FMA for recognized four-lane affine recurrences;
+- the SysV four-field record recurrence stays entirely in registers;
+- pure numeric Linux programs launch through a minimal executable shell;
+- detected x64 CPU features are included in build fingerprints, preventing unsafe cache reuse;
+- two native VKF optimizer regression tests preserve vector and record results.
+
+The fixed workloads and comparison implementations were not changed to obtain
+the improvement. See the [0.1.3 release notes](docs/releases/0.1.3.md).
 
 ## 0.1.2 Changes
 

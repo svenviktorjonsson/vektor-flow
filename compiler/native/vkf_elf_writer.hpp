@@ -83,6 +83,111 @@ inline void relocation(Bytes& out, std::uint64_t address, std::uint32_t symbol_i
 
 }  // namespace detail
 
+inline Result minimal_numeric_executable_x64(
+    const std::vector<std::uint8_t>& generated_code
+) {
+    constexpr std::uint64_t base = 0x400000;
+    constexpr std::uint32_t elf_header_size = 64;
+    constexpr std::uint32_t program_header_size = 56;
+    constexpr std::uint16_t program_header_count = 6;
+    constexpr std::uint32_t headers_end =
+        elf_header_size + program_header_size * program_header_count;
+    constexpr std::uint32_t wrapper_size = 256;
+    const std::string interpreter = "/lib64/ld-linux-x86-64.so.2";
+    const auto interpreter_offset = headers_end;
+    const auto wrapper_offset = detail::align_up(
+        interpreter_offset + static_cast<std::uint32_t>(interpreter.size() + 1), 16);
+    const auto generated_offset = detail::align_up(wrapper_offset + wrapper_size, 16);
+    const std::string numeric_format = "%.17g\n";
+    const auto numeric_format_offset = detail::align_up(
+        generated_offset + static_cast<std::uint32_t>(generated_code.size()), 8);
+    const auto text_end = numeric_format_offset +
+        static_cast<std::uint32_t>(numeric_format.size() + 1);
+    const auto data_offset = detail::align_up(text_end, 4096);
+
+    static constexpr char string_bytes[] = "\0libc.so.6\0sprintf\0";
+    const std::string strings(string_bytes, sizeof(string_bytes) - 1);
+    constexpr std::uint32_t libc_name = 1;
+    constexpr std::uint32_t sprintf_name = 11;
+    const auto dynstr_offset = data_offset;
+    const auto dynsym_offset = detail::align_up(
+        dynstr_offset + static_cast<std::uint32_t>(strings.size()), 8);
+    const auto hash_offset = detail::align_up(dynsym_offset + 2u * 24u, 4);
+    const auto rela_offset = detail::align_up(hash_offset + 5u * 4u, 8);
+    const auto got_offset = detail::align_up(rela_offset + 24u, 8);
+    const auto dynamic_offset = detail::align_up(got_offset + 8u, 8);
+    constexpr std::uint32_t dynamic_entries = 12;
+    const auto data_end = dynamic_offset + dynamic_entries * 16u;
+    const auto address = [=](std::uint32_t offset) { return base + offset; };
+    const auto sprintf_got = address(got_offset);
+
+    detail::Bytes out;
+    out.raw({0x7f, 'E', 'L', 'F', 2, 1, 1, 0});
+    out.values.resize(16, 0);
+    out.u16(2); out.u16(62); out.u32(1); out.u64(address(wrapper_offset));
+    out.u64(elf_header_size); out.u64(0); out.u32(0);
+    out.u16(elf_header_size); out.u16(program_header_size); out.u16(program_header_count);
+    out.u16(64); out.u16(0); out.u16(0);
+
+    detail::program_header(out, 6, 4, elf_header_size, address(elf_header_size),
+                           program_header_size * program_header_count,
+                           program_header_size * program_header_count, 8);
+    detail::program_header(out, 3, 4, interpreter_offset, address(interpreter_offset),
+                           interpreter.size() + 1, interpreter.size() + 1, 1);
+    detail::program_header(out, 1, 5, 0, base, text_end, text_end, 4096);
+    detail::program_header(out, 1, 6, data_offset, address(data_offset),
+                           data_end - data_offset, data_end - data_offset, 4096);
+    detail::program_header(out, 2, 6, dynamic_offset, address(dynamic_offset),
+                           dynamic_entries * 16u, dynamic_entries * 16u, 8);
+    detail::program_header(out, 0x6474e551u, 6, 0, 0, 0, 0, 16);
+
+    out.pad_to(interpreter_offset); out.text(interpreter); out.u8(0);
+    out.pad_to(wrapper_offset);
+    const auto wrapper_start = out.values.size();
+    out.raw({0x48, 0x81, 0xec}); out.u32(0x90);
+    out.raw({0x48, 0x89, 0xe7, 0xe8});
+    const auto call_patch = out.values.size(); out.u32(0);
+    out.raw({0x48, 0x8d, 0x7c, 0x24, 0x10, 0x48, 0xbe});
+    out.u64(address(numeric_format_offset));
+    out.raw({0xb8, 0x01, 0x00, 0x00, 0x00});
+    out.raw({0x49, 0xbb}); out.u64(sprintf_got);
+    out.raw({0x4d, 0x8b, 0x1b, 0x41, 0xff, 0xd3});
+    out.raw({0x89, 0xc2, 0x48, 0x8d, 0x74, 0x24, 0x10});
+    out.raw({0xbf, 0x01, 0x00, 0x00, 0x00, 0xb8, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x05});
+    out.raw({0xb8, 0x3c, 0x00, 0x00, 0x00, 0x31, 0xff, 0x0f, 0x05});
+    if (out.values.size() - wrapper_start > wrapper_size) {
+        throw WriterFailure("minimal numeric ELF wrapper overflow");
+    }
+    out.values.resize(wrapper_start + wrapper_size, 0x90);
+    const auto return_address = call_patch + 4;
+    out.set_u32(call_patch, static_cast<std::uint32_t>(generated_offset - return_address));
+    out.pad_to(generated_offset); out.append(generated_code);
+    out.pad_to(numeric_format_offset); out.text(numeric_format); out.u8(0);
+
+    out.pad_to(dynstr_offset); out.text(strings);
+    out.pad_to(dynsym_offset); out.values.resize(out.values.size() + 24, 0);
+    detail::symbol(out, sprintf_name);
+    out.pad_to(hash_offset);
+    out.u32(1); out.u32(2); out.u32(1); out.u32(0); out.u32(0);
+    out.pad_to(rela_offset); detail::relocation(out, sprintf_got, 1);
+    out.pad_to(got_offset); out.u64(0);
+    out.pad_to(dynamic_offset);
+    detail::dynamic_entry(out, 1, libc_name);
+    detail::dynamic_entry(out, 4, address(hash_offset));
+    detail::dynamic_entry(out, 5, address(dynstr_offset));
+    detail::dynamic_entry(out, 6, address(dynsym_offset));
+    detail::dynamic_entry(out, 7, address(rela_offset));
+    detail::dynamic_entry(out, 8, 24);
+    detail::dynamic_entry(out, 9, 24);
+    detail::dynamic_entry(out, 10, strings.size());
+    detail::dynamic_entry(out, 11, 24);
+    detail::dynamic_entry(out, 0x6ffffffbu, 1);
+    detail::dynamic_entry(out, 21, 0);
+    detail::dynamic_entry(out, 0, 0);
+    if (out.values.size() != data_end) throw WriterFailure("invalid minimal numeric ELF size");
+    return {std::move(out.values), address(wrapper_offset), generated_offset, dynamic_offset};
+}
+
 inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
                              const std::vector<std::uint8_t>& string_data = {},
                              bool string_output = false,
