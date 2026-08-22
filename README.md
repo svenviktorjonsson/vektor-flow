@@ -161,7 +161,7 @@ every other implementation is linked exactly. Tool versions, source hashes,
 work counts, output parity, compile models, and 100-run dispersion are retained.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 7763 64-Core Processor, 4 logical CPUs, at `2026-08-22T17:25:17.973Z`.
+Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 7763 64-Core Processor, 4 logical CPUs, at `2026-08-22T17:40:14.362Z`.
 
 Every table cell is mean ± sample standard deviation from 100 measured runs. Fresh-process compile includes tool startup for every language. Julia parses source and JIT-compiles during runtime; Python produces bytecode; native toolchains emit executables. VKF compiler-core time excludes compiler startup. The <10 ms compiler-core and <500 µs raw-entry limits apply only to the historical 20,000-operation scalar engineering gate. Raw kernel timing excludes process launch and is available where a stable native entry can be loaded.
 
@@ -177,13 +177,13 @@ All implementations returned the same checked numeric result within tolerance: `
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 2.512 ± 0.062 ms | 0.130 ± 0.020 ms | 1.793 ± 0.126 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/vkf.vkf) |
-| C | 61.044 ± 0.898 ms | — | 1.750 ± 0.132 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/c.c) |
-| Rust | 56.738 ± 0.835 ms | — | 1.792 ± 0.060 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/rust.rs) |
-| Zig | 148.440 ± 1.966 ms | — | 1.664 ± 0.089 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/zig.zig) |
-| Go | 83.892 ± 1.802 ms | — | 2.394 ± 0.109 ms | — | [source](benchmarks/core-comparison/published/startup/go.go) |
-| Julia | 183.722 ± 1.660 ms | — | 210.414 ± 2.089 ms | — | [source](benchmarks/core-comparison/published/startup/julia.jl) |
-| Python | 41.986 ± 0.378 ms | — | 13.991 ± 0.223 ms | — | [source](benchmarks/core-comparison/published/startup/python-efficient.py) |
+| VKF | 2.527 ± 0.067 ms | 0.125 ± 0.015 ms | 1.754 ± 0.094 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/vkf.vkf) |
+| C | 61.241 ± 0.592 ms | — | 1.685 ± 0.136 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/c.c) |
+| Rust | 56.955 ± 0.505 ms | — | 1.764 ± 0.095 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/rust.rs) |
+| Zig | 149.154 ± 2.274 ms | — | 1.612 ± 0.070 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/zig.zig) |
+| Go | 84.246 ± 1.154 ms | — | 2.341 ± 0.119 ms | — | [source](benchmarks/core-comparison/published/startup/go.go) |
+| Julia | 183.926 ± 1.507 ms | — | 211.820 ± 1.973 ms | — | [source](benchmarks/core-comparison/published/startup/julia.jl) |
+| Python | 42.161 ± 0.404 ms | — | 13.827 ± 0.161 ms | — | [source](benchmarks/core-comparison/published/startup/python-efficient.py) |
 
 ### spectral norm by power method — medium, scale 250
 
@@ -253,13 +253,13 @@ All implementations returned the same checked numeric result within tolerance: `
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 34.692 ± 0.482 ms | 27.503 ± 0.246 ms | 44.787 ± 0.142 ms | 42.465 ± 0.049 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/vkf.vkf) |
-| C | 175.451 ± 2.407 ms | — | 5.473 ± 0.144 ms | 3.557 ± 0.012 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/c.c) |
-| Rust | 85.680 ± 0.692 ms | — | 5.650 ± 0.110 ms | 3.591 ± 0.006 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/rust.rs) |
-| Zig | 178.330 ± 2.302 ms | — | 5.423 ± 0.098 ms | 3.602 ± 0.006 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/zig.zig) |
-| Go | 85.031 ± 1.837 ms | — | 6.344 ± 0.185 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/go.go) |
-| Julia | 183.288 ± 1.567 ms | — | 378.446 ± 3.049 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/julia.jl) |
-| Python | 42.738 ± 0.750 ms | — | 108.993 ± 1.358 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/python-efficient.py) |
+| VKF | 34.836 ± 0.670 ms | 27.284 ± 0.319 ms | 44.737 ± 0.142 ms | 42.499 ± 0.067 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/vkf.vkf) |
+| C | 177.435 ± 1.930 ms | — | 5.377 ± 0.129 ms | 3.555 ± 0.006 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/c.c) |
+| Rust | 86.256 ± 0.593 ms | — | 5.649 ± 0.140 ms | 3.595 ± 0.015 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/rust.rs) |
+| Zig | 179.597 ± 2.291 ms | — | 5.347 ± 0.122 ms | 3.604 ± 0.006 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/zig.zig) |
+| Go | 84.556 ± 1.523 ms | — | 6.280 ± 0.190 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/go.go) |
+| Julia | 184.539 ± 1.405 ms | — | 379.843 ± 2.108 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/julia.jl) |
+| Python | 42.558 ± 0.374 ms | — | 109.372 ± 1.321 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/python-efficient.py) |
 
 ### fannkuch-redux permutations — medium, scale 8
 
@@ -341,13 +341,13 @@ All implementations returned the same checked numeric result within tolerance: `
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 6.579 ± 0.097 ms | 2.814 ± 0.026 ms | 13.674 ± 0.118 ms | 11.366 ± 0.028 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/vkf.vkf) |
-| C | 80.076 ± 0.674 ms | — | 3.815 ± 0.166 ms | 1.958 ± 0.010 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/c.c) |
-| Rust | 81.023 ± 0.681 ms | — | 3.700 ± 0.117 ms | 1.701 ± 0.014 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/rust.rs) |
-| Zig | 168.326 ± 1.977 ms | — | 3.665 ± 0.076 ms | 1.895 ± 0.042 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/zig.zig) |
-| Go | 83.911 ± 1.590 ms | — | 4.502 ± 0.144 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/go.go) |
-| Julia | 183.891 ± 1.652 ms | — | 272.095 ± 1.911 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/julia.jl) |
-| Python | 42.550 ± 0.427 ms | — | 124.935 ± 3.441 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/python-efficient.py) |
+| VKF | 6.524 ± 0.097 ms | 2.849 ± 0.022 ms | 13.648 ± 0.110 ms | 11.398 ± 0.018 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/vkf.vkf) |
+| C | 80.733 ± 0.795 ms | — | 3.772 ± 0.150 ms | 1.960 ± 0.013 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/c.c) |
+| Rust | 81.591 ± 0.579 ms | — | 3.752 ± 0.114 ms | 1.712 ± 0.011 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/rust.rs) |
+| Zig | 170.361 ± 3.292 ms | — | 3.686 ± 0.098 ms | 1.876 ± 0.005 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/zig.zig) |
+| Go | 84.655 ± 1.443 ms | — | 4.484 ± 0.109 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/go.go) |
+| Julia | 184.576 ± 1.388 ms | — | 272.812 ± 1.594 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/julia.jl) |
+| Python | 42.683 ± 0.387 ms | — | 125.333 ± 3.348 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/python-efficient.py) |
 
 ### five-body symplectic integration — medium, scale 10,000
 
@@ -431,13 +431,13 @@ All implementations returned the same checked numeric result within tolerance: `
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 16.137 ± 0.203 ms | 9.613 ± 0.037 ms | 3.967 ± 0.104 ms | 2.026 ± 0.008 ms | [source](benchmarks/core-comparison/published/n-body-medium/vkf.vkf) |
-| C | 105.071 ± 0.771 ms | — | 2.366 ± 0.112 ms | 0.618 ± 0.006 ms | [source](benchmarks/core-comparison/published/n-body-medium/c.c) |
-| Rust | 95.836 ± 1.029 ms | — | 2.358 ± 0.112 ms | 0.440 ± 0.007 ms | [source](benchmarks/core-comparison/published/n-body-medium/rust.rs) |
-| Zig | 174.054 ± 2.360 ms | — | 2.534 ± 0.093 ms | 0.812 ± 0.005 ms | [source](benchmarks/core-comparison/published/n-body-medium/zig.zig) |
-| Go | 83.886 ± 1.475 ms | — | 3.237 ± 0.108 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/go.go) |
-| Julia | 184.006 ± 1.939 ms | — | 1660.845 ± 14.681 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/julia.jl) |
-| Python | 43.062 ± 0.474 ms | — | 183.538 ± 10.127 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/python-efficient.py) |
+| VKF | 16.214 ± 0.237 ms | 9.548 ± 0.043 ms | 3.940 ± 0.109 ms | 2.031 ± 0.012 ms | [source](benchmarks/core-comparison/published/n-body-medium/vkf.vkf) |
+| C | 106.088 ± 0.703 ms | — | 2.355 ± 0.126 ms | 0.620 ± 0.010 ms | [source](benchmarks/core-comparison/published/n-body-medium/c.c) |
+| Rust | 96.225 ± 0.606 ms | — | 2.462 ± 0.170 ms | 0.438 ± 0.008 ms | [source](benchmarks/core-comparison/published/n-body-medium/rust.rs) |
+| Zig | 174.640 ± 2.622 ms | — | 2.536 ± 0.131 ms | 0.814 ± 0.006 ms | [source](benchmarks/core-comparison/published/n-body-medium/zig.zig) |
+| Go | 84.167 ± 1.601 ms | — | 3.236 ± 0.116 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/go.go) |
+| Julia | 184.017 ± 1.494 ms | — | 1675.567 ± 20.587 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/julia.jl) |
+| Python | 43.231 ± 0.464 ms | — | 185.101 ± 3.668 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/python-efficient.py) |
 
 <details>
 <summary>Exact toolchains and compile models</summary>
