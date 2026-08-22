@@ -1,14 +1,20 @@
 # Core language comparison
 
-This suite remains useful for language-to-language research and narrow compiler
-regressions. It is not the 0.1.1 release gate. Release acceptance now uses every
+This suite provides narrow language-to-language evidence and compiler
+regression checks. It is not the only 0.1.2 release gate. Release acceptance also uses every
 documented program, exact output, and full-process runtime through
 [`benchmarks/readme-examples`](../readme-examples/README.md).
 
-Compares equivalent core programs in Vektor Flow, C, efficient Python, and
-Rust. Core built-in lanes include fixed-container `stat.sum`, `stat.mean`, and
-`stat.count`; they exclude library implementation overhead outside each
-language's normal optimized path.
+Published comparison rows cover Vektor Flow, C, Rust, Zig, Go, Julia, and
+efficient Python. C++ remains available in the research runner but is omitted
+from the landing-page table. Exact published sources live under
+[`published`](published); the runner records both source and template SHA-256.
+
+Every case declares one of two comparison modes:
+
+- **matched**: same algorithm and constants in every language;
+- **idiomatic**: same result-producing task, but each ecosystem may use its
+  normal optimized implementation.
 
 Python uses the best suitable lane for each operation:
 
@@ -16,17 +22,21 @@ Python uses the best suitable lane for each operation:
 - vectorized NumPy with matrix-power algorithms for linear vector/record recurrences
 - SciPy `signal.lfilter` for a linear recurrence
 
-This keeps the comparison honest: Python gets its best practical numerical
-algorithm, not an intentionally slow loop when vectorization is available.
+Julia likewise uses standard linear algebra for matrix-power cases. Native
+languages use optimized native value loops where that is their direct normal
+route. This avoids intentionally slow competitor implementations. Because
+idiomatic rows may use different algorithms, they must not be described as
+matched instruction-for-instruction comparisons.
 
-The runner measures two separate costs:
+The runner keeps four costs separate:
 
-- compile wall time: fresh output path for every sample
+- fresh-process compile wall time: tool startup, fresh source/output path, and compilation
+- VKF internal compiler-core time: persistent compiler, fresh source/output path, no process startup
 - runtime wall time: a new process for every sample after warmups
 - VKF raw machine-entry runtime: generated code only, excluding process launch
 
 For the legacy 20,000-operation `scalar-control-small` VKF regression case, a
-full 100-sample run still enforces its own narrow limits: mean compile time must be strictly under 10 ms
+full 100-sample run still enforces its own narrow limits: mean internal compiler-core time must be strictly under 10 ms
 and mean raw machine-entry runtime must be strictly under 0.5 ms (500
 microseconds). Reaching either limit fails this comparison run. Process-launch time is
 reported but is not substituted for the raw-entry metric.
@@ -76,15 +86,12 @@ docker run --rm --entrypoint /bench/native-process-timer vkf-x64-linux-bench /bu
 docker run --rm --entrypoint /bin/sh vkf-x64-linux-bench -c 'code="$(cat /bench/scalar.vkf)"; exec /bench/native-process-timer /build/bin/vkf 10 100 --aot -e "$code"'
 ```
 
-Reproduce the four-language Linux comparison on container-local storage (a
-Windows bind mount materially distorts file-creation timings):
+GitHub Actions release job `comparison-linux-x64` installs pinned comparison
+tools, verifies Zig's official SHA-256, then runs this exact command on
+Linux-local storage:
 
-```powershell
-docker build -f benchmarks/core-comparison/Dockerfile.comparison-linux -t vkf-comparison-linux .
-docker run --name vkf-core-proof vkf-comparison-linux node benchmarks/core-comparison/run.mjs --case=scalar-control-small,fixed-vector-medium,welford-large --language=vkf,c,cpp,rust --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=core-final-linux-100
-docker cp vkf-core-proof:/repo/benchmarks/core-comparison/results/core-final-linux-100.json benchmarks/core-comparison/results/core-final-linux-100.json
-docker cp vkf-core-proof:/repo/benchmarks/core-comparison/results/core-final-linux-100.md benchmarks/core-comparison/results/core-final-linux-100.md
-docker rm vkf-core-proof
+```bash
+node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,fixed-vector-medium,record-value-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-012
 ```
 
 `native-entry-timer` isolates generated-program execution. `native-process-timer`
@@ -100,13 +107,14 @@ confidence interval.
 Required local tools:
 
 - Node.js (benchmark harness only)
-- current Python (`py` or `python`) with NumPy and SciPy for the Python lane only
+- Python 3.14 with pinned NumPy/SciPy from `requirements.txt`, for the competitor lane only
 - Clang for C and for building the native VKF compiler once before measurement
-- Rust
+- Rust 1.98.0, Zig 0.16.0, Go 1.26.5, and Julia 1.12.7
 
-The programs use the same constants, floating-point number model, loop shape,
-and numeric output. Cross-language results must agree within each case's stated
-tolerance or the run fails.
+Programs use the same constants and checked numeric result. Matched cases also
+use the same loop/algorithm shape. Idiomatic cases deliberately may not.
+Cross-language results must agree within each case's stated tolerance or the
+run fails.
 
 `welford-large` and `validated-sum-large` are matched VKF/Rust feature lanes.
 Both receive the same 6,400 literal `f64` values, allocate a dynamic heap
@@ -138,7 +146,7 @@ Interpretation limits:
 - runtime includes process startup; the empty-program row exposes that cost
 - Python bytecode compilation is not equivalent to native code generation, so
   its compile time is reported but should not be read as an AOT comparison
-- fixed vectors and records are value-oriented in all four programs, but each
+- fixed vectors and records are value-oriented in native-loop programs, but each
   compiler remains free to optimize copies
 - large literal payloads measure parsing and code generation of that payload;
   their compile figures do not generalize to compact-source programs

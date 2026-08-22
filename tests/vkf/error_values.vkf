@@ -1,0 +1,17 @@
+: .errors
+
+constructing_an_error_does_not_raise() -> bit:
+    value: ValueError("not raised")
+    (value.type == "ValueError" /\ value.message == "not raised")?!
+
+explicit_error_raise_carries_message() -> bit:
+    message: ""
+    (ValueError("specific value")!)!?
+        ValueError => .message: $.message
+    (message == "specific value")?!
+
+bare_error_type_raises_default_value() -> bit:
+    message: "not empty"
+    (Error!)!?
+        Error => .message: $.message
+    (message == "")?!

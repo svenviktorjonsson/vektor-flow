@@ -12,8 +12,8 @@ run(n:num) -> num:
     i: 0
     state: (x:1, y:2, vx:0.01, vy:0.02)
     i < n?>
-        state: advance(state)
-        i: i + 1
+        .state: advance(state)
+        .i: i + 1
     state.x + state.y + state.vx + state.vy
 
 :: run({{COUNT}})

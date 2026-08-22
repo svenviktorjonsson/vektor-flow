@@ -3,15 +3,15 @@ errors: .errors
 conditional_effect() -> bit:
     value: 0
     1 < 2?
-        value: 7
+        .value: 7
     (value == 7)?!
 
 loop_accumulates() -> bit:
     i: 0
     total: 0
     i < 5?>
-        total: total + i
-        i: i + 1
+        .total: total + i
+        .i: i + 1
     (total == 10)?!
 
 inner_assertion_returns_truth() -> bit:
@@ -41,9 +41,9 @@ match_arm_updates_local() -> bit:
     value: 2
     result: 0
     value??
-        1 => result: 10
-        2 => result: 20
-        result: 30
+        1 => .result: 10
+        2 => .result: 20
+        .result: 30
     (result == 20)?!
 
 _classify_text(value: str) -> num:
@@ -110,14 +110,14 @@ match_union_accepts_member_type() -> bit:
 catch_selects_assertion_error_type() -> bit:
     caught: 0
     ((1 == 2)?! "expected failure")!?
-        errors.Error => caught: 1
-        errors.AssertionError => caught: 2
+        errors.Error => .caught: 1
+        errors.AssertionError => .caught: 2
     (caught == 2)?!
 
 catch_does_nothing_without_error() -> bit:
     caught: 0
     ((1 == 1)?!)!?
-        errors.AssertionError => caught: 1
+        errors.AssertionError => .caught: 1
     (caught == 0)?!
 
 _raise_assertion() -> bit:
@@ -129,8 +129,8 @@ _forward_assertion() -> bit:
 catch_selects_propagated_error_type() -> bit:
     caught: 0
     _forward_assertion()!?
-        errors.Error => caught: 1
-        errors.AssertionError => caught: 2
+        errors.Error => .caught: 1
+        errors.AssertionError => .caught: 2
     (caught == 2)?!
 
 _raise_message() -> bit:
@@ -139,7 +139,7 @@ _raise_message() -> bit:
 catch_binds_propagated_error_message() -> bit:
     message: ""
     _raise_message()!?
-        errors.AssertionError => message: $.message
+        errors.AssertionError => .message: $.message
     (message == "propagated assertion")?!
 
 _raise_dynamic_assertion(value:num) -> bit:
@@ -149,7 +149,7 @@ _raise_dynamic_assertion(value:num) -> bit:
 dynamic_assertion_message_survives_catch() -> bit:
     message: ""
     _raise_dynamic_assertion(7)!?
-        errors.AssertionError => message: $.message
+        errors.AssertionError => .message: $.message
     (message == "bad 7")?!
 
 _raise_after_owned_values() -> bit:
@@ -160,7 +160,7 @@ _raise_after_owned_values() -> bit:
 error_unwind_releases_owned_values() -> bit:
     message: ""
     _raise_after_owned_values()!?
-        errors.AssertionError => message: $.message
+        errors.AssertionError => .message: $.message
     (message == "propagated assertion")?!
 
 _raise_index_error() -> num:
@@ -170,14 +170,14 @@ _raise_index_error() -> num:
 catch_selects_index_error_type() -> bit:
     caught: 0
     _raise_index_error()!?
-        errors.Error => caught: 1
-        errors.IndexError => caught: 2
+        errors.Error => .caught: 1
+        errors.IndexError => .caught: 2
     (caught == 2)?!
 
 catch_binds_index_error_message() -> bit:
     message: ""
     _raise_index_error()!?
-        errors.IndexError => message: $.message
+        errors.IndexError => .message: $.message
     (message == "list index out of range")?!
 
 _rethrow_index_error() -> num:
@@ -188,8 +188,8 @@ _rethrow_index_error() -> num:
 unmatched_catch_preserves_runtime_error_type() -> bit:
     caught: 0
     _rethrow_index_error()!?
-        errors.Error => caught: 1
-        errors.IndexError => caught: 2
+        errors.Error => .caught: 1
+        errors.IndexError => .caught: 2
     (caught == 2)?!
 
 integer_cast_accepts_integer_valued_num() -> bit:
@@ -201,6 +201,6 @@ _raise_invalid_integer_cast() -> int:
 integer_cast_error_is_caught_by_type() -> bit:
     caught: 0
     _raise_invalid_integer_cast()!?
-        errors.Error => caught: 1
-        errors.ValueError => caught: 2
+        errors.Error => .caught: 1
+        errors.ValueError => .caught: 2
     (caught == 2)?!

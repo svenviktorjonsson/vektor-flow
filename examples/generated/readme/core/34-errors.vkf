@@ -1,7 +1,7 @@
-errors: .errors
+: .errors
 
 message: ""
-((1 == 2)?! "expected failure")!?
-    errors.AssertionError => message: $.message
+(Error("specific value")!)!?
+    Error => .message: $.message
 
 :: message

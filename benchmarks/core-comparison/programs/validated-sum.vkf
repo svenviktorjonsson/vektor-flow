@@ -5,15 +5,15 @@ errors: .errors
 validated_integer(value:num) -> num:
     accepted: 1
     int(value)!?
-        errors.ValueError => accepted: 0
+        errors.ValueError => .accepted: 0
     accepted
 
 count_valid_integers(data:[num], n:num) -> num:
     i: 0
     accepted: 0
     i < n?>
-        accepted: accepted + validated_integer(data.(i))
-        i: i + 1
+        .accepted: accepted + validated_integer(data.(i))
+        .i: i + 1
     accepted
 
 :: count_valid_integers(values, {{COUNT}})

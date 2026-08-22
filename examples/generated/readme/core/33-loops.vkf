@@ -2,18 +2,18 @@ loop_total() -> int:
     i: 0
     total: 0
     i < 5?>
-        total: total + i
-        i: i + 1
+        .total: total + i
+        .i: i + 1
     total
 
 switch_loop() -> int:
     k: 0
     k??>
         0 =>
-            k: k + 1
+            .k: k + 1
             @>
         1 =>
-            k: k + 1
+            .k: k + 1
             @>
         2 => @|
     k

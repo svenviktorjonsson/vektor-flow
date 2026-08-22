@@ -1,0 +1,3 @@
+# expect-compile-error: Cannot update unknown name .b; declare it first with b:value
+.b +: 2
+:: b

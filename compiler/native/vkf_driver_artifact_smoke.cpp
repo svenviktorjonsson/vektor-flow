@@ -48,6 +48,7 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
+constexpr const char* vkf_release_version = "0.1.2";
 
 std::filesystem::path bundled_stdlib_root;
 
@@ -1338,7 +1339,7 @@ Args parse_args(int argc, char** argv) {
         args.source = argv[2];
         args.output = argv[4];
     } else {
-        throw DriverFailure("usage: vkf file.vkf [-o executable] | -e source | -b file.vkf [-o executable] | -t file-or-folder");
+        throw DriverFailure("usage: vkf file.vkf [-o executable] | -e source | -b file.vkf [-o executable] | -t file-or-folder | -v");
     }
 #else
     for (int i = 1; i < argc; ++i) {
@@ -1426,6 +1427,10 @@ Args parse_args(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "-v") {
+            std::cout << "VKF " << vkf_release_version << '\n';
+            return 0;
+        }
         if (argc > 0) locate_bundled_stdlib(argv[0]);
         const auto compile_one = [](Args args) -> std::string {
         const auto total_started = Clock::now();
@@ -1764,6 +1769,40 @@ int main(int argc, char** argv) {
             for (const auto& file : test_source_files(argv[2])) {
                 std::string source = read_file(file);
                 normalize_source_for_lexer(source);
+                constexpr std::string_view compile_error_marker = "# expect-compile-error: ";
+                if (source.rfind(compile_error_marker, 0) == 0) {
+                    ++discovered;
+                    const std::size_t line_end = source.find('\n');
+                    const std::string expected = source.substr(
+                        compile_error_marker.size(),
+                        line_end == std::string::npos
+                            ? std::string::npos
+                            : line_end - compile_error_marker.size());
+                    const std::string label = file.generic_string() + "::compile_error";
+                    try {
+                        Args test_args;
+                        test_args.self = argv[0];
+                        test_args.source = file;
+                        test_args.aot = true;
+                        fill_default_tool_paths(test_args);
+                        (void)compile_one(std::move(test_args));
+                        ++failed;
+                        std::cout << "FAIL " << label << '\n'
+                                  << "compiler accepted source; expected: " << expected << '\n';
+                    } catch (const std::exception& error) {
+                        const std::string actual = error.what();
+                        if (!expected.empty() && actual.find(expected) != std::string::npos) {
+                            ++passed;
+                            std::cout << "PASS " << label << '\n';
+                        } else {
+                            ++failed;
+                            std::cout << "FAIL " << label << '\n'
+                                      << "expected: " << expected << '\n'
+                                      << "actual: " << actual << '\n';
+                        }
+                    }
+                    continue;
+                }
                 for (const auto& test : discover_tests(source, file)) {
                     ++discovered;
                     const std::string label = file.generic_string() + "::" + test.name;

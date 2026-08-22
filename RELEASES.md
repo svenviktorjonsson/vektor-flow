@@ -1,6 +1,33 @@
-# Vektor Flow 0.1.1 Native Release
+# Vektor Flow Native Releases
 
-Vektor Flow 0.1.1 is one strict, native product on three targets:
+## 0.1.2 — Strict Bindings, Structural Updates, Typed Raises
+
+0.1.2 closes concrete semantic and proof gaps found after 0.1.1:
+
+- `name:value` only declares; `.name:value` only updates an existing binding;
+- compound updates require a binding receiver: `.name +:value`, `.name -:value`, and related forms;
+- declaration and update expressions return the stored value without walrus-style implicit outer mutation;
+- parameters already exist in function scope, so `.x+:3` updates one while `x:4` is a duplicate declaration;
+- structural compound arithmetic updates compatible numeric leaves while preserving incompatible metadata;
+- `!` raises only typed error values or error types, never arbitrary values and never factorial;
+- native `vkf -t` verifies expected compile failures as part of the VKF suite;
+- native `vkf -v` identifies the embedded release and prevents stale-compiler proof;
+- release documentation is split into a short landing page and complete numbered language guide;
+- every documented example retains fixed work, exact output, and 100-run three-OS proof;
+- a separate seven-language Linux comparison labels matched versus idiomatic algorithms, gives Python NumPy/SciPy and Julia optimized numerical routes, and links exact source.
+
+The release gate is **296 VKF tests**, 59 documented-program checks, 100 fresh
+compiles and 100 fresh-process runs per program on Windows x64, Linux x64, and
+macOS ARM64, plus the pinned seven-language comparison. The container stress
+workload remains fixed at 10 million element operations; it is never tuned to
+produce a preferred duration.
+
+Only `math`, `stat`, `random`, `time`, `io`, `collections`, `errors`, `system`,
+`process`, and `regex` ship. `physics`, `ui`, and `symbolic` remain absent.
+
+## 0.1.1 — Native Backend Parity
+
+Vektor Flow 0.1.1 was one strict, native product on three targets:
 
 | Target | Compiler | Archive | Installer |
 | --- | --- | --- | --- |

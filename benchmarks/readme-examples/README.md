@@ -1,6 +1,6 @@
-# README example release proof
+# Documented-program release proof
 
-This is the 0.1.1 release-performance gate. It discovers every generated VKF
+This is the latest-release performance gate. It discovers every generated VKF
 program under `examples/generated/readme`, then records for each program:
 
 - 100 native compiles from fresh source paths after one warmup;
@@ -27,5 +27,7 @@ node benchmarks/readme-examples/run.mjs \
 On Windows, use
 `--compiler=build/native-compiler-clang/bin/vkf-strict.exe`.
 
-The Markdown report is human-readable. The JSON report is the authoritative
-byte-exact record and contains all individual samples.
+The JSON report remains the machine-verifiable source for all individual
+samples. `embed-readme-evidence.mjs` refuses mismatched versions or source
+hashes before placing exact output and mean ± standard deviation in the landing
+README and complete language guide.

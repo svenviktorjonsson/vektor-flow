@@ -10,17 +10,17 @@ import {
   valuesAgree
 } from './run.mjs';
 
-test('100-run VKF scalar gate requires under 10 ms compile and 0.5 ms raw runtime', () => {
+test('100-run VKF scalar gate requires under 10 ms compiler core and 0.5 ms raw runtime', () => {
   const result = (compileMeanMs, nativeRuntimeMeanMs, count = 100) => ({
     case: 'scalar-control-small',
     language: 'vkf',
-    compile: { count, meanMs: compileMeanMs },
+    internalCompile: { count, meanMs: compileMeanMs },
     nativeRuntime: { count, meanMs: nativeRuntimeMeanMs }
   });
   assert.doesNotThrow(() => assertVkfAcceptanceBudgets([result(9.999, 0.499)]));
   assert.throws(
     () => assertVkfAcceptanceBudgets([result(10, 0.499)]),
-    /compile 10\.000000 ms must be under 10\.000 ms/
+    /compiler core 10\.000000 ms must be under 10\.000 ms/
   );
   assert.throws(
     () => assertVkfAcceptanceBudgets([result(9, 0.5)]),

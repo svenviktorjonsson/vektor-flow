@@ -3,13 +3,10 @@ make_message():
     first & " world"
 
 make_base(x:int, y:int):
-    x: x
-    y: y
     :
 
 make_colored(x:int, y:int, color:str):
     : make_base(x, y)
-    color: color
     :
 
 message: make_message()

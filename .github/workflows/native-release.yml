@@ -14,6 +14,12 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  VKF_RELEASE_VERSION: "0.1.2"
+  VKF_PROOF_SUFFIX: "012"
+  ZIG_VERSION: "0.16.0"
+  ZIG_LINUX_X64_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+
 jobs:
   windows-x64:
     runs-on: windows-latest
@@ -36,7 +42,7 @@ jobs:
         shell: pwsh
         run: .\build\native-compiler-clang\bin\vkf-strict.exe -t tests/vkf
 
-      - name: Compile and run every README example 100 times
+      - name: Compile and run every documented program 100 times
         shell: pwsh
         run: >-
           node benchmarks/readme-examples/run.mjs
@@ -45,27 +51,27 @@ jobs:
           --compile-warmups=1
           --runs=100
           --warmups=5
-          --output=windows-x64-011
+          --output=windows-x64-${{ env.VKF_PROOF_SUFFIX }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-x64-readme-proof
           path: |
-            benchmarks/readme-examples/results/windows-x64-011.json
-            benchmarks/readme-examples/results/windows-x64-011.md
+            benchmarks/readme-examples/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}.json
+            benchmarks/readme-examples/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}.md
           if-no-files-found: error
 
       - name: Package portable release
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "0.1.1-dev" }
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "$env:VKF_RELEASE_VERSION-dev" }
           .\scripts\package-native-release.ps1 -Version $version
 
       - name: Build installer
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "0.1.1-dev" }
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "$env:VKF_RELEASE_VERSION-dev" }
           .\scripts\build-windows-installer.ps1 -Version $version
 
       - uses: actions/upload-artifact@v4
@@ -100,7 +106,7 @@ jobs:
       - name: Run full native VKF release suite
         run: build/native-compiler/bin/vkf-strict -t tests/vkf
 
-      - name: Compile and run every README example 100 times
+      - name: Compile and run every documented program 100 times
         run: >-
           node benchmarks/readme-examples/run.mjs
           --compiler=build/native-compiler/bin/vkf-strict
@@ -108,21 +114,21 @@ jobs:
           --compile-warmups=1
           --runs=100
           --warmups=5
-          --output=linux-x64-011
+          --output=linux-x64-${{ env.VKF_PROOF_SUFFIX }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: linux-x64-readme-proof
           path: |
-            benchmarks/readme-examples/results/linux-x64-011.json
-            benchmarks/readme-examples/results/linux-x64-011.md
+            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.json
+            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.md
           if-no-files-found: error
 
       - name: Package native release
         run: |
           chmod +x scripts/package-native-release.sh
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=0.1.1-dev; fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=${VKF_RELEASE_VERSION}-dev; fi
           scripts/package-native-release.sh "$version"
 
       - uses: actions/upload-artifact@v4
@@ -153,7 +159,7 @@ jobs:
       - name: Run full native VKF release suite
         run: build/native-compiler/bin/vkf-strict -t tests/vkf
 
-      - name: Compile and run every README example 100 times
+      - name: Compile and run every documented program 100 times
         run: >-
           node benchmarks/readme-examples/run.mjs
           --compiler=build/native-compiler/bin/vkf-strict
@@ -161,21 +167,21 @@ jobs:
           --compile-warmups=1
           --runs=100
           --warmups=5
-          --output=macos-arm64-011
+          --output=macos-arm64-${{ env.VKF_PROOF_SUFFIX }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: macos-arm64-readme-proof
           path: |
-            benchmarks/readme-examples/results/macos-arm64-011.json
-            benchmarks/readme-examples/results/macos-arm64-011.md
+            benchmarks/readme-examples/results/macos-arm64-${{ env.VKF_PROOF_SUFFIX }}.json
+            benchmarks/readme-examples/results/macos-arm64-${{ env.VKF_PROOF_SUFFIX }}.md
           if-no-files-found: error
 
       - name: Package archive and installer
         run: |
           chmod +x scripts/package-native-release-macos.sh packaging/macos/install.sh
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=0.1.1-dev; fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=${VKF_RELEASE_VERSION}-dev; fi
           scripts/package-native-release-macos.sh "$version"
 
       - uses: actions/upload-artifact@v4
@@ -188,14 +194,76 @@ jobs:
             dist/releases/vektor-flow-macos-arm64.pkg.sha256
           if-no-files-found: error
 
+  comparison-linux-x64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: benchmarks/core-comparison/requirements.txt
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.5"
+
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1.12.7"
+          arch: x64
+
+      - name: Install pinned comparison tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential clang cmake ninja-build xz-utils
+          python -m pip install --requirement benchmarks/core-comparison/requirements.txt
+          rustup toolchain install 1.98.0 --profile minimal
+          rustup default 1.98.0
+          zig_archive="zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          curl --fail --location --silent --show-error \
+            "https://ziglang.org/download/${ZIG_VERSION}/${zig_archive}" \
+            --output "/tmp/${zig_archive}"
+          echo "${ZIG_LINUX_X64_SHA256}  /tmp/${zig_archive}" | sha256sum --check --strict
+          tar --extract --file "/tmp/${zig_archive}" --directory /tmp
+          echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Run honest seven-language comparison 100 times
+        run: >-
+          node benchmarks/core-comparison/run.mjs
+          --case=startup,scalar-control-small,fixed-vector-medium,record-value-medium
+          --language=vkf,c,rust,zig,go,julia,python-efficient
+          --compile-runs=100
+          --compile-warmups=1
+          --runs=100
+          --warmups=5
+          --output=linux-x64-${{ env.VKF_PROOF_SUFFIX }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-x64-language-comparison-proof
+          path: |
+            benchmarks/core-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.json
+            benchmarks/core-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.md
+          if-no-files-found: error
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows-x64, linux-x64, macos-arm64]
+    needs: [windows-x64, linux-x64, macos-arm64, comparison-linux-x64]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: "*-release"
           merge-multiple: true
 
       - name: Publish GitHub release
@@ -205,6 +273,7 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file docs/releases/0.1.2.md
           else
-            gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+            gh release create "$GITHUB_REF_NAME" dist/* --notes-file docs/releases/0.1.2.md
           fi

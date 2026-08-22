@@ -43,8 +43,8 @@ _sum_fixed_vector(values:[num:4]) -> num:
     index: 0
     total: 0
     index < 4?>
-        total: total + values.(index)
-        index: index + 1
+        .total: total + values.(index)
+        .index: index + 1
     total
 
 fixed_vector_runtime_indexing() -> bit:
@@ -54,8 +54,8 @@ _build_numeric_list(limit:num) -> [num]:
     index: 0
     values: []
     index < limit?>
-        values: values & [index]
-        index: index + 1
+        .values: values & [index]
+        .index: index + 1
     values
 
 dynamic_list_builder_grows_from_empty() -> bit:

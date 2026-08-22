@@ -1,7 +1,15 @@
 values: [1, 2]
 alias: values
-values +: [3, 4]
-values *: 2
-values -: [2, 4]
-values /: 2
+.values +: [3, 4]
+.values *: 2
+.values -: [2, 4]
+.values /: 2
 :: alias
+
+Point(x, y):
+    name: "my point"
+    :
+
+p: Point(3, 4)
+.p +: 2
+:: p

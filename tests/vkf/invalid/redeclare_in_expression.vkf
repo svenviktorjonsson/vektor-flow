@@ -1,0 +1,3 @@
+# expect-compile-error: Cannot declare existing name a; update it with .a:value
+a: 1
+:: (a: 2)

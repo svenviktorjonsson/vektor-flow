@@ -8,6 +8,7 @@ import { performance } from 'node:perf_hooks';
 
 const benchmarkRoot = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(benchmarkRoot, '..', '..');
+const packageVersion = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).version;
 export function benchmarkWorkRoot(
   hostPlatform = platform(),
   temporaryRoot = tmpdir(),
@@ -21,6 +22,9 @@ export function benchmarkWorkRoot(
 const workRoot = benchmarkWorkRoot();
 const resultsRoot = resolve(benchmarkRoot, 'results');
 const executableExtension = platform() === 'win32' ? '.exe' : '';
+const broadLanguageSet = Object.freeze([
+  'vkf', 'c', 'cpp', 'python-efficient', 'rust', 'zig', 'go', 'julia'
+]);
 
 const workloadSizes = Object.freeze([
   Object.freeze({ label: 'small', divisor: 100 }),
@@ -46,7 +50,9 @@ const cases = Object.freeze([
     size: 'empty',
     requiresDirectVkf: true,
     tolerance: 0,
-    languages: Object.freeze(['vkf', 'c', 'cpp', 'python-efficient', 'rust'])
+    comparisonMode: 'matched',
+    approach: 'print one numeric value',
+    languages: broadLanguageSet
   }),
   ...sizedCases(Object.freeze({
     template: 'scalar-control',
@@ -55,8 +61,10 @@ const cases = Object.freeze([
     largeCount: 2_000_000,
     requiresDirectVkf: true,
     tolerance: 1e-9,
+    comparisonMode: 'matched',
+    approach: 'same scalar loop and branch in every language',
     pythonExtension: 'py',
-    languages: Object.freeze(['vkf', 'c', 'cpp', 'python-efficient', 'rust'])
+    languages: broadLanguageSet
   })),
   ...sizedCases(Object.freeze({
     template: 'fixed-vector',
@@ -65,8 +73,10 @@ const cases = Object.freeze([
     largeCount: 750_000,
     requiresDirectVkf: true,
     tolerance: 1e-7,
+    comparisonMode: 'idiomatic',
+    approach: 'native value loops; NumPy and Julia use matrix exponentiation',
     pythonExtension: 'numpy.py',
-    languages: Object.freeze(['vkf', 'c', 'cpp', 'python-efficient', 'rust'])
+    languages: broadLanguageSet
   })),
   ...sizedCases(Object.freeze({
     template: 'builtin-reduction',
@@ -75,8 +85,10 @@ const cases = Object.freeze([
     largeCount: 6_400,
     requiresDirectVkf: true,
     tolerance: 1e-12,
+    comparisonMode: 'idiomatic',
+    approach: 'normal optimized reduction supplied by each ecosystem',
     pythonExtension: 'numpy.py',
-    languages: Object.freeze(['vkf', 'c', 'cpp', 'python-efficient', 'rust'])
+    languages: broadLanguageSet
   })),
   ...sizedCases(Object.freeze({
     template: 'record-value',
@@ -85,8 +97,10 @@ const cases = Object.freeze([
     largeCount: 750_000,
     requiresDirectVkf: true,
     tolerance: 1e-9,
+    comparisonMode: 'idiomatic',
+    approach: 'native record loops; NumPy and Julia use matrix exponentiation',
     pythonExtension: 'numpy.py',
-    languages: Object.freeze(['vkf', 'c', 'cpp', 'python-efficient', 'rust'])
+    languages: broadLanguageSet
   })),
   ...sizedCases(Object.freeze({
     template: 'linear-filter',
@@ -95,6 +109,8 @@ const cases = Object.freeze([
     largeCount: 2_000_000,
     requiresDirectVkf: true,
     tolerance: 1e-8,
+    comparisonMode: 'idiomatic',
+    approach: 'native scalar loops; Python uses SciPy signal.lfilter',
     pythonExtension: 'scipy.py',
     languages: Object.freeze(['vkf', 'c', 'cpp', 'python-efficient', 'rust'])
   })),
@@ -108,6 +124,8 @@ const cases = Object.freeze([
     explicitF64Values: true,
     requiresDirectVkf: true,
     tolerance: 1e-12,
+    comparisonMode: 'matched',
+    approach: 'same one-pass Welford algorithm',
     languages: Object.freeze(['vkf', 'c', 'cpp', 'rust'])
   }),
   Object.freeze({
@@ -120,6 +138,8 @@ const cases = Object.freeze([
     explicitF64Values: true,
     requiresDirectVkf: true,
     tolerance: 0,
+    comparisonMode: 'matched',
+    approach: 'same checked integer-validation loop',
     languages: Object.freeze(['vkf', 'c', 'cpp', 'rust'])
   })
 ]);
@@ -275,6 +295,11 @@ function fileSha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
+function sourceFileSha256(path) {
+  const source = readFileSync(path, 'utf8').replace(/\r\n/g, '\n').replace(/\n$/, '');
+  return createHash('sha256').update(source).digest('hex');
+}
+
 function buildNativeCompilerTools(tools) {
   const toolRoot = resolve(workRoot, 'native-compiler');
   mkdirSync(toolRoot, { recursive: true });
@@ -348,23 +373,41 @@ function nativeProcessSamples(processTimer, output, warmups, runs) {
   return payload.samples_ms.map(Number);
 }
 
-function interleavedNativeProcessSamples(processTimer, entries, warmups, runs) {
-  const samples = new Map(entries.map(({ language }) => [language.id, []]));
-  const chunkSize = 2;
-  for (let offset = 0, batch = 0; offset < runs; offset += chunkSize, batch += 1) {
-    const measured = Math.min(chunkSize, runs - offset);
+function interleavedProcessSamples(entries, benchmarkCase, warmups, runs) {
+  const states = new Map(entries.map(({ language }) => [language.id, {
+    samples: [],
+    value: null
+  }]));
+  const executeRound = (round, measured) => {
     for (let position = 0; position < entries.length; position += 1) {
-      const entry = entries[(batch + position) % entries.length];
-      const batchSamples = nativeProcessSamples(
-        processTimer,
+      const entry = entries[(round + position) % entries.length];
+      const result = entry.language.runtime(
         entry.compiled.runtimeArtifact,
-        batch === 0 ? warmups : 0,
-        chunkSize
+        entry.compiled.source
       );
-      samples.get(entry.language.id).push(...batchSamples.slice(0, measured));
+      const value = parseNumericOutput(
+        result.stdout,
+        entry.language.id,
+        benchmarkCase.id
+      );
+      if (!measured) continue;
+      const state = states.get(entry.language.id);
+      if (state.value !== null && !valuesAgree(
+        state.value,
+        value,
+        benchmarkCase.tolerance
+      )) {
+        throw new Error(`${entry.language.id}/${benchmarkCase.id} produced unstable results`);
+      }
+      state.value = value;
+      state.samples.push(result.elapsedMs);
     }
+  };
+  for (let warmup = 0; warmup < warmups; warmup += 1) executeRound(warmup, false);
+  for (let iteration = 0; iteration < runs; iteration += 1) {
+    executeRound(warmups + iteration, true);
   }
-  return samples;
+  return states;
 }
 
 function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
@@ -395,10 +438,10 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
     Object.freeze({
       id: 'vkf',
       extension: 'vkf',
-      version: `Vektor Flow 0.1.1 native compiler; ${toolVersion(tools.cpp)}`,
-      compileModel: `persistent Python-free integrated frontend + compiler-owned direct ${process.arch} artifact`,
+      version: `${runCommand(nativeCompiler.driver, ['-v']).stdout.trim()}; built with ${toolVersion(tools.cpp)}`,
+      compileModel: `fresh VKF process + Python-free integrated frontend + compiler-owned direct ${process.arch} artifact`,
       freshSourcePerCompile: true,
-      compileBatch(sources, manifestPath) {
+      internalCompileBatch(sources, manifestPath) {
         writeFileSync(manifestPath, `${sources.join('\n')}\n`, 'utf8');
         const result = runCommand(nativeCompiler.driver, ['--batch-sources', manifestPath]);
         return parseBatchCompileSummaries(result.stdout, sources.length).map((summary) => ({
@@ -513,6 +556,55 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
       },
       runtimeBatch: nativeRuntimeBatch
     }));
+  if (enabled('zig')) definitions.push(Object.freeze({
+    id: 'zig',
+    extension: 'zig',
+    version: toolVersion(tools.zig),
+    compileModel: 'zig build-exe -O ReleaseFast -mcpu native -lc',
+    compile(source, output) {
+      return runCommand(tools.zig.command, [
+        'build-exe', source, '-O', 'ReleaseFast', '-mcpu', 'native', '-lc',
+        `-femit-bin=${output}`
+      ]);
+    },
+    runtime(output) {
+      return runCommand(output, []);
+    },
+    runtimeBatch: nativeRuntimeBatch
+  }));
+  if (enabled('go')) definitions.push(Object.freeze({
+    id: 'go',
+    extension: 'go',
+    version: toolVersion(tools.go),
+    compileModel: 'go build -trimpath -ldflags=-s -w',
+    compile(source, output) {
+      return runCommand(tools.go.command, [
+        'build', '-trimpath', '-ldflags=-s -w', '-o', output, source
+      ]);
+    },
+    runtime(output) {
+      return runCommand(output, []);
+    },
+    runtimeBatch: nativeRuntimeBatch
+  }));
+  if (enabled('julia')) definitions.push(Object.freeze({
+    id: 'julia',
+    extension: 'jl',
+    version: toolVersion(tools.julia),
+    compileModel: 'Julia source parse in a fresh process (not native AOT compilation)',
+    compile(source, output) {
+      return runCommand(tools.julia.command, [
+        '--startup-file=no', '--history-file=no', '-e',
+        'source=read(ARGS[1],String);Meta.parse("begin\\n"*source*"\\nend");write(ARGS[2],"parsed")',
+        source, output
+      ]);
+    },
+    runtime(_output, source) {
+      return runCommand(tools.julia.command, [
+        '--startup-file=no', '--history-file=no', source
+      ]);
+    }
+  }));
   return Object.freeze(definitions);
 }
 
@@ -530,7 +622,16 @@ function materializeSource(language, benchmarkCase, caseWork) {
   if (language.id === 'python-efficient') {
     extension = benchmarkCase.pythonExtension || 'scipy.py';
   }
-  let template = sourcePath(benchmarkCase.template, extension);
+  const publishedExtension = language.id === 'python-efficient' ? 'py' : extension;
+  const published = resolve(
+    benchmarkRoot,
+    'published',
+    benchmarkCase.id,
+    `${language.id}.${publishedExtension}`
+  );
+  let template = existsSync(published)
+    ? published
+    : sourcePath(benchmarkCase.template, extension);
   if (language.id === 'cpp' && !existsSync(template)) {
     template = sourcePath(benchmarkCase.template, 'c');
   }
@@ -556,11 +657,11 @@ function materializeSource(language, benchmarkCase, caseWork) {
   mkdirSync(sources, { recursive: true });
   const source = resolve(sources, `${language.id}.${extension}`);
   writeFileSync(source, text, 'utf8');
-  return source;
+  return Object.freeze({ source, template });
 }
 
 function compileLanguageCase(language, benchmarkCase, options, caseWork) {
-  const source = materializeSource(language, benchmarkCase, caseWork);
+  const { source, template } = materializeSource(language, benchmarkCase, caseWork);
   const samples = [];
   let runtimeArtifact = null;
   let artifactFallback = false;
@@ -578,13 +679,10 @@ function compileLanguageCase(language, benchmarkCase, options, caseWork) {
     writeFileSync(freshSource, readFileSync(source));
     compileSources.push(freshSource);
   }
-  const batchResults = language.compileBatch
-    ? language.compileBatch(compileSources, resolve(caseWork, `${language.id}-batch-sources.txt`))
-    : null;
   for (let index = 0; index < total; index += 1) {
     const suffix = language.id === 'python-efficient' ? '.pyc' : executableExtension;
     const output = resolve(caseWork, `${language.id}-compile-${index}${suffix}`);
-    const result = batchResults ? batchResults[index] : language.compile(compileSources[index], output);
+    const result = language.compile(compileSources[index], output);
     if (language.id === 'vkf' && benchmarkCase.requiresDirectVkf && result.artifactFallback) {
       throw new Error(`${benchmarkCase.id} requires direct VKF machine code: ${result.artifactFallbackReason}`);
     }
@@ -593,11 +691,20 @@ function compileLanguageCase(language, benchmarkCase, options, caseWork) {
     artifactFallback = result.artifactFallback || false;
     artifactFallbackReason = result.artifactFallbackReason || '';
   }
+  const internalCompileSamples = language.internalCompileBatch
+    ? language.internalCompileBatch(
+        compileSources,
+        resolve(caseWork, `${language.id}-internal-batch-sources.txt`)
+      ).slice(options.compileWarmups).map((result) => result.elapsedMs)
+    : null;
   const nativeRuntimeArtifact = language.prepareNativeRuntime
     ? language.prepareNativeRuntime(source)
     : null;
   return {
     source,
+    sourceTemplate: relative(repoRoot, template).replaceAll('\\', '/'),
+    sourceTemplateSha256: sourceFileSha256(template),
+    sourceSha256: sourceFileSha256(source),
     runtimeArtifact,
     nativeRuntimeArtifact,
     nativeCodeSha256: nativeRuntimeArtifact
@@ -606,6 +713,7 @@ function compileLanguageCase(language, benchmarkCase, options, caseWork) {
           : nativeRuntimeArtifact.code)
       : null,
     samples,
+    internalCompileSamples,
     artifactFallback,
     artifactFallbackReason
   };
@@ -674,15 +782,18 @@ function meanStd(stats) {
 }
 
 function markdownTable(payload, metric) {
-  const allLanguages = ['vkf', 'c', 'cpp', 'python-efficient', 'rust'];
+  const allLanguages = broadLanguageSet;
   const languages = allLanguages.filter((language) => payload.results.some((result) => result.language === language));
-  const labels = { vkf: 'VKF', c: 'C', cpp: 'C++', 'python-efficient': 'Python efficient', rust: 'Rust' };
+  const labels = {
+    vkf: 'VKF', c: 'C', cpp: 'C++', 'python-efficient': 'Python efficient',
+    rust: 'Rust', zig: 'Zig', go: 'Go', julia: 'Julia'
+  };
   const title = metric === 'compile' ? 'Compile time (ms)' : 'Runtime (ms)';
   const lines = [
     `## ${title}`,
     '',
-    `| operation | data | size | count | ${languages.map((language) => labels[language]).join(' | ')} |`,
-    `| --- | --- | --- | ---: | ${languages.map(() => '---:').join(' | ')} |`
+    `| operation | mode | data | size | count | ${languages.map((language) => labels[language]).join(' | ')} |`,
+    `| --- | --- | --- | --- | ---: | ${languages.map(() => '---:').join(' | ')} |`
   ];
   for (const benchmarkCase of payload.cases) {
     const byLanguage = new Map(payload.results
@@ -690,16 +801,31 @@ function markdownTable(payload, metric) {
       .map((result) => [result.language, result]));
     lines.push([
       benchmarkCase.operation,
+      benchmarkCase.comparisonMode,
       benchmarkCase.data,
       benchmarkCase.size,
       benchmarkCase.count ?? 0,
-      ...languages.map((language) => meanStd(byLanguage.get(language)[metric]))
+      ...languages.map((language) => {
+        const result = byLanguage.get(language);
+        return result ? meanStd(result[metric]) : 'N/A';
+      })
     ].join(' | ').replace(/^/, '| ').replace(/$/, ' |'));
   }
   return lines.join('\n');
 }
 
 function createReport(payload) {
+  const internalCompileResults = payload.results.filter((result) => result.internalCompile);
+  const internalCompileTable = internalCompileResults.length === 0 ? [] : [
+    '',
+    '## VKF internal compiler-core time (ms)',
+    '',
+    '| operation | data | size | count | VKF |',
+    '| --- | --- | --- | ---: | ---: |',
+    ...internalCompileResults.map((result) =>
+      `| ${result.operation} | ${result.data} | ${result.size} | ${result.count} | ${meanStd(result.internalCompile)} |`
+    )
+  ];
   const nativeRuntimeResults = payload.results.filter((result) => result.nativeRuntime);
   const nativeRuntimeTable = nativeRuntimeResults.length === 0 ? [] : [
     '',
@@ -716,9 +842,12 @@ function createReport(payload) {
     '',
     `${payload.options.compileRuns} compile runs and ${payload.options.runs} runtime runs. Values shown as mean ± sample standard deviation in ms. Compile warmups: ${payload.options.compileWarmups}. Runtime warmups: ${payload.options.warmups}.`,
     '',
+    'Matched rows keep the same algorithm. Idiomatic rows allow each ecosystem\'s normal optimized implementation; inspect the linked source before comparing them.',
+    '',
     markdownTable(payload, 'compile'),
     '',
     markdownTable(payload, 'runtime'),
+    ...internalCompileTable,
     ...nativeRuntimeTable,
     ''
   ].join('\n');
@@ -731,13 +860,13 @@ const VKF_ACCEPTANCE_BUDGETS = new Map([
 export function assertVkfAcceptanceBudgets(results) {
   const failures = [];
   for (const result of results) {
-    if (result.language !== 'vkf' || result.compile?.count < 100 ||
+    if (result.language !== 'vkf' || result.internalCompile?.count < 100 ||
         result.nativeRuntime?.count < 100) continue;
     const budget = VKF_ACCEPTANCE_BUDGETS.get(result.case);
     if (!budget) continue;
-    if (result.compile.meanMs >= budget.compileMeanMs) {
+    if (result.internalCompile.meanMs >= budget.compileMeanMs) {
       failures.push(
-        `${result.case} compile ${result.compile.meanMs.toFixed(6)} ms must be under ` +
+        `${result.case} compiler core ${result.internalCompile.meanMs.toFixed(6)} ms must be under ` +
         `${budget.compileMeanMs.toFixed(3)} ms`
       );
     }
@@ -774,7 +903,7 @@ export function main(argv = process.argv.slice(2)) {
   const requestedLanguages = options.languageId === null
     ? null
     : new Set(options.languageId.split(',').filter(Boolean));
-  const supportedLanguages = new Set(['vkf', 'c', 'cpp', 'python-efficient', 'rust']);
+  const supportedLanguages = new Set(broadLanguageSet);
   if (requestedLanguages) {
     for (const languageId of requestedLanguages) {
       if (!supportedLanguages.has(languageId)) {
@@ -823,6 +952,15 @@ export function main(argv = process.argv.slice(2)) {
     ], 'C++ compiler'),
     rust: requestedLanguages === null || requestedLanguages.has('rust')
       ? firstTool([{ command: 'rustc', versionArgs: ['--version'] }], 'Rust compiler')
+      : null,
+    zig: requestedLanguages === null || requestedLanguages.has('zig')
+      ? firstTool([{ command: 'zig', versionArgs: ['version'] }], 'Zig compiler')
+      : null,
+    go: requestedLanguages === null || requestedLanguages.has('go')
+      ? firstTool([{ command: 'go', versionArgs: ['version'] }], 'Go compiler')
+      : null,
+    julia: requestedLanguages === null || requestedLanguages.has('julia')
+      ? firstTool([{ command: 'julia', versionArgs: ['--version'] }], 'Julia runtime')
       : null
   });
   cleanWorkRoot();
@@ -842,29 +980,14 @@ export function main(argv = process.argv.slice(2)) {
       const compiled = compileLanguageCase(language, benchmarkCase, options, caseWork);
       prepared.push({ language, compiled });
     }
-    const nativePrepared = nativeCompiler.processTimer
-      ? prepared.filter(({ language }) => Boolean(language.runtimeBatch))
-      : [];
-    const interleavedSamples = nativePrepared.length > 1
-      ? interleavedNativeProcessSamples(
-          nativeCompiler.processTimer,
-          nativePrepared,
-          options.warmups,
-          options.runs
-        )
-      : new Map();
+    const interleavedRuntime = interleavedProcessSamples(
+      prepared,
+      benchmarkCase,
+      options.warmups,
+      options.runs
+    );
     for (const { language, compiled } of prepared) {
-      let runtime;
-      const samples = interleavedSamples.get(language.id);
-      if (samples) {
-        const validation = language.runtime(compiled.runtimeArtifact, compiled.source);
-        runtime = {
-          samples,
-          value: parseNumericOutput(validation.stdout, language.id, benchmarkCase.id)
-        };
-      } else {
-        runtime = runLanguageCase(language, benchmarkCase, compiled, options);
-      }
+      const runtime = interleavedRuntime.get(language.id);
       const nativeRuntime = compiled.nativeRuntimeArtifact && language.nativeRuntimeBatch
         ? language.nativeRuntimeBatch(
             compiled.nativeRuntimeArtifact,
@@ -885,13 +1008,23 @@ export function main(argv = process.argv.slice(2)) {
         data: benchmarkCase.data,
         size: benchmarkCase.size,
         count: benchmarkCase.count ?? 0,
+        comparisonMode: benchmarkCase.comparisonMode,
+        approach: benchmarkCase.approach,
         language: language.id,
         version: language.version,
         compileModel: language.compileModel,
         artifactFallback: compiled.artifactFallback,
         artifactFallbackReason: compiled.artifactFallbackReason,
-        source: sourceSize(compiled.source),
+        source: Object.freeze({
+          ...sourceSize(compiled.source),
+          sha256: compiled.sourceSha256,
+          template: compiled.sourceTemplate,
+          templateSha256: compiled.sourceTemplateSha256
+        }),
         compile: seriesStats(compiled.samples),
+        internalCompile: compiled.internalCompileSamples
+          ? seriesStats(compiled.internalCompileSamples)
+          : null,
         runtime: seriesStats(runtime.samples),
         nativeRuntime: nativeRuntime ? seriesStats(nativeRuntime.samples) : null,
         nativeCodeSha256: compiled.nativeCodeSha256,
@@ -919,6 +1052,7 @@ export function main(argv = process.argv.slice(2)) {
   }));
   const payload = Object.freeze({
     schema: 'vektor-flow/core-language-comparison-v1',
+    version: packageVersion,
     generatedAt: new Date().toISOString(),
     environment: Object.freeze({
       platform: `${platform()} ${release()}`,

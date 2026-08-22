@@ -14,7 +14,7 @@ _captured_scale: 2
 _multiply_by_captured_scale(x:num) -> num:
     x * _captured_scale
 
-_captured_scale: 5
+._captured_scale: 5
 
 function_definition_captures_module_snapshot() -> bit:
     (_multiply_by_captured_scale(3) = 6)?!

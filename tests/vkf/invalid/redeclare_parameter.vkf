@@ -1,0 +1,6 @@
+# expect-compile-error: Cannot declare existing name x; update it with .x:value
+raise_x(x):
+    x: 4
+    x
+
+:: raise_x(1)

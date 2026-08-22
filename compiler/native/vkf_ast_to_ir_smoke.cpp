@@ -70,10 +70,29 @@ public:
         });
     }
 
+    bool declared_here(const std::string& name) const {
+        return std::find(declared_here_.begin(), declared_here_.end(), name) !=
+            declared_here_.end();
+    }
+
+    void declare(std::string name, std::string type) {
+        set(name, std::move(type));
+        declared_here_.push_back(std::move(name));
+    }
+
+    void mark_declared(const std::string& name) {
+        if (!declared_here(name)) declared_here_.push_back(name);
+    }
+
+    void begin_scope() {
+        declared_here_.clear();
+    }
+
     const std::vector<Binding>& bindings() const { return bindings_; }
 
 private:
     std::vector<Binding> bindings_;
+    std::vector<std::string> declared_here_;
 };
 
 class FunctionTable {
@@ -1218,6 +1237,19 @@ private:
             const std::string target_kind = string_field(target, "kind", "bind.target");
             if (target_kind == "identifier") {
                 const std::string name = string_field(target, "name", "bind.target");
+                const auto update_only = object.find("update_only");
+                const bool is_update = update_only != object.end() &&
+                    update_only->second.is_boolean() && update_only->second.as_boolean();
+                if (is_update && !env.contains(name)) {
+                    throw IRFailure(
+                        "Cannot update unknown name ." + name +
+                        "; declare it first with " + name + ":value");
+                }
+                if (!is_update && env.declared_here(name)) {
+                    throw IRFailure(
+                        "Cannot declare existing name " + name +
+                        "; update it with ." + name + ":value");
+                }
                 const auto& raw_value = object_of(field(object, "value", "bind"), "bind value");
                 if (string_field(raw_value, "kind", "bind value") == "lambda_expr") {
                     vf::JsonValue::Array params;
@@ -1244,7 +1276,9 @@ private:
                     return_type["name"] = vf::JsonValue("any");
                     function["return_type"] = vf::JsonValue(std::move(return_type));
                     function["body"] = field(raw_value, "body", "stored lambda");
-                    return lower_function(function, env);
+                    vf::JsonValue lowered = lower_function(function, env);
+                    if (!is_update) env.mark_declared(name);
+                    return lowered;
                 }
                 std::string primitive_value;
                 if (string_field(raw_value, "kind", "bind value") == "identifier") {
@@ -1292,7 +1326,8 @@ private:
                             std::to_string(items.size()) + "]";
                     }
                 }
-                env.set(name, environment_type);
+                if (is_update) env.set(name, environment_type);
+                else env.declare(name, environment_type);
 
                 auto out = node("store_binding");
                 out["name"] = vf::JsonValue(name);
@@ -1469,7 +1504,10 @@ private:
             const std::string param_type = type_annotation_name(field(param, "type", "param"));
             const bool is_variadic_positional = optional_bool_field(param, "variadic_positional");
             const bool is_variadic_named = optional_bool_field(param, "variadic_named");
-            function_env.set(
+            if (function_env.declared_here(param_name)) {
+                throw IRFailure("Cannot declare duplicate parameter " + param_name);
+            }
+            function_env.declare(
                 param_name,
                 is_variadic_positional ? "list<" + param_type + ">" : param_type);
             param_names.push_back(param_name);
@@ -1660,8 +1698,42 @@ private:
         }
         if (kind == "raise_expr") {
             vf::JsonValue value = lower_expr(field(object, "value", "raise expression"), env);
-            const std::string value_type = string_field(
+            std::string value_type = string_field(
                 value.as_object(), "type", "raise expression value");
+            if (value_type == "error_type") {
+                const auto& error_type = value.as_object();
+                const std::string error_name = string_field(
+                    error_type, "name", "raised error type");
+                const auto& mask_value = field(error_type, "mask", "raised error type");
+                if (!mask_value.is_number()) {
+                    throw IRFailure("raised error type needs a mask");
+                }
+                auto message = node("const");
+                message["type"] = vf::JsonValue("str");
+                message["value"] = vf::JsonValue("");
+                auto type_name = node("const");
+                type_name["type"] = vf::JsonValue("str");
+                type_name["value"] = vf::JsonValue(error_name);
+                auto mask = node("const");
+                mask["type"] = vf::JsonValue("num");
+                mask["value"] = mask_value;
+                vf::JsonValue::Array fields;
+                const auto add_field = [&](std::string name, std::string type, vf::JsonValue field_value) {
+                    auto record_field = node("record_field");
+                    record_field["name"] = vf::JsonValue(std::move(name));
+                    record_field["value"] = std::move(field_value);
+                    record_field["type"] = vf::JsonValue(std::move(type));
+                    fields.emplace_back(std::move(record_field));
+                };
+                add_field("message", "str", vf::JsonValue(std::move(message)));
+                add_field("type", "str", vf::JsonValue(std::move(type_name)));
+                add_field("mask", "num", vf::JsonValue(std::move(mask)));
+                auto error = node("record");
+                error["fields"] = vf::JsonValue(std::move(fields));
+                error["type"] = vf::JsonValue("record{message:str,type:str,mask:num}");
+                value = vf::JsonValue(std::move(error));
+                value_type = "record{message:str,type:str,mask:num}";
+            }
             if (value_type != "record{message:str,type:str,mask:num}") {
                 throw IRFailure("`!` expects an error value");
             }
@@ -1688,6 +1760,18 @@ private:
                 if (name == "abs" || name == "sqrt" || name == "sin" ||
                     name == "cos" || name == "exp" || name == "ln") {
                     return stdlib_function("math", name);
+                }
+            }
+            const bool spilled_errors = std::find(
+                spilled_modules_.begin(), spilled_modules_.end(), "errors") != spilled_modules_.end();
+            if (spilled_errors && !env.contains(name)) {
+                static const std::vector<std::string> error_names = {
+                    "Error", "VektorFlowError", "LexError", "ParseError", "EvalError",
+                    "AssertionError", "PythonError", "TypeError", "ValueError", "KeyError",
+                    "IndexError", "FileNotFoundError", "RuntimeError"
+                };
+                if (std::find(error_names.begin(), error_names.end(), name) != error_names.end()) {
+                    return error_type_value(name);
                 }
             }
             const bool spilled_time = std::find(
@@ -2453,6 +2537,7 @@ private:
             const auto& statements = array_of(field(object, "statements", "block"), "block.statements");
             vf::JsonValue::Array lowered;
             TypeEnv block_env = env;
+            block_env.begin_scope();
             // @: inside an expression block returns from that block, not from
             // the surrounding function. Its value therefore follows the block
             // result shape instead of the function's declared result type.
@@ -2567,14 +2652,33 @@ private:
             return vf::JsonValue(std::move(out));
         }
         if (kind == "bind_expr") {
+            const std::string name = string_field(object, "name", "bind expression");
+            const auto update_only = object.find("update_only");
+            const bool is_update = update_only != object.end() &&
+                update_only->second.is_boolean() && update_only->second.as_boolean();
+            if (is_update && !env.contains(name)) {
+                throw IRFailure(
+                    "Cannot update unknown name ." + name +
+                    "; declare it first with " + name + ":value");
+            }
+            if (!is_update && env.declared_here(name)) {
+                throw IRFailure(
+                    "Cannot declare existing name " + name +
+                    "; update it with ." + name + ":value");
+            }
             vf::JsonValue value = lower_expr(field(object, "value", "bind expression"), env);
             const std::string type = string_field(value.as_object(), "type", "bind expression");
-            const std::string name = string_field(object, "name", "bind expression");
-            env.set(name, type);
+            if (is_update) env.set(name, type);
+            else env.declare(name, type);
             auto out = node("bind_expr");
             out["name"] = vf::JsonValue(name);
             out["value"] = std::move(value);
             out["type"] = vf::JsonValue(type);
+            out["update_only"] = vf::JsonValue(is_update);
+            const auto update = object.find("update");
+            if (update != object.end() && update->second.is_boolean()) {
+                out["update"] = update->second;
+            }
             return vf::JsonValue(std::move(out));
         }
         if (kind == "abs_expr") {
@@ -2918,6 +3022,7 @@ private:
                 lowered_arm["condition"] = cond_ast.is_null() ? vf::JsonValue(nullptr) : lower_expr(cond_ast, env);
                 const vf::JsonValue& body_ast = field(arm, "body", "match arm");
                 TypeEnv body_env = env;
+                body_env.begin_scope();
                 if (catch_errors) body_env.set("$", "record{message:str}");
                 if (kind_of(body_ast) == "block") {
                     lowered_arm["body"] = lower_body(body_ast, body_env);

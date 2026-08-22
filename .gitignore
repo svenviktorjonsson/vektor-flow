@@ -21,6 +21,7 @@ examples/programs/**/transparent-overlay-host.exe
 examples/programs/**/native_scene_config.json
 examples/programs/**/native_scene_config.json.source_hash
 examples/*.exe
+examples/generated/readme/**/*.exe
 examples/*.exe.WebView2/
 examples/TransparentOverlay.dll
 examples/transparent-overlay-host.exe

@@ -1,8 +1,17 @@
 fixed_vector_update_preserves_alias_identity() -> bit:
     values: [1, 2]
     alias: values
-    values +: [3, 4]
-    values *: 2
-    values -: [2, 4]
-    values /: 2
+    .values +: [3, 4]
+    .values *: 2
+    .values -: [2, 4]
+    .values /: 2
     (alias == [3, 4])?!
+
+Point(x, y):
+    name: "my point"
+    :
+
+structural_update_skips_incompatible_metadata() -> bit:
+    p: Point(3, 4)
+    .p +: 2
+    (p.name == "my point" /\ p.x == 5 /\ p.y == 6)?!

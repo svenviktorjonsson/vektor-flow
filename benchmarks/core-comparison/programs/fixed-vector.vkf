@@ -10,8 +10,8 @@ run(n:num) -> num:
     i: 0
     v: [1, 2, 3, 4]
     i < n?>
-        v: advance(v)
-        i: i + 1
+        .v: advance(v)
+        .i: i + 1
     v.0 + v.1 + v.2 + v.3
 
 :: run({{COUNT}})

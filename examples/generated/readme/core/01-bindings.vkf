@@ -1,5 +1,5 @@
 value: 3
 num scaled: value * 2
-value: value + 4
+.value: value + 4
 :: value
 :: scaled

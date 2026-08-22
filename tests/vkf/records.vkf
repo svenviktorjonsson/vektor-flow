@@ -19,13 +19,10 @@ record_field_extension_adds_new_field() -> bit:
     (value.x + value.y + value.z == 12)?!
 
 _base_point(x, y):
-    x: x
-    y: y
     :
 
 _colored_point(x, y, color):
     : _base_point(x, y)
-    color: color
     :
 
 record_spill_composes_constructor_scope() -> bit:

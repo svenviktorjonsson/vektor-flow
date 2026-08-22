@@ -1,0 +1,3 @@
+# expect-compile-error: Cannot update unknown name .missing; declare it first with missing:value
+.missing: 1
+:: missing

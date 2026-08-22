@@ -6,6 +6,15 @@ bind_expression_stores_and_returns_value() -> bit:
     b: 42
     ((a:b) = 42 /\ a = 42)?!
 
+declaration_expression_composes_with_arithmetic() -> bit:
+    b: (a: 3) + 1
+    (a = 3 /\ b = 4)?!
+
+update_expression_stores_and_returns_value() -> bit:
+    b: 3
+    a: (.b +: 3)
+    (a = 6 /\ b = 6)?!
+
 primitive_types_reflect_function_shapes() -> bit:
     (bit. == "(any) -> bit" /\ chr. == "(any) -> chr" /\ int. == "(any) -> int" /\ num. == "(any, any = 0) -> num" /\ str. == "(any) -> str")?!
 
@@ -28,11 +37,26 @@ dynamic_multi_index_surface() -> bit:
 
 compound_updates_cover_numeric_and_boolean_ops() -> bit:
     x: 10
-    x //: 3
-    x %: 2
+    .x //: 3
+    .x %: 2
     truth: true
-    truth /\: false
+    .truth /\: false
     (x = 1 /\ truth == false)?!
+
+explicit_update_changes_reachable_binding() -> bit:
+    value: 3
+    .value: value + 4
+    (value = 7)?!
+
+explicit_update_changes_parameter_binding(value:int=3) -> bit:
+    .value: value * 2
+    (value = 6)?!
+
+explicit_update_reaches_binding_inside_loop() -> bit:
+    count: 0
+    count < 4?>
+        .count: count + 1
+    (count = 4)?!
 
 complex_integer_power_preserves_components() -> bit:
     (str(num(1, 1)^2) == "2i" /\ str(num(1, 1)^-1) == "0.5 - 0.5i")?!

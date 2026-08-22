@@ -1,0 +1,4 @@
+# expect-compile-error: binding updates require a leading dot: .b+:
+b: 3
+b +: 2
+:: b

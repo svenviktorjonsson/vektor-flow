@@ -36,20 +36,20 @@ _iso_weekday(weekday:num) -> str:
 
 _year_day(year:num, month:num, day:num) -> num:
     result: day - 1
-    month > 1? result: result + 31
+    month > 1? .result: result + 31
     month > 2?
-        result: result + 28
+        .result: result + 28
         (year % 4 = 0 /\ (year % 100 != 0 \/ year % 400 = 0))?
-            result: result + 1
-    month > 3? result: result + 31
-    month > 4? result: result + 30
-    month > 5? result: result + 31
-    month > 6? result: result + 30
-    month > 7? result: result + 31
-    month > 8? result: result + 31
-    month > 9? result: result + 30
-    month > 10? result: result + 31
-    month > 11? result: result + 30
+            .result: result + 1
+    month > 3? .result: result + 31
+    month > 4? .result: result + 30
+    month > 5? .result: result + 31
+    month > 6? .result: result + 30
+    month > 7? .result: result + 31
+    month > 8? .result: result + 31
+    month > 9? .result: result + 30
+    month > 10? .result: result + 31
+    month > 11? .result: result + 30
     result
 
 _utc_parts(seconds:num):
@@ -57,7 +57,7 @@ _utc_parts(seconds:num):
     days: whole // 86400
     remaining: whole - days * 86400
     hour: remaining // 3600
-    remaining: remaining - hour * 3600
+    .remaining: remaining - hour * 3600
     minute: remaining // 60
     second: remaining - minute * 60
     z: days + 719468
@@ -70,11 +70,11 @@ _utc_parts(seconds:num):
     day: doy - (153 * mp + 2) // 5 + 1
     month: mp + 3
     mp >= 10?
-        month: mp - 9
+        .month: mp - 9
     month <= 2?
-        year: year + 1
+        .year: year + 1
     weekday: (days + 4) % 7
-    weekday < 0? weekday: weekday + 7
+    weekday < 0? .weekday: weekday + 7
     (second: second, minute: minute, hour: hour, day: day, month: month,
      year: year, weekday: weekday,
      yearday: _year_day(year, month, day), dst: 0)
@@ -108,11 +108,11 @@ _format_parts(parts:any, fmt:str) -> str:
         was_escaped: escaped
         output: str($)
         was_escaped?
-            output: _format_directive(parts, $)
-            escaped: false
+            .output: _format_directive(parts, $)
+            .escaped: false
         (~was_escaped /\ $ = chr(37))?
-            output: ""
-            escaped: true
+            .output: ""
+            .escaped: true
         output
     (~escaped)?! "time format ends with an incomplete directive"
     formatted
@@ -120,7 +120,7 @@ _format_parts(parts:any, fmt:str) -> str:
 format_time(seconds:num, fmt:str="%Y-%m-%d %H:%M:%S", utc:bit=false) -> str:
     parts: time.local_parts(seconds)
     utc?
-        parts: _utc_parts(seconds)
+        .parts: _utc_parts(seconds)
     _format_parts(parts, fmt)
 
 current_time(fmt:str="%Y-%m-%d %H:%M:%S", utc:bit=false) -> str:

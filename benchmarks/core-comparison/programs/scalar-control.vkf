@@ -8,8 +8,8 @@ run(n:num) -> num:
     i: 0
     x: 1
     i < n?>
-        x: advance(x, i)
-        i: i + 1
+        .x: advance(x, i)
+        .i: i + 1
     x
 
 :: run({{COUNT}})

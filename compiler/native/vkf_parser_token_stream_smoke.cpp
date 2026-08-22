@@ -406,7 +406,59 @@ private:
         return rhs_kind == "LPAREN" || rhs_kind == "LBRACKET" || rhs_kind == "LBRACE";
     }
 
+    bool starts_update_bind() const {
+        if (!is_at("DOT") || index_ + 2 >= tokens_.size() ||
+            tokens_[index_ + 1].kind != "IDENT") {
+            return false;
+        }
+        if (!tokens_[index_].value.is_array()) return false;
+        const auto& spacing = tokens_[index_].value.as_array();
+        if (spacing.size() != 2 || !spacing[1].is_boolean() ||
+            !spacing[1].as_boolean()) {
+            return false;
+        }
+        if (tokens_[index_ + 2].kind == "COLON") return true;
+        const bool compound = tokens_[index_ + 2].kind == "PLUS" ||
+            tokens_[index_ + 2].kind == "MINUS" ||
+            tokens_[index_ + 2].kind == "STAR" ||
+            tokens_[index_ + 2].kind == "SLASH" ||
+            tokens_[index_ + 2].kind == "FLOORDIV" ||
+            tokens_[index_ + 2].kind == "PERCENT" ||
+            tokens_[index_ + 2].kind == "AND" ||
+            tokens_[index_ + 2].kind == "OR" ||
+            tokens_[index_ + 2].kind == "XOR";
+        return compound && index_ + 3 < tokens_.size() &&
+            tokens_[index_ + 3].kind == "COLON";
+    }
+
     vf::JsonValue parse_statement() {
+        if (starts_update_bind()) {
+            advance();
+            const Token& name = expect("IDENT");
+            std::string operation;
+            if (!is_at("COLON")) operation = advance().kind;
+            expect("COLON");
+            vf::JsonValue value;
+            if (is_at("NEWLINE")) {
+                value = parse_indented_suite(true, true);
+            } else {
+                value = parse_expression();
+            }
+            auto out = node("bind");
+            out["target"] = ident_node(name);
+            if (operation.empty()) {
+                out["value"] = std::move(value);
+            } else {
+                auto binary = node("binary_op");
+                binary["op"] = vf::JsonValue(operation);
+                binary["left"] = ident_node(name);
+                binary["right"] = std::move(value);
+                out["value"] = vf::JsonValue(std::move(binary));
+                out["update"] = vf::JsonValue(true);
+            }
+            out["update_only"] = vf::JsonValue(true);
+            return vf::JsonValue(std::move(out));
+        }
         if (starts_bracket_declared_bind()) {
             vf::JsonValue declared_type = parse_declared_bind_type();
             const Token& name = expect("IDENT");
@@ -512,20 +564,10 @@ private:
                  is_at("FLOORDIV") || is_at("PERCENT") || is_at("AND") ||
                  is_at("OR") || is_at("XOR")) &&
                 index_ + 1 < tokens_.size() && tokens_[index_ + 1].kind == "COLON") {
-                const Token& operation = advance();
-                expect("COLON");
-                vf::JsonValue right = is_at("NEWLINE")
-                    ? parse_indented_suite(true, true)
-                    : parse_expression();
-                auto binary = node("binary_op");
-                binary["op"] = vf::JsonValue(operation.kind);
-                binary["left"] = ident_node(name);
-                binary["right"] = std::move(right);
-                auto out = node("bind");
-                out["target"] = ident_node(name);
-                out["value"] = vf::JsonValue(std::move(binary));
-                out["update"] = vf::JsonValue(true);
-                return vf::JsonValue(std::move(out));
+                throw ParseFailure(
+                    "binding updates require a leading dot: ." +
+                    name.value.as_string() + function_name_text(peek()) + ":",
+                    name.location);
             }
             if (is_at("COLON")) {
                 advance();
@@ -1761,6 +1803,29 @@ private:
             advance();
             auto out = node("record_literal");
             out["fields"] = vf::JsonValue(vf::JsonValue::Array{});
+            return vf::JsonValue(std::move(out));
+        }
+        if (starts_update_bind()) {
+            advance();
+            const Token& name = expect("IDENT");
+            std::string operation;
+            if (!is_at("COLON")) operation = advance().kind;
+            expect("COLON");
+            vf::JsonValue value = parse_expression();
+            expect("RPAREN");
+            auto out = node("bind_expr");
+            out["name"] = vf::JsonValue(name.value.as_string());
+            if (operation.empty()) {
+                out["value"] = std::move(value);
+            } else {
+                auto binary = node("binary_op");
+                binary["op"] = vf::JsonValue(operation);
+                binary["left"] = ident_node(name);
+                binary["right"] = std::move(value);
+                out["value"] = vf::JsonValue(std::move(binary));
+                out["update"] = vf::JsonValue(true);
+            }
+            out["update_only"] = vf::JsonValue(true);
             return vf::JsonValue(std::move(out));
         }
         if (is_at("COLON")) {

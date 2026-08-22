@@ -68,6 +68,10 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function canonicalSource(path) {
+  return readFileSync(path, 'utf8').replace(/\r\n/g, '\n').replace(/\n$/, '');
+}
+
 function relativeSlash(path) {
   return relative(examplesRoot, path).split(sep).join('/');
 }
@@ -152,8 +156,28 @@ function exactStream(buffer) {
   });
 }
 
+function compilerIdentity(compiler) {
+  const result = spawnSync(compiler, ['-v'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 30_000
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error(`compiler version check failed: ${result.error?.message || result.stderr}`);
+  }
+  const identity = result.stdout.trim();
+  const match = /^VKF (\d+\.\d+\.\d+)$/.exec(identity);
+  if (!match) throw new Error(`unexpected compiler identity: ${identity}`);
+  if (match[1] !== packageMetadata.version) {
+    throw new Error(`compiler is ${match[1]}; package is ${packageMetadata.version}`);
+  }
+  return Object.freeze({ identity, version: match[1] });
+}
+
 function machineConditions(compiler, options) {
   const processorList = cpus();
+  const identity = compilerIdentity(compiler);
   return Object.freeze({
     measuredAtUtc: new Date().toISOString(),
     osPlatform: platform(),
@@ -162,7 +186,8 @@ function machineConditions(compiler, options) {
     cpuModel: processorList[0]?.model?.trim() || 'unknown',
     logicalCpuCount: processorList.length,
     nodeVersion: process.version,
-    compilerVersion: packageMetadata.version,
+    compilerIdentity: identity.identity,
+    compilerVersion: identity.version,
     compilerPath: compiler,
     compilerBytes: statSync(compiler).size,
     compilerSha256: sha256(readFileSync(compiler)),
@@ -194,7 +219,7 @@ function markdownStream(label, stream) {
 function createMarkdown(payload) {
   const condition = payload.conditions;
   const lines = [
-    `# VKF ${payload.version} README example proof`,
+    `# VKF ${payload.version} documented-program proof`,
     '',
     `Generated ${condition.measuredAtUtc}. Every example was compiled from ${payload.options.compileRuns} fresh paths and executed in ${payload.options.runs} fresh operating-system processes.`,
     '',
@@ -323,7 +348,8 @@ function main() {
       examples: examples.map((source, index) => ({
         path: relativeSlash(source),
         sourceBytes: statSync(source).size,
-        sourceSha256: sha256(readFileSync(source)),
+        sourceSha256: sha256(canonicalSource(source)),
+        sourceHashModel: 'UTF-8, CRLF normalized to LF, one final LF omitted',
         compile: stats(compiled[index].samples),
         compileSamplesMs: compiled[index].samples.map((value) => Number(value.toFixed(6))),
         runtime: stats(runtime[index].samples),

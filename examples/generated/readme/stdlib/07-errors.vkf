@@ -1,5 +1,5 @@
 errors: .errors
 caught: false
 int(1.5)!?
-    errors.ValueError => caught: true
+    errors.ValueError => .caught: true
 :: caught

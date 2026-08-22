@@ -9,7 +9,7 @@ _multiplier: 16807
 next(seed:num) -> (value:num,seed:num):
     state: int(math.abs(seed)) % _modulus
     state = 0?
-        state: 1
+        .state: 1
     next_seed: (state * _multiplier) % _modulus
     (value: next_seed / _modulus, seed: next_seed)
 

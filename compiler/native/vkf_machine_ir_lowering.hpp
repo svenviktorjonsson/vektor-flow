@@ -551,6 +551,36 @@ inline std::vector<StructuralLayoutMatch> resolve_structural_layout_matches(
     return matches;
 }
 
+inline std::vector<StructuralLayoutMatch> numeric_structural_layout_matches(
+    const ValueLayout& root
+) {
+    std::vector<StructuralLayoutMatch> matches;
+    const auto collect = [&](const auto& self,
+                             const ValueLayout& candidate,
+                             std::uint32_t base) -> void {
+        if (candidate.kind == ValueKind::Numeric && candidate.width == 1) {
+            matches.push_back({base, candidate});
+            return;
+        }
+        if (candidate.kind != ValueKind::Aggregate) return;
+        std::vector<std::pair<std::string, ValueSlice>> children;
+        for (const auto& [name, slice] : candidate.selectors) {
+            if (name.find('.') == std::string::npos) children.push_back({name, slice});
+        }
+        std::stable_sort(children.begin(), children.end(), [](const auto& left, const auto& right) {
+            return left.second.offset < right.second.offset;
+        });
+        for (const auto& [name, slice] : children) {
+            self(
+                self,
+                record_field_layout(candidate, name, slice),
+                base + slice.offset);
+        }
+    };
+    collect(collect, root, 0);
+    return matches;
+}
+
 inline void merge_inferred_layout(ValueLayout& current, const ValueLayout& candidate) {
     if (is_record_layout(candidate)) {
         if (!is_record_layout(current)) {
@@ -6818,8 +6848,63 @@ inline ValueLayout lower_expression(
             field(expression, "left", "binary expression"), "left expression");
         const auto& right_expression = object_of(
             field(expression, "right", "binary expression"), "right expression");
+        const bool structural_arithmetic =
+            op == "PLUS" || op == "MINUS" || op == "STAR" || op == "SLASH" ||
+            op == "FLOORDIV" || op == "PERCENT" || op == "CARET";
         const auto left = lower_expression(left_expression, builder, signatures, strings);
         const auto right = lower_expression(right_expression, builder, signatures, strings);
+        if (structural_arithmetic && left.kind == ValueKind::Aggregate &&
+            right.kind == ValueKind::Numeric && right.width == 1) {
+            const auto opcode = scalar_binary_opcode(op);
+            if (!opcode) {
+                throw LoweringFailure("unsupported structural machine IR operator " + op);
+            }
+            const auto right_temporary = builder.add_borrowed_temporary(right);
+            emit_store_local_component(builder, right_temporary);
+            ensure_independent_value(left_expression, left, builder, signatures);
+            const auto left_temporary = builder.add_borrowed_temporary(left);
+            for (std::uint32_t component = left.width; component > 0; --component) {
+                emit_store_local_component(builder, left_temporary + component - 1u);
+            }
+            const auto matches = numeric_structural_layout_matches(left);
+            std::set<std::uint32_t> numeric_offsets;
+            for (const auto& match : matches) numeric_offsets.insert(match.offset);
+            for (std::uint32_t component = 0; component < left.width; ++component) {
+                emit_load_local_component(builder, left_temporary + component);
+                if (numeric_offsets.count(component)) {
+                    emit_load_local_component(builder, right_temporary);
+                    builder.emit({*opcode});
+                }
+            }
+            return left;
+        }
+        if (structural_arithmetic && left.kind == ValueKind::Numeric && left.width == 1 &&
+            right.kind == ValueKind::Aggregate) {
+            const auto opcode = scalar_binary_opcode(op);
+            if (!opcode) {
+                throw LoweringFailure("unsupported structural machine IR operator " + op);
+            }
+            ensure_independent_value(right_expression, right, builder, signatures);
+            const auto right_temporary = builder.add_borrowed_temporary(right);
+            for (std::uint32_t component = right.width; component > 0; --component) {
+                emit_store_local_component(builder, right_temporary + component - 1u);
+            }
+            const auto left_temporary = builder.add_borrowed_temporary(left);
+            emit_store_local_component(builder, left_temporary);
+            const auto matches = numeric_structural_layout_matches(right);
+            std::set<std::uint32_t> numeric_offsets;
+            for (const auto& match : matches) numeric_offsets.insert(match.offset);
+            for (std::uint32_t component = 0; component < right.width; ++component) {
+                if (numeric_offsets.count(component)) {
+                    emit_load_local_component(builder, left_temporary);
+                    emit_load_local_component(builder, right_temporary + component);
+                    builder.emit({*opcode});
+                } else {
+                    emit_load_local_component(builder, right_temporary + component);
+                }
+            }
+            return right;
+        }
         const std::string left_surface_type = string_field(
             left_expression, "type", "binary left type");
         const std::string right_surface_type = string_field(

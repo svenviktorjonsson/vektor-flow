@@ -57,24 +57,24 @@ atan(value:num) -> num:
     inverted: magnitude > 1
     z: magnitude
     inverted?
-        z: 1 / z
+        .z: 1 / z
     offset: 0
     z > 0.41421356237309503?
-        z: (z - 1) / (z + 1)
-        offset: pi / 4
+        .z: (z - 1) / (z + 1)
+        .offset: pi / 4
     z_squared: z * z
     term: z
     series: z
     i: 1
     i < 16?>
-        term: 0 - term * z_squared
-        series: series + term / (2 * i + 1)
-        i: i + 1
+        .term: 0 - term * z_squared
+        .series: series + term / (2 * i + 1)
+        .i: i + 1
     result: offset + series
     inverted?
-        result: pi / 2 - result
+        .result: pi / 2 - result
     negative?
-        result: 0 - result
+        .result: 0 - result
     result
 
 atan2(y:num, x:num) -> num:
@@ -123,8 +123,8 @@ gamma(value:num) -> num:
     estimate: coefficients.0
     i: 1
     i < 9?>
-        estimate: estimate + coefficients.(i) / (z + i)
-        i: i + 1
+        .estimate: estimate + coefficients.(i) / (z + i)
+        .i: i + 1
     t: z + 7.5
     math.sqrt(2 * pi) * (t ^ (z + 0.5)) * math.exp(0 - t) * estimate
 
@@ -133,7 +133,7 @@ erf(value:num) -> num:
     value = 0? @: 0
     sign_value: 1
     value < 0?
-        sign_value: -1
+        .sign_value: -1
     x: math.abs(value)
     t: 1 / (1 + 0.3275911 * x)
     polynomial: (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t
