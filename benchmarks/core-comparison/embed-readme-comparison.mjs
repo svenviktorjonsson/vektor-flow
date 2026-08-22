@@ -22,9 +22,9 @@ const report = JSON.parse(readFileSync(resolve(options.report), 'utf8'));
 const version = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).version;
 const expectedCases = [
   'startup',
-  'scalar-control-small',
-  'fixed-vector-medium',
-  'record-value-medium'
+  'spectral-norm-medium',
+  'fannkuch-redux-medium',
+  'n-body-medium'
 ];
 const expectedLanguages = [
   'vkf', 'c', 'rust', 'zig', 'go', 'julia', 'python-efficient'
@@ -71,7 +71,7 @@ function section(caseId) {
   const vkf = results[0];
   const title = caseId === 'startup'
     ? 'Startup and output'
-    : `${vkf.operation} — ${vkf.size}, ${vkf.count.toLocaleString('en-US')} iterations`;
+    : `${vkf.operation} — ${vkf.size}, scale ${vkf.count.toLocaleString('en-US')}`;
   const rows = results.map((result) => [
     labels[result.language],
     meanStd(result.compile),
@@ -91,7 +91,7 @@ function section(caseId) {
     '',
     `All implementations returned the same checked numeric result within tolerance: \`${vkf.value}\`.`,
     '',
-    '| Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw VKF machine entry | Exact code |',
+    '| Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |',
     '| --- | ---: | ---: | ---: | ---: | --- |',
     ...rows.map((row) => `| ${row.join(' | ')} |`)
   ].join('\n');
@@ -109,7 +109,7 @@ const fragment = [
   `Measured on \`${report.environment.platform}\`, \`${report.environment.architecture}\`, ` +
     `${report.environment.cpu}, ${report.environment.logicalCpuCount} logical CPUs, at \`${report.generatedAt}\`.`,
   '',
-  'Every table cell is mean ± sample standard deviation from 100 measured runs. Fresh-process compile includes tool startup for every language. Julia parses source and JIT-compiles during runtime; Python produces bytecode; native toolchains emit executables. VKF compiler-core time excludes compiler startup and is the separate <10 ms gate. Raw VKF machine-entry time is the separate <500 µs gate.',
+  'Every table cell is mean ± sample standard deviation from 100 measured runs. Fresh-process compile includes tool startup for every language. Julia parses source and JIT-compiles during runtime; Python produces bytecode; native toolchains emit executables. VKF compiler-core time excludes compiler startup. The <10 ms compiler-core and <500 µs raw-entry limits apply only to the historical 20,000-operation scalar engineering gate. Raw kernel timing excludes process launch and is available where a stable native entry can be loaded.',
   '',
   ...expectedCases.flatMap((caseId) => [section(caseId), '']),
   '<details>',

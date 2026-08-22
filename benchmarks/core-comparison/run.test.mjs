@@ -5,10 +5,27 @@ import {
   assertVkfAcceptanceBudgets,
   benchmarkWorkRoot,
   parseBatchCompileSummaries,
+  parseNumericOutput,
   parseOptions,
   seriesStats,
   valuesAgree
 } from './run.mjs';
+
+test('numeric benchmark validation rejects missing or repeated output', () => {
+  assert.equal(parseNumericOutput('21\n', 'vkf', 'scalar'), 21);
+  assert.throws(
+    () => parseNumericOutput('21\n21\n', 'vkf', 'scalar'),
+    /exactly one numeric result; got 2/
+  );
+  assert.throws(
+    () => parseNumericOutput('', 'vkf', 'scalar'),
+    /exactly one numeric result; got 0/
+  );
+  assert.throws(
+    () => parseNumericOutput('not-a-number\n', 'vkf', 'scalar'),
+    /did not print one finite numeric result/
+  );
+});
 
 test('100-run VKF scalar gate requires under 10 ms compiler core and 0.5 ms raw runtime', () => {
   const result = (compileMeanMs, nativeRuntimeMeanMs, count = 100) => ({

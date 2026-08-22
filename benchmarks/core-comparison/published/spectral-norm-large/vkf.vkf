@@ -1,0 +1,57 @@
+:.math
+
+multiply_av(values:[num:500]) -> [num:500]:
+    output: [0:500]
+    row: 0
+    column: 0
+    total: 0
+    diagonal: 0
+    row < 500?>
+        .column: 0
+        .total: 0
+        column < 500?>
+            .diagonal: row + column
+            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.(column)
+            .column: column + 1
+        output.(row): total
+        .row: row + 1
+    output
+
+multiply_atv(values:[num:500]) -> [num:500]:
+    output: [0:500]
+    row: 0
+    column: 0
+    total: 0
+    diagonal: 0
+    row < 500?>
+        .column: 0
+        .total: 0
+        column < 500?>
+            .diagonal: column + row
+            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.(column)
+            .column: column + 1
+        output.(row): total
+        .row: row + 1
+    output
+
+multiply_at_av(values:[num:500]) -> [num:500]:
+    multiply_atv(multiply_av(values))
+
+spectral_norm() -> num:
+    u: [1:500]
+    v: [0:500]
+    iteration: 0
+    iteration < 10?>
+        .v: multiply_at_av(u)
+        .u: multiply_at_av(v)
+        .iteration: iteration + 1
+    index: 0
+    numerator: 0
+    denominator: 0
+    index < 500?>
+        .numerator: numerator + u.(index) * v.(index)
+        .denominator: denominator + v.(index) * v.(index)
+        .index: index + 1
+    sqrt(numerator / denominator)
+
+:: spectral_norm()

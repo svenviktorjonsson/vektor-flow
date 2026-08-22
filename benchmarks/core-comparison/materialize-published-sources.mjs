@@ -18,9 +18,15 @@ const languages = Object.freeze([
 
 const cases = Object.freeze([
   { id: 'startup', template: 'startup', count: null },
-  { id: 'scalar-control-small', template: 'scalar-control', count: 20_000 },
-  { id: 'fixed-vector-medium', template: 'fixed-vector', count: 75_000, python: 'numpy.py' },
-  { id: 'record-value-medium', template: 'record-value', count: 75_000, python: 'numpy.py' }
+  { id: 'spectral-norm-small', template: 'spectral-norm', count: 100, python: 'numpy.py' },
+  { id: 'spectral-norm-medium', template: 'spectral-norm', count: 250, python: 'numpy.py' },
+  { id: 'spectral-norm-large', template: 'spectral-norm', count: 500, python: 'numpy.py' },
+  { id: 'fannkuch-redux-small', template: 'fannkuch-redux', count: 7 },
+  { id: 'fannkuch-redux-medium', template: 'fannkuch-redux', count: 8 },
+  { id: 'fannkuch-redux-large', template: 'fannkuch-redux', count: 9 },
+  { id: 'n-body-small', template: 'n-body', count: 1_000 },
+  { id: 'n-body-medium', template: 'n-body', count: 10_000 },
+  { id: 'n-body-large', template: 'n-body', count: 50_000 }
 ]);
 
 for (const benchmarkCase of cases) {

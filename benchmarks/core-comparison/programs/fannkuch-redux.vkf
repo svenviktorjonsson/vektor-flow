@@ -1,0 +1,69 @@
+fannkuch(n:num) -> num:
+    permutation: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    working: [0:12]
+    rotations: [0:12]
+    r: n
+    permutation_index: 0
+    checksum: 0
+    maximum_flips: 0
+    running: 1
+    index: 0
+    left: 0
+    right: 0
+    temporary: 0
+    first: 0
+    flips: 0
+    searching: 0
+    running > 0?>
+        r > 1?>
+            rotations.(r - 1): r
+            .r: r - 1
+
+        .index: 0
+        index < n?>
+            working.(index): permutation.(index)
+            .index: index + 1
+
+        .flips: 0
+        .first: working.0
+        first != 0?>
+            .left: 0
+            .right: first
+            left < right?>
+                .temporary: working.(left)
+                working.(left): working.(right)
+                working.(right): temporary
+                .left: left + 1
+                .right: right - 1
+            .flips: flips + 1
+            .first: working.0
+
+        flips > maximum_flips?
+            .maximum_flips: flips
+        permutation_index % 2 = 0?
+            .checksum: checksum + flips
+        permutation_index % 2 != 0?
+            .checksum: checksum - flips
+
+        .searching: 1
+        searching > 0?>
+            r = n?
+                .running: 0
+                .searching: 0
+            searching > 0?
+                .temporary: permutation.0
+                .index: 0
+                index < r?>
+                    permutation.(index): permutation.(index + 1)
+                    .index: index + 1
+                permutation.(r): temporary
+                rotations.(r): rotations.(r) - 1
+                rotations.(r) > 0?
+                    .searching: 0
+                rotations.(r) = 0?
+                    .r: r + 1
+        running > 0?
+            .permutation_index: permutation_index + 1
+    checksum * 100 + maximum_flips
+
+:: fannkuch({{COUNT}})

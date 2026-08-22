@@ -249,6 +249,10 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
         instruction.opcode == Opcode::StoreF64ListIndex) {
         object["may_error"] = instruction.may_error;
         object["has_error_handler"] = instruction.has_error_handler;
+        object["index_is_integral"] = instruction.index_is_integral;
+        if (instruction.index_local) {
+            object["index_local"] = static_cast<double>(*instruction.index_local);
+        }
         object["error_message_offset"] = static_cast<double>(instruction.error_message_offset);
         object["byte_count"] = static_cast<double>(instruction.byte_count);
         if (instruction.has_error_handler) {

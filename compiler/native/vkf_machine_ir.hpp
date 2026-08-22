@@ -9,7 +9,7 @@
 
 namespace vkf::machine_ir {
 
-inline constexpr std::uint32_t schema_version = 18;
+inline constexpr std::uint32_t schema_version = 20;
 // The native entry ABI owns slots 0..36. Keep returned aggregate components
 // beyond that table so adding host functions cannot silently corrupt output.
 inline constexpr std::uint32_t runtime_slot_count = 37;
@@ -192,12 +192,14 @@ struct Instruction {
     std::uint32_t handler_error_value_local = 0;
     std::uint32_t handler_error_type_local = 0;
     std::uint32_t error_type_mask = assertion_error_mask;
+    std::optional<std::uint32_t> index_local;
     bool owns_input = false;
     bool owns_left = false;
     bool owns_right = false;
     bool uses_parameter_mask = false;
     bool may_error = false;
     bool has_error_handler = false;
+    bool index_is_integral = false;
     std::string symbol;
 };
 

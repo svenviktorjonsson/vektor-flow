@@ -7,11 +7,20 @@ Vektor Flow (VKF) is an experimental, scope-based language for compact native pr
 Its central ideas are bindings that build scope, blocks that return values, callable types, structural operations, and functions that automatically apply across compatible elements.
 
 > [!WARNING]
-> VKF 0.1.3 is an experimental preview, not a supported production language. It has bugs, incomplete diagnostics, and unstable APIs and syntax.
+> VKF 0.1.4 is an experimental preview, not a supported production language. It has bugs, incomplete diagnostics, and unstable APIs and syntax.
 >
-> The visual system is intended to become VKF's strongest feature, but `ui`, `physics`, and `symbolic` are not included in the native 0.1.3 release.
+> The visual system is intended to become VKF's strongest feature, but `ui`, `physics`, and `symbolic` are not included in the native 0.1.4 release.
 
 ## Release History
+
+### 0.1.4 — Standard Kernels And Numeric Lowering
+
+0.1.4 replaces ad-hoc comparisons with cited spectral-norm, fannkuch-redux,
+and n-body kernels. Exact seven-language source and output are verified. Direct
+x64 lowering removes proven fixed-vector checks, evaluates long numeric
+expressions in registers, and keeps hot proven indices in integer registers.
+Unproven and fractional indices retain their errors. The release gate contains
+300 native VKF tests plus fresh 100-run proof.
 
 ### 0.1.3 — Native Numeric Optimization
 
@@ -68,9 +77,9 @@ Release verification reports **279 passed, 0 failed on each of Windows x64, Linu
 
 0.1.0 introduced the Python-free native compiler, installers for three operating systems, the short command interface, executable reuse, the first complete native stdlib set, and the 20k performance gate.
 
-## Download And Run VKF 0.1.3
+## Download And Run VKF 0.1.4
 
-Download VKF from the [0.1.3 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.3).
+Download VKF from the [0.1.4 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.4).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -146,7 +155,7 @@ The dedicated `core/12b-container-stress.vkf` example always performs 10
 million fixed-container element updates and reads, then prints only the
 checksum. Its work count is never adjusted to target a preferred duration.
 
-### Native 0.1.3 Scope
+### Native 0.1.4 Scope
 
 The release includes `math`, `stat`, `random`, `time`, `io`, `collections`, `errors`, `system`, `process`, and `regex`.
 
@@ -1878,7 +1887,7 @@ text
 
 ## 10. Native Standard Library
 
-These modules are part of the native 0.1.3 release on Windows x64, Linux x64, and macOS ARM64.
+These modules are part of the native 0.1.4 release on Windows x64, Linux x64, and macOS ARM64.
 
 ### 10.1 `math`
 
@@ -2243,19 +2252,19 @@ vkf
 
 ## 11. Coming Soon
 
-The following areas are planned, but unavailable in the native 0.1.3 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
+The following areas are planned, but unavailable in the native 0.1.4 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
 
 ### 11.1 Native `ui`
 
-The visual and scene system is not in the native 0.1.3 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
+The visual and scene system is not in the native 0.1.4 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
 
 ### 11.2 Native `physics`
 
-Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.1.3. No `rigid_body` compatibility module ships in the release.
+Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.1.4. No `rigid_body` compatibility module ships in the release.
 
 ### 11.3 Native `symbolic`
 
-Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.1.3 and must not be presented as native core features.
+Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.1.4 and must not be presented as native core features.
 
 The same rule applies to every future feature: it enters the numbered native guide only after parsing, lowering, executable generation, runtime behavior, and native `vkf -t` verification pass on the release targets.
 
@@ -2270,16 +2279,16 @@ invoke no Python. Cross-language benchmark fixtures are isolated under
 The runnable guide examples are committed under `examples/generated/readme` and
 verified by the native release workflow.
 
-The 0.1.3 acceptance suite is run by VKF itself:
+The 0.1.4 acceptance suite is run by VKF itself:
 
 ```bash
 vkf -t tests/vkf
 ```
 
-The expected result is `298 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
+The expected result is `300 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
 
 VS Code syntax support is under [`vscode/`](../vscode/README.md).
 
 ## Status
 
-VKF 0.1.3 is a deliberately incomplete native preview. Use GitHub Issues for reproducible compiler, installer, documentation, and safety problems.
+VKF 0.1.4 is a deliberately incomplete native preview. Use GitHub Issues for reproducible compiler, installer, documentation, and safety problems.

@@ -15,8 +15,8 @@ permissions:
   contents: write
 
 env:
-  VKF_RELEASE_VERSION: "0.1.3"
-  VKF_PROOF_SUFFIX: "013"
+  VKF_RELEASE_VERSION: "0.1.4"
+  VKF_PROOF_SUFFIX: "014"
   ZIG_VERSION: "0.16.0"
   ZIG_LINUX_X64_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 
@@ -236,7 +236,7 @@ jobs:
       - name: Run honest seven-language comparison 100 times
         run: >-
           node benchmarks/core-comparison/run.mjs
-          --case=startup,scalar-control-small,fixed-vector-medium,record-value-medium
+          --case=startup,scalar-control-small,spectral-norm-medium,fannkuch-redux-medium,n-body-medium
           --language=vkf,c,rust,zig,go,julia,python-efficient
           --compile-runs=100
           --compile-warmups=1
@@ -273,7 +273,7 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-            gh release edit "$GITHUB_REF_NAME" --notes-file docs/releases/0.1.3.md
+            gh release edit "$GITHUB_REF_NAME" --notes-file docs/releases/0.1.4.md
           else
-            gh release create "$GITHUB_REF_NAME" dist/* --notes-file docs/releases/0.1.3.md
+            gh release create "$GITHUB_REF_NAME" dist/* --notes-file docs/releases/0.1.4.md
           fi

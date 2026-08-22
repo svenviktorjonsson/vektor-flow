@@ -22,22 +22,17 @@ export function benchmarkWorkRoot(
 const workRoot = benchmarkWorkRoot();
 const resultsRoot = resolve(benchmarkRoot, 'results');
 const executableExtension = platform() === 'win32' ? '.exe' : '';
+const libraryExtension = platform() === 'win32' ? '.dll' : platform() === 'darwin' ? '.dylib' : '.so';
 const broadLanguageSet = Object.freeze([
   'vkf', 'c', 'cpp', 'python-efficient', 'rust', 'zig', 'go', 'julia'
 ]);
 
-const workloadSizes = Object.freeze([
-  Object.freeze({ label: 'small', divisor: 100 }),
-  Object.freeze({ label: 'medium', divisor: 10 }),
-  Object.freeze({ label: 'large', divisor: 1 })
-]);
-
-function sizedCases(definition) {
-  return workloadSizes.map(({ label, divisor }) => Object.freeze({
+function standardCases(definition, sizes) {
+  return sizes.map(({ label, count }) => Object.freeze({
     ...definition,
     id: `${definition.template}-${label}`,
     size: label,
-    count: Math.floor(definition.largeCount / divisor)
+    count
   }));
 }
 
@@ -54,94 +49,65 @@ const cases = Object.freeze([
     approach: 'print one numeric value',
     languages: broadLanguageSet
   }),
-  ...sizedCases(Object.freeze({
+  Object.freeze({
+    id: 'scalar-control-small',
     template: 'scalar-control',
-    operation: 'arithmetic + branch',
-    data: 'scalar f64',
-    largeCount: 2_000_000,
+    operation: 'compiler regression: arithmetic + branch',
+    data: 'scalar f64; not a comparative language benchmark',
+    size: 'regression',
+    count: 20_000,
     requiresDirectVkf: true,
     tolerance: 1e-9,
-    comparisonMode: 'matched',
-    approach: 'same scalar loop and branch in every language',
+    comparisonMode: 'engineering-regression',
+    approach: 'VKF-only historical 20,000-iteration acceptance gate',
     pythonExtension: 'py',
-    languages: broadLanguageSet
-  })),
-  ...sizedCases(Object.freeze({
-    template: 'fixed-vector',
-    operation: 'linear recurrence',
-    data: 'vector[4] f64',
-    largeCount: 750_000,
-    requiresDirectVkf: true,
-    tolerance: 1e-7,
-    comparisonMode: 'idiomatic',
-    approach: 'native value loops; NumPy and Julia use matrix exponentiation',
-    pythonExtension: 'numpy.py',
-    languages: broadLanguageSet
-  })),
-  ...sizedCases(Object.freeze({
-    template: 'builtin-reduction',
-    operation: 'sum + mean + count',
-    data: 'fixed f64 container',
-    largeCount: 6_400,
-    requiresDirectVkf: true,
-    tolerance: 1e-12,
-    comparisonMode: 'idiomatic',
-    approach: 'normal optimized reduction supplied by each ecosystem',
-    pythonExtension: 'numpy.py',
-    languages: broadLanguageSet
-  })),
-  ...sizedCases(Object.freeze({
-    template: 'record-value',
-    operation: 'record update',
-    data: 'record 4xf64',
-    largeCount: 750_000,
+    languages: Object.freeze(['vkf'])
+  }),
+  ...standardCases(Object.freeze({
+    template: 'spectral-norm',
+    operation: 'spectral norm by power method',
+    data: 'dense f64 vectors and implicit matrix',
     requiresDirectVkf: true,
     tolerance: 1e-9,
     comparisonMode: 'idiomatic',
-    approach: 'native record loops; NumPy and Julia use matrix exponentiation',
+    approach: 'Benchmarks Game power method; NumPy and Julia use optimized matrix operations',
     pythonExtension: 'numpy.py',
     languages: broadLanguageSet
-  })),
-  ...sizedCases(Object.freeze({
-    template: 'linear-filter',
-    operation: 'IIR filter',
-    data: 'series f64',
-    largeCount: 2_000_000,
-    requiresDirectVkf: true,
-    tolerance: 1e-8,
-    comparisonMode: 'idiomatic',
-    approach: 'native scalar loops; Python uses SciPy signal.lfilter',
-    pythonExtension: 'scipy.py',
-    languages: Object.freeze(['vkf', 'c', 'cpp', 'python-efficient', 'rust'])
-  })),
-  Object.freeze({
-    id: 'welford-large',
-    template: 'welford',
-    operation: 'Welford population standard deviation',
-    data: 'dynamic container f64',
-    size: 'large',
-    count: 6_400,
-    explicitF64Values: true,
-    requiresDirectVkf: true,
-    tolerance: 1e-12,
-    comparisonMode: 'matched',
-    approach: 'same one-pass Welford algorithm',
-    languages: Object.freeze(['vkf', 'c', 'cpp', 'rust'])
-  }),
-  Object.freeze({
-    id: 'validated-sum-large',
-    template: 'validated-sum',
-    operation: 'typed integer validation',
-    data: 'dynamic container f64',
-    size: 'large',
-    count: 6_400,
-    explicitF64Values: true,
+  }), Object.freeze([
+    Object.freeze({ label: 'small', count: 100 }),
+    Object.freeze({ label: 'medium', count: 250 }),
+    Object.freeze({ label: 'large', count: 500 })
+  ])),
+  ...standardCases(Object.freeze({
+    template: 'fannkuch-redux',
+    operation: 'fannkuch-redux permutations',
+    data: 'fixed integer sequence and indexed mutation',
     requiresDirectVkf: true,
     tolerance: 0,
     comparisonMode: 'matched',
-    approach: 'same checked integer-validation loop',
-    languages: Object.freeze(['vkf', 'c', 'cpp', 'rust'])
-  })
+    approach: 'Benchmarks Game permutation order, checksum, and maximum-flip algorithm',
+    pythonExtension: 'py',
+    languages: broadLanguageSet
+  }), Object.freeze([
+    Object.freeze({ label: 'small', count: 7 }),
+    Object.freeze({ label: 'medium', count: 8 }),
+    Object.freeze({ label: 'large', count: 9 })
+  ])),
+  ...standardCases(Object.freeze({
+    template: 'n-body',
+    operation: 'five-body symplectic integration',
+    data: 'five bodies with f64 position, velocity, and mass',
+    requiresDirectVkf: true,
+    tolerance: 1e-9,
+    comparisonMode: 'matched',
+    approach: 'Benchmarks Game Jovian-body constants and pairwise symplectic integrator',
+    pythonExtension: 'py',
+    languages: broadLanguageSet
+  }), Object.freeze([
+    Object.freeze({ label: 'small', count: 1_000 }),
+    Object.freeze({ label: 'medium', count: 10_000 }),
+    Object.freeze({ label: 'large', count: 50_000 })
+  ]))
 ]);
 
 export function parseOptions(argv) {
@@ -305,6 +271,7 @@ function buildNativeCompilerTools(tools) {
   mkdirSync(toolRoot, { recursive: true });
   const processTimer = resolve(toolRoot, `native-process-timer${executableExtension}`);
   const entryTimer = resolve(toolRoot, `native-entry-timer${executableExtension}`);
+  const libraryTimer = resolve(toolRoot, `native-library-timer${executableExtension}`);
   if (platform() === 'win32') {
     runCommand(tools.c.command, [
       '-O2', '-std=c17',
@@ -318,12 +285,20 @@ function buildNativeCompilerTools(tools) {
     '-o', entryTimer,
     ...(platform() === 'win32' ? [] : ['-lm'])
   ]);
+  runCommand(tools.c.command, [
+    '-O2', '-std=c17',
+    resolve(benchmarkRoot, 'native_library_timer.c'),
+    '-o', libraryTimer,
+    ...(platform() === 'win32' ? [] : ['-lm']),
+    ...(platform() === 'linux' ? ['-ldl'] : [])
+  ]);
   const jsonSource = resolve(repoRoot, 'native', 'VfOverlay', 'vf', 'json.cpp');
   const arm64Host = platform() === 'darwin' && process.arch === 'arm64';
   const definitions = [['driver', 'vkf_driver_artifact_smoke.cpp', true]];
   const built = {};
   if (platform() === 'win32') built.processTimer = processTimer;
   built.entryTimer = entryTimer;
+  built.libraryTimer = libraryTimer;
   for (const [name, sourceName, needsJson, outputStem = `vkf-${name}`] of definitions) {
     const output = resolve(toolRoot, `${outputStem}${executableExtension}`);
     const sources = [resolve(repoRoot, 'compiler', 'native', sourceName)];
@@ -433,6 +408,19 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
       value: Number(payload.result)
     };
   };
+  const nativeLibraryRuntimeBatch = (library, warmups, runs) => {
+    const result = runCommand(nativeCompiler.libraryTimer, [
+      library, String(warmups), String(runs)
+    ]);
+    const payload = JSON.parse(result.stdout);
+    if (!Array.isArray(payload.samples_ms) || payload.samples_ms.length !== runs) {
+      throw new Error(`native library timer returned ${payload.samples_ms?.length ?? 0} samples; expected ${runs}`);
+    }
+    return {
+      samples: payload.samples_ms.map(Number),
+      value: Number(payload.result)
+    };
+  };
   const enabled = (language) => requestedLanguages === null || requestedLanguages.has(language);
   const definitions = [
     Object.freeze({
@@ -495,7 +483,18 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
       runtime(output) {
         return runCommand(output, []);
       },
-      runtimeBatch: nativeRuntimeBatch
+      runtimeBatch: nativeRuntimeBatch,
+      prepareNativeRuntime(source) {
+        const output = `${source}${libraryExtension}`;
+        runCommand(tools.c.command, [
+          '-O3', '-march=native', '-std=c17', '-shared',
+          ...(platform() === 'win32' ? [] : ['-fPIC']),
+          source, '-o', output,
+          ...(platform() === 'win32' ? [] : ['-lm'])
+        ]);
+        return output;
+      },
+      nativeRuntimeBatch: nativeLibraryRuntimeBatch
     }));
   if (enabled('cpp')) definitions.push(Object.freeze({
       id: 'cpp',
@@ -554,7 +553,15 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
       runtime(output) {
         return runCommand(output, []);
       },
-      runtimeBatch: nativeRuntimeBatch
+      runtimeBatch: nativeRuntimeBatch,
+      prepareNativeRuntime(source) {
+        const output = `${source}${libraryExtension}`;
+        runCommand(tools.rust.command, [
+          '-O', '-C', 'target-cpu=native', '--crate-type', 'cdylib', source, '-o', output
+        ]);
+        return output;
+      },
+      nativeRuntimeBatch: nativeLibraryRuntimeBatch
     }));
   if (enabled('zig')) definitions.push(Object.freeze({
     id: 'zig',
@@ -570,7 +577,16 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
     runtime(output) {
       return runCommand(output, []);
     },
-    runtimeBatch: nativeRuntimeBatch
+    runtimeBatch: nativeRuntimeBatch,
+    prepareNativeRuntime(source) {
+      const output = `${source}${libraryExtension}`;
+      runCommand(tools.zig.command, [
+        'build-lib', source, '-dynamic', '-O', 'ReleaseFast', '-mcpu', 'native', '-lc',
+        `-femit-bin=${output}`
+      ]);
+      return output;
+    },
+    nativeRuntimeBatch: nativeLibraryRuntimeBatch
   }));
   if (enabled('go')) definitions.push(Object.freeze({
     id: 'go',
@@ -608,9 +624,15 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
   return Object.freeze(definitions);
 }
 
-function parseNumericOutput(stdout, languageId, caseId) {
-  const tokens = String(stdout).trim().split(/\s+/);
-  const value = Number(tokens.at(-1));
+export function parseNumericOutput(stdout, languageId, caseId) {
+  const text = String(stdout).trim();
+  const tokens = text.length === 0 ? [] : text.split(/\s+/);
+  if (tokens.length !== 1) {
+    throw new Error(
+      `${languageId}/${caseId} must print exactly one numeric result; got ${tokens.length}: ${stdout}`
+    );
+  }
+  const value = Number(tokens[0]);
   if (!Number.isFinite(value)) {
     throw new Error(`${languageId}/${caseId} did not print one finite numeric result: ${stdout}`);
   }
@@ -788,7 +810,9 @@ function markdownTable(payload, metric) {
     vkf: 'VKF', c: 'C', cpp: 'C++', 'python-efficient': 'Python efficient',
     rust: 'Rust', zig: 'Zig', go: 'Go', julia: 'Julia'
   };
-  const title = metric === 'compile' ? 'Compile time (ms)' : 'Runtime (ms)';
+  const title = metric === 'compile' ? 'Compile time (ms)'
+    : metric === 'nativeRuntime' ? 'Raw kernel runtime (ms)'
+    : 'Runtime (ms)';
   const lines = [
     `## ${title}`,
     '',
@@ -807,7 +831,7 @@ function markdownTable(payload, metric) {
       benchmarkCase.count ?? 0,
       ...languages.map((language) => {
         const result = byLanguage.get(language);
-        return result ? meanStd(result[metric]) : 'N/A';
+        return result?.[metric] ? meanStd(result[metric]) : 'N/A';
       })
     ].join(' | ').replace(/^/, '| ').replace(/$/, ' |'));
   }
@@ -826,17 +850,7 @@ function createReport(payload) {
       `| ${result.operation} | ${result.data} | ${result.size} | ${result.count} | ${meanStd(result.internalCompile)} |`
     )
   ];
-  const nativeRuntimeResults = payload.results.filter((result) => result.nativeRuntime);
-  const nativeRuntimeTable = nativeRuntimeResults.length === 0 ? [] : [
-    '',
-    '## VKF raw machine-entry runtime (ms)',
-    '',
-    '| operation | data | size | count | VKF |',
-    '| --- | --- | --- | ---: | ---: |',
-    ...nativeRuntimeResults.map((result) =>
-      `| ${result.operation} | ${result.data} | ${result.size} | ${result.count} | ${meanStd(result.nativeRuntime)} |`
-    )
-  ];
+  const hasNativeRuntime = payload.results.some((result) => result.nativeRuntime);
   return [
     '# Core language benchmark',
     '',
@@ -848,7 +862,7 @@ function createReport(payload) {
     '',
     markdownTable(payload, 'runtime'),
     ...internalCompileTable,
-    ...nativeRuntimeTable,
+    ...(hasNativeRuntime ? ['', markdownTable(payload, 'nativeRuntime')] : []),
     ''
   ].join('\n');
 }
@@ -999,7 +1013,7 @@ export function main(argv = process.argv.slice(2)) {
         nativeRuntime.value, runtime.value, benchmarkCase.tolerance
       )) {
         throw new Error(
-          `${benchmarkCase.id} raw VKF result mismatch: executable=${runtime.value}, entry=${nativeRuntime.value}`
+          `${language.id}/${benchmarkCase.id} raw result mismatch: executable=${runtime.value}, entry=${nativeRuntime.value}`
         );
       }
       const result = Object.freeze({

@@ -42,3 +42,22 @@ second_order_loop_preserves_numeric_result() -> bit:
     ratio: _optimizer_second_order_run(75000) / expected
     ((ratio - 1) < 0.000000000001 /\
      (ratio - 1) > -0.000000000001)?!
+
+_optimizer_scalar_recurrence_advance(value:num, index:num) -> num:
+    next: value * 1.00000011920929 + index * 0.0000001
+    next > 1000?
+        @: next - 999.5
+    next
+
+_optimizer_scalar_recurrence_run(count:num) -> num:
+    index: 0
+    value: 1
+    index < count?>
+        .value: _optimizer_scalar_recurrence_advance(value, index)
+        .index: index + 1
+    value
+
+scalar_recurrence_loop_preserves_branch_and_rounding() -> bit:
+    result: _optimizer_scalar_recurrence_run(20000)
+    ((result - 21.017288693559877) < 0.000000000000001 /\
+     (result - 21.017288693559877) > -0.000000000000001)?!

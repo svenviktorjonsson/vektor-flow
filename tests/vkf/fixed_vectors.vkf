@@ -103,3 +103,13 @@ _dynamic_single_index_update(values:[num:3], index:num) -> [num:3]:
 runtime_index_updates_fixed_vector() -> bit:
     [num:3] expected: [1, 9, 3]
     (_dynamic_single_index_update([1, 2, 3], 1) == expected)?!
+
+_fractional_fixed_vector_index(index:num) -> num:
+    [num:3] values: [1, 2, 3]
+    values.(index)
+
+fractional_num_index_remains_an_error() -> bit:
+    caught: 0
+    _fractional_fixed_vector_index(1.5)!?
+        errors.IndexError => .caught: 1
+    (caught == 1)?!

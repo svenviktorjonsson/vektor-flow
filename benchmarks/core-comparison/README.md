@@ -1,7 +1,7 @@
 # Core language comparison
 
 This suite provides narrow language-to-language evidence and compiler
-regression checks. It is not the only 0.1.3 release gate. Release acceptance also uses every
+regression checks. It is not the only 0.1.4 release gate. Release acceptance also uses every
 documented program, exact output, and full-process runtime through
 [`benchmarks/readme-examples`](../readme-examples/README.md).
 
@@ -16,24 +16,26 @@ Every case declares one of two comparison modes:
 - **idiomatic**: same result-producing task, but each ecosystem may use its
   normal optimized implementation.
 
-Python uses the best suitable lane for each operation:
+The published 0.1.4 kernel set is deliberately recognizable:
 
-- scalar CPython for inherently sequential work
-- vectorized NumPy with matrix-power algorithms for linear vector/record recurrences
-- SciPy `signal.lfilter` for a linear recurrence
+- spectral norm by the power method;
+- fannkuch-redux permutation flipping;
+- five-body symplectic integration.
 
-Julia likewise uses standard linear algebra for matrix-power cases. Native
-languages use optimized native value loops where that is their direct normal
-route. This avoids intentionally slow competitor implementations. Because
-idiomatic rows may use different algorithms, they must not be described as
-matched instruction-for-instruction comparisons.
+These are adapted from the Computer Language Benchmarks Game. Exact provenance,
+adaptation rules, exclusions, and links to primary sources are in
+[`docs/performance-benchmarks.md`](../../docs/performance-benchmarks.md). Python
+uses NumPy for spectral norm and direct sequential code where dependencies
+cannot remove the permutation or time-step dependency. Competitors are never
+forced through intentionally slow APIs.
 
 The runner keeps four costs separate:
 
 - fresh-process compile wall time: tool startup, fresh source/output path, and compilation
 - VKF internal compiler-core time: persistent compiler, fresh source/output path, no process startup
 - runtime wall time: a new process for every sample after warmups
-- VKF raw machine-entry runtime: generated code only, excluding process launch
+- raw kernel runtime: generated code only, excluding process launch, for VKF,
+  C, Rust, and Zig
 
 For the legacy 20,000-operation `scalar-control-small` VKF regression case, a
 full 100-sample run still enforces its own narrow limits: mean internal compiler-core time must be strictly under 10 ms
@@ -66,7 +68,7 @@ node benchmarks/core-comparison/run.mjs
 node benchmarks/core-comparison/run.mjs --compile-runs=10 --runs=30 --warmups=5
 node benchmarks/core-comparison/run.mjs --case=startup
 node benchmarks/core-comparison/run.mjs --case=startup --language=vkf
-node benchmarks/core-comparison/run.mjs --case=builtin-reduction-small --output=builtin-reduction-windows
+node benchmarks/core-comparison/run.mjs --case=spectral-norm-medium --output=spectral-norm-windows
 node benchmarks/core-comparison/compare-regression.mjs --before=benchmarks/core-comparison/results/previous.json --after=benchmarks/core-comparison/results/latest.json
 ```
 
@@ -91,14 +93,14 @@ tools, verifies Zig's official SHA-256, then runs this exact command on
 Linux-local storage:
 
 ```bash
-node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,fixed-vector-medium,record-value-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-013
+node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,spectral-norm-medium,fannkuch-redux-medium,n-body-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-014
 ```
 
 `native-entry-timer` isolates generated-program execution. `native-process-timer`
 includes process startup and is used for source-to-execution and fresh-launch lanes.
 
 Defaults are 100 measured compile samples, 100 process-runtime samples, and 100
-raw VKF machine-entry samples.
+raw kernel samples where supported.
 Each operation has small, medium, and large workload rows. Results are written
 to `results/latest.json`; the readable mean ± standard-deviation tables are in
 `results/latest.md`. JSON also includes median, minimum, maximum, p95, and a 95%
@@ -116,13 +118,6 @@ use the same loop/algorithm shape. Idiomatic cases deliberately may not.
 Cross-language results must agree within each case's stated tolerance or the
 run fails.
 
-`welford-large` and `validated-sum-large` are matched VKF/Rust feature lanes.
-Both receive the same 6,400 literal `f64` values, allocate a dynamic heap
-container, execute the same single-pass algorithm, and print the same result.
-Welford exercises open-record state, block expressions, and hardware `math.sqrt`;
-validated sum exercises checked `int` conversion plus typed `ValueError`
-selection. No answer is precomputed and no Python participates in either lane.
-
 Every measured VKF compile uses a fresh source/build path. Compiler setup is
 outside the measured region. Program evaluation is deferred to runtime, so
 compile results cannot contain precomputed benchmark answers.
@@ -132,13 +127,6 @@ and data in memory and writes only the runnable artifact. `--diagnostics`
 explicitly enables those JSON/binary sidecars for inspection and raw-entry
 timing; omitting unrequested diagnostics is part of the normal compiler path,
 not a benchmark-only shortcut.
-
-Windows x64 proof on 2026-08-20, 100 matched runs of `welford-large`: VKF
-compiled in **419.511 ± 60.159 ms** versus Rust **3505.080 ± 603.535 ms**;
-fresh-process runtime was **15.777 ± 6.378 ms** versus Rust
-**16.534 ± 5.830 ms**. VKF raw machine-entry runtime was
-**0.283 ± 0.020 ms**. The runtime means favor VKF, but their 95% confidence
-intervals overlap; this is not evidence of universal runtime superiority.
 
 Interpretation limits:
 

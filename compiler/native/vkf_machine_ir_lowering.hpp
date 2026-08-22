@@ -6641,8 +6641,9 @@ inline ValueLayout lower_expression(
                 base_layout.width > 0 && indices.size() == 1 && !constant_index &&
                 string_field(base, "kind", "fixed vector base") == "load" &&
                 is_numeric_layout(base_layout)) {
+                const auto& index_expression = object_of(indices.front(), "fixed vector index");
                 auto lowered_index = lower_expression(
-                    object_of(indices.front(), "fixed vector index"), builder, signatures, strings);
+                    index_expression, builder, signatures, strings);
                 lowered_index = emit_require_real_complex(
                     builder, strings, lowered_index, "index must be int or str");
                 require_scalar(lowered_index, "fixed vector index");
@@ -6650,6 +6651,13 @@ inline ValueLayout lower_expression(
                 index.opcode = Opcode::LoadF64LocalsIndex;
                 index.index = builder.slot(string_field(base, "name", "fixed vector base"));
                 index.argument_count = base_layout.width;
+                const auto index_type = index_expression.find("type");
+                index.index_is_integral = index_type != index_expression.end() &&
+                    index_type->second.is_string() && index_type->second.as_string() == "int";
+                if (string_field(index_expression, "kind", "fixed vector index") == "load") {
+                    index.index_local = builder.slot(
+                        string_field(index_expression, "name", "fixed vector index"));
+                }
                 index.may_error = true;
                 const std::string message = "vector index out of range";
                 index.error_message_offset = strings.intern(message);
@@ -9447,8 +9455,9 @@ inline void lower_statements(
                     object_of(indices.front(), "fixed update index").find("value") ==
                         object_of(indices.front(), "fixed update index").end();
                 if (dynamic_index) {
+                    const auto& index_expression = object_of(indices.front(), "fixed update index");
                     const auto index_layout = lower_expression(
-                        object_of(indices.front(), "fixed update index"), builder, signatures, strings);
+                        index_expression, builder, signatures, strings);
                     require_scalar(index_layout, "fixed vector update index");
                     const auto value_layout = lower_expression(
                         object_of(field(statement, "value", "fixed vector update"), "fixed vector update value"),
@@ -9458,6 +9467,13 @@ inline void lower_statements(
                     update.opcode = Opcode::StoreF64LocalsIndex;
                     update.index = builder.slot(binding_name);
                     update.argument_count = binding_layout.width;
+                    const auto index_type = index_expression.find("type");
+                    update.index_is_integral = index_type != index_expression.end() &&
+                        index_type->second.is_string() && index_type->second.as_string() == "int";
+                    if (string_field(index_expression, "kind", "fixed update index") == "load") {
+                        update.index_local = builder.slot(
+                            string_field(index_expression, "name", "fixed update index"));
+                    }
                     update.may_error = true;
                     const std::string message = "vector index out of range";
                     update.error_message_offset = strings.intern(message);
@@ -12641,6 +12657,77 @@ inline void inline_small_numeric_calls(Module& module) {
     for (auto& function : module.functions) inline_calls(function);
 }
 
+inline void propagate_constant_numeric_parameters(Module& module) {
+    struct ParameterConstant {
+        bool seen = false;
+        bool valid = true;
+        double value = 0.0;
+    };
+    std::map<std::string, std::size_t> function_indices;
+    std::vector<std::vector<ParameterConstant>> constants(module.functions.size());
+    for (std::size_t index = 0; index < module.functions.size(); ++index) {
+        function_indices.emplace(module.functions[index].name, index);
+        constants[index].resize(module.functions[index].parameters.size());
+    }
+    const auto inspect_calls = [&](const Function& caller) {
+        for (std::size_t position = 0; position < caller.instructions.size(); ++position) {
+            const auto& call = caller.instructions[position];
+            if (call.opcode != Opcode::Call) continue;
+            const auto found = function_indices.find(call.symbol);
+            if (found == function_indices.end()) continue;
+            auto& parameters = constants[found->second];
+            if (call.argument_count != parameters.size() || position < call.argument_count) {
+                for (auto& parameter : parameters) parameter.valid = false;
+                continue;
+            }
+            const auto argument_begin = position - call.argument_count;
+            for (std::size_t parameter = 0; parameter < parameters.size(); ++parameter) {
+                auto& state = parameters[parameter];
+                const auto& argument = caller.instructions[argument_begin + parameter];
+                if (argument.opcode != Opcode::PushF64) {
+                    state.valid = false;
+                    continue;
+                }
+                if (!state.seen) {
+                    state.seen = true;
+                    state.value = argument.f64;
+                } else if (state.value != argument.f64) {
+                    state.valid = false;
+                }
+            }
+        }
+    };
+    inspect_calls(module.entry);
+    for (const auto& function : module.functions) inspect_calls(function);
+
+    for (std::size_t function_index = 0; function_index < module.functions.size(); ++function_index) {
+        auto& function = module.functions[function_index];
+        auto& parameters = constants[function_index];
+        for (std::size_t parameter = 0; parameter < parameters.size(); ++parameter) {
+            auto& state = parameters[parameter];
+            if (!state.seen || !state.valid) continue;
+            const bool assigned = std::any_of(
+                function.instructions.begin(), function.instructions.end(),
+                [parameter](const auto& instruction) {
+                    if (instruction.opcode == Opcode::StoreLocal) {
+                        return instruction.index == parameter;
+                    }
+                    return instruction.opcode == Opcode::StoreF64LocalsIndex &&
+                        parameter >= instruction.index &&
+                        parameter - instruction.index < instruction.argument_count;
+                });
+            if (assigned) continue;
+            for (auto& instruction : function.instructions) {
+                if (instruction.opcode == Opcode::LoadLocal && instruction.index == parameter) {
+                    instruction = Instruction{};
+                    instruction.opcode = Opcode::PushF64;
+                    instruction.f64 = state.value;
+                }
+            }
+        }
+    }
+}
+
 inline Module lower(const vf::JsonValue& typed_ir) {
     const auto variadics = specialize_heterogeneous_variadics(typed_ir);
     const vf::JsonValue& variadic_shaped = variadics ? *variadics : typed_ir;
@@ -12664,6 +12751,7 @@ inline Module lower(const vf::JsonValue& typed_ir) {
     auto lowered = lower_monomorphic(local_calls ? *local_calls : recursive_shaped);
     refine_machine_error_effects(lowered);
     inline_small_numeric_calls(lowered);
+    propagate_constant_numeric_parameters(lowered);
     return lowered;
 }
 
