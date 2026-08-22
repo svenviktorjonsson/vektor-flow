@@ -117,8 +117,8 @@ readme = readme.replace(
   `<!-- readme-platform-evidence:start -->\n${platformConditionsTable()}\n<!-- readme-platform-evidence:end -->`,
 );
 readme = readme.replace(
-  /\n<!-- readme-evidence:start [^\n]+ -->[\s\S]*?<!-- readme-evidence:end -->/g,
-  "",
+  /(?:\r?\n)+<!-- readme-evidence:start [^\n]+ -->[\s\S]*?<!-- readme-evidence:end -->(?:\r?\n)+/g,
+  "\n\n",
 );
 
 const tagPattern = /<!-- readme-example: ([^\n]+) -->\r?\n```vkf\r?\n[\s\S]*?\r?\n```/g;
