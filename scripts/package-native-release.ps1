@@ -83,6 +83,27 @@ m: .math
 Push-Location $smokeRoot
 try {
     $compiler = Join-Path $stageRoot "bin/vkf.exe"
+    $guardSource = Join-Path $smokeRoot "overwrite_guard.vkf"
+    $guardOutput = Join-Path $smokeRoot "do-not-overwrite.exe"
+    ':: 1' | Set-Content -LiteralPath $guardSource -Encoding utf8
+    'user-owned-data' | Set-Content -LiteralPath $guardOutput -Encoding utf8
+    $guardMessage = & $compiler -b $guardSource -o $guardOutput 2>&1
+    $guardExitCode = $LASTEXITCODE
+    if ($guardExitCode -eq 0 -or
+        (Get-Content -LiteralPath $guardOutput -Raw).Trim() -ne 'user-owned-data' -or
+        ($guardMessage -join "`n") -notmatch 'refusing to overwrite existing non-VKF file') {
+        throw "Packaged compiler could overwrite a user-owned output file"
+    }
+    $decoyOutput = Join-Path $smokeRoot "marker-decoy.exe"
+    'user-owned VKF-CACHE-V1:not-an-artifact' | Set-Content -LiteralPath $decoyOutput -Encoding utf8
+    $decoyMessage = & $compiler -b $guardSource -o $decoyOutput 2>&1
+    $decoyExitCode = $LASTEXITCODE
+    if ($decoyExitCode -eq 0 -or
+        (Get-Content -LiteralPath $decoyOutput -Raw).Trim() -ne 'user-owned VKF-CACHE-V1:not-an-artifact' -or
+        ($decoyMessage -join "`n") -notmatch 'refusing to overwrite existing non-VKF file') {
+        throw "Packaged compiler trusted a forged cache marker"
+    }
+    $global:LASTEXITCODE = 0
     $buildOutput = & $compiler -b $smokeSource
     $programPath = [System.IO.Path]::ChangeExtension($smokeSource, ".exe")
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $programPath) -or

@@ -1,5 +1,7 @@
 # Vektor Flow
 
+**Designed by Viktor Jonsson. The implementation is completely vibe coded.**
+
 Vektor Flow is a functional, scope-based language for shaping data, describing
 geometry, and driving interactive visual programs. The important thing is not
 just the syntax. The important thing is the model:
@@ -13,8 +15,95 @@ just the syntax. The important thing is the model:
 - plain language values are immutable, but names can be rebound
 - runtime resources such as UI buffers or shared memory may still be mutable
 
-That gives VKF a compact surface without making it vague. Most of the language
-falls out of a few principles.
+That gives VKF a compact surface without making it vague. Most VKF features
+follow naturally from a small set of consistent principles.
+
+> [!WARNING]
+> VKF 0.1.0 is an experimental preview, not yet a supported production
+> language. It has bugs, incomplete diagnostics, and APIs or syntax may change.
+> The visual system is intended to be the language's strongest and most
+> distinctive area, but it is not part of the 0.1.0 native compiler. The native
+> release also excludes physics and symbolic math. Expect rough edges and report
+> reproducible problems through
+> [GitHub Issues](https://github.com/svenviktorjonsson/vektor-flow/issues).
+
+## Download And Run VKF 0.1.0
+
+Download VKF from the
+[0.1.0 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.0):
+
+| Platform | Recommended download | Installation |
+| --- | --- | --- |
+| Windows x64 | `vektor-flow-windows-x64-setup.exe` | Run the installer and select **Add VKF to PATH**. |
+| Linux x64 (Debian/Ubuntu) | `vektor-flow-linux-x64.deb` | Run `sudo apt install ./vektor-flow-linux-x64.deb`. |
+| macOS Apple Silicon | `vektor-flow-macos-arm64.pkg` | Open the package and follow the installer. |
+
+Portable `.zip` and `.tar.gz` archives are available on the same release page.
+The Linux and macOS archives include `install.sh`. Open a new terminal after
+installing. Do not run the archive installer with `sudo`; it is deliberately a
+per-user installer. Then verify the compiler:
+
+```bash
+vkf -e ':: "hello, world"'
+```
+
+The installed compiler does not require Python, a C++ compiler, an assembler,
+or a separate linker.
+
+### Commands
+
+VKF uses one executable and four short command flags:
+
+| Command | Result |
+| --- | --- |
+| `vkf program.vkf` | Build beside the source when needed, then run. |
+| `vkf program.vkf -o app` | Build or reuse the named executable, then run. |
+| `vkf -b program.vkf` | Build only. |
+| `vkf -b program.vkf -o app` | Build only with an explicit output name. |
+| `vkf -e ':: 2 + 2'` | Evaluate inline VKF source. |
+| `vkf -t tests.vkf` | Run functions tagged as tests. |
+
+`-b` means **build**, `-e` means **evaluate**, `-t` means **test**, and `-o`
+names the output executable. There is no run flag: passing a `.vkf` file runs
+it. A fingerprint of the source, compiler, and imports lets an unchanged
+program reuse its existing executable.
+
+### Verified 20k Benchmark
+
+The release gate compiles a 20,000-element example in under 10 ms and executes
+its machine code in under 500 microseconds. These are 100-run means from the
+three GitHub release builders; results vary by hardware:
+
+| Platform | Compile mean | Raw runtime mean |
+| --- | ---: | ---: |
+| Windows x64 | 5.55 ms | 0.21 ms |
+| Linux x64 | 0.92 ms | 0.40 ms |
+| macOS ARM64 | 2.03 ms | 0.30 ms |
+
+Raw runtime measures the generated machine code without process startup. The
+release includes the complete JSON and Markdown benchmark reports.
+
+### Native 0.1.0 Scope
+
+The native release includes `math`, `stat`, `random`, `time`, `io`,
+`collections`, `errors`, `system`, `process`, and `regex`. Only complete,
+verified native libraries ship. The partial `physics`, `ui`, and `symbolic`
+libraries are absent rather than silently using another runtime.
+
+### Safety
+
+The compiler refuses to overwrite an existing file unless it recognizes that
+file as a VKF-generated executable. It also refuses symbolic-link outputs. The
+installers refuse unsafe roots, non-VKF installation folders, and existing
+`vkf` commands owned by something else. The Windows uninstaller is fixed to its
+per-user installation path and removes only known VKF files.
+
+VKF is still a general-purpose language: a program using `io` or `process` can
+change files or launch commands with the current user's permissions.
+`process.run` passes an argument vector directly without invoking a shell;
+`process.shell` deliberately invokes the platform shell and must be treated as
+unsafe. Do not run untrusted `.vkf` files, and do not run VKF as administrator
+or root unless the program genuinely requires it.
 
 ## Core Principles
 
@@ -275,34 +364,11 @@ Read this as:
 - `$name` and `$next` interpolate values into a string.
 - `:: message` prints the value.
 
-## Install And Run
+## Installation Details
 
-For normal Windows use, download `vektor-flow-windows-x64-setup.exe` from the
-latest GitHub release. The installer can add `vkf` to the current user's `PATH`.
-It installs the native compiler and VKF standard library; Python,
-a C++ compiler, and an assembler are not required.
-
-The downloadable 0.1 native release is deliberately strict. It ships the direct
-core plus `math`, `stat`, `random`, `time`, `io`, `collections`, `errors`,
-`system`, `process`, and `regex`. The partial `physics`, `ui`, and `symbolic`
-modules are not present. Unsupported source fails with a compiler error; the
-release never switches to a C++, Python, or assembler path.
-
-After opening a new terminal:
-
-```powershell
-vkf -e ':: "hello, world"'
-vkf .\program.vkf
-vkf .\program.vkf -o app.exe
-vkf -b .\program.vkf
-vkf -b .\program.vkf -o app.exe
-vkf -t .\tests
-```
-
-Linux releases include a native `.deb`; Linux and macOS archives also contain
-`install.sh`, which installs under
-`~/.local/opt` and links `vkf` into `~/.local/bin`. macOS ARM64 releases also
-contain a standard `.pkg` installer.
+The [download instructions](#download-and-run-vkf-010) above are the normal
+way to install VKF. See [INSTALL.md](INSTALL.md) for archive installation,
+uninstallation, PATH troubleshooting, and editor setup.
 
 File builds embed a source/compiler/import fingerprint inside the native
 executable. Running the same `.vkf` file again reuses the named executable when

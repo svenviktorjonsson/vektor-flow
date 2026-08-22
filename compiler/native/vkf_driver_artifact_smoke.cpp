@@ -153,7 +153,32 @@ std::string stem_of(const std::filesystem::path& source) {
 }
 
 std::filesystem::path build_dir_for(const std::filesystem::path& source) {
-    return std::filesystem::absolute(source).parent_path() / ".vkfbuild" / stem_of(source);
+    const auto root = (
+        std::filesystem::absolute(source).lexically_normal().parent_path() /
+        ".vkfbuild").lexically_normal();
+    const auto build_dir = (root / stem_of(source)).lexically_normal();
+    if (build_dir.parent_path() != root || build_dir.filename().empty() ||
+        build_dir.filename() == "." || build_dir.filename() == "..") {
+        throw DriverFailure("refusing unsafe build workspace for " + source.string());
+    }
+    for (const auto& managed_path : {root, build_dir}) {
+        std::error_code error;
+        const auto status = std::filesystem::symlink_status(managed_path, error);
+        if (error && status.type() != std::filesystem::file_type::not_found) {
+            throw DriverFailure(
+                "could not inspect build workspace " + managed_path.string());
+        }
+        if (std::filesystem::is_symlink(status)) {
+            throw DriverFailure(
+                "refusing symbolic-link build workspace " + managed_path.string());
+        }
+        if (status.type() != std::filesystem::file_type::not_found &&
+            !std::filesystem::is_directory(status)) {
+            throw DriverFailure(
+                "refusing non-directory build workspace " + managed_path.string());
+        }
+    }
+    return build_dir;
 }
 
 std::filesystem::path sibling_tool_path(const std::filesystem::path& self, const std::string& stem) {
@@ -722,6 +747,40 @@ bool executable_has_fingerprint(
     const std::string expected = "VKF-CACHE-V1:" + fingerprint;
     const std::string binary = read_file(executable);
     return binary.find(expected) != std::string::npos;
+}
+
+void require_safe_output_target(const std::filesystem::path& output) {
+    if (output.empty()) return;
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(output, error);
+    if (error && status.type() != std::filesystem::file_type::not_found) {
+        throw DriverFailure("could not inspect output path " + output.string());
+    }
+    if (status.type() == std::filesystem::file_type::not_found) return;
+    if (std::filesystem::is_symlink(status)) {
+        throw DriverFailure(
+            "refusing to overwrite symbolic-link output " + output.string());
+    }
+    if (!std::filesystem::is_regular_file(status)) {
+        throw DriverFailure(
+            "refusing to overwrite non-file output " + output.string());
+    }
+    const std::string binary = read_file(output);
+    const bool pe = binary.size() >= 2 && binary[0] == 'M' && binary[1] == 'Z';
+    const bool elf = binary.size() >= 4 &&
+        static_cast<unsigned char>(binary[0]) == 0x7f &&
+        binary[1] == 'E' && binary[2] == 'L' && binary[3] == 'F';
+    const bool macho = binary.size() >= 4 &&
+        static_cast<unsigned char>(binary[0]) == 0xcf &&
+        static_cast<unsigned char>(binary[1]) == 0xfa &&
+        static_cast<unsigned char>(binary[2]) == 0xed &&
+        static_cast<unsigned char>(binary[3]) == 0xfe;
+    if ((!pe && !elf && !macho) ||
+        binary.find("VKF-CACHE-V1:") == std::string::npos) {
+        throw DriverFailure(
+            "refusing to overwrite existing non-VKF file " + output.string() +
+            "; choose another -o path or move the file first");
+    }
 }
 
 #ifdef VKF_ARM64_BACKEND_LIBRARY
@@ -1751,6 +1810,7 @@ int main(int argc, char** argv) {
         if (!parsed_args.source.empty() && !parsed_args.output.empty()) {
             parsed_args.cache_fingerprint = native_build_fingerprint(
                 parsed_args.self, parsed_args.source);
+            require_safe_output_target(parsed_args.output);
             if (parsed_args.run && executable_has_fingerprint(
                     parsed_args.output, parsed_args.cache_fingerprint)) {
                 const int cached_exit_code = run_inherited(parsed_args.output);

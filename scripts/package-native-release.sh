@@ -11,15 +11,21 @@ binary_directory=${2:-build/native-compiler/bin}
 output_directory=${3:-dist/releases}
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
-binary_root="$repo_root/$binary_directory"
-output_root="$repo_root/$output_directory"
+
+case "/$binary_directory/" in *"/../"*|*"/./"*|//* ) echo "binary directory must be a normalized relative path" >&2; exit 2;; esac
+case "/$output_directory/" in *"/../"*|*"/./"*|//* ) echo "output directory must be a normalized relative path" >&2; exit 2;; esac
+binary_candidate="$repo_root/$binary_directory"
+output_candidate="$repo_root/$output_directory"
+test -d "$binary_candidate" || { echo "binary directory does not exist" >&2; exit 2; }
+mkdir -p "$output_candidate"
+binary_root=$(CDPATH= cd -- "$binary_candidate" && pwd -P)
+output_root=$(CDPATH= cd -- "$output_candidate" && pwd -P)
+case "$binary_root" in "$repo_root"/*) ;; *) echo "binary directory must stay inside repository" >&2; exit 2;; esac
+case "$output_root" in "$repo_root"/*) ;; *) echo "output directory must stay inside repository" >&2; exit 2;; esac
 stage_root="$output_root/vektor-flow-linux-x64"
 archive_path="$output_root/vektor-flow-linux-x64.tar.gz"
 package_path="$output_root/vektor-flow-linux-x64.deb"
 payload_root="$output_root/.linux-deb"
-
-case "$binary_root" in "$repo_root"/*) ;; *) echo "binary directory must stay inside repository" >&2; exit 2;; esac
-case "$output_root" in "$repo_root"/*) ;; *) echo "output directory must stay inside repository" >&2; exit 2;; esac
 
 rm -rf "$stage_root" "$payload_root"
 rm -f "$archive_path" "$archive_path.sha256" "$package_path" "$package_path.sha256"
@@ -72,6 +78,38 @@ m: .math
 EOF
 (
   cd "$smoke_root"
+  printf '%s\n' ':: 1' > overwrite_guard.vkf
+  printf '%s\n' 'user-owned-data' > do-not-overwrite
+  if "$stage_root/bin/vkf" -b overwrite_guard.vkf -o do-not-overwrite > guard.txt 2>&1; then
+    echo "packaged compiler overwrote a user-owned output file" >&2
+    exit 1
+  fi
+  test "$(cat do-not-overwrite)" = "user-owned-data"
+  grep -q 'refusing to overwrite existing non-VKF file' guard.txt
+  printf '%s\n' 'user-owned VKF-CACHE-V1:not-an-artifact' > marker-decoy
+  if "$stage_root/bin/vkf" -b overwrite_guard.vkf -o marker-decoy > decoy-guard.txt 2>&1; then
+    echo "packaged compiler trusted a forged cache marker" >&2
+    exit 1
+  fi
+  test "$(cat marker-decoy)" = "user-owned VKF-CACHE-V1:not-an-artifact"
+  grep -q 'refusing to overwrite existing non-VKF file' decoy-guard.txt
+  printf '%s\n' 'user-owned-target' > symlink-target
+  ln -s symlink-target symlink-output
+  if "$stage_root/bin/vkf" -b overwrite_guard.vkf -o symlink-output > symlink-guard.txt 2>&1; then
+    echo "packaged compiler followed a symbolic-link output" >&2
+    exit 1
+  fi
+  test "$(cat symlink-target)" = "user-owned-target"
+  grep -q 'refusing to overwrite symbolic-link output' symlink-guard.txt
+  mkdir linked-workspace-target
+  ln -s linked-workspace-target .vkfbuild
+  if "$stage_root/bin/vkf" -b overwrite_guard.vkf -o safe-new-output > workspace-guard.txt 2>&1; then
+    echo "packaged compiler followed a symbolic-link build workspace" >&2
+    exit 1
+  fi
+  test -z "$(ls -A linked-workspace-target)"
+  grep -q 'refusing symbolic-link build workspace' workspace-guard.txt
+  rm .vkfbuild
   "$stage_root/bin/vkf" -b "$smoke_root/installed_math.vkf" > build.txt
   grep -q '^Built ' build.txt
   test -x "$smoke_root/installed_math"
@@ -159,6 +197,30 @@ test installed_test() -> bit:
 EOF
   "$stage_root/bin/vkf" -t installed_test.vkf > test.txt
   grep -q 'PASS .*installed_test' test.txt
+  archive_install_root="$smoke_root/archive-install"
+  archive_bin_root="$smoke_root/archive-bin"
+  VKF_INSTALL_ROOT="$archive_install_root" VKF_BIN_ROOT="$archive_bin_root" \
+    "$stage_root/install.sh" > archive-install.txt
+  test -x "$archive_install_root/bin/vkf"
+  test -L "$archive_bin_root/vkf"
+  test -f "$archive_install_root/.vektor-flow-install"
+  collision_root="$smoke_root/collision-install"
+  collision_bin="$smoke_root/collision-bin"
+  mkdir -p "$collision_root" "$collision_bin"
+  printf '%s\n' 'user-owned-command' > "$collision_bin/vkf"
+  if VKF_INSTALL_ROOT="$collision_root" VKF_BIN_ROOT="$collision_bin" \
+     "$stage_root/install.sh" > collision-install.txt 2>&1; then
+    echo "archive installer replaced an existing command" >&2
+    exit 1
+  fi
+  test "$(cat "$collision_bin/vkf")" = "user-owned-command"
+  grep -q 'refusing to replace existing command' collision-install.txt
+  if VKF_INSTALL_ROOT=/ VKF_BIN_ROOT="$collision_bin" \
+     "$stage_root/install.sh" > unsafe-install.txt 2>&1; then
+    echo "archive installer accepted the filesystem root" >&2
+    exit 1
+  fi
+  grep -q 'refusing unsafe install root' unsafe-install.txt
   if "$stage_root/bin/vkf" -e 'physics: .physics; :: physics.rigid_material("x", 1, 1, 1, 1, 1, 1)' > unsupported.txt 2>&1; then
     echo "strict release accepted an excluded stdlib module" >&2
     exit 1

@@ -95,7 +95,8 @@ only on the packaged `vkf.exe`.
 ### Install
 
 1. Download `vektor-flow-macos-arm64.pkg` on Apple Silicon and run it, or
-   download and extract the macOS archive and run `./install.sh`.
+   download and extract the macOS archive and run `./install.sh`. Do not run
+   the archive installer with `sudo`; it is per-user and refuses root access.
 2. Open a new Terminal.
 3. Verify the compiler works:
 
@@ -132,6 +133,10 @@ extract `vektor-flow-linux-x64.tar.gz`, then run:
 ./install.sh
 vkf -e ':: "hello, world"'
 ```
+
+Do not run `install.sh` with `sudo`. The archive installer is deliberately
+per-user and refuses root access; use the `.deb` when a system package is
+preferred.
 
 This installs under `~/.local/opt/vektor-flow` and creates commands under
 `~/.local/bin`. It does not install or invoke Python, a C++ compiler, or an

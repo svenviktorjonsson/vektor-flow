@@ -25,7 +25,6 @@ ${UnStrRep}
 Name "Vektor Flow ${APP_VERSION}"
 OutFile "${OUTPUT_FILE}"
 InstallDir "$LOCALAPPDATA\Programs\VektorFlow"
-InstallDirRegKey HKCU "${PRODUCT_KEY}" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 BrandingText "Vektor Flow"
@@ -35,7 +34,6 @@ Var AddToPath
 
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_DIRECTORY
 Page custom PathPageCreate PathPageLeave
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -45,6 +43,15 @@ Page custom PathPageCreate PathPageLeave
 
 Function .onInit
   StrCpy $AddToPath "1"
+  StrCpy $INSTDIR "$LOCALAPPDATA\Programs\VektorFlow"
+  IfFileExists "$INSTDIR\*.*" 0 init_done
+  IfFileExists "$INSTDIR\.vektor-flow-install" init_done 0
+  IfFileExists "$INSTDIR\bin\vkf.exe" 0 init_unsafe
+  IfFileExists "$INSTDIR\vektorflow-release.json" init_done init_unsafe
+init_unsafe:
+  MessageBox MB_ICONSTOP "The fixed Vektor Flow install folder contains files not owned by Vektor Flow. Move those files before installing: $INSTDIR"
+  Abort
+init_done:
 FunctionEnd
 
 Function PathPageCreate
@@ -115,6 +122,9 @@ Section "Vektor Flow" MainSection
   SectionIn RO
   SetOutPath "$INSTDIR"
   File /r "${BUNDLE_ROOT}\*"
+  FileOpen $0 "$INSTDIR\.vektor-flow-install" w
+  FileWrite $0 "Vektor Flow ${APP_VERSION}$\r$\n"
+  FileClose $0
   WriteUninstaller "$INSTDIR\uninstall.exe"
   WriteRegStr HKCU "${PRODUCT_KEY}" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "Vektor Flow"
@@ -133,11 +143,42 @@ Section "Vektor Flow" MainSection
 SectionEnd
 
 Section "Uninstall"
+  StrCmp "$INSTDIR" "$LOCALAPPDATA\Programs\VektorFlow" 0 uninstall_unsafe
+  IfFileExists "$INSTDIR\.vektor-flow-install" 0 uninstall_unsafe
   Call un.RemoveInstallPath
   Delete "$SMPROGRAMS\Vektor Flow\Examples.lnk"
   Delete "$SMPROGRAMS\Vektor Flow\Uninstall.lnk"
   RMDir "$SMPROGRAMS\Vektor Flow"
   DeleteRegKey HKCU "${UNINSTALL_KEY}"
   DeleteRegKey HKCU "${PRODUCT_KEY}"
-  RMDir /r "$INSTDIR"
+  Delete "$INSTDIR\bin\vkf.exe"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\math.vkf"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\stat.vkf"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\random.vkf"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\time.vkf"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\io.vkf"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\collections.vkf"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\errors.vkf"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\system.vkf"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\process.vkf"
+  Delete "$INSTDIR\compiler\self_hosted\stdlib\regex.vkf"
+  Delete "$INSTDIR\samples\01_hello.vkf"
+  Delete "$INSTDIR\samples\64_axis_tags_and_broadcast.vkf"
+  Delete "$INSTDIR\README.md"
+  Delete "$INSTDIR\INSTALL.md"
+  Delete "$INSTDIR\TESTING.md"
+  Delete "$INSTDIR\vektorflow-release.json"
+  Delete "$INSTDIR\.vektor-flow-install"
+  Delete "$INSTDIR\uninstall.exe"
+  RMDir "$INSTDIR\bin"
+  RMDir "$INSTDIR\compiler\self_hosted\stdlib"
+  RMDir "$INSTDIR\compiler\self_hosted"
+  RMDir "$INSTDIR\compiler"
+  RMDir "$INSTDIR\samples"
+  RMDir "$INSTDIR"
+  Goto uninstall_done
+uninstall_unsafe:
+  MessageBox MB_ICONSTOP "Safety check failed. Vektor Flow will not remove this directory: $INSTDIR"
+  Abort
+uninstall_done:
 SectionEnd
