@@ -1,0 +1,6 @@
+regex: .regex
+named: regex.match("vektor", '^(?P<word>[a-z]+)$')
+positional: regex.groups("vkf-101", '([a-z]+)-([0-9]+)')
+:: named.word
+:: positional.0
+:: positional.1

@@ -1,0 +1,5 @@
+test addition_works() -> bit:
+    2 + 2 = 4
+
+test needs_input(value:int) -> bit:
+    value = 1

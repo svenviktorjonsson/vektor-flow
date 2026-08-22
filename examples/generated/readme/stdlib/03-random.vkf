@@ -1,0 +1,5 @@
+random: .random
+first: random.uniform(123, low:0, high:10)
+second: random.uniform(first.seed, low:0, high:10)
+:: first.value
+:: second.value

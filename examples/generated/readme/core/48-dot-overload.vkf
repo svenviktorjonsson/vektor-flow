@@ -1,0 +1,10 @@
+Pair: (x:num, y:num)
+
+.(pair:Pair, key:str) -> num:
+    key = "left"? @: pair.x
+    key = "right"? @: pair.y
+    @: 0
+
+Pair pair: (x:3, y:4)
+:: pair.left
+:: pair.("right")

@@ -1057,6 +1057,38 @@ private:
             if (found == type_aliases_.end()) break;
             type = found->second;
         }
+        if (const auto vector = vector_type_parts(type)) {
+            return "[" + resolve_type_alias(vector->element) +
+                (vector->shape.empty() ? "" : ":" + vector->shape) + "]";
+        }
+        if (starts_with(type, "list<") && type.back() == '>') {
+            return "list<" + resolve_type_alias(type.substr(5, type.size() - 6)) + ">";
+        }
+        if (starts_with(type, "tuple<") && type.back() == '>') {
+            const auto items = split_top_level_type_parts(type.substr(6, type.size() - 7));
+            std::string resolved = "tuple<";
+            for (std::size_t index = 0; index < items.size(); ++index) {
+                if (index != 0) resolved += ",";
+                resolved += resolve_type_alias(items[index]);
+            }
+            return resolved + ">";
+        }
+        if (starts_with(type, "record{") && type.back() == '}') {
+            const auto fields = split_top_level_type_parts(type.substr(7, type.size() - 8));
+            std::string resolved = "record{";
+            for (std::size_t index = 0; index < fields.size(); ++index) {
+                const auto colon = fields[index].find(':');
+                if (index != 0) resolved += ",";
+                if (colon == std::string::npos) resolved += fields[index];
+                else resolved += fields[index].substr(0, colon + 1) +
+                    resolve_type_alias(fields[index].substr(colon + 1));
+            }
+            return resolved + "}";
+        }
+        if (type.size() >= 2 && type.front() == '(' && type.back() == ')' &&
+            type.find(':') != std::string::npos) {
+            return resolve_type_alias("record{" + type.substr(1, type.size() - 2) + "}");
+        }
         return type;
     }
 
@@ -1187,6 +1219,33 @@ private:
             if (target_kind == "identifier") {
                 const std::string name = string_field(target, "name", "bind.target");
                 const auto& raw_value = object_of(field(object, "value", "bind"), "bind value");
+                if (string_field(raw_value, "kind", "bind value") == "lambda_expr") {
+                    vf::JsonValue::Array params;
+                    for (const auto& raw_param : array_of(
+                             field(raw_value, "params", "stored lambda"),
+                             "stored lambda params")) {
+                        if (!raw_param.is_string()) {
+                            throw IRFailure("lambda parameter must be name");
+                        }
+                        auto param = node("param");
+                        param["name"] = raw_param;
+                        auto type = node("type_annotation");
+                        type["name"] = vf::JsonValue("any");
+                        param["type"] = vf::JsonValue(std::move(type));
+                        param["default"] = vf::JsonValue(nullptr);
+                        param["variadic_positional"] = vf::JsonValue(false);
+                        param["variadic_named"] = vf::JsonValue(false);
+                        params.emplace_back(std::move(param));
+                    }
+                    auto function = node("function_definition");
+                    function["name"] = vf::JsonValue(name);
+                    function["params"] = vf::JsonValue(std::move(params));
+                    auto return_type = node("type_annotation");
+                    return_type["name"] = vf::JsonValue("any");
+                    function["return_type"] = vf::JsonValue(std::move(return_type));
+                    function["body"] = field(raw_value, "body", "stored lambda");
+                    return lower_function(function, env);
+                }
                 std::string primitive_value;
                 if (string_field(raw_value, "kind", "bind value") == "identifier") {
                     primitive_value = primitive_type_name(
@@ -1442,6 +1501,9 @@ private:
         if (registered_function == nullptr) {
             throw IRFailure("cannot resolve registered function " + name);
         }
+        // Lowering a body can register nested functions and grow FunctionTable's
+        // storage. Keep no pointer into that storage across lower_body().
+        const std::string runtime_name = functions_.runtime_name(*registered_function);
 
         auto out = node("function");
         vf::JsonValue lowered_body = lower_body(
@@ -1462,7 +1524,7 @@ private:
             }
         }
         out["body"] = std::move(lowered_body);
-        out["name"] = vf::JsonValue(functions_.runtime_name(*registered_function));
+        out["name"] = vf::JsonValue(runtime_name);
         out["params"] = vf::JsonValue(std::move(params));
         out["return_type"] = vf::JsonValue(return_type);
         auto sig = node("function_signature");
@@ -2564,6 +2626,7 @@ private:
             vf::JsonValue::Array items;
             std::string element_type = "any";
             bool first = true;
+            bool has_spread = false;
             for (const auto& item : array_of(field(object, "items", kind), kind + ".items")) {
                 const auto& item_object = object_of(item, "list item AST");
                 if (string_field(item_object, "kind", "list item AST") == "repeat_element") {
@@ -2593,6 +2656,7 @@ private:
                     continue;
                 }
                 if (string_field(item_object, "kind", "list item AST") == "spread_element") {
+                    has_spread = true;
                     vf::JsonValue lowered_value = lower_expr(
                         field(item_object, "expr", "spread element"), env);
                     auto spread = node("spread");
@@ -2629,7 +2693,9 @@ private:
                 }
                 items.push_back(std::move(lowered_item));
             }
-            const std::string container_type = "list<" + element_type + ">";
+            const std::string container_type = items.empty() || has_spread
+                ? "list<" + element_type + ">"
+                : "[" + element_type + ":" + std::to_string(items.size()) + "]";
             auto out = node("list");
             out["items"] = vf::JsonValue(std::move(items));
             out["element_type"] = vf::JsonValue(element_type);
@@ -2726,10 +2792,12 @@ private:
                 const auto imported = imported_modules_.find(module_name);
                 const std::string canonical_module = imported == imported_modules_.end()
                     ? module_name : imported->second;
-                if (canonical_module == "errors") {
+                const bool module_reference =
+                    imported != imported_modules_.end() || !env.contains(module_name);
+                if (module_reference && canonical_module == "errors") {
                     return error_type_value(field_name);
                 }
-                if (canonical_module == "math") {
+                if (module_reference && canonical_module == "math") {
                     if (field_name == "pi") {
                         return num_const(3.141592653589793);
                     }
@@ -2746,7 +2814,7 @@ private:
                     }
                     throw IRFailure("unknown stdlib math member " + field_name);
                 }
-                if (canonical_module == "stat") {
+                if (module_reference && canonical_module == "stat") {
                     if (field_name == "mean"
                         || field_name == "sum"
                         || field_name == "variance"
@@ -2763,20 +2831,20 @@ private:
                     }
                     throw IRFailure("unknown stdlib stat member " + field_name);
                 }
-                if (canonical_module == "time") {
+                if (module_reference && canonical_module == "time") {
                     if (field_name == "monotonic_seconds" || field_name == "wall_seconds" ||
                         field_name == "sleep_seconds" || field_name == "local_parts") {
                         return stdlib_function("time", field_name);
                     }
                     throw IRFailure("unknown stdlib time member " + field_name);
                 }
-                if (canonical_module == "collections") {
+                if (module_reference && canonical_module == "collections") {
                     if (field_name == "map" || field_name == "list" || field_name == "queue") {
                         return stdlib_function("collections", field_name);
                     }
                     throw IRFailure("unknown stdlib collections member " + field_name);
                 }
-                if (canonical_module == "io") {
+                if (module_reference && canonical_module == "io") {
                     if (field_name == "print" || field_name == "eprint" ||
                         field_name == "read_line" || field_name == "read_text" ||
                         field_name == "write_text" || field_name == "read_bytes" ||
@@ -2785,7 +2853,7 @@ private:
                     }
                     throw IRFailure("unknown stdlib io member " + field_name);
                 }
-                if (canonical_module == "system") {
+                if (module_reference && canonical_module == "system") {
                     if (field_name == "os_name" || field_name == "arch_name" ||
                         field_name == "cpu_count_native" || field_name == "cwd_native" ||
                         field_name == "env_native") {
@@ -2793,13 +2861,13 @@ private:
                     }
                     throw IRFailure("unknown stdlib system member " + field_name);
                 }
-                if (canonical_module == "process") {
+                if (module_reference && canonical_module == "process") {
                     if (field_name == "run_native" || field_name == "shell_native") {
                         return stdlib_function("process", field_name);
                     }
                     throw IRFailure("unknown stdlib process member " + field_name);
                 }
-                if (canonical_module == "regex") {
+                if (module_reference && canonical_module == "regex") {
                     if (field_name == "match" || field_name == "groups") {
                         return stdlib_function("regex", field_name);
                     }
@@ -2924,16 +2992,28 @@ private:
             if (left_axis == right_axis) {
                 return axis_tagged_type(left_axis, binary_result_type(op, left_value_type, right_value_type));
             }
+            const bool left_is_vector =
+                starts_with(left_value_type, "list<") || vector_type_parts(left_value_type).has_value();
+            const bool right_is_vector =
+                starts_with(right_value_type, "list<") || vector_type_parts(right_value_type).has_value();
             if ((op == "PLUS" || op == "MINUS" || op == "STAR" || op == "SLASH")
-                && starts_with(left_value_type, "list<") && starts_with(right_value_type, "list<")) {
+                && left_is_vector && right_is_vector) {
                 const auto outer_value_type = [&](const auto& self,
                                                   const std::string& left_value,
                                                   const std::string& right_value) -> std::string {
+                    if (const auto left_vector = vector_type_parts(left_value)) {
+                        return "[" + self(self, left_vector->element, right_value) +
+                            (left_vector->shape.empty() ? "" : ":" + left_vector->shape) + "]";
+                    }
                     if (starts_with(left_value, "list<") && left_value.back() == '>') {
                         return "list<" + self(
                             self,
                             left_value.substr(5, left_value.size() - 6),
                             right_value) + ">";
+                    }
+                    if (const auto right_vector = vector_type_parts(right_value)) {
+                        return "[" + self(self, left_value, right_vector->element) +
+                            (right_vector->shape.empty() ? "" : ":" + right_vector->shape) + "]";
                     }
                     if (starts_with(right_value, "list<") && right_value.back() == '>') {
                         return "list<" + self(
@@ -2941,7 +3021,7 @@ private:
                             left_value,
                             right_value.substr(5, right_value.size() - 6)) + ">";
                     }
-                    return "num";
+                    return binary_result_type(op, left_value, right_value);
                 };
                 return axis_tagged_type(
                     left_axis + right_axis,

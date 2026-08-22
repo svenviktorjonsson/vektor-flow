@@ -1,0 +1,4 @@
+fixed: [1, 2] & [3]
+dynamic: collections.list(1, 2) & collections.list(3)
+:: fixed
+:: dynamic

@@ -1,0 +1,10 @@
+math: .math
+
+data: (
+    name:"measurements",
+    values:[-1, 4, 9],
+    nested:(x:-16, label:"kept"),
+)
+
+:: math.abs(data)
+:: math.sqrt(data)

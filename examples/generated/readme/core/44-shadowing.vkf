@@ -1,0 +1,13 @@
+m: .math
+
+sin(value:num) -> num:
+    m.sin(value)
+
+values: [10, 20, 30]
+
+local() -> int:
+    values: 3
+    values + 1
+
+:: sin(0)
+:: local()

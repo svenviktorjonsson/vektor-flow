@@ -1,6 +1,9 @@
 # Core benchmark findings
 
-## Current 20,000-step acceptance proof
+## Historical 20,000-step microbenchmark proof
+
+This is retained for compiler-performance history. The 0.1.1 release gate is
+the 100-compile/100-run matrix in `benchmarks/readme-examples`.
 
 Run: 2026-08-19, 10 warmups followed by 100 measured runs. `±` is sample
 standard deviation; confidence bounds are two-sided 95% mean intervals.

@@ -1,0 +1,7 @@
+left: {"a":2, "a":3, "b":1}
+right: {"a":2, "c":2}
+
+:: left + right
+:: left - {"a":4}
+:: left // right
+:: left % right

@@ -1,0 +1,6 @@
+values: [10, 20, 30, 40]
+:: values.1
+:: values.(0, 2)
+
+values.(1, 3): (21, 41)
+:: values

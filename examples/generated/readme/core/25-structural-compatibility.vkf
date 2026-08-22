@@ -1,0 +1,7 @@
+double(value:int) -> int:
+    value * 2
+
+point: (name:"origin", enabled:true, x:2, y:3)
+result: double(point)
+
+:: result

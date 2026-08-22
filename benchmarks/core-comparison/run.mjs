@@ -395,7 +395,7 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
     Object.freeze({
       id: 'vkf',
       extension: 'vkf',
-      version: `Vektor Flow 0.1.0 native compiler; ${toolVersion(tools.cpp)}`,
+      version: `Vektor Flow 0.1.1 native compiler; ${toolVersion(tools.cpp)}`,
       compileModel: `persistent Python-free integrated frontend + compiler-owned direct ${process.arch} artifact`,
       freshSourcePerCompile: true,
       compileBatch(sources, manifestPath) {

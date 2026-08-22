@@ -1,0 +1,5 @@
+m: .math
+:: m.sqrt(9)
+
+:.math
+:: sin(pi / 2)

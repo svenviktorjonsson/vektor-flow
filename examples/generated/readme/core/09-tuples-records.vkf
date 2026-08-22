@@ -1,0 +1,9 @@
+pair: (3, 4)
+pair.0: 8
+
+point: (name:"origin", x:3, y:4)
+point.z: 5
+
+:: pair.0 + pair.1
+:: point.name
+:: point.x + point.y + point.z

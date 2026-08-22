@@ -1212,7 +1212,7 @@ int run_inherited(const std::filesystem::path& executable) {
 }
 
 #ifdef VKF_NATIVE_FRONTEND_LIBRARY
-std::vector<TaggedTest> discover_tagged_tests(
+std::vector<TaggedTest> discover_tests(
     const std::string& source,
     const std::filesystem::path& file
 ) {
@@ -1224,6 +1224,20 @@ std::vector<TaggedTest> discover_tagged_tests(
         throw DriverFailure("test module has no body");
     }
 
+    bool has_explicit_tests = false;
+    for (const auto& statement : body->second.as_array()) {
+        if (!statement.is_object()) continue;
+        const auto& function = statement.as_object();
+        const auto kind = function.find("kind");
+        const auto tag = function.find("test");
+        if (kind != function.end() && kind->second.is_string() &&
+            kind->second.as_string() == "function_definition" &&
+            tag != function.end() && tag->second.is_boolean() && tag->second.as_boolean()) {
+            has_explicit_tests = true;
+            break;
+        }
+    }
+
     std::vector<TaggedTest> tests;
     for (const auto& statement : body->second.as_array()) {
         if (!statement.is_object()) continue;
@@ -1231,13 +1245,17 @@ std::vector<TaggedTest> discover_tagged_tests(
         const auto kind = function.find("kind");
         const auto tag = function.find("test");
         if (kind == function.end() || !kind->second.is_string() ||
-            kind->second.as_string() != "function_definition" ||
-            tag == function.end() || !tag->second.is_boolean() || !tag->second.as_boolean()) {
+            kind->second.as_string() != "function_definition") {
             continue;
         }
 
+        const bool explicitly_tagged =
+            tag != function.end() && tag->second.is_boolean() && tag->second.as_boolean();
+        if (has_explicit_tests && !explicitly_tagged) continue;
+
         TaggedTest test;
         test.name = string_field(function, "name", "tagged test");
+        if (!has_explicit_tests && !test.name.empty() && test.name.front() == '_') continue;
         test.compatible = true;
 
         const auto params = function.find("params");
@@ -1249,6 +1267,11 @@ std::vector<TaggedTest> discover_tagged_tests(
                 const auto& param = object_of(param_value, "test parameter");
                 const auto default_value = param.find("default");
                 if (default_value == param.end() || default_value->second.is_null()) {
+                    if (!has_explicit_tests) {
+                        test.compatible = false;
+                        test.incompatibility.clear();
+                        break;
+                    }
                     test.compatible = false;
                     test.incompatibility = "required parameters need fixtures";
                     break;
@@ -1256,15 +1279,19 @@ std::vector<TaggedTest> discover_tagged_tests(
             }
         }
 
+        if (!has_explicit_tests && !test.compatible && test.incompatibility.empty()) continue;
+
         const auto return_type = function.find("return_type");
         if (test.compatible &&
             (return_type == function.end() || !return_type->second.is_object())) {
+            if (!has_explicit_tests) continue;
             test.compatible = false;
             test.incompatibility = "test must return bit";
         } else if (test.compatible) {
             const auto& type = return_type->second.as_object();
             const auto name = type.find("name");
             if (name == type.end() || !name->second.is_string() || name->second.as_string() != "bit") {
+                if (!has_explicit_tests) continue;
                 test.compatible = false;
                 test.incompatibility = "test must return bit";
             }
@@ -1737,7 +1764,7 @@ int main(int argc, char** argv) {
             for (const auto& file : test_source_files(argv[2])) {
                 std::string source = read_file(file);
                 normalize_source_for_lexer(source);
-                for (const auto& test : discover_tagged_tests(source, file)) {
+                for (const auto& test : discover_tests(source, file)) {
                     ++discovered;
                     const std::string label = file.generic_string() + "::" + test.name;
                     if (!test.compatible) {
@@ -1753,7 +1780,8 @@ int main(int argc, char** argv) {
                     const auto key = stable_source_key(
                         file.generic_string() + "\n" + test.name + "\n" + generated);
                     const auto unit = std::filesystem::absolute(file).parent_path() /
-                        (".vkf-test-" + std::to_string(key) + ".vkf");
+                        ".vkfbuild" / "tests" / std::to_string(key) / "test.vkf";
+                    std::filesystem::create_directories(unit.parent_path());
                     write_file(unit, generated);
                     try {
                         Args test_args;

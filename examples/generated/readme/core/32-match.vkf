@@ -1,0 +1,8 @@
+classify(value:int) -> str:
+    value??
+        3 => "exact three"
+        int => "another integer"
+        "fallback"
+
+:: classify(3)
+:: classify(4)

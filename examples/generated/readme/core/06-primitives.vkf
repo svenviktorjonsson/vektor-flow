@@ -1,0 +1,14 @@
+bit enabled: true
+chr letter: chr(65)
+int count: int(7.0)
+num ratio: num(3) / 2
+str label: str(count)
+
+empty():
+    @
+
+:: enabled
+:: letter
+:: ratio
+:: label
+:: empty()

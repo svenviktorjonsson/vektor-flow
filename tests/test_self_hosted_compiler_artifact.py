@@ -7195,6 +7195,126 @@ def test_x64_and_arm64_artifacts_support_large_fixed_vector_runtime_indexing(
     assert Path(arm64["raw_code_path"]).stat().st_size > 0
 
 
+@pytest.mark.parametrize(
+    ("program_name", "source", "expected"),
+    [
+        (
+            "compound-aggregate-update",
+            "values: [1, 2]\n"
+            "alias: values\n"
+            "values +: [3, 4]\n"
+            "values *: 2\n"
+            "values -: [2, 4]\n"
+            "values /: 2\n"
+            ":: alias\n",
+            "[3, 4]\n",
+        ),
+        (
+            "literal-spread",
+            ":: (:(1, 2), :[3, 4])\n",
+            "(1, 2, 3, 4)\n",
+        ),
+        (
+            "scope-spill",
+            "base(x:int, y:int):\n"
+            "    x: x\n"
+            "    y: y\n"
+            "    :\n\n"
+            "colored(x:int, y:int, color:str):\n"
+            "    : base(x, y)\n"
+            "    color: color\n"
+            "    :\n\n"
+            "value: colored(3, 4, \"red\")\n"
+            ":: value.x\n"
+            ":: value.y\n"
+            ":: value.color\n",
+            "3\n4\nred\n",
+        ),
+        (
+            "local-function",
+            "calculate(offset:int) -> int:\n"
+            "    add(value:int) -> int:\n"
+            "        value + offset\n"
+            "    add(3)\n\n"
+            ":: calculate(4)\n",
+            "7\n",
+        ),
+        (
+            "stored-lambda",
+            "square: (value): value^2\n"
+            ":: square(5)\n",
+            "25\n",
+        ),
+        (
+            "stored-closure",
+            "make_adder(offset:int) -> int->int:\n"
+            "    add(value:int) -> int:\n"
+            "        value + offset\n"
+            "    add\n\n"
+            "add_four: make_adder(4)\n"
+            ":: add_four(3)\n",
+            "7\n",
+        ),
+        (
+            "nested-fixed-record-projection",
+            "Point: (x:int,y:int)\n"
+            "sum_all(points:[Point:2]) -> int:\n"
+            "    points.0.x + points.0.y + points.1.x + points.1.y\n\n"
+            ":: sum_all([(x:1,y:2),(x:3,y:4)])\n",
+            "10\n",
+        ),
+        (
+            "multiple-complex-outputs",
+            "z: num(1, 2)\n"
+            ":: z * z\n"
+            ":: z^3\n"
+            ":: str(z)\n",
+            "-3 + 4i\n-11 - 2i\n1 + 2i\n",
+        ),
+        (
+            "regex-argument-order",
+            "regex: .regex\n"
+            "named: regex.match(\"vektor\", '^(?P<word>[a-z]+)$')\n"
+            "positional: regex.groups(\"vkf-101\", '([a-z]+)-([0-9]+)')\n"
+            ":: named.word\n"
+            ":: positional.0\n"
+            ":: positional.1\n",
+            "vektor\nvkf\n101\n",
+        ),
+    ],
+)
+def test_readme_discovered_native_backend_regressions(
+    program_name: str,
+    source: str,
+    expected: str,
+    tmp_path: Path,
+    smoke_exes: dict[str, Path],
+) -> None:
+    source_path = tmp_path / f"{program_name}.vkf"
+    source_path.write_text(source, encoding="utf-8")
+    typed_ir_path = tmp_path / f"{program_name}.typed-ir.json"
+    typed_ir_path.write_text(
+        _typed_ir_json_for_file(source_path, smoke_exes),
+        encoding="utf-8",
+    )
+
+    x64 = json.loads(
+        _run_artifact(smoke_exes["x64_artifact"], source_path, typed_ir_path).stdout
+    )
+    artifact = Path(x64["artifact_path"])
+    executed = subprocess.run(
+        [str(artifact)], cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+
+    assert executed.returncode == 0, executed.stderr
+    assert executed.stdout == expected
+
+    arm64 = json.loads(
+        _run_artifact(smoke_exes["arm64_artifact"], source_path, typed_ir_path).stdout
+    )
+    assert Path(arm64["raw_code_path"]).stat().st_size > 0
+
+
 def test_x64_and_arm64_artifacts_support_dynamic_list_builders(
     tmp_path: Path,
     smoke_exes: dict[str, Path],

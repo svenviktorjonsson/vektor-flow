@@ -1,0 +1,5 @@
+process: .process
+result: process.run("git", ["--version"])
+:: result.code
+:: result.out
+:: result.err

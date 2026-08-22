@@ -110,7 +110,11 @@ calls. Dynamic numeric vectors are cloned once and updated by one direct O(n)
 loop, with no user-authored loop or repeated concatenation. A container with no
 compatible paths is preserved unchanged.
 
-## Reproducible performance proof
+## Historical direct-backend performance proof
+
+These results remain useful implementation evidence. Starting with 0.1.1, the
+release proof is `benchmarks/readme-examples`: every documented example is
+compiled and run 100 times with exact output and full-process timing.
 
 The final proof uses identical generated inputs, fresh output artifacts, one
 warmup plus 100 measured compilations, and five warmups plus 100 measured runs.
@@ -141,7 +145,7 @@ The emitted benchmark machine code remained byte-identical; the comparator
 reported changes of -2.116 ms compile and -0.129 ms raw runtime against the
 extended-library proof.
 
-The current enforced limits are strictly under 10 ms mean compile time and
+The historical microbenchmark runner limits are strictly under 10 ms mean compile time and
 under 0.500 ms mean raw machine-entry time. After IO, random, errors,
 collections, compatible aggregate projection, and rigid-physics ownership were
 integrated, the 100-sample Windows proof measured 5.363 ms compile time and

@@ -1,0 +1,4 @@
+io: .io
+io.write_text("vkf-example.txt", "hello")
+io.append_text("vkf-example.txt", " world")
+:: io.read_text("vkf-example.txt")

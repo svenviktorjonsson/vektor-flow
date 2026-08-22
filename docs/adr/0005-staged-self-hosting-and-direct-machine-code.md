@@ -4,7 +4,9 @@ Date: 2026-08-19
 
 ## Status
 
-Accepted.
+Accepted. The narrow 20,000-operation performance gate described below was
+superseded for release acceptance on 2026-08-22 by the full README example
+matrix. It remains a historical microbenchmark.
 
 ## Context
 

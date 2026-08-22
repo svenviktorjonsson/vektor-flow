@@ -1,0 +1,11 @@
+translate(point:(x:int,y:int)) -> (x:int,y:int):
+    (x:point.x + 10, y:point.y - 10)
+
+row_sum(row:[int]) -> int:
+    stat.sum(row)
+
+points: [(x:1, y:2), (x:3, y:4)]
+matrix: [[1, 2], [3, 4], [5, 6]]
+
+:: translate(points)
+:: row_sum(matrix)

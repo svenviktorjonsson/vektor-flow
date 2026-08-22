@@ -1,0 +1,6 @@
+time: .time
+before: time.monotonic()
+after: time.monotonic()
+(time.wall_time() > 1700000000)?!
+(after >= before)?!
+:: time.format_time(0, "%Y-%m-%d %H:%M:%S", utc:true)

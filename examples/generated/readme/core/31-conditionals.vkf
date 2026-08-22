@@ -1,0 +1,8 @@
+value: 3
+label:
+    value > 0?
+        1
+
+missing: (false? 99)
+:: label
+:: missing

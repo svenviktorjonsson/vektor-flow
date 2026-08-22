@@ -1,0 +1,9 @@
+[int:3] fixed: [1, 2, 3]
+[int] dynamic: [4, 5, 6]
+repeated: [7:4, 9:2]
+
+dynamic.1: 20
+
+:: fixed
+:: dynamic
+:: repeated

@@ -1,0 +1,4 @@
+.work/
+results/*
+!results/windows-x64-011-local.json
+!results/windows-x64-011-local.md

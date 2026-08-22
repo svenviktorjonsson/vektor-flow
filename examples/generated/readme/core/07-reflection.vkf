@@ -1,0 +1,9 @@
+NumberType: num
+:: NumberType(4)
+:: int.
+:: [1, 2].
+
+type_scope:
+    reflected: int.
+    :
+:: type_scope

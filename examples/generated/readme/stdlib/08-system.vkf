@@ -1,0 +1,7 @@
+system: .system
+path: system.env("PATH")
+:: system.os()
+:: system.arch()
+:: system.cpu_count()
+:: system.cwd()
+:: path.found

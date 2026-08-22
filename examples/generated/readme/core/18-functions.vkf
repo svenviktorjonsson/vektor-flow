@@ -1,0 +1,11 @@
+choose(value:int) -> int:
+    value > 0?
+        @: 7
+    3
+
+do_nothing():
+    @
+
+:: choose(1)
+:: choose(0)
+:: do_nothing()

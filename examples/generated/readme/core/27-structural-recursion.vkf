@@ -1,0 +1,9 @@
+increment(value:int) -> int:
+    value + 1
+
+data: [
+    (name:"a", point:(x:1, y:2)),
+    (name:"b", point:(x:3, y:4))
+]
+
+:: increment(data)

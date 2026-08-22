@@ -1,0 +1,4 @@
+# Comments continue to the end of the row.
+answer: 6 * 7
+(answer == 42)?! "the answer changed"
+:: answer

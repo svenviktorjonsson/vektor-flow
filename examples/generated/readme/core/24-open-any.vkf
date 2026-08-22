@@ -1,0 +1,8 @@
+read_x(value:any) -> num:
+    value.x
+
+sum_pair(value:any) -> num:
+    value.0 + value.1
+
+:: read_x((x:2, metadata:"kept"))
+:: sum_pair([3, 4])

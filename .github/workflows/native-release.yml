@@ -32,37 +32,40 @@ jobs:
         shell: pwsh
         run: .\scripts\build-native-compiler.ps1 -OnlyTargets @("vkf-strict")
 
-      - name: Prove 20k compile and runtime budgets
+      - name: Run full native VKF release suite
+        shell: pwsh
+        run: .\build\native-compiler-clang\bin\vkf-strict.exe -t tests/vkf
+
+      - name: Compile and run every README example 100 times
         shell: pwsh
         run: >-
-          node benchmarks/core-comparison/run.mjs
-          --case=scalar-control-small
-          --language=vkf
+          node benchmarks/readme-examples/run.mjs
+          --compiler=build/native-compiler-clang/bin/vkf-strict.exe
           --compile-runs=100
           --compile-warmups=1
           --runs=100
           --warmups=5
-          --output=windows-x64-20k
+          --output=windows-x64-011
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: windows-x64-performance-proof
+          name: windows-x64-readme-proof
           path: |
-            benchmarks/core-comparison/results/windows-x64-20k.json
-            benchmarks/core-comparison/results/windows-x64-20k.md
+            benchmarks/readme-examples/results/windows-x64-011.json
+            benchmarks/readme-examples/results/windows-x64-011.md
           if-no-files-found: error
 
       - name: Package portable release
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "0.1.0-dev" }
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "0.1.1-dev" }
           .\scripts\package-native-release.ps1 -Version $version
 
       - name: Build installer
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "0.1.0-dev" }
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "0.1.1-dev" }
           .\scripts\build-windows-installer.ps1 -Version $version
 
       - uses: actions/upload-artifact@v4
@@ -94,30 +97,32 @@ jobs:
           cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-compiler --parallel 2 --target vkf_strict
 
-      - name: Prove 20k compile and runtime budgets
+      - name: Run full native VKF release suite
+        run: build/native-compiler/vkf-strict -t tests/vkf
+
+      - name: Compile and run every README example 100 times
         run: >-
-          node benchmarks/core-comparison/run.mjs
-          --case=scalar-control-small
-          --language=vkf
+          node benchmarks/readme-examples/run.mjs
+          --compiler=build/native-compiler/vkf-strict
           --compile-runs=100
           --compile-warmups=1
           --runs=100
           --warmups=5
-          --output=linux-x64-20k
+          --output=linux-x64-011
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: linux-x64-performance-proof
+          name: linux-x64-readme-proof
           path: |
-            benchmarks/core-comparison/results/linux-x64-20k.json
-            benchmarks/core-comparison/results/linux-x64-20k.md
+            benchmarks/readme-examples/results/linux-x64-011.json
+            benchmarks/readme-examples/results/linux-x64-011.md
           if-no-files-found: error
 
       - name: Package native release
         run: |
           chmod +x scripts/package-native-release.sh
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=0.1.0-dev; fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=0.1.1-dev; fi
           scripts/package-native-release.sh "$version"
 
       - uses: actions/upload-artifact@v4
@@ -145,30 +150,32 @@ jobs:
           cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-compiler --parallel 2 --target vkf_strict
 
-      - name: Prove 20k compile and runtime budgets
+      - name: Run full native VKF release suite
+        run: build/native-compiler/vkf-strict -t tests/vkf
+
+      - name: Compile and run every README example 100 times
         run: >-
-          node benchmarks/core-comparison/run.mjs
-          --case=scalar-control-small
-          --language=vkf
+          node benchmarks/readme-examples/run.mjs
+          --compiler=build/native-compiler/vkf-strict
           --compile-runs=100
           --compile-warmups=1
           --runs=100
           --warmups=5
-          --output=macos-arm64-20k
+          --output=macos-arm64-011
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: macos-arm64-performance-proof
+          name: macos-arm64-readme-proof
           path: |
-            benchmarks/core-comparison/results/macos-arm64-20k.json
-            benchmarks/core-comparison/results/macos-arm64-20k.md
+            benchmarks/readme-examples/results/macos-arm64-011.json
+            benchmarks/readme-examples/results/macos-arm64-011.md
           if-no-files-found: error
 
       - name: Package archive and installer
         run: |
           chmod +x scripts/package-native-release-macos.sh packaging/macos/install.sh
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=0.1.0-dev; fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=0.1.1-dev; fi
           scripts/package-native-release-macos.sh "$version"
 
       - uses: actions/upload-artifact@v4

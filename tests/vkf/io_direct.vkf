@@ -1,11 +1,11 @@
 io: .io
 
 text_file_round_trip() -> bit:
-    path: "io-direct-round-trip.txt"
+    path: "tests/vkf/.vkfbuild/io-direct-round-trip.txt"
     io.write_text(path, "direct UTF-8: hej")
     (io.read_text(path) = "direct UTF-8: hej")?!
 
 byte_file_round_trip_uses_string_backed_bytes() -> bit:
-    path: "io-direct-bytes.bin"
+    path: "tests/vkf/.vkfbuild/io-direct-bytes.bin"
     io.write_bytes(path, "byte-exact UTF-8")
     (io.read_bytes(path) = "byte-exact UTF-8")?!

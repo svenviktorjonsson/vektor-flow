@@ -12033,10 +12033,9 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                 const auto& value = object_of(field(*statement, "value", "top-level binding"), "binding value");
                 display_environment[binding_name] =
                     display_shape_from_expression(value, display_environment, &function_displays);
-                const auto layout = lower_expression(value, entry, signatures, strings);
-                ensure_independent_value(value, layout, entry, signatures);
-                emit_release_layout_local(entry, entry.slot(binding_name), entry.layout(binding_name));
-                emit_store_binding(entry, binding_name, layout, strings);
+                vf::JsonValue::Array single_statement;
+                single_statement.emplace_back(*statement);
+                lower_statements(single_statement, entry, false, signatures, strings);
                 continue;
             }
             if (kind == "update_attr" || kind == "update_index") {
@@ -12064,8 +12063,12 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
             auto display_shape =
                 display_shape_from_expression(
                     printed_expression, display_environment, &function_displays);
-            const auto printed_layout = lower_print_expression(
+            auto printed_layout = lower_print_expression(
                 printed_expression, entry, signatures, strings, &display_shape);
+            if (printed_layout.kind == ValueKind::Complex) {
+                printed_layout = emit_complex_string(entry, strings);
+                display_shape = {DisplayKind::String, {}};
+            }
             if (printed_layout.kind == ValueKind::String) {
                 display_shape = {DisplayKind::String, {}};
             }
@@ -12082,6 +12085,7 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                 ensure_independent_value(printed_expression, printed_layout, entry, signatures);
                 outputs.push_back(OutputKind::String);
             } else if (printed_layout.kind == ValueKind::Null ||
+                       printed_layout.kind == ValueKind::Complex ||
                        printed_layout.kind == ValueKind::Aggregate) {
                 ensure_independent_value(printed_expression, printed_layout, entry, signatures);
                 outputs.push_back(OutputKind::StructuredSequence);
@@ -12131,12 +12135,9 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
             const auto& value = object_of(field(*statement, "value", "top-level binding"), "binding value");
             display_environment[binding_name] =
                 display_shape_from_expression(value, display_environment, &function_displays);
-            const auto layout = lower_expression(value, entry, signatures, strings);
-            ensure_independent_value(value, layout, entry, signatures);
-            emit_release_layout_local(
-                entry, entry.slot(binding_name), entry.layout(binding_name));
-            emit_store_binding(
-                entry, string_field(*statement, "name", "top-level binding"), layout, strings);
+            vf::JsonValue::Array single_statement;
+            single_statement.emplace_back(*statement);
+            lower_statements(single_statement, entry, false, signatures, strings);
         } else if (kind == "update_attr" || kind == "update_index") {
             if (output) throw LoweringFailure("top-level update cannot follow output");
             vf::JsonValue::Array single_statement;
@@ -12174,8 +12175,12 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
         auto display_shape =
             display_shape_from_expression(
                 printed_expression, display_environment, &function_displays);
-        const auto printed_layout = lower_print_expression(
+        auto printed_layout = lower_print_expression(
             printed_expression, entry, signatures, strings, &display_shape);
+        if (printed_layout.kind == ValueKind::Complex) {
+            printed_layout = emit_complex_string(entry, strings);
+            display_shape = {DisplayKind::String, {}};
+        }
         if (printed_layout.kind == ValueKind::String) {
             display_shape = {DisplayKind::String, {}};
         }
@@ -12186,7 +12191,9 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
             throw LoweringFailure("machine IR display shape does not match value layout");
         }
         const bool structured = display_shape.kind == DisplayKind::Bit ||
-            printed_layout.kind == ValueKind::Null || printed_layout.kind == ValueKind::Aggregate;
+            printed_layout.kind == ValueKind::Null ||
+            printed_layout.kind == ValueKind::Complex ||
+            printed_layout.kind == ValueKind::Aggregate;
         if (!structured && printed_layout.kind != ValueKind::Numeric &&
             printed_layout.kind != ValueKind::String) {
             throw LoweringFailure("machine IR print requires a displayable core value");

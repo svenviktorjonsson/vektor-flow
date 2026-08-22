@@ -1,0 +1,11 @@
+apply_twice(f:int->int, value:int) -> int:
+    f(f(value))
+
+increment(value:int) -> int:
+    value + 3
+
+square: (value): value^2
+
+:: apply_twice(increment, 4)
+:: square(5)
+:: ((value): value + 1)(8)

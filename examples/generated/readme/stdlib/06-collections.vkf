@@ -1,0 +1,10 @@
+collections: .collections
+values: collections.list(1, 2, 3)
+point: collections.map(name:"origin", x:1, y:2)
+queue: collections.queue()
+queue.put(10)
+
+:: values
+:: point.name
+:: queue.get()
+:: queue.empty()

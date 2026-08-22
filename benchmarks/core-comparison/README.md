@@ -1,5 +1,10 @@
 # Core language comparison
 
+This suite remains useful for language-to-language research and narrow compiler
+regressions. It is not the 0.1.1 release gate. Release acceptance now uses every
+documented program, exact output, and full-process runtime through
+[`benchmarks/readme-examples`](../readme-examples/README.md).
+
 Compares equivalent core programs in Vektor Flow, C, efficient Python, and
 Rust. Core built-in lanes include fixed-container `stat.sum`, `stat.mean`, and
 `stat.count`; they exclude library implementation overhead outside each
@@ -20,10 +25,10 @@ The runner measures two separate costs:
 - runtime wall time: a new process for every sample after warmups
 - VKF raw machine-entry runtime: generated code only, excluding process launch
 
-For the 20,000-operation `scalar-control-small` VKF case, a full 100-sample run
-is also a hard acceptance gate: mean compile time must be strictly under 10 ms
+For the legacy 20,000-operation `scalar-control-small` VKF regression case, a
+full 100-sample run still enforces its own narrow limits: mean compile time must be strictly under 10 ms
 and mean raw machine-entry runtime must be strictly under 0.5 ms (500
-microseconds). Reaching either limit fails the benchmark. Process-launch time is
+microseconds). Reaching either limit fails this comparison run. Process-launch time is
 reported but is not substituted for the raw-entry metric.
 
 All native languages compile before process-runtime measurement. Runtime samples

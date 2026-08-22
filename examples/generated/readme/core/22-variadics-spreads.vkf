@@ -1,0 +1,15 @@
+sum_rest(head:int, ...rest:int) -> int:
+    head + stat.sum(rest)
+
+point_sum(x:int, y:int) -> int:
+    x + y
+
+capture_named(value:int, :::named):
+    named
+
+args: collections.list(2, 3, 4)
+point: (y:4, x:3)
+
+:: sum_rest(1, :args)
+:: point_sum(:point)
+:: capture_named(1, flag:true, mode:"fast")
