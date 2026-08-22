@@ -3,13 +3,11 @@
   "configurations": [
     {
       "name": "vkf: run current file",
-      "type": "python",
+      "type": "node-terminal",
       "request": "launch",
-      "module": "vektorflow.cli",
-      "args": ["${file}"],
+      "command": "vkf \"${file}\"",
       "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "justMyCode": true
+      "console": "integratedTerminal"
     }
   ]
 }

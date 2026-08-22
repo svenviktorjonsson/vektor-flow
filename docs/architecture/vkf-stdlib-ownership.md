@@ -33,7 +33,7 @@ submodule push-order failures.
 Use one of these locations when stdlib files become explicit source files:
 
 - `std/` for source-visible VKF modules
-- `vektorflow/std/` for Python-side compiler/runtime support for stdlib modules
+- `compiler/self_hosted/stdlib/` for VKF-owned standard-library source
 - `web/vf-ui/` for browser/runtime code that implements VKF `ui` stdlib
   semantics
 

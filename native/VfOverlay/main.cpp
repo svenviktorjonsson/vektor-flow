@@ -3483,7 +3483,7 @@ int VfOverlayRun(HINSTANCE hi, const VfOverlayHostLaunch& launch, int show) {
     VfTraceLogA("wWinMain: HTTP ready on port %d", g_port);
 
     {
-        /* Python / VKF: read `web/vf-api-port.txt` next to vf-overlay.exe (ASCII port). */
+        /* Native host: write `web/vf-api-port.txt` next to vf-overlay.exe (ASCII port). */
         std::wstring pathW = g_webRootW + L"\\vf-api-port.txt";
         FILE* fp = nullptr;
         if (_wfopen_s(&fp, pathW.c_str(), L"wb") == 0 && fp) {

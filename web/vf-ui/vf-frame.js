@@ -1,7 +1,7 @@
 /**
  * Vektor Flow — floating frame shell (drag header, minimize, resize grip, close).
  *
- * @see vektorflow/ui/ir.py for the Python-side scene / command stream.
+ * Scene commands arrive through the native overlay/browser contract.
  */
 (function (global) {
   "use strict";

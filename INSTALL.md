@@ -12,10 +12,6 @@ compiler directly:
 vkf -e ':: "release ready"'
 ```
 
-For first macOS/Linux bundle bring-up from source, use:
-
-- [BUNDLE_BRINGUP.md](BUNDLE_BRINGUP.md)
-
 ## Before You Start
 
 You need:

@@ -55,27 +55,14 @@ be visible in the same scope.
 
 ## Internal Engine Area
 
-New code imports from:
-
-- `vektorflow.physics`
-- `vektorflow.physics.properties`
-- `vektorflow.physics.dynamics`
-- `vektorflow.physics.rigid_body`
-
-The old top-level modules remain compatibility adapters:
-
-- `vektorflow.physics_properties`
-- `vektorflow.physics_dynamics`
-- `vektorflow.physics_rigid_body`
-
-Those adapters should stay thin. Physics implementation belongs in this internal
-compiler area.
+Physics semantics belong in VKF source under
+`compiler/self_hosted/stdlib/physics.vkf`. No compatibility adapter remains.
 
 ## Current Modules
 
 ### Physics Property Core
 
-File: `vektorflow/physics/properties.py`
+Planned source: `compiler/self_hosted/stdlib/physics.vkf`
 
 Interface:
 
@@ -92,7 +79,7 @@ perform time stepping.
 
 ### Edge Dynamics Core
 
-File: `vektorflow/physics/dynamics.py`
+Planned source: `compiler/self_hosted/stdlib/physics.vkf`
 
 Interface:
 
@@ -108,8 +95,6 @@ body collision or contact solving.
 
 Canonical source: `compiler/self_hosted/stdlib/physics.vkf`
 
-Compatibility adapter: `vektorflow/physics/rigid_body.py`
-
 Interface:
 
 - tetra volume mass properties
@@ -120,8 +105,8 @@ Interface:
 - gravity, force, and torque stepping
 
 The VKF module compiles through the native artifact path and to a WASM artifact.
-The Python module only translates the historical dataclasses and geometry API
-to the VKF kernel; it owns no rigid-body formulas.
+The historical compatibility adapter has been removed. VKF is the only source
+of physics semantics.
 
 The current mass-property implementation is exact for tetra volume elements. A
 future closed-polyhedron adapter should use Mirtich-style mass properties and

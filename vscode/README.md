@@ -28,7 +28,7 @@ For normal users and community testers, the preferred setup is:
 3. install this VS Code extension
 4. point the extension at your packaged `vkf`
 
-That is better than the repo/Python path for most users.
+That is better than pointing the extension at a repository build.
 
 ## Platform Notes
 
@@ -133,26 +133,6 @@ If `vkf` is already on `PATH`, the simplest setup is:
   "vektorflow.useNativeCoreCommands": true,
   "vektorflow.enableDiagnostics": true,
   "vektorflow.diagnosticsDebounceMs": 250
-}
-```
-
-### Legacy contributor path
-
-The extension can still work against a repo/Python install, but that should be treated as the contributor path, not the main user path.
-
-If you need it:
-
-```bash
-pip install -e .[dev]
-```
-
-Then either make sure `vkf` is on `PATH` or configure a Python fallback environment.
-
-Python fallback setting:
-
-```json
-{
-  "vektorflow.pythonPath": "python"
 }
 ```
 
@@ -315,12 +295,7 @@ Expected result:
 If you are working on the extension or compiler from source:
 
 1. Open the repo in VS Code.
-2. Install the package in a Python environment:
-
-```bash
-pip install -e .[dev]
-```
-
+2. Build the native compiler with `./build.ps1` on Windows or CMake on Linux/macOS.
 3. Press `F5` in the `vscode/` folder to open an Extension Development Host.
 4. Repeat the smoke tests above.
 

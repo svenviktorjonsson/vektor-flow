@@ -40,9 +40,8 @@ token.kind??
 
 Before editing compiler files:
 
-1. Verify the syntax in `vektorflow/parser.py`.
-2. Verify user-facing examples in `tests/test_control_flow.py` or other
-   language tests.
+1. Verify the syntax in the native frontend under `compiler/native/`.
+2. Verify user-facing behavior in the relevant native `tests/vkf/` file.
 3. Only then patch `compiler/self_hosted/*.vkf`.
 
 Never let an agent edit compiler source based on guessed syntax or style.

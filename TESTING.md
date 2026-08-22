@@ -15,10 +15,10 @@ If you are looking for platform-specific install steps, start with:
 
 - [INSTALL.md](INSTALL.md)
 
-If you are the maintainer preparing a tester bundle, verify it before sharing:
+If you are the maintainer preparing a tester bundle, verify the native suite before sharing:
 
 ```bash
-python scripts/verify_release_bundle.py dist/releases/<channel>
+vkf -t tests/vkf
 ```
 
 ## Terminal Smoke Tests

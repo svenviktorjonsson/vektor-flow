@@ -141,11 +141,7 @@ function getCompilerInvocation() {
     return { command: compilerPath, args: compilerArgs };
   }
 
-  const pythonPath = String(config.get("pythonPath", "python")).trim() || "python";
-  return {
-    command: pythonPath,
-    args: ["-m", "vektorflow.cli", ...compilerArgs],
-  };
+  return { command: "vkf", args: compilerArgs };
 }
 
 function preferredParseCommand() {
@@ -230,7 +226,7 @@ async function ensureCompilerAvailable(compiler) {
         ? `${compiler.command} ${compiler.args.join(" ")}`
         : compiler.command;
     const action = await vscode.window.showErrorMessage(
-      `Vektor Flow: compiler is not available (${configuredPath}). Check vektorflow.compilerPath or vektorflow.pythonPath.`,
+      `Vektor Flow: compiler is not available (${configuredPath}). Check vektorflow.compilerPath.`,
       "Open Settings"
     );
     if (action === "Open Settings") {

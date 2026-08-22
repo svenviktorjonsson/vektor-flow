@@ -1114,13 +1114,12 @@ The same rule applies to every future feature: it enters the numbered native gui
 
 The native compiler is under `compiler/native`. The self-hosted standard-library sources are under `compiler/self_hosted/stdlib`.
 
-Generate the runnable README examples:
+Compiler, runtime, standard-library, packaging, and test paths contain and
+invoke no Python. Cross-language benchmark fixtures are isolated under
+`benchmarks/core-comparison` and never participate in those paths.
 
-```bash
-python scripts/generate_readme_examples.py
-```
-
-Python is development orchestration here; it is not a dependency of the installed compiler or compiled VKF programs.
+The runnable guide examples are committed under `examples/generated/readme` and
+verified by the native release workflow.
 
 The 0.1.1 acceptance suite is run by VKF itself:
 

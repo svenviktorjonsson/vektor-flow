@@ -14,7 +14,7 @@ This is the first seam that all three workstreams must share.
 
 See also:
 
-- [python-free-ui-runtime-roadmap.md](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\docs\architecture\python-free-ui-runtime-roadmap.md)
+- [compiled-ui-export-contract.md](compiled-ui-export-contract.md)
 - [../adr/0001-ui-runtime-shared-memory-gpu.md](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\docs\adr\0001-ui-runtime-shared-memory-gpu.md)
 
 ## Goals

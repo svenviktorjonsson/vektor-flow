@@ -39,10 +39,8 @@ Important properties of the contract:
 - points-only geometry may omit `add_simplices` entirely in the future system
 - faces are simplex faces, not generic rendered patches
 
-Today this contract is normalized in:
-
-- [vektorflow/native_scene_topology.py](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\vektorflow\native_scene_topology.py)
-- [vektorflow/native_overlay_scene_bundle.py](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\vektorflow\native_overlay_scene_bundle.py)
+The legacy normalization implementation has been removed. Replacement ownership
+must live in the native compiler and overlay contracts before `ui` ships.
 
 ## Embedding Contract
 
@@ -95,10 +93,8 @@ So:
 - topology says what exists
 - embedding says how it is drawn
 
-Today this contract is owned by:
-
-- [vektorflow/ui/representation_runtime.py](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\vektorflow\ui\representation_runtime.py)
-- [vektorflow/stdlib/ui.py](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\vektorflow\stdlib\ui.py)
+The legacy owner has been removed. The contract remains design input for the
+future native `ui` module and is not part of the 0.1.x release surface.
 
 ## Existing Selectors
 

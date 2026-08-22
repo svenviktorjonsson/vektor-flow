@@ -147,11 +147,6 @@
           },
           "description": "Extra arguments inserted before the Vektor Flow subcommand."
         },
-        "vektorflow.pythonPath": {
-          "type": "string",
-          "default": "python",
-          "description": "Legacy fallback used only when vektorflow.compilerPath is blank. It runs python -m vektorflow.cli."
-        },
         "vektorflow.useNativeCoreCommands": {
           "type": "boolean",
           "default": true,

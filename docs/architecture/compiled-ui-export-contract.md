@@ -8,8 +8,7 @@ The goal is to replace "compiled VKF program with `main()`" with
 See also:
 
 - [ui-runtime-arena-abi.md](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\docs\architecture\ui-runtime-arena-abi.md)
-- [python-free-ui-runtime-roadmap.md](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\docs\architecture\python-free-ui-runtime-roadmap.md)
-- [../ui-runtime-tracer-bullet.md](C:\Users\viktor.jonsson\OneDrive%20-%20CellMax%20Technologies%20AB\Documents\Repositories\svenviktorjonsson\vektor-flow\docs\ui-runtime-tracer-bullet.md)
+- [ui-runtime-arena-abi.md](ui-runtime-arena-abi.md)
 
 ## Purpose
 

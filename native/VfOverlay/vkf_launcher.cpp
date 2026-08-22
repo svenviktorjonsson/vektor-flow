@@ -264,7 +264,7 @@ fs::path FindRepoRootFrom(const fs::path& start) {
         current = current.parent_path();
     }
     while (!current.empty()) {
-        if (fs::exists(current / L"pyproject.toml", ec) &&
+        if (fs::exists(current / L"package.json", ec) &&
             fs::exists(current / L"native" / L"VfOverlay", ec) &&
             fs::exists(current / L"web" / L"vf-ui", ec)) {
             return current;

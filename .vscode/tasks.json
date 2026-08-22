@@ -4,8 +4,8 @@
     {
       "label": "vkf: run current file",
       "type": "shell",
-      "command": "python",
-      "args": ["-m", "vektorflow.cli", "${file}"],
+      "command": "vkf",
+      "args": ["${file}"],
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -16,10 +16,10 @@
       "problemMatcher": []
     },
     {
-      "label": "vkf: tokens (current file)",
+      "label": "vkf: test current file",
       "type": "shell",
-      "command": "python",
-      "args": ["-m", "vektorflow.cli", "tokens", "${file}"],
+      "command": "vkf",
+      "args": ["-t", "${file}"],
       "options": {
         "cwd": "${workspaceFolder}"
       },
