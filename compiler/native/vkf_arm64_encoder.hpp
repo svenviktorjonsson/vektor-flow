@@ -2021,7 +2021,9 @@ private:
                 store_d(0, frame.offset(frame.temp_base + stack_depth - 1));
             } else if (opcode == Opcode::MonotonicF64 || opcode == Opcode::WallTimeF64) {
                 constexpr std::uint32_t scratch = 176;
-                words_.emit(opcode == Opcode::MonotonicF64 ? 0x52800020u : 0x52800000u);
+                // Darwin CLOCK_MONOTONIC is 6 (Linux uses 1). The ARM64
+                // artifact backend currently emits Mach-O programs only.
+                words_.emit(opcode == Opcode::MonotonicF64 ? 0x528000c0u : 0x52800000u);
                 words_.emit(0x91000000u | (scratch << 10) | (19u << 5) | 1u);
                 call_runtime_slot(opcode == Opcode::MonotonicF64 ? 15 : 17);
                 words_.emit(0xf9400269u | ((scratch / 8u) << 10));

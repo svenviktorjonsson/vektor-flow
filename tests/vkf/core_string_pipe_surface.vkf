@@ -8,4 +8,5 @@ string_pipe_decodes_and_encodes_utf8() -> bit:
 
 string_pipe_decodes_four_byte_utf8() -> bit:
     result: "😀" >> $ & $
+    :: "[DEBUG-utf8-a4f2] " & result
     (result == "😀😀")?!
