@@ -29,7 +29,7 @@ Its central ideas are bindings that build scope, blocks that return values, call
 - moved native test artifacts out of source discovery, restored the original public-test convention, and added the full `vkf -t tests/vkf` release gate;
 - replaced the narrow synthetic release benchmark with 100 fresh compiles and 100 full-process runs of every documented example, including exact output proof and a 20-million-operation container stress case.
 
-Windows verification currently reports **279 passed, 0 failed** through the native VKF test runner. Linux x64 and macOS ARM64 must produce the same result before the release workflow can publish 0.1.1.
+Release verification reports **279 passed, 0 failed on each of Windows x64, Linux x64, and macOS ARM64** through the native VKF test runner.
 
 ### 0.1.0 — First Native Preview
 
@@ -97,9 +97,9 @@ calibrated to run for roughly 100 ms after warmup on the Windows proof machine.
 
 | 0.1.1 proof target | Conditions | Examples | Compile/run samples per example | Result | Full report |
 | --- | --- | ---: | ---: | --- | --- |
-| Windows x64 | Windows 11 build 26200; Intel Core Ultra 7 255U, 14 logical CPUs | 59 | 100 / 100 | all stable; container mean 105.330 ms | [exact output and timings](benchmarks/readme-examples/results/windows-x64-011-local.md) |
-| Linux x64 | GitHub `ubuntu-22.04`; exact runner CPU recorded in report | 59 | 100 / 100 | pending tagged workflow | produced by release workflow |
-| macOS ARM64 | GitHub `macos-15`; exact runner CPU recorded in report | 59 | 100 / 100 | pending tagged workflow | produced by release workflow |
+| Windows x64 | Windows 11 build 26100; AMD EPYC 7763, 4 logical CPUs | 59 | 100 / 100 | all stable; container mean 103.219 ms | [exact output and timings](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.1.1/windows-x64-011.md) |
+| Linux x64 | Linux 6.8.0-1064-azure; AMD EPYC 7763, 4 logical CPUs | 59 | 100 / 100 | all stable; container mean 84.872 ms | [exact output and timings](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.1.1/linux-x64-011.md) |
+| macOS ARM64 | Darwin 24.6.0; virtual Apple M1, 3 logical CPUs | 59 | 100 / 100 | all stable; container mean 74.602 ms | [exact output and timings](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.1.1/macos-arm64-011.md) |
 
 ### Native 0.1.1 Scope
 
