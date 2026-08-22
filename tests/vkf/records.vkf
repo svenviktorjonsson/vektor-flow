@@ -29,6 +29,11 @@ record_spill_composes_constructor_scope() -> bit:
     value: _colored_point(3, 4, "red")
     (value.x + value.y == 7 /\ value.color == "red")?!
 
+constant_parameter_optimization_preserves_distinct_record_layouts() -> bit:
+    base: _base_point(3, 4)
+    colored: _colored_point(3, 4, "red")
+    (base.x == 3 /\ base.y == 4 /\ colored.x == 3 /\ colored.color == "red")?!
+
 record_resource_update() -> bit:
     [num] initial: [1, 2]
     value: (text: "hel" & "lo", values: initial)

@@ -20,7 +20,7 @@ and n-body kernels. Exact seven-language source and output are verified. Direct
 x64 lowering removes proven fixed-vector checks, evaluates long numeric
 expressions in registers, and keeps hot proven indices in integer registers.
 Unproven and fractional indices retain their errors. The release gate contains
-300 native VKF tests plus fresh 100-run proof.
+301 native VKF tests plus fresh 100-run proof.
 
 ### 0.1.3 — Native Numeric Optimization
 
@@ -2285,7 +2285,7 @@ The 0.1.4 acceptance suite is run by VKF itself:
 vkf -t tests/vkf
 ```
 
-The expected result is `300 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
+The expected result is `301 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
 
 VS Code syntax support is under [`vscode/`](../vscode/README.md).
 

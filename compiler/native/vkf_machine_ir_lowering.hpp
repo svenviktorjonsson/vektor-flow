@@ -12703,6 +12703,16 @@ inline void propagate_constant_numeric_parameters(Module& module) {
     for (std::size_t function_index = 0; function_index < module.functions.size(); ++function_index) {
         auto& function = module.functions[function_index];
         auto& parameters = constants[function_index];
+        const bool returns_numeric_scalar = std::any_of(
+            function.instructions.begin(), function.instructions.end(),
+            [](const auto& instruction) {
+                return instruction.opcode == Opcode::ReturnF64;
+            }) && std::none_of(
+            function.instructions.begin(), function.instructions.end(),
+            [](const auto& instruction) {
+                return instruction.opcode == Opcode::ReturnValues;
+            });
+        if (!returns_numeric_scalar) continue;
         for (std::size_t parameter = 0; parameter < parameters.size(); ++parameter) {
             auto& state = parameters[parameter];
             if (!state.seen || !state.valid) continue;

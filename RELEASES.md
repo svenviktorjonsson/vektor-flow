@@ -8,8 +8,8 @@ verified; VKF, C, Rust, and Zig receive raw in-process timing.
 
 x64 lowering now removes only proven fixed-vector checks, evaluates long numeric
 expressions in registers, preserves hot proven indices in integer registers,
-and conservatively propagates literal-only parameters. Linux numeric output is
-single-line. The release gate is 300 native VKF tests plus 100-run documented
+and conservatively propagates literal-only parameters in numeric-scalar
+functions. Linux numeric output is single-line. The release gate is 301 native VKF tests plus 100-run documented
 program and comparison proof. Full details: [`docs/releases/0.1.4.md`](docs/releases/0.1.4.md).
 
 ## 0.1.3 — Native Numeric Optimization

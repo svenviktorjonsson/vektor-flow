@@ -80,7 +80,7 @@ RUN set -eux; mkdir -p /bench \
     && grep -q '"artifact_fallback":false' /bench/bit-output-summary.json \
     && grep -q '"artifact_fallback":false' /bench/multiset-summary.json \
     && grep -q '"artifact_fallback":false' /bench/dynamic-list-builder-summary.json \
-    && grep -q '300 passed, 0 failed' /bench/vkftest-summary.txt \
+    && grep -q '301 passed, 0 failed' /bench/vkftest-summary.txt \
     && grep -q '"artifact_fallback":false' /bench/math-summary.json \
     && grep -q '"stdout":"11\\n"' /bench/math-summary.json \
     && test "$(/bench/.vkfbuild/scalar/scalar)" = "21.017288693559877" \

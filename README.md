@@ -322,7 +322,7 @@ The 0.1.4 native release includes `math`, `stat`, `random`, `time`, `io`,
 `collections`, `errors`, `system`, `process`, and `regex`. Only fully native,
 verified libraries ship. `physics`, `ui`, and `symbolic` remain future work.
 
-The release gate currently contains **300 VKF tests** plus 59 documented-program
+The release gate currently contains **301 VKF tests** plus 59 documented-program
 checks. Final Windows/Linux/macOS pass counts and timing evidence are inserted
 only from the exact tagged release compilers.
 
@@ -359,7 +359,7 @@ vector; `process.shell` invokes a platform shell and must be treated as unsafe.
 - every language implementation has exact published source and checked output;
 - raw in-process kernel timing now covers VKF, C, Rust, and Zig;
 - x64 lowering eliminates proven fixed-vector bounds checks, keeps hot indices in integer registers, and evaluates long numeric expressions in registers;
-- literal-only call parameters propagate conservatively when every call agrees;
+- literal-only call parameters propagate conservatively in numeric-scalar functions when every call agrees;
 - Linux numeric output no longer writes a duplicate line;
 - the native suite adds scalar-recurrence and fractional-index regression coverage.
 
