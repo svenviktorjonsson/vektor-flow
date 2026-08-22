@@ -24,7 +24,7 @@ const packageMetadata = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'
 function parseOptions(argv) {
   const defaults = platform() === 'win32'
     ? resolve(repoRoot, 'build', 'native-compiler-clang', 'bin', 'vkf-strict.exe')
-    : resolve(repoRoot, 'build', 'native-compiler', 'vkf-strict');
+    : resolve(repoRoot, 'build', 'native-compiler', 'bin', 'vkf-strict');
   const options = {
     compiler: defaults,
     compileRuns: 100,

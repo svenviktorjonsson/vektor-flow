@@ -98,12 +98,12 @@ jobs:
           cmake --build build/native-compiler --parallel 2 --target vkf_strict
 
       - name: Run full native VKF release suite
-        run: build/native-compiler/vkf-strict -t tests/vkf
+        run: build/native-compiler/bin/vkf-strict -t tests/vkf
 
       - name: Compile and run every README example 100 times
         run: >-
           node benchmarks/readme-examples/run.mjs
-          --compiler=build/native-compiler/vkf-strict
+          --compiler=build/native-compiler/bin/vkf-strict
           --compile-runs=100
           --compile-warmups=1
           --runs=100
@@ -151,12 +151,12 @@ jobs:
           cmake --build build/native-compiler --parallel 2 --target vkf_strict
 
       - name: Run full native VKF release suite
-        run: build/native-compiler/vkf-strict -t tests/vkf
+        run: build/native-compiler/bin/vkf-strict -t tests/vkf
 
       - name: Compile and run every README example 100 times
         run: >-
           node benchmarks/readme-examples/run.mjs
-          --compiler=build/native-compiler/vkf-strict
+          --compiler=build/native-compiler/bin/vkf-strict
           --compile-runs=100
           --compile-warmups=1
           --runs=100

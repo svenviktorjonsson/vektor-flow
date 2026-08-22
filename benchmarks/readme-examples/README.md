@@ -16,7 +16,7 @@ the one persistent compiler process.
 
 ```bash
 node benchmarks/readme-examples/run.mjs \
-  --compiler=build/native-compiler/vkf-strict \
+  --compiler=build/native-compiler/bin/vkf-strict \
   --compile-runs=100 \
   --compile-warmups=1 \
   --runs=100 \
