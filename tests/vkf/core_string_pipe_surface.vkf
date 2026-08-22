@@ -7,6 +7,12 @@ string_pipe_decodes_and_encodes_utf8() -> bit:
     (result == "ååAA")?!
 
 string_pipe_decodes_four_byte_utf8() -> bit:
-    result: "😀" >> $ & $
-    :: "[DEBUG-utf8-a4f2] " & result
-    true
+    result: "😀" >>
+        $ > chr(65535)?
+            @: "A"
+        "B"
+    (result == "A")?!
+
+string_pipe_encodes_four_byte_utf8() -> bit:
+    result: "x" >> chr(128512)
+    (result == "😀")?!
