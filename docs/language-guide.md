@@ -151,13 +151,13 @@ These are the machines and conditions behind every inline table:
 <!-- readme-platform-evidence:start -->
 | Detail | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | --- | --- | --- |
-| Measured UTC | `2026-08-22T17:31:44.226Z` | `2026-08-22T17:29:30.803Z` | `2026-08-22T17:27:45.298Z` |
+| Measured UTC | `2026-08-23T02:11:25.809Z` | `2026-08-23T02:08:03.223Z` | `2026-08-23T02:07:02.904Z` |
 | OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
 | Architecture | `x64` | `x64` | `arm64` |
-| CPU | AMD EPYC 7763 64-Core Processor | AMD EPYC 7763 64-Core Processor | Apple M1 (Virtual) |
+| CPU | AMD EPYC 7763 64-Core Processor | AMD EPYC 9V74 80-Core Processor | Apple M1 (Virtual) |
 | Logical CPUs | 4 | 4 | 3 |
-| Compiler size | 3,744,256 bytes | 4,890,784 bytes | 2,205,816 bytes |
-| Compiler SHA-256 | `c26d52308601c1c3c504f1e9b8b510eeaaa7c367fad1862c67577913cf401575` | `d0a09e7c30878a17f23b15fbba64aa11e66250cb9b0e5aa0d68685b76355b6cb` | `e0bfea97f6f03ce33bfbef9b509aab31f4a987ab395a3e57bd6b06ae0c1ee3ef` |
+| Compiler size | 3,946,496 bytes | 5,101,192 bytes | 2,241,416 bytes |
+| Compiler SHA-256 | `1f36f73dc53d09bfdc49f4d5b4fc880b11c6e5a4105a574a0820428ae8ec5658` | `3abcd90338a949e99d375eb36a4c64fe90cb03b16087e1fb9733190918150310` | `34225070a2dcf5940f62d69091f35a4cc831b82a17aa71bf8fffc1ad6ceb8b34` |
 | Timing host | v22.23.2 `Node performance.now()` | v22.23.2 `Node performance.now()` | v22.23.1 `Node performance.now()` |
 <!-- readme-platform-evidence:end -->
 
@@ -226,8 +226,8 @@ num scaled: value * 2
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.402 ± 0.222 ms | 0.453 ± 0.020 ms | 0.716 ± 0.064 ms |
-| Runtime | 19.992 ± 5.856 ms | 2.019 ± 0.078 ms | 1.568 ± 0.115 ms |
+| Compile | 2.741 ± 0.807 ms | 0.523 ± 0.014 ms | 1.029 ± 0.333 ms |
+| Runtime | 18.310 ± 1.831 ms | 1.915 ± 0.060 ms | 2.346 ± 0.537 ms |
 
 <!-- readme-evidence:end -->
 
@@ -252,8 +252,8 @@ b: (a: 3) + 1
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.455 ± 14.337 ms | 0.325 ± 0.017 ms | 0.658 ± 0.063 ms |
-| Runtime | 19.827 ± 2.273 ms | 2.030 ± 0.112 ms | 1.559 ± 0.129 ms |
+| Compile | 2.264 ± 0.407 ms | 0.382 ± 0.012 ms | 1.253 ± 3.307 ms |
+| Runtime | 18.255 ± 1.529 ms | 1.914 ± 0.064 ms | 2.320 ± 0.488 ms |
 
 <!-- readme-evidence:end -->
 
@@ -297,8 +297,8 @@ red
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 18.865 ± 54.453 ms | 1.061 ± 0.018 ms | 1.046 ± 0.087 ms |
-| Runtime | 19.954 ± 6.681 ms | 2.079 ± 0.104 ms | 1.567 ± 0.142 ms |
+| Compile | 11.791 ± 9.536 ms | 1.270 ± 0.014 ms | 1.526 ± 0.464 ms |
+| Runtime | 18.041 ± 1.455 ms | 1.970 ± 0.080 ms | 2.294 ± 0.500 ms |
 
 <!-- readme-evidence:end -->
 
@@ -324,8 +324,8 @@ answer: 6 * 7
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.122 ± 0.183 ms | 0.349 ± 0.016 ms | 0.716 ± 0.132 ms |
-| Runtime | 19.731 ± 4.662 ms | 2.047 ± 0.102 ms | 1.571 ± 0.119 ms |
+| Compile | 2.369 ± 0.818 ms | 0.426 ± 0.013 ms | 1.007 ± 0.317 ms |
+| Runtime | 18.154 ± 1.627 ms | 1.921 ± 0.054 ms | 2.331 ± 0.517 ms |
 
 <!-- readme-evidence:end -->
 
@@ -348,8 +348,8 @@ test needs_input(value:int) -> bit:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.080 ± 1.150 ms | 0.375 ± 0.022 ms | 0.689 ± 0.072 ms |
-| Runtime | 19.432 ± 2.346 ms | 2.003 ± 0.080 ms | 1.530 ± 0.095 ms |
+| Compile | 2.086 ± 0.273 ms | 0.441 ± 0.016 ms | 0.965 ± 0.294 ms |
+| Runtime | 18.145 ± 1.667 ms | 1.896 ± 0.051 ms | 2.255 ± 0.380 ms |
 
 <!-- readme-evidence:end -->
 
@@ -391,8 +391,8 @@ null
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.796 ± 0.336 ms | 0.770 ± 0.063 ms | 0.902 ± 0.076 ms |
-| Runtime | 19.652 ± 2.350 ms | 2.063 ± 0.084 ms | 1.559 ± 0.107 ms |
+| Compile | 4.139 ± 0.609 ms | 0.925 ± 0.009 ms | 1.251 ± 0.418 ms |
+| Runtime | 18.141 ± 1.494 ms | 1.955 ± 0.052 ms | 2.220 ± 0.359 ms |
 
 <!-- readme-evidence:end -->
 
@@ -424,8 +424,8 @@ type_scope:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.074 ± 0.484 ms | 0.552 ± 0.032 ms | 0.798 ± 0.073 ms |
-| Runtime | 20.157 ± 5.576 ms | 2.043 ± 0.095 ms | 1.571 ± 0.132 ms |
+| Compile | 4.282 ± 0.605 ms | 0.651 ± 0.013 ms | 1.170 ± 0.399 ms |
+| Runtime | 18.275 ± 1.641 ms | 1.932 ± 0.047 ms | 2.260 ± 0.466 ms |
 
 <!-- readme-evidence:end -->
 
@@ -460,8 +460,8 @@ sum=5 point=(x:2, y:false) cost=$5
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.084 ± 0.354 ms | 0.672 ± 0.018 ms | 0.870 ± 0.106 ms |
-| Runtime | 20.073 ± 4.451 ms | 2.042 ± 0.084 ms | 1.566 ± 0.141 ms |
+| Compile | 4.376 ± 0.646 ms | 0.813 ± 0.012 ms | 1.268 ± 0.456 ms |
+| Runtime | 18.424 ± 1.595 ms | 1.948 ± 0.056 ms | 2.266 ± 0.439 ms |
 
 <!-- readme-evidence:end -->
 
@@ -494,8 +494,8 @@ origin
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.100 ± 0.338 ms | 0.668 ± 0.017 ms | 0.874 ± 0.104 ms |
-| Runtime | 20.680 ± 5.040 ms | 2.037 ± 0.085 ms | 1.567 ± 0.164 ms |
+| Compile | 3.722 ± 3.514 ms | 0.824 ± 0.013 ms | 1.240 ± 0.425 ms |
+| Runtime | 18.565 ± 1.777 ms | 1.951 ± 0.170 ms | 2.226 ± 0.434 ms |
 
 <!-- readme-evidence:end -->
 
@@ -528,8 +528,8 @@ dynamic.1: 20
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.927 ± 0.310 ms | 0.593 ± 0.020 ms | 0.824 ± 0.088 ms |
-| Runtime | 20.102 ± 6.755 ms | 2.078 ± 0.088 ms | 1.562 ± 0.112 ms |
+| Compile | 4.377 ± 0.815 ms | 0.710 ± 0.014 ms | 1.122 ± 0.333 ms |
+| Runtime | 18.356 ± 1.661 ms | 1.991 ± 0.163 ms | 2.263 ± 0.466 ms |
 
 <!-- readme-evidence:end -->
 
@@ -554,8 +554,8 @@ dynamic: collections.list(1, 2) & collections.list(3)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.448 ± 0.267 ms | 0.562 ± 0.019 ms | 0.790 ± 0.076 ms |
-| Runtime | 20.489 ± 9.275 ms | 2.042 ± 0.084 ms | 1.958 ± 4.150 ms |
+| Compile | 3.884 ± 0.685 ms | 0.676 ± 0.012 ms | 1.104 ± 0.352 ms |
+| Runtime | 18.269 ± 1.464 ms | 1.956 ± 0.085 ms | 2.283 ± 0.438 ms |
 
 <!-- readme-evidence:end -->
 
@@ -590,8 +590,8 @@ container_work(n:int) -> int:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.414 ± 1.015 ms | 1.036 ± 0.017 ms | 1.203 ± 1.771 ms |
-| Runtime | 51.905 ± 7.465 ms | 32.476 ± 0.199 ms | 38.937 ± 0.948 ms |
+| Compile | 5.891 ± 1.041 ms | 1.267 ± 0.048 ms | 1.402 ± 0.384 ms |
+| Runtime | 49.997 ± 3.010 ms | 36.702 ± 0.714 ms | 42.234 ± 4.268 ms |
 
 <!-- readme-evidence:end -->
 
@@ -633,8 +633,8 @@ Point(x:5, y:6, name:my point)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.781 ± 0.356 ms | 1.011 ± 0.016 ms | 1.011 ± 0.116 ms |
-| Runtime | 20.050 ± 2.382 ms | 2.291 ± 0.103 ms | 1.718 ± 0.191 ms |
+| Compile | 6.685 ± 2.661 ms | 1.203 ± 0.046 ms | 1.470 ± 0.511 ms |
+| Runtime | 19.037 ± 1.517 ms | 2.171 ± 0.218 ms | 2.594 ± 0.370 ms |
 
 <!-- readme-evidence:end -->
 
@@ -670,8 +670,8 @@ right: {"a":2, "c":2}
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 55.124 ± 1.518 ms | 1.450 ± 0.081 ms | 1.626 ± 0.148 ms |
-| Runtime | 19.484 ± 2.197 ms | 2.098 ± 0.073 ms | 1.585 ± 0.100 ms |
+| Compile | 64.885 ± 8.911 ms | 1.937 ± 0.157 ms | 2.326 ± 0.683 ms |
+| Runtime | 18.563 ± 1.645 ms | 1.997 ± 0.194 ms | 2.338 ± 0.410 ms |
 
 <!-- readme-evidence:end -->
 
@@ -698,8 +698,8 @@ right: {"a":2, "c":2}
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.351 ± 0.152 ms | 0.381 ± 0.017 ms | 0.677 ± 0.066 ms |
-| Runtime | 19.414 ± 2.293 ms | 2.074 ± 0.072 ms | 1.559 ± 0.123 ms |
+| Compile | 2.592 ± 0.463 ms | 0.468 ± 0.022 ms | 0.959 ± 0.252 ms |
+| Runtime | 18.489 ± 1.592 ms | 1.973 ± 0.132 ms | 2.324 ± 0.528 ms |
 
 <!-- readme-evidence:end -->
 
@@ -725,8 +725,8 @@ z: num(1, 2)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.863 ± 0.193 ms | 0.480 ± 0.015 ms | 0.766 ± 0.086 ms |
-| Runtime | 19.474 ± 2.485 ms | 2.039 ± 0.083 ms | 1.546 ± 0.079 ms |
+| Compile | 7.257 ± 5.067 ms | 0.560 ± 0.026 ms | 1.135 ± 0.352 ms |
+| Runtime | 18.467 ± 1.572 ms | 1.951 ± 0.169 ms | 2.258 ± 0.393 ms |
 
 <!-- readme-evidence:end -->
 
@@ -753,8 +753,8 @@ z: num(1, 2)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.034 ± 0.281 ms | 0.486 ± 0.015 ms | 0.748 ± 0.097 ms |
-| Runtime | 19.591 ± 2.492 ms | 2.021 ± 0.077 ms | 1.550 ± 0.090 ms |
+| Compile | 3.427 ± 0.924 ms | 0.605 ± 0.034 ms | 1.075 ± 0.399 ms |
+| Runtime | 18.330 ± 1.716 ms | 1.926 ± 0.080 ms | 2.230 ± 0.423 ms |
 
 <!-- readme-evidence:end -->
 
@@ -786,8 +786,8 @@ member_names: {:point.}
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 7.329 ± 0.562 ms | 0.693 ± 0.040 ms | 0.878 ± 0.094 ms |
-| Runtime | 19.742 ± 2.345 ms | 2.046 ± 0.089 ms | 1.543 ± 0.137 ms |
+| Compile | 8.168 ± 1.486 ms | 0.799 ± 0.031 ms | 1.204 ± 0.275 ms |
+| Runtime | 18.470 ± 1.802 ms | 1.951 ± 0.061 ms | 2.236 ± 0.430 ms |
 
 <!-- readme-evidence:end -->
 
@@ -807,8 +807,8 @@ member_names: {:point.}
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 1.787 ± 0.145 ms | 0.235 ± 0.015 ms | 0.605 ± 0.066 ms |
-| Runtime | 19.684 ± 2.270 ms | 2.007 ± 0.083 ms | 1.580 ± 0.503 ms |
+| Compile | 2.105 ± 0.611 ms | 0.272 ± 0.014 ms | 0.830 ± 0.225 ms |
+| Runtime | 18.246 ± 1.496 ms | 1.920 ± 0.071 ms | 2.189 ± 0.409 ms |
 
 <!-- readme-evidence:end -->
 
@@ -845,8 +845,8 @@ null
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 18.865 ± 92.750 ms | 0.607 ± 0.016 ms | 0.796 ± 0.081 ms |
-| Runtime | 19.347 ± 2.163 ms | 2.026 ± 0.094 ms | 1.537 ± 0.073 ms |
+| Compile | 11.773 ± 18.862 ms | 0.740 ± 0.039 ms | 1.166 ± 0.415 ms |
+| Runtime | 18.286 ± 1.616 ms | 1.913 ± 0.073 ms | 2.269 ± 0.462 ms |
 
 <!-- readme-evidence:end -->
 
@@ -876,8 +876,8 @@ weighted(x:num, y:num=x + 1, z:num=y + 1) -> num:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.700 ± 0.889 ms | 0.750 ± 0.020 ms | 0.883 ± 0.091 ms |
-| Runtime | 19.394 ± 2.090 ms | 2.034 ± 0.087 ms | 1.553 ± 0.129 ms |
+| Compile | 4.112 ± 1.564 ms | 0.936 ± 0.052 ms | 1.247 ± 0.387 ms |
+| Runtime | 18.397 ± 1.763 ms | 1.935 ± 0.088 ms | 2.331 ± 0.523 ms |
 
 <!-- readme-evidence:end -->
 
@@ -914,8 +914,8 @@ add_two: make_offset(2)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.725 ± 0.376 ms | 0.907 ± 0.016 ms | 0.954 ± 0.081 ms |
-| Runtime | 19.464 ± 2.090 ms | 2.023 ± 0.096 ms | 1.556 ± 0.116 ms |
+| Compile | 4.240 ± 0.639 ms | 1.098 ± 0.042 ms | 1.368 ± 0.404 ms |
+| Runtime | 18.329 ± 1.503 ms | 1.925 ± 0.067 ms | 2.285 ± 0.438 ms |
 
 <!-- readme-evidence:end -->
 
@@ -950,8 +950,8 @@ square: (value): value^2
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.373 ± 0.316 ms | 0.834 ± 0.018 ms | 0.897 ± 0.082 ms |
-| Runtime | 19.357 ± 2.100 ms | 2.041 ± 0.086 ms | 1.556 ± 0.114 ms |
+| Compile | 3.996 ± 0.661 ms | 1.030 ± 0.070 ms | 1.203 ± 0.261 ms |
+| Runtime | 18.333 ± 1.829 ms | 1.936 ± 0.065 ms | 2.350 ± 0.602 ms |
 
 <!-- readme-evidence:end -->
 
@@ -990,8 +990,8 @@ point: (y:4, x:3)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.260 ± 0.216 ms | 1.059 ± 0.016 ms | 1.061 ± 0.116 ms |
-| Runtime | 19.568 ± 2.051 ms | 2.060 ± 0.084 ms | 1.531 ± 0.077 ms |
+| Compile | 4.891 ± 0.814 ms | 1.289 ± 0.052 ms | 1.512 ± 0.409 ms |
+| Runtime | 18.486 ± 1.585 ms | 1.963 ± 0.052 ms | 2.288 ± 0.425 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1017,8 +1017,8 @@ values: (:(1, 2), :[3, 4])
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.302 ± 0.178 ms | 0.416 ± 0.016 ms | 0.701 ± 0.079 ms |
-| Runtime | 19.604 ± 2.306 ms | 2.041 ± 0.098 ms | 1.528 ± 0.072 ms |
+| Compile | 2.536 ± 0.476 ms | 0.497 ± 0.019 ms | 1.007 ± 0.329 ms |
+| Runtime | 18.538 ± 1.764 ms | 1.940 ± 0.055 ms | 2.343 ± 0.537 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1045,8 +1045,8 @@ join(x:[int:n], y:[int:m]) -> [int:n+m]:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.445 ± 0.435 ms | 0.705 ± 0.017 ms | 0.891 ± 0.079 ms |
-| Runtime | 19.754 ± 2.218 ms | 2.045 ± 0.095 ms | 1.547 ± 0.141 ms |
+| Compile | 3.672 ± 0.501 ms | 0.810 ± 0.031 ms | 1.325 ± 0.472 ms |
+| Runtime | 18.529 ± 1.626 ms | 1.945 ± 0.062 ms | 2.345 ± 0.523 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1077,8 +1077,8 @@ sum_pair(value:any) -> num:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.750 ± 0.247 ms | 0.669 ± 0.016 ms | 0.824 ± 0.109 ms |
-| Runtime | 19.764 ± 2.330 ms | 2.005 ± 0.084 ms | 1.536 ± 0.075 ms |
+| Compile | 3.091 ± 0.510 ms | 0.828 ± 0.081 ms | 1.181 ± 0.340 ms |
+| Runtime | 18.404 ± 1.898 ms | 1.915 ± 0.062 ms | 2.322 ± 0.491 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1111,8 +1111,8 @@ result: double(point)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.584 ± 0.321 ms | 0.596 ± 0.019 ms | 0.812 ± 0.065 ms |
-| Runtime | 20.108 ± 2.077 ms | 2.062 ± 0.101 ms | 1.553 ± 0.151 ms |
+| Compile | 3.830 ± 0.570 ms | 0.724 ± 0.065 ms | 1.166 ± 0.340 ms |
+| Runtime | 18.615 ± 1.561 ms | 1.948 ± 0.051 ms | 2.363 ± 0.508 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1145,8 +1145,8 @@ unchanged: halve((name:"only metadata", enabled:true))
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 13.188 ± 36.516 ms | 0.686 ± 0.016 ms | 0.865 ± 0.096 ms |
-| Runtime | 19.688 ± 2.025 ms | 2.058 ± 0.086 ms | 1.543 ± 0.079 ms |
+| Compile | 10.407 ± 10.886 ms | 0.837 ± 0.037 ms | 1.279 ± 0.428 ms |
+| Runtime | 18.665 ± 1.977 ms | 1.967 ± 0.066 ms | 2.308 ± 0.473 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1177,8 +1177,8 @@ data: [
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.975 ± 0.327 ms | 0.704 ± 0.015 ms | 0.869 ± 0.079 ms |
-| Runtime | 19.786 ± 2.268 ms | 2.071 ± 0.082 ms | 1.534 ± 0.101 ms |
+| Compile | 4.301 ± 1.227 ms | 0.851 ± 0.038 ms | 1.333 ± 0.487 ms |
+| Runtime | 18.458 ± 1.658 ms | 1.990 ± 0.072 ms | 2.348 ± 0.661 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1212,8 +1212,8 @@ matrix: [[1, 2], [3, 4], [5, 6]]
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.836 ± 0.377 ms | 1.122 ± 0.019 ms | 1.093 ± 0.113 ms |
-| Runtime | 19.690 ± 2.115 ms | 2.072 ± 0.103 ms | 1.545 ± 0.134 ms |
+| Compile | 5.689 ± 2.710 ms | 1.348 ± 0.066 ms | 1.536 ± 0.356 ms |
+| Runtime | 18.382 ± 1.684 ms | 1.967 ± 0.056 ms | 2.259 ± 0.389 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1239,8 +1239,8 @@ rotate(values:[int:3]) -> [int:3]:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.386 ± 0.305 ms | 0.515 ± 0.018 ms | 0.749 ± 0.105 ms |
-| Runtime | 19.895 ± 2.290 ms | 2.016 ± 0.091 ms | 1.543 ± 0.101 ms |
+| Compile | 2.689 ± 1.225 ms | 0.617 ± 0.027 ms | 1.101 ± 0.428 ms |
+| Runtime | 18.474 ± 1.727 ms | 1.910 ± 0.037 ms | 2.272 ± 0.446 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1289,8 +1289,8 @@ data: (
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 21.735 ± 1.480 ms | 5.936 ± 0.195 ms | 3.903 ± 0.214 ms |
-| Runtime | 19.793 ± 2.378 ms | 2.114 ± 0.120 ms | 1.554 ± 0.104 ms |
+| Compile | 24.844 ± 3.563 ms | 7.529 ± 0.213 ms | 5.146 ± 0.806 ms |
+| Runtime | 18.403 ± 1.718 ms | 2.011 ± 0.072 ms | 2.361 ± 0.554 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1339,8 +1339,8 @@ nan
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.720 ± 0.350 ms | 0.477 ± 0.040 ms | 0.721 ± 0.100 ms |
-| Runtime | 19.558 ± 2.216 ms | 2.005 ± 0.081 ms | 1.559 ± 0.124 ms |
+| Compile | 2.936 ± 0.533 ms | 0.522 ± 0.013 ms | 1.083 ± 0.346 ms |
+| Runtime | 18.207 ± 1.568 ms | 1.913 ± 0.071 ms | 2.326 ± 0.498 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1371,8 +1371,8 @@ another integer
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.925 ± 12.049 ms | 0.532 ± 0.032 ms | 0.780 ± 0.076 ms |
-| Runtime | 19.705 ± 2.130 ms | 1.985 ± 0.073 ms | 1.552 ± 0.115 ms |
+| Compile | 3.103 ± 0.577 ms | 0.622 ± 0.014 ms | 1.183 ± 0.576 ms |
+| Runtime | 18.327 ± 1.653 ms | 1.896 ± 0.063 ms | 2.362 ± 0.636 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1419,8 +1419,8 @@ switch_loop() -> int:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.363 ± 0.432 ms | 0.885 ± 0.062 ms | 0.938 ± 0.076 ms |
-| Runtime | 19.433 ± 2.039 ms | 2.004 ± 0.088 ms | 1.545 ± 0.084 ms |
+| Compile | 4.879 ± 0.802 ms | 1.056 ± 0.014 ms | 1.599 ± 2.604 ms |
+| Runtime | 18.279 ± 1.748 ms | 1.902 ± 0.045 ms | 2.330 ± 0.527 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1460,8 +1460,8 @@ specific value
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 12.180 ± 0.778 ms | 1.029 ± 0.063 ms | 1.231 ± 0.112 ms |
-| Runtime | 20.009 ± 5.642 ms | 1.997 ± 0.093 ms | 1.550 ± 0.103 ms |
+| Compile | 12.620 ± 1.421 ms | 1.144 ± 0.012 ms | 1.721 ± 0.481 ms |
+| Runtime | 18.238 ± 1.698 ms | 1.896 ± 0.060 ms | 2.379 ± 0.590 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1497,8 +1497,8 @@ as `errors.ValueError`.
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.653 ± 0.441 ms | 0.591 ± 0.038 ms | 0.836 ± 0.091 ms |
-| Runtime | 20.010 ± 2.433 ms | 2.070 ± 0.078 ms | 1.536 ± 0.093 ms |
+| Compile | 5.241 ± 0.955 ms | 0.714 ± 0.020 ms | 1.214 ± 0.369 ms |
+| Runtime | 18.429 ± 1.559 ms | 1.966 ± 0.050 ms | 2.338 ± 0.639 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1530,8 +1530,8 @@ values: (1..) >>
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 10.399 ± 15.331 ms | 0.490 ± 0.031 ms | 0.764 ± 0.111 ms |
-| Runtime | 19.750 ± 2.379 ms | 2.043 ± 0.090 ms | 1.557 ± 0.102 ms |
+| Compile | 15.030 ± 24.251 ms | 0.574 ± 0.012 ms | 1.121 ± 0.436 ms |
+| Runtime | 18.380 ± 1.473 ms | 1.935 ± 0.065 ms | 2.362 ± 0.772 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1566,8 +1566,8 @@ true
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.218 ± 0.323 ms | 0.581 ± 0.040 ms | 0.788 ± 0.065 ms |
-| Runtime | 19.772 ± 2.815 ms | 2.037 ± 0.082 ms | 1.545 ± 0.090 ms |
+| Compile | 3.639 ± 1.517 ms | 0.739 ± 0.018 ms | 1.135 ± 0.368 ms |
+| Runtime | 18.523 ± 1.743 ms | 1.943 ± 0.046 ms | 2.339 ± 0.692 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1594,8 +1594,8 @@ true
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 1.833 ± 0.185 ms | 0.255 ± 0.021 ms | 0.627 ± 0.085 ms |
-| Runtime | 19.731 ± 2.669 ms | 1.997 ± 0.089 ms | 1.552 ± 0.101 ms |
+| Compile | 1.891 ± 0.162 ms | 0.290 ± 0.010 ms | 0.900 ± 0.288 ms |
+| Runtime | 18.293 ± 1.451 ms | 1.905 ± 0.059 ms | 2.357 ± 0.614 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1628,8 +1628,8 @@ Point: (x:num, y:num)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.594 ± 0.358 ms | 0.898 ± 0.056 ms | 1.124 ± 1.343 ms |
-| Runtime | 19.360 ± 2.136 ms | 2.020 ± 0.070 ms | 1.553 ± 0.120 ms |
+| Compile | 3.978 ± 0.643 ms | 1.086 ± 0.008 ms | 1.369 ± 0.357 ms |
+| Runtime | 18.318 ± 1.549 ms | 1.926 ± 0.061 ms | 2.326 ± 0.649 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1664,8 +1664,8 @@ Pair pair: (x:3, y:4)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.386 ± 0.315 ms | 0.720 ± 0.040 ms | 0.892 ± 0.087 ms |
-| Runtime | 20.038 ± 4.472 ms | 1.998 ± 0.070 ms | 1.590 ± 0.498 ms |
+| Compile | 3.867 ± 0.788 ms | 0.855 ± 0.038 ms | 1.256 ± 0.351 ms |
+| Runtime | 18.218 ± 1.564 ms | 1.903 ± 0.054 ms | 2.210 ± 0.429 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1693,8 +1693,8 @@ cross(matrix:[[int:2]:2]) -> int:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.470 ± 0.245 ms | 0.578 ± 0.126 ms | 1.522 ± 3.869 ms |
-| Runtime | 19.429 ± 2.448 ms | 1.866 ± 0.059 ms | 1.559 ± 0.156 ms |
+| Compile | 2.815 ± 0.468 ms | 0.692 ± 0.015 ms | 1.615 ± 5.079 ms |
+| Runtime | 18.418 ± 1.864 ms | 1.804 ± 0.054 ms | 2.314 ± 0.681 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1724,8 +1724,8 @@ values.(1, 3): (21, 41)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.944 ± 0.308 ms | 0.522 ± 0.044 ms | 1.094 ± 2.709 ms |
-| Runtime | 19.186 ± 2.285 ms | 2.049 ± 0.071 ms | 1.545 ± 0.137 ms |
+| Compile | 3.218 ± 0.850 ms | 0.615 ± 0.012 ms | 1.126 ± 0.469 ms |
+| Runtime | 18.314 ± 1.586 ms | 1.948 ± 0.057 ms | 2.310 ± 0.649 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1758,8 +1758,8 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.516 ± 0.600 ms | 0.976 ± 0.049 ms | 1.872 ± 5.072 ms |
-| Runtime | 19.397 ± 3.022 ms | 2.151 ± 0.077 ms | 1.539 ± 0.129 ms |
+| Compile | 5.900 ± 0.878 ms | 1.142 ± 0.013 ms | 1.356 ± 0.429 ms |
+| Runtime | 18.343 ± 1.537 ms | 2.023 ± 0.073 ms | 2.269 ± 0.509 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1791,8 +1791,8 @@ m: .math
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 37.110 ± 3.695 ms | 11.162 ± 0.255 ms | 7.766 ± 6.412 ms |
-| Runtime | 19.201 ± 2.214 ms | 2.042 ± 0.073 ms | 1.542 ± 0.146 ms |
+| Compile | 43.212 ± 7.355 ms | 14.048 ± 1.096 ms | 8.735 ± 1.354 ms |
+| Runtime | 18.193 ± 1.495 ms | 1.919 ± 0.070 ms | 2.256 ± 0.489 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1828,8 +1828,8 @@ local() -> int:
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 18.026 ± 1.498 ms | 5.930 ± 0.364 ms | 3.796 ± 0.252 ms |
-| Runtime | 19.319 ± 2.096 ms | 2.014 ± 0.087 ms | 1.546 ± 0.142 ms |
+| Compile | 22.419 ± 4.497 ms | 7.513 ± 0.401 ms | 5.075 ± 0.944 ms |
+| Runtime | 18.138 ± 1.369 ms | 1.907 ± 0.064 ms | 2.207 ± 0.407 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1860,8 +1860,8 @@ text
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 26.599 ± 99.577 ms | 0.543 ± 0.030 ms | 1.047 ± 2.572 ms |
-| Runtime | 19.616 ± 2.312 ms | 1.966 ± 0.069 ms | 1.538 ± 0.108 ms |
+| Compile | 17.153 ± 22.087 ms | 0.617 ± 0.038 ms | 1.111 ± 0.304 ms |
+| Runtime | 18.500 ± 1.578 ms | 1.875 ± 0.057 ms | 2.222 ± 0.425 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1895,8 +1895,8 @@ math: .math
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 19.179 ± 1.666 ms | 5.760 ± 0.351 ms | 4.300 ± 3.710 ms |
-| Runtime | 19.668 ± 2.002 ms | 2.044 ± 0.087 ms | 1.546 ± 0.246 ms |
+| Compile | 23.044 ± 4.108 ms | 7.357 ± 0.169 ms | 5.150 ± 1.047 ms |
+| Runtime | 18.165 ± 1.611 ms | 1.936 ± 0.057 ms | 2.215 ± 0.431 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1928,8 +1928,8 @@ values: [2, 4, 4, 4, 5, 5, 7, 9]
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.406 ± 0.217 ms | 0.640 ± 0.064 ms | 0.808 ± 0.091 ms |
-| Runtime | 20.232 ± 5.274 ms | 2.005 ± 0.082 ms | 1.548 ± 0.306 ms |
+| Compile | 3.853 ± 0.771 ms | 0.743 ± 0.016 ms | 1.180 ± 0.324 ms |
+| Runtime | 18.189 ± 1.679 ms | 1.911 ± 0.065 ms | 2.207 ± 0.411 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1959,8 +1959,8 @@ second: random.uniform(first.seed, low:0, high:10)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 7.309 ± 0.518 ms | 2.151 ± 0.048 ms | 2.626 ± 5.119 ms |
-| Runtime | 19.321 ± 2.045 ms | 2.015 ± 0.068 ms | 1.539 ± 0.105 ms |
+| Compile | 8.602 ± 1.392 ms | 2.679 ± 0.033 ms | 2.364 ± 0.463 ms |
+| Runtime | 18.328 ± 1.704 ms | 1.914 ± 0.054 ms | 2.240 ± 0.422 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1988,8 +1988,8 @@ after: time.monotonic()
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 47.196 ± 2.151 ms | 9.179 ± 0.191 ms | 5.794 ± 0.360 ms |
-| Runtime | 20.107 ± 2.478 ms | 2.140 ± 0.098 ms | 1.936 ± 0.114 ms |
+| Compile | 52.834 ± 5.532 ms | 10.933 ± 0.122 ms | 7.735 ± 2.382 ms |
+| Runtime | 19.125 ± 1.777 ms | 2.023 ± 0.062 ms | 2.773 ± 0.509 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2015,8 +2015,8 @@ hello world
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 25.965 ± 31.051 ms | 1.192 ± 0.062 ms | 1.314 ± 0.119 ms |
-| Runtime | 20.194 ± 2.345 ms | 2.164 ± 0.109 ms | 2.442 ± 3.087 ms |
+| Compile | 27.300 ± 35.752 ms | 1.273 ± 0.016 ms | 2.075 ± 2.068 ms |
+| Runtime | 18.974 ± 1.633 ms | 2.056 ± 0.076 ms | 2.769 ± 0.598 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2053,8 +2053,8 @@ true
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 10.945 ± 8.320 ms | 1.409 ± 0.024 ms | 1.320 ± 0.123 ms |
-| Runtime | 19.764 ± 2.081 ms | 2.072 ± 0.101 ms | 1.576 ± 0.114 ms |
+| Compile | 11.012 ± 1.214 ms | 1.673 ± 0.028 ms | 1.784 ± 0.402 ms |
+| Runtime | 18.466 ± 1.626 ms | 1.961 ± 0.051 ms | 2.268 ± 0.430 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2083,8 +2083,8 @@ true
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 12.033 ± 0.930 ms | 0.983 ± 0.016 ms | 1.200 ± 0.094 ms |
-| Runtime | 19.508 ± 1.801 ms | 2.021 ± 0.093 ms | 1.549 ± 0.101 ms |
+| Compile | 12.500 ± 2.955 ms | 1.096 ± 0.019 ms | 1.623 ± 0.326 ms |
+| Runtime | 18.142 ± 1.537 ms | 1.918 ± 0.088 ms | 2.235 ± 0.446 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2113,7 +2113,7 @@ path: system.env("PATH")
 windows
 x86_64
 4
-C:\Users\RUNNER~1\AppData\Local\Temp\vkf-readme-proof-g3OayO\runtime\stdlib\08-system
+C:\Users\RUNNER~1\AppData\Local\Temp\vkf-readme-proof-wIUJTs\runtime\stdlib\08-system
 true
 ```
 
@@ -2123,7 +2123,7 @@ true
 linux
 x86_64
 4
-/tmp/vkf-readme-proof-bVRRzr/runtime/stdlib/08-system
+/tmp/vkf-readme-proof-XQZdEi/runtime/stdlib/08-system
 true
 ```
 
@@ -2133,14 +2133,14 @@ true
 macos
 arm64
 3
-/private/var/folders/_5/zjnzxgh147qcg3bb5cg2wvqw0000gn/T/vkf-readme-proof-b6jIER/runtime/stdlib/08-system
+/private/var/folders/_5/zjnzxgh147qcg3bb5cg2wvqw0000gn/T/vkf-readme-proof-OgP7Li/runtime/stdlib/08-system
 true
 ```
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.474 ± 1.066 ms | 1.040 ± 0.023 ms | 1.101 ± 0.080 ms |
-| Runtime | 19.593 ± 2.064 ms | 2.082 ± 0.087 ms | 1.557 ± 0.110 ms |
+| Compile | 4.671 ± 0.578 ms | 1.280 ± 0.041 ms | 1.519 ± 0.357 ms |
+| Runtime | 18.194 ± 1.644 ms | 1.967 ± 0.050 ms | 2.245 ± 0.469 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2192,8 +2192,8 @@ git version 2.55.0
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.107 ± 0.352 ms | 0.848 ± 0.021 ms | 1.006 ± 0.088 ms |
-| Runtime | 51.828 ± 6.151 ms | 3.751 ± 0.124 ms | 6.327 ± 1.420 ms |
+| Compile | 4.524 ± 0.729 ms | 1.027 ± 0.018 ms | 1.427 ± 0.696 ms |
+| Runtime | 47.855 ± 3.974 ms | 3.611 ± 0.189 ms | 8.550 ± 1.357 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2225,8 +2225,8 @@ vkf
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 6.144 ± 0.572 ms | 0.891 ± 0.019 ms | 1.025 ± 0.076 ms |
-| Runtime | 20.070 ± 3.021 ms | 2.103 ± 0.095 ms | 1.704 ± 0.218 ms |
+| Compile | 6.651 ± 1.380 ms | 1.046 ± 0.022 ms | 1.428 ± 0.445 ms |
+| Runtime | 18.426 ± 1.449 ms | 1.936 ± 0.065 ms | 2.579 ± 0.571 ms |
 
 <!-- readme-evidence:end -->
 

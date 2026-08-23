@@ -41,8 +41,8 @@ result: double(point)
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.345 ± 0.417 ms | 0.464 ± 0.051 ms | 1.396 ± 1.555 ms |
-| Runtime | 24.356 ± 35.366 ms | 1.514 ± 0.050 ms | 3.109 ± 1.427 ms |
+| Compile | 3.830 ± 0.570 ms | 0.724 ± 0.065 ms | 1.166 ± 0.340 ms |
+| Runtime | 18.615 ± 1.561 ms | 1.948 ± 0.051 ms | 2.363 ± 0.508 ms |
 
 <!-- readme-evidence:end -->
 
@@ -80,8 +80,8 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 
 | 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.212 ± 0.504 ms | 0.780 ± 0.545 ms | 1.478 ± 0.598 ms |
-| Runtime | 19.901 ± 2.058 ms | 1.578 ± 0.055 ms | 3.522 ± 3.505 ms |
+| Compile | 5.900 ± 0.878 ms | 1.142 ± 0.013 ms | 1.356 ± 0.429 ms |
+| Runtime | 18.343 ± 1.537 ms | 2.023 ± 0.073 ms | 2.269 ± 0.509 ms |
 
 <!-- readme-evidence:end -->
 
@@ -130,7 +130,7 @@ to reuse their executable.
 
 ## Performance Evidence—And Its Limits
 
-The 0.1.4 release compiles every documented program 100 times from fresh paths
+The 0.1.5 release compiles every documented program 100 times from fresh paths
 and executes it 100 times in fresh operating-system processes on Windows x64,
 Linux x64, and macOS ARM64. Reports record every sample, exact output, source
 hash, compiler hash, and machine conditions.
@@ -138,13 +138,13 @@ hash, compiler hash, and machine conditions.
 <!-- readme-platform-evidence:start -->
 | Detail | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | --- | --- | --- |
-| Measured UTC | `2026-08-22T13:05:20.754Z` | `2026-08-22T13:02:11.852Z` | `2026-08-22T13:01:41.735Z` |
+| Measured UTC | `2026-08-23T02:11:25.809Z` | `2026-08-23T02:08:03.223Z` | `2026-08-23T02:07:02.904Z` |
 | OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
 | Architecture | `x64` | `x64` | `arm64` |
-| CPU | AMD EPYC 9V74 80-Core Processor | AMD EPYC 9V74 80-Core Processor | Apple M1 (Virtual) |
+| CPU | AMD EPYC 7763 64-Core Processor | AMD EPYC 9V74 80-Core Processor | Apple M1 (Virtual) |
 | Logical CPUs | 4 | 4 | 3 |
-| Compiler size | 3,692,032 bytes | 4,844,792 bytes | 2,186,792 bytes |
-| Compiler SHA-256 | `19ff09914f4ba6ded29aae2f31876621e33715d6f2bdbf07e3dc214ceb65bffe` | `18bcda7d18321f8841ca2fa394992d14b24dddfdf9f6e00f1c20c4fd68ac23f7` | `882df4117dc3ad7307f9a488dd305181790edef98330cbadb5baf91d15728d1e` |
+| Compiler size | 3,946,496 bytes | 5,101,192 bytes | 2,241,416 bytes |
+| Compiler SHA-256 | `1f36f73dc53d09bfdc49f4d5b4fc880b11c6e5a4105a574a0820428ae8ec5658` | `3abcd90338a949e99d375eb36a4c64fe90cb03b16087e1fb9733190918150310` | `34225070a2dcf5940f62d69091f35a4cc831b82a17aa71bf8fffc1ad6ceb8b34` |
 | Timing host | v22.23.2 `Node performance.now()` | v22.23.2 `Node performance.now()` | v22.23.1 `Node performance.now()` |
 <!-- readme-platform-evidence:end -->
 
@@ -161,9 +161,9 @@ exhaustive search is an explicit benchmark mode.
 
 The latest [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.5.md)
 was produced by the strict 0.1.5 Windows x64 compiler. All 256 policies were
-correct and collapsed to 18 distinct binaries. The fastest basin was 2.64×
-faster than the slowest. The latest run selected `mask-8e`, which emits the
-same machine code and recorded the same 8.535 ± 3.433 ms as `mask-ff`; earlier
+correct and collapsed to 18 distinct binaries. The fastest basin was 5.22×
+faster than the slowest. The latest run selected `mask-4c` at 2.304 ± 0.074 ms,
+2.0% ahead of `mask-ff` at 2.350 ± 0.158 ms; earlier
 repeated runs selected different masks inside the same fast basin. The report
 explains every switch, exact conditions, code deduplication, and why small noisy
 differences are not treated as proof.
@@ -177,7 +177,7 @@ every other implementation is linked exactly. Tool versions, source hashes,
 work counts, output parity, compile models, and 100-run dispersion are retained.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 7763 64-Core Processor, 4 logical CPUs, at `2026-08-22T17:40:14.362Z`.
+Measured on `linux 6.17.0-1022-azure`, `x64`, INTEL(R) XEON(R) PLATINUM 8573C, 4 logical CPUs, at `2026-08-23T02:17:08.156Z`.
 
 Every table cell is mean ± sample standard deviation from 100 measured runs. Fresh-process compile includes tool startup for every language. Julia parses source and JIT-compiles during runtime; Python produces bytecode; native toolchains emit executables. VKF compiler-core time excludes compiler startup. The <10 ms compiler-core and <500 µs raw-entry limits apply only to the historical 20,000-operation scalar engineering gate. Raw kernel timing excludes process launch and is available where a stable native entry can be loaded.
 
@@ -193,13 +193,13 @@ All implementations returned the same checked numeric result within tolerance: `
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 2.527 ± 0.067 ms | 0.125 ± 0.015 ms | 1.754 ± 0.094 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/vkf.vkf) |
-| C | 61.241 ± 0.592 ms | — | 1.685 ± 0.136 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/c.c) |
-| Rust | 56.955 ± 0.505 ms | — | 1.764 ± 0.095 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/rust.rs) |
-| Zig | 149.154 ± 2.274 ms | — | 1.612 ± 0.070 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/zig.zig) |
-| Go | 84.246 ± 1.154 ms | — | 2.341 ± 0.119 ms | — | [source](benchmarks/core-comparison/published/startup/go.go) |
-| Julia | 183.926 ± 1.507 ms | — | 211.820 ± 1.973 ms | — | [source](benchmarks/core-comparison/published/startup/julia.jl) |
-| Python | 42.161 ± 0.404 ms | — | 13.827 ± 0.161 ms | — | [source](benchmarks/core-comparison/published/startup/python-efficient.py) |
+| VKF | 1.975 ± 0.074 ms | 0.087 ± 0.009 ms | 1.494 ± 0.132 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/vkf.vkf) |
+| C | 46.485 ± 2.165 ms | — | 1.353 ± 0.124 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/c.c) |
+| Rust | 48.206 ± 0.978 ms | — | 1.429 ± 0.073 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/rust.rs) |
+| Zig | 115.241 ± 1.489 ms | — | 1.303 ± 0.085 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/zig.zig) |
+| Go | 70.584 ± 1.603 ms | — | 2.148 ± 0.162 ms | — | [source](benchmarks/core-comparison/published/startup/go.go) |
+| Julia | 161.248 ± 19.190 ms | — | 182.867 ± 3.715 ms | — | [source](benchmarks/core-comparison/published/startup/julia.jl) |
+| Python | 34.295 ± 0.883 ms | — | 11.523 ± 0.305 ms | — | [source](benchmarks/core-comparison/published/startup/python-efficient.py) |
 
 ### spectral norm by power method — medium, scale 250
 
@@ -269,13 +269,13 @@ All implementations returned the same checked numeric result within tolerance: `
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 34.836 ± 0.670 ms | 27.284 ± 0.319 ms | 44.737 ± 0.142 ms | 42.499 ± 0.067 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/vkf.vkf) |
-| C | 177.435 ± 1.930 ms | — | 5.377 ± 0.129 ms | 3.555 ± 0.006 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/c.c) |
-| Rust | 86.256 ± 0.593 ms | — | 5.649 ± 0.140 ms | 3.595 ± 0.015 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/rust.rs) |
-| Zig | 179.597 ± 2.291 ms | — | 5.347 ± 0.122 ms | 3.604 ± 0.006 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/zig.zig) |
-| Go | 84.556 ± 1.523 ms | — | 6.280 ± 0.190 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/go.go) |
-| Julia | 184.539 ± 1.405 ms | — | 379.843 ± 2.108 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/julia.jl) |
-| Python | 42.558 ± 0.374 ms | — | 109.372 ± 1.321 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/python-efficient.py) |
+| VKF | 29.781 ± 0.891 ms | 24.223 ± 0.457 ms | 9.683 ± 0.278 ms | 7.748 ± 0.097 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/vkf.vkf) |
+| C | 89.911 ± 32.435 ms | — | 4.376 ± 0.183 ms | 2.862 ± 0.058 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/c.c) |
+| Rust | 77.270 ± 1.088 ms | — | 4.501 ± 0.134 ms | 2.852 ± 0.057 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/rust.rs) |
+| Zig | 139.432 ± 1.405 ms | — | 4.321 ± 0.128 ms | 2.855 ± 0.041 ms | [source](benchmarks/core-comparison/published/spectral-norm-medium/zig.zig) |
+| Go | 70.066 ± 1.703 ms | — | 5.243 ± 0.241 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/go.go) |
+| Julia | 158.510 ± 3.336 ms | — | 323.181 ± 4.916 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/julia.jl) |
+| Python | 34.211 ± 0.860 ms | — | 91.999 ± 1.570 ms | — | [source](benchmarks/core-comparison/published/spectral-norm-medium/python-efficient.py) |
 
 ### fannkuch-redux permutations — medium, scale 8
 
@@ -357,13 +357,13 @@ All implementations returned the same checked numeric result within tolerance: `
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 6.524 ± 0.097 ms | 2.849 ± 0.022 ms | 13.648 ± 0.110 ms | 11.398 ± 0.018 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/vkf.vkf) |
-| C | 80.733 ± 0.795 ms | — | 3.772 ± 0.150 ms | 1.960 ± 0.013 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/c.c) |
-| Rust | 81.591 ± 0.579 ms | — | 3.752 ± 0.114 ms | 1.712 ± 0.011 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/rust.rs) |
-| Zig | 170.361 ± 3.292 ms | — | 3.686 ± 0.098 ms | 1.876 ± 0.005 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/zig.zig) |
-| Go | 84.655 ± 1.443 ms | — | 4.484 ± 0.109 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/go.go) |
-| Julia | 184.576 ± 1.388 ms | — | 272.812 ± 1.594 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/julia.jl) |
-| Python | 42.683 ± 0.387 ms | — | 125.333 ± 3.348 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/python-efficient.py) |
+| VKF | 5.532 ± 0.280 ms | 2.786 ± 0.037 ms | 8.784 ± 0.210 ms | 6.965 ± 0.111 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/vkf.vkf) |
+| C | 62.044 ± 1.477 ms | — | 3.265 ± 0.126 ms | 1.773 ± 0.022 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/c.c) |
+| Rust | 74.219 ± 2.515 ms | — | 3.254 ± 0.127 ms | 1.591 ± 0.046 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/rust.rs) |
+| Zig | 132.774 ± 2.724 ms | — | 3.340 ± 0.186 ms | 1.854 ± 0.055 ms | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/zig.zig) |
+| Go | 69.862 ± 1.819 ms | — | 4.161 ± 0.430 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/go.go) |
+| Julia | 158.659 ± 2.152 ms | — | 233.432 ± 3.025 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/julia.jl) |
+| Python | 33.996 ± 0.543 ms | — | 97.754 ± 1.617 ms | — | [source](benchmarks/core-comparison/published/fannkuch-redux-medium/python-efficient.py) |
 
 ### five-body symplectic integration — medium, scale 10,000
 
@@ -443,22 +443,22 @@ n_body(steps:num) -> num:
 :: n_body(10000)
 ```
 
-All implementations returned the same checked numeric result within tolerance: `-0.16901644126443094`.
+All implementations returned the same checked numeric result within tolerance: `-0.1690164412644315`.
 
 | Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |
 | --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 16.214 ± 0.237 ms | 9.548 ± 0.043 ms | 3.940 ± 0.109 ms | 2.031 ± 0.012 ms | [source](benchmarks/core-comparison/published/n-body-medium/vkf.vkf) |
-| C | 106.088 ± 0.703 ms | — | 2.355 ± 0.126 ms | 0.620 ± 0.010 ms | [source](benchmarks/core-comparison/published/n-body-medium/c.c) |
-| Rust | 96.225 ± 0.606 ms | — | 2.462 ± 0.170 ms | 0.438 ± 0.008 ms | [source](benchmarks/core-comparison/published/n-body-medium/rust.rs) |
-| Zig | 174.640 ± 2.622 ms | — | 2.536 ± 0.131 ms | 0.814 ± 0.006 ms | [source](benchmarks/core-comparison/published/n-body-medium/zig.zig) |
-| Go | 84.167 ± 1.601 ms | — | 3.236 ± 0.116 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/go.go) |
-| Julia | 184.017 ± 1.494 ms | — | 1675.567 ± 20.587 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/julia.jl) |
-| Python | 43.231 ± 0.464 ms | — | 185.101 ± 3.668 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/python-efficient.py) |
+| VKF | 14.174 ± 0.527 ms | 9.522 ± 0.136 ms | 2.487 ± 0.114 ms | 1.088 ± 0.015 ms | [source](benchmarks/core-comparison/published/n-body-medium/vkf.vkf) |
+| C | 84.897 ± 27.263 ms | — | 1.908 ± 0.133 ms | 0.419 ± 0.005 ms | [source](benchmarks/core-comparison/published/n-body-medium/c.c) |
+| Rust | 85.720 ± 1.339 ms | — | 2.046 ± 0.170 ms | 0.329 ± 0.005 ms | [source](benchmarks/core-comparison/published/n-body-medium/rust.rs) |
+| Zig | 135.894 ± 1.401 ms | — | 2.089 ± 0.142 ms | 0.609 ± 0.010 ms | [source](benchmarks/core-comparison/published/n-body-medium/zig.zig) |
+| Go | 69.694 ± 2.099 ms | — | 2.838 ± 0.186 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/go.go) |
+| Julia | 157.825 ± 2.212 ms | — | 1262.447 ± 16.812 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/julia.jl) |
+| Python | 34.268 ± 0.516 ms | — | 118.493 ± 3.220 ms | — | [source](benchmarks/core-comparison/published/n-body-medium/python-efficient.py) |
 
 <details>
 <summary>Exact toolchains and compile models</summary>
 
-- VKF: `VKF 0.1.4; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
+- VKF: `VKF 0.1.5; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
 - C: `Ubuntu clang version 18.1.3 (1ubuntu1)`; Clang -O3 -march=native native link
 - Rust: `rustc 1.98.0 (88d9e12ae 2026-08-18)`; rustc -O -C target-cpu=native native link
 - Zig: `0.16.0`; zig build-exe -O ReleaseFast -mcpu native -lc
@@ -532,8 +532,8 @@ vector; `process.shell` invokes a platform shell and must be treated as unsafe.
 
 The complete [0.1.5 policy landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.5.md)
 records all 256 policies, 18 distinct binaries, correctness, code hashes, exact
-conditions, and timing dispersion. Its 2.64× fastest-to-slowest spread is a
-useful result; its latest 0.0% selected/default difference is explicitly
+conditions, and timing dispersion. Its 5.22× fastest-to-slowest spread is a
+useful result; its latest 2.0% selected/default difference is explicitly
 reported as noise-sensitive rather than a proven advantage. See the
 [0.1.5 release notes](docs/releases/0.1.5.md).
 
