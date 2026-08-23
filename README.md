@@ -124,13 +124,13 @@ hash, compiler hash, and machine conditions.
 <!-- readme-platform-evidence:start -->
 | Detail | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | --- | --- | --- |
-| Measured UTC | `2026-08-23T02:26:44.944Z` | `2026-08-23T02:23:10.036Z` | `2026-08-23T02:22:26.494Z` |
+| Measured UTC | `2026-08-23T11:01:50.273Z` | `2026-08-23T10:57:47.151Z` | `2026-08-23T10:56:27.799Z` |
 | OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
 | Architecture | `x64` | `x64` | `arm64` |
-| CPU | Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz | AMD EPYC 9V74 80-Core Processor | Apple M1 (Virtual) |
+| CPU | AMD EPYC 7763 64-Core Processor | AMD EPYC 7763 64-Core Processor | Apple M1 (Virtual) |
 | Logical CPUs | 4 | 4 | 3 |
-| Compiler size | 3,946,496 bytes | 5,101,192 bytes | 2,241,416 bytes |
-| Compiler SHA-256 | `7d92eb5ac034ed593bcc50c17c6c830347563ec747edbfc7be8957e054b72f31` | `d35af761d7895c5b9c2d1635329bbf53a9dd21a7317b07bafe6d620fb1c6f02c` | `5798cec9fe98f99dab70e8f3e8099ac737ac105f9d457f91b714babe1a2d7bca` |
+| Compiler size | 4,003,328 bytes | 5,205,520 bytes | 2,261,160 bytes |
+| Compiler SHA-256 | `87c3baf994b7890033471e318333260d88ca5805142ca0576fa55d2291ce02cb` | `d4d59ba1ba248648071a182c403918991e9226a83edc5f1ed6ece218da273e03` | `f743c47711e02d4047a6b29613a4e71c3b580a8d1b138a86572b80a3c64f336d` |
 | Timing host | v22.23.2 `Node performance.now()` | v22.23.2 `Node performance.now()` | v22.23.1 `Node performance.now()` |
 <!-- readme-platform-evidence:end -->
 
@@ -140,19 +140,18 @@ Python.
 
 ### Adaptive Optimizer Policy Landscape
 
-0.1.5 can represent lowering choices as data, verify multiple legal variants,
+VKF represents lowering choices as data, verifies multiple legal variants,
 deduplicate identical machine code, and retain a policy for the exact program
 and x64 host. Normal search is bounded by the compilation-time budget;
 exhaustive search is an explicit benchmark mode.
 
-The latest [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.5.md)
-was produced by the strict 0.1.5 Windows x64 compiler. All 256 policies were
-correct and collapsed to 18 distinct binaries. The fastest basin was 6.16×
-faster than the slowest. The latest run selected `mask-e` at 1.607 ± 0.177 ms,
-0.4% ahead of `mask-ff` at 1.615 ± 0.105 ms; earlier
-repeated runs selected different masks inside the same fast basin. The report
-explains every switch, exact conditions, code deduplication, and why small noisy
-differences are not treated as proof.
+The latest [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.6-ci.md)
+was produced by the strict 0.1.6 Windows x64 compiler. All 256 policies were
+correct and collapsed to 18 distinct binaries. The fastest measured basin was
+5.34× faster than the slowest. This run selected `mask-8e` at
+2.308 ± 0.082 ms; the default `mask-ff` produced the same measured mean and
+spread. The report explains every switch, exact conditions, code deduplication,
+and why small noisy differences are not treated as proof.
 
 ### Reproducible Language Comparison
 
@@ -163,21 +162,21 @@ linked. Tool versions, source hashes, work counts, output parity, compile
 models, and all 100 raw timing samples are retained in the evidence report.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.6.87.2-microsoft-standard-WSL2`, `x64`, Intel(R) Core(TM) Ultra 7 255U, 14 logical CPUs, at `2026-08-23T08:15:12.360Z`.
+Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 9V74 80-Core Processor, 4 logical CPUs, at `2026-08-23T11:09:32.341Z`.
 
-Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are same-host ratios to VKF. Absolute times are never compared across machines. Each raw lane contains 100 measured runs after 10 warmups and excludes process launch.
+Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are same-host ratios to VKF. Absolute times are never compared across machines. Each raw lane contains 100 measured runs after 5 warmups and excludes process launch.
 
-Evidence: [all samples and hashes](benchmarks/core-comparison/results/goal-under-2x-linux-x64.json) and [readable laboratory report](benchmarks/core-comparison/results/goal-under-2x-linux-x64.md).
+Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-016.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-016.md).
 
 ### Current raw-kernel comparison
 
-Every ratio is `VKF mean / competitor mean` from the same pinned Linux x64 container and the same 100-run report. A value above `1` means VKF took longer.
+Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner and the same 100-run report. A value above `1` means VKF took longer.
 
 | Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
 | --- | ---: | ---: | ---: | ---: |
-| Spectral norm | 8.458 ± 3.487 ms | 1.566× | 1.175× | 1.224× |
-| Fannkuch | 8.351 ± 2.811 ms | 1.763× | 1.865× | 1.991× |
-| N-body | 1.968 ± 0.677 ms | 1.580× | 1.668× | 1.438× |
+| Spectral norm | 13.440 ± 0.047 ms | 3.360× | 3.250× | 3.230× |
+| Fannkuch | 2.735 ± 0.011 ms | 1.165× | 1.399× | 1.212× |
+| N-body | 2.075 ± 0.012 ms | 3.114× | 4.421× | 2.281× |
 
 ### spectral norm by power method — medium, scale 250
 
@@ -424,9 +423,9 @@ Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-
 <details>
 <summary>Exact toolchains and compile models</summary>
 
-- VKF: `VKF 0.1.5; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
+- VKF: `VKF 0.1.6; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
 - C: `Ubuntu clang version 18.1.3 (1ubuntu1)`; Clang -O3 -march=native native link
-- Rust: `rustc 1.75.0 (82e1608df 2023-12-21) (built from a source tarball)`; rustc -O -C target-cpu=native native link
+- Rust: `rustc 1.98.0 (88d9e12ae 2026-08-18)`; rustc -O -C target-cpu=native native link
 - Zig: `0.16.0`; zig build-exe -O ReleaseFast -mcpu native -lc
 
 </details>

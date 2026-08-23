@@ -12,3 +12,5 @@ results/*
 !results/core-final-windows-100.md
 !results/goal-under-2x-linux-x64.json
 !results/goal-under-2x-linux-x64.md
+!results/linux-x64-016.json
+!results/linux-x64-016.md
