@@ -255,47 +255,47 @@ Mode: **idiomatic**. Benchmarks Game power method; NumPy and Julia use optimized
 multiply_av(values:[num:250]) -> [num:250]:
     output: [0:250]
     ..250 - 1 >>
-        row: $
+        i: $
         total: 0
         ..250 - 1 >>
-            column: $
-            diagonal: row + column
-            .total+: (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.column
-        output.row: total
+            j: $
+            diagonal: i + j
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + i + 1)) * values.j
+        output.i: total
     output
 
 multiply_atv(values:[num:250]) -> [num:250]:
     output: [0:250]
     ..250 - 1 >>
-        row: $
+        i: $
         total: 0
         ..250 - 1 >>
-            column: $
-            diagonal: column + row
-            .total+: (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.column
-        output.row: total
+            j: $
+            diagonal: j + i
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + j + 1)) * values.j
+        output.i: total
     output
 
 multiply_at_av(values:[num:250]) -> [num:250]:
     multiply_atv(multiply_av(values))
 
 spectral_norm() -> num:
-    u: [1:250]
-    v: [0:250]
+    state: (u:[1:250], v:[0:250])
     ..9 >>
-        .v: multiply_at_av(u)
-        .u: multiply_at_av(v)
-    numerator: 0
-    denominator: 0
+        state.v: multiply_at_av(state.u)
+        state.u: multiply_at_av(state.v)
+    u: state.u
+    v: state.v
+    result: (numerator:0, denominator:0)
     ..250 - 1 >>
-        .numerator+: u.($) * v.($)
-        .denominator+: v.($) * v.($)
-    sqrt(numerator / denominator)
+        result.numerator +: u.($) * v.($)
+        result.denominator +: v.($) * v.($)
+    sqrt(result.numerator / result.denominator)
 
 :: spectral_norm()
 ```
 
-**Exact output (all implementations):**
+**Recorded VKF output; comparison implementations agree within the declared tolerance:**
 
 ```text
 1.2742238666431718
@@ -312,68 +312,59 @@ fannkuch(n:num) -> num:
     permutation: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     working: [0:12]
     rotations: [0:12]
-    r: n
-    permutation_index: 0
-    checksum: 0
-    maximum_flips: 0
-    running: 1
-    index: 0
-    left: 0
-    right: 0
-    temporary: 0
-    first: 0
-    flips: 0
-    searching: 0
-    running > 0?>
-        r > 1?>
-            rotations.(r - 1): r
-            .r: r - 1
+    control: (r:n, running:1, searching:0)
+    result: (permutation_index:0, checksum:0, maximum_flips:0)
+    flip: (left:0, right:0, temporary:0, head:0, count:0)
+    control.running > 0?>
+        control.r > 1?>
+            rotations.(control.r - 1): control.r
+            control.r -: 1
 
         ..n - 1 >> working.($): permutation.($)
 
-        .flips: 0
-        .first: working.0
-        first != 0?>
-            .left: 0
-            .right: first
-            left < right?>
-                .temporary: working.left
-                working.left: working.right
-                working.right: temporary
-                .left: left + 1
-                .right: right - 1
-            .flips: flips + 1
-            .first: working.0
+        flip.count: 0
+        flip.head: working.0
+        flip.head != 0?>
+            flip.left: 0
+            flip.right: flip.head
+            flip.left < flip.right?>
+                flip.temporary: working.(flip.left)
+                working.(flip.left): working.(flip.right)
+                working.(flip.right): flip.temporary
+                flip.left +: 1
+                flip.right -: 1
+            flip.count +: 1
+            flip.head: working.0
 
-        flips > maximum_flips?
-            .maximum_flips: flips
-        permutation_index % 2 = 0?
-            .checksum: checksum + flips
-        permutation_index % 2 != 0?
-            .checksum: checksum - flips
+        flip.count > result.maximum_flips?
+            result.maximum_flips: flip.count
+        result.permutation_index % 2 = 0?
+            result.checksum +: flip.count
+        result.permutation_index % 2 != 0?
+            result.checksum -: flip.count
 
-        .searching: 1
-        searching > 0?>
-            r = n?
-                .running: 0
-                .searching: 0
-            searching > 0?
-                .temporary: permutation.0
-                ..r - 1 >> permutation.($): permutation.($ + 1)
-                permutation.r: temporary
-                rotations.r: rotations.r - 1
-                rotations.r > 0?
-                    .searching: 0
-                rotations.r = 0?
-                    .r: r + 1
-        running > 0?
-            .permutation_index: permutation_index + 1
-    checksum * 100 + maximum_flips
+        control.searching: 1
+        control.searching > 0?>
+            control.r = n?
+                control.running: 0
+                control.searching: 0
+            control.searching > 0?
+                flip.temporary: permutation.0
+                ..control.r - 1 >> permutation.($): permutation.($ + 1)
+                permutation.(control.r): flip.temporary
+                rotations.(control.r) -: 1
+                rotations.(control.r) > 0?
+                    control.searching: 0
+                rotations.(control.r) = 0?
+                    control.r +: 1
+        control.running > 0?
+            result.permutation_index +: 1
+    result.checksum * 100 + result.maximum_flips
 
 :: fannkuch(8)
 ```
 
-**Exact output (all implementations):**
+**Recorded VKF output; comparison implementations agree within the declared tolerance:**
 
 ```text
 161622
@@ -388,81 +379,92 @@ Mode: **matched**. Benchmarks Game Jovian-body constants and pairwise symplectic
 ```vkf
 :.math
 
+System: (positions:[[num:3]:5], velocities:[[num:3]:5], masses:[num:5])
+
+offset_momentum(system:System, solar_mass:num) -> System:
+    [[num:3]:5] velocities: system.velocities
+    [num:5] masses: system.masses
+    momentum: [0, 0, 0]
+    ..4 >>
+        i: $
+        .momentum+: velocities.i * masses.i
+    velocities.0: momentum * (-1 / solar_mass)
+    (positions:system.positions, velocities:velocities, masses:masses)
+
+advance(system:System, timestep:num) -> System:
+    [[num:3]:5] positions: system.positions
+    [[num:3]:5] velocities: system.velocities
+    [num:5] masses: system.masses
+    ..3 >>
+        i: $
+        (i + 1)..4 >>
+            j: $
+            [num:3] displacement: positions.i - positions.j
+            magnitude: timestep / |displacement|^3
+            velocities.i -: displacement * masses.j * magnitude
+            velocities.j +: displacement * masses.i * magnitude
+    ..4 >>
+        i: $
+        positions.i +: velocities.i * timestep
+    (positions:positions, velocities:velocities, masses:masses)
+
+system_energy(system:System) -> num:
+    [[num:3]:5] positions: system.positions
+    [[num:3]:5] velocities: system.velocities
+    [num:5] masses: system.masses
+    totals: (kinetic:0, potential:0)
+    ..4 >>
+        i: $
+        totals.kinetic +: 0.5 * masses.i * |velocities.i|^2
+    ..3 >>
+        i: $
+        (i + 1)..4 >>
+            j: $
+            [num:3] displacement: positions.i - positions.j
+            totals.potential -: masses.i * masses.j / |displacement|
+    totals.kinetic + totals.potential
+
 n_body(steps:num) -> num:
-    solar_mass: 39.478417604357434
-    days_per_year: 365.24
-    x: [0, 4.841431442464721, 8.34336671824458, 12.894369562139131, 15.379697114850917]
-    y: [0, -1.1603200440274284, 4.124798564124305, -15.111151401698631, -25.919314609987964]
-    z: [0, -0.10362204447112311, -0.4035234171143214, -0.22330757889265573, 0.17925877295037118]
-    vx: [0, 0.001660076642744037 * days_per_year, -0.002767425107268624 * days_per_year, 0.002964601375647616 * days_per_year, 0.0026806777249038932 * days_per_year]
-    vy: [0, 0.007699011184197404 * days_per_year, 0.004998528012349172 * days_per_year, 0.0023784717395948095 * days_per_year, 0.001628241700382423 * days_per_year]
-    vz: [0, -0.0000690460016972063 * days_per_year, 0.000023041729757376393 * days_per_year, -0.000029658956854023756 * days_per_year, -0.00009515922545197159 * days_per_year]
-    mass: [solar_mass, 0.0009547919384243266 * solar_mass, 0.0002858859806661308 * solar_mass, 0.00004366244043351563 * solar_mass, 0.000051513890204661146 * solar_mass]
-    momentum_x: 0
-    momentum_y: 0
-    momentum_z: 0
-    body: 0
-    body < 5?>
-        .momentum_x: momentum_x + vx.body * mass.body
-        .momentum_y: momentum_y + vy.body * mass.body
-        .momentum_z: momentum_z + vz.body * mass.body
-        .body: body + 1
-    vx.(0): -momentum_x / solar_mass
-    vy.(0): -momentum_y / solar_mass
-    vz.(0): -momentum_z / solar_mass
-
-    step: 0
-    first: 0
-    second: 0
-    dx: 0
-    dy: 0
-    dz: 0
-    distance_squared: 0
-    magnitude: 0
-    step < steps?>
-        .first: 0
-        first < 5?>
-            .second: first + 1
-            second < 5?>
-                .dx: x.first - x.second
-                .dy: y.first - y.second
-                .dz: z.first - z.second
-                .distance_squared: dx * dx + dy * dy + dz * dz
-                .magnitude: 0.01 / (distance_squared * sqrt(distance_squared))
-                vx.first: vx.first - dx * mass.second * magnitude
-                vy.first: vy.first - dy * mass.second * magnitude
-                vz.first: vz.first - dz * mass.second * magnitude
-                vx.second: vx.second + dx * mass.first * magnitude
-                vy.second: vy.second + dy * mass.first * magnitude
-                vz.second: vz.second + dz * mass.first * magnitude
-                .second: second + 1
-            x.first: x.first + 0.01 * vx.first
-            y.first: y.first + 0.01 * vy.first
-            z.first: z.first + 0.01 * vz.first
-            .first: first + 1
-        .step: step + 1
-
-    energy: 0
-    .first: 0
-    first < 5?>
-        .energy: energy + 0.5 * mass.first * (vx.first * vx.first + vy.first * vy.first + vz.first * vz.first)
-        .second: first + 1
-        second < 5?>
-            .dx: x.first - x.second
-            .dy: y.first - y.second
-            .dz: z.first - z.second
-            .energy: energy - mass.first * mass.second / sqrt(dx * dx + dy * dy + dz * dz)
-            .second: second + 1
-        .first: first + 1
-    energy
+    constants: (
+        solar_mass:39.478417604357434,
+        days_per_year:365.24,
+        timestep:0.01
+    )
+    system: (
+        positions:[
+            [0, 0, 0],
+            [4.841431442464721, -1.1603200440274284, -0.10362204447112311],
+            [8.34336671824458, 4.124798564124305, -0.4035234171143214],
+            [12.894369562139131, -15.111151401698631, -0.22330757889265573],
+            [15.379697114850917, -25.919314609987964, 0.17925877295037118]
+        ],
+        velocities:[
+            [0, 0, 0],
+            [0.001660076642744037, 0.007699011184197404, -0.0000690460016972063] * constants.days_per_year,
+            [-0.002767425107268624, 0.004998528012349172, 0.000023041729757376393] * constants.days_per_year,
+            [0.002964601375647616, 0.0023784717395948095, -0.000029658956854023756] * constants.days_per_year,
+            [0.0026806777249038932, 0.001628241700382423, -0.00009515922545197159] * constants.days_per_year
+        ],
+        masses:[
+            constants.solar_mass,
+            0.0009547919384243266 * constants.solar_mass,
+            0.0002858859806661308 * constants.solar_mass,
+            0.00004366244043351563 * constants.solar_mass,
+            0.000051513890204661146 * constants.solar_mass
+        ]
+    )
+    .system: offset_momentum(system, constants.solar_mass)
+    ..steps - 1 >>
+        .system: advance(system, constants.timestep)
+    system_energy(system)
 
 :: n_body(10000)
 ```
 
-**Exact output (all implementations):**
+**Recorded VKF output; comparison implementations agree within the declared tolerance:**
 
 ```text
--0.16901644126443094
+-0.16901644126443249
 ```
 
 Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-medium/vkf.vkf); C [source](benchmarks/core-comparison/published/n-body-medium/c.c); Rust [source](benchmarks/core-comparison/published/n-body-medium/rust.rs); Zig [source](benchmarks/core-comparison/published/n-body-medium/zig.zig).
