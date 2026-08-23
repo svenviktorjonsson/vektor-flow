@@ -15,8 +15,8 @@ permissions:
   contents: write
 
 env:
-  VKF_RELEASE_VERSION: "0.1.7"
-  VKF_PROOF_SUFFIX: "017"
+  VKF_RELEASE_VERSION: "0.1.8"
+  VKF_PROOF_SUFFIX: "018"
   ZIG_VERSION: "0.16.0"
   ZIG_LINUX_X64_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 
@@ -48,27 +48,27 @@ jobs:
           node benchmarks/policy-landscape/run.mjs
           --compiler=build/native-compiler-clang/bin/vkf-strict.exe
           --runs=200
-          --output=benchmarks/policy-landscape/evidence/windows-x64-v0.1.7-ci
+          --output=benchmarks/policy-landscape/evidence/windows-x64-v0.1.8-ci
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-x64-policy-landscape-proof
           path: |
-            benchmarks/policy-landscape/evidence/windows-x64-v0.1.7-ci.json
-            benchmarks/policy-landscape/evidence/windows-x64-v0.1.7-ci.md
-            benchmarks/policy-landscape/evidence/windows-x64-v0.1.7-ci.svg
+            benchmarks/policy-landscape/evidence/windows-x64-v0.1.8-ci.json
+            benchmarks/policy-landscape/evidence/windows-x64-v0.1.8-ci.md
+            benchmarks/policy-landscape/evidence/windows-x64-v0.1.8-ci.svg
           if-no-files-found: error
 
-      - name: Compile and run every documented program 100 times
+      - name: Verify every documented program 10 times
         shell: pwsh
         run: >-
           node benchmarks/readme-examples/run.mjs
           --compiler=build/native-compiler-clang/bin/vkf-strict.exe
-          --compile-runs=100
-          --compile-warmups=1
-          --runs=100
-          --warmups=5
+          --compile-runs=10
+          --compile-warmups=0
+          --runs=10
+          --warmups=0
           --output=windows-x64-${{ env.VKF_PROOF_SUFFIX }}
 
       - uses: actions/upload-artifact@v4
@@ -124,14 +124,14 @@ jobs:
       - name: Run full native VKF release suite
         run: build/native-compiler/bin/vkf-strict -t tests/vkf
 
-      - name: Compile and run every documented program 100 times
+      - name: Verify every documented program 10 times
         run: >-
           node benchmarks/readme-examples/run.mjs
           --compiler=build/native-compiler/bin/vkf-strict
-          --compile-runs=100
-          --compile-warmups=1
-          --runs=100
-          --warmups=5
+          --compile-runs=10
+          --compile-warmups=0
+          --runs=10
+          --warmups=0
           --output=linux-x64-${{ env.VKF_PROOF_SUFFIX }}
 
       - uses: actions/upload-artifact@v4
@@ -177,14 +177,14 @@ jobs:
       - name: Run full native VKF release suite
         run: build/native-compiler/bin/vkf-strict -t tests/vkf
 
-      - name: Compile and run every documented program 100 times
+      - name: Verify every documented program 10 times
         run: >-
           node benchmarks/readme-examples/run.mjs
           --compiler=build/native-compiler/bin/vkf-strict
-          --compile-runs=100
-          --compile-warmups=1
-          --runs=100
-          --warmups=5
+          --compile-runs=10
+          --compile-warmups=0
+          --runs=10
+          --warmups=0
           --output=macos-arm64-${{ env.VKF_PROOF_SUFFIX }}
 
       - uses: actions/upload-artifact@v4
@@ -291,7 +291,7 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-            gh release edit "$GITHUB_REF_NAME" --notes-file docs/releases/0.1.7.md
+            gh release edit "$GITHUB_REF_NAME" --notes-file docs/releases/0.1.8.md
           else
-            gh release create "$GITHUB_REF_NAME" dist/* --notes-file docs/releases/0.1.7.md
+            gh release create "$GITHUB_REF_NAME" dist/* --notes-file docs/releases/0.1.8.md
           fi

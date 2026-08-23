@@ -35,10 +35,10 @@ RoleNames: ["none", "pawn", "knight", "bishop", "rook", "queen", "king"]
 SideNames: ["none", "white", "black"]
 
 role_name(role:num) -> str:
-    @: RoleNames.(role)
+    @: RoleNames.role
 
 side_name(side:num) -> str:
-    @: SideNames.(side)
+    @: SideNames.side
 
 Piece : (side:num, role:num, file:num, rank:num, captured:bit, tray_rank:num, has_moved:bit)
 GameState : (turn:num, move_count:num, history:str, selected_side:num, selected_role:num, selected_file:num, selected_rank:num, has_selection:bit, status:str, white_can_castle_king:bit, white_can_castle_queen:bit, black_can_castle_king:bit, black_can_castle_queen:bit, last_double_pawn_side:num, last_double_pawn_file:num, last_double_pawn_rank:num, board:any)

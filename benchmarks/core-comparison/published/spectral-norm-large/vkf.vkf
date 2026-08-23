@@ -11,9 +11,9 @@ multiply_av(values:[num:500]) -> [num:500]:
         .total: 0
         column < 500?>
             .diagonal: row + column
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.(column)
+            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.column
             .column: column + 1
-        output.(row): total
+        output.row: total
         .row: row + 1
     output
 
@@ -28,9 +28,9 @@ multiply_atv(values:[num:500]) -> [num:500]:
         .total: 0
         column < 500?>
             .diagonal: column + row
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.(column)
+            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.column
             .column: column + 1
-        output.(row): total
+        output.row: total
         .row: row + 1
     output
 
@@ -49,8 +49,8 @@ spectral_norm() -> num:
     numerator: 0
     denominator: 0
     index < 500?>
-        .numerator: numerator + u.(index) * v.(index)
-        .denominator: denominator + v.(index) * v.(index)
+        .numerator: numerator + u.index * v.index
+        .denominator: denominator + v.index * v.index
         .index: index + 1
     sqrt(numerator / denominator)
 

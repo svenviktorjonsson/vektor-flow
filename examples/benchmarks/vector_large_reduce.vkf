@@ -2,7 +2,7 @@ sum_vec(x:[num:1024]) -> num:
     i: 0
     acc: 0
     i < 1024?>
-        acc: acc + x.(i)
+        acc: acc + x.i
         i: i + 1
     acc
 

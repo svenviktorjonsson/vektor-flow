@@ -16,6 +16,25 @@ complex_vector_pipe_preserves_element_boundaries() -> bit:
     values: [num(1, 2), num(3, 4)] >> $ * $
     (str(values.0) == "-3 + 4i" /\ str(values.1) == "-7 + 24i")?!
 
+range_pipe_updates_vector_by_onward_index() -> bit:
+    source: [4, 3, 2, 1]
+    working: [0:4]
+    ..3 >> working.($): source.($)
+    (working == source)?!
+
+compact_named_index_needs_no_parentheses() -> bit:
+    source: [4, 3, 2, 1]
+    working: [0:4]
+    index: 2
+    working.index: source.index
+    (working.2 = 2)?!
+
+indexed_assignment_pipes_its_assigned_value_onward() -> bit:
+    source: [4, 3, 2, 1]
+    working: [0:4]
+    values: ..3 >> working.($): source.($) >> $ * 10
+    (working == source /\ values == (40, 30, 20, 10))?!
+
 pipe_block_return_is_local_to_each_element() -> bit:
     values: (0..3) >>
         $ < 2?

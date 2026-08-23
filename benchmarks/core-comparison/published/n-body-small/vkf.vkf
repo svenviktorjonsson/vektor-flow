@@ -15,9 +15,9 @@ n_body(steps:num) -> num:
     momentum_z: 0
     body: 0
     body < 5?>
-        .momentum_x: momentum_x + vx.(body) * mass.(body)
-        .momentum_y: momentum_y + vy.(body) * mass.(body)
-        .momentum_z: momentum_z + vz.(body) * mass.(body)
+        .momentum_x: momentum_x + vx.body * mass.body
+        .momentum_y: momentum_y + vy.body * mass.body
+        .momentum_z: momentum_z + vz.body * mass.body
         .body: body + 1
     vx.(0): -momentum_x / solar_mass
     vy.(0): -momentum_y / solar_mass
@@ -36,34 +36,34 @@ n_body(steps:num) -> num:
         first < 5?>
             .second: first + 1
             second < 5?>
-                .dx: x.(first) - x.(second)
-                .dy: y.(first) - y.(second)
-                .dz: z.(first) - z.(second)
+                .dx: x.first - x.second
+                .dy: y.first - y.second
+                .dz: z.first - z.second
                 .distance_squared: dx * dx + dy * dy + dz * dz
                 .magnitude: 0.01 / (distance_squared * sqrt(distance_squared))
-                vx.(first): vx.(first) - dx * mass.(second) * magnitude
-                vy.(first): vy.(first) - dy * mass.(second) * magnitude
-                vz.(first): vz.(first) - dz * mass.(second) * magnitude
-                vx.(second): vx.(second) + dx * mass.(first) * magnitude
-                vy.(second): vy.(second) + dy * mass.(first) * magnitude
-                vz.(second): vz.(second) + dz * mass.(first) * magnitude
+                vx.first: vx.first - dx * mass.second * magnitude
+                vy.first: vy.first - dy * mass.second * magnitude
+                vz.first: vz.first - dz * mass.second * magnitude
+                vx.second: vx.second + dx * mass.first * magnitude
+                vy.second: vy.second + dy * mass.first * magnitude
+                vz.second: vz.second + dz * mass.first * magnitude
                 .second: second + 1
-            x.(first): x.(first) + 0.01 * vx.(first)
-            y.(first): y.(first) + 0.01 * vy.(first)
-            z.(first): z.(first) + 0.01 * vz.(first)
+            x.first: x.first + 0.01 * vx.first
+            y.first: y.first + 0.01 * vy.first
+            z.first: z.first + 0.01 * vz.first
             .first: first + 1
         .step: step + 1
 
     energy: 0
     .first: 0
     first < 5?>
-        .energy: energy + 0.5 * mass.(first) * (vx.(first) * vx.(first) + vy.(first) * vy.(first) + vz.(first) * vz.(first))
+        .energy: energy + 0.5 * mass.first * (vx.first * vx.first + vy.first * vy.first + vz.first * vz.first)
         .second: first + 1
         second < 5?>
-            .dx: x.(first) - x.(second)
-            .dy: y.(first) - y.(second)
-            .dz: z.(first) - z.(second)
-            .energy: energy - mass.(first) * mass.(second) / sqrt(dx * dx + dy * dy + dz * dz)
+            .dx: x.first - x.second
+            .dy: y.first - y.second
+            .dz: z.first - z.second
+            .energy: energy - mass.first * mass.second / sqrt(dx * dx + dy * dy + dz * dz)
             .second: second + 1
         .first: first + 1
     energy

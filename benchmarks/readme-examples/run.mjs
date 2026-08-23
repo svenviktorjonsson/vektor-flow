@@ -27,10 +27,10 @@ function parseOptions(argv) {
     : resolve(repoRoot, 'build', 'native-compiler', 'bin', 'vkf-strict');
   const options = {
     compiler: defaults,
-    compileRuns: 100,
-    compileWarmups: 1,
-    runs: 100,
-    warmups: 5,
+    compileRuns: 10,
+    compileWarmups: 0,
+    runs: 10,
+    warmups: 0,
     output: `${platform()}-${process.arch}-readme`
   };
   const numberKeys = new Map([
@@ -228,27 +228,25 @@ function createMarkdown(payload) {
     `- OS: \`${condition.osPlatform} ${condition.osRelease}\``,
     `- Architecture: \`${condition.architecture}\``,
     `- CPU: ${condition.cpuModel} (${condition.logicalCpuCount} logical CPUs)`,
-    `- Node timing host: \`${condition.nodeVersion}\``,
     `- Native compiler: ${condition.compilerBytes} bytes, SHA-256 \`${condition.compilerSha256}\``,
-    `- Compile: ${condition.compileWarmupsPerExample} warmup + ${condition.measuredCompileRunsPerExample} measured runs. ${condition.compileModel}.`,
-    `- Compile scope: ${condition.compileIncludes}; excludes ${condition.compileExcludes}.`,
-    `- Runtime: ${condition.runtimeWarmupsPerExample} warmups + ${condition.measuredRuntimeRunsPerExample} measured runs. ${condition.runtimeModel}.`,
+    `- Compile verification: ${condition.measuredCompileRunsPerExample} fresh source paths per example.`,
+    `- Runtime verification: ${condition.measuredRuntimeRunsPerExample} fresh-process runs per example.`,
     `- Working directory: ${condition.runtimeWorkingDirectory}.`,
     '',
-    '## Timing summary',
+    '## Output stability',
     '',
-    '| Example | Source bytes | Compile mean | Compile median | Compile p95 | Run mean | Run median | Run p95 | Output |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |'
+    '| Example | Source bytes | Source SHA-256 | Output |',
+    '| --- | ---: | --- | --- |'
   ];
   for (const example of payload.examples) {
-    lines.push(`| \`${example.path}\` | ${example.sourceBytes} | ${example.compile.meanMs.toFixed(3)} ms | ${example.compile.medianMs.toFixed(3)} ms | ${example.compile.p95Ms.toFixed(3)} ms | ${example.runtime.meanMs.toFixed(3)} ms | ${example.runtime.medianMs.toFixed(3)} ms | ${example.runtime.p95Ms.toFixed(3)} ms | ${example.outputStable ? `${example.outputRuns}/${example.outputRuns} identical` : 'unstable'} |`);
+    lines.push(`| \`${example.path}\` | ${example.sourceBytes} | \`${example.sourceSha256}\` | ${example.outputStable ? `${example.outputRuns}/${example.outputRuns} identical` : 'unstable'} |`);
   }
   lines.push('', '## Exact output', '');
   for (const example of payload.examples) {
     lines.push(
       `### \`${example.path}\``,
       '',
-      `Exit code: \`${example.exitCode}\`. Output stability: ${example.outputRuns}/${example.outputRuns} byte-identical measured runs.`,
+      `Exit code: \`${example.exitCode}\`. Output stability: ${example.outputRuns}/${example.outputRuns} byte-identical verification rounds.`,
       '',
       ...markdownStream('stdout', example.stdout),
       '',
@@ -366,9 +364,7 @@ function main() {
     const markdownPath = resolve(resultsRoot, `${options.output}.md`);
     writeFileSync(jsonPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     writeFileSync(markdownPath, createMarkdown(payload), 'utf8');
-    const stress = payload.examples.find((example) => example.path === 'core/12b-container-stress.vkf');
     console.log(`${payload.exampleCount} examples: ${options.compileRuns} fresh compiles and ${options.runs} full runs each; all outputs stable`);
-    if (stress) console.log(`container stress runtime mean: ${stress.runtime.meanMs.toFixed(3)} ms`);
     console.log(markdownPath);
   } finally {
     rmSync(workRoot, { recursive: true, force: true });

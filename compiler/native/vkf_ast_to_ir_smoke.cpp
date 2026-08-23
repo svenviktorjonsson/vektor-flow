@@ -1439,9 +1439,28 @@ private:
                 if (string_field(base, "kind", "bind.target.object") != "identifier") {
                     throw IRFailure("unsupported attribute bind base");
                 }
+                const std::string base_name = string_field(base, "name", "bind.target.object");
+                const std::string index_name = string_field(target, "name", "bind.target");
+                const std::string base_type = env.get(base_name);
+                const bool vector_base = starts_with(base_type, "list<") ||
+                    (base_type.size() >= 2 && base_type.front() == '[' && base_type.back() == ']');
+                const std::string index_type = env.get(index_name);
+                if (vector_base && env.contains(index_name) &&
+                    (index_type == "int" || index_type == "num")) {
+                    auto index = node("load");
+                    index["name"] = vf::JsonValue(index_name);
+                    index["type"] = vf::JsonValue(index_type);
+                    vf::JsonValue::Array indices;
+                    indices.emplace_back(std::move(index));
+                    auto out = node("update_index");
+                    out["base_name"] = vf::JsonValue(base_name);
+                    out["indices"] = vf::JsonValue(std::move(indices));
+                    out["value"] = lower_expr(field(object, "value", "bind"), env);
+                    return vf::JsonValue(std::move(out));
+                }
                 auto out = node("update_attr");
-                out["base_name"] = vf::JsonValue(string_field(base, "name", "bind.target.object"));
-                out["field"] = vf::JsonValue(string_field(target, "name", "bind.target"));
+                out["base_name"] = vf::JsonValue(base_name);
+                out["field"] = vf::JsonValue(index_name);
                 vf::JsonValue value = lower_expr(field(object, "value", "bind"), env);
                 out["value"] = std::move(value);
                 return vf::JsonValue(std::move(out));
@@ -3205,6 +3224,30 @@ private:
             vf::JsonValue object_ir = lower_expr(field(object, "object", "attribute"), env);
             const std::string object_type = string_field(object_ir.as_object(), "type", "attribute object");
             const std::string field_name = string_field(object, "name", "attribute");
+            const bool vector_object = starts_with(object_type, "list<") ||
+                (object_type.size() >= 2 && object_type.front() == '[' && object_type.back() == ']');
+            const std::string index_type = env.get(field_name);
+            if (vector_object && env.contains(field_name) &&
+                (index_type == "int" || index_type == "num")) {
+                auto index = node("load");
+                index["name"] = vf::JsonValue(field_name);
+                index["type"] = vf::JsonValue(index_type);
+                vf::JsonValue::Array indices;
+                indices.emplace_back(std::move(index));
+                std::string element_type = "any";
+                if (starts_with(object_type, "list<") && object_type.back() == '>') {
+                    element_type = object_type.substr(5, object_type.size() - 6);
+                } else {
+                    const std::string inner = object_type.substr(1, object_type.size() - 2);
+                    const std::size_t shape = inner.rfind(':');
+                    element_type = shape == std::string::npos ? inner : inner.substr(0, shape);
+                }
+                auto out = node("dotted_index");
+                out["base"] = std::move(object_ir);
+                out["indices"] = vf::JsonValue(std::move(indices));
+                out["type"] = vf::JsonValue(element_type);
+                return vf::JsonValue(std::move(out));
+            }
             auto out = node("field_access");
             out["field"] = vf::JsonValue(field_name);
             out["object"] = std::move(object_ir);

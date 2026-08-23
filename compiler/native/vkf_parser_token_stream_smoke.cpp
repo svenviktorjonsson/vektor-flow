@@ -689,6 +689,29 @@ private:
         return true;
     }
 
+    vf::JsonValue parse_inline_pipe_assignment() {
+        vf::JsonValue target;
+        if (!try_parse_bind_target(target)) {
+            fail_here("expected indexed assignment after pipe");
+        }
+        std::string operation;
+        if (!is_at("COLON")) operation = advance().kind;
+        expect("COLON");
+        vf::JsonValue value = parse_expression(false);
+        if (!operation.empty()) {
+            auto binary = node("binary_op");
+            binary["op"] = vf::JsonValue(operation);
+            binary["left"] = target;
+            binary["right"] = std::move(value);
+            value = vf::JsonValue(std::move(binary));
+        }
+        auto out = node("bind");
+        out["target"] = std::move(target);
+        out["value"] = std::move(value);
+        if (!operation.empty()) out["update"] = vf::JsonValue(true);
+        return vf::JsonValue(std::move(out));
+    }
+
     vf::JsonValue parse_dot_module_path() {
         expect("DOT");
         vf::JsonValue::Array segments;
@@ -916,8 +939,8 @@ private:
         return parse_indented_suite(true, false);
     }
 
-    vf::JsonValue parse_expression() {
-        vf::JsonValue expr = parse_pipe_expr();
+    vf::JsonValue parse_expression(bool allow_pipe = true) {
+        vf::JsonValue expr = allow_pipe ? parse_pipe_expr() : parse_range_expr();
         while (is_at("QUESTION") || is_at("BANG_QUESTION")) {
             if (is_at("BANG_QUESTION")) {
                 advance();
@@ -996,7 +1019,30 @@ private:
                     segments.emplace_back(std::move(block));
                 }
             } else {
-                segments.push_back(parse_range_expr());
+                const std::size_t segment_start = index_;
+                vf::JsonValue bind_target;
+                const bool indexed_assignment = try_parse_bind_target(bind_target);
+                index_ = segment_start;
+                if (indexed_assignment) {
+                    vf::JsonValue assignment = parse_inline_pipe_assignment();
+                    auto& assignment_object = assignment.as_object();
+                    const std::string result_name =
+                        "$pipe_assignment_" + std::to_string(segment_start);
+                    auto result = node("bind_expr");
+                    result["name"] = vf::JsonValue(result_name);
+                    result["value"] = std::move(assignment_object.at("value"));
+                    assignment_object["value"] = vf::JsonValue(std::move(result));
+                    vf::JsonValue::Array statements;
+                    statements.push_back(std::move(assignment));
+                    auto onward = node("identifier");
+                    onward["name"] = vf::JsonValue(result_name);
+                    statements.emplace_back(std::move(onward));
+                    auto block = node("block");
+                    block["statements"] = vf::JsonValue(std::move(statements));
+                    segments.emplace_back(std::move(block));
+                } else {
+                    segments.push_back(parse_range_expr());
+                }
             }
         }
         if (segments.empty()) {

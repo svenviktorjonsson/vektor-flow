@@ -4286,8 +4286,17 @@ private:
             }
             return false;
         }();
+        const bool terminal_error_only = function.may_error &&
+            function.owned_f64_list_locals.empty() &&
+            function.owned_string_locals.empty() &&
+            std::none_of(
+                function.instructions.begin(), function.instructions.end(),
+                [](const auto& instruction) {
+                    return instruction.has_error_handler;
+                });
         const auto register_cache_safe = [&]() {
-            if (!policy_.register_cache || entry || function.may_error ||
+            if (!policy_.register_cache || entry ||
+                (function.may_error && !terminal_error_only) ||
                 function.locals.empty() || has_avx_affine_loop ||
                 has_scalar_recurrence_loop || has_packed_reduction_loop) {
                 return false;
@@ -4365,10 +4374,15 @@ private:
                     return instruction.opcode == vkf::machine_ir::Opcode::RemainderF64;
                 });
             std::vector<bool> indexed_storage(frame.local_count, false);
+            std::vector<bool> indexed_address_local(frame.local_count, false);
             for (const auto& instruction : function.instructions) {
                 if (instruction.opcode != vkf::machine_ir::Opcode::LoadF64LocalsIndex &&
                     instruction.opcode != vkf::machine_ir::Opcode::StoreF64LocalsIndex) {
                     continue;
+                }
+                if (instruction.index_local &&
+                    *instruction.index_local < indexed_address_local.size()) {
+                    indexed_address_local[*instruction.index_local] = true;
                 }
                 const auto end = std::min<std::size_t>(
                     frame.local_count,
@@ -4397,7 +4411,8 @@ private:
                 }
             }
             for (unsigned local = 0; local < frame.local_count; ++local) {
-                if (has_implicit_runtime_call || local_is_i64(local) || indexed_storage[local]) {
+                if (has_implicit_runtime_call || local_is_i64(local) ||
+                    indexed_storage[local] || indexed_address_local[local]) {
                     continue;
                 }
                 unsigned count = 0;
@@ -4421,15 +4436,13 @@ private:
             std::sort(frequency.begin(), frequency.end(), [](const auto& left, const auto& right) {
                 return left.first != right.first ? left.first > right.first : left.second < right.second;
             });
-            // Expression lowering owns xmm0..xmm5. SysV makes xmm6..xmm15
-            // caller-saved, and cache-safe functions contain no calls, so all
-            // ten remaining registers can hold loop-carried numeric locals.
-            // Windows keeps xmm6..xmm15 nonvolatile; retain the two registers
-            // already saved by the frame ABI there.
+            // Windows preserves xmm6/xmm7 in the emitted frame. SysV lowering
+            // reserves xmm0..xmm7 for expressions and scratch; cache call-free
+            // numeric locals in its eight remaining caller-saved registers.
 #ifdef _WIN32
             constexpr unsigned available[] = {6, 7};
 #else
-            constexpr unsigned available[] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+            constexpr unsigned available[] = {8, 9, 10, 11, 12, 13, 14, 15};
 #endif
             for (unsigned index = 0;
                  index < frequency.size() && index < std::size(available); ++index) {

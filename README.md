@@ -8,7 +8,7 @@ Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
 > [!WARNING]
-> VKF 0.1.7 is an unsupported experimental preview. It has bugs, incomplete
+> VKF 0.1.8 is an unsupported experimental preview. It has bugs, incomplete
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
@@ -74,9 +74,9 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Install VKF 0.1.7
+## Install VKF 0.1.8
 
-Download the [0.1.7 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.7).
+Download the [0.1.8 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.8).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -114,28 +114,87 @@ Passing a `.vkf` file is the run command; there is no `-r`. A fingerprint of
 source, imports, target, compiler, and output choice allows unchanged programs
 to reuse their executable.
 
+## Basic Syntax
+
+VKF uses indentation for blocks and keeps control flow postfix and compact.
+
+| Form | Meaning |
+| --- | --- |
+| `name: value` | Declare a new binding. |
+| `.name: value` | Update an existing binding. |
+| `condition? expression` | Run once when the condition is true. |
+| `condition?>` | Repeat while the condition is true. |
+| `value??` | Match a value or type using `=>` arms. |
+| `value??>` | Repeatedly match a changing value. |
+| `values >> expression` | Pipe each vector/range element through an expression; `$` is the current value. |
+| `@:` / `@` | Return a value / return `null`. |
+| `@>` / `@|` | Continue / break the nearest loop or pipe. |
+| `:: value` | Print a value and newline. |
+
+This complete program shows a while loop and a repeated match (switch) loop:
+
+<!-- readme-example: core/33-loops.vkf -->
+```vkf
+loop_total() -> int:
+    i: 0
+    total: 0
+    i < 5?>
+        .total: total + i
+        .i: i + 1
+    total
+
+switch_loop() -> int:
+    k: 0
+    k??>
+        0 =>
+            .k: k + 1
+            @>
+        1 =>
+            .k: k + 1
+            @>
+        2 => @|
+    k
+
+:: loop_total()
+:: switch_loop()
+```
+
+<!-- readme-evidence:start core/33-loops.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+10
+2
+```
+
+<!-- readme-evidence:end -->
+
+The [complete language guide](docs/language-guide.md) covers values, functions,
+vectors, ranges, errors, operator overloads, modules, axes, and every native
+standard library with runnable examples.
+
 ## Performance Evidence—And Its Limits
 
-The 0.1.7 release compiles every documented program 100 times from fresh paths
-and executes it 100 times in fresh operating-system processes on Windows x64,
-Linux x64, and macOS ARM64. Reports record every sample, exact output, source
-hash, compiler hash, and machine conditions.
+The 0.1.8 release gate compiles every documented program 10 times from fresh
+paths and executes it 10 times in fresh operating-system processes on Windows
+x64, Linux x64, and macOS ARM64. All 10 rounds must produce the same exit code
+and byte-identical stdout and stderr. This is an output-stability check, not a
+per-example timing claim.
+
+The comparative timings below were produced by the 0.1.8 compiler from its
+canonical compact benchmark sources.
 
 <!-- readme-platform-evidence:start -->
-| Detail | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | --- | --- | --- |
-| Measured UTC | `2026-08-23T13:35:33.177Z` | `2026-08-23T13:30:26.962Z` | `2026-08-23T13:29:06.021Z` |
-| OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
-| Architecture | `x64` | `x64` | `arm64` |
-| CPU | AMD EPYC 7763 64-Core Processor | Intel(R) Xeon(R) 6973P-C | Apple M1 (Virtual) |
-| Logical CPUs | 4 | 4 | 3 |
-| Compiler size | 4,003,840 bytes | 5,184,968 bytes | 2,261,160 bytes |
-| Compiler SHA-256 | `1b7db43f6615fd79265591807ee0ad05f76a41053b8962015de296f2eb995098` | `e4cbaad17d3ad73b68c35f7409861472230371b91692288a2fb0c025e836c5e3` | `8adfc1ba36c6496d875cbd6a956f5a607c569f19d57acf7c4a54555c940c35b6` |
-| Timing host | v22.23.2 `Node performance.now()` | v22.23.2 `Node performance.now()` | v22.23.1 `Node performance.now()` |
+| Verification | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | ---: | ---: | ---: |
+| Fresh compiles per example | 10 | 10 | 10 |
+| Fresh-process runs per example | 10 | 10 | 10 |
+| Required result | Byte-identical output | Byte-identical output | Byte-identical output |
 <!-- readme-platform-evidence:end -->
 
-These absolute timings prove reproducibility and expose regressions. They do
-**not** prove that VKF is generally faster than C, Rust, Zig, Go, Julia, or
+These narrow 0.1.8 timings prove reproducibility and expose regressions. They
+do **not** prove that VKF is generally faster than C, Rust, Zig, Go, Julia, or
 Python.
 
 ### Adaptive Optimizer Policy Landscape
@@ -145,7 +204,7 @@ deduplicate identical machine code, and retain a policy for the exact program
 and x64 host. Normal search is bounded by the compilation-time budget;
 exhaustive search is an explicit benchmark mode.
 
-The latest [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.7-ci.md)
+The latest committed [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.7-ci.md)
 was produced by the strict 0.1.7 Windows x64 compiler. All 256 policies were
 correct and collapsed to 18 distinct binaries. The fastest measured basin was
 5.23× faster than the slowest. This run selected `mask-4e` at
@@ -156,6 +215,9 @@ are not treated as proof.
 
 ### Reproducible Language Comparison
 
+This is the controlled **0.1.8** comparison produced by the current compiler
+and the exact VKF snippets shown below.
+
 Rows marked **matched** use the same algorithm. The spectral-norm row is
 **idiomatic**, so each native compiler may use its normal optimized route. VKF
 is the only code displayed; the exact C, Rust, and Zig implementations are
@@ -163,11 +225,11 @@ linked. Tool versions, source hashes, work counts, output parity, compile
 models, and all 1,000 raw timing samples are retained in the evidence report.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.6.87.2-microsoft-standard-WSL2`, `x64`, Intel(R) Core(TM) Ultra 7 255U, 14 logical CPUs, at `2026-08-23T13:23:03.410Z`.
+Measured on `linux 6.6.87.2-microsoft-standard-WSL2`, `x64`, Intel(R) Core(TM) Ultra 7 255U, 14 logical CPUs, at `2026-08-23T17:14:11.988Z`.
 
 Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are same-host ratios to VKF. Absolute times are never compared across machines. Each raw lane contains 1000 measured runs after 50 warmups and excludes process launch.
 
-Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-017-controlled-1000.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-017-controlled-1000.md).
+Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-018-controlled-1000.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-018-controlled-1000.md).
 
 ### Current raw-kernel comparison
 
@@ -175,9 +237,9 @@ Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner and t
 
 | Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
 | --- | ---: | ---: | ---: | ---: |
-| Spectral norm | 5.739 ± 1.763 ms | 0.904× | 0.778× | 0.949× |
-| Fannkuch | 4.920 ± 1.309 ms | 1.188× | 1.298× | 1.361× |
-| N-body | 1.898 ± 0.763 ms | 1.510× | 1.959× | 1.536× |
+| Spectral norm | 5.593 ± 1.565 ms | 0.988× | 0.888× | 0.964× |
+| Fannkuch | 6.389 ± 2.135 ms | 1.693× | 1.849× | 1.415× |
+| N-body | 1.426 ± 0.515 ms | 1.318× | 1.504× | 0.979× |
 
 ### spectral norm by power method — medium, scale 250
 
@@ -197,9 +259,9 @@ multiply_av(values:[num:250]) -> [num:250]:
         .total: 0
         column < 250?>
             .diagonal: row + column
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.(column)
+            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.column
             .column: column + 1
-        output.(row): total
+        output.row: total
         .row: row + 1
     output
 
@@ -214,9 +276,9 @@ multiply_atv(values:[num:250]) -> [num:250]:
         .total: 0
         column < 250?>
             .diagonal: column + row
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.(column)
+            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.column
             .column: column + 1
-        output.(row): total
+        output.row: total
         .row: row + 1
     output
 
@@ -231,12 +293,11 @@ spectral_norm() -> num:
         .v: multiply_at_av(u)
         .u: multiply_at_av(v)
         .iteration: iteration + 1
-    index: 0
     numerator: 0
     denominator: 0
     index < 250?>
-        .numerator: numerator + u.(index) * v.(index)
-        .denominator: denominator + v.(index) * v.(index)
+        .numerator: numerator + u.index * v.index
+        .denominator: denominator + v.index * v.index
         .index: index + 1
     sqrt(numerator / denominator)
 
@@ -277,10 +338,7 @@ fannkuch(n:num) -> num:
             rotations.(r - 1): r
             .r: r - 1
 
-        .index: 0
-        index < n?>
-            working.(index): permutation.(index)
-            .index: index + 1
+        ..n - 1 >> working.($): permutation.($)
 
         .flips: 0
         .first: working.0
@@ -288,9 +346,9 @@ fannkuch(n:num) -> num:
             .left: 0
             .right: first
             left < right?>
-                .temporary: working.(left)
-                working.(left): working.(right)
-                working.(right): temporary
+                .temporary: working.left
+                working.left: working.right
+                working.right: temporary
                 .left: left + 1
                 .right: right - 1
             .flips: flips + 1
@@ -310,15 +368,12 @@ fannkuch(n:num) -> num:
                 .searching: 0
             searching > 0?
                 .temporary: permutation.0
-                .index: 0
-                index < r?>
-                    permutation.(index): permutation.(index + 1)
-                    .index: index + 1
-                permutation.(r): temporary
-                rotations.(r): rotations.(r) - 1
-                rotations.(r) > 0?
+                ..r - 1 >> permutation.($): permutation.($ + 1)
+                permutation.r: temporary
+                rotations.r: rotations.r - 1
+                rotations.r > 0?
                     .searching: 0
-                rotations.(r) = 0?
+                rotations.r = 0?
                     .r: r + 1
         running > 0?
             .permutation_index: permutation_index + 1
@@ -357,9 +412,9 @@ n_body(steps:num) -> num:
     momentum_z: 0
     body: 0
     body < 5?>
-        .momentum_x: momentum_x + vx.(body) * mass.(body)
-        .momentum_y: momentum_y + vy.(body) * mass.(body)
-        .momentum_z: momentum_z + vz.(body) * mass.(body)
+        .momentum_x: momentum_x + vx.body * mass.body
+        .momentum_y: momentum_y + vy.body * mass.body
+        .momentum_z: momentum_z + vz.body * mass.body
         .body: body + 1
     vx.(0): -momentum_x / solar_mass
     vy.(0): -momentum_y / solar_mass
@@ -378,34 +433,34 @@ n_body(steps:num) -> num:
         first < 5?>
             .second: first + 1
             second < 5?>
-                .dx: x.(first) - x.(second)
-                .dy: y.(first) - y.(second)
-                .dz: z.(first) - z.(second)
+                .dx: x.first - x.second
+                .dy: y.first - y.second
+                .dz: z.first - z.second
                 .distance_squared: dx * dx + dy * dy + dz * dz
                 .magnitude: 0.01 / (distance_squared * sqrt(distance_squared))
-                vx.(first): vx.(first) - dx * mass.(second) * magnitude
-                vy.(first): vy.(first) - dy * mass.(second) * magnitude
-                vz.(first): vz.(first) - dz * mass.(second) * magnitude
-                vx.(second): vx.(second) + dx * mass.(first) * magnitude
-                vy.(second): vy.(second) + dy * mass.(first) * magnitude
-                vz.(second): vz.(second) + dz * mass.(first) * magnitude
+                vx.first: vx.first - dx * mass.second * magnitude
+                vy.first: vy.first - dy * mass.second * magnitude
+                vz.first: vz.first - dz * mass.second * magnitude
+                vx.second: vx.second + dx * mass.first * magnitude
+                vy.second: vy.second + dy * mass.first * magnitude
+                vz.second: vz.second + dz * mass.first * magnitude
                 .second: second + 1
-            x.(first): x.(first) + 0.01 * vx.(first)
-            y.(first): y.(first) + 0.01 * vy.(first)
-            z.(first): z.(first) + 0.01 * vz.(first)
+            x.first: x.first + 0.01 * vx.first
+            y.first: y.first + 0.01 * vy.first
+            z.first: z.first + 0.01 * vz.first
             .first: first + 1
         .step: step + 1
 
     energy: 0
     .first: 0
     first < 5?>
-        .energy: energy + 0.5 * mass.(first) * (vx.(first) * vx.(first) + vy.(first) * vy.(first) + vz.(first) * vz.(first))
+        .energy: energy + 0.5 * mass.first * (vx.first * vx.first + vy.first * vy.first + vz.first * vz.first)
         .second: first + 1
         second < 5?>
-            .dx: x.(first) - x.(second)
-            .dy: y.(first) - y.(second)
-            .dz: z.(first) - z.(second)
-            .energy: energy - mass.(first) * mass.(second) / sqrt(dx * dx + dy * dy + dz * dz)
+            .dx: x.first - x.second
+            .dy: y.first - y.second
+            .dz: z.first - z.second
+            .energy: energy - mass.first * mass.second / sqrt(dx * dx + dy * dy + dz * dz)
             .second: second + 1
         .first: first + 1
     energy
@@ -424,7 +479,7 @@ Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-
 <details>
 <summary>Exact toolchains and compile models</summary>
 
-- VKF: `VKF 0.1.7; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
+- VKF: `VKF 0.1.8; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
 - C: `Ubuntu clang version 18.1.3 (1ubuntu1)`; Clang -O3 -march=native native link
 - Rust: `rustc 1.75.0 (82e1608df 2023-12-21) (built from a source tarball)`; rustc -O -C target-cpu=native native link
 - Zig: `0.16.0`; zig build-exe -O ReleaseFast -mcpu native -lc
@@ -442,13 +497,13 @@ single table above summarizes the current comparative measurements.
 
 ## Status And Native Scope
 
-The 0.1.7 native release includes `math`, `stat`, `random`, `time`, `io`,
+The 0.1.8 native release includes `math`, `stat`, `random`, `time`, `io`,
 `collections`, `errors`, `system`, `process`, and `regex`. Only fully native,
 verified libraries ship. `physics`, `ui`, and `symbolic` remain future work.
 
-The main-branch verification suite currently contains **320 VKF tests** plus 59 documented-program
-checks. Exact output stays beside the examples; full timing samples remain in
-the machine-readable evidence reports.
+The main-branch verification suite includes dedicated compact-index and
+range-pipe regressions plus 60 documented-program checks. Exact output stays
+beside the examples; controlled comparative timing remains separate.
 
 ## Punctuation At A Glance
 
@@ -474,6 +529,25 @@ folders, and unrelated existing `vkf` commands.
 VKF programs still run with the current user's permissions. `io` can modify
 files and `process` can launch programs. `process.run` passes an exact argument
 vector; `process.shell` invokes a platform shell and must be treated as unsafe.
+
+## 0.1.8 Changes
+
+0.1.8 makes compact indexing and looping executable language rules instead of
+documentation style alone:
+
+- a simple bound index uses `values.index`; computed and special indices use `values.(expression)`;
+- inline indexed assignment is valid in a pipe, including `..n - 1 >> target.($): source.($)`;
+- an indexed assignment pipes its stored value onward to a following `>>`;
+- Fannkuch and the other public VKF sources use canonical compact indexing;
+- discarded finite range pipes lower directly to counted loops without constructing result vectors;
+- terminal-error numeric functions may retain hot scalar locals in registers, while index operands that require stack-backed addressing are excluded from the floating cache;
+- call-free SysV numeric functions use XMM8 through XMM15 for hot locals, leaving XMM0 through XMM7 to expression and scratch lowering;
+- the landing README now introduces bindings, conditionals, while loops, repeated matches, pipes, return, continue, and break;
+- the native release suite reports 323 passing VKF tests on Windows x64;
+- every documented example is compiled and executed 10 times per release platform with byte-identical output required; per-example timing is no longer presented as release evidence;
+- the controlled Linux x64 comparison records 1,000 raw samples per lane, with every VKF/C, VKF/Rust, and VKF/Zig ratio below 2× for spectral norm, Fannkuch, and N-body.
+
+See the [0.1.8 release notes](docs/releases/0.1.8.md).
 
 ## 0.1.7 Changes
 

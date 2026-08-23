@@ -9,11 +9,20 @@ callable types, explicit structured values, named tensor axes, and functions
 that automatically lift through vectors with exact element types.
 
 > [!WARNING]
-> VKF 0.1.7 is an experimental preview, not a supported production language. It has bugs, incomplete diagnostics, and unstable APIs and syntax.
+> VKF 0.1.8 is an experimental preview, not a supported production language. It has bugs, incomplete diagnostics, and unstable APIs and syntax.
 >
-> The visual system is intended to become VKF's strongest feature, but `ui`, `physics`, and `symbolic` are not included in the native 0.1.7 release.
+> The visual system is intended to become VKF's strongest feature, but `ui`, `physics`, and `symbolic` are not included in the native 0.1.8 release.
 
 ## Release History
+
+### 0.1.8 — Compact Indexing And Pipe Assignment
+
+0.1.8 makes `values.index` the canonical form for a simple bound vector index
+and reserves `values.(expression)` for computed, multiple, and special indices.
+Indexed assignment can be used directly as a range-pipe stage and passes its
+stored value onward. Public examples now use the compact forms. The release
+gate compiles and executes every documented example 10 times per operating
+system and requires byte-identical output without presenting per-example timing.
 
 ### 0.1.7 — Wider SysV Numeric Register Cache
 
@@ -108,9 +117,9 @@ Release verification reports **279 passed, 0 failed on each of Windows x64, Linu
 
 0.1.0 introduced the Python-free native compiler, installers for three operating systems, the short command interface, executable reuse, the first complete native stdlib set, and the 20k performance gate.
 
-## Download And Run VKF 0.1.7
+## Download And Run VKF 0.1.8
 
-Download VKF from the [0.1.7 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.7).
+Download VKF from the [0.1.8 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.8).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -150,46 +159,21 @@ A fingerprint covers the source, compiler, imports, target, and output choice. A
 
 ### Verified Guide Example Matrix
 
-The release proof measures the 59 programs users actually see in this guide.
+The release proof checks the 60 programs users actually see in this guide.
 Directly below every VKF code example, this guide shows its exact recorded
-output and a two-row, three-platform table. Each timing is the mean ± standard
-deviation of 100 measured runs on Windows, Linux, and macOS.
+output.
 
-Every example receives one compile warmup, **100 measured compiles from fresh
-source paths**, five runtime warmups, and **100 measured executions in fresh
-operating-system processes**. Every measured run must return the same exit code
-and byte-identical stdout and stderr. Output blocks show the exact decoded text;
-Windows uses CRLF line endings while Linux and macOS use LF.
-
-The `Fresh executable build` row includes source reading, lexing, parsing,
-native standard-library resolution, typed IR, machine lowering, and executable
-emission. It uses one persistent compiler process, so the measurement excludes
-compiler-process startup. The `Fresh-process launch + run` row includes OS
-process creation, executable loading, any platform security inspection, program
-work, output capture, and teardown. For tiny programs—especially on hosted
-Windows runners—those fixed launch costs can dominate. This row is end-to-end
-latency, not raw machine-code execution time.
-
-These are the machines and conditions behind every inline table:
-
-<!-- readme-platform-evidence:start -->
-| Detail | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | --- | --- | --- |
-| Measured UTC | `2026-08-23T13:35:33.177Z` | `2026-08-23T13:30:26.962Z` | `2026-08-23T13:29:06.021Z` |
-| OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
-| Architecture | `x64` | `x64` | `arm64` |
-| CPU | AMD EPYC 7763 64-Core Processor | Intel(R) Xeon(R) 6973P-C | Apple M1 (Virtual) |
-| Logical CPUs | 4 | 4 | 3 |
-| Compiler size | 4,003,840 bytes | 5,184,968 bytes | 2,261,160 bytes |
-| Compiler SHA-256 | `1b7db43f6615fd79265591807ee0ad05f76a41053b8962015de296f2eb995098` | `e4cbaad17d3ad73b68c35f7409861472230371b91692288a2fb0c025e836c5e3` | `8adfc1ba36c6496d875cbd6a956f5a607c569f19d57acf7c4a54555c940c35b6` |
-| Timing host | v22.23.2 `Node performance.now()` | v22.23.2 `Node performance.now()` | v22.23.1 `Node performance.now()` |
-<!-- readme-platform-evidence:end -->
+On Windows x64, Linux x64, and macOS ARM64, every example is compiled from 10
+fresh paths and executed 10 times in fresh operating-system processes. All
+runs must return the same exit code and byte-identical stdout and stderr.
+Windows CRLF and Unix LF line endings are normalized only when the three
+platform outputs are compared. No per-example timing table is produced.
 
 The dedicated `core/12b-container-stress.vkf` example always performs 10
 million fixed-container element updates and reads, then prints only the
 checksum. Its work count is never adjusted to target a preferred duration.
 
-### Native 0.1.7 Scope
+### Native 0.1.8 Scope
 
 The release includes `math`, `stat`, `random`, `time`, `io`, `collections`, `errors`, `system`, `process`, and `regex`.
 
@@ -1330,7 +1314,7 @@ A pipe may use a block. `@:` returns that element's result. `@>` skips onward an
 
 <!-- readme-example: core/36-pipe-blocks.vkf -->
 ```vkf
-values: (1..) >>
+values: 1.. >>
     $ > 4?
         @|
     $ = 2?
@@ -1346,6 +1330,33 @@ values: (1..) >>
 
 ```text
 [1, 20, 3, 4]
+```
+
+<!-- readme-evidence:end -->
+
+### 6.3 Indexed Assignment In A Pipe
+
+An indexed assignment may be a pipe stage. It executes once for each input and
+its stored value becomes `$` for the next stage. `$` is a special computed
+index, so it uses parentheses after the dot.
+
+<!-- readme-example: core/36b-pipe-assignment.vkf -->
+```vkf
+source: [4, 3, 2, 1]
+working: [0:4]
+scaled: ..3 >> working.($): source.($) >> $ * 10
+
+:: working
+:: scaled
+```
+
+<!-- readme-evidence:start core/36b-pipe-assignment.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+[4, 3, 2, 1]
+(40, 30, 20, 10)
 ```
 
 <!-- readme-evidence:end -->
@@ -1490,12 +1501,15 @@ cross(matrix:[[int:2]:2]) -> int:
 
 ### 8.2 Single And Multi-Index Access
 
-Use `.index` for a fixed literal index and `.(expression)` for runtime or multiple indices. The same syntax followed by `:` updates selected positions.
+Use `.1` for a literal index and `.index` when `index` is a simple bound
+numeric name. Use `.(expression)` for computed, special, or multiple indices.
+The same syntax followed by `:` updates selected positions.
 
 <!-- readme-example: core/41-indexing.vkf -->
 ```vkf
 values: [10, 20, 30, 40]
-:: values.1
+index: 1
+:: values.index
 :: values.(0, 2)
 
 values.(1, 3): (21, 41)
@@ -1632,7 +1646,7 @@ text
 
 ## 10. Native Standard Library
 
-These modules are part of the native 0.1.7 release on Windows x64, Linux x64, and macOS ARM64.
+These modules are part of the native 0.1.8 release on Windows x64, Linux x64, and macOS ARM64.
 
 ### 10.1 `math`
 
@@ -1958,19 +1972,19 @@ vkf
 
 ## 11. Coming Soon
 
-The following areas are planned, but unavailable in the native 0.1.7 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
+The following areas are planned, but unavailable in the native 0.1.8 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
 
 ### 11.1 Native `ui`
 
-The visual and scene system is not in the native 0.1.7 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
+The visual and scene system is not in the native 0.1.8 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
 
 ### 11.2 Native `physics`
 
-Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.1.7. No `rigid_body` compatibility module ships in the release.
+Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.1.8. No `rigid_body` compatibility module ships in the release.
 
 ### 11.3 Native `symbolic`
 
-Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.1.7 and must not be presented as native core features.
+Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.1.8 and must not be presented as native core features.
 
 The same rule applies to every future feature: it enters the numbered native guide only after parsing, lowering, executable generation, runtime behavior, and native `vkf -t` verification pass on the release targets.
 
@@ -1985,16 +1999,16 @@ invoke no Python. Cross-language benchmark fixtures are isolated under
 The runnable guide examples are committed under `examples/generated/readme` and
 verified by the native release workflow.
 
-The 0.1.7 acceptance suite is run by VKF itself:
+The 0.1.8 acceptance suite is run by VKF itself:
 
 ```bash
 vkf -t tests/vkf
 ```
 
-The expected result on current main is `320 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
+The expected result on current main is `323 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
 
 VS Code syntax support is under [`vscode/`](https://github.com/svenviktorjonsson/vektor-flow/blob/main/vscode/README.md).
 
 ## Status
 
-VKF 0.1.7 is a deliberately incomplete native preview. Use GitHub Issues for reproducible compiler, installer, documentation, and safety problems.
+VKF 0.1.8 is a deliberately incomplete native preview. Use GitHub Issues for reproducible compiler, installer, documentation, and safety problems.

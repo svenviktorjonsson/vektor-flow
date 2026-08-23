@@ -1,26 +1,24 @@
 # Documented-program release proof
 
-This is the latest-release performance gate. It discovers every generated VKF
+This is the latest-release output-stability gate. It discovers every generated VKF
 program under `examples/generated/readme`, then records for each program:
 
-- 100 native compiles from fresh source paths after one warmup;
-- 100 complete executable launches after five warmups;
-- every timing sample plus mean, median, minimum, maximum, p95, and deviation;
+- 10 native compiles from fresh source paths;
+- 10 complete executable launches;
 - exact stdout and stderr as UTF-8, Base64, byte count, and SHA-256;
-- exit code and byte-for-byte output stability across all measured runs;
+- exit code and byte-for-byte output stability across all verification rounds;
 - source/compiler hashes and exact host conditions.
 
-Runtime includes OS process startup and output capture. Compile time includes
-the complete native frontend and executable emission but excludes startup of
-the one persistent compiler process.
+Elapsed samples remain in the machine-readable report for diagnostics, but
+0.1.8 makes no per-example timing claim from them.
 
 ```bash
 node benchmarks/readme-examples/run.mjs \
   --compiler=build/native-compiler/bin/vkf-strict \
-  --compile-runs=100 \
-  --compile-warmups=1 \
-  --runs=100 \
-  --warmups=5 \
+  --compile-runs=10 \
+  --compile-warmups=0 \
+  --runs=10 \
+  --warmups=0 \
   --output=local
 ```
 

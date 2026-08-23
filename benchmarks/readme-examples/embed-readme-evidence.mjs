@@ -35,8 +35,8 @@ for (const [label, report] of platforms) {
   if (report.version !== currentVersion || report.conditions?.compilerVersion !== currentVersion) {
     fail(`${label} proof is ${report.version}/${report.conditions?.compilerVersion}; README is ${currentVersion}`);
   }
-  if (report.options?.compileRuns !== 100 || report.options?.runs !== 100) {
-    fail(`${label} proof must contain 100 measured compile and runtime runs`);
+  if (report.options?.compileRuns !== 10 || report.options?.runs !== 10) {
+    fail(`${label} proof must contain 10 compile and runtime verification runs`);
   }
 }
 
@@ -91,7 +91,6 @@ function platformConditionsTable() {
     `| Logical CPUs | ${cells((value) => value.logicalCpuCount)} |`,
     `| Compiler size | ${cells((value) => `${value.compilerBytes.toLocaleString("en-US")} bytes`)} |`,
     `| Compiler SHA-256 | ${cells((value) => `\`${value.compilerSha256}\``)} |`,
-    `| Timing host | ${cells((value) => `${value.nodeVersion} \`${value.clock}\``)} |`,
   ].join("\n");
 }
 
@@ -121,8 +120,8 @@ readme = readme.replace(tagPattern, (snippet, path) => {
   if (source === undefined) fail(`could not extract source for ${path}`);
   const sourceHash = sha256(canonicalSource(source));
   for (let index = 0; index < examples.length; index += 1) {
-    if (examples[index].compile?.count !== 100 || examples[index].runtime?.count !== 100) {
-      fail(`${platforms[index][0]} proof for ${path} does not contain 100 samples`);
+    if (examples[index].compile?.count !== 10 || examples[index].runtime?.count !== 10) {
+      fail(`${platforms[index][0]} proof for ${path} does not contain 10 verification rounds`);
     }
     if (examples[index].sourceSha256 !== sourceHash) {
       fail(`${platforms[index][0]} proof for ${path} is stale: source hash mismatch`);

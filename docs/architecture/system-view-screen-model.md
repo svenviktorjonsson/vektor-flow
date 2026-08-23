@@ -98,7 +98,7 @@ Two property forms should be allowed:
 That gives:
 
 - `mirror_F` means a per-face stored property
-- `mirror_F.(F)` means lookup on face index `F`
+- `mirror_F.F` means lookup on face index `F`
 - `mirror(F)` means derived per-face property
 
 ## Views And Frames

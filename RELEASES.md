@@ -1,5 +1,24 @@
 # Vektor Flow Native Releases
 
+## 0.1.8 — Compact Indexing And Pipe Assignment
+
+0.1.8 makes `values.index` the canonical syntax for a simple bound vector
+index, while retaining `values.(expression)` for computed and special indices.
+Indexed assignment can now be the body of a compact range pipe and passes its
+stored value to any following pipe stage. Public VKF sources use the compact
+forms, and the landing README introduces the essential control-flow syntax.
+
+Effect-only finite range pipes lower directly to counted loops instead of
+constructing discarded vectors. Terminal-error numeric functions can cache hot
+locals safely; floating index operands remain stack-backed, and call-free SysV
+code uses XMM8 through XMM15 without colliding with expression scratch state.
+
+Each documented example is compiled and run 10 times on every release platform
+with byte-identical output required. The native suite contains 323 passing VKF
+tests. A controlled 1,000-sample Linux x64 comparison keeps all spectral-norm,
+Fannkuch, and N-body ratios below 2× versus C, Rust, and Zig. Full details:
+[`docs/releases/0.1.8.md`](docs/releases/0.1.8.md).
+
 ## 0.1.7 — Wider SysV Numeric Register Cache
 
 0.1.7 lets call-free SysV x64 numeric functions cache hot locals in XMM6

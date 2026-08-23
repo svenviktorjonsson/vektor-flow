@@ -291,7 +291,7 @@ back_rank_roles: [
 ]
 
 back_rank_role(file0:num) -> num:
-    @: back_rank_roles.(file0)
+    @: back_rank_roles.file0
 ```
 
 This avoids both string roles and switch-shaped logic for static tables.

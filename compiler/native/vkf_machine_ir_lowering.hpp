@@ -2927,6 +2927,29 @@ public:
         return scope.back().local.base;
     }
 
+    void add_scoped_alias(
+        const std::string& name,
+        std::uint32_t base,
+        const ValueLayout& layout = {}
+    ) {
+        if (scopes_.empty()) throw LoweringFailure("machine IR scoped alias needs an active scope");
+        auto& scope = scopes_.back();
+        if (std::any_of(scope.begin(), scope.end(), [&](const ScopeEntry& entry) {
+                return entry.name == name;
+            })) {
+            throw LoweringFailure("duplicate machine IR scoped alias " + name);
+        }
+        ScopeEntry entry;
+        entry.name = name;
+        const auto previous = bindings_.find(name);
+        if (previous != bindings_.end()) entry.previous = previous->second;
+        entry.local.base = base;
+        entry.local.layout = layout;
+        entry.alias = true;
+        bindings_[name] = {base, layout};
+        scope.push_back(std::move(entry));
+    }
+
     std::vector<ScopeLocal> end_scope() {
         if (scopes_.empty()) throw LoweringFailure("machine IR scope stack underflow");
         auto scope = std::move(scopes_.back());
@@ -2934,7 +2957,7 @@ public:
         std::vector<ScopeLocal> locals;
         locals.reserve(scope.size());
         for (auto iterator = scope.rbegin(); iterator != scope.rend(); ++iterator) {
-            locals.push_back(iterator->local);
+            if (!iterator->alias) locals.push_back(iterator->local);
             if (iterator->previous) bindings_[iterator->name] = *iterator->previous;
             else bindings_.erase(iterator->name);
         }
@@ -3235,6 +3258,7 @@ private:
         std::string name;
         std::optional<Binding> previous;
         ScopeLocal local;
+        bool alias = false;
     };
 
     Function function_;
@@ -4132,6 +4156,13 @@ inline void lower_statements(
 );
 
 inline ValueLayout lower_expression(
+    const vf::JsonValue::Object& expression,
+    FunctionBuilder& builder,
+    const FunctionSignatures& signatures,
+    StringPool& strings
+);
+
+inline bool lower_discarded_range_pipe(
     const vf::JsonValue::Object& expression,
     FunctionBuilder& builder,
     const FunctionSignatures& signatures,
@@ -9576,6 +9607,426 @@ inline ValueLayout lower_expression(
     throw LoweringFailure("unsupported machine IR expression " + kind);
 }
 
+inline bool lower_discarded_range_pipe(
+    const vf::JsonValue::Object& expression,
+    FunctionBuilder& builder,
+    const FunctionSignatures& signatures,
+    StringPool& strings
+) {
+    if (string_field(expression, "kind", "discarded expression") != "pipe_chain") {
+        return false;
+    }
+    const auto& source_expression = object_of(
+        field(expression, "source", "discarded pipe expression"),
+        "discarded pipe source");
+    if (layout_from_expression_shape(source_expression, signatures).kind != ValueKind::Range) {
+        return false;
+    }
+
+    if (!bool_field(source_expression, "infinite", "discarded range pipe source")) {
+        const auto& start_expression = object_of(
+            field(source_expression, "start", "discarded finite range pipe source"),
+            "discarded finite range pipe start");
+        const auto& inclusive_end_expression = object_of(
+            field(source_expression, "end", "discarded finite range pipe source"),
+            "discarded finite range pipe end");
+        const vf::JsonValue::Object* loop_end_expression = &inclusive_end_expression;
+        bool exclusive_end = false;
+        if (string_field(
+                inclusive_end_expression, "kind", "discarded finite range pipe end") ==
+                "binary_op" &&
+            string_field(
+                inclusive_end_expression, "op", "discarded finite range pipe end") ==
+                "MINUS") {
+            const auto& right = object_of(
+                field(inclusive_end_expression, "right", "discarded finite range pipe end"),
+                "discarded finite range pipe end right");
+            if (string_field(right, "kind", "discarded finite range pipe end right") == "const") {
+                const auto& right_value = field(
+                    right, "value", "discarded finite range pipe end right");
+                if (right_value.is_number() && right_value.as_number() == 1.0) {
+                    loop_end_expression = &object_of(
+                        field(inclusive_end_expression, "left", "discarded finite range pipe end"),
+                        "discarded finite range pipe exclusive end");
+                    exclusive_end = true;
+                }
+            }
+        }
+        const auto cursor = builder.add_borrowed_temporary({});
+        const auto start_layout = lower_expression(
+            start_expression, builder, signatures, strings);
+        require_scalar(start_layout, "discarded finite range pipe start");
+        emit_store_local_component(builder, cursor);
+        const auto end = builder.add_borrowed_temporary({});
+        const std::string loop_end_kind = string_field(
+            *loop_end_expression, "kind", "discarded finite range pipe end");
+        const bool direct_exclusive_end = exclusive_end &&
+            (loop_end_kind == "load" || loop_end_kind == "const");
+        if (!direct_exclusive_end) {
+            const auto end_layout = lower_expression(
+                *loop_end_expression, builder, signatures, strings);
+            require_scalar(end_layout, "discarded finite range pipe end");
+            emit_store_local_component(builder, end);
+        }
+        const auto emit_ascending_end = [&]() {
+            if (direct_exclusive_end) {
+                const auto end_layout = lower_expression(
+                    *loop_end_expression, builder, signatures, strings);
+                require_scalar(end_layout, "discarded finite range pipe end");
+            } else {
+                emit_load_local_component(builder, end);
+            }
+        };
+        const auto descending = builder.next_label();
+        const auto ascending_loop = builder.next_label();
+        const auto ascending_advance = builder.next_label();
+        const auto descending_loop = builder.next_label();
+        const auto descending_advance = builder.next_label();
+        const auto finish = builder.next_label();
+
+        builder.begin_scope();
+        const auto& segments = array_of(
+            field(expression, "segments", "discarded finite range pipe expression"),
+            "discarded finite range pipe segments");
+        const bool direct_cursor = segments.size() == 1u;
+        std::uint32_t current = cursor;
+        if (direct_cursor) {
+            builder.add_scoped_alias("$", cursor);
+        } else {
+            current = builder.add_scoped_local("$", {}, false);
+        }
+        const auto emit_body = [&](const std::uint32_t advance) {
+            if (!direct_cursor) {
+                emit_load_local_component(builder, cursor);
+                emit_store_local_component(builder, current);
+            }
+            builder.push_loop(advance, finish);
+            for (std::size_t index = 0; index < segments.size(); ++index) {
+                const auto& segment = object_of(
+                    segments[index], "discarded finite range pipe segment");
+                if (index + 1u == segments.size() &&
+                    string_field(segment, "kind", "discarded finite range pipe segment") ==
+                        "block_expr") {
+                    const auto& block_body = array_of(
+                        field(segment, "body", "discarded finite range pipe block"),
+                        "discarded finite range pipe block body");
+                    if (!block_body.empty()) {
+                        const auto& tail = object_of(
+                            block_body.back(), "discarded finite range pipe block tail");
+                        if (string_field(tail, "kind", "discarded finite range pipe block tail") ==
+                                "expr_stmt") {
+                            const auto& tail_expression = object_of(
+                                field(tail, "expr", "discarded finite range pipe block tail"),
+                                "discarded finite range pipe block tail expression");
+                            if (string_field(
+                                    tail_expression, "kind",
+                                    "discarded finite range pipe block tail expression") ==
+                                    "load") {
+                                const std::string result_name = string_field(
+                                    tail_expression, "name",
+                                    "discarded finite range pipe block tail expression");
+                                vf::JsonValue::Array effects;
+                                effects.reserve(block_body.size() - 1u);
+                                for (std::size_t body_index = 0;
+                                     body_index + 1u < block_body.size(); ++body_index) {
+                                    vf::JsonValue effect = block_body[body_index];
+                                    auto& effect_object = effect.as_object();
+                                    const auto value = effect_object.find("value");
+                                    if (value != effect_object.end() && value->second.is_object()) {
+                                        const auto& value_object = value->second.as_object();
+                                        if (string_field(
+                                                value_object, "kind",
+                                                "discarded finite range pipe assignment") ==
+                                                "bind_expr" &&
+                                            string_field(
+                                                value_object, "name",
+                                                "discarded finite range pipe assignment") ==
+                                                result_name) {
+                                            vf::JsonValue unwrapped_value = field(
+                                                value_object, "value",
+                                                "discarded finite range pipe assignment");
+                                            effect_object["value"] = std::move(unwrapped_value);
+                                        }
+                                    }
+                                    effects.emplace_back(std::move(effect));
+                                }
+                                lower_statements(
+                                    effects, builder, false, signatures, strings);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                const auto segment_layout = lower_expression(
+                    segment, builder, signatures, strings);
+                require_scalar(segment_layout, "discarded finite range pipe segment");
+                if (index + 1u < segments.size()) {
+                    emit_store_local_component(builder, current);
+                } else {
+                    builder.emit({Opcode::Drop});
+                }
+            }
+            builder.pop_loop();
+        };
+
+        emit_load_local_component(builder, cursor);
+        emit_ascending_end();
+        builder.emit({exclusive_end ? Opcode::OrderedLessF64 : Opcode::OrderedLessEqualF64});
+        Instruction choose_descending;
+        choose_descending.opcode = Opcode::JumpIfFalse;
+        choose_descending.label = descending;
+        builder.emit(std::move(choose_descending));
+
+        Instruction ascending_label;
+        ascending_label.opcode = Opcode::Label;
+        ascending_label.label = ascending_loop;
+        builder.emit(std::move(ascending_label));
+        emit_load_local_component(builder, cursor);
+        emit_ascending_end();
+        builder.emit({exclusive_end ? Opcode::OrderedLessF64 : Opcode::OrderedLessEqualF64});
+        Instruction ascending_done;
+        ascending_done.opcode = Opcode::JumpIfFalse;
+        ascending_done.label = finish;
+        builder.emit(std::move(ascending_done));
+        emit_body(ascending_advance);
+        Instruction ascending_advance_label;
+        ascending_advance_label.opcode = Opcode::Label;
+        ascending_advance_label.label = ascending_advance;
+        builder.emit(std::move(ascending_advance_label));
+        emit_load_local_component(builder, cursor);
+        Instruction one;
+        one.opcode = Opcode::PushF64;
+        one.f64 = 1.0;
+        builder.emit(std::move(one));
+        builder.emit({Opcode::AddF64});
+        emit_store_local_component(builder, cursor);
+        Instruction repeat_ascending;
+        repeat_ascending.opcode = Opcode::Jump;
+        repeat_ascending.label = ascending_loop;
+        builder.emit(std::move(repeat_ascending));
+
+        Instruction descending_label;
+        descending_label.opcode = Opcode::Label;
+        descending_label.label = descending;
+        builder.emit(std::move(descending_label));
+        if (exclusive_end) {
+            if (direct_exclusive_end) {
+                const auto end_layout = lower_expression(
+                    *loop_end_expression, builder, signatures, strings);
+                require_scalar(end_layout, "discarded finite range pipe descending end");
+            } else {
+                emit_load_local_component(builder, end);
+            }
+            Instruction one;
+            one.opcode = Opcode::PushF64;
+            one.f64 = 1.0;
+            builder.emit(std::move(one));
+            builder.emit({Opcode::SubtractF64});
+            emit_store_local_component(builder, end);
+        }
+        Instruction descending_loop_label;
+        descending_loop_label.opcode = Opcode::Label;
+        descending_loop_label.label = descending_loop;
+        builder.emit(std::move(descending_loop_label));
+        emit_load_local_component(builder, cursor);
+        emit_load_local_component(builder, end);
+        builder.emit({Opcode::OrderedGreaterEqualF64});
+        Instruction descending_done;
+        descending_done.opcode = Opcode::JumpIfFalse;
+        descending_done.label = finish;
+        builder.emit(std::move(descending_done));
+        emit_body(descending_advance);
+        Instruction descending_advance_label;
+        descending_advance_label.opcode = Opcode::Label;
+        descending_advance_label.label = descending_advance;
+        builder.emit(std::move(descending_advance_label));
+        emit_load_local_component(builder, cursor);
+        Instruction minus_one;
+        minus_one.opcode = Opcode::PushF64;
+        minus_one.f64 = -1.0;
+        builder.emit(std::move(minus_one));
+        builder.emit({Opcode::AddF64});
+        emit_store_local_component(builder, cursor);
+        Instruction repeat_descending;
+        repeat_descending.opcode = Opcode::Jump;
+        repeat_descending.label = descending_loop;
+        builder.emit(std::move(repeat_descending));
+
+        Instruction finish_label;
+        finish_label.opcode = Opcode::Label;
+        finish_label.label = finish;
+        builder.emit(std::move(finish_label));
+        builder.end_scope();
+        return true;
+    }
+    const auto source = lower_expression(source_expression, builder, signatures, strings);
+    if (source.kind != ValueKind::Range) {
+        throw LoweringFailure("discarded range pipe source layout mismatch");
+    }
+    const auto source_local = builder.add_borrowed_temporary(source);
+    emit_store_local_component(builder, source_local + 2u);
+    emit_store_local_component(builder, source_local + 1u);
+    emit_store_local_component(builder, source_local);
+    const auto cursor = builder.add_borrowed_temporary({});
+    emit_load_local_component(builder, source_local);
+    emit_store_local_component(builder, cursor);
+    const auto step = builder.add_borrowed_temporary({});
+    const auto finite_step = builder.next_label();
+    const auto descending = builder.next_label();
+    const auto step_ready = builder.next_label();
+    emit_load_local_component(builder, source_local + 2u);
+    Instruction choose_finite_step;
+    choose_finite_step.opcode = Opcode::JumpIfFalse;
+    choose_finite_step.label = finite_step;
+    builder.emit(std::move(choose_finite_step));
+    Instruction one;
+    one.opcode = Opcode::PushF64;
+    one.f64 = 1.0;
+    builder.emit(std::move(one));
+    emit_store_local_component(builder, step);
+    Instruction skip_finite_step;
+    skip_finite_step.opcode = Opcode::Jump;
+    skip_finite_step.label = step_ready;
+    builder.emit(std::move(skip_finite_step));
+    Instruction finite_step_label;
+    finite_step_label.opcode = Opcode::Label;
+    finite_step_label.label = finite_step;
+    builder.emit(std::move(finite_step_label));
+    emit_load_local_component(builder, source_local);
+    emit_load_local_component(builder, source_local + 1u);
+    builder.emit({Opcode::OrderedLessEqualF64});
+    Instruction choose_descending;
+    choose_descending.opcode = Opcode::JumpIfFalse;
+    choose_descending.label = descending;
+    builder.emit(std::move(choose_descending));
+    Instruction ascending_one;
+    ascending_one.opcode = Opcode::PushF64;
+    ascending_one.f64 = 1.0;
+    builder.emit(std::move(ascending_one));
+    emit_store_local_component(builder, step);
+    Instruction skip_descending;
+    skip_descending.opcode = Opcode::Jump;
+    skip_descending.label = step_ready;
+    builder.emit(std::move(skip_descending));
+    Instruction descending_label;
+    descending_label.opcode = Opcode::Label;
+    descending_label.label = descending;
+    builder.emit(std::move(descending_label));
+    Instruction minus_one;
+    minus_one.opcode = Opcode::PushF64;
+    minus_one.f64 = -1.0;
+    builder.emit(std::move(minus_one));
+    emit_store_local_component(builder, step);
+    Instruction step_ready_label;
+    step_ready_label.opcode = Opcode::Label;
+    step_ready_label.label = step_ready;
+    builder.emit(std::move(step_ready_label));
+
+    builder.begin_scope();
+    const auto current = builder.add_scoped_local("$", {}, false);
+    const auto loop = builder.next_label();
+    const auto descending_check = builder.next_label();
+    const auto finite_check = builder.next_label();
+    const auto condition_ready = builder.next_label();
+    const auto advance = builder.next_label();
+    const auto finish = builder.next_label();
+    const auto condition = builder.add_borrowed_temporary({});
+    Instruction loop_label;
+    loop_label.opcode = Opcode::Label;
+    loop_label.label = loop;
+    builder.emit(std::move(loop_label));
+    emit_load_local_component(builder, source_local + 2u);
+    Instruction use_finite_check;
+    use_finite_check.opcode = Opcode::JumpIfFalse;
+    use_finite_check.label = finite_check;
+    builder.emit(std::move(use_finite_check));
+    Instruction infinite_truth;
+    infinite_truth.opcode = Opcode::PushF64;
+    infinite_truth.f64 = 1.0;
+    builder.emit(std::move(infinite_truth));
+    emit_store_local_component(builder, condition);
+    Instruction infinite_condition_done;
+    infinite_condition_done.opcode = Opcode::Jump;
+    infinite_condition_done.label = condition_ready;
+    builder.emit(std::move(infinite_condition_done));
+    Instruction finite_check_label;
+    finite_check_label.opcode = Opcode::Label;
+    finite_check_label.label = finite_check;
+    builder.emit(std::move(finite_check_label));
+    emit_load_local_component(builder, step);
+    Instruction zero;
+    zero.opcode = Opcode::PushF64;
+    zero.f64 = 0.0;
+    builder.emit(std::move(zero));
+    builder.emit({Opcode::OrderedGreaterEqualF64});
+    Instruction use_descending;
+    use_descending.opcode = Opcode::JumpIfFalse;
+    use_descending.label = descending_check;
+    builder.emit(std::move(use_descending));
+    emit_load_local_component(builder, cursor);
+    emit_load_local_component(builder, source_local + 1u);
+    builder.emit({Opcode::OrderedLessEqualF64});
+    emit_store_local_component(builder, condition);
+    Instruction condition_done;
+    condition_done.opcode = Opcode::Jump;
+    condition_done.label = condition_ready;
+    builder.emit(std::move(condition_done));
+    Instruction descending_check_label;
+    descending_check_label.opcode = Opcode::Label;
+    descending_check_label.label = descending_check;
+    builder.emit(std::move(descending_check_label));
+    emit_load_local_component(builder, cursor);
+    emit_load_local_component(builder, source_local + 1u);
+    builder.emit({Opcode::OrderedGreaterEqualF64});
+    emit_store_local_component(builder, condition);
+    Instruction condition_label;
+    condition_label.opcode = Opcode::Label;
+    condition_label.label = condition_ready;
+    builder.emit(std::move(condition_label));
+    emit_load_local_component(builder, condition);
+    Instruction done;
+    done.opcode = Opcode::JumpIfFalse;
+    done.label = finish;
+    builder.emit(std::move(done));
+    emit_load_local_component(builder, cursor);
+    emit_store_local_component(builder, current);
+
+    const auto& segments = array_of(
+        field(expression, "segments", "discarded range pipe expression"),
+        "discarded range pipe segments");
+    builder.push_loop(advance, finish);
+    for (std::size_t index = 0; index < segments.size(); ++index) {
+        const auto segment_layout = lower_expression(
+            object_of(segments[index], "discarded range pipe segment"),
+            builder, signatures, strings);
+        require_scalar(segment_layout, "discarded range pipe segment");
+        if (index + 1u < segments.size()) {
+            emit_store_local_component(builder, current);
+        } else {
+            builder.emit({Opcode::Drop});
+        }
+    }
+    builder.pop_loop();
+    Instruction advance_label;
+    advance_label.opcode = Opcode::Label;
+    advance_label.label = advance;
+    builder.emit(std::move(advance_label));
+    emit_load_local_component(builder, cursor);
+    emit_load_local_component(builder, step);
+    builder.emit({Opcode::AddF64});
+    emit_store_local_component(builder, cursor);
+    Instruction repeat;
+    repeat.opcode = Opcode::Jump;
+    repeat.label = loop;
+    builder.emit(std::move(repeat));
+    Instruction finish_label;
+    finish_label.opcode = Opcode::Label;
+    finish_label.label = finish;
+    builder.emit(std::move(finish_label));
+    builder.end_scope();
+    return true;
+}
+
 inline void lower_statements(
     const vf::JsonValue::Array& body,
     FunctionBuilder& builder,
@@ -10279,6 +10730,10 @@ inline void lower_statements(
                     emit_release_owned_values(builder);
                     emit_return(builder, result_layout);
                 }
+                continue;
+            }
+            if (!(function_tail && index + 1 == body.size()) &&
+                lower_discarded_range_pipe(expression, builder, signatures, strings)) {
                 continue;
             }
             const auto fixed = function_tail && index + 1 == body.size() && function_result_layout

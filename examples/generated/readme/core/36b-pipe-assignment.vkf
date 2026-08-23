@@ -1,0 +1,6 @@
+source: [4, 3, 2, 1]
+working: [0:4]
+scaled: ..3 >> working.($): source.($) >> $ * 10
+
+:: working
+:: scaled
