@@ -4421,10 +4421,16 @@ private:
             std::sort(frequency.begin(), frequency.end(), [](const auto& left, const auto& right) {
                 return left.first != right.first ? left.first > right.first : left.second < right.second;
             });
-            // Expression lowering owns xmm0..xmm5. Keep cached locals in the
-            // disjoint xmm6/xmm7 pair so arbitrarily shaped expressions cannot
-            // silently clobber loop-carried values.
+            // Expression lowering owns xmm0..xmm5. SysV makes xmm6..xmm15
+            // caller-saved, and cache-safe functions contain no calls, so all
+            // ten remaining registers can hold loop-carried numeric locals.
+            // Windows keeps xmm6..xmm15 nonvolatile; retain the two registers
+            // already saved by the frame ABI there.
+#ifdef _WIN32
             constexpr unsigned available[] = {6, 7};
+#else
+            constexpr unsigned available[] = {6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+#endif
             for (unsigned index = 0;
                  index < frequency.size() && index < std::size(available); ++index) {
                 local_register[frequency[index].second] = static_cast<int>(available[index]);
@@ -4461,6 +4467,22 @@ private:
                     static_cast<int>(integer_available[index]);
             }
         }
+        const auto move_xmm = [&](unsigned destination, unsigned source) {
+            if (destination > 15 || source > 15) {
+                throw BackendFailure("invalid cached x64 xmm move");
+            }
+            code_.byte(0x66);
+            if (destination >= 8 || source >= 8) {
+                code_.byte(static_cast<unsigned>(
+                    0x40u | (destination >= 8 ? 0x04u : 0u) |
+                    (source >= 8 ? 0x01u : 0u)));
+            }
+            code_.raw({
+                0x0f, 0x28,
+                static_cast<unsigned>(
+                    0xc0u + (destination & 7u) * 8u + (source & 7u))
+            });
+        };
         const auto load_local = [&](unsigned local, unsigned destination) {
             if (local >= frame.local_count || destination > 7) {
                 throw BackendFailure("invalid cached x64 local load");
@@ -4488,8 +4510,7 @@ private:
             const int source = local_register[local];
             if (source < 0) load_xmm(destination, frame.displacement(local));
             else if (static_cast<unsigned>(source) != destination) {
-                code_.raw({0x66, 0x0f, 0x28,
-                           static_cast<unsigned>(0xc0 + destination * 8 + source)});
+                move_xmm(destination, static_cast<unsigned>(source));
             }
         };
         const auto store_local = [&](unsigned local, unsigned source) {
@@ -4513,8 +4534,7 @@ private:
             const int destination = local_register[local];
             if (destination < 0) store_xmm(source, frame.displacement(local));
             else if (static_cast<unsigned>(destination) != source) {
-                code_.raw({0x66, 0x0f, 0x28,
-                           static_cast<unsigned>(0xc0 + destination * 8 + source)});
+                move_xmm(static_cast<unsigned>(destination), source);
             }
         };
         const auto load_i64_to_rax = [&](unsigned local) {
