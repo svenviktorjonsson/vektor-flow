@@ -21,7 +21,6 @@ const readmePath = resolve(options.readme);
 const report = JSON.parse(readFileSync(resolve(options.report), 'utf8'));
 const version = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).version;
 const expectedCases = [
-  'startup',
   'spectral-norm-medium',
   'fannkuch-redux-medium',
   'n-body-medium'
@@ -109,7 +108,7 @@ const fragment = [
   `Measured on \`${report.environment.platform}\`, \`${report.environment.architecture}\`, ` +
     `${report.environment.cpu}, ${report.environment.logicalCpuCount} logical CPUs, at \`${report.generatedAt}\`.`,
   '',
-  'Every table cell is mean ± sample standard deviation from 100 measured runs. Fresh-process compile includes tool startup for every language. Julia parses source and JIT-compiles during runtime; Python produces bytecode; native toolchains emit executables. VKF compiler-core time excludes compiler startup. The <10 ms compiler-core and <500 µs raw-entry limits apply only to the historical 20,000-operation scalar engineering gate. Raw kernel timing excludes process launch and is available where a stable native entry can be loaded.',
+  'Only the three substantial kernels are shown here. Every table cell is mean ± sample standard deviation from 100 measured runs. Fresh-process compile includes tool startup for every language. Julia parses source and JIT-compiles during runtime; Python produces bytecode; native toolchains emit executables. Raw kernel timing excludes process launch and is available where a stable native entry can be loaded.',
   '',
   ...expectedCases.flatMap((caseId) => [section(caseId), '']),
   '<details>',

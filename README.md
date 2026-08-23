@@ -183,27 +183,7 @@ work counts, output parity, compile models, and 100-run dispersion are retained.
 <!-- readme-comparison-evidence:start -->
 Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 7763 64-Core Processor, 4 logical CPUs, at `2026-08-23T02:35:34.779Z`.
 
-Every table cell is mean ± sample standard deviation from 100 measured runs. Fresh-process compile includes tool startup for every language. Julia parses source and JIT-compiles during runtime; Python produces bytecode; native toolchains emit executables. VKF compiler-core time excludes compiler startup. The <10 ms compiler-core and <500 µs raw-entry limits apply only to the historical 20,000-operation scalar engineering gate. Raw kernel timing excludes process launch and is available where a stable native entry can be loaded.
-
-### Startup and output
-
-Mode: **matched**. print one numeric value.
-
-```vkf
-:: 0
-```
-
-All implementations returned the same checked numeric result within tolerance: `0`.
-
-| Language | Fresh-process compile | VKF compiler core | Fresh-process runtime | Raw kernel | Exact code |
-| --- | ---: | ---: | ---: | ---: | --- |
-| VKF | 2.672 ± 0.080 ms | 0.159 ± 0.019 ms | 1.934 ± 0.134 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/vkf.vkf) |
-| C | 67.079 ± 0.999 ms | — | 1.800 ± 0.137 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/c.c) |
-| Rust | 60.067 ± 1.239 ms | — | 2.069 ± 0.199 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/rust.rs) |
-| Zig | 156.115 ± 2.562 ms | — | 1.791 ± 0.136 ms | 0.000 ± 0.000 ms | [source](benchmarks/core-comparison/published/startup/zig.zig) |
-| Go | 87.820 ± 2.003 ms | — | 2.558 ± 0.166 ms | — | [source](benchmarks/core-comparison/published/startup/go.go) |
-| Julia | 189.959 ± 3.197 ms | — | 219.968 ± 2.930 ms | — | [source](benchmarks/core-comparison/published/startup/julia.jl) |
-| Python | 46.078 ± 0.935 ms | — | 14.538 ± 0.443 ms | — | [source](benchmarks/core-comparison/published/startup/python-efficient.py) |
+Only the three substantial kernels are shown here. Every table cell is mean ± sample standard deviation from 100 measured runs. Fresh-process compile includes tool startup for every language. Julia parses source and JIT-compiles during runtime; Python produces bytecode; native toolchains emit executables. Raw kernel timing excludes process launch and is available where a stable native entry can be loaded.
 
 ### spectral norm by power method — medium, scale 250
 
