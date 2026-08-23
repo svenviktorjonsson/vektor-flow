@@ -14,3 +14,5 @@ results/*
 !results/goal-under-2x-linux-x64.md
 !results/linux-x64-016.json
 !results/linux-x64-016.md
+!results/linux-x64-017-controlled-1000.json
+!results/linux-x64-017-controlled-1000.md

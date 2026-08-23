@@ -35,8 +35,8 @@ const labels = {
 
 if (report.schema !== 'vektor-flow/core-language-comparison-v1') fail('unexpected report schema');
 if (report.version !== version) fail(`comparison is ${report.version}; README is ${version}`);
-if (report.options?.runs !== 100) {
-  fail('comparison must contain 100 measured runtime runs');
+if (!Number.isInteger(report.options?.runs) || report.options.runs < 100) {
+  fail('comparison must contain at least 100 measured runtime runs');
 }
 
 const canonicalSource = (value) => value.replace(/\r\n/g, '\n').replace(/\n$/, '');
@@ -77,14 +77,16 @@ function rawKernelSummary() {
   };
   const vkfResults = new Map(expectedCases.map((caseId) => [caseId, resultFor(caseId, 'vkf')]));
   for (const [caseId, result] of vkfResults) {
-    if (result.nativeRuntime?.count !== 100) fail(`${caseId}/vkf lacks 100 raw-kernel samples`);
+    if (result.nativeRuntime?.count !== report.options.runs) {
+      fail(`${caseId}/vkf raw-kernel sample count does not match report options`);
+    }
   }
   const rows = expectedCases.map((caseId) => {
     const vkf = vkfResults.get(caseId);
     const ratios = rawLanguages.map((language) => {
       const competitor = resultFor(caseId, language);
-      if (competitor.nativeRuntime?.count !== 100) {
-        fail(`${caseId}/${language} lacks 100 raw-kernel samples`);
+      if (competitor.nativeRuntime?.count !== report.options.runs) {
+        fail(`${caseId}/${language} raw-kernel sample count does not match report options`);
       }
       return vkf.nativeRuntime.meanMs / competitor.nativeRuntime.meanMs;
     });
@@ -97,7 +99,7 @@ function rawKernelSummary() {
   return [
     '### Current raw-kernel comparison',
     '',
-    'Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner and the same 100-run report. A value above `1` means VKF took longer.',
+    `Every ratio is \`VKF mean / competitor mean\` from the same Linux x64 runner and the same ${report.options.runs.toLocaleString('en-US')}-run report. A value above \`1\` means VKF took longer.`,
     '',
     '| Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |',
     '| --- | ---: | ---: | ---: | ---: |',

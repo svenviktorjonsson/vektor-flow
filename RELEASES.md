@@ -1,5 +1,15 @@
 # Vektor Flow Native Releases
 
+## 0.1.7 — Wider SysV Numeric Register Cache
+
+0.1.7 lets call-free SysV x64 numeric functions cache hot locals in XMM6
+through XMM15. Windows retains the ABI-safe XMM6/XMM7 allocation. The landing
+page now uses one controlled 1,000-run comparison table with VKF sample
+standard deviation and same-host C, Rust, and Zig ratios.
+
+The native suite contains 320 passing VKF tests. Full details:
+[`docs/releases/0.1.7.md`](docs/releases/0.1.7.md).
+
 ## 0.1.6 — Strict Vector Lifting And Axis Reductions
 
 0.1.6 restricts automatic function lifting to exact elements reached through

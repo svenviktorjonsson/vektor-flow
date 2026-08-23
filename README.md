@@ -8,7 +8,7 @@ Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
 > [!WARNING]
-> VKF 0.1.6 is an unsupported experimental preview. It has bugs, incomplete
+> VKF 0.1.7 is an unsupported experimental preview. It has bugs, incomplete
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
@@ -74,9 +74,9 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Install VKF 0.1.6
+## Install VKF 0.1.7
 
-Download the [0.1.6 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.6).
+Download the [0.1.7 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.7).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -116,7 +116,7 @@ to reuse their executable.
 
 ## Performance Evidence—And Its Limits
 
-The 0.1.6 release compiles every documented program 100 times from fresh paths
+The 0.1.7 release compiles every documented program 100 times from fresh paths
 and executes it 100 times in fresh operating-system processes on Windows x64,
 Linux x64, and macOS ARM64. Reports record every sample, exact output, source
 hash, compiler hash, and machine conditions.
@@ -145,8 +145,8 @@ deduplicate identical machine code, and retain a policy for the exact program
 and x64 host. Normal search is bounded by the compilation-time budget;
 exhaustive search is an explicit benchmark mode.
 
-The latest [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.6-ci.md)
-was produced by the strict 0.1.6 Windows x64 compiler. All 256 policies were
+The latest [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.7-ci.md)
+was produced by the strict 0.1.7 Windows x64 compiler. All 256 policies were
 correct and collapsed to 18 distinct binaries. The fastest measured basin was
 5.34× faster than the slowest. This run selected `mask-8e` at
 2.308 ± 0.082 ms; the default `mask-ff` produced the same measured mean and
@@ -159,24 +159,24 @@ Rows marked **matched** use the same algorithm. The spectral-norm row is
 **idiomatic**, so each native compiler may use its normal optimized route. VKF
 is the only code displayed; the exact C, Rust, and Zig implementations are
 linked. Tool versions, source hashes, work counts, output parity, compile
-models, and all 100 raw timing samples are retained in the evidence report.
+models, and all 1,000 raw timing samples are retained in the evidence report.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 9V74 80-Core Processor, 4 logical CPUs, at `2026-08-23T11:09:32.341Z`.
+Measured on `linux 6.6.87.2-microsoft-standard-WSL2`, `x64`, Intel(R) Core(TM) Ultra 7 255U, 14 logical CPUs, at `2026-08-23T13:23:03.410Z`.
 
-Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are same-host ratios to VKF. Absolute times are never compared across machines. Each raw lane contains 100 measured runs after 5 warmups and excludes process launch.
+Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are same-host ratios to VKF. Absolute times are never compared across machines. Each raw lane contains 1000 measured runs after 50 warmups and excludes process launch.
 
-Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-016.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-016.md).
+Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-017-controlled-1000.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-017-controlled-1000.md).
 
 ### Current raw-kernel comparison
 
-Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner and the same 100-run report. A value above `1` means VKF took longer.
+Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner and the same 1,000-run report. A value above `1` means VKF took longer.
 
 | Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
 | --- | ---: | ---: | ---: | ---: |
-| Spectral norm | 13.440 ± 0.047 ms | 3.360× | 3.250× | 3.230× |
-| Fannkuch | 2.735 ± 0.011 ms | 1.165× | 1.399× | 1.212× |
-| N-body | 2.075 ± 0.012 ms | 3.114× | 4.421× | 2.281× |
+| Spectral norm | 5.739 ± 1.763 ms | 0.904× | 0.778× | 0.949× |
+| Fannkuch | 4.920 ± 1.309 ms | 1.188× | 1.298× | 1.361× |
+| N-body | 1.898 ± 0.763 ms | 1.510× | 1.959× | 1.536× |
 
 ### spectral norm by power method — medium, scale 250
 
@@ -423,9 +423,9 @@ Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-
 <details>
 <summary>Exact toolchains and compile models</summary>
 
-- VKF: `VKF 0.1.6; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
+- VKF: `VKF 0.1.7; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
 - C: `Ubuntu clang version 18.1.3 (1ubuntu1)`; Clang -O3 -march=native native link
-- Rust: `rustc 1.98.0 (88d9e12ae 2026-08-18)`; rustc -O -C target-cpu=native native link
+- Rust: `rustc 1.75.0 (82e1608df 2023-12-21) (built from a source tarball)`; rustc -O -C target-cpu=native native link
 - Zig: `0.16.0`; zig build-exe -O ReleaseFast -mcpu native -lc
 
 </details>
@@ -441,7 +441,7 @@ single table above summarizes the current comparative measurements.
 
 ## Status And Native Scope
 
-The 0.1.6 native release includes `math`, `stat`, `random`, `time`, `io`,
+The 0.1.7 native release includes `math`, `stat`, `random`, `time`, `io`,
 `collections`, `errors`, `system`, `process`, and `regex`. Only fully native,
 verified libraries ship. `physics`, `ui`, and `symbolic` remain future work.
 
@@ -473,6 +473,18 @@ folders, and unrelated existing `vkf` commands.
 VKF programs still run with the current user's permissions. `io` can modify
 files and `process` can launch programs. `process.run` passes an exact argument
 vector; `process.shell` invokes a platform shell and must be treated as unsafe.
+
+## 0.1.7 Changes
+
+0.1.7 improves the general SysV x64 numeric register cache:
+
+- call-free numeric functions can retain hot locals in XMM6 through XMM15;
+- high XMM register moves now use the correct REX encoding;
+- Windows keeps its ABI-safe XMM6/XMM7 path because XMM6 through XMM15 are nonvolatile there;
+- the controlled same-host comparison uses 1,000 measured raw-kernel runs after 50 warmups;
+- the front page keeps one timing table: VKF mean and sample standard deviation, plus same-host ratios to C, Rust, and Zig.
+
+See the [0.1.7 release notes](docs/releases/0.1.7.md).
 
 ## 0.1.6 Changes
 
