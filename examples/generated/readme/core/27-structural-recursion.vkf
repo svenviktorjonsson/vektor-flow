@@ -1,9 +1,5 @@
-increment(value:int) -> int:
-    value + 1
+translate(point:(x:int,y:int)) -> (x:int,y:int):
+    (x:point.x + 10, y:point.y - 10)
 
-data: [
-    (name:"a", point:(x:1, y:2)),
-    (name:"b", point:(x:3, y:4))
-]
-
-:: increment(data)
+points: [(x:1, y:2), (x:3, y:4)]
+:: translate(points)

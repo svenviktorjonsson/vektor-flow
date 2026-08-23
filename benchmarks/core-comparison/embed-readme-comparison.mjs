@@ -94,17 +94,16 @@ function rawKernelSummary() {
     return [
       caseLabels[caseId],
       meanStd(vkf.nativeRuntime),
-      ...ratios.map((ratio) => `${ratio.toFixed(3)}×`),
-      'PASS'
+      ...ratios.map((ratio) => `${ratio.toFixed(3)}×`)
     ];
   });
   return [
-    '### Current raw-kernel goal',
+    '### Current raw-kernel comparison',
     '',
-    'Every ratio is `VKF mean / competitor mean` from the same pinned Linux x64 container and the same 100-run report. A value above `1` means VKF took longer. The goal is strict: every individual ratio must be below `2×`; there is no aggregate score that can hide a failed kernel.',
+    'Every ratio is `VKF mean / competitor mean` from the same pinned Linux x64 container and the same 100-run report. A value above `1` means VKF took longer.',
     '',
-    '| Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig | `<2×` each |',
-    '| --- | ---: | ---: | ---: | ---: | ---: |',
+    '| Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |',
+    '| --- | ---: | ---: | ---: | ---: |',
     ...rows.map((row) => `| ${row.join(' | ')} |`)
   ].join('\n');
 }

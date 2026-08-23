@@ -2,13 +2,13 @@
 
 **Designed by Viktor Jonsson.**
 
-**VKF automatically applies ordinary typed functions across compatible parts of structured data while preserving shape and metadata.**
+**VKF automatically lifts ordinary typed functions through vectors while keeping tuples and records explicit.**
 
 Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
 > [!WARNING]
-> VKF 0.1.5 is an unsupported experimental preview. It has bugs, incomplete
+> VKF 0.1.6 is an unsupported experimental preview. It has bugs, incomplete
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
@@ -18,17 +18,15 @@ structured data, mathematics, and eventually visual applications.
 
 ## Why VKF Is Different
 
-### Ordinary Functions Apply Structurally
+### Ordinary Functions Lift Through Vectors
 
 <!-- readme-example: core/25-structural-compatibility.vkf -->
 ```vkf
 double(value:int) -> int:
     value * 2
 
-point: (name:"origin", enabled:true, x:2, y:3)
-result: double(point)
-
-:: result
+:: double([1, 2, 3])
+:: double([[1, 2], [3, 4]])
 ```
 
 <!-- readme-evidence:start core/25-structural-compatibility.vkf -->
@@ -36,19 +34,17 @@ result: double(point)
 **Recorded stdout (exit code `0`; stderr empty), all platforms:**
 
 ```text
-(name:origin, enabled:true, x:4, y:6)
+[2, 4, 6]
+[[2, 4], [6, 8]]
 ```
 
 <!-- readme-evidence:end -->
 
-`double` accepts `int`, so VKF recursively transforms `x` and `y`. The
-incompatible `str` and `bit` metadata remains unchanged. This is a general
-language rule—not a special feature of `math` or `+`.
-
-This convenience can also surprise: incompatible fields are intentionally
-preserved instead of producing an error. Use a container-typed parameter when
-the whole container must match exactly. The [language guide](docs/language-guide.md#4-automatic-element-wise-function-application)
-defines the compatibility rules.
+`double` accepts `int`, so VKF applies it to every exact `int` leaf reached
+through vector layers. The rule is recursive for nested vectors. It never
+searches tuples or records for compatible fields: those values require an exact
+parameter type or an explicit operator overload. The [language guide](docs/language-guide.md#4-automatic-vector-function-application)
+defines the complete rule.
 
 ### Named Axes Express Tensor Intent
 
@@ -78,9 +74,9 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Install VKF 0.1.5
+## Install VKF 0.1.6
 
-Download the [0.1.5 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.5).
+Download the [0.1.6 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.6).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -120,7 +116,7 @@ to reuse their executable.
 
 ## Performance Evidence—And Its Limits
 
-The 0.1.5 release compiles every documented program 100 times from fresh paths
+The 0.1.6 release compiles every documented program 100 times from fresh paths
 and executes it 100 times in fresh operating-system processes on Windows x64,
 Linux x64, and macOS ARM64. Reports record every sample, exact output, source
 hash, compiler hash, and machine conditions.
@@ -173,15 +169,15 @@ Only the three substantial optimization kernels are timed. VKF provides the abso
 
 Evidence: [all samples and hashes](benchmarks/core-comparison/results/goal-under-2x-linux-x64.json) and [readable laboratory report](benchmarks/core-comparison/results/goal-under-2x-linux-x64.md).
 
-### Current raw-kernel goal
+### Current raw-kernel comparison
 
-Every ratio is `VKF mean / competitor mean` from the same pinned Linux x64 container and the same 100-run report. A value above `1` means VKF took longer. The goal is strict: every individual ratio must be below `2×`; there is no aggregate score that can hide a failed kernel.
+Every ratio is `VKF mean / competitor mean` from the same pinned Linux x64 container and the same 100-run report. A value above `1` means VKF took longer.
 
-| Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig | `<2×` each |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Spectral norm | 8.458 ± 3.487 ms | 1.566× | 1.175× | 1.224× | PASS |
-| Fannkuch | 8.351 ± 2.811 ms | 1.763× | 1.865× | 1.991× | PASS |
-| N-body | 1.968 ± 0.677 ms | 1.580× | 1.668× | 1.438× | PASS |
+| Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
+| --- | ---: | ---: | ---: | ---: |
+| Spectral norm | 8.458 ± 3.487 ms | 1.566× | 1.175× | 1.224× |
+| Fannkuch | 8.351 ± 2.811 ms | 1.763× | 1.865× | 1.991× |
+| N-body | 1.968 ± 0.677 ms | 1.580× | 1.668× | 1.438× |
 
 ### spectral norm by power method — medium, scale 250
 
@@ -442,15 +438,15 @@ evidence, not a universal speed ranking.
 
 Every displayed program keeps its exact verified output. Per-example
 compile/runtime tables are intentionally omitted from this landing page; the
-single table above is the performance goal used for optimizer acceptance.
+single table above summarizes the current comparative measurements.
 
 ## Status And Native Scope
 
-The 0.1.5 native release includes `math`, `stat`, `random`, `time`, `io`,
+The 0.1.6 native release includes `math`, `stat`, `random`, `time`, `io`,
 `collections`, `errors`, `system`, `process`, and `regex`. Only fully native,
 verified libraries ship. `physics`, `ui`, and `symbolic` remain future work.
 
-The release gate currently contains **311 VKF tests** plus 59 documented-program
+The main-branch verification suite currently contains **320 VKF tests** plus 59 documented-program
 checks. Exact output stays beside the examples; full timing samples remain in
 the machine-readable evidence reports.
 
@@ -478,6 +474,24 @@ folders, and unrelated existing `vkf` commands.
 VKF programs still run with the current user's permissions. `io` can modify
 files and `process` can launch programs. `process.run` passes an exact argument
 vector; `process.shell` invokes a platform shell and must be treated as unsafe.
+
+## 0.1.6 Changes
+
+0.1.6 makes automatic function application strict and predictable:
+
+- implicit lifting descends only through vector layers;
+- lifted vector elements must match the parameter type exactly;
+- tuples and records are atomic instead of being filtered field-by-field;
+- tuple and record arithmetic requires an explicit operator overload;
+- typed overload families are resolved before machine lowering, with no aggregate-shape guessing;
+- `stat.sum` recursively reduces all vector dimensions by default;
+- `stat.sum(axis:)` accepts an integer or tuple of integers, including negative axes, for fixed rectangular numeric vectors;
+- integer vector sums retain their integer leaf type;
+- invalid conversions, tuple/record lifting, duplicate axes, out-of-range axes, and tuple sums have dedicated compile-error coverage;
+- the native VKF suite contains 320 passing tests;
+- public benchmark tables report measurements without exposing internal acceptance limits.
+
+See the [0.1.6 release notes](docs/releases/0.1.6.md).
 
 ## 0.1.5 Changes
 
@@ -546,7 +560,7 @@ the improvement. See the [0.1.3 release notes](docs/releases/0.1.3.md).
 - compound updates require the dot, such as `.name +: value`;
 - declarations and updates are value-returning expressions;
 - parameters count as existing declarations and may only be updated with dot syntax;
-- structural compound arithmetic updates compatible leaves and preserves incompatible metadata;
+- compound vector arithmetic updates vector elements; tuple and record arithmetic requires an explicit operator overload;
 - `: .errors` exposes bare error types, `Error!` raises a default error, and ordinary values such as `2!` are rejected;
 - `vkf -t` verifies exact expected compile failures as well as successful tests;
 - `vkf -v` identifies the embedded compiler release, and proof rejects package/compiler version mismatches;

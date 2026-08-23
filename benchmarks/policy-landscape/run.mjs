@@ -19,7 +19,7 @@ function parseArgs(argv) {
     compiler: path.join(root, 'build', 'native-policy-ninja', 'bin', process.platform === 'win32' ? 'vkf-strict.exe' : 'vkf-strict'),
     source: path.join(root, 'benchmarks', 'core-comparison', 'published', 'spectral-norm-medium', 'vkf.vkf'),
     runs: 200,
-    output: path.join(root, 'benchmarks', 'policy-landscape', 'evidence', `${process.platform}-${process.arch}-v0.1.5`),
+    output: path.join(root, 'benchmarks', 'policy-landscape', 'evidence', `${process.platform}-${process.arch}-v0.1.6`),
   };
   for (const argument of argv) {
     const match = /^--([^=]+)=(.*)$/.exec(argument);

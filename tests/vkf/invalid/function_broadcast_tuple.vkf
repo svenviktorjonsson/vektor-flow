@@ -1,0 +1,5 @@
+# expect-compile-error: automatic function broadcasting only descends through vectors
+double(value:int) -> int:
+    value * 2
+
+double((1, 2, 3))

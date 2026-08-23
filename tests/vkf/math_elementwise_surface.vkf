@@ -1,21 +1,27 @@
 :.math
 
-elementary_math_lifts_over_nested_structures() -> bit:
-    values: (pair: (0.5, 0.5), vector: [0.5, 0.5])
-    positive: (pair: (2, 2), vector: [2, 2])
+elementary_math_lifts_over_nested_vectors() -> bit:
+    values: [[0.5, 0.5], [0.5, 0.5]]
+    positive: [[2.0, 2.0], [2.0, 2.0]]
     abs_values: abs(values)
     roots: sqrt(positive)
     sines: sin(values)
     cosines: cos(values)
     exponentials: exp(values)
     logarithms: ln(positive)
-    (abs_values.pair.0 = 0.5 /\ roots.vector.1 > 1.4142 /\
-     sines.pair.0 > 0.47 /\ cosines.vector.1 > 0.87 /\
-     exponentials.pair.0 > 1.64 /\ logarithms.vector.1 > 0.69)?!
+    abs_first: abs_values.0
+    roots_second: roots.1
+    sines_first: sines.0
+    cosines_second: cosines.1
+    exponentials_first: exponentials.0
+    logarithms_second: logarithms.1
+    (abs_first.0 = 0.5 /\ roots_second.1 > 1.4142 /\
+     sines_first.0 > 0.47 /\ cosines_second.1 > 0.87 /\
+     exponentials_first.0 > 1.64 /\ logarithms_second.1 > 0.69)?!
 
-trigonometric_math_lifts_over_nested_structures() -> bit:
-    values: (pair: (0.5, 0.5), vector: [0.5, 0.5])
-    positive: (pair: (2, 2), vector: [2, 2])
+trigonometric_math_lifts_over_nested_vectors() -> bit:
+    values: [[0.5, 0.5], [0.5, 0.5]]
+    positive: [[2.0, 2.0], [2.0, 2.0]]
     tangents: tan(values)
     secants: sec(values)
     cotangents: cot(values)
@@ -27,33 +33,55 @@ trigonometric_math_lifts_over_nested_structures() -> bit:
     inverse_cotangents: acot(values)
     inverse_secants: asec(positive)
     inverse_cosecants: acsc(positive)
-    (tangents.pair.0 > 0.54 /\ secants.vector.1 > 1.13 /\
-     cotangents.pair.0 > 1.83 /\ cosecants.vector.1 > 2.08 /\
-     inverse_tangents.pair.0 > 0.46 /\ quadrant_angles.vector.1 > 0.46 /\
-     inverse_sines.pair.0 > 0.52 /\ inverse_cosines.vector.1 > 1.04 /\
-     inverse_cotangents.pair.0 > 1.10 /\ inverse_secants.vector.1 > 1.04 /\
-     inverse_cosecants.pair.0 > 0.52)?!
+    tangent_first: tangents.0
+    secant_second: secants.1
+    cotangent_first: cotangents.0
+    cosecant_second: cosecants.1
+    inverse_tangent_first: inverse_tangents.0
+    quadrant_second: quadrant_angles.1
+    inverse_sine_first: inverse_sines.0
+    inverse_cosine_second: inverse_cosines.1
+    inverse_cotangent_first: inverse_cotangents.0
+    inverse_secant_second: inverse_secants.1
+    inverse_cosecant_first: inverse_cosecants.0
+    (tangent_first.0 > 0.54 /\ secant_second.1 > 1.13 /\
+     cotangent_first.0 > 1.83 /\ cosecant_second.1 > 2.08 /\
+     inverse_tangent_first.0 > 0.46 /\ quadrant_second.1 > 0.46 /\
+     inverse_sine_first.0 > 0.52 /\ inverse_cosine_second.1 > 1.04 /\
+     inverse_cotangent_first.0 > 1.10 /\ inverse_secant_second.1 > 1.04 /\
+     inverse_cosecant_first.0 > 0.52)?!
 
-hyperbolic_math_lifts_over_nested_structures() -> bit:
-    values: (pair: (0.5, 0.5), vector: [0.5, 0.5])
-    positive: (pair: (2, 2), vector: [2, 2])
+hyperbolic_math_lifts_over_nested_vectors() -> bit:
+    values: [[0.5, 0.5], [0.5, 0.5]]
+    positive: [[2.0, 2.0], [2.0, 2.0]]
     sines: sinh(values)
     cosines: cosh(values)
     tangents: tanh(values)
     inverse_sines: asinh(values)
     inverse_cosines: acosh(positive)
     inverse_tangents: atanh(values)
-    (sines.pair.0 > 0.52 /\ cosines.vector.1 > 1.12 /\ tangents.pair.0 > 0.46 /\
-     inverse_sines.vector.1 > 0.48 /\ inverse_cosines.pair.0 > 1.31 /\
-     inverse_tangents.vector.1 > 0.54)?!
+    sine_first: sines.0
+    cosine_second: cosines.1
+    tangent_first: tangents.0
+    inverse_sine_second: inverse_sines.1
+    inverse_cosine_first: inverse_cosines.0
+    inverse_tangent_second: inverse_tangents.1
+    (sine_first.0 > 0.52 /\ cosine_second.1 > 1.12 /\ tangent_first.0 > 0.46 /\
+     inverse_sine_second.1 > 0.48 /\ inverse_cosine_first.0 > 1.31 /\
+     inverse_tangent_second.1 > 0.54)?!
 
-logarithmic_and_special_math_lift_over_nested_structures() -> bit:
-    positive: (pair: (2, 2), vector: [2, 2])
-    half: (pair: (0.5, 0.5), vector: [0.5, 0.5])
+logarithmic_and_special_math_lift_over_nested_vectors() -> bit:
+    positive: [[2.0, 2.0], [2.0, 2.0]]
+    half: [[0.5, 0.5], [0.5, 0.5]]
     base_ten: lg(positive)
     base_two: lg2(positive)
     selected_base: log(positive, 2)
     gammas: gamma(half)
     errors: erf(half)
-    (base_ten.pair.0 > 0.30 /\ base_two.vector.1 > 0.99 /\
-     selected_base.pair.0 > 0.99 /\ gammas.vector.1 > 1.77 /\ errors.pair.0 > 0.52)?!
+    base_ten_first: base_ten.0
+    base_two_second: base_two.1
+    selected_base_first: selected_base.0
+    gamma_second: gammas.1
+    error_first: errors.0
+    (base_ten_first.0 > 0.30 /\ base_two_second.1 > 0.99 /\
+     selected_base_first.0 > 0.99 /\ gamma_second.1 > 1.77 /\ error_first.0 > 0.52)?!

@@ -41,3 +41,31 @@ stat_transforms_preserve_dynamic_list_shape() -> bit:
     [num] scores: stat.zscore(values)
     (normalized.0 = 0 /\ normalized.1 = 0.5 /\ normalized.2 = 1 /\
      scores.0 < -1.22 /\ scores.2 > 1.22)?!
+
+sum_without_axis_recursively_reduces_every_dimension() -> bit:
+    values: [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+    (stat.sum(values) = 36)?!
+
+sum_axis_zero_reduces_matrix_columns() -> bit:
+    matrix: [[1, 2, 3], [4, 5, 6]]
+    result: stat.sum(matrix, axis: 0)
+    [int:3] expected: [5, 7, 9]
+    (result == expected)?!
+
+sum_axis_one_reduces_matrix_rows() -> bit:
+    matrix: [[1, 2, 3], [4, 5, 6]]
+    result: stat.sum(matrix, axis: 1)
+    [int:2] expected: [6, 15]
+    (result == expected)?!
+
+sum_axis_tuple_reduces_multiple_dimensions() -> bit:
+    values: [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+    result: stat.sum(values, axis: (0, 2))
+    [int:2] expected: [14, 22]
+    (result == expected)?!
+
+sum_negative_axis_counts_from_the_last_dimension() -> bit:
+    matrix: [[1, 2, 3], [4, 5, 6]]
+    result: stat.sum(matrix, axis: -1)
+    [int:2] expected: [6, 15]
+    (result == expected)?!

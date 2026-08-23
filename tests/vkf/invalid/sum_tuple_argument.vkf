@@ -1,0 +1,3 @@
+# expect-compile-error: stat.sum requires a numeric vector argument
+stat: .stat
+stat.sum((1, 2))

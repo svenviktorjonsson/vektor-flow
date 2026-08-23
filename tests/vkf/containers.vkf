@@ -2,7 +2,7 @@ c: .collections
 
 dynamic_list_sum() -> bit:
     [num] values: [1, 2, 3, 4]
-    (stat.sum(values) == 10)?!
+    (stat.sum(values) = 10)?!
 
 dynamic_list_mean() -> bit:
     [num] values: [2, 4, 6, 8]
@@ -36,7 +36,7 @@ concatenated_lists_own_storage() -> bit:
     [num] left: [1, 2]
     [num] right: [3, 4]
     [num] combined: left & right
-    (stat.sum(combined) == 10)?!
+    (stat.sum(combined) = 10)?!
 
 dynamic_list_indexing() -> bit:
     [num] values: [5, 8, 13]
@@ -52,7 +52,7 @@ _copy_list(values: [num]) -> [num]:
 
 dynamic_list_argument_and_result_own_storage() -> bit:
     [num] copied: _copy_list(collections.list(2, 5))
-    (stat.sum(copied) == 7)?!
+    (stat.sum(copied) = 7)?!
 
 aliased_named_map_uses_typed_record_storage() -> bit:
     point: c.map(name:"origin", x:1, y:2)

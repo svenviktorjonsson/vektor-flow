@@ -43,6 +43,8 @@ struct FunctionInfo {
     vf::JsonValue body_ast;
 };
 
+bool structurally_compatible_type(const std::string& actual, const std::string& expected);
+
 class TypeEnv {
 public:
     void set(std::string name, std::string type) {
@@ -120,18 +122,44 @@ public:
         return get(name) != nullptr;
     }
 
+    std::vector<const FunctionInfo*> family(const std::string& name) const {
+        std::vector<const FunctionInfo*> matches;
+        for (const auto& function : functions_) {
+            if (function.name == name) matches.push_back(&function);
+        }
+        return matches;
+    }
+
+    const FunctionInfo* get_unique_arity(
+        const std::string& name,
+        std::size_t argument_count
+    ) const {
+        const FunctionInfo* selected = nullptr;
+        for (const auto& function : functions_) {
+            if (function.name != name) continue;
+            std::size_t required = 0;
+            bool variadic = false;
+            for (std::size_t index = 0; index < function.param_types.size(); ++index) {
+                const bool has_default = index < function.param_defaults.size() &&
+                    !function.param_defaults[index].is_null();
+                const bool captured =
+                    (index < function.variadic_positional.size() && function.variadic_positional[index]) ||
+                    (index < function.variadic_named.size() && function.variadic_named[index]);
+                if (!has_default && !captured) ++required;
+                variadic = variadic || captured;
+            }
+            if (argument_count < required ||
+                (!variadic && argument_count > function.param_types.size())) continue;
+            if (selected != nullptr) return nullptr;
+            selected = &function;
+        }
+        return selected;
+    }
+
     const FunctionInfo* get(
         const std::string& name,
         const std::vector<std::string>& argument_types
     ) const {
-        const FunctionInfo* only = nullptr;
-        std::size_t family_size = 0;
-        for (const auto& function : functions_) {
-            if (function.name != name) continue;
-            only = &function;
-            ++family_size;
-        }
-        if (family_size == 1) return only;
         const FunctionInfo* best = nullptr;
         int best_score = -1;
         bool ambiguous = false;
@@ -165,6 +193,8 @@ public:
                     score += 50;
                 } else if (expected == "int" && actual == "num") {
                     score += 25;
+                } else if (structurally_compatible_type(actual, expected)) {
+                    score += 40;
                 } else {
                     compatible = false;
                     break;
@@ -521,6 +551,11 @@ struct VectorTypeParts {
     std::string shape;
 };
 
+struct FixedNumericVectorShape {
+    std::vector<std::size_t> dimensions;
+    std::string leaf_type;
+};
+
 std::optional<VectorTypeParts> vector_type_parts(const std::string& type) {
     if (type.size() < 3 || type.front() != '[' || type.back() != ']') return std::nullopt;
     const std::string inner = type.substr(1, type.size() - 2);
@@ -544,6 +579,80 @@ bool symbolic_shape_name(const std::string& shape) {
     });
 }
 
+std::optional<FixedNumericVectorShape> fixed_numeric_vector_shape(std::string type) {
+    FixedNumericVectorShape result;
+    while (const auto vector = vector_type_parts(type)) {
+        if (!decimal_shape(vector->shape)) return std::nullopt;
+        result.dimensions.push_back(static_cast<std::size_t>(std::stoull(vector->shape)));
+        type = vector->element;
+    }
+    if (result.dimensions.empty() ||
+        (type != "int" && type != "num" && type != "f32" && type != "f64")) {
+        return std::nullopt;
+    }
+    result.leaf_type = std::move(type);
+    return result;
+}
+
+std::vector<std::size_t> constant_stat_axes(
+    const vf::JsonValue::Array& named_args,
+    std::size_t rank
+) {
+    if (named_args.size() != 1) {
+        throw IRFailure("stat.sum accepts only one named argument: axis");
+    }
+    const auto& named = object_of(named_args.front(), "stat.sum axis");
+    if (string_field(named, "name", "stat.sum axis") != "axis") {
+        throw IRFailure("unknown named argument for stat.sum");
+    }
+    const auto& axis_value = object_of(field(named, "value", "stat.sum axis"), "stat.sum axis value");
+    std::vector<std::int64_t> raw_axes;
+    const auto append_axis = [&](const vf::JsonValue::Object& value) {
+        const auto& raw = field(value, "value", "stat.sum axis value");
+        if (string_field(value, "kind", "stat.sum axis value") != "const" ||
+            !raw.is_number() || !std::isfinite(raw.as_number()) ||
+            std::floor(raw.as_number()) != raw.as_number()) {
+            throw IRFailure("stat.sum axis must be a constant integer or tuple of integers");
+        }
+        raw_axes.push_back(static_cast<std::int64_t>(raw.as_number()));
+    };
+    if (string_field(axis_value, "kind", "stat.sum axis value") == "tuple") {
+        const auto& items = array_of(field(axis_value, "items", "stat.sum axis tuple"), "stat.sum axis tuple");
+        if (items.empty()) throw IRFailure("stat.sum axis tuple must not be empty");
+        for (const auto& item : items) append_axis(object_of(item, "stat.sum axis tuple item"));
+    } else {
+        append_axis(axis_value);
+    }
+
+    std::vector<std::size_t> axes;
+    for (auto axis : raw_axes) {
+        if (axis < 0) axis += static_cast<std::int64_t>(rank);
+        if (axis < 0 || axis >= static_cast<std::int64_t>(rank)) {
+            throw IRFailure("stat.sum axis is out of range for rank " + std::to_string(rank));
+        }
+        const auto normalized = static_cast<std::size_t>(axis);
+        if (std::find(axes.begin(), axes.end(), normalized) != axes.end()) {
+            throw IRFailure("stat.sum axis tuple contains a duplicate axis");
+        }
+        axes.push_back(normalized);
+    }
+    std::sort(axes.begin(), axes.end());
+    return axes;
+}
+
+std::string stat_axis_result_type(
+    const FixedNumericVectorShape& shape,
+    const std::vector<std::size_t>& axes
+) {
+    std::string result = shape.leaf_type;
+    for (std::size_t axis = shape.dimensions.size(); axis > 0; --axis) {
+        const auto index = axis - 1;
+        if (std::find(axes.begin(), axes.end(), index) != axes.end()) continue;
+        result = "[" + result + ":" + std::to_string(shape.dimensions[index]) + "]";
+    }
+    return result;
+}
+
 std::optional<std::string> maybe_dynamic_list_element_type(const std::string& type) {
     if (!starts_with(type, "list<") || type.size() < 7 || type.back() != '>') {
         return std::nullopt;
@@ -555,6 +664,22 @@ bool structurally_compatible_type(const std::string& actual, const std::string& 
     if (expected == "any" || actual == "any" || actual == expected) return true;
     if (expected == "num" && (actual == "int" || actual == "f32" || actual == "f64")) {
         return true;
+    }
+
+    const auto multiset_element = [](const std::string& type) -> std::optional<std::string> {
+        if (starts_with(type, "multiset<") && type.back() == '>') {
+            return type.substr(9, type.size() - 10);
+        }
+        if (type.size() >= 3 && type.front() == '{' && type.back() == '}' &&
+            type.find(':') == std::string::npos) {
+            return type.substr(1, type.size() - 2);
+        }
+        return std::nullopt;
+    };
+    const auto actual_multiset = multiset_element(actual);
+    const auto expected_multiset = multiset_element(expected);
+    if (actual_multiset && expected_multiset) {
+        return structurally_compatible_type(*actual_multiset, *expected_multiset);
     }
 
     const auto actual_vector = vector_type_parts(actual);
@@ -597,12 +722,29 @@ bool structurally_compatible_type(const std::string& actual, const std::string& 
     return false;
 }
 
+bool exact_broadcast_target_type(const std::string& actual, const std::string& expected) {
+    if (actual == expected) return true;
+    const auto actual_vector = vector_type_parts(actual);
+    const auto expected_vector = vector_type_parts(expected);
+    const auto actual_list = maybe_dynamic_list_element_type(actual);
+    const auto expected_list = maybe_dynamic_list_element_type(expected);
+    if (!(actual_vector || actual_list) || !(expected_vector || expected_list)) return false;
+    const std::string actual_element = actual_vector ? actual_vector->element : *actual_list;
+    const std::string expected_element = expected_vector ? expected_vector->element : *expected_list;
+    if (!exact_broadcast_target_type(actual_element, expected_element)) return false;
+    if (actual_vector && expected_vector && decimal_shape(actual_vector->shape) &&
+        decimal_shape(expected_vector->shape) && actual_vector->shape != expected_vector->shape) {
+        return false;
+    }
+    return true;
+}
+
 std::string structurally_lifted_result_type(
     const std::string& actual,
     const std::string& expected,
     const std::string& result
 ) {
-    if (structurally_compatible_type(actual, expected)) return result;
+    if (exact_broadcast_target_type(actual, expected)) return result;
     if (const auto vector = vector_type_parts(actual)) {
         const std::string element = structurally_lifted_result_type(
             vector->element, expected, result);
@@ -610,38 +752,6 @@ std::string structurally_lifted_result_type(
     }
     if (const auto list = maybe_dynamic_list_element_type(actual)) {
         return "list<" + structurally_lifted_result_type(*list, expected, result) + ">";
-    }
-    if (starts_with(actual, "tuple<") && actual.back() == '>') {
-        const auto items = split_top_level_type_parts(actual.substr(6, actual.size() - 7));
-        std::string transformed = "tuple<";
-        for (std::size_t index = 0; index < items.size(); ++index) {
-            if (index != 0) transformed += ",";
-            transformed += structurally_lifted_result_type(items[index], expected, result);
-        }
-        return transformed + ">";
-    }
-    if (starts_with(actual, "record{") && actual.back() == '}') {
-        const auto fields = split_top_level_type_parts(actual.substr(7, actual.size() - 8));
-        std::string transformed = "record{";
-        for (std::size_t index = 0; index < fields.size(); ++index) {
-            int depth = 0;
-            std::size_t colon = std::string::npos;
-            for (std::size_t position = 0; position < fields[index].size(); ++position) {
-                const char ch = fields[index][position];
-                if (ch == '(' || ch == '[' || ch == '{' || ch == '<') ++depth;
-                if (ch == ')' || ch == ']' || ch == '}' || ch == '>') --depth;
-                if (ch == ':' && depth == 0) { colon = position; break; }
-            }
-            if (index != 0) transformed += ",";
-            if (colon == std::string::npos) {
-                transformed += fields[index];
-            } else {
-                transformed += fields[index].substr(0, colon + 1);
-                transformed += structurally_lifted_result_type(
-                    fields[index].substr(colon + 1), expected, result);
-            }
-        }
-        return transformed + "}";
     }
     return actual;
 }
@@ -652,7 +762,7 @@ void collect_structural_match_paths(
     const std::string& prefix,
     std::vector<std::string>& paths
 ) {
-    if (structurally_compatible_type(actual, expected)) {
+    if (exact_broadcast_target_type(actual, expected)) {
         paths.push_back(prefix);
         return;
     }
@@ -666,26 +776,11 @@ void collect_structural_match_paths(
             *list, expected, prefix.empty() ? "*" : prefix + ".*", paths);
         return;
     }
-    if (starts_with(actual, "tuple<") && actual.back() == '>') {
-        const auto items = split_top_level_type_parts(actual.substr(6, actual.size() - 7));
-        for (std::size_t index = 0; index < items.size(); ++index) {
-            const std::string component = std::to_string(index);
-            collect_structural_match_paths(
-                items[index], expected, prefix.empty() ? component : prefix + "." + component, paths);
-        }
-        return;
-    }
-    for (const auto& [name, field_type] : record_type_fields(actual)) {
-        collect_structural_match_paths(
-            field_type, expected, prefix.empty() ? name : prefix + "." + name, paths);
-    }
 }
 
 bool structural_container_type(const std::string& type) {
     return vector_type_parts(type).has_value() ||
-        maybe_dynamic_list_element_type(type).has_value() ||
-        (starts_with(type, "tuple<") && type.back() == '>') ||
-        (starts_with(type, "record{") && type.back() == '}');
+        maybe_dynamic_list_element_type(type).has_value();
 }
 
 std::string instantiate_vector_type(
@@ -2036,31 +2131,42 @@ private:
                 const std::string callee_name = primitive_callee.empty()
                     ? string_field(callee_ast, "name", "call.callee")
                     : primitive_callee;
+                static const std::set<std::string> elementwise_math_functions{
+                    "tan", "sec", "cot", "csc", "sinh", "cosh", "tanh",
+                    "lg", "lg2", "asinh", "acosh", "atanh", "atan", "asin",
+                    "acos", "atan2", "acot", "asec", "acsc", "gamma", "erf", "log",
+                };
+                const auto structural_numeric_type = [](const std::string& type) {
+                    return type.rfind("list<", 0) == 0 ||
+                        (type.size() >= 3 && type.front() == '[' && type.back() == ']');
+                };
+                const bool spilled_math = std::find(
+                    spilled_modules_.begin(), spilled_modules_.end(), "math") != spilled_modules_.end();
+                const auto module_separator = callee_name.rfind("__");
+                const std::string math_name = module_separator == std::string::npos
+                    ? callee_name : callee_name.substr(module_separator + 2);
+                const bool namespaced_math = callee_name.rfind("__vkf_module_", 0) == 0;
+                const bool elementwise_math_candidate =
+                    (spilled_math || namespaced_math) && !advanced_call_shape &&
+                    elementwise_math_functions.count(math_name) &&
+                    std::any_of(
+                        argument_type_names.begin(), argument_type_names.end(),
+                        structural_numeric_type);
                 const FunctionInfo* function = advanced_call_shape
                     ? functions_.get(callee_name)
                     : functions_.get(callee_name, argument_type_names);
+                if (function == nullptr && elementwise_math_candidate) {
+                    function = functions_.get(callee_name);
+                }
+                if (function == nullptr && !advanced_call_shape &&
+                    functions_.contains(callee_name)) {
+                    // Shape-erased callables and vector lifting are considered
+                    // only after ordinary overload resolution. Ambiguous
+                    // overload families never use this fallback.
+                    function = functions_.get_unique_arity(callee_name, args.size());
+                }
                 if (function != nullptr) {
-                    static const std::set<std::string> elementwise_math_functions{
-                        "tan", "sec", "cot", "csc", "sinh", "cosh", "tanh",
-                        "lg", "lg2", "asinh", "acosh", "atanh", "atan", "asin",
-                        "acos", "atan2", "acot", "asec", "acsc", "gamma", "erf", "log",
-                    };
-                    const bool spilled_math = std::find(
-                        spilled_modules_.begin(), spilled_modules_.end(), "math") != spilled_modules_.end();
-                    const auto structural_numeric_type = [](const std::string& type) {
-                        return type.rfind("list<", 0) == 0 || type.rfind("tuple<", 0) == 0 ||
-                            type.rfind("record{", 0) == 0 ||
-                            (type.size() >= 3 && type.front() == '[' && type.back() == ']');
-                    };
-                    const auto module_separator = callee_name.rfind("__");
-                    const std::string math_name = module_separator == std::string::npos
-                        ? callee_name : callee_name.substr(module_separator + 2);
-                    const bool namespaced_math = callee_name.rfind("__vkf_module_", 0) == 0;
-                    elementwise_math_call = (spilled_math || namespaced_math) && !advanced_call_shape &&
-                        elementwise_math_functions.count(math_name) &&
-                        std::any_of(
-                            argument_type_names.begin(), argument_type_names.end(),
-                            structural_numeric_type);
+                    elementwise_math_call = elementwise_math_candidate;
                     std::map<std::string, std::string> dimension_bindings;
                     for (std::size_t i = 0; i < argument_type_names.size() && i < function->param_types.size(); ++i) {
                         const auto parameter_vector = vector_type_parts(function->param_types[i]);
@@ -2099,11 +2205,20 @@ private:
                         ? std::string{} : resolve_type_alias(instantiated_params.front());
                     const std::string structural_result = resolve_type_alias(instantiated_return);
                     if (!elementwise_math_call && !advanced_call_shape && args.size() == 1 &&
-                        instantiated_params.size() == 1 &&
-                        !structurally_compatible_type(
-                            resolve_type_alias(argument_type_names.front()), structural_parameter) &&
-                        structural_container_type(resolve_type_alias(argument_type_names.front()))) {
-                        structural_call = true;
+                        instantiated_params.size() == 1) {
+                        const std::string structural_argument =
+                            resolve_type_alias(argument_type_names.front());
+                        if (!structurally_compatible_type(structural_argument, structural_parameter)) {
+                            if (structural_container_type(structural_argument)) {
+                                structural_call = true;
+                            } else if ((starts_with(structural_argument, "tuple<") &&
+                                        structural_argument.back() == '>') ||
+                                       (starts_with(structural_argument, "record{") &&
+                                        structural_argument.back() == '}')) {
+                                throw IRFailure(
+                                    "automatic function broadcasting only descends through vectors");
+                            }
+                        }
                     }
                     callee.as_object()["name"] = vf::JsonValue(functions_.runtime_name(*function));
                     callee_type = function_signature_type(instantiated_params, instantiated_return);
@@ -2150,6 +2265,10 @@ private:
                         structural_paths_present = true;
                         collect_structural_match_paths(
                             resolve_type_alias(*structural), "num", "", structural_paths);
+                        if (structural_paths.empty()) {
+                            throw IRFailure(
+                                "automatic math broadcasting requires exact num vector elements");
+                        }
                     } else if (structural_call) {
                         call_type = structurally_lifted_result_type(
                             resolve_type_alias(argument_type_names.front()),
@@ -2161,6 +2280,10 @@ private:
                             structural_parameter,
                             "",
                             structural_paths);
+                        if (structural_paths.empty()) {
+                            throw IRFailure(
+                                "automatic function broadcasting requires an exact vector element type match");
+                        }
                     }
                 } else if (functions_.contains(callee_name)) {
                     throw IRFailure("no matching overload for function " + callee_name);
@@ -2331,18 +2454,72 @@ private:
                 callee.as_object()["type"] = vf::JsonValue(callee_type);
             }
             if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
+                string_field(callee_ir, "module", "call callee IR") == "stat" &&
+                string_field(callee_ir, "name", "call callee IR") == "sum") {
+                if (args.size() != 1 || !spread_args.empty()) {
+                    throw IRFailure("stat.sum requires one vector argument");
+                }
+                std::string leaf_type = resolve_type_alias(
+                    string_field(args.front().as_object(), "type", "stat.sum argument"));
+                bool has_vector_layer = false;
+                while (true) {
+                    if (const auto vector = vector_type_parts(leaf_type)) {
+                        leaf_type = vector->element;
+                        has_vector_layer = true;
+                        continue;
+                    }
+                    if (const auto list = maybe_dynamic_list_element_type(leaf_type)) {
+                        leaf_type = *list;
+                        has_vector_layer = true;
+                        continue;
+                    }
+                    break;
+                }
+                if (leaf_type == "any") {
+                    // Some resource-owning tuple/record projections are shape
+                    // erased in typed IR. Machine layout validation still
+                    // requires their selected field to be a numeric vector.
+                    call_type = "num";
+                } else if (!has_vector_layer ||
+                    (leaf_type != "int" && leaf_type != "num" &&
+                     leaf_type != "f32" && leaf_type != "f64")) {
+                    throw IRFailure("stat.sum requires a numeric vector argument");
+                } else {
+                    call_type = leaf_type;
+                }
+                if (!named_args.empty()) {
+                    const std::string argument_type = resolve_type_alias(
+                        string_field(args.front().as_object(), "type", "stat.sum argument"));
+                    const auto shape = fixed_numeric_vector_shape(argument_type);
+                    if (!shape) {
+                        throw IRFailure(
+                            "stat.sum axis requires a fixed rectangular numeric vector");
+                    }
+                    call_type = stat_axis_result_type(
+                        *shape, constant_stat_axes(named_args, shape->dimensions.size()));
+                }
+                callee_type = "fn(any)->" + call_type;
+                callee.as_object()["type"] = vf::JsonValue(callee_type);
+            }
+            if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
                 string_field(callee_ir, "module", "call callee IR") == "math" &&
                 arg_types.size() == 1 && arg_types.front().is_string()) {
                 const std::string argument_type = arg_types.front().as_string();
                 if (vector_type_parts(argument_type) ||
-                    maybe_dynamic_list_element_type(argument_type) ||
-                    argument_type.rfind("tuple<", 0) == 0 ||
-                    argument_type.rfind("record{", 0) == 0) {
+                    maybe_dynamic_list_element_type(argument_type)) {
                     call_type = structurally_lifted_result_type(
                         resolve_type_alias(argument_type), "num", "num");
                     structural_paths_present = true;
                     collect_structural_match_paths(
                         resolve_type_alias(argument_type), "num", "", structural_paths);
+                    if (structural_paths.empty()) {
+                        throw IRFailure(
+                            "automatic math broadcasting requires exact num vector elements");
+                    }
+                } else if ((starts_with(argument_type, "tuple<") && argument_type.back() == '>') ||
+                           (starts_with(argument_type, "record{") && argument_type.back() == '}')) {
+                    throw IRFailure(
+                        "automatic function broadcasting only descends through vectors");
                 }
             }
             auto out = node("call");
@@ -2369,7 +2546,21 @@ private:
             const std::string overload_name = op == "MINUS" ? "-" : op == "NOT" ? "~" : "";
             const bool scalar_builtin = operand_type == "bit" || operand_type == "int" ||
                 operand_type == "num" || operand_type == "f32" || operand_type == "f64";
-            if (const FunctionInfo* function = functions_.get(overload_name, {operand_type});
+            const FunctionInfo* unary_function = functions_.get(overload_name, {operand_type});
+            if (unary_function == nullptr && !overload_name.empty()) {
+                for (const auto* candidate : functions_.family(overload_name)) {
+                    if (candidate->param_types.size() != 1 ||
+                        !structurally_compatible_type(
+                            resolve_type_alias(operand_type),
+                            resolve_type_alias(candidate->param_types.front()))) continue;
+                    if (unary_function != nullptr) {
+                        unary_function = nullptr;
+                        break;
+                    }
+                    unary_function = candidate;
+                }
+            }
+            if (const FunctionInfo* function = unary_function;
                 function != nullptr && !scalar_builtin && operand_type != "any") {
                 auto out = node("call");
                 vf::JsonValue::Array args;
@@ -2577,9 +2768,33 @@ private:
                 : op == "STAR" ? "*" : op == "SLASH" ? "/"
                 : op == "FLOORDIV" ? "//" : op == "PERCENT" ? "%"
                 : op == "CARET" ? "^" : op == "AMPERSAND" ? "&" : "";
-            if (const FunctionInfo* function = functions_.get(
-                    overload_name, {left_type, right_type});
-                function != nullptr && !scalar_builtin && left_type != "any" && right_type != "any") {
+            const FunctionInfo* function = functions_.get(
+                overload_name, {left_type, right_type});
+            if (function == nullptr && !overload_name.empty()) {
+                for (const auto* candidate : functions_.family(overload_name)) {
+                    if (candidate->param_types.size() != 2 ||
+                        !structurally_compatible_type(
+                            resolve_type_alias(left_type),
+                            resolve_type_alias(candidate->param_types[0])) ||
+                        !structurally_compatible_type(
+                            resolve_type_alias(right_type),
+                            resolve_type_alias(candidate->param_types[1]))) continue;
+                    if (function != nullptr) {
+                        function = nullptr;
+                        break;
+                    }
+                    function = candidate;
+                }
+            }
+            if (
+                function != nullptr && function->param_types.size() == 2 &&
+                structurally_compatible_type(
+                    resolve_type_alias(left_type),
+                    resolve_type_alias(function->param_types[0])) &&
+                structurally_compatible_type(
+                    resolve_type_alias(right_type),
+                    resolve_type_alias(function->param_types[1])) &&
+                !scalar_builtin && left_type != "any" && right_type != "any") {
                 auto call = node("call");
                 vf::JsonValue::Array args;
                 vf::JsonValue::Array arg_types;
@@ -2598,6 +2813,15 @@ private:
                 call["callee_type"] = vf::JsonValue(function->signature);
                 call["type"] = vf::JsonValue(function->return_type);
                 return vf::JsonValue(std::move(call));
+            }
+            const auto tuple_or_record = [](const std::string& type) {
+                return (starts_with(type, "tuple<") && type.back() == '>') ||
+                    (starts_with(type, "record{") && type.back() == '}');
+            };
+            const bool arithmetic = op == "PLUS" || op == "MINUS" || op == "STAR" ||
+                op == "SLASH" || op == "FLOORDIV" || op == "PERCENT" || op == "CARET";
+            if (arithmetic && (tuple_or_record(left_type) || tuple_or_record(right_type))) {
+                throw IRFailure("tuple and record arithmetic requires an operator overload");
             }
             auto out = node("binary_op");
             out["op"] = vf::JsonValue(op);

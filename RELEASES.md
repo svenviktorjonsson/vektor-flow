@@ -1,5 +1,17 @@
 # Vektor Flow Native Releases
 
+## 0.1.6 — Strict Vector Lifting And Axis Reductions
+
+0.1.6 restricts automatic function lifting to exact elements reached through
+vector layers. Tuples and records are atomic and use explicit whole-value
+functions or operator overloads. `stat.sum` now supports recursive full
+reduction plus integer, negative, and tuple axes for fixed rectangular numeric
+vectors. Typed overload resolution no longer relies on aggregate guesses in
+machine lowering.
+
+The native suite contains 320 passing VKF tests. Full details:
+[`docs/releases/0.1.6.md`](docs/releases/0.1.6.md).
+
 ## 0.1.5 — Adaptive Native Optimization
 
 0.1.5 turns x64 lowering choices into policy data, verifies candidate output

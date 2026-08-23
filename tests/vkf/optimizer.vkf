@@ -69,12 +69,12 @@ _optimizer_structural_curve(value:num) -> num:
     sqrt(value * value + 4) / 2
 
 structural_vector_loop_preserves_every_element() -> bit:
-    values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    values: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]
     mapped: _optimizer_structural_scale(values)
     (mapped.0 = 3 /\ mapped.5 = 13 /\ mapped.11 = 25)?!
 
 structural_general_numeric_map_preserves_every_element() -> bit:
-    values: [0, 3, 0, 3, 0, 3, 0, 3, 0, 3]
+    values: [0.0, 3.0, 0.0, 3.0, 0.0, 3.0, 0.0, 3.0, 0.0, 3.0]
     mapped: _optimizer_structural_curve(values)
     (mapped.0 = 1 /\ mapped.5 > 1.8 /\ mapped.5 < 1.81 /\ mapped.9 > 1.8 /\ mapped.9 < 1.81)?!
 

@@ -120,6 +120,15 @@ unary_operator_overload_dispatches_custom_value() -> bit:
     UnaryPoint point: (x:3,)
     (-point = 3)?!
 
+LiteralUnaryPoint: (x:num, y:num)
+
+-(point:LiteralUnaryPoint) -> LiteralUnaryPoint:
+    (x:-point.x, y:-point.y)
+
+unary_operator_overload_accepts_matching_record_literal() -> bit:
+    result: -(x:3, y:4)
+    (result.x = -3 /\ result.y = -4)?!
+
 ReachPair: (x:num, y:num)
 
 .(pair:ReachPair, key:str) -> num:

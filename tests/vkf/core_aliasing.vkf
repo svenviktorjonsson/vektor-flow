@@ -7,11 +7,12 @@ fixed_vector_update_preserves_alias_identity() -> bit:
     .values /: 2
     (alias == [3, 4])?!
 
-Point(x, y):
-    name: "my point"
-    :
+Point: (x:int, y:int, name:str)
 
-structural_update_skips_incompatible_metadata() -> bit:
-    p: Point(3, 4)
++(point:Point, delta:int) -> Point:
+    (x: point.x + delta, y: point.y + delta, name: point.name)
+
+record_update_uses_explicit_operator_overload() -> bit:
+    p: (x: 3, y: 4, name: "my point")
     .p +: 2
     (p.name == "my point" /\ p.x == 5 /\ p.y == 6)?!

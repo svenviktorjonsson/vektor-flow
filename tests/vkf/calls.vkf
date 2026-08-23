@@ -41,6 +41,13 @@ variadic_spread_expands_numeric_list() -> bit:
     [num] values: collections.list(2, 3, 4)
     (_sum_rest(1, :values) = 10)?!
 
+_sum_integer_rest(head:int, ...rest:int) -> int:
+    head + stat.sum(rest)
+
+integer_variadic_sum_preserves_integer_leaf_type() -> bit:
+    [int] values: collections.list(2, 3, 4)
+    (_sum_integer_rest(1, :values) = 10)?!
+
 _volume(x, y, z):
     x * y * z
 

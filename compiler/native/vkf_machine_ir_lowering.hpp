@@ -1253,6 +1253,80 @@ inline ValueLayout indexed_layout(const std::vector<ValueLayout>& elements) {
     return layout;
 }
 
+struct FixedNumericVectorShape {
+    std::vector<std::size_t> dimensions;
+};
+
+inline std::optional<FixedNumericVectorShape> fixed_numeric_vector_shape(std::string type) {
+    FixedNumericVectorShape result;
+    type = trim(type);
+    while (type.size() >= 3 && type.front() == '[' && type.back() == ']') {
+        const std::string inside = type.substr(1, type.size() - 2);
+        const auto colon = find_top_level(inside, ':');
+        if (colon == std::string::npos) return std::nullopt;
+        const std::string count_text = trim(inside.substr(colon + 1));
+        if (count_text.empty() ||
+            !std::all_of(count_text.begin(), count_text.end(), [](unsigned char ch) {
+                return std::isdigit(ch);
+            })) {
+            return std::nullopt;
+        }
+        result.dimensions.push_back(static_cast<std::size_t>(std::stoull(count_text)));
+        type = trim(inside.substr(0, colon));
+    }
+    if (result.dimensions.empty() ||
+        (type != "int" && type != "num" && type != "f32" && type != "f64")) {
+        return std::nullopt;
+    }
+    return result;
+}
+
+inline std::vector<std::size_t> constant_stat_sum_axes(
+    const vf::JsonValue::Array& named_args,
+    std::size_t rank
+) {
+    if (named_args.size() != 1) {
+        throw LoweringFailure("stat.sum accepts only one named argument: axis");
+    }
+    const auto& named = object_of(named_args.front(), "stat.sum axis");
+    if (string_field(named, "name", "stat.sum axis") != "axis") {
+        throw LoweringFailure("unknown named argument for stat.sum");
+    }
+    const auto& value = object_of(field(named, "value", "stat.sum axis"), "stat.sum axis value");
+    std::vector<std::int64_t> raw_axes;
+    const auto append = [&](const vf::JsonValue::Object& axis) {
+        const auto& raw = field(axis, "value", "stat.sum axis value");
+        if (string_field(axis, "kind", "stat.sum axis value") != "const" ||
+            !raw.is_number() || !std::isfinite(raw.as_number()) ||
+            std::floor(raw.as_number()) != raw.as_number()) {
+            throw LoweringFailure("stat.sum axis must be a constant integer or tuple of integers");
+        }
+        raw_axes.push_back(static_cast<std::int64_t>(raw.as_number()));
+    };
+    if (string_field(value, "kind", "stat.sum axis value") == "tuple") {
+        const auto& items = array_of(field(value, "items", "stat.sum axis tuple"), "stat.sum axis tuple");
+        if (items.empty()) throw LoweringFailure("stat.sum axis tuple must not be empty");
+        for (const auto& item : items) append(object_of(item, "stat.sum axis tuple item"));
+    } else {
+        append(value);
+    }
+
+    std::vector<std::size_t> axes;
+    for (auto axis : raw_axes) {
+        if (axis < 0) axis += static_cast<std::int64_t>(rank);
+        if (axis < 0 || axis >= static_cast<std::int64_t>(rank)) {
+            throw LoweringFailure("stat.sum axis is out of range for rank " + std::to_string(rank));
+        }
+        const auto normalized = static_cast<std::size_t>(axis);
+        if (std::find(axes.begin(), axes.end(), normalized) != axes.end()) {
+            throw LoweringFailure("stat.sum axis tuple contains a duplicate axis");
+        }
+        axes.push_back(normalized);
+    }
+    std::sort(axes.begin(), axes.end());
+    return axes;
+}
+
 inline ValueLayout string_multiset_layout(std::size_t entries) {
     ValueLayout layout;
     layout.width = static_cast<std::uint32_t>(entries * 3u);
@@ -6721,32 +6795,6 @@ inline ValueLayout lower_expression(
         const std::string op = string_field(expression, "op", "unary expression");
         const auto& operand_expression = object_of(
             field(expression, "operand", "unary expression"), "unary operand");
-        const std::string overload_name = op == "MINUS" ? "-" : op == "NOT" ? "~" : "";
-        const auto overload = signatures.find(overload_name);
-        auto operand_shape = layout_from_expression_shape(operand_expression, signatures);
-        if (string_field(operand_expression, "kind", "unary operand") == "load") {
-            const auto* local = builder.find_layout(
-                string_field(operand_expression, "name", "unary operand"));
-            if (local != nullptr) operand_shape = *local;
-        }
-        if (!overload_name.empty() && overload != signatures.end() &&
-            overload->second.parameters.size() == 1 &&
-            operand_shape.kind == ValueKind::Aggregate) {
-            vf::JsonValue::Object call;
-            call["kind"] = vf::JsonValue("call");
-            vf::JsonValue::Array call_args;
-            call_args.emplace_back(operand_expression);
-            call["args"] = vf::JsonValue(std::move(call_args));
-            call["named_args"] = vf::JsonValue(vf::JsonValue::Array{});
-            call["spread_args"] = vf::JsonValue(vf::JsonValue::Array{});
-            vf::JsonValue::Object callee;
-            callee["kind"] = vf::JsonValue("load");
-            callee["name"] = vf::JsonValue(overload_name);
-            callee["type"] = vf::JsonValue("any");
-            call["callee"] = vf::JsonValue(std::move(callee));
-            call["type"] = vf::JsonValue("any");
-            return lower_expression(call, builder, signatures, strings);
-        }
         const auto operand = lower_expression(
             operand_expression, builder, signatures, strings);
         if (operand.kind == ValueKind::Complex) {
@@ -6827,41 +6875,6 @@ inline ValueLayout lower_expression(
     }
     if (kind == "binary_op") {
         const std::string op = string_field(expression, "op", "binary expression");
-        const auto overload_name = [&]() -> std::string {
-            if (op == "PLUS") return "+";
-            if (op == "MINUS") return "-";
-            if (op == "STAR") return "*";
-            if (op == "SLASH") return "/";
-            if (op == "FLOORDIV") return "//";
-            if (op == "PERCENT") return "%";
-            if (op == "CARET") return "^";
-            if (op == "AMPERSAND") return "&";
-            return "";
-        }();
-        const auto left_shape = layout_from_expression_shape(
-            object_of(field(expression, "left", "binary expression"), "left expression"),
-            signatures);
-        const auto right_shape = layout_from_expression_shape(
-            object_of(field(expression, "right", "binary expression"), "right expression"),
-            signatures);
-        if (!overload_name.empty() && signatures.find(overload_name) != signatures.end() &&
-            (left_shape.kind == ValueKind::Aggregate || right_shape.kind == ValueKind::Aggregate)) {
-            vf::JsonValue::Object call;
-            call["kind"] = vf::JsonValue("call");
-            vf::JsonValue::Array call_args;
-            call_args.emplace_back(field(expression, "left", "binary expression"));
-            call_args.emplace_back(field(expression, "right", "binary expression"));
-            call["args"] = vf::JsonValue(std::move(call_args));
-            call["named_args"] = vf::JsonValue(vf::JsonValue::Array{});
-            call["spread_args"] = vf::JsonValue(vf::JsonValue::Array{});
-            vf::JsonValue::Object callee;
-            callee["kind"] = vf::JsonValue("load");
-            callee["name"] = vf::JsonValue(overload_name);
-            callee["type"] = vf::JsonValue("any");
-            call["callee"] = vf::JsonValue(std::move(callee));
-            call["type"] = vf::JsonValue("any");
-            return lower_expression(call, builder, signatures, strings);
-        }
         if (op == "AND" || op == "OR") {
             const auto left = lower_expression(
                 object_of(field(expression, "left", "binary expression"), "left expression"),
@@ -8069,7 +8082,7 @@ inline ValueLayout lower_expression(
                     }
                     degrees_of_freedom = static_cast<std::uint32_t>(raw.as_number());
                 }
-            } else if (!named_args.empty()) {
+            } else if (!(module == "stat" && name == "sum") && !named_args.empty()) {
                 throw LoweringFailure(
                     "direct machine IR stdlib call does not accept named arguments " +
                     module + "." + name);
@@ -8320,6 +8333,71 @@ inline ValueLayout lower_expression(
                 (name == "sum" || name == "mean" || name == "variance" ||
                  name == "std" || name == "range" || name == "count")) {
                 const auto& argument_expression = object_of(args.front(), "stat argument");
+                if (name == "sum" && !named_args.empty()) {
+                    const auto shape = fixed_numeric_vector_shape(
+                        string_field(argument_expression, "type", "stat.sum axis argument"));
+                    if (!shape) {
+                        throw LoweringFailure(
+                            "stat.sum axis requires a fixed rectangular numeric vector");
+                    }
+                    const auto axes = constant_stat_sum_axes(
+                        named_args, shape->dimensions.size());
+                    const auto argument = lower_expression(
+                        argument_expression, builder, signatures, strings);
+                    if (!is_numeric_layout(argument)) {
+                        throw LoweringFailure(
+                            "stat.sum axis requires a fixed rectangular numeric vector");
+                    }
+                    std::size_t input_count = 1;
+                    for (const auto dimension : shape->dimensions) input_count *= dimension;
+                    if (input_count != argument.width) {
+                        throw LoweringFailure("stat.sum axis vector shape does not match its machine layout");
+                    }
+
+                    const auto temporary = builder.add_borrowed_temporary(argument);
+                    for (std::uint32_t component = argument.width; component > 0; --component) {
+                        emit_store_local_component(builder, temporary + component - 1u);
+                    }
+
+                    std::size_t output_count = 1;
+                    for (std::size_t dimension = 0; dimension < shape->dimensions.size(); ++dimension) {
+                        if (std::find(axes.begin(), axes.end(), dimension) == axes.end()) {
+                            output_count *= shape->dimensions[dimension];
+                        }
+                    }
+                    std::vector<std::vector<std::uint32_t>> groups(output_count);
+                    std::vector<std::size_t> coordinates(shape->dimensions.size());
+                    for (std::size_t input = 0; input < input_count; ++input) {
+                        std::size_t remainder = input;
+                        for (std::size_t dimension = shape->dimensions.size(); dimension > 0; --dimension) {
+                            const auto index = dimension - 1;
+                            coordinates[index] = remainder % shape->dimensions[index];
+                            remainder /= shape->dimensions[index];
+                        }
+                        std::size_t output = 0;
+                        for (std::size_t dimension = 0; dimension < shape->dimensions.size(); ++dimension) {
+                            if (std::find(axes.begin(), axes.end(), dimension) != axes.end()) continue;
+                            output = output * shape->dimensions[dimension] + coordinates[dimension];
+                        }
+                        groups[output].push_back(static_cast<std::uint32_t>(input));
+                    }
+                    for (const auto& group : groups) {
+                        if (group.empty()) {
+                            throw LoweringFailure("stat.sum axis produced an empty reduction group");
+                        }
+                        emit_load_local_component(builder, temporary + group.front());
+                        for (std::size_t index = 1; index < group.size(); ++index) {
+                            emit_load_local_component(builder, temporary + group[index]);
+                            builder.emit({Opcode::AddF64});
+                        }
+                    }
+                    const auto result = layout_from_type(
+                        string_field(expression, "type", "stat.sum axis result"), &signatures);
+                    if (result.width != output_count) {
+                        throw LoweringFailure("stat.sum axis result type does not match its reduction shape");
+                    }
+                    return result;
+                }
                 const std::string argument_kind = string_field(
                     argument_expression, "kind", "stat argument");
                 auto dynamic_layout = layout_from_expression_shape(argument_expression, signatures);

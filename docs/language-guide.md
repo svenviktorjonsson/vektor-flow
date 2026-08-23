@@ -4,14 +4,26 @@
 
 Vektor Flow (VKF) is an experimental, scope-based language for compact native programs, structured data, mathematics, and eventually visual applications.
 
-Its central ideas are bindings that build scope, blocks that return values, callable types, structural operations, and functions that automatically apply across compatible elements.
+Its central ideas are bindings that build scope, blocks that return values,
+callable types, explicit structured values, named tensor axes, and functions
+that automatically lift through vectors with exact element types.
 
 > [!WARNING]
-> VKF 0.1.5 is an experimental preview, not a supported production language. It has bugs, incomplete diagnostics, and unstable APIs and syntax.
+> VKF 0.1.6 is an experimental preview, not a supported production language. It has bugs, incomplete diagnostics, and unstable APIs and syntax.
 >
-> The visual system is intended to become VKF's strongest feature, but `ui`, `physics`, and `symbolic` are not included in the native 0.1.5 release.
+> The visual system is intended to become VKF's strongest feature, but `ui`, `physics`, and `symbolic` are not included in the native 0.1.6 release.
 
 ## Release History
+
+### 0.1.6 — Strict Vector Lifting And Axis Reductions
+
+0.1.6 restricts automatic function lifting to vector layers with exact element
+types. Tuples and records are atomic and use explicit whole-value functions or
+operator overloads. `stat.sum` recursively reduces all vector dimensions by
+default and accepts constant integer, negative, or tuple axes for fixed
+rectangular numeric vectors. Alias-aware overload resolution now finishes in
+typed IR instead of guessing from aggregate layout during machine lowering.
+The current native suite contains 320 VKF tests.
 
 ### 0.1.5 — Adaptive Native Optimization
 
@@ -20,7 +32,7 @@ can verify and time program-specific variants within a compilation budget,
 deduplicate identical machine code, and retain the selected policy for the exact
 program and host. Safe packed matrix and dual-dot reductions join aggregate
 forwarding, native integer/index lowering, parity specialization, and FMA as
-independent decisions. The release gate contains 309 native VKF tests plus
+independent decisions. The current native suite contains 320 VKF tests plus
 fresh 100-run proof and a committed 256-policy landscape.
 
 ### 0.1.4 — Standard Kernels And Numeric Lowering
@@ -59,7 +71,7 @@ source-hash-bound release-evidence surface:
 - declaration and update assignments work as expressions and return the stored value;
 - function parameters count as existing declarations and may only be updated with dot syntax;
 - `alias: .folder.file` remains separate: its dotted import path is on the right side of `:`;
-- structural compound arithmetic updates compatible leaves while preserving incompatible metadata;
+- compound aggregate updates were introduced here; current vector-only arithmetic and explicit tuple/record overload rules are documented in section 2.5;
 - bare spilled error types may be raised, while `2!` and other ordinary-value raises are compile errors;
 - native `vkf -t` now verifies both successful programs and exact expected compile failures;
 - `vkf -v` exposes embedded release identity so proof cannot label a stale compiler as current;
@@ -87,9 +99,9 @@ Release verification reports **279 passed, 0 failed on each of Windows x64, Linu
 
 0.1.0 introduced the Python-free native compiler, installers for three operating systems, the short command interface, executable reuse, the first complete native stdlib set, and the 20k performance gate.
 
-## Download And Run VKF 0.1.5
+## Download And Run VKF 0.1.6
 
-Download VKF from the [0.1.5 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.5).
+Download VKF from the [0.1.6 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.6).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -168,7 +180,7 @@ The dedicated `core/12b-container-stress.vkf` example always performs 10
 million fixed-container element updates and reads, then prints only the
 checksum. Its work count is never adjusted to target a preferred duration.
 
-### Native 0.1.5 Scope
+### Native 0.1.6 Scope
 
 The release includes `math`, `stat`, `random`, `time`, `io`, `collections`, `errors`, `system`, `process`, and `regex`.
 
@@ -602,9 +614,10 @@ container_work(n:int) -> int:
 
 Compound updates also require the explicit leading dot: `.name +:`, `.name -:`,
 `.name *:`, `.name /:`, `.name //:`, `.name %:`, and `.name /\:`. The native
-implementation preserves aggregate alias identity across these updates. Operators
-distribute through structural values and update only compatible leaves. Other
-fields, such as string metadata in a numeric update, remain unchanged.
+implementation preserves aggregate alias identity across these updates. Built-in
+vector arithmetic distributes over vector elements. Tuple and record arithmetic
+is never inferred field-by-field; define an operator overload for the complete
+type instead.
 
 <!-- readme-example: core/13-updates-aliases.vkf -->
 ```vkf
@@ -616,11 +629,12 @@ alias: values
 .values /: 2
 :: alias
 
-Point(x, y):
-    name: "my point"
-    :
+Point: (x:int, y:int, name:str)
 
-p: Point(3, 4)
++(point:Point, delta:int) -> Point:
+    (x: point.x + delta, y: point.y + delta, name: point.name)
+
+p: (x:3, y:4, name:"my point")
 .p +: 2
 :: p
 ```
@@ -631,19 +645,14 @@ p: Point(3, 4)
 
 ```text
 [3, 4]
-Point(x:5, y:6, name:my point)
+(x:5, y:6, name:my point)
 ```
-
-| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | ---: | ---: | ---: |
-| Fresh executable build | 5.879 ± 0.810 ms | 0.899 ± 0.010 ms | 1.229 ± 0.198 ms |
-| Fresh-process launch + run | 22.708 ± 13.391 ms | 1.661 ± 0.061 ms | 2.486 ± 0.470 ms |
 
 <!-- readme-evidence:end -->
 
-The exact output is `[3, 4]` followed by `Point(x:5, y:6, name:my point)`. This
-behavior is compiler-tested. Do not assume that an aggregate update leaves an
-older alias unchanged.
+The exact output is `[3, 4]` followed by `(x:5, y:6, name:my point)`. The vector
+updates are built in; the record update resolves the declared `+` overload.
+Both updates remain visible through older aliases of the same aggregate.
 
 ### 2.6 Multisets
 
@@ -1085,23 +1094,25 @@ sum_pair(value:any) -> num:
 
 <!-- readme-evidence:end -->
 
-## 4. Automatic Element-Wise Function Application
+## 4. Automatic Vector Function Application
 
-Structural application is a core language rule, not a special feature of `math` or `+`. Any function can apply recursively across compatible parts of tuples, records, and vectors.
+Vector lifting is a core language rule, not a special feature of `math`. If a
+whole argument does not match a one-parameter function, VKF may descend through
+vector layers and call the function on exact matching elements. It never searches
+inside tuples or records for fields to transform.
 
-### 4.1 Compatibility Selects Elements
+### 4.1 Exact Vector Elements Are Selected
 
-If the whole argument cannot call the function, VKF recursively calls it on compatible elements and preserves incompatible elements unchanged.
+The element type must match the parameter type exactly. Nested vectors are
+traversed recursively and retain their shape.
 
 <!-- readme-example: core/25-structural-compatibility.vkf -->
 ```vkf
 double(value:int) -> int:
     value * 2
 
-point: (name:"origin", enabled:true, x:2, y:3)
-result: double(point)
-
-:: result
+:: double([1, 2, 3])
+:: double([[1, 2], [3, 4]])
 ```
 
 <!-- readme-evidence:start core/25-structural-compatibility.vkf -->
@@ -1109,32 +1120,29 @@ result: double(point)
 **Recorded stdout (exit code `0`; stderr empty), all platforms:**
 
 ```text
-(name:origin, enabled:true, x:4, y:6)
+[2, 4, 6]
+[[2, 4], [6, 8]]
 ```
-
-| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | ---: | ---: | ---: |
-| Fresh executable build | 3.605 ± 0.580 ms | 0.536 ± 0.011 ms | 0.986 ± 0.165 ms |
-| Fresh-process launch + run | 21.970 ± 3.301 ms | 1.523 ± 0.059 ms | 2.077 ± 0.390 ms |
 
 <!-- readme-evidence:end -->
 
-The result is `(name:origin, enabled:true, x:4, y:6)`. `str` and `bit` are not compatible with `int`, so metadata survives untouched.
+The first call lifts over one vector layer. The second reaches the same `int`
+leaf type through two vector layers.
 
-### 4.2 Normal Conversions Still Apply
+### 4.2 Lifting Does Not Use Conversions
 
-Compatibility includes legal conversions. `int` can be used as `num`; `str` cannot. If no compatible element exists, the original value is preserved.
+Ordinary direct calls may still convert `int` to `num`, but conversion does not
+select elements for implicit lifting. A function accepting `num` lifts over a
+`[num]`; passing `[int]` is a compile error rather than a partial or converted
+map.
 
 <!-- readme-example: core/26-structural-conversions.vkf -->
 ```vkf
 halve(value:num) -> num:
     value / 2
 
-mixed: (name:"sample", whole:8, fraction:3.0)
-unchanged: halve((name:"only metadata", enabled:true))
-
-:: halve(mixed)
-:: unchanged
+values: [8.0, 3.0, -4.0]
+:: halve(values)
 ```
 
 <!-- readme-evidence:start core/26-structural-conversions.vkf -->
@@ -1142,32 +1150,24 @@ unchanged: halve((name:"only metadata", enabled:true))
 **Recorded stdout (exit code `0`; stderr empty), all platforms:**
 
 ```text
-(name:sample, whole:4, fraction:1.5)
-(name:only metadata, enabled:true)
+[4, 1.5, -2]
 ```
-
-| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | ---: | ---: | ---: |
-| Fresh executable build | 7.004 ± 12.499 ms | 0.624 ± 0.020 ms | 1.069 ± 0.216 ms |
-| Fresh-process launch + run | 21.865 ± 3.812 ms | 1.527 ± 0.052 ms | 2.121 ± 0.496 ms |
 
 <!-- readme-evidence:end -->
 
-### 4.3 Application Is Recursive
+### 4.3 Tuples And Records Are Atomic
 
-Structural application descends through nested vectors, tuples, and records. It keeps the original structure while replacing compatible leaves.
+VKF does not inspect tuple or record fields looking for compatible scalars. A
+tuple or record may still be the exact element type of a vector, so a function
+accepting that complete type can lift over a vector of those values.
 
 <!-- readme-example: core/27-structural-recursion.vkf -->
 ```vkf
-increment(value:int) -> int:
-    value + 1
+translate(point:(x:int,y:int)) -> (x:int,y:int):
+    (x:point.x + 10, y:point.y - 10)
 
-data: [
-    (name:"a", point:(x:1, y:2)),
-    (name:"b", point:(x:3, y:4))
-]
-
-:: increment(data)
+points: [(x:1, y:2), (x:3, y:4)]
+:: translate(points)
 ```
 
 <!-- readme-evidence:start core/27-structural-recursion.vkf -->
@@ -1175,32 +1175,28 @@ data: [
 **Recorded stdout (exit code `0`; stderr empty), all platforms:**
 
 ```text
-[(name:a, point:(x:2, y:3)), (name:b, point:(x:4, y:5))]
+[(x:11, y:-8), (x:13, y:-6)]
 ```
-
-| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | ---: | ---: | ---: |
-| Fresh executable build | 3.923 ± 0.515 ms | 0.641 ± 0.034 ms | 1.099 ± 0.252 ms |
-| Fresh-process launch + run | 21.252 ± 3.550 ms | 1.540 ± 0.061 ms | 2.121 ± 0.504 ms |
 
 <!-- readme-evidence:end -->
 
-### 4.4 Structured Functions Map Outer Containers
+Calling `translate((x:1, y:2))` is one direct record call. Calling
+`translate(points)` lifts through the outer vector, then calls `translate` once
+per complete record. Calling `translate((name:"sample", x:1, y:2))` does not
+search for the `x` and `y` subset.
 
-A function accepting one record maps across a vector of compatible records. A function accepting one row maps across a matrix's rows.
+### 4.4 Container Functions Can Lift Over Outer Vectors
+
+A function accepting a complete vector row can lift over a matrix when each row
+has that exact vector type.
 
 <!-- readme-example: core/28-structural-records.vkf -->
 ```vkf
-translate(point:(x:int,y:int)) -> (x:int,y:int):
-    (x:point.x + 10, y:point.y - 10)
-
-row_sum(row:[int]) -> int:
+row_sum(row:[int]) -> num:
     stat.sum(row)
 
-points: [(x:1, y:2), (x:3, y:4)]
 matrix: [[1, 2], [3, 4], [5, 6]]
 
-:: translate(points)
 :: row_sum(matrix)
 ```
 
@@ -1209,14 +1205,8 @@ matrix: [[1, 2], [3, 4], [5, 6]]
 **Recorded stdout (exit code `0`; stderr empty), all platforms:**
 
 ```text
-[(x:11, y:-8), (x:13, y:-6)]
 [3, 7, 11]
 ```
-
-| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | ---: | ---: | ---: |
-| Fresh executable build | 5.005 ± 0.499 ms | 1.007 ± 0.044 ms | 1.375 ± 0.384 ms |
-| Fresh-process launch + run | 21.069 ± 3.044 ms | 1.541 ± 0.078 ms | 2.097 ± 0.468 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1240,60 +1230,33 @@ rotate(values:[int:3]) -> [int:3]:
 [2, 3, 1]
 ```
 
-| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | ---: | ---: | ---: |
-| Fresh executable build | 2.467 ± 0.373 ms | 0.466 ± 0.024 ms | 0.960 ± 0.314 ms |
-| Fresh-process launch + run | 21.396 ± 3.095 ms | 1.489 ± 0.051 ms | 2.074 ± 0.401 ms |
-
 <!-- readme-evidence:end -->
 
-### 4.6 Math Uses The Same Rule
+### 4.6 Math Uses The Same Vector Rule
 
-Math functions use structural application across compatible numeric fields at any depth. This includes `abs`, roots, trigonometry, logs, exponentials, hyperbolic functions, `gamma`, and `erf`.
+Math functions lift recursively through numeric vectors. They do not transform
+numeric fields hidden inside tuples or records. This includes `abs`, roots,
+trigonometry, logs, exponentials, hyperbolic functions, `gamma`, and `erf`.
 
 <!-- readme-example: core/30-math-structural.vkf -->
 ```vkf
 math: .math
 
-data: (
-    name:"measurements",
-    values:[-1, 4, 9],
-    nested:(x:-16, label:"kept"),
-)
+signed: [[-1.0, 4.0], [-9.0, 16.0]]
+positive: [[1.0, 4.0], [9.0, 16.0]]
 
-:: math.abs(data)
-:: math.sqrt(data)
+:: math.abs(signed)
+:: math.sqrt(positive)
 ```
 
 <!-- readme-evidence:start core/30-math-structural.vkf -->
 
-**Recorded stdout (exit code `0`; stderr empty):**
-
-**Windows x64:**
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
 
 ```text
-(name:measurements, values:[1, 4, 9], nested:(x:16, label:kept))
-(name:measurements, values:[-1.#IND, 2, 3], nested:(x:-1.#IND, label:kept))
+[[1, 4], [9, 16]]
+[[1, 2], [3, 4]]
 ```
-
-**Linux x64:**
-
-```text
-(name:measurements, values:[1, 4, 9], nested:(x:16, label:kept))
-(name:measurements, values:[-nan, 2, 3], nested:(x:-nan, label:kept))
-```
-
-**macOS ARM64:**
-
-```text
-(name:measurements, values:[1, 4, 9], nested:(x:16, label:kept))
-(name:measurements, values:[nan, 2, 3], nested:(x:nan, label:kept))
-```
-
-| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | ---: | ---: | ---: |
-| Fresh executable build | 26.008 ± 2.870 ms | 5.551 ± 0.096 ms | 4.903 ± 0.776 ms |
-| Fresh-process launch + run | 21.585 ± 3.062 ms | 1.567 ± 0.063 ms | 2.071 ± 0.415 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1870,7 +1833,7 @@ text
 
 ## 10. Native Standard Library
 
-These modules are part of the native 0.1.5 release on Windows x64, Linux x64, and macOS ARM64.
+These modules are part of the native 0.1.6 release on Windows x64, Linux x64, and macOS ARM64.
 
 ### 10.1 `math`
 
@@ -1903,19 +1866,23 @@ math: .math
 
 <!-- readme-evidence:end -->
 
-All compatible unary math functions use the structural rule in section 4.
+Unary math functions use the exact vector-lifting rule in section 4.
 
 ### 10.2 `stat`
 
-Functions include `sum`, `mean`, `count`, `min`, `max`, `range`, `variance`, `std`, `percentile`, `median`, `iqr`, `mode`, `zscore`, `normalize`, `covariance`, `correlation`, `clamp`, and `sign`.
+Functions include `sum`, `mean`, `count`, `min`, `max`, `range`, `variance`, `std`, `percentile`, `median`, `iqr`, `mode`, `zscore`, `normalize`, `covariance`, `correlation`, `clamp`, and `sign`. `sum` reduces every nested vector dimension by default. Its named `axis` argument accepts one constant integer or a nonempty tuple of constant integers; negative values count from the last dimension.
 
 <!-- readme-example: stdlib/02-stat.vkf -->
 ```vkf
 values: [2, 4, 4, 4, 5, 5, 7, 9]
+matrix: [[1, 2, 3], [4, 5, 6]]
 :: stat.mean(values)
 :: stat.variance(values)
 :: stat.std(values)
 :: stat.range(values)
+:: stat.sum(matrix)
+:: stat.sum(matrix, axis: 0)
+:: stat.sum(matrix, axis: 1)
 ```
 
 <!-- readme-evidence:start stdlib/02-stat.vkf -->
@@ -1927,16 +1894,18 @@ values: [2, 4, 4, 4, 5, 5, 7, 9]
 4
 2
 7
+21
+[5, 7, 9]
+[6, 15]
 ```
-
-| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | ---: | ---: | ---: |
-| Fresh executable build | 3.774 ± 0.702 ms | 0.556 ± 0.020 ms | 1.004 ± 0.256 ms |
-| Fresh-process launch + run | 21.518 ± 7.565 ms | 1.493 ± 0.103 ms | 2.100 ± 0.623 ms |
 
 <!-- readme-evidence:end -->
 
-`variance` and `std` accept `ddof`; zero is the population form and one is the sample form.
+For a matrix, `axis:0` reduces rows and returns column sums; `axis:1` reduces
+columns and returns row sums. A tuple such as `axis:(0, 2)` reduces both named
+dimensions. Axis reduction currently requires a fixed rectangular numeric
+vector. Duplicate and out-of-range axes are compile errors. `variance` and
+`std` accept `ddof`; zero is the population form and one is the sample form.
 
 ### 10.3 `random`
 
@@ -2235,19 +2204,19 @@ vkf
 
 ## 11. Coming Soon
 
-The following areas are planned, but unavailable in the native 0.1.5 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
+The following areas are planned, but unavailable in the native 0.1.6 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
 
 ### 11.1 Native `ui`
 
-The visual and scene system is not in the native 0.1.5 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
+The visual and scene system is not in the native 0.1.6 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
 
 ### 11.2 Native `physics`
 
-Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.1.5. No `rigid_body` compatibility module ships in the release.
+Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.1.6. No `rigid_body` compatibility module ships in the release.
 
 ### 11.3 Native `symbolic`
 
-Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.1.5 and must not be presented as native core features.
+Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.1.6 and must not be presented as native core features.
 
 The same rule applies to every future feature: it enters the numbered native guide only after parsing, lowering, executable generation, runtime behavior, and native `vkf -t` verification pass on the release targets.
 
@@ -2262,16 +2231,16 @@ invoke no Python. Cross-language benchmark fixtures are isolated under
 The runnable guide examples are committed under `examples/generated/readme` and
 verified by the native release workflow.
 
-The 0.1.5 acceptance suite is run by VKF itself:
+The 0.1.6 acceptance suite is run by VKF itself:
 
 ```bash
 vkf -t tests/vkf
 ```
 
-The expected result is `309 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
+The expected result on current main is `320 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
 
 VS Code syntax support is under [`vscode/`](https://github.com/svenviktorjonsson/vektor-flow/blob/main/vscode/README.md).
 
 ## Status
 
-VKF 0.1.5 is a deliberately incomplete native preview. Use GitHub Issues for reproducible compiler, installer, documentation, and safety problems.
+VKF 0.1.6 is a deliberately incomplete native preview. Use GitHub Issues for reproducible compiler, installer, documentation, and safety problems.

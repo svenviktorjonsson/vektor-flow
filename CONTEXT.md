@@ -38,11 +38,11 @@
 - **Symbolic Document Runtime**: the VKF module that owns scoped definitions,
   incremental document-island compilation, and compiler publication order while
   products provide only their document-segmentation profile.
-- **Automatic structural call lifting**: the core call rule that applies a
-  one-parameter function at each maximal compatible substructure of a tuple,
-  record, or vector. The normal conversion relation decides compatibility
-  (`int` to `num` is compatible; `str` to `num` is not), incompatible metadata
-  is preserved, and an exact whole-argument match always takes precedence.
+- **Automatic vector call lifting**: the core call rule that first prefers an
+  exact whole-argument match, then recursively descends only through vector
+  layers until it reaches the function's exact parameter type. Conversions do
+  not select lifted leaves. Tuples and records are atomic and require an exact
+  parameter type or an explicit operator overload.
 - **Axis-tagged outer product**: arithmetic between values tagged with distinct
   axes such as `->i` and `->j` appends those axes and preserves one tensor rank
   per distinct axis. Matching axes remain elementwise.

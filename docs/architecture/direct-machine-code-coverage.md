@@ -15,11 +15,11 @@ path remains authoritative.
 | scalar operators | unary `+`/`-`/not and custom unary overloads; `+`, `-`, `*`, `/`, `//`, `%`, power; short-circuit and/or, xor; IEEE-ordered comparisons; UTF-8 byte-lexicographic string equality/order; immutable string and dynamic numeric-list concatenation with owned-input cleanup; overload families selected by operand type; custom reach (`.`) and string conversion | import-provided operators |
 | bindings | function locals, ordered top-level bindings, fixed vectors, tuples, records, primitive type handles and type-member spills; fixed/dynamic index and record-field updates plus record-field extension; scope spill composes constructor records; recursive resource ownership; captured multiline closures, lambdas, stored function values, nested local functions, and recursive local functions | imported module state and heterogeneous runtime-resource containers |
 | control flow | conditional blocks, loop-form conditionals, block expressions, return/bare return, break/continue/program exit; `??` value/type/specificity ranking; assertion, checked-index, and checked-conversion errors propagate through calls, unwind owned locals, retain dynamic messages, and `!?` catches by most-specific type while exposing `$.message` | event patterns supplied by UI modules |
-| calls | direct/recursive/local/higher-order calls; overload families; ordered named/default arguments; fixed-vector, tuple, and record spreads; homogeneous and heterogeneous positional variadics; heterogeneous named variadics; structural open-record projection; compatible literal projection for sparse nested vectors/records; automatic structural lifting of one-parameter functions over maximal compatible tuple/vector/record substructures; statically resolved closure/function values; compiler-private aggregate ABI and owned resource transfer | imported module data/functions and runtime-selected external function pointers |
-| fixed aggregates | tuple/vector/record layout, display, exact/semantic equality, extension and persistent updates; scalar broadcast, elementwise operations, arbitrary-rank distinct-axis outer products, nested symbolic shapes, ranges and pipes; numeric and string multiset normalization/arithmetic on x64 and ARM64 | heterogeneous mutable runtime resources supplied by libraries |
+| calls | direct/recursive/local/higher-order calls; overload families; ordered named/default arguments; fixed-vector, tuple, and record spreads; homogeneous and heterogeneous positional variadics; heterogeneous named variadics; structural open-record projection; compatible literal projection for sparse nested vectors/records; exact one-parameter call lifting through vector layers only; statically resolved closure/function values; compiler-private aggregate ABI and owned resource transfer | imported module data/functions and runtime-selected external function pointers |
+| fixed aggregates | tuple/vector/record layout, display, exact/semantic equality, extension and persistent updates; vector scalar broadcast and elementwise operations; explicit tuple/record operator overloads; arbitrary-rank distinct-axis outer products, nested symbolic shapes, ranges and pipes; numeric and string multiset normalization/arithmetic on x64 and ARM64 | heterogeneous mutable runtime resources supplied by libraries |
 | process output | zero, scalar/string, recursive bit/null/tuple/record/vector/multiset rendering; custom `::`/`str` rendering; interpolation and numeric formats; ordered mixed output plans; synchronous labeled/function output | UI/stream sinks supplied by libraries |
 | artifacts | compiler-owned x64 PE imports/IAT with emitted-size-driven sections and per-program math/write/time imports; compiler-owned x64 ELF dynamic tables/GOT/relocations and direct stdout/time calls; compiler-owned ad-hoc-signed ARM64 Mach-O with emitted-size-driven segments, numeric formatting, math/time calls, allocation/error calls, large-frame stack adjustment, and literal-pool base in runtime ABI v18; installed execution proven on Windows x64, Linux x64, and macOS ARM64 | macOS x64; debug data |
-| standard libraries | complete 0.1 contracts for deterministic fixed/dynamic-list `stat`; explicit-state `random`; typed-record maps and numeric queues in `collections`; direct text/string-backed-byte file IO; explicit error construction, typed propagation, and catch ranking; host facts in `system`; synchronous exact-argv execution in `process`; native portable byte-regex search/capture with greedy backtracking; complete real-number `math` with structure-preserving elementwise lifting plus complex elementary operations; `time` validation, arbitrary portable local/UTC format programs, pure UTC conversion, and direct clock/sleep/local-calendar capabilities | none in the shipped 0.1 contract; physics, UI, and symbolic families are excluded rather than routed here |
+| standard libraries | complete 0.1 contracts for deterministic fixed/dynamic-list `stat`, including fixed-rank `sum(axis:)`; explicit-state `random`; typed-record maps and numeric queues in `collections`; direct text/string-backed-byte file IO; explicit error construction, typed propagation, and catch ranking; host facts in `system`; synchronous exact-argv execution in `process`; native portable byte-regex search/capture with greedy backtracking; complete real-number `math` with recursive vector lifting plus complex elementary operations; `time` validation, arbitrary portable local/UTC format programs, pure UTC conversion, and direct clock/sleep/local-calendar capabilities | none in the shipped 0.1 contract; physics, UI, and symbolic families are excluded rather than routed here |
 
 Unsupported imported/library IR is reported and routed explicitly to Stage 0.
 Strict direct mode fails instead of changing semantics.
@@ -84,31 +84,29 @@ mutable runtime resources, and compiler self-hosting remain on the working C++
 compatibility path until their later migration. They are not hidden additions
 to this core.
 
-## Automatic structural call lifting
+## Automatic vector call lifting
 
 For a one-parameter function call, the compiler first tries the argument as a
-whole. If the argument is compatible, including through an ordinary implicit
-conversion, it performs one normal call. This is how an explicit container
-parameter requests whole-container behavior.
+whole. If the argument directly satisfies the parameter, including an ordinary
+scalar conversion, it performs one normal call. This is how an explicit
+container parameter requests whole-container behavior.
 
-If the whole argument is not compatible and is a tuple, fixed or dynamic
-vector, or record, the compiler descends until it finds maximal compatible
-substructures. It calls the function at those locations and preserves every
-incompatible field unchanged. Compatibility is the language conversion
-relation, not a machine-layout guess: `int` can feed `num`, while `str` and
-`bit` cannot. A record such as `(name:str, enabled:bit, x:int, y:int)` passed
-to a `num -> num` function therefore transforms `x` and `y` only.
+If the whole argument does not match, the compiler may descend through fixed or
+dynamic vector layers until it reaches the exact parameter type. Conversions do
+not select lifted leaves. Tuples and records are atomic: the compiler does not
+search their fields and does not preserve a partially transformed remainder.
+They require a direct whole-type function or an explicit operator overload.
 
-Each matched substructure is replaced by that call's result. Thus a `[int] ->
-int` row function maps a fixed matrix to a vector of row results, while a
+Each exact vector element is replaced by that call's result. Thus a `[int] ->
+num` row function maps a fixed matrix to a vector of row results, while a
 `[int] -> [int]` function preserves the matrix shape. Open container parameters
-are specialized to compatible fixed rows for direct lowering.
+are specialized to exact fixed rows for direct lowering.
 
-Typed IR records the selected structural paths before scalar types are erased
-by the numeric machine ABI. Fixed layouts lower to statically unrolled direct
-calls. Dynamic numeric vectors are cloned once and updated by one direct O(n)
-loop, with no user-authored loop or repeated concatenation. A container with no
-compatible paths is preserved unchanged.
+Typed IR records the selected vector path before scalar types are erased by the
+numeric machine ABI. Fixed layouts lower to statically unrolled direct calls.
+Dynamic numeric vectors are cloned once and updated by one direct O(n) loop,
+with no user-authored loop or repeated concatenation. A vector with no exact
+matching leaf type is a compile error.
 
 ## Historical direct-backend performance proof
 

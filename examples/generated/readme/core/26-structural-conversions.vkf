@@ -1,8 +1,5 @@
 halve(value:num) -> num:
     value / 2
 
-mixed: (name:"sample", whole:8, fraction:3.0)
-unchanged: halve((name:"only metadata", enabled:true))
-
-:: halve(mixed)
-:: unchanged
+values: [8.0, 3.0, -4.0]
+:: halve(values)

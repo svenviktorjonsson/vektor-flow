@@ -1,10 +1,7 @@
 math: .math
 
-data: (
-    name:"measurements",
-    values:[-1, 4, 9],
-    nested:(x:-16, label:"kept"),
-)
+signed: [[-1.0, 4.0], [-9.0, 16.0]]
+positive: [[1.0, 4.0], [9.0, 16.0]]
 
-:: math.abs(data)
-:: math.sqrt(data)
+:: math.abs(signed)
+:: math.sqrt(positive)

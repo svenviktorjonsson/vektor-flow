@@ -11,8 +11,8 @@ or a generated C++ translation unit.
 
 | Module | VKF source | Compiler intrinsic | Stable runtime ABI | Direct status |
 | --- | --- | --- | --- | --- |
-| `math` | constants; trigonometric, hyperbolic, inverse, logarithmic, gamma, and erf compositions | scalar/complex `abs`; complex elementary formulas; core structural-call lifting with scalar broadcast for multi-argument functions | real-scalar `sqrt`, `sin`, `cos`, `exp`, and `ln` | complete real-number namespace and compatibility-filtered structural lifting direct; complex `abs`, `sqrt`, `sin`, `cos`, `exp`, and `ln` direct |
-| `stat` | min/max, percentile, median, mode, IQR, z-score, normalize, covariance, correlation, clamp, sign | fixed/dynamic numeric `sum`, `mean`, `range`, population/sample `variance` and `std`, count; result-shape preservation | none | complete deterministic fixed-vector and dynamic-list namespace direct |
+| `math` | constants; trigonometric, hyperbolic, inverse, logarithmic, gamma, and erf compositions | scalar/complex `abs`; complex elementary formulas; exact core vector lifting with scalar broadcast for multi-argument functions | real-scalar `sqrt`, `sin`, `cos`, `exp`, and `ln` | complete real-number namespace with recursive vector-only lifting direct; complex `abs`, `sqrt`, `sin`, `cos`, `exp`, and `ln` direct |
+| `stat` | min/max, percentile, median, mode, IQR, z-score, normalize, covariance, correlation, clamp, sign | fixed/dynamic numeric `sum`, `mean`, `range`, population/sample `variance` and `std`, count; recursive full `sum` and fixed-rank integer/tuple `axis` reduction | none | complete deterministic fixed-vector and dynamic-list namespace direct |
 | `random` | explicit-state Park-Miller generator; uniform scaling; Box-Muller normal distribution | none | wall/monotonic clock only for optional non-reproducible seed construction | direct and seed-threaded; no hidden mutable state and no claim of cryptographic entropy |
 | `collections` | constructor policy and persistent transformations | list/map/queue layout, indexing, update, ownership | none | complete 0.1 surface: numeric lists, numeric FIFO queues, and statically named heterogeneous maps through typed-record layout |
 | `io` | UTF-8 text and string-backed byte-buffer policy | string ownership at the capability boundary | stdin, stdout, stderr, and files | complete 0.1 surface: print, line input, append, and text/byte file operations direct on all three release targets with typed failures |
@@ -76,12 +76,12 @@ assembler, a compiler, or a linker. Missing files propagate as
 `FileNotFoundError`; other file-operation failures propagate as `RuntimeError`
 through the ordinary native error path.
 
-Fixed aggregate calls specialize list, tuple, and record literals to the
-callee's compatible projected shape. Unused metadata fields remain untouched,
-sparse nested projections retain their source indices, and inferred result
-shapes propagate through direct return-call chains. This keeps vectors and
-3x3 matrices in the flattened aggregate ABI instead of accidentally mixing
-heap-list and fixed-value representations.
+Fixed aggregate calls specialize exact list, tuple, and record literals to the
+callee's declared shape. Automatic lifting descends only through vector layers;
+tuple and record fields are never selected independently. Inferred result shapes
+propagate through direct return-call chains. This keeps vectors and 3x3 matrices
+in the flattened aggregate ABI instead of accidentally mixing heap-list and
+fixed-value representations.
 
 ## Math and time promotion
 
@@ -91,12 +91,10 @@ hyperbolic/inverse functions, logarithm variants, `gamma`, and `erf` live in
 cross the stable runtime boundary (`sqrt`, `sin`, `cos`, `exp`, and `ln`);
 `abs` lowers directly to machine instructions. This removes the Python math
 namespace and generated-C++ path from direct artifacts. Every public math
-function recursively maps over fixed vectors, tuples, structs, and nested
-combinations while preserving the exact structure. It uses the core structural
-compatibility rule, so numeric fields are transformed and incompatible metadata
-such as strings and bits is retained unchanged. Functions with multiple
-arguments accept either matching structures or scalar values broadcast to
-every compatible leaf.
+function recursively maps over fixed and dynamic numeric vector layers while
+preserving vector shape. Tuples and records are atomic and require explicit
+whole-value functions. Functions with multiple arguments accept matching
+vectors or scalar values broadcast to each exact numeric leaf.
 
 The same intrinsic boundary implements the elementary complex-plane operations
 `abs`, `sqrt`, `sin`, `cos`, `exp`, and `ln` directly in machine IR. The

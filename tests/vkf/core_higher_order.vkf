@@ -9,6 +9,15 @@ _method(f:num->num, x:num) -> num->num:
 higher_order_function_result_keeps_closure() -> bit:
     (_method(_identity, 2)(3) = 18)?!
 
+_apply_twice_int(f:int->int, value:int) -> int:
+    f(f(value))
+
+_increment_int(value:int) -> int:
+    value + 3
+
+higher_order_integer_callable_matches_declared_shape() -> bit:
+    (_apply_twice_int(_increment_int, 4) = 10)?!
+
 _captured_scale: 2
 
 _multiply_by_captured_scale(x:num) -> num:

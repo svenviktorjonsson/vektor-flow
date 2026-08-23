@@ -1,0 +1,3 @@
+# expect-compile-error: tuple and record arithmetic requires an operator overload
+point: (name: "origin", index: 1, x: 2.0, y: 3.0)
+point + 2
