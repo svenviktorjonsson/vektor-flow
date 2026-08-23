@@ -382,8 +382,7 @@ Mode: **matched**. Benchmarks Game Jovian-body constants and pairwise symplectic
 System: (positions:[[num:3]:5], velocities:[[num:3]:5], masses:[num:5])
 
 offset_momentum(system:System, solar_mass:num) -> System:
-    [[num:3]:5] velocities: system.velocities
-    [num:5] masses: system.masses
+    :system
     momentum: [0, 0, 0]
     ..4 >>
         i: $
@@ -392,9 +391,7 @@ offset_momentum(system:System, solar_mass:num) -> System:
     (positions:system.positions, velocities:velocities, masses:masses)
 
 advance(system:System, timestep:num) -> System:
-    [[num:3]:5] positions: system.positions
-    [[num:3]:5] velocities: system.velocities
-    [num:5] masses: system.masses
+    :system
     ..3 >>
         i: $
         (i + 1)..4 >>
@@ -409,9 +406,7 @@ advance(system:System, timestep:num) -> System:
     (positions:positions, velocities:velocities, masses:masses)
 
 system_energy(system:System) -> num:
-    [[num:3]:5] positions: system.positions
-    [[num:3]:5] velocities: system.velocities
-    [num:5] masses: system.masses
+    :system
     totals: (kinetic:0, potential:0)
     ..4 >>
         i: $
