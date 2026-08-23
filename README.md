@@ -260,8 +260,8 @@ multiply_av(values:[num:250]) -> [num:250]:
         ..250 - 1 >>
             j: $
             diagonal: i + j
-            .total+: (1 / (diagonal * (diagonal + 1) / 2 + i + 1)) * values.j
-        output.i: total
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + i + 1)) * values.(j)
+        output.(i): total
     output
 
 multiply_atv(values:[num:250]) -> [num:250]:
@@ -272,8 +272,8 @@ multiply_atv(values:[num:250]) -> [num:250]:
         ..250 - 1 >>
             j: $
             diagonal: j + i
-            .total+: (1 / (diagonal * (diagonal + 1) / 2 + j + 1)) * values.j
-        output.i: total
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + j + 1)) * values.(j)
+        output.(i): total
     output
 
 multiply_at_av(values:[num:250]) -> [num:250]:
@@ -386,7 +386,7 @@ offset_momentum(system:System, solar_mass:num) -> System:
     momentum: [0, 0, 0]
     ..4 >>
         i: $
-        .momentum+: velocities.i * masses.i
+        .momentum+: velocities.(i) * masses.(i)
     velocities.0: momentum * (-1 / solar_mass)
     (positions:system.positions, velocities:velocities, masses:masses)
 
@@ -396,13 +396,13 @@ advance(system:System, timestep:num) -> System:
         i: $
         (i + 1)..4 >>
             j: $
-            [num:3] displacement: positions.i - positions.j
+            [num:3] displacement: positions.(i) - positions.(j)
             magnitude: timestep / |displacement|^3
-            velocities.i -: displacement * masses.j * magnitude
-            velocities.j +: displacement * masses.i * magnitude
+            velocities.(i) -: displacement * masses.(j) * magnitude
+            velocities.(j) +: displacement * masses.(i) * magnitude
     ..4 >>
         i: $
-        positions.i +: velocities.i * timestep
+        positions.(i) +: velocities.(i) * timestep
     (positions:positions, velocities:velocities, masses:masses)
 
 system_energy(system:System) -> num:
@@ -410,13 +410,13 @@ system_energy(system:System) -> num:
     totals: (kinetic:0, potential:0)
     ..4 >>
         i: $
-        totals.kinetic +: 0.5 * masses.i * |velocities.i|^2
+        totals.kinetic +: 0.5 * masses.(i) * |velocities.(i)|^2
     ..3 >>
         i: $
         (i + 1)..4 >>
             j: $
-            [num:3] displacement: positions.i - positions.j
-            totals.potential -: masses.i * masses.j / |displacement|
+            [num:3] displacement: positions.(i) - positions.(j)
+            totals.potential -: masses.(i) * masses.(j) / |displacement|
     totals.kinetic + totals.potential
 
 n_body(steps:num) -> num:
