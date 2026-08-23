@@ -135,7 +135,8 @@ test('parseOptions accepts positive integer sample controls', () => {
     compileRuns: 7,
     compileWarmups: 2,
     runs: 21,
-    warmups: 4
+    warmups: 4,
+    enforceRelativeGate: false
   });
   assert.throws(() => parseOptions(['--runs=0']), /positive integer/);
   assert.throws(() => parseOptions(['--output=../escape']), /safe result name/);
@@ -150,6 +151,16 @@ test('parseOptions defaults to 100 measured compile and runtime runs', () => {
     compileRuns: 100,
     compileWarmups: 1,
     runs: 100,
-    warmups: 5
+    warmups: 5,
+    enforceRelativeGate: false
   });
+});
+
+test('relative performance gate is explicit rather than a release prerequisite', () => {
+  assert.equal(parseOptions(['--enforce-relative-gate=true']).enforceRelativeGate, true);
+  assert.equal(parseOptions(['--enforce-relative-gate=false']).enforceRelativeGate, false);
+  assert.throws(
+    () => parseOptions(['--enforce-relative-gate=sometimes']),
+    /must be true or false/
+  );
 });

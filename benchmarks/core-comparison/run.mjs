@@ -118,7 +118,8 @@ export function parseOptions(argv) {
     compileRuns: 100,
     compileWarmups: 1,
     runs: 100,
-    warmups: 5
+    warmups: 5,
+    enforceRelativeGate: false
   };
   const names = new Map([
     ['compile-runs', 'compileRuns'],
@@ -142,6 +143,13 @@ export function parseOptions(argv) {
         throw new Error(`${arg} must be a safe result name`);
       }
       options.outputStem = match[2];
+      continue;
+    }
+    if (match[1] === 'enforce-relative-gate') {
+      if (match[2] !== 'true' && match[2] !== 'false') {
+        throw new Error(`${arg} must be true or false`);
+      }
+      options.enforceRelativeGate = match[2] === 'true';
       continue;
     }
     if (!names.has(match[1])) throw new Error(`unknown option: ${arg}`);
@@ -1110,7 +1118,7 @@ export function main(argv = process.argv.slice(2)) {
   writeFileSync(reportPath, report, 'utf8');
   printReport(payload, report, resultsPath, reportPath);
   assertVkfAcceptanceBudgets(normalizedResults);
-  assertVkfRelativeKernelGate(normalizedResults);
+  if (options.enforceRelativeGate) assertVkfRelativeKernelGate(normalizedResults);
   return payload;
 }
 

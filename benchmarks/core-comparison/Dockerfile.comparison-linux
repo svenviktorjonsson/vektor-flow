@@ -33,4 +33,4 @@ COPY benchmarks/core-comparison/native_library_timer.c benchmarks/core-compariso
 COPY benchmarks/core-comparison/programs benchmarks/core-comparison/programs
 RUN mkdir -p benchmarks/core-comparison/results
 
-CMD ["node", "benchmarks/core-comparison/run.mjs", "--case=spectral-norm-medium,fannkuch-redux-medium,n-body-medium", "--language=vkf,c,rust,zig", "--compile-runs=3", "--compile-warmups=1", "--runs=100", "--warmups=10", "--output=linux-x64-goal"]
+CMD ["node", "benchmarks/core-comparison/run.mjs", "--case=spectral-norm-medium,fannkuch-redux-medium,n-body-medium", "--language=vkf,c,rust,zig", "--compile-runs=3", "--compile-warmups=1", "--runs=100", "--warmups=10", "--output=linux-x64-goal", "--enforce-relative-gate=true"]

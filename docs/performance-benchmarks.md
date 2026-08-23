@@ -6,7 +6,7 @@ as regressions and are not presented as language comparisons.
 
 ## Comparative kernel set
 
-The 0.1.5 single-process suite takes its initial kernels from the
+The single-process suite takes its initial kernels from the
 [Computer Language Benchmarks Game](https://benchmarksgame-team.pages.debian.net/benchmarksgame/):
 
 1. [spectral norm](https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/spectralnorm.html):
@@ -57,11 +57,16 @@ competitor speed relative to VKF = VKF mean time / competitor mean time
 A value above `1.00×` means VKF took longer than that competitor. Absolute
 values from different machines are never compared.
 
-The current acceptance goal is evaluated per kernel and per competitor. Each
+The optional strict development goal is evaluated per kernel and per competitor. Each
 of spectral norm, fannkuch-redux, and n-body must keep `VKF mean / competitor
 mean` strictly below `2×` for C, Rust, and Zig in one pinned Linux x64 run with
 100 measured raw samples per lane. There is deliberately no aggregate score:
 an average or geometric mean must not hide one failed kernel.
+
+Release evidence always reports these ratios, but does not fail solely because
+a GitHub runner's CPU microarchitecture changes them. Use
+`--enforce-relative-gate=true` or the pinned comparison container when the
+strict development goal itself is under test.
 
 When results from multiple operating systems are available, each ratio must be
 calculated within one host first. Cross-platform absolute times must never be

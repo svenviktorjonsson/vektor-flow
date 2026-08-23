@@ -154,7 +154,7 @@ function generateSvg(report) {
 
 function generateMarkdown(report, svgName, jsonName, sourceLink) {
   const s = report.summary;
-  return `# VKF 0.1.5 Optimizer Policy Landscape
+  return `# VKF ${packageVersion} Optimizer Policy Landscape
 
 ![Sorted optimizer policy landscape](./${svgName})
 
@@ -201,7 +201,7 @@ The robust result is the large policy landscape: the best basin is about ${fixed
 ## Reproduce
 
 \`\`\`powershell
-node benchmarks/policy-landscape/run.mjs --compiler=${report.conditions.compiler} --runs=${report.conditions.runsPerDistinctBinary} --output=benchmarks/policy-landscape/evidence/windows-x64-v0.1.5
+node benchmarks/policy-landscape/run.mjs --compiler=${report.conditions.compiler} --runs=${report.conditions.runsPerDistinctBinary} --output=benchmarks/policy-landscape/evidence/windows-x64-v${packageVersion}
 \`\`\`
 
 The command is a benchmark tool only. Compiling or running VKF programs does not require Node, Python, a C++ compiler, assembler, or external linker.

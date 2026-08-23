@@ -1,7 +1,7 @@
 # Core language comparison
 
 This suite provides narrow language-to-language evidence and compiler
-regression checks. It is not the only 0.1.5 release gate. Release acceptance also uses every
+regression checks. It is not the only 0.1.6 release proof. Release verification also uses every
 documented program, exact output, and full-process runtime through
 [`benchmarks/readme-examples`](../readme-examples/README.md).
 
@@ -16,7 +16,7 @@ Every case declares one of two comparison modes:
 - **idiomatic**: same result-producing task, but each ecosystem may use its
   normal optimized implementation.
 
-The published 0.1.5 kernel set is deliberately recognizable:
+The published kernel set is deliberately recognizable:
 
 - spectral norm by the power method;
 - fannkuch-redux permutation flipping;
@@ -39,10 +39,10 @@ The runner keeps four costs separate:
 
 The landing page has one performance table. It shows VKF's raw-kernel mean ±
 sample standard deviation and the same-report `VKF mean / competitor mean`
-ratio for C, Rust, and Zig. Every one of the nine ratios must be strictly below
-`2×`; no aggregate score can hide a failed kernel. Compile and process-runtime
-measurements remain in the JSON/Markdown laboratory report, not the landing
-table.
+ratio for C, Rust, and Zig. Compile and process-runtime measurements remain in
+the JSON/Markdown laboratory report, not the landing table. The optional strict
+goal mode checks every ratio independently; ordinary release evidence records
+the measurements without treating runner-specific performance as correctness.
 
 For the legacy 20,000-operation `scalar-control-small` VKF regression case, a
 full 100-sample run still enforces its own narrow limits: mean internal compiler-core time must be strictly under 10 ms
@@ -100,7 +100,7 @@ tools, verifies Zig's official SHA-256, then runs this exact command on
 Linux-local storage:
 
 ```bash
-node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,spectral-norm-medium,fannkuch-redux-medium,n-body-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-015
+node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,spectral-norm-medium,fannkuch-redux-medium,n-body-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-016
 ```
 
 Run the current strict three-kernel goal locally in one pinned Ubuntu 24.04
@@ -112,7 +112,7 @@ docker run --rm vkf-comparison-linux-goal
 ```
 
 The container command uses 100 raw runs after 10 warmups for each of VKF, C,
-Rust, and Zig. The runner exits nonzero if any same-host ratio reaches `2×`.
+Rust, and Zig and explicitly enables the internal relative-goal check.
 
 `native-entry-timer` isolates generated-program execution. `native-process-timer`
 includes process startup and is used for source-to-execution and fresh-launch lanes.
