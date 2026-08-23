@@ -128,19 +128,23 @@ VKF uses indentation for blocks and keeps control flow postfix and compact.
 | `value??>` | Repeatedly match a changing value. |
 | `values >> expression` | Pipe each vector/range element through an expression; `$` is the current value. |
 | `@:` / `@` | Return a value / return `null`. |
-| `@>` / `@|` | Continue / break the nearest loop or pipe. |
+| `@>` / `@\|` | Continue / break the nearest loop or pipe. |
 | `:: value` | Print a value and newline. |
 
-This complete program shows a while loop and a repeated match (switch) loop:
+An indented pipe body runs once for each input. Its final value becomes `$` for
+the next `>>` stage, and a dotted assignment can update an existing outer binding.
+As the sole unparenthesized value inside `[]` or `{}`, a pipe generates that
+container: `[a >> $]` equals `[:a]`, and `{a >> $}` equals `{:a}`. Parentheses
+suppress generation, so `[(a >> $)]` contains the result tuple as one element.
+
+This complete program uses a range pipe for fixed counting and a repeated match (switch) loop:
 
 <!-- readme-example: core/33-loops.vkf -->
 ```vkf
 loop_total() -> int:
-    i: 0
     total: 0
-    i < 5?>
-        .total: total + i
-        .i: i + 1
+    ..4 >>
+        .total+: $
     total
 
 switch_loop() -> int:
@@ -250,36 +254,26 @@ Mode: **idiomatic**. Benchmarks Game power method; NumPy and Julia use optimized
 
 multiply_av(values:[num:250]) -> [num:250]:
     output: [0:250]
-    row: 0
-    column: 0
-    total: 0
-    diagonal: 0
-    row < 250?>
-        .column: 0
-        .total: 0
-        column < 250?>
-            .diagonal: row + column
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.column
-            .column: column + 1
+    ..250 - 1 >>
+        row: $
+        total: 0
+        ..250 - 1 >>
+            column: $
+            diagonal: row + column
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.column
         output.row: total
-        .row: row + 1
     output
 
 multiply_atv(values:[num:250]) -> [num:250]:
     output: [0:250]
-    row: 0
-    column: 0
-    total: 0
-    diagonal: 0
-    row < 250?>
-        .column: 0
-        .total: 0
-        column < 250?>
-            .diagonal: column + row
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.column
-            .column: column + 1
+    ..250 - 1 >>
+        row: $
+        total: 0
+        ..250 - 1 >>
+            column: $
+            diagonal: column + row
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.column
         output.row: total
-        .row: row + 1
     output
 
 multiply_at_av(values:[num:250]) -> [num:250]:
@@ -288,17 +282,14 @@ multiply_at_av(values:[num:250]) -> [num:250]:
 spectral_norm() -> num:
     u: [1:250]
     v: [0:250]
-    iteration: 0
-    iteration < 10?>
+    ..9 >>
         .v: multiply_at_av(u)
         .u: multiply_at_av(v)
-        .iteration: iteration + 1
     numerator: 0
     denominator: 0
-    index < 250?>
-        .numerator: numerator + u.index * v.index
-        .denominator: denominator + v.index * v.index
-        .index: index + 1
+    ..250 - 1 >>
+        .numerator+: u.($) * v.($)
+        .denominator+: v.($) * v.($)
     sqrt(numerator / denominator)
 
 :: spectral_norm()
@@ -515,7 +506,7 @@ beside the examples; controlled comparative timing remains separate.
 | `value??` / `value??>` | Match / repeated match. |
 | `error!` / `expression!?` | Raise a typed error / catch errors. |
 | `@:` / `@` | Return a value / return `null`. |
-| `@>` / `@|` | Continue / break. |
+| `@>` / `@\|` | Continue / break. |
 | `: .module` | Spill a module into the current scope. |
 
 `!` is never factorial. Only error types and error values may be raised.
