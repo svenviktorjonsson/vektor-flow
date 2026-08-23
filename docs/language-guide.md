@@ -140,11 +140,14 @@ operating-system processes**. Every measured run must return the same exit code
 and byte-identical stdout and stderr. Output blocks show the exact decoded text;
 Windows uses CRLF line endings while Linux and macOS use LF.
 
-Compilation includes source reading, lexing, parsing, native standard-library
-resolution, typed IR, machine lowering, and executable emission. It uses one
-persistent compiler process, so the per-example compile measurement excludes
-compiler-process startup. Runtime deliberately includes executable loading,
-process startup, program work, output capture, and teardown.
+The `Fresh executable build` row includes source reading, lexing, parsing,
+native standard-library resolution, typed IR, machine lowering, and executable
+emission. It uses one persistent compiler process, so the measurement excludes
+compiler-process startup. The `Fresh-process launch + run` row includes OS
+process creation, executable loading, any platform security inspection, program
+work, output capture, and teardown. For tiny programs—especially on hosted
+Windows runners—those fixed launch costs can dominate. This row is end-to-end
+latency, not raw machine-code execution time.
 
 These are the machines and conditions behind every inline table:
 
@@ -224,10 +227,10 @@ num scaled: value * 2
 6
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.494 ± 0.479 ms | 0.399 ± 0.012 ms | 0.947 ± 0.867 ms |
-| Runtime | 20.902 ± 3.053 ms | 1.491 ± 0.050 ms | 2.142 ± 0.501 ms |
+| Fresh executable build | 2.494 ± 0.479 ms | 0.399 ± 0.012 ms | 0.947 ± 0.867 ms |
+| Fresh-process launch + run | 20.902 ± 3.053 ms | 1.491 ± 0.050 ms | 2.142 ± 0.501 ms |
 
 <!-- readme-evidence:end -->
 
@@ -250,10 +253,10 @@ b: (a: 3) + 1
 4
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.095 ± 0.462 ms | 0.286 ± 0.010 ms | 1.191 ± 4.017 ms |
-| Runtime | 21.325 ± 3.735 ms | 1.480 ± 0.055 ms | 2.122 ± 0.573 ms |
+| Fresh executable build | 2.095 ± 0.462 ms | 0.286 ± 0.010 ms | 1.191 ± 4.017 ms |
+| Fresh-process launch + run | 21.325 ± 3.735 ms | 1.480 ± 0.055 ms | 2.122 ± 0.573 ms |
 
 <!-- readme-evidence:end -->
 
@@ -295,10 +298,10 @@ make_base(x:3, y:4)
 red
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 7.464 ± 6.875 ms | 0.949 ± 0.009 ms | 1.321 ± 0.254 ms |
-| Runtime | 20.895 ± 2.947 ms | 1.515 ± 0.042 ms | 2.105 ± 0.597 ms |
+| Fresh executable build | 7.464 ± 6.875 ms | 0.949 ± 0.009 ms | 1.321 ± 0.254 ms |
+| Fresh-process launch + run | 20.895 ± 2.947 ms | 1.515 ± 0.042 ms | 2.105 ± 0.597 ms |
 
 <!-- readme-evidence:end -->
 
@@ -322,10 +325,10 @@ answer: 6 * 7
 42
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.262 ± 0.844 ms | 0.323 ± 0.010 ms | 0.854 ± 0.163 ms |
-| Runtime | 25.229 ± 39.103 ms | 1.492 ± 0.062 ms | 2.059 ± 0.372 ms |
+| Fresh executable build | 2.262 ± 0.844 ms | 0.323 ± 0.010 ms | 0.854 ± 0.163 ms |
+| Fresh-process launch + run | 25.229 ± 39.103 ms | 1.492 ± 0.062 ms | 2.059 ± 0.372 ms |
 
 <!-- readme-evidence:end -->
 
@@ -346,10 +349,10 @@ test needs_input(value:int) -> bit:
 
 **Recorded stdout (exit code `0`; stderr empty):** no output.
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 1.995 ± 0.270 ms | 0.333 ± 0.012 ms | 0.842 ± 0.242 ms |
-| Runtime | 26.205 ± 48.994 ms | 1.477 ± 0.051 ms | 2.051 ± 0.379 ms |
+| Fresh executable build | 1.995 ± 0.270 ms | 0.333 ± 0.012 ms | 0.842 ± 0.242 ms |
+| Fresh-process launch + run | 26.205 ± 48.994 ms | 1.477 ± 0.051 ms | 2.051 ± 0.379 ms |
 
 <!-- readme-evidence:end -->
 
@@ -389,10 +392,10 @@ A
 null
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.923 ± 0.439 ms | 0.693 ± 0.013 ms | 1.099 ± 0.211 ms |
-| Runtime | 27.212 ± 60.440 ms | 1.509 ± 0.037 ms | 2.058 ± 0.359 ms |
+| Fresh executable build | 3.923 ± 0.439 ms | 0.693 ± 0.013 ms | 1.099 ± 0.211 ms |
+| Fresh-process launch + run | 27.212 ± 60.440 ms | 1.509 ± 0.037 ms | 2.058 ± 0.359 ms |
 
 <!-- readme-evidence:end -->
 
@@ -422,10 +425,10 @@ type_scope:
 (NumberType:num, reflected:(any) -> int)
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.943 ± 0.579 ms | 0.490 ± 0.011 ms | 0.967 ± 0.167 ms |
-| Runtime | 50.370 ± 290.586 ms | 1.504 ± 0.051 ms | 2.038 ± 0.344 ms |
+| Fresh executable build | 3.943 ± 0.579 ms | 0.490 ± 0.011 ms | 0.967 ± 0.167 ms |
+| Fresh-process launch + run | 50.370 ± 290.586 ms | 1.504 ± 0.051 ms | 2.038 ± 0.344 ms |
 
 <!-- readme-evidence:end -->
 
@@ -458,10 +461,10 @@ sum=5 point=(x:2, y:false) cost=$5
 😀
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.090 ± 0.519 ms | 0.611 ± 0.012 ms | 1.055 ± 0.162 ms |
-| Runtime | 22.502 ± 13.483 ms | 1.510 ± 0.050 ms | 2.043 ± 0.462 ms |
+| Fresh executable build | 4.090 ± 0.519 ms | 0.611 ± 0.012 ms | 1.055 ± 0.162 ms |
+| Fresh-process launch + run | 22.502 ± 13.483 ms | 1.510 ± 0.050 ms | 2.043 ± 0.462 ms |
 
 <!-- readme-evidence:end -->
 
@@ -492,10 +495,10 @@ origin
 12
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.236 ± 0.370 ms | 0.617 ± 0.010 ms | 1.032 ± 0.141 ms |
-| Runtime | 21.476 ± 3.631 ms | 1.494 ± 0.044 ms | 2.005 ± 0.325 ms |
+| Fresh executable build | 3.236 ± 0.370 ms | 0.617 ± 0.010 ms | 1.032 ± 0.141 ms |
+| Fresh-process launch + run | 21.476 ± 3.631 ms | 1.494 ± 0.044 ms | 2.005 ± 0.325 ms |
 
 <!-- readme-evidence:end -->
 
@@ -526,10 +529,10 @@ dynamic.1: 20
 [7, 7, 7, 7, 9, 9]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.980 ± 0.518 ms | 0.535 ± 0.013 ms | 0.980 ± 0.159 ms |
-| Runtime | 21.210 ± 3.952 ms | 1.535 ± 0.049 ms | 2.031 ± 0.389 ms |
+| Fresh executable build | 3.980 ± 0.518 ms | 0.535 ± 0.013 ms | 0.980 ± 0.159 ms |
+| Fresh-process launch + run | 21.210 ± 3.952 ms | 1.535 ± 0.049 ms | 2.031 ± 0.389 ms |
 
 <!-- readme-evidence:end -->
 
@@ -552,10 +555,10 @@ dynamic: collections.list(1, 2) & collections.list(3)
 [1, 2, 3]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.582 ± 0.494 ms | 0.506 ± 0.011 ms | 0.973 ± 0.141 ms |
-| Runtime | 21.386 ± 4.334 ms | 1.507 ± 0.041 ms | 2.048 ± 0.469 ms |
+| Fresh executable build | 3.582 ± 0.494 ms | 0.506 ± 0.011 ms | 0.973 ± 0.141 ms |
+| Fresh-process launch + run | 21.386 ± 4.334 ms | 1.507 ± 0.041 ms | 2.048 ± 0.469 ms |
 
 <!-- readme-evidence:end -->
 
@@ -588,10 +591,10 @@ container_work(n:int) -> int:
 10000000
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.697 ± 0.918 ms | 0.938 ± 0.011 ms | 1.230 ± 0.137 ms |
-| Runtime | 43.590 ± 7.878 ms | 28.428 ± 0.078 ms | 42.466 ± 2.709 ms |
+| Fresh executable build | 5.697 ± 0.918 ms | 0.938 ± 0.011 ms | 1.230 ± 0.137 ms |
+| Fresh-process launch + run | 43.590 ± 7.878 ms | 28.428 ± 0.078 ms | 42.466 ± 2.709 ms |
 
 <!-- readme-evidence:end -->
 
@@ -631,10 +634,10 @@ p: Point(3, 4)
 Point(x:5, y:6, name:my point)
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.879 ± 0.810 ms | 0.899 ± 0.010 ms | 1.229 ± 0.198 ms |
-| Runtime | 22.708 ± 13.391 ms | 1.661 ± 0.061 ms | 2.486 ± 0.470 ms |
+| Fresh executable build | 5.879 ± 0.810 ms | 0.899 ± 0.010 ms | 1.229 ± 0.198 ms |
+| Fresh-process launch + run | 22.708 ± 13.391 ms | 1.661 ± 0.061 ms | 2.486 ± 0.470 ms |
 
 <!-- readme-evidence:end -->
 
@@ -668,10 +671,10 @@ right: {"a":2, "c":2}
 {a:1}
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 55.980 ± 18.847 ms | 1.472 ± 0.037 ms | 1.971 ± 0.272 ms |
-| Runtime | 22.718 ± 16.341 ms | 1.521 ± 0.037 ms | 2.201 ± 0.692 ms |
+| Fresh executable build | 55.980 ± 18.847 ms | 1.472 ± 0.037 ms | 1.971 ± 0.272 ms |
+| Fresh-process launch + run | 22.718 ± 16.341 ms | 1.521 ± 0.037 ms | 2.201 ± 0.692 ms |
 
 <!-- readme-evidence:end -->
 
@@ -696,10 +699,10 @@ right: {"a":2, "c":2}
 (1, 2, 3, 4)
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.522 ± 0.431 ms | 0.355 ± 0.031 ms | 0.835 ± 0.162 ms |
-| Runtime | 21.878 ± 12.435 ms | 1.522 ± 0.088 ms | 2.100 ± 0.482 ms |
+| Fresh executable build | 2.522 ± 0.431 ms | 0.355 ± 0.031 ms | 0.835 ± 0.162 ms |
+| Fresh-process launch + run | 21.878 ± 12.435 ms | 1.522 ± 0.088 ms | 2.100 ± 0.482 ms |
 
 <!-- readme-evidence:end -->
 
@@ -723,10 +726,10 @@ z: num(1, 2)
 -3 + 4i
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 6.032 ± 1.402 ms | 0.423 ± 0.017 ms | 0.971 ± 0.510 ms |
-| Runtime | 21.355 ± 7.665 ms | 1.503 ± 0.066 ms | 2.071 ± 0.411 ms |
+| Fresh executable build | 6.032 ± 1.402 ms | 0.423 ± 0.017 ms | 0.971 ± 0.510 ms |
+| Fresh-process launch + run | 21.355 ± 7.665 ms | 1.503 ± 0.066 ms | 2.071 ± 0.411 ms |
 
 <!-- readme-evidence:end -->
 
@@ -751,10 +754,10 @@ z: num(1, 2)
 [1, 1]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.127 ± 0.519 ms | 0.450 ± 0.015 ms | 0.880 ± 0.120 ms |
-| Runtime | 21.495 ± 7.058 ms | 1.490 ± 0.054 ms | 2.083 ± 0.502 ms |
+| Fresh executable build | 3.127 ± 0.519 ms | 0.450 ± 0.015 ms | 0.880 ± 0.120 ms |
+| Fresh-process launch + run | 21.495 ± 7.058 ms | 1.490 ± 0.054 ms | 2.083 ± 0.502 ms |
 
 <!-- readme-evidence:end -->
 
@@ -784,10 +787,10 @@ member_names: {:point.}
 {x:1, y:1}
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 7.027 ± 0.986 ms | 0.599 ± 0.010 ms | 1.182 ± 0.983 ms |
-| Runtime | 21.611 ± 3.165 ms | 1.524 ± 0.088 ms | 2.064 ± 0.432 ms |
+| Fresh executable build | 7.027 ± 0.986 ms | 0.599 ± 0.010 ms | 1.182 ± 0.983 ms |
+| Fresh-process launch + run | 21.611 ± 3.165 ms | 1.524 ± 0.088 ms | 2.064 ± 0.432 ms |
 
 <!-- readme-evidence:end -->
 
@@ -805,10 +808,10 @@ member_names: {:point.}
 64
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 1.838 ± 0.282 ms | 0.208 ± 0.009 ms | 0.738 ± 0.176 ms |
-| Runtime | 21.321 ± 2.935 ms | 1.492 ± 0.083 ms | 1.989 ± 0.321 ms |
+| Fresh executable build | 1.838 ± 0.282 ms | 0.208 ± 0.009 ms | 0.738 ± 0.176 ms |
+| Fresh-process launch + run | 21.321 ± 2.935 ms | 1.492 ± 0.083 ms | 1.989 ± 0.321 ms |
 
 <!-- readme-evidence:end -->
 
@@ -843,10 +846,10 @@ do_nothing():
 null
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.232 ± 4.510 ms | 0.553 ± 0.012 ms | 0.974 ± 0.160 ms |
-| Runtime | 23.395 ± 23.810 ms | 1.489 ± 0.083 ms | 2.104 ± 0.544 ms |
+| Fresh executable build | 5.232 ± 4.510 ms | 0.553 ± 0.012 ms | 0.974 ± 0.160 ms |
+| Fresh-process launch + run | 23.395 ± 23.810 ms | 1.489 ± 0.083 ms | 2.104 ± 0.544 ms |
 
 <!-- readme-evidence:end -->
 
@@ -874,10 +877,10 @@ weighted(x:num, y:num=x + 1, z:num=y + 1) -> num:
 345
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.817 ± 0.651 ms | 0.882 ± 1.885 ms | 1.074 ± 0.220 ms |
-| Runtime | 26.960 ± 58.813 ms | 1.498 ± 0.075 ms | 2.147 ± 0.756 ms |
+| Fresh executable build | 3.817 ± 0.651 ms | 0.882 ± 1.885 ms | 1.074 ± 0.220 ms |
+| Fresh-process launch + run | 26.960 ± 58.813 ms | 1.498 ± 0.075 ms | 2.147 ± 0.756 ms |
 
 <!-- readme-evidence:end -->
 
@@ -912,10 +915,10 @@ add_two: make_offset(2)
 7
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.142 ± 0.611 ms | 0.823 ± 0.012 ms | 1.157 ± 0.161 ms |
-| Runtime | 21.892 ± 6.095 ms | 1.499 ± 0.143 ms | 2.094 ± 0.467 ms |
+| Fresh executable build | 4.142 ± 0.611 ms | 0.823 ± 0.012 ms | 1.157 ± 0.161 ms |
+| Fresh-process launch + run | 21.892 ± 6.095 ms | 1.499 ± 0.143 ms | 2.094 ± 0.467 ms |
 
 <!-- readme-evidence:end -->
 
@@ -948,10 +951,10 @@ square: (value): value^2
 9
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.756 ± 0.497 ms | 0.767 ± 0.011 ms | 1.085 ± 0.142 ms |
-| Runtime | 23.755 ± 30.748 ms | 1.524 ± 0.122 ms | 2.127 ± 0.572 ms |
+| Fresh executable build | 3.756 ± 0.497 ms | 0.767 ± 0.011 ms | 1.085 ± 0.142 ms |
+| Fresh-process launch + run | 23.755 ± 30.748 ms | 1.524 ± 0.122 ms | 2.127 ± 0.572 ms |
 
 <!-- readme-evidence:end -->
 
@@ -988,10 +991,10 @@ point: (y:4, x:3)
 (flag:true, mode:fast)
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.685 ± 0.652 ms | 0.962 ± 0.016 ms | 1.296 ± 0.207 ms |
-| Runtime | 21.417 ± 2.985 ms | 1.528 ± 0.083 ms | 2.125 ± 0.587 ms |
+| Fresh executable build | 4.685 ± 0.652 ms | 0.962 ± 0.016 ms | 1.296 ± 0.207 ms |
+| Fresh-process launch + run | 21.417 ± 2.985 ms | 1.528 ± 0.083 ms | 2.125 ± 0.587 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1015,10 +1018,10 @@ values: (:(1, 2), :[3, 4])
 4
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.308 ± 0.232 ms | 0.373 ± 0.010 ms | 0.841 ± 0.171 ms |
-| Runtime | 21.135 ± 2.782 ms | 1.509 ± 0.086 ms | 2.191 ± 0.723 ms |
+| Fresh executable build | 2.308 ± 0.232 ms | 0.373 ± 0.010 ms | 0.841 ± 0.171 ms |
+| Fresh-process launch + run | 21.135 ± 2.782 ms | 1.509 ± 0.086 ms | 2.191 ± 0.723 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1043,10 +1046,10 @@ join(x:[int:n], y:[int:m]) -> [int:n+m]:
 [1, 2, 3, 4, 5]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.386 ± 0.507 ms | 0.608 ± 0.011 ms | 1.082 ± 0.149 ms |
-| Runtime | 21.556 ± 3.199 ms | 1.514 ± 0.114 ms | 2.130 ± 0.529 ms |
+| Fresh executable build | 3.386 ± 0.507 ms | 0.608 ± 0.011 ms | 1.082 ± 0.149 ms |
+| Fresh-process launch + run | 21.556 ± 3.199 ms | 1.514 ± 0.114 ms | 2.130 ± 0.529 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1075,10 +1078,10 @@ sum_pair(value:any) -> num:
 7
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.877 ± 0.332 ms | 0.615 ± 0.012 ms | 0.999 ± 0.144 ms |
-| Runtime | 21.388 ± 3.602 ms | 1.491 ± 0.064 ms | 2.117 ± 0.577 ms |
+| Fresh executable build | 2.877 ± 0.332 ms | 0.615 ± 0.012 ms | 0.999 ± 0.144 ms |
+| Fresh-process launch + run | 21.388 ± 3.602 ms | 1.491 ± 0.064 ms | 2.117 ± 0.577 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1109,10 +1112,10 @@ result: double(point)
 (name:origin, enabled:true, x:4, y:6)
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.605 ± 0.580 ms | 0.536 ± 0.011 ms | 0.986 ± 0.165 ms |
-| Runtime | 21.970 ± 3.301 ms | 1.523 ± 0.059 ms | 2.077 ± 0.390 ms |
+| Fresh executable build | 3.605 ± 0.580 ms | 0.536 ± 0.011 ms | 0.986 ± 0.165 ms |
+| Fresh-process launch + run | 21.970 ± 3.301 ms | 1.523 ± 0.059 ms | 2.077 ± 0.390 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1143,10 +1146,10 @@ unchanged: halve((name:"only metadata", enabled:true))
 (name:only metadata, enabled:true)
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 7.004 ± 12.499 ms | 0.624 ± 0.020 ms | 1.069 ± 0.216 ms |
-| Runtime | 21.865 ± 3.812 ms | 1.527 ± 0.052 ms | 2.121 ± 0.496 ms |
+| Fresh executable build | 7.004 ± 12.499 ms | 0.624 ± 0.020 ms | 1.069 ± 0.216 ms |
+| Fresh-process launch + run | 21.865 ± 3.812 ms | 1.527 ± 0.052 ms | 2.121 ± 0.496 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1175,10 +1178,10 @@ data: [
 [(name:a, point:(x:2, y:3)), (name:b, point:(x:4, y:5))]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.923 ± 0.515 ms | 0.641 ± 0.034 ms | 1.099 ± 0.252 ms |
-| Runtime | 21.252 ± 3.550 ms | 1.540 ± 0.061 ms | 2.121 ± 0.504 ms |
+| Fresh executable build | 3.923 ± 0.515 ms | 0.641 ± 0.034 ms | 1.099 ± 0.252 ms |
+| Fresh-process launch + run | 21.252 ± 3.550 ms | 1.540 ± 0.061 ms | 2.121 ± 0.504 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1210,10 +1213,10 @@ matrix: [[1, 2], [3, 4], [5, 6]]
 [3, 7, 11]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.005 ± 0.499 ms | 1.007 ± 0.044 ms | 1.375 ± 0.384 ms |
-| Runtime | 21.069 ± 3.044 ms | 1.541 ± 0.078 ms | 2.097 ± 0.468 ms |
+| Fresh executable build | 5.005 ± 0.499 ms | 1.007 ± 0.044 ms | 1.375 ± 0.384 ms |
+| Fresh-process launch + run | 21.069 ± 3.044 ms | 1.541 ± 0.078 ms | 2.097 ± 0.468 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1237,10 +1240,10 @@ rotate(values:[int:3]) -> [int:3]:
 [2, 3, 1]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.467 ± 0.373 ms | 0.466 ± 0.024 ms | 0.960 ± 0.314 ms |
-| Runtime | 21.396 ± 3.095 ms | 1.489 ± 0.051 ms | 2.074 ± 0.401 ms |
+| Fresh executable build | 2.467 ± 0.373 ms | 0.466 ± 0.024 ms | 0.960 ± 0.314 ms |
+| Fresh-process launch + run | 21.396 ± 3.095 ms | 1.489 ± 0.051 ms | 2.074 ± 0.401 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1287,10 +1290,10 @@ data: (
 (name:measurements, values:[nan, 2, 3], nested:(x:nan, label:kept))
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 26.008 ± 2.870 ms | 5.551 ± 0.096 ms | 4.903 ± 0.776 ms |
-| Runtime | 21.585 ± 3.062 ms | 1.567 ± 0.063 ms | 2.071 ± 0.415 ms |
+| Fresh executable build | 26.008 ± 2.870 ms | 5.551 ± 0.096 ms | 4.903 ± 0.776 ms |
+| Fresh-process launch + run | 21.585 ± 3.062 ms | 1.567 ± 0.063 ms | 2.071 ± 0.415 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1337,10 +1340,10 @@ nan
 nan
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.968 ± 1.171 ms | 0.392 ± 0.010 ms | 0.895 ± 0.184 ms |
-| Runtime | 21.362 ± 2.951 ms | 1.487 ± 0.052 ms | 2.069 ± 0.521 ms |
+| Fresh executable build | 2.968 ± 1.171 ms | 0.392 ± 0.010 ms | 0.895 ± 0.184 ms |
+| Fresh-process launch + run | 21.362 ± 2.951 ms | 1.487 ± 0.052 ms | 2.069 ± 0.521 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1369,10 +1372,10 @@ exact three
 another integer
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.899 ± 0.387 ms | 0.467 ± 0.011 ms | 0.990 ± 0.216 ms |
-| Runtime | 21.701 ± 7.649 ms | 1.473 ± 0.051 ms | 2.075 ± 0.356 ms |
+| Fresh executable build | 2.899 ± 0.387 ms | 0.467 ± 0.011 ms | 0.990 ± 0.216 ms |
+| Fresh-process launch + run | 21.701 ± 7.649 ms | 1.473 ± 0.051 ms | 2.075 ± 0.356 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1417,10 +1420,10 @@ switch_loop() -> int:
 2
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.813 ± 0.838 ms | 0.789 ± 0.014 ms | 1.165 ± 0.296 ms |
-| Runtime | 21.253 ± 3.134 ms | 1.491 ± 0.061 ms | 2.092 ± 0.418 ms |
+| Fresh executable build | 4.813 ± 0.838 ms | 0.789 ± 0.014 ms | 1.165 ± 0.296 ms |
+| Fresh-process launch + run | 21.253 ± 3.134 ms | 1.491 ± 0.061 ms | 2.092 ± 0.418 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1458,10 +1461,10 @@ message: ""
 specific value
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 10.813 ± 1.116 ms | 0.864 ± 0.010 ms | 1.487 ± 0.169 ms |
-| Runtime | 21.052 ± 3.416 ms | 1.482 ± 0.078 ms | 2.101 ± 0.407 ms |
+| Fresh executable build | 10.813 ± 1.116 ms | 0.864 ± 0.010 ms | 1.487 ± 0.169 ms |
+| Fresh-process launch + run | 21.052 ± 3.416 ms | 1.482 ± 0.078 ms | 2.101 ± 0.407 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1495,10 +1498,10 @@ as `errors.ValueError`.
 ååAA
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.759 ± 0.822 ms | 0.535 ± 0.011 ms | 1.033 ± 0.216 ms |
-| Runtime | 21.143 ± 2.790 ms | 1.536 ± 0.068 ms | 2.086 ± 0.425 ms |
+| Fresh executable build | 4.759 ± 0.822 ms | 0.535 ± 0.011 ms | 1.033 ± 0.216 ms |
+| Fresh-process launch + run | 21.143 ± 2.790 ms | 1.536 ± 0.068 ms | 2.086 ± 0.425 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1528,10 +1531,10 @@ values: (1..) >>
 [1, 20, 3, 4]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 7.128 ± 4.302 ms | 0.435 ± 0.011 ms | 0.919 ± 0.143 ms |
-| Runtime | 21.092 ± 3.124 ms | 1.509 ± 0.068 ms | 2.082 ± 0.439 ms |
+| Fresh executable build | 7.128 ± 4.302 ms | 0.435 ± 0.011 ms | 0.919 ± 0.143 ms |
+| Fresh-process launch + run | 21.092 ± 3.124 ms | 1.509 ± 0.068 ms | 2.082 ± 0.439 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1564,10 +1567,10 @@ true
 true
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.419 ± 0.600 ms | 0.548 ± 0.011 ms | 0.950 ± 0.181 ms |
-| Runtime | 21.059 ± 3.029 ms | 1.511 ± 0.076 ms | 2.013 ± 0.280 ms |
+| Fresh executable build | 3.419 ± 0.600 ms | 0.548 ± 0.011 ms | 0.950 ± 0.181 ms |
+| Fresh-process launch + run | 21.059 ± 3.029 ms | 1.511 ± 0.076 ms | 2.013 ± 0.280 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1592,10 +1595,10 @@ true
 5
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 1.797 ± 0.320 ms | 0.222 ± 0.010 ms | 0.746 ± 0.205 ms |
-| Runtime | 22.159 ± 8.071 ms | 1.482 ± 0.059 ms | 2.037 ± 0.352 ms |
+| Fresh executable build | 1.797 ± 0.320 ms | 0.222 ± 0.010 ms | 0.746 ± 0.205 ms |
+| Fresh-process launch + run | 22.159 ± 8.071 ms | 1.482 ± 0.059 ms | 2.037 ± 0.352 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1626,10 +1629,10 @@ Point: (x:num, y:num)
 (x:-3, y:-4)
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.845 ± 0.658 ms | 0.816 ± 0.009 ms | 1.190 ± 0.268 ms |
-| Runtime | 21.156 ± 3.455 ms | 1.527 ± 0.132 ms | 2.005 ± 0.330 ms |
+| Fresh executable build | 3.845 ± 0.658 ms | 0.816 ± 0.009 ms | 1.190 ± 0.268 ms |
+| Fresh-process launch + run | 21.156 ± 3.455 ms | 1.527 ± 0.132 ms | 2.005 ± 0.330 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1662,10 +1665,10 @@ Pair pair: (x:3, y:4)
 4
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.547 ± 0.405 ms | 0.639 ± 0.012 ms | 1.598 ± 4.816 ms |
-| Runtime | 21.412 ± 3.196 ms | 1.484 ± 0.078 ms | 2.034 ± 0.419 ms |
+| Fresh executable build | 3.547 ± 0.405 ms | 0.639 ± 0.012 ms | 1.598 ± 4.816 ms |
+| Fresh-process launch + run | 21.412 ± 3.196 ms | 1.484 ± 0.078 ms | 2.034 ± 0.419 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1691,10 +1694,10 @@ cross(matrix:[[int:2]:2]) -> int:
 5
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.587 ± 0.386 ms | 0.519 ± 0.010 ms | 0.943 ± 0.200 ms |
-| Runtime | 21.776 ± 3.880 ms | 1.406 ± 0.151 ms | 2.017 ± 0.374 ms |
+| Fresh executable build | 2.587 ± 0.386 ms | 0.519 ± 0.010 ms | 0.943 ± 0.200 ms |
+| Fresh-process launch + run | 21.776 ± 3.880 ms | 1.406 ± 0.151 ms | 2.017 ± 0.374 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1722,10 +1725,10 @@ values.(1, 3): (21, 41)
 [10, 21, 30, 41]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 2.900 ± 0.458 ms | 0.465 ± 0.011 ms | 0.957 ± 0.261 ms |
-| Runtime | 21.507 ± 3.833 ms | 1.537 ± 0.185 ms | 2.043 ± 0.484 ms |
+| Fresh executable build | 2.900 ± 0.458 ms | 0.465 ± 0.011 ms | 0.957 ± 0.261 ms |
+| Fresh-process launch + run | 21.507 ± 3.833 ms | 1.537 ± 0.185 ms | 2.043 ± 0.484 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1756,10 +1759,10 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 [[[15, 18], [20, 24]], [[30, 36], [40, 48]]]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.329 ± 0.673 ms | 0.853 ± 0.013 ms | 1.220 ± 0.295 ms |
-| Runtime | 21.352 ± 3.376 ms | 1.597 ± 0.192 ms | 2.040 ± 0.492 ms |
+| Fresh executable build | 5.329 ± 0.673 ms | 0.853 ± 0.013 ms | 1.220 ± 0.295 ms |
+| Fresh-process launch + run | 21.352 ± 3.376 ms | 1.597 ± 0.192 ms | 2.040 ± 0.492 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1789,10 +1792,10 @@ m: .math
 1
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 47.290 ± 5.419 ms | 10.228 ± 0.106 ms | 8.381 ± 1.080 ms |
-| Runtime | 21.072 ± 3.431 ms | 1.511 ± 0.111 ms | 2.052 ± 0.411 ms |
+| Fresh executable build | 47.290 ± 5.419 ms | 10.228 ± 0.106 ms | 8.381 ± 1.080 ms |
+| Fresh-process launch + run | 21.072 ± 3.431 ms | 1.511 ± 0.111 ms | 2.052 ± 0.411 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1826,10 +1829,10 @@ local() -> int:
 4
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 24.060 ± 3.216 ms | 5.504 ± 0.041 ms | 4.753 ± 0.496 ms |
-| Runtime | 21.225 ± 3.238 ms | 1.497 ± 0.104 ms | 2.065 ± 0.478 ms |
+| Fresh executable build | 24.060 ± 3.216 ms | 5.504 ± 0.041 ms | 4.753 ± 0.496 ms |
+| Fresh-process launch + run | 21.225 ± 3.238 ms | 1.497 ± 0.104 ms | 2.065 ± 0.478 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1858,10 +1861,10 @@ integer
 text
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 6.358 ± 5.330 ms | 0.462 ± 0.012 ms | 1.921 ± 9.734 ms |
-| Runtime | 21.772 ± 3.549 ms | 1.469 ± 0.134 ms | 2.069 ± 0.492 ms |
+| Fresh executable build | 6.358 ± 5.330 ms | 0.462 ± 0.012 ms | 1.921 ± 9.734 ms |
+| Fresh-process launch + run | 21.772 ± 3.549 ms | 1.469 ± 0.134 ms | 2.069 ± 0.492 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1893,10 +1896,10 @@ math: .math
 3
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 23.963 ± 2.733 ms | 5.428 ± 0.074 ms | 4.759 ± 0.538 ms |
-| Runtime | 21.270 ± 3.461 ms | 1.526 ± 0.178 ms | 2.051 ± 0.582 ms |
+| Fresh executable build | 23.963 ± 2.733 ms | 5.428 ± 0.074 ms | 4.759 ± 0.538 ms |
+| Fresh-process launch + run | 21.270 ± 3.461 ms | 1.526 ± 0.178 ms | 2.051 ± 0.582 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1926,10 +1929,10 @@ values: [2, 4, 4, 4, 5, 5, 7, 9]
 7
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.774 ± 0.702 ms | 0.556 ± 0.020 ms | 1.004 ± 0.256 ms |
-| Runtime | 21.518 ± 7.565 ms | 1.493 ± 0.103 ms | 2.100 ± 0.623 ms |
+| Fresh executable build | 3.774 ± 0.702 ms | 0.556 ± 0.020 ms | 1.004 ± 0.256 ms |
+| Fresh-process launch + run | 21.518 ± 7.565 ms | 1.493 ± 0.103 ms | 2.100 ± 0.623 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1957,10 +1960,10 @@ second: random.uniform(first.seed, low:0, high:10)
 1.791479416094478
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 8.518 ± 1.641 ms | 1.988 ± 0.016 ms | 2.186 ± 0.468 ms |
-| Runtime | 21.224 ± 3.030 ms | 1.487 ± 0.069 ms | 2.092 ± 0.584 ms |
+| Fresh executable build | 8.518 ± 1.641 ms | 1.988 ± 0.016 ms | 2.186 ± 0.468 ms |
+| Fresh-process launch + run | 21.224 ± 3.030 ms | 1.487 ± 0.069 ms | 2.092 ± 0.584 ms |
 
 <!-- readme-evidence:end -->
 
@@ -1986,10 +1989,10 @@ after: time.monotonic()
 1970-01-01 00:00:00
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 50.353 ± 3.525 ms | 8.113 ± 1.471 ms | 7.194 ± 0.503 ms |
-| Runtime | 21.657 ± 2.636 ms | 1.588 ± 0.097 ms | 2.629 ± 0.629 ms |
+| Fresh executable build | 50.353 ± 3.525 ms | 8.113 ± 1.471 ms | 7.194 ± 0.503 ms |
+| Fresh-process launch + run | 21.657 ± 2.636 ms | 1.588 ± 0.097 ms | 2.629 ± 0.629 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2013,10 +2016,10 @@ io.append_text("vkf-example.txt", " world")
 hello world
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 15.836 ± 9.724 ms | 0.959 ± 0.010 ms | 1.657 ± 0.219 ms |
-| Runtime | 21.572 ± 2.753 ms | 1.599 ± 0.127 ms | 2.555 ± 0.679 ms |
+| Fresh executable build | 15.836 ± 9.724 ms | 0.959 ± 0.010 ms | 1.657 ± 0.219 ms |
+| Fresh-process launch + run | 21.572 ± 2.753 ms | 1.599 ± 0.127 ms | 2.555 ± 0.679 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2051,10 +2054,10 @@ origin
 true
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 9.868 ± 1.088 ms | 1.255 ± 0.012 ms | 1.662 ± 0.266 ms |
-| Runtime | 20.852 ± 2.630 ms | 1.539 ± 0.121 ms | 2.198 ± 0.682 ms |
+| Fresh executable build | 9.868 ± 1.088 ms | 1.255 ± 0.012 ms | 1.662 ± 0.266 ms |
+| Fresh-process launch + run | 20.852 ± 2.630 ms | 1.539 ± 0.121 ms | 2.198 ± 0.682 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2081,10 +2084,10 @@ int(1.5)!?
 true
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 10.638 ± 1.004 ms | 0.827 ± 0.012 ms | 1.471 ± 0.190 ms |
-| Runtime | 20.818 ± 2.770 ms | 1.484 ± 0.058 ms | 2.111 ± 0.506 ms |
+| Fresh executable build | 10.638 ± 1.004 ms | 0.827 ± 0.012 ms | 1.471 ± 0.190 ms |
+| Fresh-process launch + run | 20.818 ± 2.770 ms | 1.484 ± 0.058 ms | 2.111 ± 0.506 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2137,10 +2140,10 @@ arm64
 true
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.671 ± 0.519 ms | 0.950 ± 0.014 ms | 1.368 ± 0.152 ms |
-| Runtime | 21.108 ± 3.003 ms | 1.530 ± 0.041 ms | 2.172 ± 0.770 ms |
+| Fresh executable build | 4.671 ± 0.519 ms | 0.950 ± 0.014 ms | 1.368 ± 0.152 ms |
+| Fresh-process launch + run | 21.108 ± 3.003 ms | 1.530 ± 0.041 ms | 2.172 ± 0.770 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2190,10 +2193,10 @@ git version 2.55.0
 
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 4.288 ± 0.616 ms | 0.767 ± 0.012 ms | 1.213 ± 0.141 ms |
-| Runtime | 54.860 ± 6.496 ms | 2.800 ± 0.051 ms | 8.119 ± 1.471 ms |
+| Fresh executable build | 4.288 ± 0.616 ms | 0.767 ± 0.012 ms | 1.213 ± 0.141 ms |
+| Fresh-process launch + run | 54.860 ± 6.496 ms | 2.800 ± 0.051 ms | 8.119 ± 1.471 ms |
 
 <!-- readme-evidence:end -->
 
@@ -2223,10 +2226,10 @@ vkf
 101
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.858 ± 0.676 ms | 0.783 ± 0.014 ms | 1.260 ± 0.200 ms |
-| Runtime | 20.938 ± 2.552 ms | 1.504 ± 0.073 ms | 2.327 ± 0.438 ms |
+| Fresh executable build | 5.858 ± 0.676 ms | 0.783 ± 0.014 ms | 1.260 ± 0.200 ms |
+| Fresh-process launch + run | 20.938 ± 2.552 ms | 1.504 ± 0.073 ms | 2.327 ± 0.438 ms |
 
 <!-- readme-evidence:end -->
 

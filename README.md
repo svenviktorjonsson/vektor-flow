@@ -39,10 +39,12 @@ result: double(point)
 (name:origin, enabled:true, x:4, y:6)
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 3.605 ± 0.580 ms | 0.536 ± 0.011 ms | 0.986 ± 0.165 ms |
-| Runtime | 21.970 ± 3.301 ms | 1.523 ± 0.059 ms | 2.077 ± 0.390 ms |
+| Fresh executable build | 3.605 ± 0.580 ms | 0.536 ± 0.011 ms | 0.986 ± 0.165 ms |
+| Fresh-process launch + run | 21.970 ± 3.301 ms | 1.523 ± 0.059 ms | 2.077 ± 0.390 ms |
+
+**Timing scope:** “Fresh executable build” compiles a fresh source path and emits a new native executable; the compiler process stays open, so compiler startup is excluded. “Fresh-process launch + run” starts that executable and includes OS loading, any platform security inspection, output capture, and teardown. It is not raw machine-code time.
 
 <!-- readme-evidence:end -->
 
@@ -78,10 +80,12 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 [[[15, 18], [20, 24]], [[30, 36], [40, 48]]]
 ```
 
-| 100 measured runs | Windows x64 | Linux x64 | macOS ARM64 |
+| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | ---: | ---: | ---: |
-| Compile | 5.329 ± 0.673 ms | 0.853 ± 0.013 ms | 1.220 ± 0.295 ms |
-| Runtime | 21.352 ± 3.376 ms | 1.597 ± 0.192 ms | 2.040 ± 0.492 ms |
+| Fresh executable build | 5.329 ± 0.673 ms | 0.853 ± 0.013 ms | 1.220 ± 0.295 ms |
+| Fresh-process launch + run | 21.352 ± 3.376 ms | 1.597 ± 0.192 ms | 2.040 ± 0.492 ms |
+
+**Timing scope:** “Fresh executable build” compiles a fresh source path and emits a new native executable; the compiler process stays open, so compiler startup is excluded. “Fresh-process launch + run” starts that executable and includes OS loading, any platform security inspection, output capture, and teardown. It is not raw machine-code time.
 
 <!-- readme-evidence:end -->
 
