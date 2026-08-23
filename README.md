@@ -124,13 +124,13 @@ hash, compiler hash, and machine conditions.
 <!-- readme-platform-evidence:start -->
 | Detail | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | --- | --- | --- |
-| Measured UTC | `2026-08-23T11:01:50.273Z` | `2026-08-23T10:57:47.151Z` | `2026-08-23T10:56:27.799Z` |
+| Measured UTC | `2026-08-23T13:35:33.177Z` | `2026-08-23T13:30:26.962Z` | `2026-08-23T13:29:06.021Z` |
 | OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
 | Architecture | `x64` | `x64` | `arm64` |
-| CPU | AMD EPYC 7763 64-Core Processor | AMD EPYC 7763 64-Core Processor | Apple M1 (Virtual) |
+| CPU | AMD EPYC 7763 64-Core Processor | Intel(R) Xeon(R) 6973P-C | Apple M1 (Virtual) |
 | Logical CPUs | 4 | 4 | 3 |
-| Compiler size | 4,003,328 bytes | 5,205,520 bytes | 2,261,160 bytes |
-| Compiler SHA-256 | `87c3baf994b7890033471e318333260d88ca5805142ca0576fa55d2291ce02cb` | `d4d59ba1ba248648071a182c403918991e9226a83edc5f1ed6ece218da273e03` | `f743c47711e02d4047a6b29613a4e71c3b580a8d1b138a86572b80a3c64f336d` |
+| Compiler size | 4,003,840 bytes | 5,184,968 bytes | 2,261,160 bytes |
+| Compiler SHA-256 | `1b7db43f6615fd79265591807ee0ad05f76a41053b8962015de296f2eb995098` | `e4cbaad17d3ad73b68c35f7409861472230371b91692288a2fb0c025e836c5e3` | `8adfc1ba36c6496d875cbd6a956f5a607c569f19d57acf7c4a54555c940c35b6` |
 | Timing host | v22.23.2 `Node performance.now()` | v22.23.2 `Node performance.now()` | v22.23.1 `Node performance.now()` |
 <!-- readme-platform-evidence:end -->
 
@@ -148,10 +148,11 @@ exhaustive search is an explicit benchmark mode.
 The latest [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.7-ci.md)
 was produced by the strict 0.1.7 Windows x64 compiler. All 256 policies were
 correct and collapsed to 18 distinct binaries. The fastest measured basin was
-5.34× faster than the slowest. This run selected `mask-8e` at
-2.308 ± 0.082 ms; the default `mask-ff` produced the same measured mean and
-spread. The report explains every switch, exact conditions, code deduplication,
-and why small noisy differences are not treated as proof.
+5.23× faster than the slowest. This run selected `mask-4e` at
+2.300 ± 0.135 ms; the default `mask-ff` measured 2.302 ± 0.072 ms. Their 0.1%
+difference is smaller than run-to-run variance. The report explains every
+switch, exact conditions, code deduplication, and why small noisy differences
+are not treated as proof.
 
 ### Reproducible Language Comparison
 
