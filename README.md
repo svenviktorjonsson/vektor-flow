@@ -8,7 +8,7 @@ Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
 > [!WARNING]
-> VKF 0.1.4 is an unsupported experimental preview. It has bugs, incomplete
+> VKF 0.1.5 is an unsupported experimental preview. It has bugs, incomplete
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
@@ -88,9 +88,9 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Install VKF 0.1.4
+## Install VKF 0.1.5
 
-Download the [0.1.4 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.4).
+Download the [0.1.5 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.5).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -151,6 +151,22 @@ hash, compiler hash, and machine conditions.
 These absolute timings prove reproducibility and expose regressions. They do
 **not** prove that VKF is generally faster than C, Rust, Zig, Go, Julia, or
 Python.
+
+### Adaptive Optimizer Policy Landscape
+
+0.1.5 can represent lowering choices as data, verify multiple legal variants,
+deduplicate identical machine code, and retain a policy for the exact program
+and x64 host. Normal search is bounded by the compilation-time budget;
+exhaustive search is an explicit benchmark mode.
+
+The latest [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.5.md)
+was produced by the strict 0.1.5 Windows x64 compiler. All 256 policies were
+correct and collapsed to 18 distinct binaries. The fastest basin was 2.64×
+faster than the slowest. The latest run selected `mask-8e`, which emits the
+same machine code and recorded the same 8.535 ± 3.433 ms as `mask-ff`; earlier
+repeated runs selected different masks inside the same fast basin. The report
+explains every switch, exact conditions, code deduplication, and why small noisy
+differences are not treated as proof.
 
 ### Reproducible Language Comparison
 
@@ -464,11 +480,11 @@ source hashes.
 
 ## Status And Native Scope
 
-The 0.1.4 native release includes `math`, `stat`, `random`, `time`, `io`,
+The 0.1.5 native release includes `math`, `stat`, `random`, `time`, `io`,
 `collections`, `errors`, `system`, `process`, and `regex`. Only fully native,
 verified libraries ship. `physics`, `ui`, and `symbolic` remain future work.
 
-The release gate currently contains **301 VKF tests** plus 59 documented-program
+The release gate currently contains **309 VKF tests** plus 59 documented-program
 checks. Final Windows/Linux/macOS pass counts and timing evidence are inserted
 only from the exact tagged release compilers.
 
@@ -496,6 +512,30 @@ folders, and unrelated existing `vkf` commands.
 VKF programs still run with the current user's permissions. `io` can modify
 files and `process` can launch programs. `process.run` passes an exact argument
 vector; `process.shell` invokes a platform shell and must be treated as unsafe.
+
+## 0.1.5 Changes
+
+0.1.5 makes optimizer choices explicit, testable, and program-specific:
+
+- eight legal lowering switches form a 256-policy search space;
+- every timed candidate must match the scalar policy's result;
+- byte-identical candidates are deduplicated before timing;
+- a time-bounded search can retain a policy for the exact program and x64 host;
+- fixed numeric matrix and dual-dot reductions receive safe packed x64 kernels;
+- aggregate borrowing, direct aggregate results, native integer induction and
+  addressing, parity specialization, and fused multiply-add are independently
+  selectable lowering decisions;
+- the Windows x64 emitter uses only volatile SIMD registers across generated
+  entry calls, preserving the platform ABI;
+- eleven optimizer-focused VKF tests cover results, scalar remainders, and
+  resource-owning aggregate calls.
+
+The complete [0.1.5 policy landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.5.md)
+records all 256 policies, 18 distinct binaries, correctness, code hashes, exact
+conditions, and timing dispersion. Its 2.64× fastest-to-slowest spread is a
+useful result; its latest 0.0% selected/default difference is explicitly
+reported as noise-sensitive rather than a proven advantage. See the
+[0.1.5 release notes](docs/releases/0.1.5.md).
 
 ## 0.1.4 Changes
 

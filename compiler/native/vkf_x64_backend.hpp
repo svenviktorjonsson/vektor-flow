@@ -36,7 +36,11 @@ ArtifactResult compile(
     const std::filesystem::path& runner_template,
     bool emit_debug_files = true,
     const std::filesystem::path& requested_artifact = {},
-    const std::string& cache_fingerprint = {}
+    const std::string& cache_fingerprint = {},
+    const std::string& optimization_policy = "auto",
+    std::uint32_t optimization_run_budget = 1000,
+    double optimization_time_budget_ms = 0.0,
+    std::uint32_t optimization_landscape_runs = 0
 );
 
 }  // namespace vkf_x64_backend

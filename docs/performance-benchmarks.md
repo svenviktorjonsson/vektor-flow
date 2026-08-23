@@ -6,7 +6,7 @@ as regressions and are not presented as language comparisons.
 
 ## Comparative kernel set
 
-The 0.1.4 single-process suite takes its initial kernels from the
+The 0.1.5 single-process suite takes its initial kernels from the
 [Computer Language Benchmarks Game](https://benchmarksgame-team.pages.debian.net/benchmarksgame/):
 
 1. [spectral norm](https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/spectralnorm.html):
@@ -70,3 +70,15 @@ reportable result.
 iterations, mean compiler-core time below 10 ms, and mean raw entry time below
 500 microseconds over 100 measured runs. It protects the compiler contract; it is
 not evidence that VKF is faster than another language.
+
+## Adaptive optimizer policy landscape
+
+The separate [policy-landscape laboratory](https://github.com/svenviktorjonsson/vektor-flow/blob/main/benchmarks/policy-landscape/README.md)
+measures all legal combinations of VKF lowering policies for one exact program.
+It verifies output against a scalar oracle, deduplicates byte-identical machine
+code, records every logical policy, and shows mean ± sample standard deviation.
+
+This experiment answers a different question from the language comparison:
+which legal VKF lowering policy suits this program and host? A large separation
+between policy basins is useful compiler evidence. A small lead between two
+noisy candidates is not treated as proof or as a universal speed claim.

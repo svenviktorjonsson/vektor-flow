@@ -9,7 +9,7 @@
 
 namespace vkf::machine_ir {
 
-inline constexpr std::uint32_t schema_version = 20;
+inline constexpr std::uint32_t schema_version = 21;
 // The native entry ABI owns slots 0..36. Keep returned aggregate components
 // beyond that table so adding host functions cannot silently corrupt output.
 inline constexpr std::uint32_t runtime_slot_count = 37;
@@ -207,6 +207,9 @@ struct Function {
     std::string name;
     std::vector<std::string> parameters;
     std::vector<std::string> locals;
+    // Parallel to `locals`. This preserves source-level scalar identity for
+    // optimization while the value stack remains representation-compatible.
+    std::vector<ValueClass> local_classes;
     std::vector<std::uint32_t> owned_f64_list_locals;
     std::vector<std::uint32_t> owned_string_locals;
     std::optional<std::uint32_t> parameter_mask_local;

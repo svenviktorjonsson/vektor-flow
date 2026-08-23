@@ -2733,6 +2733,16 @@ inline void refine_function_environment_layouts(
     }
 }
 
+inline ValueClass scalar_value_class_from_type(
+    const std::string& type,
+    const ValueLayout& layout
+) {
+    if (layout.width != 1 || layout.kind != ValueKind::Numeric) return ValueClass::F64;
+    if (type == "int") return ValueClass::I64;
+    if (type == "bit") return ValueClass::Bool;
+    return ValueClass::F64;
+}
+
 class FunctionBuilder {
 public:
     struct ScopeLocal {
@@ -2751,8 +2761,12 @@ public:
         function_.may_error = may_error;
     }
 
-    std::uint32_t add_parameter(const std::string& name, const ValueLayout& layout = {}) {
-        const auto base = add_local(name, layout, false);
+    std::uint32_t add_parameter(
+        const std::string& name,
+        const ValueLayout& layout = {},
+        ValueClass value_class = ValueClass::F64
+    ) {
+        const auto base = add_local(name, layout, false, value_class);
         for (std::uint32_t index = 0; index < layout.width; ++index) {
             function_.parameters.push_back(component_name(name, index, layout.width));
         }
@@ -2762,7 +2776,8 @@ public:
     std::uint32_t add_local(
         const std::string& name,
         const ValueLayout& requested_layout = {},
-        bool owned = true
+        bool owned = true,
+        ValueClass value_class = ValueClass::F64
     ) {
         ValueLayout layout = requested_layout;
         const auto extensions = pending_record_fields_.find(name);
@@ -2776,11 +2791,16 @@ public:
             if (found->second.layout.width != layout.width) {
                 throw LoweringFailure("incompatible aggregate width for binding " + name);
             }
+            for (std::uint32_t index = 0; index < layout.width; ++index) {
+                auto& current = function_.local_classes.at(found->second.base + index);
+                if (current != value_class) current = ValueClass::F64;
+            }
             return found->second.base;
         }
         const auto slot = static_cast<std::uint32_t>(function_.locals.size());
         for (std::uint32_t index = 0; index < layout.width; ++index) {
             function_.locals.push_back(component_name(name, index, layout.width));
+            function_.local_classes.push_back(value_class);
         }
         bindings_[name] = {slot, layout};
         if (owned) {
@@ -2808,7 +2828,8 @@ public:
     std::uint32_t add_scoped_local(
         const std::string& name,
         const ValueLayout& layout = {},
-        bool owned = true
+        bool owned = true,
+        ValueClass value_class = ValueClass::F64
     ) {
         if (scopes_.empty()) throw LoweringFailure("machine IR scoped local needs an active scope");
         auto& scope = scopes_.back();
@@ -2825,7 +2846,7 @@ public:
         entry.name = name;
         const auto previous = bindings_.find(name);
         if (previous != bindings_.end()) entry.previous = previous->second;
-        entry.local.base = append_local(name, layout, owned);
+        entry.local.base = append_local(name, layout, owned, value_class);
         entry.local.layout = layout;
         bindings_[name] = {entry.local.base, layout};
         scope.push_back(std::move(entry));
@@ -3123,7 +3144,12 @@ public:
         function_.instructions.push_back(std::move(instruction));
     }
 
-    Function finish() { return std::move(function_); }
+    Function finish() {
+        if (function_.locals.size() != function_.local_classes.size()) {
+            throw LoweringFailure("machine IR local class table is not parallel to locals");
+        }
+        return std::move(function_);
+    }
 
 private:
     struct Binding {
@@ -3156,11 +3182,13 @@ private:
     std::uint32_t append_local(
         const std::string& name,
         const ValueLayout& layout,
-        bool owned
+        bool owned,
+        ValueClass value_class
     ) {
         const auto slot = static_cast<std::uint32_t>(function_.locals.size());
         for (std::uint32_t index = 0; index < layout.width; ++index) {
             function_.locals.push_back(component_name(name, index, layout.width));
+            function_.local_classes.push_back(value_class);
         }
         if (owned) {
             for (const auto& resource : owned_resource_slices(layout)) {
@@ -3400,7 +3428,10 @@ inline void discover_bindings(
                 declared->second.as_string(), &signatures);
             if (declared_layout.width > layout.width) layout = declared_layout;
         }
-        builder.add_local(string_field(statement, "name", "binding"), layout);
+        const std::string binding_type = string_field(statement, "type", "binding");
+        builder.add_local(
+            string_field(statement, "name", "binding"), layout, true,
+            scalar_value_class_from_type(binding_type, layout));
     } else if (kind == "spill_stmt") {
         const auto spill_layout = layout_from_expression_shape(
             object_of(field(statement, "value", "spill statement"), "spill value"),
@@ -6412,7 +6443,10 @@ inline ValueLayout lower_expression(
                         declared->second.as_string(), &signatures);
                     if (declared_layout.width > layout.width) layout = declared_layout;
                 }
-                const auto local = builder.add_scoped_local(name, layout);
+                const auto local = builder.add_scoped_local(
+                    name, layout, true,
+                    scalar_value_class_from_type(
+                        string_field(statement, "type", "block binding"), layout));
                 const auto value_layout = lower_expression(value, builder, signatures, strings);
                 ensure_independent_value(value, value_layout, builder, signatures);
                 emit_release_layout_local(builder, local, layout);
@@ -8808,6 +8842,107 @@ inline ValueLayout lower_expression(
             for (std::uint32_t component = argument.width; component > 0; --component) {
                 emit_store_local_component(builder, temporary + component - 1u);
             }
+            const bool dense_scalar_map = preserves_match_layout && argument.width >= 8 &&
+                !has_owned_resources(argument) && parameter.kind == ValueKind::Numeric &&
+                parameter.width == 1 && signature->second.result.kind == ValueKind::Numeric &&
+                signature->second.result.width == 1 && matches.size() == argument.width &&
+                std::all_of(matches.begin(), matches.end(), [&](const auto& match) {
+                    return match.layout.kind == ValueKind::Numeric && match.layout.width == 1 &&
+                        match.offset < argument.width &&
+                        match.offset == static_cast<std::uint32_t>(&match - matches.data());
+                });
+            if (dense_scalar_map) {
+                const auto cursor = builder.add_borrowed_temporary({});
+                emit_push_f64(builder, 0.0);
+                emit_store_local_component(builder, cursor);
+                const auto loop = builder.next_label();
+                const auto finish = builder.next_label();
+                Instruction loop_label;
+                loop_label.opcode = Opcode::Label;
+                loop_label.label = loop;
+                builder.emit(std::move(loop_label));
+                emit_load_local_component(builder, cursor);
+                emit_push_f64(builder, static_cast<double>(argument.width));
+                builder.emit({Opcode::OrderedLessF64});
+                Instruction done;
+                done.opcode = Opcode::JumpIfFalse;
+                done.label = finish;
+                builder.emit(std::move(done));
+
+                // Keep one copy of the induction value for the in-place store.
+                // The second copy addresses the source element consumed by the
+                // scalar function.
+                emit_load_local_component(builder, cursor);
+                emit_load_local_component(builder, cursor);
+                Instruction load;
+                load.opcode = Opcode::LoadF64LocalsIndex;
+                load.index = temporary;
+                load.argument_count = argument.width;
+                load.index_is_integral = true;
+                load.index_local = cursor;
+                load.may_error = true;
+                const std::string index_message = "structural map index out of range";
+                load.error_message_offset = strings.intern(index_message);
+                load.byte_count = static_cast<std::uint32_t>(index_message.size());
+                if (const auto handler = builder.error_handler()) {
+                    load.has_error_handler = true;
+                    load.label = *handler;
+                    load.error_value_local = *builder.error_value_local();
+                    load.error_type_local = *builder.error_type_local();
+                }
+                builder.emit(std::move(load));
+
+                Instruction call;
+                call.opcode = Opcode::Call;
+                call.argument_count = 1;
+                call.result_count = 1;
+                call.provided_parameter_mask = 1;
+                call.symbol = symbol;
+                call.may_error = signature->second.may_error;
+                if (call.may_error) {
+                    if (const auto handler = builder.error_handler()) {
+                        call.has_error_handler = true;
+                        call.label = *handler;
+                        call.error_value_local = *builder.error_value_local();
+                        call.error_type_local = *builder.error_type_local();
+                    }
+                }
+                builder.emit(std::move(call));
+
+                Instruction update;
+                update.opcode = Opcode::StoreF64LocalsIndex;
+                update.index = temporary;
+                update.argument_count = argument.width;
+                update.index_is_integral = true;
+                update.index_local = cursor;
+                update.may_error = true;
+                update.error_message_offset = strings.intern(index_message);
+                update.byte_count = static_cast<std::uint32_t>(index_message.size());
+                if (const auto handler = builder.error_handler()) {
+                    update.has_error_handler = true;
+                    update.label = *handler;
+                    update.error_value_local = *builder.error_value_local();
+                    update.error_type_local = *builder.error_type_local();
+                }
+                builder.emit(std::move(update));
+
+                emit_load_local_component(builder, cursor);
+                emit_push_f64(builder, 1.0);
+                builder.emit({Opcode::AddF64});
+                emit_store_local_component(builder, cursor);
+                Instruction repeat;
+                repeat.opcode = Opcode::Jump;
+                repeat.label = loop;
+                builder.emit(std::move(repeat));
+                Instruction finish_label;
+                finish_label.opcode = Opcode::Label;
+                finish_label.label = finish;
+                builder.emit(std::move(finish_label));
+                for (std::uint32_t component = 0; component < argument.width; ++component) {
+                    emit_load_local_component(builder, temporary + component);
+                }
+                return structural_result;
+            }
             std::size_t match_index = 0;
             for (std::uint32_t component = 0; component < argument.width;) {
                 if (match_index < matches.size() && matches[match_index].offset == component) {
@@ -10155,7 +10290,10 @@ inline Function lower_function(
         const auto layout = signature != signatures.end()
             ? signature->second.parameters[index]
             : layout_from_type(string_field(parameter, "type", "param"), &signatures);
-        builder.add_parameter(string_field(parameter, "name", "param"), layout);
+        const std::string parameter_type = string_field(parameter, "type", "param");
+        builder.add_parameter(
+            string_field(parameter, "name", "param"), layout,
+            scalar_value_class_from_type(parameter_type, layout));
         has_defaults = has_defaults || !field(parameter, "default", "param").is_null();
     }
     if (has_defaults) builder.enable_parameter_mask();
@@ -12439,6 +12577,73 @@ inline bool is_small_numeric_inline_candidate(const Function& function) {
     return has_return;
 }
 
+inline void refine_integral_local_classes(Function& function) {
+    using Opcode = vkf::machine_ir::Opcode;
+    if (function.local_classes.size() != function.locals.size()) {
+        throw LoweringFailure("machine IR local class table width mismatch");
+    }
+    const auto constant_is_i64 = [](double value) {
+        constexpr double minimum = -9223372036854775808.0;
+        constexpr double maximum_exclusive = 9223372036854775808.0;
+        return std::isfinite(value) && value == std::floor(value) &&
+            value >= minimum && value < maximum_exclusive;
+    };
+    for (std::size_t pass = 0; pass <= function.locals.size(); ++pass) {
+        bool changed = false;
+        const auto integral_expression_before = [&](const auto& self,
+                                                     std::size_t end)
+            -> std::optional<std::size_t> {
+            if (end == 0) return std::nullopt;
+            const auto& instruction = function.instructions[end - 1];
+            if (instruction.opcode == Opcode::PushF64) {
+                return constant_is_i64(instruction.f64)
+                    ? std::optional<std::size_t>(end - 1) : std::nullopt;
+            }
+            if (instruction.opcode == Opcode::LoadLocal) {
+                return instruction.index < function.local_classes.size() &&
+                    function.local_classes[instruction.index] == ValueClass::I64
+                    ? std::optional<std::size_t>(end - 1) : std::nullopt;
+            }
+            if (instruction.opcode == Opcode::IdentityF64 ||
+                instruction.opcode == Opcode::NegateF64 ||
+                instruction.opcode == Opcode::AbsF64) {
+                return self(self, end - 1);
+            }
+            if (instruction.opcode == Opcode::AddF64 ||
+                instruction.opcode == Opcode::SubtractF64 ||
+                instruction.opcode == Opcode::MultiplyF64 ||
+                instruction.opcode == Opcode::FloorDivideF64 ||
+                instruction.opcode == Opcode::RemainderF64) {
+                const auto right = self(self, end - 1);
+                if (!right) return std::nullopt;
+                return self(self, *right);
+            }
+            return std::nullopt;
+        };
+        for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+            const auto& instruction = function.instructions[position];
+            if (instruction.opcode != Opcode::StoreLocal ||
+                instruction.index >= function.local_classes.size() ||
+                function.local_classes[instruction.index] != ValueClass::I64) {
+                continue;
+            }
+            if (!integral_expression_before(integral_expression_before, position)) {
+                function.local_classes[instruction.index] = ValueClass::F64;
+                changed = true;
+            }
+        }
+        if (!changed) return;
+        if (pass == function.locals.size()) {
+            throw LoweringFailure("machine IR integral local refinement did not converge");
+        }
+    }
+}
+
+inline void refine_integral_local_classes(Module& module) {
+    refine_integral_local_classes(module.entry);
+    for (auto& function : module.functions) refine_integral_local_classes(function);
+}
+
 inline void inline_small_numeric_calls(Module& module) {
     std::map<std::string, const Function*> candidates;
     for (const auto& function : module.functions) {
@@ -12458,6 +12663,8 @@ inline void inline_small_numeric_calls(Module& module) {
         }
         std::vector<Instruction> rewritten;
         rewritten.reserve(caller.instructions.size());
+        std::size_t inline_growth = 0;
+        constexpr std::size_t inline_growth_budget = 4096;
         const auto is_in_loop = [&](std::size_t call_index) {
             for (std::size_t jump_index = call_index + 1;
                  jump_index < caller.instructions.size(); ++jump_index) {
@@ -12517,8 +12724,8 @@ inline void inline_small_numeric_calls(Module& module) {
                         direct_local_arguments = false;
                     }
                 }
-                if (direct_local_arguments &&
-                    rewritten.size() + callee.instructions.size() <= 512) {
+                if (direct_local_arguments && inline_growth +
+                    callee.instructions.size() <= inline_growth_budget) {
                     std::vector<std::uint32_t> local_map(callee.locals.size());
                     for (std::uint32_t index = 0; index < call.argument_count; ++index) {
                         local_map[index] = rewritten[argument_begin + index].index;
@@ -12528,6 +12735,7 @@ inline void inline_small_numeric_calls(Module& module) {
                          index < callee.locals.size(); ++index) {
                         local_map[index] = static_cast<std::uint32_t>(caller.locals.size());
                         caller.locals.push_back("$inline$" + callee.name + "$" + callee.locals[index]);
+                        caller.local_classes.push_back(callee.local_classes.at(index));
                     }
                     for (auto instruction : callee.instructions) {
                         if (instruction.opcode == Opcode::ReturnValues) break;
@@ -12539,6 +12747,7 @@ inline void inline_small_numeric_calls(Module& module) {
                     }
                     caller.max_stack = std::max(
                         caller.max_stack, original_max_stack + callee.max_stack);
+                    inline_growth += callee.instructions.size();
                     continue;
                 }
             }
@@ -12556,8 +12765,8 @@ inline void inline_small_numeric_calls(Module& module) {
             const std::uint32_t expected_mask = callee.parameters.size() >= 32
                 ? std::numeric_limits<std::uint32_t>::max()
                 : (1u << static_cast<std::uint32_t>(callee.parameters.size())) - 1u;
-            if (call.provided_parameter_mask != expected_mask ||
-                rewritten.size() + callee.instructions.size() > 512) {
+            if (call.provided_parameter_mask != expected_mask || inline_growth +
+                callee.instructions.size() > inline_growth_budget) {
                 rewritten.push_back(call);
                 continue;
             }
@@ -12595,6 +12804,7 @@ inline void inline_small_numeric_calls(Module& module) {
             for (std::uint32_t index = allocated_begin; index < callee.locals.size(); ++index) {
                 local_map[index] = static_cast<std::uint32_t>(caller.locals.size());
                 caller.locals.push_back("$inline$" + callee.name + "$" + callee.locals[index]);
+                caller.local_classes.push_back(callee.local_classes.at(index));
             }
             if (!direct_local_arguments) {
                 for (std::uint32_t index = call.argument_count; index > 0; --index) {
@@ -12605,6 +12815,40 @@ inline void inline_small_numeric_calls(Module& module) {
                 }
             }
 
+            const bool terminal_return = !callee.instructions.empty() &&
+                callee.instructions.back().opcode == Opcode::ReturnF64 &&
+                std::count_if(
+                    callee.instructions.begin(), callee.instructions.end(),
+                    [](const auto& instruction) {
+                        return instruction.opcode == Opcode::ReturnF64;
+                    }) == 1;
+            if (terminal_return) {
+                std::map<std::uint32_t, std::uint32_t> labels;
+                for (const auto& instruction : callee.instructions) {
+                    if (instruction.opcode == Opcode::Label) {
+                        labels.emplace(instruction.label, next_label++);
+                    }
+                }
+                for (auto instruction : callee.instructions) {
+                    if (instruction.opcode == Opcode::ReturnF64) break;
+                    if (instruction.opcode == Opcode::LoadLocal ||
+                        instruction.opcode == Opcode::StoreLocal) {
+                        instruction.index = local_map.at(instruction.index);
+                    }
+                    if (instruction.opcode == Opcode::Label ||
+                        instruction.opcode == Opcode::Jump ||
+                        instruction.opcode == Opcode::JumpIfFalse ||
+                        instruction.opcode == Opcode::JumpIfTrue) {
+                        instruction.label = labels.at(instruction.label);
+                    }
+                    rewritten.push_back(std::move(instruction));
+                }
+                caller.max_stack = std::max(
+                    caller.max_stack, original_max_stack + callee.max_stack);
+                inline_growth += callee.instructions.size();
+                continue;
+            }
+
             const bool store_result_directly = caller_index + 1 < caller.instructions.size() &&
                 caller.instructions[caller_index + 1].opcode == Opcode::StoreLocal;
             const auto result_local = store_result_directly
@@ -12612,6 +12856,7 @@ inline void inline_small_numeric_calls(Module& module) {
                 : static_cast<std::uint32_t>(caller.locals.size());
             if (!store_result_directly) {
                 caller.locals.push_back("$inline$" + callee.name + "$result");
+                caller.local_classes.push_back(ValueClass::F64);
             }
 
             std::map<std::uint32_t, std::uint32_t> labels;
@@ -12649,6 +12894,7 @@ inline void inline_small_numeric_calls(Module& module) {
             }
             caller.max_stack = std::max(
                 caller.max_stack, original_max_stack + callee.max_stack);
+            inline_growth += callee.instructions.size();
         }
         caller.instructions = std::move(rewritten);
     };
@@ -12760,6 +13006,7 @@ inline Module lower(const vf::JsonValue& typed_ir) {
     const auto local_calls = specialize_direct_local_calls(recursive_shaped);
     auto lowered = lower_monomorphic(local_calls ? *local_calls : recursive_shaped);
     refine_machine_error_effects(lowered);
+    refine_integral_local_classes(lowered);
     inline_small_numeric_calls(lowered);
     propagate_constant_numeric_parameters(lowered);
     return lowered;

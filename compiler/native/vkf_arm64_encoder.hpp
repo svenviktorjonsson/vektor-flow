@@ -5,8 +5,10 @@
 #include "compiler/native/vkf_capture_pattern.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -123,6 +125,161 @@ private:
     Words words_;
     std::map<std::string, std::uint32_t> offsets_;
     std::vector<CallPatch> calls_;
+
+    struct DenseAffineMapLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t base_local = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t width = 0;
+        double scale = 1.0;
+        double offset = 0.0;
+    };
+
+    struct DenseNumericMapLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t base_local = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t parameter_local = 0;
+        std::uint32_t width = 0;
+        unsigned max_stack = 0;
+        std::vector<machine_ir::Instruction> expression;
+        std::vector<double> constants;
+    };
+
+    static std::optional<DenseAffineMapLoopPlan> detect_dense_affine_map_loop(
+        const machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using machine_ir::Opcode;
+        const auto& code = function.instructions;
+        if (label_index + 20 >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label || at(1).opcode != Opcode::LoadLocal ||
+            at(2).opcode != Opcode::PushF64 || at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse || at(5).opcode != Opcode::LoadLocal ||
+            at(6).opcode != Opcode::LoadLocal || at(7).opcode != Opcode::LoadF64LocalsIndex ||
+            at(8).opcode != Opcode::StoreLocal || at(9).opcode != Opcode::LoadLocal ||
+            at(10).opcode != Opcode::PushF64 || at(11).opcode != Opcode::MultiplyF64 ||
+            at(12).opcode != Opcode::PushF64 || at(13).opcode != Opcode::AddF64 ||
+            at(14).opcode != Opcode::StoreF64LocalsIndex || at(15).opcode != Opcode::LoadLocal ||
+            at(16).opcode != Opcode::PushF64 || at(17).opcode != Opcode::AddF64 ||
+            at(18).opcode != Opcode::StoreLocal || at(19).opcode != Opcode::Jump ||
+            at(20).opcode != Opcode::Label) {
+            return std::nullopt;
+        }
+        const auto counter = at(1).index;
+        const auto width_value = at(2).f64;
+        if (width_value < 8.0 || width_value != std::floor(width_value) ||
+            width_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto width = static_cast<std::uint32_t>(width_value);
+        if (at(4).label != at(20).label || at(5).index != counter || at(6).index != counter ||
+            !at(7).index_is_integral || !at(7).index_local || *at(7).index_local != counter ||
+            at(7).argument_count != width || at(8).index != at(9).index ||
+            at(14).index != at(7).index || at(14).argument_count != width ||
+            !at(14).index_is_integral || !at(14).index_local ||
+            *at(14).index_local != counter || at(15).index != counter || at(16).f64 != 1.0 ||
+            at(18).index != counter || at(19).label != at(0).label ||
+            at(7).index > function.locals.size() || width > function.locals.size() - at(7).index) {
+            return std::nullopt;
+        }
+        return DenseAffineMapLoopPlan{
+            label_index + 19, at(7).index, counter, width, at(10).f64, at(12).f64};
+    }
+
+    static std::optional<DenseNumericMapLoopPlan> detect_dense_numeric_map_loop(
+        const machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using machine_ir::Opcode;
+        const auto& code = function.instructions;
+        if (label_index + 16 >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label || at(1).opcode != Opcode::LoadLocal ||
+            at(2).opcode != Opcode::PushF64 || at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse || at(5).opcode != Opcode::LoadLocal ||
+            at(6).opcode != Opcode::LoadLocal || at(7).opcode != Opcode::LoadF64LocalsIndex ||
+            at(8).opcode != Opcode::StoreLocal) {
+            return std::nullopt;
+        }
+        const auto counter = at(1).index;
+        const auto width_value = at(2).f64;
+        if (width_value < 8.0 || width_value != std::floor(width_value) ||
+            width_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max()) ||
+            at(5).index != counter || at(6).index != counter ||
+            !at(7).index_is_integral || !at(7).index_local ||
+            *at(7).index_local != counter) {
+            return std::nullopt;
+        }
+        const auto width = static_cast<std::uint32_t>(width_value);
+        const auto base = at(7).index;
+        const auto parameter = at(8).index;
+        if (at(7).argument_count != width || base > function.locals.size() ||
+            width > function.locals.size() - base) {
+            return std::nullopt;
+        }
+
+        DenseNumericMapLoopPlan plan;
+        plan.base_local = base;
+        plan.counter_local = counter;
+        plan.parameter_local = parameter;
+        plan.width = width;
+        unsigned depth = 0;
+        std::size_t cursor = label_index + 9;
+        for (; cursor < code.size(); ++cursor) {
+            const auto& instruction = code[cursor];
+            if (instruction.opcode == Opcode::StoreF64LocalsIndex) break;
+            if (instruction.opcode == Opcode::LoadLocal && instruction.index == parameter) {
+                ++depth;
+            } else if (instruction.opcode == Opcode::PushF64) {
+                ++depth;
+                if (std::find(plan.constants.begin(), plan.constants.end(), instruction.f64) ==
+                    plan.constants.end()) {
+                    plan.constants.push_back(instruction.f64);
+                }
+            } else if (instruction.opcode == Opcode::SqrtF64) {
+                if (depth < 1) return std::nullopt;
+            } else if (instruction.opcode == Opcode::AddF64 ||
+                       instruction.opcode == Opcode::SubtractF64 ||
+                       instruction.opcode == Opcode::MultiplyF64 ||
+                       instruction.opcode == Opcode::DivideF64) {
+                if (depth < 2) return std::nullopt;
+                --depth;
+            } else {
+                return std::nullopt;
+            }
+            plan.max_stack = std::max(plan.max_stack, depth);
+            if (plan.max_stack > 4) return std::nullopt;
+            plan.expression.push_back(instruction);
+        }
+        if (cursor + 6 >= code.size() || depth != 1 || plan.expression.empty() ||
+            plan.constants.size() > 2) {
+            return std::nullopt;
+        }
+        const auto& store = code[cursor];
+        if (store.index != base || store.argument_count != width ||
+            !store.index_is_integral || !store.index_local ||
+            *store.index_local != counter ||
+            code[cursor + 1].opcode != Opcode::LoadLocal ||
+            code[cursor + 1].index != counter ||
+            code[cursor + 2].opcode != Opcode::PushF64 || code[cursor + 2].f64 != 1.0 ||
+            code[cursor + 3].opcode != Opcode::AddF64 ||
+            code[cursor + 4].opcode != Opcode::StoreLocal ||
+            code[cursor + 4].index != counter ||
+            code[cursor + 5].opcode != Opcode::Jump ||
+            code[cursor + 5].label != at(0).label ||
+            code[cursor + 6].opcode != Opcode::Label ||
+            code[cursor + 6].label != at(4).label) {
+            return std::nullopt;
+        }
+        plan.end_index = cursor + 5;
+        return plan;
+    }
 
     static Frame make_frame(const machine_ir::Function& function, bool entry) {
         Frame frame;
@@ -328,6 +485,129 @@ private:
         std::memcpy(&bits, &value, sizeof(bits));
         emit_u64(9, bits);
         words_.emit(0x9e670120u | dreg);
+    }
+
+    void emit_dense_affine_map_loop(
+        const Frame& frame,
+        const DenseAffineMapLoopPlan& plan
+    ) {
+        if (plan.scale != 1.0) {
+            emit_number(plan.scale, 1);
+            words_.emit(0x4e080421u);  // dup v1.2d, v1.d[0]
+        }
+        if (plan.offset != 0.0) {
+            emit_number(plan.offset, 2);
+            words_.emit(0x4e080442u);  // dup v2.2d, v2.d[0]
+        }
+        const auto blocks = plan.width / 2u;
+        if (blocks != 0) {
+            emit_frame_address(9, frame.offset(plan.base_local));
+            emit_u64(10, blocks);
+            const auto loop = words_.offset();
+            words_.emit(0x3dc00120u);  // ldr q0, [x9]
+            if (plan.scale != 1.0) words_.emit(0x6e61dc00u);  // fmul v0.2d, v0.2d, v1.2d
+            if (plan.offset != 0.0) words_.emit(0x4e62d400u);  // fadd v0.2d, v0.2d, v2.2d
+            words_.emit(0x3d800120u);  // str q0, [x9]
+            words_.emit(0x91004129u);  // add x9, x9, #16
+            words_.emit(0xf100054au);  // subs x10, x10, #1
+            const auto repeat = words_.emit(0x54000001u);  // b.ne
+            words_.patch_compare_branch19(repeat, loop);
+        }
+        for (std::uint32_t index = blocks * 2u; index < plan.width; ++index) {
+            load_d(0, frame.offset(plan.base_local + index));
+            if (plan.scale != 1.0) {
+                emit_number(plan.scale, 1);
+                words_.emit(0x1e600820u);
+            }
+            if (plan.offset != 0.0) {
+                emit_number(plan.offset, 1);
+                words_.emit(0x1e602820u);
+            }
+            store_d(0, frame.offset(plan.base_local + index));
+        }
+        emit_number(static_cast<double>(plan.width));
+        store_d(0, frame.offset(plan.counter_local));
+    }
+
+    void emit_dense_numeric_map_loop(
+        const Frame& frame,
+        const DenseNumericMapLoopPlan& plan
+    ) {
+        using machine_ir::Opcode;
+        for (std::size_t index = 0; index < plan.constants.size(); ++index) {
+            const unsigned reg = static_cast<unsigned>(4 + index);
+            emit_number(plan.constants[index], reg);
+            words_.emit(0x4e080400u | (reg << 5) | reg);
+        }
+        const auto constant_register = [&](double value) {
+            const auto found = std::find(plan.constants.begin(), plan.constants.end(), value);
+            if (found == plan.constants.end()) {
+                throw EncodingFailure("missing arm64 vector-map constant");
+            }
+            return static_cast<unsigned>(4 + (found - plan.constants.begin()));
+        };
+        const auto blocks = plan.width / 2u;
+        if (blocks != 0) {
+            emit_frame_address(9, frame.offset(plan.base_local));
+            emit_u64(10, blocks);
+            const auto loop = words_.offset();
+            std::vector<unsigned> stack;
+            for (const auto& instruction : plan.expression) {
+                if (instruction.opcode == Opcode::LoadLocal) {
+                    const unsigned reg = static_cast<unsigned>(stack.size());
+                    words_.emit(0x3dc00120u | reg);
+                    stack.push_back(reg);
+                } else if (instruction.opcode == Opcode::PushF64) {
+                    const unsigned reg = static_cast<unsigned>(stack.size());
+                    const unsigned source = constant_register(instruction.f64);
+                    words_.emit(0x4ea01c00u | (source << 16) | (source << 5) | reg);
+                    stack.push_back(reg);
+                } else if (instruction.opcode == Opcode::SqrtF64) {
+                    const unsigned reg = stack.back();
+                    words_.emit(0x6ee1f800u | (reg << 5) | reg);
+                } else {
+                    const unsigned right = stack.back();
+                    stack.pop_back();
+                    const unsigned left = stack.back();
+                    const std::uint32_t opcode = instruction.opcode == Opcode::AddF64 ? 0x4e60d400u
+                        : instruction.opcode == Opcode::SubtractF64 ? 0x4ee0d400u
+                        : instruction.opcode == Opcode::MultiplyF64 ? 0x6e60dc00u
+                        : 0x6e60fc00u;
+                    words_.emit(opcode | (right << 16) | (left << 5) | left);
+                }
+            }
+            words_.emit(0x3d800120u | stack.back());
+            words_.emit(0x91004129u);
+            words_.emit(0xf100054au);
+            const auto repeat = words_.emit(0x54000001u);
+            words_.patch_compare_branch19(repeat, loop);
+        }
+
+        for (std::uint32_t element = blocks * 2u; element < plan.width; ++element) {
+            unsigned depth = 0;
+            for (const auto& instruction : plan.expression) {
+                if (instruction.opcode == Opcode::LoadLocal) {
+                    load_d(depth, frame.offset(plan.base_local + element));
+                    ++depth;
+                } else if (instruction.opcode == Opcode::PushF64) {
+                    emit_number(instruction.f64, depth++);
+                } else if (instruction.opcode == Opcode::SqrtF64) {
+                    const unsigned reg = depth - 1;
+                    words_.emit(0x1e61c000u | (reg << 5) | reg);
+                } else {
+                    const unsigned right = --depth;
+                    const unsigned left = depth - 1;
+                    const std::uint32_t opcode = instruction.opcode == Opcode::AddF64 ? 0x1e602800u
+                        : instruction.opcode == Opcode::SubtractF64 ? 0x1e603800u
+                        : instruction.opcode == Opcode::MultiplyF64 ? 0x1e600800u
+                        : 0x1e601800u;
+                    words_.emit(opcode | (right << 16) | (left << 5) | left);
+                }
+            }
+            store_d(0, frame.offset(plan.base_local + element));
+        }
+        emit_number(static_cast<double>(plan.width));
+        store_d(0, frame.offset(plan.counter_local));
     }
 
     void emit_string_pointer(unsigned reg, std::uint32_t offset) {
@@ -1718,6 +1998,13 @@ private:
 
     void emit_function(const machine_ir::Function& function, bool entry) {
         const Frame frame = make_frame(function, entry);
+        if (function.local_classes.size() != function.locals.size()) {
+            throw EncodingFailure("arm64 machine IR local class table mismatch");
+        }
+        const auto local_is_i64 = [&](std::uint32_t local) {
+            return local < function.local_classes.size() &&
+                function.local_classes[local] == machine_ir::ValueClass::I64;
+        };
         emit_prologue(frame, entry);
         if (function.parameter_mask_local) {
             store_x(11, frame.offset(*function.parameter_mask_local));
@@ -1732,19 +2019,150 @@ private:
             store_x(31, frame.offset(slot + 1));
         }
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
-            if (entry) store_d(static_cast<unsigned>(index), frame.offset(static_cast<std::uint32_t>(index)));
-            else {
+            const auto local = static_cast<std::uint32_t>(index);
+            if (entry) {
+                if (local_is_i64(local)) {
+                    words_.emit(0x9e780000u | (local << 5));
+                    store_x(0, frame.offset(local));
+                } else {
+                    store_d(static_cast<unsigned>(index), frame.offset(local));
+                }
+            } else {
                 load_argument_from_x9(static_cast<std::uint32_t>(index));
-                store_d(0, frame.offset(static_cast<std::uint32_t>(index)));
+                if (local_is_i64(local)) {
+                    words_.emit(0x9e780000u);
+                    store_x(0, frame.offset(local));
+                } else {
+                    store_d(0, frame.offset(local));
+                }
             }
         }
 
         std::uint32_t stack_depth = 0;
         std::map<std::uint32_t, std::uint32_t> labels;
         std::vector<BranchPatch> branches;
-        for (const auto& instruction : function.instructions) {
+        for (std::size_t instruction_index = 0;
+             instruction_index < function.instructions.size(); ++instruction_index) {
+            const auto& instruction = function.instructions[instruction_index];
             using machine_ir::Opcode;
             const auto opcode = instruction.opcode;
+            if (opcode == Opcode::Label) {
+                const auto numeric_map = detect_dense_numeric_map_loop(function, instruction_index);
+                if (numeric_map) {
+                    if (stack_depth != 0) {
+                        throw EncodingFailure("dense numeric map loop requires empty arm64 stack");
+                    }
+                    if (!labels.emplace(instruction.label, words_.offset()).second) {
+                        throw EncodingFailure("duplicate arm64 machine IR label");
+                    }
+                    emit_dense_numeric_map_loop(frame, *numeric_map);
+                    instruction_index = numeric_map->end_index;
+                    continue;
+                }
+                const auto dense_map = detect_dense_affine_map_loop(function, instruction_index);
+                if (dense_map) {
+                    if (stack_depth != 0) {
+                        throw EncodingFailure("dense affine map loop requires empty arm64 stack");
+                    }
+                    if (!labels.emplace(instruction.label, words_.offset()).second) {
+                        throw EncodingFailure("duplicate arm64 machine IR label");
+                    }
+                    emit_dense_affine_map_loop(frame, *dense_map);
+                    instruction_index = dense_map->end_index;
+                    continue;
+                }
+            }
+            if (stack_depth == 0 && instruction_index + 5 < function.instructions.size()) {
+                const auto& dividend = function.instructions[instruction_index];
+                const auto& divisor = function.instructions[instruction_index + 1];
+                const auto remainder = function.instructions[instruction_index + 2].opcode;
+                const auto& zero = function.instructions[instruction_index + 3];
+                const auto compare = function.instructions[instruction_index + 4].opcode;
+                const auto& jump = function.instructions[instruction_index + 5];
+                const bool supported_compare = compare == Opcode::OrderedEqualF64 ||
+                    compare == Opcode::UnorderedNotEqualF64;
+                const bool supported_jump = jump.opcode == Opcode::JumpIfFalse ||
+                    jump.opcode == Opcode::JumpIfTrue;
+                if (dividend.opcode == Opcode::LoadLocal && local_is_i64(dividend.index) &&
+                    divisor.opcode == Opcode::PushF64 &&
+                    (divisor.f64 == 2.0 || divisor.f64 == -2.0) &&
+                    remainder == Opcode::RemainderF64 &&
+                    zero.opcode == Opcode::PushF64 && zero.f64 == 0.0 &&
+                    supported_compare && supported_jump) {
+                    load_x(9, frame.offset(dividend.index));
+                    words_.emit(0xf240013fu);  // tst x9, #1
+                    const bool result_when_zero = compare == Opcode::OrderedEqualF64;
+                    const bool branch_on_result = jump.opcode == Opcode::JumpIfTrue;
+                    const bool branch_when_zero = result_when_zero == branch_on_result;
+                    branches.push_back({
+                        words_.emit(0x54000000u | (branch_when_zero ? 0u : 1u)),
+                        jump.label, true
+                    });
+                    instruction_index += 5;
+                    continue;
+                }
+            }
+            if (stack_depth == 0 && instruction_index + 3 < function.instructions.size()) {
+                const auto& left = function.instructions[instruction_index];
+                const auto& right = function.instructions[instruction_index + 1];
+                const auto operation = function.instructions[instruction_index + 2].opcode;
+                const auto& sink = function.instructions[instruction_index + 3];
+                const auto integral_constant = [](const machine_ir::Instruction& operand) {
+                    return operand.opcode == Opcode::PushF64 &&
+                        operand.f64 == std::floor(operand.f64) &&
+                        operand.f64 >= static_cast<double>(std::numeric_limits<std::int32_t>::min()) &&
+                        operand.f64 <= static_cast<double>(std::numeric_limits<std::int32_t>::max());
+                };
+                const auto integral_operand = [&](const machine_ir::Instruction& operand) {
+                    return (operand.opcode == Opcode::LoadLocal && local_is_i64(operand.index)) ||
+                        integral_constant(operand);
+                };
+                const auto load_integer_operand = [&](const machine_ir::Instruction& operand,
+                                                      unsigned reg) {
+                    if (operand.opcode == Opcode::LoadLocal) {
+                        load_x(reg, frame.offset(operand.index));
+                    } else {
+                        emit_u64(reg, static_cast<std::uint64_t>(
+                            static_cast<std::int64_t>(operand.f64)));
+                    }
+                };
+                const bool arithmetic = operation == Opcode::AddF64 ||
+                    operation == Opcode::SubtractF64 || operation == Opcode::MultiplyF64;
+                if (integral_operand(left) && integral_operand(right) && arithmetic &&
+                    sink.opcode == Opcode::StoreLocal && local_is_i64(sink.index)) {
+                    load_integer_operand(left, 9);
+                    load_integer_operand(right, 10);
+                    words_.emit(operation == Opcode::AddF64 ? 0x8b0a0129u
+                        : operation == Opcode::SubtractF64 ? 0xcb0a0129u
+                        : 0x9b0a7d29u);
+                    store_x(9, frame.offset(sink.index));
+                    instruction_index += 3;
+                    continue;
+                }
+                const bool comparison = operation == Opcode::OrderedLessF64 ||
+                    operation == Opcode::OrderedLessEqualF64 ||
+                    operation == Opcode::OrderedGreaterF64 ||
+                    operation == Opcode::OrderedGreaterEqualF64 ||
+                    operation == Opcode::OrderedEqualF64 ||
+                    operation == Opcode::UnorderedNotEqualF64;
+                if (integral_operand(left) && integral_operand(right) && comparison &&
+                    (sink.opcode == Opcode::JumpIfFalse || sink.opcode == Opcode::JumpIfTrue)) {
+                    load_integer_operand(left, 9);
+                    load_integer_operand(right, 10);
+                    words_.emit(0xeb0a013fu);  // cmp x9, x10
+                    unsigned condition = operation == Opcode::OrderedLessF64 ? 0xbu
+                        : operation == Opcode::OrderedLessEqualF64 ? 0xdu
+                        : operation == Opcode::OrderedGreaterF64 ? 0xcu
+                        : operation == Opcode::OrderedGreaterEqualF64 ? 0xau
+                        : operation == Opcode::OrderedEqualF64 ? 0u : 1u;
+                    if (sink.opcode == Opcode::JumpIfFalse) condition ^= 1u;
+                    branches.push_back({
+                        words_.emit(0x54000000u | condition), sink.label, true
+                    });
+                    instruction_index += 3;
+                    continue;
+                }
+            }
             if (opcode == Opcode::PushF64) {
                 emit_number(instruction.f64);
                 store_d(0, frame.offset(frame.temp_base + stack_depth));
@@ -1966,14 +2384,24 @@ private:
                 stack_depth = first + 1;
             } else if (opcode == Opcode::LoadLocal) {
                 if (instruction.index >= frame.local_count) throw EncodingFailure("invalid arm64 local slot");
-                load_d(0, frame.offset(instruction.index));
+                if (local_is_i64(instruction.index)) {
+                    load_x(9, frame.offset(instruction.index));
+                    words_.emit(0x9e620120u);  // scvtf d0, x9
+                } else {
+                    load_d(0, frame.offset(instruction.index));
+                }
                 store_d(0, frame.offset(frame.temp_base + stack_depth));
                 ++stack_depth;
             } else if (opcode == Opcode::StoreLocal) {
                 require_stack(stack_depth, 1);
                 --stack_depth;
                 load_d(0, frame.offset(frame.temp_base + stack_depth));
-                store_d(0, frame.offset(instruction.index));
+                if (local_is_i64(instruction.index)) {
+                    words_.emit(0x9e780009u);  // fcvtzs x9, d0
+                    store_x(9, frame.offset(instruction.index));
+                } else {
+                    store_d(0, frame.offset(instruction.index));
+                }
             } else if (opcode == Opcode::Drop) {
                 require_stack(stack_depth, 1);
                 --stack_depth;
@@ -2534,13 +2962,19 @@ private:
                     throw EncodingFailure("invalid arm64 fixed-vector index range");
                 }
                 const auto first = stack_depth - 1;
-                load_d(0, frame.offset(frame.temp_base + first));
-                words_.emit(0x9e78000cu);
-                words_.emit(0x9e620181u);
-                words_.emit(0x1e602020u);
                 std::vector<std::size_t> invalid;
-                invalid.push_back(words_.emit(0x54000001u));
-                invalid.push_back(words_.emit(0x54000006u));
+                const bool native_index_local = instruction.index_local &&
+                    local_is_i64(*instruction.index_local);
+                if (native_index_local) {
+                    load_x(12, frame.offset(*instruction.index_local));
+                } else {
+                    load_d(0, frame.offset(frame.temp_base + first));
+                    words_.emit(0x9e78000cu);
+                    words_.emit(0x9e620181u);
+                    words_.emit(0x1e602020u);
+                    invalid.push_back(words_.emit(0x54000001u));
+                    invalid.push_back(words_.emit(0x54000006u));
+                }
                 words_.emit(0xf100019fu);
                 invalid.push_back(words_.emit(0x5400000bu));
                 emit_u64(13, instruction.argument_count);
@@ -2577,13 +3011,19 @@ private:
                     throw EncodingFailure("invalid arm64 fixed-vector update range");
                 }
                 const auto first = stack_depth - 2;
-                load_d(0, frame.offset(frame.temp_base + first));
-                words_.emit(0x9e78000cu);
-                words_.emit(0x9e620181u);
-                words_.emit(0x1e602020u);
                 std::vector<std::size_t> invalid;
-                invalid.push_back(words_.emit(0x54000001u));
-                invalid.push_back(words_.emit(0x54000006u));
+                const bool native_index_local = instruction.index_local &&
+                    local_is_i64(*instruction.index_local);
+                if (native_index_local) {
+                    load_x(12, frame.offset(*instruction.index_local));
+                } else {
+                    load_d(0, frame.offset(frame.temp_base + first));
+                    words_.emit(0x9e78000cu);
+                    words_.emit(0x9e620181u);
+                    words_.emit(0x1e602020u);
+                    invalid.push_back(words_.emit(0x54000001u));
+                    invalid.push_back(words_.emit(0x54000006u));
+                }
                 words_.emit(0xf100019fu);
                 invalid.push_back(words_.emit(0x5400000bu));
                 emit_u64(13, instruction.argument_count);

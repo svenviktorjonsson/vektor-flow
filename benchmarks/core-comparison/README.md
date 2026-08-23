@@ -1,7 +1,7 @@
 # Core language comparison
 
 This suite provides narrow language-to-language evidence and compiler
-regression checks. It is not the only 0.1.4 release gate. Release acceptance also uses every
+regression checks. It is not the only 0.1.5 release gate. Release acceptance also uses every
 documented program, exact output, and full-process runtime through
 [`benchmarks/readme-examples`](../readme-examples/README.md).
 
@@ -16,7 +16,7 @@ Every case declares one of two comparison modes:
 - **idiomatic**: same result-producing task, but each ecosystem may use its
   normal optimized implementation.
 
-The published 0.1.4 kernel set is deliberately recognizable:
+The published 0.1.5 kernel set is deliberately recognizable:
 
 - spectral norm by the power method;
 - fannkuch-redux permutation flipping;
@@ -93,7 +93,7 @@ tools, verifies Zig's official SHA-256, then runs this exact command on
 Linux-local storage:
 
 ```bash
-node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,spectral-norm-medium,fannkuch-redux-medium,n-body-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-014
+node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,spectral-norm-medium,fannkuch-redux-medium,n-body-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-015
 ```
 
 `native-entry-timer` isolates generated-program execution. `native-process-timer`

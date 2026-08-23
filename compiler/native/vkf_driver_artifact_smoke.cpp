@@ -33,6 +33,9 @@
 #include <vector>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
@@ -49,7 +52,7 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
-constexpr const char* vkf_release_version = "0.1.4";
+constexpr const char* vkf_release_version = "0.1.5";
 
 std::filesystem::path bundled_stdlib_root;
 
@@ -78,6 +81,11 @@ struct Args {
     std::filesystem::path webgpu_artifact;
     std::filesystem::path output;
     std::string cache_fingerprint;
+    std::string optimization_policy = "auto";
+    std::uint32_t optimization_run_budget = 1000;
+    std::uint32_t optimization_landscape_runs = 0;
+    double compile_time_limit_ms = 15.0;
+    std::optional<double> optimization_time_limit_ms;
     std::string eval_source;
 #ifdef VKF_STRICT_DIRECT_ONLY
     bool aot = true;
@@ -1313,38 +1321,97 @@ Args parse_args(int argc, char** argv) {
         args.self = argv[0];
     }
 #ifdef VKF_STRICT_DIRECT_ONLY
-    if (argc == 2 && !std::string(argv[1]).empty() && std::string(argv[1]).front() != '-') {
-        args.source = argv[1];
-        args.run = true;
-        args.output = args.source;
+    bool build_only = false;
+    const auto default_output = [](const std::filesystem::path& source) {
+        auto output = source;
 #ifdef _WIN32
-        args.output.replace_extension(".exe");
+        output.replace_extension(".exe");
 #else
-        args.output.replace_extension();
+        output.replace_extension();
 #endif
-    } else if (argc == 4 && !std::string(argv[1]).empty() &&
-               std::string(argv[1]).front() != '-' && std::string(argv[2]) == "-o") {
-        args.source = argv[1];
-        args.output = argv[3];
-        args.run = true;
-    } else if (argc == 3 && std::string(argv[1]) == "-e") {
-        args.eval_source = argv[2];
-        args.run = true;
-    } else if (argc == 3 && std::string(argv[1]) == "-b") {
-        args.source = argv[2];
-        args.output = args.source;
-#ifdef _WIN32
-        args.output.replace_extension(".exe");
-#else
-        args.output.replace_extension();
-#endif
-    } else if (argc == 5 && std::string(argv[1]) == "-b" &&
-               std::string(argv[3]) == "-o") {
-        args.source = argv[2];
-        args.output = argv[4];
-    } else {
+        return output;
+    };
+    const auto parse_unsigned = [](const std::string& text, std::uint32_t maximum,
+                                   const std::string& message) {
+        try {
+            const auto value = std::stoul(text);
+            if (value == 0 || value > maximum) throw std::out_of_range("value");
+            return static_cast<std::uint32_t>(value);
+        } catch (const std::exception&) {
+            throw DriverFailure(message);
+        }
+    };
+    const auto parse_milliseconds = [](const std::string& text, const std::string& message) {
+        try {
+            const double value = std::stod(text);
+            if (!(value > 0.0) || value > 600000.0) throw std::out_of_range("milliseconds");
+            return value;
+        } catch (const std::exception&) {
+            throw DriverFailure(message);
+        }
+    };
+    for (int index = 1; index < argc; ++index) {
+        const std::string argument = argv[index];
+        if (argument == "-b" && index + 1 < argc && args.source.empty() &&
+            args.eval_source.empty()) {
+            build_only = true;
+            args.source = argv[++index];
+            continue;
+        }
+        if (argument == "-e" && index + 1 < argc && args.source.empty() &&
+            args.eval_source.empty()) {
+            args.eval_source = argv[++index];
+            args.run = true;
+            continue;
+        }
+        if (argument == "-o" && index + 1 < argc && !args.source.empty() &&
+            args.output.empty()) {
+            args.output = argv[++index];
+            continue;
+        }
+        if (argument == "--diagnostics") {
+            args.diagnostics = true;
+            continue;
+        }
+        if (argument == "--optimizer-policy" && index + 1 < argc) {
+            args.optimization_policy = argv[++index];
+            continue;
+        }
+        if (argument == "--optimizer-runs" && index + 1 < argc) {
+            args.optimization_run_budget = parse_unsigned(
+                argv[++index], 1000000, "--optimizer-runs must be between 1 and 1000000");
+            continue;
+        }
+        if (argument == "--optimizer-landscape-runs" && index + 1 < argc) {
+            args.optimization_landscape_runs = parse_unsigned(
+                argv[++index], 10000,
+                "--optimizer-landscape-runs must be between 1 and 10000");
+            args.optimization_policy = "tune";
+            continue;
+        }
+        if (argument == "--compile-time-limit-ms" && index + 1 < argc) {
+            args.compile_time_limit_ms = parse_milliseconds(
+                argv[++index], "--compile-time-limit-ms must be between 0 and 600000");
+            continue;
+        }
+        if (argument == "--optimizer-time-limit-ms" && index + 1 < argc) {
+            args.optimization_time_limit_ms = parse_milliseconds(
+                argv[++index], "--optimizer-time-limit-ms must be between 0 and 600000");
+            continue;
+        }
+        if (!argument.empty() && argument.front() != '-' && args.source.empty() &&
+            args.eval_source.empty()) {
+            args.source = argument;
+            args.run = true;
+            continue;
+        }
         throw DriverFailure("usage: vkf file.vkf [-o executable] | -e source | -b file.vkf [-o executable] | -t file-or-folder | -v");
     }
+    if (args.source.empty() && args.eval_source.empty()) {
+        throw DriverFailure("usage: vkf file.vkf [-o executable] | -e source | -b file.vkf [-o executable] | -t file-or-folder | -v");
+    }
+    if (!args.source.empty() && args.output.empty()) args.output = default_output(args.source);
+    if (build_only) args.run = false;
 #else
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -1410,6 +1477,56 @@ Args parse_args(int argc, char** argv) {
         }
         if (arg == "--diagnostics") {
             args.diagnostics = true;
+            continue;
+        }
+        if (arg == "--optimizer-policy" && i + 1 < argc) {
+            args.optimization_policy = argv[++i];
+            continue;
+        }
+        if (arg == "--optimizer-runs" && i + 1 < argc) {
+            const auto text = std::string(argv[++i]);
+            try {
+                const auto value = std::stoul(text);
+                if (value == 0 || value > 1000000) throw std::out_of_range("runs");
+                args.optimization_run_budget = static_cast<std::uint32_t>(value);
+            } catch (const std::exception&) {
+                throw DriverFailure("--optimizer-runs must be between 1 and 1000000");
+            }
+            continue;
+        }
+        if (arg == "--optimizer-landscape-runs" && i + 1 < argc) {
+            const auto text = std::string(argv[++i]);
+            try {
+                const auto value = std::stoul(text);
+                if (value == 0 || value > 10000) throw std::out_of_range("runs");
+                args.optimization_landscape_runs = static_cast<std::uint32_t>(value);
+                args.optimization_policy = "tune";
+            } catch (const std::exception&) {
+                throw DriverFailure("--optimizer-landscape-runs must be between 1 and 10000");
+            }
+            continue;
+        }
+        if (arg == "--compile-time-limit-ms" && i + 1 < argc) {
+            const auto text = std::string(argv[++i]);
+            try {
+                args.compile_time_limit_ms = std::stod(text);
+                if (!(args.compile_time_limit_ms > 0.0) || args.compile_time_limit_ms > 600000.0) {
+                    throw std::out_of_range("milliseconds");
+                }
+            } catch (const std::exception&) {
+                throw DriverFailure("--compile-time-limit-ms must be between 0 and 600000");
+            }
+            continue;
+        }
+        if (arg == "--optimizer-time-limit-ms" && i + 1 < argc) {
+            const auto text = std::string(argv[++i]);
+            try {
+                const double value = std::stod(text);
+                if (!(value > 0.0) || value > 600000.0) throw std::out_of_range("milliseconds");
+                args.optimization_time_limit_ms = value;
+            } catch (const std::exception&) {
+                throw DriverFailure("--optimizer-time-limit-ms must be between 0 and 600000");
+            }
             continue;
         }
         if (!arg.empty() && arg.front() != '-' && args.source.empty()) {
@@ -1580,9 +1697,18 @@ int main(int argc, char** argv) {
                 : *parsed_direct_ir;
 #ifdef VKF_X64_BACKEND_LIBRARY
             try {
+                const double optimizer_time_budget_ms = args.optimization_time_limit_ms
+                    ? *args.optimization_time_limit_ms
+                    : std::max(
+                        0.0,
+                        args.compile_time_limit_ms -
+                            std::chrono::duration<double, std::milli>(
+                                Clock::now() - total_started).count());
                 const auto direct = vkf_x64_backend::compile(
                     direct_ir, args.source, typed_ir_path, args.x64_template,
-                    materialize_frontend, args.output, args.cache_fingerprint
+                    materialize_frontend, args.output, args.cache_fingerprint,
+                    args.optimization_policy, args.optimization_run_budget,
+                    optimizer_time_budget_ms, args.optimization_landscape_runs
                 );
                 status = "compiled";
                 manifest_path = direct.manifest_path.string();
@@ -1895,6 +2021,7 @@ int main(int argc, char** argv) {
         }
 #endif
         const bool ran_program = parsed_args.run;
+        const bool emit_diagnostics = parsed_args.diagnostics;
 #ifdef VKF_STRICT_DIRECT_ONLY
         // Strict CLI execution inherits the caller's streams directly. This
         // preserves byte-exact interactive/stdin behavior and avoids running a
@@ -1905,13 +2032,18 @@ int main(int argc, char** argv) {
 #ifdef VKF_STRICT_DIRECT_ONLY
         if (ran_program) {
             const auto summary = object_of(vf::parse_json(rendered), "strict direct summary");
+            if (emit_diagnostics) std::cout << rendered << "\n";
             return run_inherited(std::filesystem::path(
                 string_field(summary, "artifact_path", "strict direct summary")));
         } else {
-            const auto summary = object_of(vf::parse_json(rendered), "strict direct summary");
-            std::cout << "Built "
-                      << string_field(summary, "artifact_path", "strict direct summary")
-                      << "\n";
+            if (emit_diagnostics) {
+                std::cout << rendered << "\n";
+            } else {
+                const auto summary = object_of(vf::parse_json(rendered), "strict direct summary");
+                std::cout << "Built "
+                          << string_field(summary, "artifact_path", "strict direct summary")
+                          << "\n";
+            }
         }
 #else
         std::cout << rendered << "\n";

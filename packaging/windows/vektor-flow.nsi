@@ -10,7 +10,7 @@ ${StrStr}
 ${UnStrRep}
 
 !ifndef APP_VERSION
-  !define APP_VERSION "0.1.4"
+  !define APP_VERSION "0.1.5"
 !endif
 !ifndef BUNDLE_ROOT
   !define BUNDLE_ROOT "..\..\dist\releases\vektor-flow-windows-x64"

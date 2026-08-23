@@ -256,7 +256,7 @@ Expected result:
 ## Known Boundaries
 
 - The extension is command-driven, not language-server-driven.
-- It exposes only the native 0.1.4 compiler surface; unavailable `ui`, `physics`,
+- It exposes only the native 0.1.5 compiler surface; unavailable `ui`, `physics`,
   and `symbolic` modules remain unavailable in the editor.
 
 ## Contributor / Dev Path
@@ -264,7 +264,7 @@ Expected result:
 If you are working on the extension or compiler from source:
 
 1. Open the repo in VS Code.
-2. Install VKF 0.1.4 or build the native compiler using the repository installation guide.
+2. Install VKF 0.1.5 or build the native compiler using the repository installation guide.
 3. Press `F5` in the `vscode/` folder to open an Extension Development Host.
 4. Repeat the smoke tests above.
 

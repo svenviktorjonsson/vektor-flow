@@ -7,22 +7,40 @@
 #include "compiler/native/vkf_machine_ir_json.hpp"
 #include "compiler/native/vkf_target.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
+#include "compiler/native/vkf_adaptive_optimizer.hpp"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <csetjmp>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <numeric>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -615,7 +633,10 @@ struct MachineBranchPatch {
 
 class MachineX64Emitter {
 public:
-    explicit MachineX64Emitter(const vkf::machine_ir::Module& module) : module_(module) {}
+    MachineX64Emitter(
+        const vkf::machine_ir::Module& module,
+        vkf::adaptive_optimizer::Policy policy = {}
+    ) : module_(module), policy_(std::move(policy)) {}
 
     std::vector<unsigned char> emit() {
         offsets_[module_.entry.name] = code_.position();
@@ -633,6 +654,7 @@ public:
     }
 
 private:
+    vkf::adaptive_optimizer::Policy policy_;
     struct Frame {
         unsigned local_count = 0;
         unsigned temp_base = 0;
@@ -684,6 +706,47 @@ private:
         double threshold = 0.0;
         double wrap = 0.0;
         double increment = 1.0;
+    };
+
+    struct DenseAffineMapLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t base_local = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t width = 0;
+        double scale = 1.0;
+        double offset = 0.0;
+    };
+
+    struct DenseNumericMapLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t base_local = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t parameter_local = 0;
+        std::uint32_t width = 0;
+        unsigned max_stack = 0;
+        std::vector<vkf::machine_ir::Instruction> expression;
+        std::vector<double> constants;
+    };
+
+    struct PackedMatrixReductionLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t row_local = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t total_local = 0;
+        std::uint32_t diagonal_local = 0;
+        std::uint32_t input_base = 0;
+        std::uint32_t width = 0;
+        bool column_offset = false;
+    };
+
+    struct PackedDotReductionLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t numerator_local = 0;
+        std::uint32_t denominator_local = 0;
+        std::uint32_t left_base = 0;
+        std::uint32_t right_base = 0;
+        std::uint32_t width = 0;
     };
 
     const vkf::machine_ir::Module& module_;
@@ -888,6 +951,421 @@ private:
         plan.wrap = at(18).f64;
         plan.increment = at(28).f64;
         return plan;
+    }
+
+    static std::optional<DenseAffineMapLoopPlan> detect_dense_affine_map_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 20 >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label ||
+            at(1).opcode != Opcode::LoadLocal ||
+            at(2).opcode != Opcode::PushF64 ||
+            at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse ||
+            at(5).opcode != Opcode::LoadLocal ||
+            at(6).opcode != Opcode::LoadLocal ||
+            at(7).opcode != Opcode::LoadF64LocalsIndex ||
+            at(8).opcode != Opcode::StoreLocal ||
+            at(9).opcode != Opcode::LoadLocal ||
+            at(10).opcode != Opcode::PushF64 ||
+            at(11).opcode != Opcode::MultiplyF64 ||
+            at(12).opcode != Opcode::PushF64 ||
+            at(13).opcode != Opcode::AddF64 ||
+            at(14).opcode != Opcode::StoreF64LocalsIndex ||
+            at(15).opcode != Opcode::LoadLocal ||
+            at(16).opcode != Opcode::PushF64 ||
+            at(17).opcode != Opcode::AddF64 ||
+            at(18).opcode != Opcode::StoreLocal ||
+            at(19).opcode != Opcode::Jump ||
+            at(20).opcode != Opcode::Label) {
+            return std::nullopt;
+        }
+        const auto counter = at(1).index;
+        const auto width_value = at(2).f64;
+        if (width_value < 8.0 || width_value != std::floor(width_value) ||
+            width_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto width = static_cast<std::uint32_t>(width_value);
+        if (at(4).label != at(20).label || at(5).index != counter ||
+            at(6).index != counter || !at(7).index_is_integral ||
+            !at(7).index_local || *at(7).index_local != counter ||
+            at(7).argument_count != width || at(8).index != at(9).index ||
+            at(14).index != at(7).index || at(14).argument_count != width ||
+            !at(14).index_is_integral || !at(14).index_local ||
+            *at(14).index_local != counter || at(15).index != counter ||
+            at(16).f64 != 1.0 || at(18).index != counter ||
+            at(19).label != at(0).label ||
+            at(7).index > function.locals.size() ||
+            width > function.locals.size() - at(7).index) {
+            return std::nullopt;
+        }
+        return DenseAffineMapLoopPlan{
+            label_index + 19, at(7).index, counter, width, at(10).f64, at(12).f64
+        };
+    }
+
+    static std::optional<DenseNumericMapLoopPlan> detect_dense_numeric_map_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 16 >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label || at(1).opcode != Opcode::LoadLocal ||
+            at(2).opcode != Opcode::PushF64 || at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse || at(5).opcode != Opcode::LoadLocal ||
+            at(6).opcode != Opcode::LoadLocal || at(7).opcode != Opcode::LoadF64LocalsIndex ||
+            at(8).opcode != Opcode::StoreLocal) {
+            return std::nullopt;
+        }
+        const auto counter = at(1).index;
+        const auto width_value = at(2).f64;
+        if (width_value < 8.0 || width_value != std::floor(width_value) ||
+            width_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max()) ||
+            at(5).index != counter || at(6).index != counter ||
+            !at(7).index_is_integral || !at(7).index_local ||
+            *at(7).index_local != counter) {
+            return std::nullopt;
+        }
+        const auto width = static_cast<std::uint32_t>(width_value);
+        const auto base = at(7).index;
+        const auto parameter = at(8).index;
+        if (at(7).argument_count != width || base > function.locals.size() ||
+            width > function.locals.size() - base) {
+            return std::nullopt;
+        }
+
+        DenseNumericMapLoopPlan plan;
+        plan.base_local = base;
+        plan.counter_local = counter;
+        plan.parameter_local = parameter;
+        plan.width = width;
+        unsigned depth = 0;
+        std::size_t cursor = label_index + 9;
+        for (; cursor < code.size(); ++cursor) {
+            const auto& instruction = code[cursor];
+            if (instruction.opcode == Opcode::StoreF64LocalsIndex) break;
+            if (instruction.opcode == Opcode::LoadLocal && instruction.index == parameter) {
+                ++depth;
+            } else if (instruction.opcode == Opcode::PushF64) {
+                ++depth;
+                if (std::find(plan.constants.begin(), plan.constants.end(), instruction.f64) ==
+                    plan.constants.end()) {
+                    plan.constants.push_back(instruction.f64);
+                }
+            } else if (instruction.opcode == Opcode::SqrtF64) {
+                if (depth < 1) return std::nullopt;
+            } else if (instruction.opcode == Opcode::AddF64 ||
+                       instruction.opcode == Opcode::SubtractF64 ||
+                       instruction.opcode == Opcode::MultiplyF64 ||
+                       instruction.opcode == Opcode::DivideF64) {
+                if (depth < 2) return std::nullopt;
+                --depth;
+            } else {
+                return std::nullopt;
+            }
+            plan.max_stack = std::max(plan.max_stack, depth);
+            if (plan.max_stack > 4) return std::nullopt;
+            plan.expression.push_back(instruction);
+        }
+        if (cursor + 6 >= code.size() || depth != 1 || plan.expression.empty() ||
+            plan.constants.size() > 2) {
+            return std::nullopt;
+        }
+        const auto& store = code[cursor];
+        if (store.index != base || store.argument_count != width ||
+            !store.index_is_integral || !store.index_local ||
+            *store.index_local != counter ||
+            code[cursor + 1].opcode != Opcode::LoadLocal ||
+            code[cursor + 1].index != counter ||
+            code[cursor + 2].opcode != Opcode::PushF64 || code[cursor + 2].f64 != 1.0 ||
+            code[cursor + 3].opcode != Opcode::AddF64 ||
+            code[cursor + 4].opcode != Opcode::StoreLocal ||
+            code[cursor + 4].index != counter ||
+            code[cursor + 5].opcode != Opcode::Jump ||
+            code[cursor + 5].label != at(0).label ||
+            code[cursor + 6].opcode != Opcode::Label ||
+            code[cursor + 6].label != at(4).label) {
+            return std::nullopt;
+        }
+        plan.end_index = cursor + 5;
+        return plan;
+    }
+
+    static std::optional<PackedMatrixReductionLoopPlan>
+    detect_packed_matrix_reduction_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 33 >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label || at(1).opcode != Opcode::LoadLocal ||
+            at(2).opcode != Opcode::PushF64 || at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse || at(5).opcode != Opcode::LoadLocal ||
+            at(6).opcode != Opcode::LoadLocal || at(7).opcode != Opcode::AddF64 ||
+            at(8).opcode != Opcode::StoreLocal || at(9).opcode != Opcode::LoadLocal ||
+            at(10).opcode != Opcode::PushF64 || at(10).f64 != 1.0 ||
+            at(11).opcode != Opcode::LoadLocal || at(12).opcode != Opcode::LoadLocal ||
+            at(13).opcode != Opcode::PushF64 || at(13).f64 != 1.0 ||
+            at(14).opcode != Opcode::AddF64 || at(15).opcode != Opcode::MultiplyF64 ||
+            at(16).opcode != Opcode::PushF64 || at(16).f64 != 2.0 ||
+            at(17).opcode != Opcode::DivideF64 || at(18).opcode != Opcode::LoadLocal ||
+            at(19).opcode != Opcode::AddF64 || at(20).opcode != Opcode::PushF64 ||
+            at(20).f64 != 1.0 || at(21).opcode != Opcode::AddF64 ||
+            at(22).opcode != Opcode::DivideF64 || at(23).opcode != Opcode::LoadLocal ||
+            at(24).opcode != Opcode::LoadF64LocalsIndex ||
+            at(25).opcode != Opcode::MultiplyF64 || at(26).opcode != Opcode::AddF64 ||
+            at(27).opcode != Opcode::StoreLocal || at(28).opcode != Opcode::LoadLocal ||
+            at(29).opcode != Opcode::PushF64 || at(29).f64 != 1.0 ||
+            at(30).opcode != Opcode::AddF64 || at(31).opcode != Opcode::StoreLocal ||
+            at(32).opcode != Opcode::Jump || at(33).opcode != Opcode::Label) {
+            return std::nullopt;
+        }
+        const auto width_value = at(2).f64;
+        if (width_value < 8.0 || width_value != std::floor(width_value) ||
+            width_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto width = static_cast<std::uint32_t>(width_value);
+        const auto counter = at(1).index;
+        const auto row = at(5).index == counter ? at(6).index
+            : at(6).index == counter ? at(5).index
+            : std::numeric_limits<std::uint32_t>::max();
+        const auto diagonal = at(8).index;
+        const auto total = at(9).index;
+        if (row == std::numeric_limits<std::uint32_t>::max() ||
+            counter == row || counter >= function.locals.size() ||
+            row >= function.locals.size() || total >= function.locals.size() ||
+            diagonal >= function.locals.size() ||
+            at(4).label != at(33).label || at(32).label != at(0).label ||
+            at(11).index != diagonal || at(12).index != diagonal ||
+            (at(18).index != row && at(18).index != counter) ||
+            at(23).index != counter || !at(24).index_is_integral ||
+            !at(24).index_local || *at(24).index_local != counter ||
+            at(24).argument_count < width || at(27).index != total ||
+            at(28).index != counter || at(31).index != counter ||
+            at(24).index > function.locals.size() ||
+            width > function.locals.size() - at(24).index) {
+            return std::nullopt;
+        }
+        return PackedMatrixReductionLoopPlan{
+            label_index + 32, row, counter, total, diagonal,
+            at(24).index, width, at(18).index == counter
+        };
+    }
+
+    static std::optional<PackedDotReductionLoopPlan>
+    detect_packed_dot_reduction_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 26 >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label || at(1).opcode != Opcode::LoadLocal ||
+            at(2).opcode != Opcode::PushF64 || at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse || at(5).opcode != Opcode::LoadLocal ||
+            at(6).opcode != Opcode::LoadLocal || at(7).opcode != Opcode::LoadF64LocalsIndex ||
+            at(8).opcode != Opcode::LoadLocal || at(9).opcode != Opcode::LoadF64LocalsIndex ||
+            at(10).opcode != Opcode::MultiplyF64 || at(11).opcode != Opcode::AddF64 ||
+            at(12).opcode != Opcode::StoreLocal || at(13).opcode != Opcode::LoadLocal ||
+            at(14).opcode != Opcode::LoadLocal || at(15).opcode != Opcode::LoadF64LocalsIndex ||
+            at(16).opcode != Opcode::LoadLocal || at(17).opcode != Opcode::LoadF64LocalsIndex ||
+            at(18).opcode != Opcode::MultiplyF64 || at(19).opcode != Opcode::AddF64 ||
+            at(20).opcode != Opcode::StoreLocal || at(21).opcode != Opcode::LoadLocal ||
+            at(22).opcode != Opcode::PushF64 || at(22).f64 != 1.0 ||
+            at(23).opcode != Opcode::AddF64 || at(24).opcode != Opcode::StoreLocal ||
+            at(25).opcode != Opcode::Jump || at(26).opcode != Opcode::Label) {
+            return std::nullopt;
+        }
+        const auto width_value = at(2).f64;
+        if (width_value < 8.0 || width_value != std::floor(width_value) ||
+            width_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto width = static_cast<std::uint32_t>(width_value);
+        const auto counter = at(1).index;
+        const auto valid_index = [&](std::size_t load, std::size_t indexed) {
+            return at(load).index == counter && at(indexed).index_is_integral &&
+                at(indexed).index_local && *at(indexed).index_local == counter &&
+                at(indexed).argument_count >= width &&
+                at(indexed).index <= function.locals.size() &&
+                width <= function.locals.size() - at(indexed).index;
+        };
+        if (counter >= function.locals.size() ||
+            at(4).label != at(26).label || at(25).label != at(0).label ||
+            !valid_index(6, 7) || !valid_index(8, 9) ||
+            !valid_index(14, 15) || !valid_index(16, 17) ||
+            at(9).index != at(15).index || at(9).index != at(17).index ||
+            at(12).index != at(5).index || at(20).index != at(13).index ||
+            at(21).index != counter || at(24).index != counter) {
+            return std::nullopt;
+        }
+        return PackedDotReductionLoopPlan{
+            label_index + 25, counter, at(5).index, at(13).index,
+            at(7).index, at(9).index, width
+        };
+    }
+
+    void emit_dense_numeric_map_loop(
+        const Frame& frame,
+        const DenseNumericMapLoopPlan& plan
+    ) {
+        using vkf::machine_ir::Opcode;
+        for (std::size_t index = 0; index < plan.constants.size(); ++index) {
+            const unsigned reg = static_cast<unsigned>(4 + index);
+            emit_number(plan.constants[index], reg);
+            code_.raw({0xc4, 0xe2, 0x7d, 0x19,
+                       static_cast<unsigned>(0xc0 + reg * 9)});
+        }
+        const auto constant_register = [&](double value) {
+            const auto found = std::find(plan.constants.begin(), plan.constants.end(), value);
+            if (found == plan.constants.end()) {
+                throw BackendFailure("missing x64 vector-map constant");
+            }
+            return static_cast<unsigned>(4 + (found - plan.constants.begin()));
+        };
+        const auto emit_vector_expression = [&]() {
+            std::vector<unsigned> stack;
+            for (const auto& instruction : plan.expression) {
+                if (instruction.opcode == Opcode::LoadLocal) {
+                    const unsigned reg = static_cast<unsigned>(stack.size());
+                    code_.raw({0xc5, 0xfd, 0x10, reg * 8u});
+                    stack.push_back(reg);
+                } else if (instruction.opcode == Opcode::PushF64) {
+                    const unsigned reg = static_cast<unsigned>(stack.size());
+                    const unsigned source = constant_register(instruction.f64);
+                    code_.raw({0xc5, 0xfd, 0x28,
+                               static_cast<unsigned>(0xc0 + reg * 8 + source)});
+                    stack.push_back(reg);
+                } else if (instruction.opcode == Opcode::SqrtF64) {
+                    const unsigned reg = stack.back();
+                    code_.raw({0xc5, 0xfd, 0x51,
+                               static_cast<unsigned>(0xc0 + reg * 9)});
+                } else {
+                    const unsigned right = stack.back();
+                    stack.pop_back();
+                    const unsigned left = stack.back();
+                    const unsigned vex = 0x85u | (((~left) & 0x0fu) << 3u);
+                    const unsigned opcode = instruction.opcode == Opcode::AddF64 ? 0x58
+                        : instruction.opcode == Opcode::SubtractF64 ? 0x5c
+                        : instruction.opcode == Opcode::MultiplyF64 ? 0x59 : 0x5e;
+                    code_.raw({0xc5, vex, opcode,
+                               static_cast<unsigned>(0xc0 + left * 8 + right)});
+                }
+            }
+            const unsigned result = stack.back();
+            code_.raw({0xc5, 0xfd, 0x11, result * 8u});
+        };
+
+        const auto blocks = plan.width / 4u;
+        if (blocks != 0) {
+            code_.raw({0x48, 0x8d, 0x85});
+            code_.i32(frame.displacement(plan.base_local + 3u));
+            code_.raw({0xb9});
+            code_.i32(static_cast<std::int32_t>(blocks));
+            const auto loop = code_.position();
+            emit_vector_expression();
+            code_.raw({0x48, 0x83, 0xe8, 0x20,
+                       0xff, 0xc9,
+                       0x0f, 0x85});
+            const auto repeat = code_.rel32_placeholder();
+            code_.patch_rel32(repeat, loop);
+        }
+        code_.raw({0xc5, 0xf8, 0x77});
+
+        for (std::uint32_t element = blocks * 4u; element < plan.width; ++element) {
+            unsigned depth = 0;
+            for (const auto& instruction : plan.expression) {
+                if (instruction.opcode == Opcode::LoadLocal) {
+                    load_xmm(depth, frame.displacement(plan.base_local + element));
+                    ++depth;
+                } else if (instruction.opcode == Opcode::PushF64) {
+                    emit_number(instruction.f64, depth++);
+                } else if (instruction.opcode == Opcode::SqrtF64) {
+                    const unsigned reg = depth - 1;
+                    code_.raw({0xf2, 0x0f, 0x51,
+                               static_cast<unsigned>(0xc0 + reg * 9)});
+                } else {
+                    const unsigned right = --depth;
+                    const unsigned left = depth - 1;
+                    const unsigned opcode = instruction.opcode == Opcode::AddF64 ? 0x58
+                        : instruction.opcode == Opcode::SubtractF64 ? 0x5c
+                        : instruction.opcode == Opcode::MultiplyF64 ? 0x59 : 0x5e;
+                    code_.raw({0xf2, 0x0f, opcode,
+                               static_cast<unsigned>(0xc0 + left * 8 + right)});
+                }
+            }
+            store_xmm(0, frame.displacement(plan.base_local + element));
+        }
+        emit_number(static_cast<double>(plan.width));
+        store_xmm(0, frame.displacement(plan.counter_local));
+    }
+
+    void emit_dense_affine_map_loop(
+        const Frame& frame,
+        const DenseAffineMapLoopPlan& plan
+    ) {
+        const std::array<double, 4> scales{
+            plan.scale, plan.scale, plan.scale, plan.scale};
+        const std::array<double, 4> offsets{
+            plan.offset, plan.offset, plan.offset, plan.offset};
+        if (plan.scale != 1.0) emit_ymm_constant(1, scales);
+        if (plan.offset != 0.0) emit_ymm_constant(2, offsets);
+
+        const auto blocks = plan.width / 4u;
+        if (blocks != 0) {
+            code_.raw({0x48, 0x8d, 0x85});
+            code_.i32(frame.displacement(plan.base_local + 3u));
+            code_.raw({0xb9});
+            code_.i32(static_cast<std::int32_t>(blocks));
+            const auto loop = code_.position();
+            code_.raw({0xc5, 0xfd, 0x10, 0x00});
+            if (plan.scale != 1.0) code_.raw({0xc5, 0xfd, 0x59, 0xc1});
+            if (plan.offset != 0.0) code_.raw({0xc5, 0xfd, 0x58, 0xc2});
+            code_.raw({0xc5, 0xfd, 0x11, 0x00,
+                       0x48, 0x83, 0xe8, 0x20,
+                       0xff, 0xc9,
+                       0x0f, 0x85});
+            const auto repeat = code_.rel32_placeholder();
+            code_.patch_rel32(repeat, loop);
+        }
+        code_.raw({0xc5, 0xf8, 0x77});
+        for (std::uint32_t index = blocks * 4u; index < plan.width; ++index) {
+            load_xmm(0, frame.displacement(plan.base_local + index));
+            if (plan.scale != 1.0) {
+                emit_number(plan.scale, 1);
+                code_.raw({0xf2, 0x0f, 0x59, 0xc1});
+            }
+            if (plan.offset != 0.0) {
+                emit_number(plan.offset, 1);
+                code_.raw({0xf2, 0x0f, 0x58, 0xc1});
+            }
+            store_xmm(0, frame.displacement(plan.base_local + index));
+        }
+        emit_number(static_cast<double>(plan.width));
+        store_xmm(0, frame.displacement(plan.counter_local));
     }
 
     static Frame make_frame(const vkf::machine_ir::Function& function, bool entry) {
@@ -2899,7 +3377,83 @@ private:
 
     void emit_function(const vkf::machine_ir::Function& function, bool entry) {
         const Frame frame = make_frame(function, entry);
-        const bool has_avx_affine_loop = [&]() {
+        const auto parameter_count = static_cast<unsigned>(function.parameters.size());
+        const auto borrowing_safe_opcode = [](vkf::machine_ir::Opcode opcode) {
+            using vkf::machine_ir::Opcode;
+            switch (opcode) {
+                case Opcode::PushF64:
+                case Opcode::LoadLocal:
+                case Opcode::StoreLocal:
+                case Opcode::Drop:
+                case Opcode::Duplicate:
+                case Opcode::IdentityF64:
+                case Opcode::NegateF64:
+                case Opcode::LogicalNotF64:
+                case Opcode::BooleanizeF64:
+                case Opcode::AddF64:
+                case Opcode::SubtractF64:
+                case Opcode::MultiplyF64:
+                case Opcode::DivideF64:
+                case Opcode::AbsF64:
+                case Opcode::SqrtF64:
+                case Opcode::LogicalXorF64:
+                case Opcode::OrderedLessF64:
+                case Opcode::OrderedLessEqualF64:
+                case Opcode::OrderedGreaterF64:
+                case Opcode::OrderedGreaterEqualF64:
+                case Opcode::OrderedEqualF64:
+                case Opcode::UnorderedNotEqualF64:
+                case Opcode::EqualBits:
+                case Opcode::NotEqualBits:
+                case Opcode::SumF64Values:
+                case Opcode::MeanF64Values:
+                case Opcode::VarianceF64Values:
+                case Opcode::StdDevF64Values:
+                case Opcode::RangeF64Values:
+                case Opcode::CountValues:
+                case Opcode::SumF64Locals:
+                case Opcode::MeanF64Locals:
+                case Opcode::VarianceF64Locals:
+                case Opcode::StdDevF64Locals:
+                case Opcode::RangeF64Locals:
+                case Opcode::CountLocalValues:
+                case Opcode::LoadF64LocalsIndex:
+                case Opcode::StoreF64LocalsIndex:
+                case Opcode::Label:
+                case Opcode::Jump:
+                case Opcode::JumpIfFalse:
+                case Opcode::JumpIfTrue:
+                case Opcode::JumpIfParameterProvided:
+                case Opcode::ReturnF64:
+                case Opcode::ReturnValues:
+                    return true;
+                default:
+                    return false;
+            }
+        };
+        const bool borrow_aggregate_parameters =
+            policy_.borrowed_aggregate_parameters && !entry && !function.may_error &&
+            parameter_count >= 8u &&
+            parameter_count <= function.local_classes.size() &&
+            std::all_of(
+                function.local_classes.begin(),
+                function.local_classes.begin() + static_cast<std::ptrdiff_t>(parameter_count),
+                [](const auto value_class) {
+                    return value_class == vkf::machine_ir::ValueClass::F64;
+                }) &&
+            std::none_of(
+                function.instructions.begin(), function.instructions.end(),
+                [parameter_count, &borrowing_safe_opcode](const auto& instruction) {
+                    using vkf::machine_ir::Opcode;
+                    if (!borrowing_safe_opcode(instruction.opcode)) return true;
+                    if (instruction.opcode == Opcode::Call) return true;
+                    if (instruction.opcode == Opcode::StoreLocal) {
+                        return instruction.index < parameter_count;
+                    }
+                    return instruction.opcode == Opcode::StoreF64LocalsIndex &&
+                        instruction.index < parameter_count;
+                });
+        const bool has_avx_affine_loop = policy_.avx_affine_loops && [&]() {
             for (std::size_t index = 0; index < function.instructions.size(); ++index) {
                 if (detect_avx_affine_loop(function, index)) return true;
             }
@@ -2912,7 +3466,8 @@ private:
             return false;
         }();
         const auto register_cache_safe = [&]() {
-            if (entry || function.may_error || function.locals.empty() || has_avx_affine_loop ||
+            if (!policy_.register_cache || entry || function.may_error ||
+                function.locals.empty() || has_avx_affine_loop ||
                 has_scalar_recurrence_loop) {
                 return false;
             }
@@ -2955,10 +3510,25 @@ private:
                 });
         }();
         std::vector<int> local_register(frame.local_count, -1);
+        if (function.local_classes.size() != function.locals.size()) {
+            throw BackendFailure("x64 machine IR local class table mismatch");
+        }
+        const auto semantically_i64 = [&](unsigned local) {
+            return local < function.local_classes.size() &&
+                function.local_classes[local] == vkf::machine_ir::ValueClass::I64;
+        };
+        std::vector<bool> native_i64_local(frame.local_count, false);
+        for (unsigned local = 0; local < frame.local_count; ++local) {
+            native_i64_local[local] = policy_.native_integer_locals && semantically_i64(local);
+        }
+        const auto local_is_i64 = [&](unsigned local) {
+            return local < native_i64_local.size() && native_i64_local[local];
+        };
         if (register_cache_safe) {
             std::vector<std::pair<unsigned, unsigned>> frequency;
             frequency.reserve(frame.local_count);
             for (unsigned local = 0; local < frame.local_count; ++local) {
+                if (local_is_i64(local)) continue;
                 const auto count = static_cast<unsigned>(std::count_if(
                     function.instructions.begin(), function.instructions.end(),
                     [local](const auto& instruction) {
@@ -2985,6 +3555,19 @@ private:
             if (local >= frame.local_count || destination > 7) {
                 throw BackendFailure("invalid cached x64 local load");
             }
+            if (local_is_i64(local)) {
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(local));
+                code_.raw({0xf2, 0x48, 0x0f, 0x2a,
+                           static_cast<unsigned>(0xc0 + destination * 8)});
+                return;
+            }
+            if (borrow_aggregate_parameters && local < parameter_count) {
+                code_.raw({0xf2, 0x41, 0x0f, 0x10,
+                           static_cast<unsigned>(0x82 + destination * 8)});
+                code_.i32(-static_cast<std::int32_t>(local * 8u));
+                return;
+            }
             const int source = local_register[local];
             if (source < 0) load_xmm(destination, frame.displacement(local));
             else if (static_cast<unsigned>(source) != destination) {
@@ -2996,12 +3579,198 @@ private:
             if (local >= frame.local_count || source > 7) {
                 throw BackendFailure("invalid cached x64 local store");
             }
+            if (local_is_i64(local)) {
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c,
+                           static_cast<unsigned>(0xc0 + source)});
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(local));
+                return;
+            }
             const int destination = local_register[local];
             if (destination < 0) store_xmm(source, frame.displacement(local));
             else if (static_cast<unsigned>(destination) != source) {
                 code_.raw({0x66, 0x0f, 0x28,
                            static_cast<unsigned>(0xc0 + destination * 8 + source)});
             }
+        };
+        const auto emit_fixed_base_address = [&](std::uint32_t base, std::uint32_t width) {
+            if (borrow_aggregate_parameters && base < parameter_count &&
+                width <= parameter_count - base) {
+                code_.raw({0x49, 0x8d, 0x82});
+                code_.i32(-static_cast<std::int32_t>(base * 8u));
+            } else {
+                code_.raw({0x48, 0x8d, 0x85});
+                code_.i32(frame.displacement(base));
+            }
+        };
+        const auto emit_horizontal_ymm_sum = [&](unsigned ymm, unsigned temporary_xmm) {
+            if (ymm > 7 || temporary_xmm > 7) {
+                throw BackendFailure("invalid packed reduction register");
+            }
+            code_.raw({
+                0xc4, 0xe3, 0x7d, 0x19,
+                static_cast<unsigned>(0xc0 + ymm * 8 + temporary_xmm), 0x01
+            });
+            const unsigned vex = 0x81u | (((~ymm) & 0x0fu) << 3u);
+            code_.raw({
+                0xc5, vex, 0x58,
+                static_cast<unsigned>(0xc0 + ymm * 8 + temporary_xmm),
+                0xc5, vex, 0x7c,
+                static_cast<unsigned>(0xc0 + ymm * 9)
+            });
+        };
+        const auto emit_packed_matrix_reduction = [&](const PackedMatrixReductionLoopPlan& plan) {
+            if (!local_is_i64(plan.row_local) || !local_is_i64(plan.counter_local) ||
+                !local_is_i64(plan.diagonal_local)) {
+                throw BackendFailure("packed matrix reduction requires native integer locals");
+            }
+            const std::array<double, 4> columns{3.0, 2.0, 1.0, 0.0};
+            code_.byte(0xe9);
+            const auto skip_constants = code_.rel32_placeholder();
+            const auto emit_packed_literal = [&](double value) {
+                const auto position = code_.position();
+                for (unsigned lane = 0; lane < 4; ++lane) {
+                    std::uint64_t bits = 0;
+                    std::memcpy(&bits, &value, sizeof(bits));
+                    code_.u64(bits);
+                }
+                return position;
+            };
+            const auto packed_one = emit_packed_literal(1.0);
+            const auto packed_half = emit_packed_literal(0.5);
+            const auto packed_four = emit_packed_literal(4.0);
+            code_.patch_rel32(skip_constants, code_.position());
+            emit_ymm_constant(1, columns);
+            load_local(plan.row_local, 2);
+            code_.raw({0xc4, 0xe2, 0x7d, 0x19, 0xd2});
+            code_.raw({0xc5, 0xfd, 0x57, 0xc0,
+                       0xc5, 0xd5, 0x57, 0xed});
+
+            emit_fixed_base_address(plan.input_base, plan.width);
+            code_.raw({0x48, 0x83, 0xe8, 0x18, 0xb9});
+            code_.i32(static_cast<std::int32_t>(plan.width / 8u));
+            const auto loop = code_.position();
+            const auto emit_block = [&](unsigned accumulator) {
+                // diagonal = row + column;
+                // denominator = diagonal*(diagonal+1)/2 + offset + 1.
+                code_.raw({0xc5, 0xf5, 0x58, 0xda,
+                           0xc5, 0xe5, 0x58, 0x25});
+                const auto one_for_diagonal = code_.rel32_placeholder();
+                code_.patch_rel32(one_for_diagonal, packed_one);
+                code_.raw({0xc5, 0xe5, 0x59, 0xdc,
+                           0xc5, 0xe5, 0x59, 0x1d});
+                const auto half_for_denominator = code_.rel32_placeholder();
+                code_.patch_rel32(half_for_denominator, packed_half);
+                if (plan.column_offset) code_.raw({0xc5, 0xe5, 0x58, 0xd9});
+                else code_.raw({0xc5, 0xe5, 0x58, 0xda});
+                code_.raw({0xc5, 0xe5, 0x58, 0x1d});
+                const auto one_for_denominator = code_.rel32_placeholder();
+                code_.patch_rel32(one_for_denominator, packed_one);
+                code_.raw({0xc5, 0xfd, 0x10, 0x20,
+                           0xc5, 0xdd, 0x5e, 0xe3});
+                const unsigned vex = 0x85u | (((~accumulator) & 0x0fu) << 3u);
+                code_.raw({0xc5, vex, 0x58,
+                           static_cast<unsigned>(0xc0 + accumulator * 8 + 4),
+                           0xc5, 0xf5, 0x58, 0x0d});
+                const auto four_reference = code_.rel32_placeholder();
+                code_.patch_rel32(four_reference, packed_four);
+                code_.raw({0x48, 0x83, 0xe8, 0x20});
+            };
+            emit_block(0);
+            emit_block(5);
+            code_.raw({0xff, 0xc9,
+                       0x0f, 0x85});
+            const auto repeat = code_.rel32_placeholder();
+            code_.patch_rel32(repeat, loop);
+            code_.raw({0xc5, 0xfd, 0x58, 0xc5});
+            emit_horizontal_ymm_sum(0, 4);
+            code_.raw({0xc5, 0xf8, 0x77});
+
+            emit_fixed_base_address(plan.input_base, plan.width);
+            code_.raw({0x48, 0x89, 0xc2});
+            for (std::uint32_t column = (plan.width / 8u) * 8u;
+                 column < plan.width; ++column) {
+                load_local(plan.row_local, 1);
+                emit_number(static_cast<double>(column), 2);
+                code_.raw({0xf2, 0x0f, 0x58, 0xd1,
+                           0x66, 0x0f, 0x28, 0xda});
+                emit_number(1.0, 4);
+                code_.raw({0xf2, 0x0f, 0x58, 0xdc,
+                           0xf2, 0x0f, 0x59, 0xd3});
+                emit_number(0.5, 3);
+                code_.raw({0xf2, 0x0f, 0x59, 0xd3});
+                if (plan.column_offset) emit_number(static_cast<double>(column), 3);
+                else code_.raw({0x66, 0x0f, 0x28, 0xd9});
+                code_.raw({0xf2, 0x0f, 0x58, 0xd3});
+                emit_number(1.0, 3);
+                code_.raw({0xf2, 0x0f, 0x58, 0xd3,
+                           0xf2, 0x0f, 0x10, 0x9a});
+                code_.i32(-static_cast<std::int32_t>(column * 8u));
+                code_.raw({0xf2, 0x0f, 0x5e, 0xda,
+                           0xf2, 0x0f, 0x58, 0xc3});
+            }
+            store_local(plan.total_local, 0);
+            code_.raw({0x48, 0xc7, 0x85});
+            code_.i32(frame.displacement(plan.counter_local));
+            code_.i32(static_cast<std::int32_t>(plan.width));
+            code_.raw({0x48, 0x8b, 0x85});
+            code_.i32(frame.displacement(plan.row_local));
+            code_.raw({0x48, 0x05});
+            code_.i32(static_cast<std::int32_t>(plan.width - 1u));
+            code_.raw({0x48, 0x89, 0x85});
+            code_.i32(frame.displacement(plan.diagonal_local));
+        };
+        const auto emit_packed_dot_reduction = [&](const PackedDotReductionLoopPlan& plan) {
+            if (!local_is_i64(plan.counter_local)) {
+                throw BackendFailure("packed dot reduction requires a native integer counter");
+            }
+            code_.raw({0xc5, 0xfd, 0x57, 0xc0,
+                       0xc5, 0xf5, 0x57, 0xc9});
+            emit_fixed_base_address(plan.left_base, plan.width);
+            code_.raw({0x48, 0x89, 0xc2});
+            emit_fixed_base_address(plan.right_base, plan.width);
+            code_.raw({0x48, 0x83, 0xea, 0x18,
+                       0x48, 0x83, 0xe8, 0x18,
+                       0xb9});
+            code_.i32(static_cast<std::int32_t>(plan.width / 4u));
+            const auto loop = code_.position();
+            code_.raw({0xc5, 0xfd, 0x10, 0x12,
+                       0xc5, 0xfd, 0x10, 0x18,
+                       0xc5, 0xed, 0x59, 0xe3,
+                       0xc5, 0xfd, 0x58, 0xc4,
+                       0xc5, 0xe5, 0x59, 0xe3,
+                       0xc5, 0xf5, 0x58, 0xcc,
+                       0x48, 0x83, 0xea, 0x20,
+                       0x48, 0x83, 0xe8, 0x20,
+                       0xff, 0xc9,
+                       0x0f, 0x85});
+            const auto repeat = code_.rel32_placeholder();
+            code_.patch_rel32(repeat, loop);
+            emit_horizontal_ymm_sum(0, 4);
+            emit_horizontal_ymm_sum(1, 4);
+            code_.raw({0xc5, 0xf8, 0x77});
+
+            emit_fixed_base_address(plan.left_base, plan.width);
+            code_.raw({0x48, 0x89, 0xc2});
+            emit_fixed_base_address(plan.right_base, plan.width);
+            for (std::uint32_t index = (plan.width / 4u) * 4u;
+                 index < plan.width; ++index) {
+                code_.raw({0xf2, 0x0f, 0x10, 0x92});
+                code_.i32(-static_cast<std::int32_t>(index * 8u));
+                code_.raw({0xf2, 0x0f, 0x10, 0x98});
+                code_.i32(-static_cast<std::int32_t>(index * 8u));
+                code_.raw({0x66, 0x0f, 0x28, 0xe2,
+                           0xf2, 0x0f, 0x59, 0xe3,
+                           0xf2, 0x0f, 0x58, 0xc4,
+                           0x66, 0x0f, 0x28, 0xe3,
+                           0xf2, 0x0f, 0x59, 0xe3,
+                           0xf2, 0x0f, 0x58, 0xcc});
+            }
+            store_local(plan.numerator_local, 0);
+            store_local(plan.denominator_local, 1);
+            code_.raw({0x48, 0xc7, 0x85});
+            code_.i32(frame.displacement(plan.counter_local));
+            code_.i32(static_cast<std::int32_t>(plan.width));
         };
         std::vector<bool> index_upper_bound_proven(function.instructions.size(), false);
         std::vector<bool> index_lower_bound_proven(function.instructions.size(), false);
@@ -3065,25 +3834,40 @@ private:
                 if (fact.guard > 1 &&
                     function.instructions[fact.guard - 1].opcode ==
                         vkf::machine_ir::Opcode::Label) {
-                    const auto store_position = fact.guard - 2;
-                    const auto& store = function.instructions[store_position];
-                    if (store.opcode == vkf::machine_ir::Opcode::StoreLocal &&
-                        store.index == fact.local) {
-                        if (store_position >= 1) {
-                            const auto& value = function.instructions[store_position - 1];
+                    // A loop initializer need not be adjacent to its header. Other
+                    // loop-carried values are commonly reset between the induction
+                    // variable and the label. Walk the straight-line preheader back
+                    // to the nearest definition instead of requiring an exact
+                    // `value; store; label` spelling.
+                    for (std::size_t cursor = fact.guard - 1; cursor > 0;) {
+                        --cursor;
+                        const auto& store = function.instructions[cursor];
+                        if (store.opcode == vkf::machine_ir::Opcode::Label ||
+                            store.opcode == vkf::machine_ir::Opcode::Jump ||
+                            store.opcode == vkf::machine_ir::Opcode::JumpIfFalse ||
+                            store.opcode == vkf::machine_ir::Opcode::JumpIfTrue) {
+                            break;
+                        }
+                        if (store.opcode != vkf::machine_ir::Opcode::StoreLocal ||
+                            store.index != fact.local) {
+                            continue;
+                        }
+                        if (cursor >= 1) {
+                            const auto& value = function.instructions[cursor - 1];
                             fact.nonnegative = value.opcode == vkf::machine_ir::Opcode::PushF64 &&
                                 value.f64 >= 0.0;
                         }
-                        if (!fact.nonnegative && store_position >= 3) {
-                            const auto& left = function.instructions[store_position - 3];
-                            const auto& right = function.instructions[store_position - 2];
-                            const auto& add = function.instructions[store_position - 1];
+                        if (!fact.nonnegative && cursor >= 3) {
+                            const auto& left = function.instructions[cursor - 3];
+                            const auto& right = function.instructions[cursor - 2];
+                            const auto& add = function.instructions[cursor - 1];
                             fact.nonnegative = left.opcode == vkf::machine_ir::Opcode::LoadLocal &&
                                 right.opcode == vkf::machine_ir::Opcode::PushF64 &&
                                 right.f64 >= 0.0 &&
                                 add.opcode == vkf::machine_ir::Opcode::AddF64 &&
-                                source_is_nonnegative(left.index, store_position - 3);
+                                source_is_nonnegative(left.index, cursor - 3);
                         }
+                        break;
                     }
                 }
                 for (std::size_t position = fact.body; position < fact.end; ++position) {
@@ -3123,7 +3907,8 @@ private:
                 code_.i32(0);
             }
         }
-        for (std::size_t index = 0; index < function.parameters.size(); ++index) {
+        for (std::size_t index = 0;
+             !borrow_aggregate_parameters && index < function.parameters.size(); ++index) {
             if (entry) store_local(static_cast<unsigned>(index), static_cast<unsigned>(index));
             else {
                 load_argument_from_r10(static_cast<std::uint32_t>(index));
@@ -3171,16 +3956,24 @@ private:
             if (operand.value->index >= frame.local_count) {
                 throw BackendFailure("invalid fused x64 local slot");
             }
-            load_local(operand.value->index, destination);
-            if (operand.kind != FusedOperand::Kind::ProvenFixedIndex) return;
+            if (operand.kind != FusedOperand::Kind::ProvenFixedIndex) {
+                load_local(operand.value->index, destination);
+                return;
+            }
             if (operand.index->index > frame.local_count ||
                 operand.index->argument_count > frame.local_count - operand.index->index) {
                 throw BackendFailure("invalid fused x64 fixed-vector index range");
             }
-            code_.raw({0xf2, 0x48, 0x0f, 0x2c,
-                       static_cast<unsigned>(0xc8 + destination)});
-            code_.raw({0x48, 0x8d, 0x85});
-            code_.i32(frame.displacement(operand.index->index));
+            if (local_is_i64(operand.value->index)) {
+                code_.raw({0x48, 0x8b, 0x8d});
+                code_.i32(frame.displacement(operand.value->index));
+            } else {
+                load_local(operand.value->index, destination);
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c,
+                           static_cast<unsigned>(0xc8 + destination)});
+            }
+            emit_fixed_base_address(
+                operand.index->index, operand.index->argument_count);
             code_.raw({0x48, 0xf7, 0xd9,
                        0xf2, 0x0f, 0x10,
                        static_cast<unsigned>(0x04 + destination * 8), 0xc8});
@@ -3339,9 +4132,15 @@ private:
                 }
                 if (slot == expression_index_cache.size()) continue;
                 expression_index_cache[slot] = local;
-                code_.raw({0xf2, 0x48, 0x0f, 0x2c,
-                           static_cast<unsigned>(slot == 0 ? 0x8d : 0x95)});
-                code_.i32(frame.displacement(local));
+                if (local_is_i64(local)) {
+                    code_.raw({0x48, 0x8b,
+                               static_cast<unsigned>(slot == 0 ? 0x8d : 0x95)});
+                    code_.i32(frame.displacement(local));
+                } else {
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2c,
+                               static_cast<unsigned>(slot == 0 ? 0x8d : 0x95)});
+                    code_.i32(frame.displacement(local));
+                }
                 if (slot == 0) code_.raw({0x48, 0xf7, 0xd9});
                 else code_.raw({0x48, 0xf7, 0xda});
             }
@@ -3368,14 +4167,20 @@ private:
                             load_local(node.value->index, destination);
                             return;
                         }
-                        code_.raw({0x48, 0x8d, 0x85});
-                        code_.i32(frame.displacement(node.index->index));
+                        emit_fixed_base_address(
+                            node.index->index, node.index->argument_count);
                         const auto cached = cached_slot(node.value->index);
                         if (!cached) {
-                            load_local(node.value->index, destination);
-                            code_.raw({0xf2, 0x48, 0x0f, 0x2c,
-                                       static_cast<unsigned>(0xc8 + destination),
-                                       0x48, 0xf7, 0xd9});
+                            if (local_is_i64(node.value->index)) {
+                                code_.raw({0x48, 0x8b, 0x8d});
+                                code_.i32(frame.displacement(node.value->index));
+                                code_.raw({0x48, 0xf7, 0xd9});
+                            } else {
+                                load_local(node.value->index, destination);
+                                code_.raw({0xf2, 0x48, 0x0f, 0x2c,
+                                           static_cast<unsigned>(0xc8 + destination),
+                                           0x48, 0xf7, 0xd9});
+                            }
                         }
                         const unsigned sib = !cached || *cached == 0 ? 0xc8 : 0xd0;
                         code_.raw({0xf2, 0x0f, 0x10,
@@ -3388,11 +4193,37 @@ private:
                                    static_cast<unsigned>(0xc0 + destination * 9)});
                         return;
                     }
+                    const auto& left = plan.nodes[node.left];
+                    const auto& right = plan.nodes[node.right];
+                    const bool fused_product =
+                        policy_.fused_multiply_add && vkf::target::host_x64_supports_fma() &&
+                        (node.opcode == vkf::machine_ir::Opcode::AddF64 ||
+                         node.opcode == vkf::machine_ir::Opcode::SubtractF64) &&
+                        right.kind == ExpressionNode::Kind::Binary &&
+                        right.opcode == vkf::machine_ir::Opcode::MultiplyF64;
+                    if (fused_product) {
+                        emit_node(node.left, destination);
+                        emit_node(right.left, destination + 1);
+                        emit_node(right.right, destination + 2);
+                        const unsigned vex = 0x81u |
+                            (((~(destination + 1u)) & 0x0fu) << 3u);
+                        const unsigned modrm = 0xc0u + destination * 8u + destination + 2u;
+                        code_.raw({
+                            0xc4, 0xe2, vex,
+                            node.opcode == vkf::machine_ir::Opcode::AddF64 ? 0xb9u : 0xbdu,
+                            modrm
+                        });
+                        return;
+                    }
                     emit_node(node.left, destination);
-                    emit_node(node.right, destination + 1);
+                    const bool halve = node.opcode == vkf::machine_ir::Opcode::DivideF64 &&
+                        right.kind == ExpressionNode::Kind::Constant &&
+                        right.value->f64 == 2.0;
+                    if (halve) emit_number(0.5, destination + 1);
+                    else emit_node(node.right, destination + 1);
                     const unsigned machine = node.opcode == vkf::machine_ir::Opcode::AddF64 ? 0x58
                         : node.opcode == vkf::machine_ir::Opcode::SubtractF64 ? 0x5c
-                        : node.opcode == vkf::machine_ir::Opcode::MultiplyF64 ? 0x59 : 0x5e;
+                        : node.opcode == vkf::machine_ir::Opcode::MultiplyF64 || halve ? 0x59 : 0x5e;
                     code_.raw({0xf2, 0x0f, machine,
                                static_cast<unsigned>(0xc0 + destination * 8 + destination + 1)});
                 };
@@ -3409,9 +4240,15 @@ private:
             code_.i32(frame.displacement(plan.indexed_store->index));
             const auto cached = cached_slot(index_node.value->index);
             if (!cached) {
-                load_local(index_node.value->index, 1);
-                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc9,
-                           0x48, 0xf7, 0xd9});
+                if (local_is_i64(index_node.value->index)) {
+                    code_.raw({0x48, 0x8b, 0x8d});
+                    code_.i32(frame.displacement(index_node.value->index));
+                    code_.raw({0x48, 0xf7, 0xd9});
+                } else {
+                    load_local(index_node.value->index, 1);
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc9,
+                               0x48, 0xf7, 0xd9});
+                }
             }
             const unsigned sib = !cached || *cached == 0 ? 0xc8 : 0xd0;
             code_.raw({0xf2, 0x0f, 0x11, 0x04, sib});
@@ -3423,6 +4260,64 @@ private:
             const auto opcode = instruction.opcode;
             if (opcode == Opcode::Label) {
                 expression_index_cache = {};
+                const auto packed_matrix = policy_.packed_matrix_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_matrix_reduction_loop(function, instruction_index)
+                    : std::nullopt;
+                if (packed_matrix) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure("packed matrix reduction requires empty x64 machine stack");
+                    }
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_matrix_reduction(*packed_matrix);
+                    instruction_index = packed_matrix->end_index;
+                    continue;
+                }
+                const auto packed_dot = policy_.packed_dot_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_dot_reduction_loop(function, instruction_index)
+                    : std::nullopt;
+                if (packed_dot) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure("packed dot reduction requires empty x64 machine stack");
+                    }
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_dot_reduction(*packed_dot);
+                    instruction_index = packed_dot->end_index;
+                    continue;
+                }
+                const auto numeric_map = policy_.dense_numeric_maps
+                    ? detect_dense_numeric_map_loop(function, instruction_index)
+                    : std::nullopt;
+                if (numeric_map) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure("dense numeric map loop requires empty x64 machine stack");
+                    }
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_dense_numeric_map_loop(frame, *numeric_map);
+                    instruction_index = numeric_map->end_index;
+                    continue;
+                }
+                const auto dense_map = policy_.dense_affine_maps
+                    ? detect_dense_affine_map_loop(function, instruction_index)
+                    : std::nullopt;
+                if (dense_map) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure("dense affine map loop requires empty x64 machine stack");
+                    }
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_dense_affine_map_loop(frame, *dense_map);
+                    instruction_index = dense_map->end_index;
+                    continue;
+                }
                 const auto scalar_loop = detect_scalar_recurrence_loop(function, instruction_index);
                 if (scalar_loop) {
                     if (stack_depth != 0) {
@@ -3435,7 +4330,9 @@ private:
                     instruction_index = scalar_loop->end_index;
                     continue;
                 }
-                const auto avx_loop = detect_avx_affine_loop(function, instruction_index);
+                const auto avx_loop = policy_.avx_affine_loops
+                    ? detect_avx_affine_loop(function, instruction_index)
+                    : std::nullopt;
                 if (avx_loop) {
                     if (stack_depth != 0) {
                         throw BackendFailure("AVX affine loop requires empty x64 machine stack");
@@ -3449,6 +4346,60 @@ private:
                 }
             }
             if (stack_depth == 0) {
+                if (instruction_index + 3 < function.instructions.size()) {
+                    const auto& left = function.instructions[instruction_index];
+                    const auto& right = function.instructions[instruction_index + 1];
+                    const auto arithmetic = function.instructions[instruction_index + 2].opcode;
+                    const auto& store = function.instructions[instruction_index + 3];
+                    const auto integral_constant = [&](const auto& operand) {
+                        return operand.opcode == Opcode::PushF64 &&
+                            operand.f64 == std::floor(operand.f64) &&
+                            operand.f64 >= static_cast<double>(
+                                std::numeric_limits<std::int32_t>::min()) &&
+                            operand.f64 <= static_cast<double>(
+                                std::numeric_limits<std::int32_t>::max());
+                    };
+                    const auto integral_operand = [&](const auto& operand) {
+                        return (operand.opcode == Opcode::LoadLocal &&
+                                local_is_i64(operand.index)) ||
+                            integral_constant(operand);
+                    };
+                    if (integral_operand(left) && integral_operand(right) &&
+                        (arithmetic == Opcode::AddF64 ||
+                         arithmetic == Opcode::SubtractF64 ||
+                         arithmetic == Opcode::MultiplyF64) &&
+                        store.opcode == Opcode::StoreLocal && local_is_i64(store.index)) {
+                        if (left.opcode == Opcode::LoadLocal) {
+                            code_.raw({0x48, 0x8b, 0x85});
+                            code_.i32(frame.displacement(left.index));
+                        } else {
+                            code_.raw({0x48, 0xb8});
+                            code_.u64(static_cast<std::uint64_t>(
+                                static_cast<std::int64_t>(left.f64)));
+                        }
+                        if (right.opcode == Opcode::LoadLocal) {
+                            if (arithmetic == Opcode::MultiplyF64) {
+                                code_.raw({0x48, 0x0f, 0xaf, 0x85});
+                            } else {
+                                code_.raw({0x48,
+                                           arithmetic == Opcode::AddF64 ? 0x03u : 0x2bu,
+                                           0x85});
+                            }
+                            code_.i32(frame.displacement(right.index));
+                        } else if (arithmetic == Opcode::MultiplyF64) {
+                            code_.raw({0x48, 0x69, 0xc0});
+                            code_.i32(static_cast<std::int32_t>(right.f64));
+                        } else {
+                            code_.raw({0x48,
+                                       arithmetic == Opcode::AddF64 ? 0x05u : 0x2du});
+                            code_.i32(static_cast<std::int32_t>(right.f64));
+                        }
+                        code_.raw({0x48, 0x89, 0x85});
+                        code_.i32(frame.displacement(store.index));
+                        instruction_index += 3;
+                        continue;
+                    }
+                }
                 const auto expression = expression_plan_at(instruction_index);
                 if (expression) {
                     emit_expression_plan(*expression);
@@ -3457,6 +4408,44 @@ private:
                 }
             }
             expression_index_cache = {};
+            if (instruction_index + 5 < function.instructions.size()) {
+                const auto& dividend = function.instructions[instruction_index];
+                const auto& divisor = function.instructions[instruction_index + 1];
+                const auto remainder = function.instructions[instruction_index + 2].opcode;
+                const auto& zero = function.instructions[instruction_index + 3];
+                const auto compare = function.instructions[instruction_index + 4].opcode;
+                const auto& jump = function.instructions[instruction_index + 5];
+                const bool supported_compare = compare == Opcode::OrderedEqualF64 ||
+                    compare == Opcode::UnorderedNotEqualF64;
+                const bool supported_jump = jump.opcode == Opcode::JumpIfFalse ||
+                    jump.opcode == Opcode::JumpIfTrue;
+                const auto divisor_value = divisor.opcode == Opcode::PushF64
+                    ? static_cast<std::int64_t>(divisor.f64) : 0;
+                const auto absolute_divisor = divisor_value < 0 ? -divisor_value : divisor_value;
+                const bool power_of_two = absolute_divisor > 0 && absolute_divisor <= 256 &&
+                    (absolute_divisor & (absolute_divisor - 1)) == 0 &&
+                    divisor.f64 == static_cast<double>(divisor_value);
+                if (policy_.parity_specialization &&
+                    dividend.opcode == Opcode::LoadLocal && local_is_i64(dividend.index) &&
+                    power_of_two && remainder == Opcode::RemainderF64 &&
+                    zero.opcode == Opcode::PushF64 && zero.f64 == 0.0 &&
+                    supported_compare && supported_jump) {
+                    // For signed integers, divisibility by 2^n is exactly a test
+                    // of the low n bits. This removes both floating conversions
+                    // and the division used by the generic remainder path.
+                    code_.raw({0xf6, 0x85});
+                    code_.i32(frame.displacement(dividend.index));
+                    code_.raw({static_cast<unsigned>(absolute_divisor - 1)});
+                    const bool result_when_zero = compare == Opcode::OrderedEqualF64;
+                    const bool branch_on_result = jump.opcode == Opcode::JumpIfTrue;
+                    const bool branch_when_zero = result_when_zero == branch_on_result;
+                    branches.push_back({
+                        emit_jump(branch_when_zero ? 0x84 : 0x85), jump.label
+                    });
+                    instruction_index += 5;
+                    continue;
+                }
+            }
             {
                 const auto left = fused_operand_at(instruction_index);
                 const auto right = left ? fused_operand_at(left->next) : std::nullopt;
@@ -3510,6 +4499,43 @@ private:
                     compare == Opcode::UnorderedNotEqualF64;
                 if (is_operand(left) && is_operand(right) && comparison &&
                     (jump.opcode == Opcode::JumpIfFalse || jump.opcode == Opcode::JumpIfTrue)) {
+                    const bool integer_left = left.opcode == Opcode::LoadLocal &&
+                        local_is_i64(left.index);
+                    const bool integer_constant_right = right.opcode == Opcode::PushF64 &&
+                        right.f64 == std::floor(right.f64) &&
+                        right.f64 >= static_cast<double>(std::numeric_limits<std::int32_t>::min()) &&
+                        right.f64 <= static_cast<double>(std::numeric_limits<std::int32_t>::max());
+                    const bool integer_local_right = right.opcode == Opcode::LoadLocal &&
+                        local_is_i64(right.index);
+                    if (integer_left && (integer_constant_right || integer_local_right)) {
+                        if (integer_constant_right) {
+                            code_.raw({0x48, 0x81, 0xbd});
+                            code_.i32(frame.displacement(left.index));
+                            code_.i32(static_cast<std::int32_t>(right.f64));
+                        } else {
+                            code_.raw({0x48, 0x8b, 0x85});
+                            code_.i32(frame.displacement(left.index));
+                            code_.raw({0x48, 0x3b, 0x85});
+                            code_.i32(frame.displacement(right.index));
+                        }
+                        const unsigned true_condition = compare == Opcode::OrderedLessF64 ? 0x8c
+                            : compare == Opcode::OrderedLessEqualF64 ? 0x8e
+                            : compare == Opcode::OrderedGreaterF64 ? 0x8f
+                            : compare == Opcode::OrderedGreaterEqualF64 ? 0x8d
+                            : compare == Opcode::OrderedEqualF64 ? 0x84 : 0x85;
+                        const unsigned false_condition = compare == Opcode::OrderedLessF64 ? 0x8d
+                            : compare == Opcode::OrderedLessEqualF64 ? 0x8f
+                            : compare == Opcode::OrderedGreaterF64 ? 0x8e
+                            : compare == Opcode::OrderedGreaterEqualF64 ? 0x8c
+                            : compare == Opcode::OrderedEqualF64 ? 0x85 : 0x84;
+                        branches.push_back({
+                            emit_jump(jump.opcode == Opcode::JumpIfTrue
+                                ? true_condition : false_condition),
+                            jump.label
+                        });
+                        instruction_index += 3;
+                        continue;
+                    }
                     const auto load_operand = [&](
                         const vkf::machine_ir::Instruction& operand, unsigned reg) {
                         if (operand.opcode == Opcode::PushF64) emit_number(operand.f64, reg);
@@ -4421,8 +5447,8 @@ private:
                     instruction.argument_count > frame.local_count - instruction.index) {
                     throw BackendFailure("invalid x64 stat.range local reduction range");
                 }
-                code_.raw({0x48, 0x8d, 0x85});
-                code_.i32(frame.displacement(instruction.index));
+                emit_fixed_base_address(
+                    instruction.index, instruction.argument_count);
                 code_.raw({0xf2, 0x0f, 0x10, 0x00,
                            0x66, 0x0f, 0x28, 0xc8,
                            0x48, 0x83, 0xe8, 0x08,
@@ -4698,10 +5724,18 @@ private:
                     throw BackendFailure("invalid x64 fixed-vector index range");
                 }
                 const unsigned first = stack_depth - 1;
-                load_xmm(0, frame.displacement(frame.temp_base + first));
-                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
+                const bool native_index_local = policy_.native_index_addressing &&
+                    instruction.index_local &&
+                    local_is_i64(*instruction.index_local);
+                if (native_index_local) {
+                    code_.raw({0x48, 0x8b, 0x8d});
+                    code_.i32(frame.displacement(*instruction.index_local));
+                } else {
+                    load_xmm(0, frame.displacement(frame.temp_base + first));
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
+                }
                 std::vector<std::size_t> invalid;
-                if (!instruction.index_is_integral) {
+                if (!instruction.index_is_integral && !native_index_local) {
                     code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc9,
                                0x66, 0x0f, 0x2e, 0xc8});
                     invalid.push_back(emit_jump(0x85));
@@ -4716,8 +5750,8 @@ private:
                     code_.i32(static_cast<std::int32_t>(instruction.argument_count));
                     invalid.push_back(emit_jump(0x83));
                 }
-                code_.raw({0x48, 0x8d, 0x85});
-                code_.i32(frame.displacement(instruction.index));
+                emit_fixed_base_address(
+                    instruction.index, instruction.argument_count);
                 code_.raw({0x48, 0xf7, 0xd9,
                            0xf2, 0x0f, 0x10, 0x04, 0xc8});
                 store_xmm(0, frame.displacement(frame.temp_base + first));
@@ -4751,10 +5785,18 @@ private:
                     throw BackendFailure("invalid x64 fixed-vector update range");
                 }
                 const unsigned first = stack_depth - 2;
-                load_xmm(0, frame.displacement(frame.temp_base + first));
-                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
+                const bool native_index_local = policy_.native_index_addressing &&
+                    instruction.index_local &&
+                    local_is_i64(*instruction.index_local);
+                if (native_index_local) {
+                    code_.raw({0x48, 0x8b, 0x8d});
+                    code_.i32(frame.displacement(*instruction.index_local));
+                } else {
+                    load_xmm(0, frame.displacement(frame.temp_base + first));
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
+                }
                 std::vector<std::size_t> invalid;
-                if (!instruction.index_is_integral) {
+                if (!instruction.index_is_integral && !native_index_local) {
                     code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc9,
                                0x66, 0x0f, 0x2e, 0xc8});
                     invalid.push_back(emit_jump(0x85));
@@ -5090,9 +6132,45 @@ private:
             } else if (opcode == Opcode::Call) {
                 require_stack(stack_depth, instruction.argument_count);
                 const unsigned first = stack_depth - instruction.argument_count;
+                std::optional<std::uint32_t> direct_result_base;
+                if (policy_.direct_aggregate_results && instruction.result_count >= 8u &&
+                    instruction.result_count <= function.instructions.size() - instruction_index - 1u) {
+                    const auto& first_store = function.instructions[instruction_index + 1u];
+                    if (first_store.opcode == Opcode::StoreLocal &&
+                        first_store.index + 1u >= instruction.result_count) {
+                        const auto base = first_store.index + 1u - instruction.result_count;
+                        bool contiguous = base <= frame.local_count &&
+                            instruction.result_count <= frame.local_count - base;
+                        for (std::uint32_t result_index = 0;
+                             contiguous && result_index < instruction.result_count; ++result_index) {
+                            const auto& store =
+                                function.instructions[instruction_index + 1u + result_index];
+                            const auto destination = base + instruction.result_count - 1u - result_index;
+                            contiguous = store.opcode == Opcode::StoreLocal &&
+                                store.index == destination &&
+                                destination < function.local_classes.size() &&
+                                function.local_classes[destination] ==
+                                    vkf::machine_ir::ValueClass::F64;
+                        }
+                        if (contiguous) direct_result_base = base;
+                    }
+                }
+                const bool forward_tail_results = policy_.direct_aggregate_results && !entry &&
+                    instruction.result_count >= 8u && !direct_result_base &&
+                    instruction_index + 1u < function.instructions.size() &&
+                    function.instructions[instruction_index + 1u].opcode == Opcode::ReturnValues &&
+                    function.instructions[instruction_index + 1u].result_count ==
+                        instruction.result_count;
                 code_.raw({0x4c, 0x8d, 0x95});
                 code_.i32(frame.displacement(frame.temp_base + first));
-                code_.raw({0x4d, 0x89, 0xd3});
+                if (direct_result_base) {
+                    code_.raw({0x4c, 0x8d, 0x9d});
+                    code_.i32(frame.displacement(*direct_result_base));
+                } else if (forward_tail_results) {
+                    restore_result_context(frame);
+                } else {
+                    code_.raw({0x4d, 0x89, 0xd3});
+                }
                 if (instruction.uses_parameter_mask) {
                     code_.raw({0x41, 0xb9});
                     code_.i32(static_cast<std::int32_t>(instruction.provided_parameter_mask));
@@ -5100,7 +6178,9 @@ private:
                 code_.byte(0xe8);
                 calls_.push_back({code_.rel32_placeholder(), instruction.symbol});
                 stack_depth = first;
-                stack_depth += instruction.result_count;
+                if (!direct_result_base && !forward_tail_results) {
+                    stack_depth += instruction.result_count;
+                }
                 if (instruction.may_error) {
                     if (instruction.has_error_handler) {
                         store_error_message_local(frame, instruction.error_value_local);
@@ -5128,6 +6208,12 @@ private:
                         }
                         code_.patch_rel32(succeeded, code_.position());
                     }
+                }
+                if (direct_result_base) {
+                    instruction_index += instruction.result_count;
+                } else if (forward_tail_results) {
+                    epilogue();
+                    ++instruction_index;
                 }
             } else if (opcode == Opcode::Label) {
                 if (!labels.emplace(instruction.label, code_.position()).second) {
@@ -5355,6 +6441,68 @@ private:
     }
 };
 
+vf::JsonValue adaptive_optimizer_json(
+    const std::vector<vkf::adaptive_optimizer::FunctionDecision>& decisions,
+    const vkf::adaptive_optimizer::Policy& policy
+) {
+    vf::JsonValue::Array functions;
+    std::string module_material;
+    for (const auto& decision : decisions) {
+        vf::JsonValue::Object function;
+        function["name"] = decision.name;
+        function["fingerprint"] = decision.fingerprint;
+        function["target_features"] = decision.target_features;
+        function["pure"] = decision.pure;
+        function["deterministic"] = decision.deterministic;
+        function["instruction_count"] = static_cast<double>(decision.instruction_count);
+        function["local_count"] = static_cast<double>(decision.local_count);
+        function["loop_count"] = static_cast<double>(decision.loop_count);
+        function["integer_local_count"] = static_cast<double>(decision.integer_local_count);
+        vf::JsonValue::Array strategies;
+        for (const auto& strategy : decision.strategies) strategies.emplace_back(strategy);
+        function["strategies"] = std::move(strategies);
+        vf::JsonValue::Array regions;
+        for (const auto& decision_region : decision.regions) {
+            vf::JsonValue::Object region;
+            region["label"] = static_cast<double>(decision_region.label);
+            region["width"] = static_cast<double>(decision_region.width);
+            region["kind"] = decision_region.kind;
+            region["strategy"] = decision_region.strategy;
+            regions.emplace_back(std::move(region));
+        }
+        function["regions"] = std::move(regions);
+        functions.emplace_back(std::move(function));
+        module_material += decision.fingerprint;
+        module_material.push_back('|');
+    }
+    vf::JsonValue::Object report;
+    report["schema"] = "vkf.adaptive-optimizer";
+    report["version"] = static_cast<double>(vkf::adaptive_optimizer::schema_version);
+    report["tier"] = "tier0";
+    report["policy"] = policy.name;
+    vf::JsonValue::Array switches;
+    const auto add_switch = [&](bool enabled, const char* name) {
+        if (enabled) switches.emplace_back(name);
+    };
+    add_switch(policy.borrowed_aggregate_parameters, "borrowed-aggregate-parameters");
+    add_switch(policy.direct_aggregate_results, "direct-aggregate-results");
+    add_switch(policy.packed_matrix_reductions, "packed-matrix-reductions");
+    add_switch(policy.native_integer_locals, "native-integer-locals");
+    add_switch(policy.native_index_addressing, "native-index-addressing");
+    add_switch(policy.parity_specialization, "parity-specialization");
+    add_switch(policy.fused_multiply_add, "fused-multiply-add");
+    add_switch(policy.packed_dot_reductions, "packed-dot-reductions");
+    report["switches"] = std::move(switches);
+    report["dense_numeric_maps"] = policy.dense_numeric_maps;
+    report["dense_affine_maps"] = policy.dense_affine_maps;
+    report["avx_affine_loops"] = policy.avx_affine_loops;
+    report["register_cache"] = policy.register_cache;
+    report["fingerprint"] = vkf::adaptive_optimizer::hexadecimal(
+        vkf::adaptive_optimizer::fnv1a(module_material));
+    report["functions"] = std::move(functions);
+    return vf::JsonValue(std::move(report));
+}
+
 bool can_use_minimal_numeric_elf(const vkf::machine_ir::Module& module) {
     using vkf::machine_ir::Opcode;
     if (module.output_kind != vkf::machine_ir::OutputKind::F64) return false;
@@ -5409,6 +6557,516 @@ bool can_use_minimal_numeric_elf(const vkf::machine_ir::Module& module) {
         module.functions.begin(), module.functions.end(), function_is_pure_numeric);
 }
 
+bool can_tune_machine_code(const vkf::machine_ir::Module& module) {
+    if (module.output_kind != vkf::machine_ir::OutputKind::F64) return false;
+    const auto safe_function = [](const vkf::machine_ir::Function& function) {
+        if (!function.owned_f64_list_locals.empty() || !function.owned_string_locals.empty()) {
+            return false;
+        }
+        return std::all_of(
+            function.instructions.begin(), function.instructions.end(),
+            [](const auto& instruction) {
+                return !vkf::adaptive_optimizer::is_effectful(instruction.opcode) &&
+                    !vkf::adaptive_optimizer::is_nondeterministic(instruction.opcode);
+            });
+    };
+    return safe_function(module.entry) && std::all_of(
+        module.functions.begin(), module.functions.end(), safe_function);
+}
+
+struct TuningCandidateReport {
+    std::string policy;
+    std::string code_hash;
+    std::size_t code_bytes = 0;
+    std::uint32_t runs = 0;
+    double median_ns = 0.0;
+    double mean_ns = 0.0;
+    double stddev_ns = 0.0;
+    bool tested = false;
+    bool correct = true;
+};
+
+std::string machine_code_hash(const std::vector<unsigned char>& code) {
+    return vkf::adaptive_optimizer::hexadecimal(vkf::adaptive_optimizer::fnv1a(
+        std::string_view(
+            reinterpret_cast<const char*>(code.data()), code.size())));
+}
+
+struct TuningResult {
+    vkf::adaptive_optimizer::Policy policy;
+    std::vector<unsigned char> code;
+    std::vector<TuningCandidateReport> candidates;
+    std::uint32_t total_runs = 0;
+    double elapsed_ms = 0.0;
+    bool eligible = false;
+    bool tuned = false;
+    bool cache_hit = false;
+    std::string fingerprint;
+    std::uint32_t landscape_runs = 0;
+};
+
+class ExecutableCode {
+public:
+    ExecutableCode(const std::vector<unsigned char>& code, const unsigned char* string_data)
+        : size_(code.size()) {
+        if (code.empty()) throw BackendFailure("cannot benchmark empty x64 code");
+#ifdef _WIN32
+        memory_ = VirtualAlloc(nullptr, size_, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (!memory_) throw BackendFailure("could not allocate optimizer executable memory");
+#else
+        memory_ = mmap(nullptr, size_, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (memory_ == MAP_FAILED) {
+            memory_ = nullptr;
+            throw BackendFailure("could not allocate optimizer executable memory");
+        }
+#endif
+        std::memcpy(memory_, code.data(), size_);
+#ifdef _WIN32
+        DWORD previous = 0;
+        if (!VirtualProtect(memory_, size_, PAGE_EXECUTE_READ, &previous)) {
+            VirtualFree(memory_, 0, MEM_RELEASE);
+            memory_ = nullptr;
+            throw BackendFailure("could not protect optimizer executable memory");
+        }
+        FlushInstructionCache(GetCurrentProcess(), memory_, size_);
+#else
+        if (mprotect(memory_, size_, PROT_READ | PROT_EXEC) != 0) {
+            munmap(memory_, size_);
+            memory_ = nullptr;
+            throw BackendFailure("could not protect optimizer executable memory");
+        }
+#endif
+        runtime_.fill(0);
+        runtime_[0] = function_address(static_cast<double (*)(double, double)>(std::pow));
+        runtime_[1] = function_address(static_cast<double (*)(double, double)>(std::fmod));
+        runtime_[2] = function_address(static_cast<double (*)(double)>(std::floor));
+        runtime_[3] = function_address(static_cast<double (*)(double)>(std::log));
+        runtime_[4] = function_address(static_cast<double (*)(double)>(std::sin));
+        runtime_[5] = function_address(static_cast<double (*)(double)>(std::cos));
+        runtime_[6] = function_address(static_cast<double (*)(double)>(std::exp));
+        runtime_[7] = reinterpret_cast<std::uintptr_t>(string_data);
+        runtime_[8] = function_address(static_cast<void* (*)(std::size_t)>(std::malloc));
+        runtime_[9] = function_address(static_cast<void (*)(void*)>(std::free));
+        runtime_[10] = function_address(&tuning_abort);
+    }
+
+    ~ExecutableCode() {
+        if (!memory_) return;
+#ifdef _WIN32
+        VirtualFree(memory_, 0, MEM_RELEASE);
+#else
+        munmap(memory_, size_);
+#endif
+    }
+
+    ExecutableCode(const ExecutableCode&) = delete;
+    ExecutableCode& operator=(const ExecutableCode&) = delete;
+
+    double run() const {
+        using Entry = double (*)(const std::uintptr_t*);
+        std::jmp_buf escape;
+        active_escape_ = &escape;
+        if (setjmp(escape) != 0) {
+            active_escape_ = nullptr;
+            throw BackendFailure("optimizer candidate raised a runtime error");
+        }
+        const double result = reinterpret_cast<Entry>(memory_)(runtime_.data());
+        active_escape_ = nullptr;
+        return result;
+    }
+
+private:
+    [[noreturn]] static void tuning_abort() {
+        if (active_escape_) std::longjmp(*active_escape_, 1);
+        std::abort();
+    }
+
+    template <typename Function>
+    static std::uintptr_t function_address(Function function) {
+        return reinterpret_cast<std::uintptr_t>(function);
+    }
+
+    void* memory_ = nullptr;
+    std::size_t size_ = 0;
+    std::array<std::uintptr_t, 37> runtime_{};
+    inline static thread_local std::jmp_buf* active_escape_ = nullptr;
+};
+
+double median(std::vector<double> samples) {
+    if (samples.empty()) return 0.0;
+    const auto middle = samples.begin() + static_cast<std::ptrdiff_t>(samples.size() / 2u);
+    std::nth_element(samples.begin(), middle, samples.end());
+    if ((samples.size() & 1u) != 0) return *middle;
+    const auto lower = std::max_element(samples.begin(), middle);
+    return (*lower + *middle) * 0.5;
+}
+
+double mean(const std::vector<double>& samples) {
+    if (samples.empty()) return 0.0;
+    return std::accumulate(samples.begin(), samples.end(), 0.0) /
+        static_cast<double>(samples.size());
+}
+
+double sample_stddev(const std::vector<double>& samples) {
+    if (samples.size() < 2) return 0.0;
+    const double average = mean(samples);
+    double squared = 0.0;
+    for (const double sample : samples) {
+        const double delta = sample - average;
+        squared += delta * delta;
+    }
+    return std::sqrt(squared / static_cast<double>(samples.size() - 1u));
+}
+
+bool equivalent_result(double expected, double actual) {
+    if (std::isnan(expected)) return std::isnan(actual);
+    if (std::isinf(expected) || std::isinf(actual)) return expected == actual;
+    const double scale = std::max({1.0, std::abs(expected), std::abs(actual)});
+    return std::abs(expected - actual) <= scale * 1e-12;
+}
+
+TuningResult tune_machine_code(
+    const vkf::machine_ir::Module& module,
+    std::uint32_t run_budget,
+    double time_budget_ms,
+    std::uint32_t landscape_runs
+) {
+    using Clock = std::chrono::steady_clock;
+    const auto started = Clock::now();
+    TuningResult result;
+    result.landscape_runs = landscape_runs;
+    result.policy = vkf::adaptive_optimizer::policy("auto");
+    result.eligible = can_tune_machine_code(module);
+    if (!result.eligible ||
+        (landscape_runs == 0 && (run_budget == 0 || !(time_budget_ms > 0.0)))) {
+        result.code = MachineX64Emitter(module, result.policy).emit();
+        return result;
+    }
+    const auto deadline = landscape_runs == 0
+        ? started + std::chrono::duration_cast<Clock::duration>(
+            std::chrono::duration<double, std::milli>(time_budget_ms))
+        : Clock::time_point::max();
+    struct Candidate {
+        vkf::adaptive_optimizer::Policy policy;
+        std::vector<unsigned char> code;
+        std::unique_ptr<ExecutableCode> executable;
+        std::vector<double> samples_ns;
+        std::size_t representative = 0;
+        bool correct = true;
+        bool tested = false;
+    };
+    std::vector<Candidate> candidates;
+    std::vector<std::uint32_t> policy_order{
+        vkf::adaptive_optimizer::policy_mask,
+        0u,
+    };
+    for (std::uint32_t bit = 1;
+         bit <= vkf::adaptive_optimizer::packed_dot_reduction_bit; bit <<= 1u) {
+        policy_order.push_back(vkf::adaptive_optimizer::policy_mask ^ bit);
+        policy_order.push_back(bit);
+    }
+    for (std::uint32_t mask = 0; mask <= vkf::adaptive_optimizer::policy_mask; ++mask) {
+        if (std::find(policy_order.begin(), policy_order.end(), mask) == policy_order.end()) {
+            policy_order.push_back(mask);
+        }
+    }
+    for (const auto mask : policy_order) {
+        if (landscape_runs == 0 && Clock::now() >= deadline && !candidates.empty()) break;
+        auto selected = vkf::adaptive_optimizer::policy_from_mask(mask);
+        auto code = MachineX64Emitter(module, selected).emit();
+        std::size_t representative = candidates.size();
+        for (std::size_t index = 0; index < candidates.size(); ++index) {
+            if (candidates[index].code == code) {
+                representative = candidates[index].representative;
+                break;
+            }
+        }
+        std::unique_ptr<ExecutableCode> executable;
+        if (representative == candidates.size()) {
+            executable = std::make_unique<ExecutableCode>(code, module.string_data.data());
+        }
+        candidates.push_back({
+            std::move(selected), std::move(code), std::move(executable), {},
+            representative, false, false});
+    }
+    if (candidates.empty()) {
+        result.code = MachineX64Emitter(module, result.policy).emit();
+        return result;
+    }
+
+    // Correctness executions count against the same shared budget as timing.
+    const auto reference_found = std::find_if(
+        candidates.begin(), candidates.end(), [](const Candidate& candidate) {
+            return vkf::adaptive_optimizer::mask(candidate.policy) == 0u;
+        });
+    const auto requested_reference = reference_found == candidates.end()
+        ? std::size_t{0}
+        : static_cast<std::size_t>(reference_found - candidates.begin());
+    const auto reference_index = candidates[requested_reference].representative;
+    Candidate& reference = candidates[reference_index];
+    double expected = 0.0;
+    try {
+        const auto run_started = Clock::now();
+        expected = reference.executable->run();
+        const auto run_finished = Clock::now();
+        if (landscape_runs == 0) {
+            reference.samples_ns.push_back(std::chrono::duration<double, std::nano>(
+                run_finished - run_started).count());
+        }
+        reference.correct = true;
+        reference.tested = true;
+        ++result.total_runs;
+    } catch (const BackendFailure&) {
+        result.eligible = false;
+        result.policy = reference.policy;
+        result.code = reference.code;
+        result.elapsed_ms = std::chrono::duration<double, std::milli>(
+            Clock::now() - started).count();
+        return result;
+    }
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+        auto& candidate = candidates[index];
+        if (index != candidate.representative || &candidate == &reference) continue;
+        if (landscape_runs == 0 &&
+            (result.total_runs >= run_budget || Clock::now() >= deadline)) break;
+        try {
+            const auto run_started = Clock::now();
+            const double actual = candidate.executable->run();
+            const auto run_finished = Clock::now();
+            candidate.correct = equivalent_result(expected, actual);
+            if (candidate.correct && landscape_runs == 0) {
+                candidate.samples_ns.push_back(std::chrono::duration<double, std::nano>(
+                    run_finished - run_started).count());
+            }
+        } catch (const BackendFailure&) {
+            candidate.correct = false;
+        }
+        candidate.tested = true;
+        ++result.total_runs;
+    }
+
+    std::vector<std::size_t> active;
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+        if (index == candidates[index].representative &&
+            candidates[index].tested && candidates[index].correct) {
+            active.push_back(index);
+        }
+    }
+    if (landscape_runs != 0) {
+        for (const auto index : active) {
+            volatile double value = candidates[index].executable->run();
+            (void)value;
+            ++result.total_runs;
+        }
+        std::vector<std::size_t> order = active;
+        for (std::uint32_t round = 0; round < landscape_runs; ++round) {
+            if (!order.empty()) {
+                const auto offset = static_cast<std::size_t>(
+                    (static_cast<std::uint64_t>(round) * 97u) % order.size());
+                std::rotate(order.begin(), order.begin() + offset, order.end());
+                if ((round & 1u) != 0) std::reverse(order.begin(), order.end());
+            }
+            for (const auto index : order) {
+                auto& candidate = candidates[index];
+                const auto sample_started = Clock::now();
+                volatile double value = candidate.executable->run();
+                (void)value;
+                const auto sample_finished = Clock::now();
+                candidate.samples_ns.push_back(
+                    std::chrono::duration<double, std::nano>(sample_finished - sample_started).count());
+                ++result.total_runs;
+            }
+        }
+        std::stable_sort(active.begin(), active.end(), [&](std::size_t left, std::size_t right) {
+            return mean(candidates[left].samples_ns) < mean(candidates[right].samples_ns);
+        });
+    } else {
+        std::uint32_t target_samples = 3;
+        while (!active.empty() && result.total_runs < run_budget && Clock::now() < deadline) {
+            bool sampled = false;
+            for (const auto index : active) {
+                auto& candidate = candidates[index];
+                while (candidate.samples_ns.size() < target_samples &&
+                       result.total_runs < run_budget && Clock::now() < deadline) {
+                    const auto sample_started = Clock::now();
+                    volatile double value = candidate.executable->run();
+                    (void)value;
+                    const auto sample_finished = Clock::now();
+                    candidate.samples_ns.push_back(
+                        std::chrono::duration<double, std::nano>(sample_finished - sample_started).count());
+                    ++result.total_runs;
+                    sampled = true;
+                }
+            }
+            if (!sampled) break;
+            std::stable_sort(active.begin(), active.end(), [&](std::size_t left, std::size_t right) {
+                return median(candidates[left].samples_ns) < median(candidates[right].samples_ns);
+            });
+            if (active.size() > 1) active.resize((active.size() + 1u) / 2u);
+            target_samples = std::min<std::uint32_t>(
+                run_budget, std::max<std::uint32_t>(target_samples + 1u, target_samples * 2u));
+        }
+    }
+
+    std::size_t winner = reference_index;
+    if (!active.empty() && !candidates[active.front()].samples_ns.empty()) winner = active.front();
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+        if (index == candidates[index].representative) continue;
+        const auto& representative = candidates[candidates[index].representative];
+        candidates[index].samples_ns = representative.samples_ns;
+        candidates[index].correct = representative.correct;
+        candidates[index].tested = representative.tested;
+    }
+    const auto enabled_switch_count = [](std::uint32_t value) {
+        std::uint32_t count = 0;
+        while (value != 0) {
+            value &= value - 1u;
+            ++count;
+        }
+        return count;
+    };
+    std::size_t selected_alias = winner;
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+        if (candidates[index].representative != winner) continue;
+        const auto candidate_mask = vkf::adaptive_optimizer::mask(candidates[index].policy);
+        const auto selected_mask = vkf::adaptive_optimizer::mask(candidates[selected_alias].policy);
+        if (enabled_switch_count(candidate_mask) < enabled_switch_count(selected_mask) ||
+            (enabled_switch_count(candidate_mask) == enabled_switch_count(selected_mask) &&
+             candidate_mask < selected_mask)) {
+            selected_alias = index;
+        }
+    }
+    result.policy = candidates[selected_alias].policy;
+    result.code = candidates[winner].code;
+    result.tuned = !candidates[winner].samples_ns.empty();
+    for (const auto& candidate : candidates) {
+        result.candidates.push_back({
+            candidate.policy.name,
+            machine_code_hash(candidate.code),
+            candidate.code.size(),
+            static_cast<std::uint32_t>(candidate.samples_ns.size()),
+            median(candidate.samples_ns),
+            mean(candidate.samples_ns),
+            sample_stddev(candidate.samples_ns),
+            candidate.tested,
+            candidate.correct,
+        });
+    }
+    result.elapsed_ms = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+    return result;
+}
+
+vf::JsonValue tuning_json(const TuningResult& tuning, std::string requested_policy) {
+    vf::JsonValue::Object report;
+    report["requested_policy"] = std::move(requested_policy);
+    report["selected_policy"] = tuning.policy.name;
+    report["eligible"] = tuning.eligible;
+    report["tuned"] = tuning.tuned;
+    report["cache_hit"] = tuning.cache_hit;
+    report["fingerprint"] = tuning.fingerprint;
+    report["total_runs"] = static_cast<double>(tuning.total_runs);
+    report["elapsed_ms"] = tuning.elapsed_ms;
+    report["landscape_runs"] = static_cast<double>(tuning.landscape_runs);
+    vf::JsonValue::Array candidates;
+    for (const auto& item : tuning.candidates) {
+        vf::JsonValue::Object candidate;
+        candidate["policy"] = item.policy;
+        candidate["code_hash"] = item.code_hash;
+        candidate["code_bytes"] = static_cast<double>(item.code_bytes);
+        candidate["runs"] = static_cast<double>(item.runs);
+        candidate["median_ns"] = item.median_ns;
+        candidate["mean_ns"] = item.mean_ns;
+        candidate["stddev_ns"] = item.stddev_ns;
+        candidate["tested"] = item.tested;
+        candidate["correct"] = item.correct;
+        candidates.emplace_back(std::move(candidate));
+    }
+    report["candidates"] = std::move(candidates);
+    return vf::JsonValue(std::move(report));
+}
+
+std::string tuning_fingerprint(const vf::JsonValue& typed_ir) {
+    std::string material = "vkf-empirical-tuner-v2\n" __DATE__ "\n" __TIME__ "\n";
+    material += vkf::target::host_x64_feature_key();
+    material.push_back('\n');
+    material += vf::json_stringify(typed_ir, -1);
+    return vkf::adaptive_optimizer::hexadecimal(
+        vkf::adaptive_optimizer::fnv1a(material));
+}
+
+std::optional<vkf::adaptive_optimizer::Policy> load_tuning_profile(
+    const std::filesystem::path& path,
+    const std::string& fingerprint
+) {
+    try {
+        if (!std::filesystem::is_regular_file(path)) return std::nullopt;
+        const auto parsed = vf::parse_json(read_text(path));
+        const auto& profile = object_of(parsed, "optimizer profile");
+        const auto stored_fingerprint = string_field(
+            profile, "fingerprint", "optimizer profile");
+        if (stored_fingerprint != fingerprint) return std::nullopt;
+        return vkf::adaptive_optimizer::policy(
+            string_field(profile, "selected_policy", "optimizer profile"));
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+std::filesystem::path optimizer_cache_root() {
+    const auto environment_path = [](const char* name) -> std::optional<std::filesystem::path> {
+#ifdef _WIN32
+        const DWORD required = GetEnvironmentVariableA(name, nullptr, 0);
+        if (required == 0) return std::nullopt;
+        std::string value(required, '\0');
+        const DWORD written = GetEnvironmentVariableA(name, value.data(), required);
+        if (written == 0 || written >= required) return std::nullopt;
+        value.resize(written);
+        return std::filesystem::path(value);
+#else
+        const char* value = std::getenv(name);
+        if (!value || !*value) return std::nullopt;
+        return std::filesystem::path(value);
+#endif
+    };
+#ifdef _WIN32
+    if (const auto local = environment_path("LOCALAPPDATA")) {
+        return *local / "VektorFlow" / "optimizer";
+    }
+#elif defined(__APPLE__)
+    if (const auto home = environment_path("HOME")) {
+        return *home / "Library" / "Caches" / "VektorFlow" / "optimizer";
+    }
+#else
+    if (const auto xdg = environment_path("XDG_CACHE_HOME")) {
+        return *xdg / "vektor-flow" / "optimizer";
+    }
+    if (const auto home = environment_path("HOME")) {
+        return *home / ".cache" / "vektor-flow" / "optimizer";
+    }
+#endif
+    return std::filesystem::temp_directory_path() / "vektor-flow-optimizer-cache";
+}
+
+void write_tuning_profile(const std::filesystem::path& path, const TuningResult& tuning) {
+    if (!tuning.tuned || tuning.fingerprint.empty()) return;
+    vf::JsonValue::Object profile;
+    profile["schema"] = "vkf.optimizer-profile";
+    profile["version"] = 1.0;
+    profile["fingerprint"] = tuning.fingerprint;
+    profile["target_features"] = std::string(vkf::target::host_x64_feature_key());
+    profile["selected_policy"] = tuning.policy.name;
+    profile["total_runs"] = static_cast<double>(tuning.total_runs);
+    profile["elapsed_ms"] = tuning.elapsed_ms;
+    try {
+        std::filesystem::create_directories(path.parent_path());
+        write_text(path, vf::json_stringify(vf::JsonValue(std::move(profile)), 2) + "\n");
+    } catch (const std::exception&) {
+        // Optimization profiles are best-effort cache data. Compilation must
+        // still succeed when a locked-down host has no writable cache root.
+    }
+}
+
 struct Args {
     std::filesystem::path self;
     std::filesystem::path source;
@@ -5460,19 +7118,56 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     const std::filesystem::path& runner_template,
     bool emit_debug_files,
     const std::filesystem::path& requested_artifact,
-    const std::string& cache_fingerprint
+    const std::string& cache_fingerprint,
+    const std::string& optimization_policy,
+    std::uint32_t optimization_run_budget,
+    double optimization_time_budget_ms,
+    std::uint32_t optimization_landscape_runs
 ) {
     constexpr auto target = vkf::target::host_x64_contract();
+    const std::string stem = source.stem().string().empty() ? "program" : source.stem().string();
+    const auto build_root = std::filesystem::absolute(source).parent_path() / ".vkfbuild";
+    const std::string optimizer_fingerprint = tuning_fingerprint(typed_ir);
+    const auto optimizer_profile_path = emit_debug_files
+        ? build_root / (stem + "-optimizer-profile.json")
+        : optimizer_cache_root() / (optimizer_fingerprint + ".json");
     std::vector<unsigned char> code;
     vkf::machine_ir::Module machine_ir;
+    std::vector<vkf::adaptive_optimizer::FunctionDecision> optimization_decisions;
+    vkf::adaptive_optimizer::Policy selected_policy;
+    TuningResult tuning;
     try {
         machine_ir = vkf::machine_ir::lower(typed_ir);
+        const bool supports_simd = vkf::target::host_x64_supports_avx2();
+        optimization_decisions = vkf::adaptive_optimizer::decide_module(
+            machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
         if (!cache_fingerprint.empty()) {
             const std::string marker = "VKF-CACHE-V1:" + cache_fingerprint;
             machine_ir.string_data.insert(
                 machine_ir.string_data.end(), marker.begin(), marker.end());
         }
-        code = MachineX64Emitter(machine_ir).emit();
+        const auto cached_policy = optimization_policy == "auto"
+            ? load_tuning_profile(optimizer_profile_path, optimizer_fingerprint)
+            : std::nullopt;
+        if (cached_policy) {
+            selected_policy = *cached_policy;
+            tuning.policy = selected_policy;
+            tuning.eligible = can_tune_machine_code(machine_ir);
+            tuning.cache_hit = true;
+            code = MachineX64Emitter(machine_ir, selected_policy).emit();
+        } else if (optimization_policy == "tune" || optimization_policy == "auto") {
+            tuning = tune_machine_code(
+                machine_ir, optimization_run_budget, optimization_time_budget_ms,
+                optimization_landscape_runs);
+            selected_policy = tuning.policy;
+            code = std::move(tuning.code);
+        } else {
+            selected_policy = vkf::adaptive_optimizer::policy(optimization_policy);
+            tuning.policy = selected_policy;
+            tuning.eligible = can_tune_machine_code(machine_ir);
+            code = MachineX64Emitter(machine_ir, selected_policy).emit();
+        }
+        tuning.fingerprint = optimizer_fingerprint;
     } catch (const vkf::machine_ir::LoweringFailure& error) {
         throw vkf_x64_backend::Unsupported(error.what());
     } catch (const BackendFailure& error) {
@@ -5531,8 +7226,6 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     compacted = is_pe && compact_code_section(executable, offset, code.size());
 #endif
 
-    const std::string stem = source.stem().string().empty() ? "program" : source.stem().string();
-    const auto build_root = std::filesystem::absolute(source).parent_path() / ".vkfbuild";
     const bool eval_source = source.parent_path().filename() == ".vkf-eval";
     const auto build_dir = emit_debug_files && !eval_source ? build_root / stem : build_root;
 #ifdef _WIN32
@@ -5547,6 +7240,7 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         code.size(),
     };
     std::filesystem::create_directories(result.artifact_path.parent_path());
+    write_tuning_profile(optimizer_profile_path, tuning);
     if (emit_debug_files) std::filesystem::create_directories(build_dir);
     const auto code_path = build_dir / "x64-code.bin";
     const auto data_path = build_dir / "x64-data.bin";
@@ -5569,6 +7263,9 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     if (emit_debug_files) {
         vf::JsonValue::Object manifest;
         manifest["backend"] = is_pe ? "x64-pe" : "x64-elf";
+        manifest["adaptive_optimizer"] = adaptive_optimizer_json(
+            optimization_decisions, selected_policy);
+        manifest["empirical_tuning"] = tuning_json(tuning, optimization_policy);
         manifest["artifact_bytes"] = static_cast<double>(executable.size());
         manifest["artifact_compacted"] = compacted;
         manifest["artifact_writer"] = template_bytes == 0 ? "compiler-owned" : "stage0-template";

@@ -61,3 +61,109 @@ scalar_recurrence_loop_preserves_branch_and_rounding() -> bit:
     result: _optimizer_scalar_recurrence_run(20000)
     ((result - 21.017288693559877) < 0.000000000000001 /\
      (result - 21.017288693559877) > -0.000000000000001)?!
+
+_optimizer_structural_scale(value:num) -> num:
+    value * 2 + 1
+
+_optimizer_structural_curve(value:num) -> num:
+    sqrt(value * value + 4) / 2
+
+structural_vector_loop_preserves_every_element() -> bit:
+    values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    mapped: _optimizer_structural_scale(values)
+    (mapped.0 = 3 /\ mapped.5 = 13 /\ mapped.11 = 25)?!
+
+structural_general_numeric_map_preserves_every_element() -> bit:
+    values: [0, 3, 0, 3, 0, 3, 0, 3, 0, 3]
+    mapped: _optimizer_structural_curve(values)
+    (mapped.0 = 1 /\ mapped.5 > 1.8 /\ mapped.5 < 1.81 /\ mapped.9 > 1.8 /\ mapped.9 < 1.81)?!
+
+_optimizer_integer_induction(count:int) -> int:
+    index: 0
+    total: 0
+    index < count?>
+        .total: total + index
+        .index: index + 1
+    total
+
+integer_induction_preserves_exact_loop_result() -> bit:
+    (_optimizer_integer_induction(1000) = 499500)?!
+
+_optimizer_even_sum(count:int) -> int:
+    index: 0
+    total: 0
+    index < count?>
+        index % 2 = 0?
+            .total: total + index
+        .index: index + 1
+    total
+
+integer_power_of_two_remainder_branch_preserves_result() -> bit:
+    (_optimizer_even_sum(1000) = 249500)?!
+
+_optimizer_large_vector_step(values:[num:12]) -> [num:12]:
+    [
+        values.0 + 1, values.1 + 2, values.2 + 3, values.3 + 4,
+        values.4 + 5, values.5 + 6, values.6 + 7, values.7 + 8,
+        values.8 + 9, values.9 + 10, values.10 + 11, values.11 + 12
+    ]
+
+_optimizer_large_vector_tail(values:[num:12]) -> [num:12]:
+    _optimizer_large_vector_step(values)
+
+large_vector_borrow_and_direct_result_preserve_every_element() -> bit:
+    result: _optimizer_large_vector_tail([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+    (result.0 = 2 /\ result.5 = 12 /\ result.11 = 24)?!
+
+_optimizer_matrix_row(values:[num:12], row:int) -> num:
+    column: 0
+    total: 0
+    diagonal: 0
+    column < 12?>
+        .diagonal: row + column
+        .total: total + (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.(column)
+        .column: column + 1
+    total
+
+_optimizer_matrix_column(values:[num:12], row:int) -> num:
+    column: 0
+    total: 0
+    diagonal: 0
+    column < 12?>
+        .diagonal: column + row
+        .total: total + (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.(column)
+        .column: column + 1
+    total
+
+packed_triangular_matrix_reductions_preserve_both_orientations() -> bit:
+    values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    row_value: _optimizer_matrix_row(values, 2)
+    column_value: _optimizer_matrix_column(values, 2)
+    ((row_value - 2.153477902093171) < 0.000000000001 /\
+     (row_value - 2.153477902093171) > -0.000000000001 /\
+     (column_value - 2.136112228357855) < 0.000000000001 /\
+     (column_value - 2.136112228357855) > -0.000000000001)?!
+
+_optimizer_dual_dot_ratio(left:[num:12], right:[num:12]) -> num:
+    index: 0
+    numerator: 0
+    denominator: 0
+    index < 12?>
+        .numerator: numerator + left.(index) * right.(index)
+        .denominator: denominator + right.(index) * right.(index)
+        .index: index + 1
+    numerator / denominator
+
+packed_dual_dot_reduction_preserves_remainder_elements() -> bit:
+    ratio: _optimizer_dual_dot_ratio(
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    )
+    ((ratio - 0.889975550122249) < 0.000000000001 /\
+     (ratio - 0.889975550122249) > -0.000000000001)?!
+
+_optimizer_resource_aggregate(program:str, args:[str:3]) -> str:
+    program & ":" & args.0 & args.1 & args.2
+
+resource_aggregate_parameters_survive_runtime_calls() -> bit:
+    (_optimizer_resource_aggregate("cmd", ["a", "b", "c"]) = "cmd:abc")?!

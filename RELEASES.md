@@ -1,5 +1,17 @@
 # Vektor Flow Native Releases
 
+## 0.1.5 — Adaptive Native Optimization
+
+0.1.5 turns x64 lowering choices into policy data, verifies candidate output
+against a scalar oracle, deduplicates identical machine code, and supports
+time-bounded per-program tuning. New safe packed kernels cover recognized fixed
+matrix and dual-dot reductions, alongside independently selectable aggregate,
+integer, indexing, parity, and FMA decisions.
+
+The committed 256-policy landscape records 309 native VKF tests, all-candidate
+correctness, exact code hashes, and honest timing uncertainty. Full details:
+[`docs/releases/0.1.5.md`](docs/releases/0.1.5.md).
+
 ## 0.1.4 — Standard Kernels And Numeric Lowering
 
 0.1.4 replaces ad-hoc comparison programs with cited spectral-norm,

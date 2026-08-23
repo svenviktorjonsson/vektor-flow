@@ -7,6 +7,17 @@
 
 namespace vkf::machine_ir {
 
+inline const char* value_class_name(ValueClass value_class) {
+    switch (value_class) {
+        case ValueClass::F64: return "f64";
+        case ValueClass::I64: return "i64";
+        case ValueClass::Bool: return "bit";
+        case ValueClass::Address: return "address";
+        case ValueClass::Aggregate: return "aggregate";
+    }
+    throw std::runtime_error("unknown machine IR value class");
+}
+
 inline const char* opcode_name(Opcode opcode) {
     switch (opcode) {
         case Opcode::PushF64: return "push_f64";
@@ -326,6 +337,10 @@ inline vf::JsonValue function_json(const Function& function) {
     for (const auto& parameter : function.parameters) parameters.emplace_back(parameter);
     vf::JsonValue::Array locals;
     for (const auto& local : function.locals) locals.emplace_back(local);
+    vf::JsonValue::Array local_classes;
+    for (const auto value_class : function.local_classes) {
+        local_classes.emplace_back(value_class_name(value_class));
+    }
     vf::JsonValue::Array instructions;
     for (const auto& instruction : function.instructions) instructions.push_back(instruction_json(instruction));
     vf::JsonValue::Array owned_f64_list_locals;
@@ -336,6 +351,7 @@ inline vf::JsonValue function_json(const Function& function) {
     vf::JsonValue::Object object;
     object["instructions"] = vf::JsonValue(std::move(instructions));
     object["locals"] = vf::JsonValue(std::move(locals));
+    object["local_classes"] = vf::JsonValue(std::move(local_classes));
     object["max_stack"] = static_cast<double>(function.max_stack);
     object["name"] = function.name;
     object["may_error"] = function.may_error;

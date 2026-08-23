@@ -1,0 +1,7 @@
+adaptive_curve(value:num) -> num:
+    sqrt(value * value + 4) / 2
+
+small: adaptive_curve([1, 2, 3, 4])
+large: adaptive_curve([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+
+:: small.0 + small.3 + large.0 + large.11

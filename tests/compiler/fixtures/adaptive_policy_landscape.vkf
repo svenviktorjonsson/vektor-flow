@@ -1,0 +1,12 @@
+landscape_curve(value:num) -> num:
+    sqrt(value * value + 4) / 2
+
+landscape_run(count:int) -> num:
+    values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    index: 0
+    index < count?>
+        .values: landscape_curve(values)
+        .index+: 1
+    values.0 + values.3 + values.7 + values.11
+
+:: landscape_run(1000)
