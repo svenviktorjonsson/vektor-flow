@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   assertVkfAcceptanceBudgets,
+  assertVkfRelativeKernelGate,
   benchmarkWorkRoot,
   parseBatchCompileSummaries,
   parseNumericOutput,
@@ -10,6 +11,32 @@ import {
   seriesStats,
   valuesAgree
 } from './run.mjs';
+
+test('relative kernel gate evaluates each same-host language pair independently', () => {
+  const row = (caseId, language, meanMs, count = 100) => ({
+    case: caseId,
+    language,
+    nativeRuntime: { count, meanMs }
+  });
+  const passing = [
+    row('spectral-norm-medium', 'vkf', 1.99),
+    row('spectral-norm-medium', 'c', 1),
+    row('spectral-norm-medium', 'rust', 1.01),
+    row('spectral-norm-medium', 'zig', 1.02)
+  ];
+  assert.doesNotThrow(() => assertVkfRelativeKernelGate(passing));
+  assert.throws(
+    () => assertVkfRelativeKernelGate([
+      ...passing.filter((result) => result.language !== 'rust'),
+      row('spectral-norm-medium', 'rust', 0.995)
+    ]),
+    /spectral-norm-medium vs rust: 2\.0000x must be under 2\.0x/
+  );
+  assert.doesNotThrow(() => assertVkfRelativeKernelGate([
+    row('fannkuch-redux-medium', 'vkf', 10, 50),
+    row('fannkuch-redux-medium', 'c', 1, 50)
+  ]));
+});
 
 test('numeric benchmark validation rejects missing or repeated output', () => {
   assert.equal(parseNumericOutput('21\n', 'vkf', 'scalar'), 21);

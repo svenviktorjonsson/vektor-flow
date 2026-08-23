@@ -29,5 +29,5 @@ On Windows, use
 
 The JSON report remains the machine-verifiable source for all individual
 samples. `embed-readme-evidence.mjs` refuses mismatched versions or source
-hashes before placing exact output and mean ± standard deviation in the landing
-README and complete language guide.
+hashes before placing exact output in the landing README or complete language
+guide. Per-example timing tables stay out of those documents.

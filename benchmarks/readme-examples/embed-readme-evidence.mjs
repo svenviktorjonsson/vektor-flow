@@ -78,25 +78,6 @@ function outputBlock(path, examples) {
   ].join("\n\n");
 }
 
-function timingTable(examples, includeScopeNote) {
-  const render = (section) => examples
-    .map((example) => `${example[section].meanMs.toFixed(3)} ± ${example[section].stddevMs.toFixed(3)} ms`)
-    .join(" | ");
-  const lines = [
-    "| Measured latency, 100 runs | Windows x64 | Linux x64 | macOS ARM64 |",
-    "| --- | ---: | ---: | ---: |",
-    `| Fresh executable build | ${render("compile")} |`,
-    `| Fresh-process launch + run | ${render("runtime")} |`,
-  ];
-  if (includeScopeNote) {
-    lines.push(
-      "",
-      "**Timing scope:** “Fresh executable build” compiles a fresh source path and emits a new native executable; the compiler process stays open, so compiler startup is excluded. “Fresh-process launch + run” starts that executable and includes OS loading, any platform security inspection, output capture, and teardown. It is not raw machine-code time.",
-    );
-  }
-  return lines.join("\n");
-}
-
 function platformConditionsTable() {
   const conditions = platforms.map(([, report]) => report.conditions);
   const cells = (render) => conditions.map(render).join(" | ");
@@ -152,7 +133,6 @@ readme = readme.replace(tagPattern, (snippet, path) => {
     snippet,
     `<!-- readme-evidence:start ${path} -->`,
     outputBlock(path, examples),
-    timingTable(examples, allowSubset),
     "<!-- readme-evidence:end -->",
   ].join("\n\n");
 });
@@ -165,4 +145,4 @@ for (const [label, map] of examplesByPlatform) {
 }
 
 writeFileSync(readmePath, readme);
-console.log(`embedded output and three-platform timing evidence for ${seen.size} examples`);
+console.log(`embedded verified output evidence for ${seen.size} examples`);

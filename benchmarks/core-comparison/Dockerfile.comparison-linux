@@ -1,18 +1,36 @@
-FROM ubuntu:24.04
+ARG BENCHMARK_PLATFORM=linux/amd64
+FROM --platform=${BENCHMARK_PLATFORM} ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        clang nodejs python3 python3-numpy python3-scipy rustc \
+        ca-certificates clang curl nodejs python3 python3-numpy python3-scipy rustc xz-utils \
     && rm -rf /var/lib/apt/lists/*
+
+ARG ZIG_VERSION=0.16.0
+ARG ZIG_SHA256=70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
+RUN curl --fail --location --retry 3 \
+        "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
+        --output /tmp/zig.tar.xz \
+    && echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | sha256sum --check --strict \
+    && mkdir -p /opt/zig \
+    && tar --extract --xz --file /tmp/zig.tar.xz --strip-components=1 --directory /opt/zig \
+    && ln -s /opt/zig/zig /usr/local/bin/zig \
+    && rm /tmp/zig.tar.xz
 
 WORKDIR /repo
 
+COPY package.json package.json
 COPY compiler/native compiler/native
+COPY compiler/self_hosted/stdlib compiler/self_hosted/stdlib
+COPY compiler/self_hosted/stdlib.vkf compiler/self_hosted/stdlib.vkf
 COPY native/VfOverlay/vf/json.cpp native/VfOverlay/vf/json.cpp
 COPY native/VfOverlay/vf/json.hpp native/VfOverlay/vf/json.hpp
 COPY benchmarks/core-comparison/run.mjs benchmarks/core-comparison/run.mjs
 COPY benchmarks/core-comparison/native_process_timer.c benchmarks/core-comparison/native_process_timer.c
 COPY benchmarks/core-comparison/native_entry_timer.c benchmarks/core-comparison/native_entry_timer.c
+COPY benchmarks/core-comparison/native_library_timer.c benchmarks/core-comparison/native_library_timer.c
 COPY benchmarks/core-comparison/programs benchmarks/core-comparison/programs
 RUN mkdir -p benchmarks/core-comparison/results
+
+CMD ["node", "benchmarks/core-comparison/run.mjs", "--case=spectral-norm-medium,fannkuch-redux-medium,n-body-medium", "--language=vkf,c,rust,zig", "--compile-runs=3", "--compile-warmups=1", "--runs=100", "--warmups=10", "--output=linux-x64-goal"]

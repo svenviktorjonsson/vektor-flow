@@ -662,6 +662,10 @@ private:
         unsigned context_slot = 0;
         unsigned scratch_slot = 0;
         unsigned scratch_slots = 0;
+        unsigned saved_xmm_slot = 0;
+        unsigned saved_xmm_slots = 0;
+        unsigned saved_gpr_slot = 0;
+        unsigned saved_gpr_slots = 6;
         unsigned error_pointer_slot = 0;
         unsigned error_length_slot = 0;
         unsigned error_type_slot = 0;
@@ -753,6 +757,14 @@ private:
     std::map<std::string, std::size_t> offsets_;
     std::vector<CallPatch> calls_;
     Code code_;
+    std::int32_t saved_xmm6_displacement_ = 0;
+    std::int32_t saved_xmm7_displacement_ = 0;
+    std::int32_t saved_rbx_displacement_ = 0;
+    std::int32_t saved_rsi_displacement_ = 0;
+    std::int32_t saved_rdi_displacement_ = 0;
+    std::int32_t saved_r13_displacement_ = 0;
+    std::int32_t saved_r14_displacement_ = 0;
+    std::int32_t saved_r15_displacement_ = 0;
 
     static std::optional<AffineTerm> parse_affine_term(
         const std::vector<vkf::machine_ir::Instruction>& instructions,
@@ -1416,11 +1428,17 @@ private:
             capture_scratch_slots,
             static_cast<unsigned>(needs_scratch),
         });
-        frame.error_pointer_slot = frame.scratch_slot + frame.scratch_slots;
+        frame.saved_xmm_slot = frame.scratch_slot + frame.scratch_slots;
+#ifdef _WIN32
+        frame.saved_xmm_slots = 4u;
+#endif
+        frame.saved_gpr_slot = frame.saved_xmm_slot + frame.saved_xmm_slots;
+        frame.error_pointer_slot = frame.saved_gpr_slot + frame.saved_gpr_slots;
         frame.error_length_slot = frame.error_pointer_slot + 1u;
         frame.error_type_slot = frame.error_length_slot + 1u;
         const unsigned value_slots = frame.local_count + frame.max_stack + 1u +
-            frame.scratch_slots + (function.may_error ? 3u : 0u);
+            frame.scratch_slots + frame.saved_xmm_slots + frame.saved_gpr_slots +
+            (function.may_error ? 3u : 0u);
         const unsigned used = value_slots * 8 + target.caller_shadow_bytes;
         frame.frame_bytes = (used + target.stack_alignment - 1) & ~(target.stack_alignment - 1u);
         return frame;
@@ -1429,9 +1447,55 @@ private:
     void prologue(const Frame& frame) {
         code_.raw({0x55, 0x48, 0x89, 0xe5});
         emit_stack_allocation(code_, frame.frame_bytes);
+#ifdef _WIN32
+        code_.raw({0xf3, 0x0f, 0x7f, 0xb5});
+        code_.i32(frame.displacement(frame.saved_xmm_slot));
+        code_.raw({0xf3, 0x0f, 0x7f, 0xbd});
+        code_.i32(frame.displacement(frame.saved_xmm_slot + 2u));
+        saved_xmm6_displacement_ = frame.displacement(frame.saved_xmm_slot);
+        saved_xmm7_displacement_ = frame.displacement(frame.saved_xmm_slot + 2u);
+#endif
+        code_.raw({0x48, 0x89, 0x9d});
+        code_.i32(frame.displacement(frame.saved_gpr_slot));
+        code_.raw({0x48, 0x89, 0xb5});
+        code_.i32(frame.displacement(frame.saved_gpr_slot + 1u));
+        code_.raw({0x48, 0x89, 0xbd});
+        code_.i32(frame.displacement(frame.saved_gpr_slot + 2u));
+        code_.raw({0x4c, 0x89, 0xad});
+        code_.i32(frame.displacement(frame.saved_gpr_slot + 3u));
+        code_.raw({0x4c, 0x89, 0xb5});
+        code_.i32(frame.displacement(frame.saved_gpr_slot + 4u));
+        code_.raw({0x4c, 0x89, 0xbd});
+        code_.i32(frame.displacement(frame.saved_gpr_slot + 5u));
+        saved_rbx_displacement_ = frame.displacement(frame.saved_gpr_slot);
+        saved_rsi_displacement_ = frame.displacement(frame.saved_gpr_slot + 1u);
+        saved_rdi_displacement_ = frame.displacement(frame.saved_gpr_slot + 2u);
+        saved_r13_displacement_ = frame.displacement(frame.saved_gpr_slot + 3u);
+        saved_r14_displacement_ = frame.displacement(frame.saved_gpr_slot + 4u);
+        saved_r15_displacement_ = frame.displacement(frame.saved_gpr_slot + 5u);
     }
 
-    void epilogue() { code_.raw({0xc9, 0xc3}); }
+    void epilogue() {
+#ifdef _WIN32
+        code_.raw({0xf3, 0x0f, 0x6f, 0xb5});
+        code_.i32(saved_xmm6_displacement_);
+        code_.raw({0xf3, 0x0f, 0x6f, 0xbd});
+        code_.i32(saved_xmm7_displacement_);
+#endif
+        code_.raw({0x48, 0x8b, 0x9d});
+        code_.i32(saved_rbx_displacement_);
+        code_.raw({0x48, 0x8b, 0xb5});
+        code_.i32(saved_rsi_displacement_);
+        code_.raw({0x48, 0x8b, 0xbd});
+        code_.i32(saved_rdi_displacement_);
+        code_.raw({0x4c, 0x8b, 0xad});
+        code_.i32(saved_r13_displacement_);
+        code_.raw({0x4c, 0x8b, 0xb5});
+        code_.i32(saved_r14_displacement_);
+        code_.raw({0x4c, 0x8b, 0xbd});
+        code_.i32(saved_r15_displacement_);
+        code_.raw({0xc9, 0xc3});
+    }
 
     void save_runtime_context(const Frame& frame) {
         code_.raw({0x4c, 0x89, 0xa5});
@@ -3375,8 +3439,758 @@ private:
         store_xmm(0, frame.displacement(frame.temp_base + first));
     }
 
+    static bool is_integer_function_candidate(const vkf::machine_ir::Function& function) {
+        using vkf::machine_ir::Opcode;
+        const auto range_is_i64 = [&](std::uint32_t base, std::uint32_t width) {
+            if (base > function.local_classes.size() ||
+                width > function.local_classes.size() - base) return false;
+            return std::all_of(
+                function.local_classes.begin() + base,
+                function.local_classes.begin() + base + width,
+                [](auto value) { return value == vkf::machine_ir::ValueClass::I64; });
+        };
+        for (std::size_t instruction_index = 0;
+             instruction_index < function.instructions.size(); ++instruction_index) {
+            const auto& instruction = function.instructions[instruction_index];
+            switch (instruction.opcode) {
+                case Opcode::PushF64:
+                    if (!std::isfinite(instruction.f64) ||
+                        instruction.f64 != std::floor(instruction.f64)) return false;
+                    break;
+                case Opcode::LoadLocal:
+                case Opcode::StoreLocal:
+                    if (instruction.index >= function.local_classes.size() ||
+                        function.local_classes[instruction.index] !=
+                            vkf::machine_ir::ValueClass::I64) return false;
+                    break;
+                case Opcode::LoadF64LocalsIndex:
+                case Opcode::StoreF64LocalsIndex:
+                    if (!range_is_i64(instruction.index, instruction.argument_count)) return false;
+                    break;
+                case Opcode::Drop:
+                case Opcode::Duplicate:
+                case Opcode::IdentityF64:
+                case Opcode::NegateF64:
+                case Opcode::LogicalNotF64:
+                case Opcode::BooleanizeF64:
+                case Opcode::AddF64:
+                case Opcode::SubtractF64:
+                case Opcode::MultiplyF64:
+                case Opcode::FloorDivideF64:
+                case Opcode::RemainderF64:
+                case Opcode::OrderedLessF64:
+                case Opcode::OrderedLessEqualF64:
+                case Opcode::OrderedGreaterF64:
+                case Opcode::OrderedGreaterEqualF64:
+                case Opcode::OrderedEqualF64:
+                case Opcode::UnorderedNotEqualF64:
+                case Opcode::EqualBits:
+                case Opcode::NotEqualBits:
+                case Opcode::Label:
+                case Opcode::Jump:
+                case Opcode::JumpIfFalse:
+                case Opcode::JumpIfTrue:
+                case Opcode::ReturnF64:
+                    break;
+                case Opcode::ReturnValues:
+                    return false;
+                default:
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    void emit_integer_function(
+        const vkf::machine_ir::Function& function,
+        const Frame& frame
+    ) {
+        using vkf::machine_ir::Opcode;
+        std::vector<int> cached_local_register(function.locals.size(), -1);
+        std::map<std::uint32_t, std::size_t> label_positions;
+        for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+            if (function.instructions[position].opcode == Opcode::Label) {
+                label_positions.emplace(function.instructions[position].label, position);
+            }
+        }
+        std::vector<std::pair<std::size_t, std::size_t>> loops;
+        for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+            const auto& instruction = function.instructions[position];
+            if (instruction.opcode != Opcode::Jump) continue;
+            const auto target = label_positions.find(instruction.label);
+            if (target != label_positions.end() && target->second < position) {
+                loops.emplace_back(target->second, position);
+            }
+        }
+        std::vector<std::pair<unsigned, unsigned>> frequency;
+        for (unsigned local = 0; local < function.locals.size(); ++local) {
+            if (local < function.parameters.size() ||
+                function.local_classes[local] != vkf::machine_ir::ValueClass::I64 ||
+                function.locals[local].find('.') != std::string::npos) continue;
+            unsigned score = 0;
+            for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+                const auto& instruction = function.instructions[position];
+                if ((instruction.opcode != Opcode::LoadLocal &&
+                     instruction.opcode != Opcode::StoreLocal) || instruction.index != local) {
+                    continue;
+                }
+                const auto depth = static_cast<unsigned>(std::count_if(
+                    loops.begin(), loops.end(), [position](const auto& loop) {
+                        return position >= loop.first && position <= loop.second;
+                    }));
+                score += 1u << std::min(depth * 3u, 15u);
+            }
+            if (score != 0) frequency.emplace_back(score, local);
+        }
+        std::sort(frequency.begin(), frequency.end(), [](const auto& left, const auto& right) {
+            return left.first != right.first ? left.first > right.first : left.second < right.second;
+        });
+        constexpr std::array<unsigned, 6> available{3, 6, 7, 13, 14, 15};
+        for (std::size_t index = 0;
+             index < frequency.size() && index < available.size(); ++index) {
+            cached_local_register[frequency[index].second] =
+                static_cast<int>(available[index]);
+        }
+        prologue(frame);
+        save_result_context(frame);
+        for (std::size_t index = 0; index < function.parameters.size(); ++index) {
+            if (function.local_classes[index] != vkf::machine_ir::ValueClass::I64) continue;
+            load_argument_from_r10(static_cast<std::uint32_t>(index));
+            code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc0,
+                       0x48, 0x89, 0x85});
+            code_.i32(frame.displacement(static_cast<unsigned>(index)));
+        }
+        unsigned stack_depth = 0;
+        std::map<std::uint32_t, std::size_t> labels;
+        std::vector<MachineBranchPatch> branches;
+        std::vector<std::size_t> shared_index_error_patches;
+        const vkf::machine_ir::Instruction* shared_index_error = nullptr;
+        const auto stack_displacement = [&](unsigned slot) {
+            return frame.displacement(frame.temp_base + slot);
+        };
+        constexpr std::array<unsigned, 5> stack_registers{0, 1, 2, 8, 9};
+        const auto stack_register = [&](unsigned slot) -> std::optional<unsigned> {
+            return slot < stack_registers.size()
+                ? std::optional<unsigned>(stack_registers[slot]) : std::nullopt;
+        };
+        const auto move_register = [&](unsigned destination, unsigned source) {
+            if (destination == source) return;
+            code_.raw({static_cast<unsigned>(0x48u |
+                           (destination >= 8 ? 0x04u : 0u) |
+                           (source >= 8 ? 0x01u : 0u)),
+                       0x8b,
+                       static_cast<unsigned>(0xc0u + (destination & 7u) * 8u +
+                                             (source & 7u))});
+        };
+        const auto load_stack = [&](unsigned slot, unsigned destination) {
+            if (const auto source = stack_register(slot)) move_register(destination, *source);
+            else {
+                code_.raw({static_cast<unsigned>(0x48u |
+                               (destination >= 8 ? 0x04u : 0u)),
+                           0x8b,
+                           static_cast<unsigned>(0x85u + (destination & 7u) * 8u)});
+                code_.i32(stack_displacement(slot));
+            }
+        };
+        const auto store_stack = [&](unsigned slot, unsigned source) {
+            if (const auto destination = stack_register(slot)) move_register(*destination, source);
+            else {
+                code_.raw({static_cast<unsigned>(0x48u |
+                               (source >= 8 ? 0x04u : 0u)),
+                           0x89,
+                           static_cast<unsigned>(0x85u + (source & 7u) * 8u)});
+                code_.i32(stack_displacement(slot));
+            }
+        };
+        const auto load_local_integer = [&](unsigned local, unsigned destination) {
+            const int cached = cached_local_register.at(local);
+            if (cached >= 0) {
+                move_register(destination, static_cast<unsigned>(cached));
+                return;
+            }
+            code_.raw({static_cast<unsigned>(0x48u |
+                           (destination >= 8 ? 0x04u : 0u)),
+                       0x8b,
+                       static_cast<unsigned>(0x85u + (destination & 7u) * 8u)});
+            code_.i32(frame.displacement(local));
+        };
+        const auto store_local_integer = [&](unsigned local, unsigned source) {
+            const int cached = cached_local_register.at(local);
+            if (cached >= 0) {
+                move_register(static_cast<unsigned>(cached), source);
+                return;
+            }
+            code_.raw({static_cast<unsigned>(0x48u |
+                           (source >= 8 ? 0x04u : 0u)),
+                       0x89,
+                       static_cast<unsigned>(0x85u + (source & 7u) * 8u)});
+            code_.i32(frame.displacement(local));
+        };
+        const auto push_rax = [&]() {
+            code_.raw({0x48, 0x89, 0x85});
+            code_.i32(stack_displacement(stack_depth++));
+        };
+        const auto pop_rax = [&]() {
+            if (stack_depth == 0) throw BackendFailure("integer x64 stack underflow");
+            code_.raw({0x48, 0x8b, 0x85});
+            code_.i32(stack_displacement(--stack_depth));
+        };
+        const auto queue_index_error = [&](const auto& instruction,
+                                           const std::vector<std::size_t>& invalid) {
+            if (!shared_index_error) shared_index_error = &instruction;
+            shared_index_error_patches.insert(
+                shared_index_error_patches.end(), invalid.begin(), invalid.end());
+        };
+        struct GuardedIndexLoop {
+            std::uint32_t bound_local = 0;
+            std::uint32_t maximum_bound = 0;
+            const vkf::machine_ir::Instruction* error = nullptr;
+        };
+        std::map<std::uint32_t, GuardedIndexLoop> guarded_index_loops;
+        std::vector<bool> guarded_index_access(function.instructions.size(), false);
+        for (std::size_t label = 0; label + 4 < function.instructions.size(); ++label) {
+            const auto& header = function.instructions[label];
+            const auto& index = function.instructions[label + 1];
+            const auto& bound = function.instructions[label + 2];
+            const auto& compare = function.instructions[label + 3];
+            const auto& exit = function.instructions[label + 4];
+            if (header.opcode != Opcode::Label || index.opcode != Opcode::LoadLocal ||
+                bound.opcode != Opcode::LoadLocal ||
+                compare.opcode != Opcode::OrderedLessF64 ||
+                exit.opcode != Opcode::JumpIfFalse) continue;
+            bool initialized_nonnegative = false;
+            for (std::size_t cursor = label; cursor > 1; --cursor) {
+                const auto& store = function.instructions[cursor - 1];
+                if (store.opcode == Opcode::Label || store.opcode == Opcode::Jump) break;
+                if (store.opcode == Opcode::StoreLocal && store.index == index.index) {
+                    const auto& value = function.instructions[cursor - 2];
+                    initialized_nonnegative = value.opcode == Opcode::PushF64 && value.f64 >= 0.0;
+                    break;
+                }
+            }
+            if (!initialized_nonnegative) continue;
+            std::size_t end = label + 5;
+            while (end < function.instructions.size() &&
+                   !(function.instructions[end].opcode == Opcode::Jump &&
+                     function.instructions[end].label == header.label)) ++end;
+            if (end == function.instructions.size()) continue;
+            const bool has_external_entry = std::any_of(
+                function.instructions.begin(), function.instructions.end(),
+                [&](const auto& branch) {
+                    const auto position = static_cast<std::size_t>(&branch - function.instructions.data());
+                    return position != end &&
+                        (branch.opcode == Opcode::Jump ||
+                         branch.opcode == Opcode::JumpIfFalse ||
+                         branch.opcode == Opcode::JumpIfTrue) &&
+                        branch.label == header.label;
+                });
+            if (has_external_entry) continue;
+            const auto is_unit_step_store = [&](std::size_t position,
+                                                std::uint32_t local,
+                                                Opcode operation) {
+                return position >= 3 &&
+                    function.instructions[position].opcode == Opcode::StoreLocal &&
+                    function.instructions[position].index == local &&
+                    function.instructions[position - 3].opcode == Opcode::LoadLocal &&
+                    function.instructions[position - 3].index == local &&
+                    function.instructions[position - 2].opcode == Opcode::PushF64 &&
+                    function.instructions[position - 2].f64 == 1.0 &&
+                    function.instructions[position - 1].opcode == operation;
+            };
+            bool index_steps_up = true;
+            bool bound_is_invariant_or_steps_down = true;
+            for (std::size_t position = label + 5; position < end; ++position) {
+                const auto& candidate = function.instructions[position];
+                if (candidate.opcode != Opcode::StoreLocal) continue;
+                if (candidate.index == index.index &&
+                    !is_unit_step_store(position, index.index, Opcode::AddF64)) {
+                    index_steps_up = false;
+                }
+                if (candidate.index == bound.index &&
+                    !is_unit_step_store(position, bound.index, Opcode::SubtractF64)) {
+                    bound_is_invariant_or_steps_down = false;
+                }
+            }
+            if (!index_steps_up || !bound_is_invariant_or_steps_down) continue;
+            GuardedIndexLoop proof;
+            proof.bound_local = bound.index;
+            proof.maximum_bound = std::numeric_limits<std::uint32_t>::max();
+            for (std::size_t position = label + 5; position < end; ++position) {
+                const auto& candidate = function.instructions[position];
+                if (candidate.opcode != Opcode::LoadF64LocalsIndex &&
+                    candidate.opcode != Opcode::StoreF64LocalsIndex) continue;
+                const bool direct_index = candidate.index_local &&
+                    (*candidate.index_local == index.index ||
+                     *candidate.index_local == bound.index);
+                const bool unit_offset_index = !candidate.index_local && position >= 3 &&
+                    function.instructions[position - 3].opcode == Opcode::LoadLocal &&
+                    function.instructions[position - 3].index == index.index &&
+                    function.instructions[position - 2].opcode == Opcode::PushF64 &&
+                    function.instructions[position - 2].f64 == 1.0 &&
+                    function.instructions[position - 1].opcode == Opcode::AddF64;
+                if (!direct_index && !unit_offset_index) continue;
+                const bool reassigned_before_access = std::any_of(
+                    function.instructions.begin() + static_cast<std::ptrdiff_t>(label + 5),
+                    function.instructions.begin() + static_cast<std::ptrdiff_t>(position),
+                    [&](const auto& prior) {
+                        return prior.opcode == Opcode::StoreLocal &&
+                            (prior.index == index.index || prior.index == bound.index);
+                    });
+                if (reassigned_before_access) continue;
+                const bool requires_strict_bound = unit_offset_index ||
+                    (candidate.index_local && *candidate.index_local == bound.index);
+                if (requires_strict_bound && candidate.argument_count == 0) continue;
+                guarded_index_access[position] = true;
+                const auto maximum_bound = candidate.argument_count -
+                    static_cast<std::uint32_t>(requires_strict_bound);
+                proof.maximum_bound = std::min(proof.maximum_bound, maximum_bound);
+                if (!proof.error) proof.error = &candidate;
+            }
+            if (proof.error) guarded_index_loops.emplace(header.label, proof);
+        }
+        for (std::size_t first = 0; first < function.instructions.size(); ++first) {
+            const auto& checked = function.instructions[first];
+            if ((checked.opcode != Opcode::LoadF64LocalsIndex &&
+                 checked.opcode != Opcode::StoreF64LocalsIndex) ||
+                !checked.index_local || guarded_index_access[first]) continue;
+            const auto local = *checked.index_local;
+            for (std::size_t position = first + 1;
+                 position < function.instructions.size(); ++position) {
+                const auto& candidate = function.instructions[position];
+                if (candidate.opcode == Opcode::StoreLocal && candidate.index == local) break;
+                if (candidate.opcode == Opcode::Label) {
+                    bool external_entry = false;
+                    for (std::size_t source = 0; source < function.instructions.size(); ++source) {
+                        const auto& branch = function.instructions[source];
+                        if ((branch.opcode == Opcode::Jump ||
+                             branch.opcode == Opcode::JumpIfFalse ||
+                             branch.opcode == Opcode::JumpIfTrue) &&
+                            branch.label == candidate.label && source < first) {
+                            external_entry = true;
+                            break;
+                        }
+                    }
+                    if (external_entry) break;
+                }
+                if ((candidate.opcode == Opcode::LoadF64LocalsIndex ||
+                     candidate.opcode == Opcode::StoreF64LocalsIndex) &&
+                    candidate.index_local && *candidate.index_local == local &&
+                    candidate.argument_count == checked.argument_count) {
+                    guarded_index_access[position] = true;
+                }
+            }
+        }
+        for (std::size_t instruction_index = 0;
+             instruction_index < function.instructions.size(); ++instruction_index) {
+            const auto& instruction = function.instructions[instruction_index];
+            if (instruction.opcode == Opcode::Label) {
+                const auto proof = guarded_index_loops.find(instruction.label);
+                if (proof != guarded_index_loops.end()) {
+                    load_local_integer(proof->second.bound_local, 11);
+                    std::vector<std::size_t> invalid;
+                    code_.raw({0x49, 0x81, 0xfb});
+                    code_.i32(static_cast<std::int32_t>(proof->second.maximum_bound));
+                    invalid.push_back(emit_jump(0x8f));
+                    queue_index_error(*proof->second.error, invalid);
+                }
+            }
+            if (instruction.opcode == Opcode::Label &&
+                instruction_index + 14 < function.instructions.size()) {
+                const auto& guard_index = function.instructions[instruction_index + 1];
+                const auto& bound = function.instructions[instruction_index + 2];
+                const auto& less = function.instructions[instruction_index + 3];
+                const auto& exit = function.instructions[instruction_index + 4];
+                const auto& store_index = function.instructions[instruction_index + 5];
+                const auto& source_index = function.instructions[instruction_index + 6];
+                const auto& source_load = function.instructions[instruction_index + 7];
+                const auto& destination_store = function.instructions[instruction_index + 8];
+                const auto& increment_index = function.instructions[instruction_index + 9];
+                const auto& one = function.instructions[instruction_index + 10];
+                const auto& add = function.instructions[instruction_index + 11];
+                const auto& increment_store = function.instructions[instruction_index + 12];
+                const auto& repeat = function.instructions[instruction_index + 13];
+                const auto& exit_label = function.instructions[instruction_index + 14];
+                const bool fixed_copy = guard_index.opcode == Opcode::LoadLocal &&
+                    bound.opcode == Opcode::PushF64 && bound.f64 >= 1.0 &&
+                    bound.f64 <= 32.0 && bound.f64 == std::floor(bound.f64) &&
+                    less.opcode == Opcode::OrderedLessF64 &&
+                    exit.opcode == Opcode::JumpIfFalse &&
+                    store_index.opcode == Opcode::LoadLocal &&
+                    source_index.opcode == Opcode::LoadLocal &&
+                    source_load.opcode == Opcode::LoadF64LocalsIndex &&
+                    destination_store.opcode == Opcode::StoreF64LocalsIndex &&
+                    increment_index.opcode == Opcode::LoadLocal &&
+                    one.opcode == Opcode::PushF64 && one.f64 == 1.0 &&
+                    add.opcode == Opcode::AddF64 &&
+                    increment_store.opcode == Opcode::StoreLocal &&
+                    repeat.opcode == Opcode::Jump && repeat.label == instruction.label &&
+                    exit_label.opcode == Opcode::Label && exit_label.label == exit.label &&
+                    guard_index.index == store_index.index &&
+                    guard_index.index == source_index.index &&
+                    guard_index.index == increment_index.index &&
+                    guard_index.index == increment_store.index &&
+                    source_load.index_local && *source_load.index_local == guard_index.index &&
+                    destination_store.index_local &&
+                    *destination_store.index_local == guard_index.index &&
+                    static_cast<std::uint32_t>(bound.f64) <= source_load.argument_count &&
+                    static_cast<std::uint32_t>(bound.f64) <= destination_store.argument_count;
+                if (fixed_copy) {
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate integer x64 label");
+                    }
+                    const auto width = static_cast<std::uint32_t>(bound.f64);
+                    for (std::uint32_t offset = 0; offset < width; ++offset) {
+                        code_.raw({0x48, 0x8b, 0x85});
+                        code_.i32(frame.displacement(source_load.index + offset));
+                        code_.raw({0x48, 0x89, 0x85});
+                        code_.i32(frame.displacement(destination_store.index + offset));
+                    }
+                    code_.raw({0x49, 0xba});
+                    code_.u64(static_cast<std::uint64_t>(bound.f64));
+                    store_local_integer(guard_index.index, 10);
+                    instruction_index += 13;
+                    continue;
+                }
+            }
+            if (instruction.opcode == Opcode::Label &&
+                instruction_index + 16 < function.instructions.size()) {
+                const auto& guard_index = function.instructions[instruction_index + 1];
+                const auto& bound = function.instructions[instruction_index + 2];
+                const auto& less = function.instructions[instruction_index + 3];
+                const auto& exit = function.instructions[instruction_index + 4];
+                const auto& destination_index = function.instructions[instruction_index + 5];
+                const auto& source_index = function.instructions[instruction_index + 6];
+                const auto& source_offset = function.instructions[instruction_index + 7];
+                const auto& source_add = function.instructions[instruction_index + 8];
+                const auto& source_load = function.instructions[instruction_index + 9];
+                const auto& destination_store = function.instructions[instruction_index + 10];
+                const auto& increment_index = function.instructions[instruction_index + 11];
+                const auto& increment_one = function.instructions[instruction_index + 12];
+                const auto& increment_add = function.instructions[instruction_index + 13];
+                const auto& increment_store = function.instructions[instruction_index + 14];
+                const auto& repeat = function.instructions[instruction_index + 15];
+                const auto& exit_label = function.instructions[instruction_index + 16];
+                const auto proof = guarded_index_loops.find(instruction.label);
+                const bool bounded_left_shift = stack_depth == 0 &&
+                    proof != guarded_index_loops.end() &&
+                    guard_index.opcode == Opcode::LoadLocal &&
+                    bound.opcode == Opcode::LoadLocal &&
+                    less.opcode == Opcode::OrderedLessF64 &&
+                    exit.opcode == Opcode::JumpIfFalse &&
+                    destination_index.opcode == Opcode::LoadLocal &&
+                    source_index.opcode == Opcode::LoadLocal &&
+                    source_offset.opcode == Opcode::PushF64 && source_offset.f64 == 1.0 &&
+                    source_add.opcode == Opcode::AddF64 &&
+                    source_load.opcode == Opcode::LoadF64LocalsIndex &&
+                    destination_store.opcode == Opcode::StoreF64LocalsIndex &&
+                    increment_index.opcode == Opcode::LoadLocal &&
+                    increment_one.opcode == Opcode::PushF64 && increment_one.f64 == 1.0 &&
+                    increment_add.opcode == Opcode::AddF64 &&
+                    increment_store.opcode == Opcode::StoreLocal &&
+                    repeat.opcode == Opcode::Jump && repeat.label == instruction.label &&
+                    exit_label.opcode == Opcode::Label && exit_label.label == exit.label &&
+                    guard_index.index == destination_index.index &&
+                    guard_index.index == source_index.index &&
+                    guard_index.index == increment_index.index &&
+                    guard_index.index == increment_store.index &&
+                    proof->second.bound_local == bound.index &&
+                    source_load.argument_count > 0 &&
+                    guarded_index_access[instruction_index + 9] &&
+                    guarded_index_access[instruction_index + 10] &&
+                    destination_store.index_local &&
+                    *destination_store.index_local == guard_index.index &&
+                    !source_load.index_local;
+                if (bounded_left_shift) {
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate integer x64 label");
+                    }
+                    load_local_integer(bound.index, 11);
+                    code_.raw({0x4d, 0x85, 0xdb});
+                    branches.push_back({emit_jump(0x8e), exit.label});
+                    store_local_integer(guard_index.index, 11);
+                    const auto maximum_bound = proof->second.maximum_bound;
+                    for (std::uint32_t offset = 0; offset < maximum_bound; ++offset) {
+                        code_.raw({0x4c, 0x8b, 0x95});
+                        code_.i32(frame.displacement(source_load.index + offset + 1));
+                        code_.raw({0x4c, 0x89, 0x95});
+                        code_.i32(frame.displacement(destination_store.index + offset));
+                        code_.raw({0x49, 0x81, 0xfb});
+                        code_.i32(static_cast<std::int32_t>(offset + 1));
+                        branches.push_back({emit_jump(0x8e), exit.label});
+                    }
+                    instruction_index += 15;
+                    continue;
+                }
+            }
+            switch (instruction.opcode) {
+                case Opcode::PushF64:
+                    {
+                    const auto destination = stack_register(stack_depth).value_or(10u);
+                    code_.raw({static_cast<unsigned>(0x48u |
+                                   (destination >= 8 ? 0x01u : 0u)),
+                               static_cast<unsigned>(0xb8u + (destination & 7u))});
+                    code_.u64(static_cast<std::uint64_t>(
+                        static_cast<std::int64_t>(instruction.f64)));
+                    store_stack(stack_depth++, destination);
+                    break;
+                    }
+                case Opcode::LoadLocal:
+                    {
+                    const auto destination = stack_register(stack_depth).value_or(10u);
+                    load_local_integer(instruction.index, destination);
+                    store_stack(stack_depth++, destination);
+                    break;
+                    }
+                case Opcode::StoreLocal:
+                    if (stack_depth == 0) throw BackendFailure("integer x64 stack underflow");
+                    {
+                    const unsigned slot = --stack_depth;
+                    const auto source = stack_register(slot).value_or(10u);
+                    load_stack(slot, source);
+                    store_local_integer(instruction.index, source);
+                    break;
+                    }
+                case Opcode::Duplicate:
+                    if (stack_depth == 0) throw BackendFailure("integer x64 stack underflow");
+                    {
+                    const auto destination = stack_register(stack_depth).value_or(10u);
+                    load_stack(stack_depth - 1, destination);
+                    store_stack(stack_depth++, destination);
+                    break;
+                    }
+                case Opcode::Drop:
+                    if (stack_depth == 0) throw BackendFailure("integer x64 stack underflow");
+                    --stack_depth;
+                    break;
+                case Opcode::IdentityF64:
+                    break;
+                case Opcode::NegateF64:
+                    if (stack_depth == 0) throw BackendFailure("integer x64 stack underflow");
+                    {
+                    const auto target = stack_register(stack_depth - 1).value_or(10u);
+                    load_stack(stack_depth - 1, target);
+                    code_.raw({static_cast<unsigned>(0x48u | (target >= 8 ? 1u : 0u)),
+                               0xf7, static_cast<unsigned>(0xd8u + (target & 7u))});
+                    store_stack(stack_depth - 1, target);
+                    break;
+                    }
+                case Opcode::LogicalNotF64:
+                case Opcode::BooleanizeF64:
+                    if (stack_depth == 0) throw BackendFailure("integer x64 stack underflow");
+                    {
+                    const auto target = stack_register(stack_depth - 1).value_or(10u);
+                    load_stack(stack_depth - 1, target);
+                    const unsigned rex = 0x48u | (target >= 8 ? 5u : 0u);
+                    code_.raw({rex, 0x85,
+                               static_cast<unsigned>(0xc0u + (target & 7u) * 9u),
+                               static_cast<unsigned>(target >= 8 ? 0x41u : 0u)});
+                    if (target < 8) code_.bytes.pop_back();
+                    code_.raw({0x0f,
+                               instruction.opcode == Opcode::LogicalNotF64 ? 0x94u : 0x95u,
+                               static_cast<unsigned>(0xc0u + (target & 7u))});
+                    if (target >= 8) code_.byte(0x45);
+                    code_.raw({0x0f, 0xb6,
+                               static_cast<unsigned>(0xc0u + (target & 7u) * 9u)});
+                    store_stack(stack_depth - 1, target);
+                    break;
+                    }
+                case Opcode::AddF64:
+                case Opcode::SubtractF64:
+                case Opcode::MultiplyF64:
+                case Opcode::FloorDivideF64:
+                case Opcode::RemainderF64: {
+                    if (stack_depth < 2) throw BackendFailure("integer x64 stack underflow");
+                    const unsigned right_slot = --stack_depth;
+                    const unsigned left_slot = stack_depth - 1;
+                    const auto left = stack_register(left_slot).value_or(10u);
+                    const auto right = stack_register(right_slot).value_or(11u);
+                    load_stack(left_slot, left);
+                    load_stack(right_slot, right);
+                    const unsigned rex = 0x48u | (left >= 8 ? 4u : 0u) |
+                        (right >= 8 ? 1u : 0u);
+                    if (instruction.opcode == Opcode::AddF64) {
+                        code_.raw({rex, 0x03,
+                                   static_cast<unsigned>(0xc0u + (left & 7u) * 8u + (right & 7u))});
+                    } else if (instruction.opcode == Opcode::SubtractF64) {
+                        code_.raw({rex, 0x2b,
+                                   static_cast<unsigned>(0xc0u + (left & 7u) * 8u + (right & 7u))});
+                    } else if (instruction.opcode == Opcode::MultiplyF64) {
+                        code_.raw({rex, 0x0f, 0xaf,
+                                   static_cast<unsigned>(0xc0u + (left & 7u) * 8u + (right & 7u))});
+                    }
+                    else {
+                        move_register(0, left);
+                        move_register(1, right);
+                        code_.raw({0x48, 0x99, 0x48, 0xf7, 0xf9});
+                        move_register(left, instruction.opcode == Opcode::RemainderF64 ? 2u : 0u);
+                    }
+                    store_stack(left_slot, left);
+                    break;
+                }
+                case Opcode::OrderedLessF64:
+                case Opcode::OrderedLessEqualF64:
+                case Opcode::OrderedGreaterF64:
+                case Opcode::OrderedGreaterEqualF64:
+                case Opcode::OrderedEqualF64:
+                case Opcode::UnorderedNotEqualF64:
+                case Opcode::EqualBits:
+                case Opcode::NotEqualBits: {
+                    if (stack_depth < 2) throw BackendFailure("integer x64 stack underflow");
+                    const unsigned right_slot = --stack_depth;
+                    const unsigned left_slot = stack_depth - 1;
+                    const auto left = stack_register(left_slot).value_or(10u);
+                    const auto right = stack_register(right_slot).value_or(11u);
+                    load_stack(left_slot, left);
+                    load_stack(right_slot, right);
+                    code_.raw({static_cast<unsigned>(0x48u | (left >= 8 ? 4u : 0u) |
+                                                   (right >= 8 ? 1u : 0u)),
+                               0x3b,
+                               static_cast<unsigned>(0xc0u + (left & 7u) * 8u + (right & 7u))});
+                    const unsigned condition = instruction.opcode == Opcode::OrderedLessF64 ? 0x9c
+                        : instruction.opcode == Opcode::OrderedLessEqualF64 ? 0x9e
+                        : instruction.opcode == Opcode::OrderedGreaterF64 ? 0x9f
+                        : instruction.opcode == Opcode::OrderedGreaterEqualF64 ? 0x9d
+                        : instruction.opcode == Opcode::OrderedEqualF64 ||
+                            instruction.opcode == Opcode::EqualBits ? 0x94 : 0x95;
+                    if (left >= 8) code_.byte(0x41);
+                    code_.raw({0x0f, condition,
+                               static_cast<unsigned>(0xc0u + (left & 7u))});
+                    if (left >= 8) code_.byte(0x45);
+                    code_.raw({0x0f, 0xb6,
+                               static_cast<unsigned>(0xc0u + (left & 7u) * 9u)});
+                    store_stack(left_slot, left);
+                    break;
+                }
+                case Opcode::LoadF64LocalsIndex: {
+                    if (stack_depth == 0) throw BackendFailure("integer x64 stack underflow");
+                    const unsigned slot = stack_depth - 1;
+                    const auto destination = stack_register(slot).value_or(10u);
+                    load_stack(slot, destination);
+                    move_register(11, destination);
+                    std::vector<std::size_t> invalid;
+                    if (!guarded_index_access[instruction_index]) {
+                        code_.raw({0x4d, 0x85, 0xdb});
+                        invalid.push_back(emit_jump(0x88));
+                        code_.raw({0x49, 0x81, 0xfb});
+                        code_.i32(static_cast<std::int32_t>(instruction.argument_count));
+                        invalid.push_back(emit_jump(0x83));
+                    }
+                    code_.raw({0x4c, 0x8d, 0x95});
+                    code_.i32(frame.displacement(instruction.index));
+                    code_.raw({0x49, 0xf7, 0xdb,
+                               static_cast<unsigned>(0x4bu | (destination >= 8 ? 4u : 0u)),
+                               0x8b,
+                               static_cast<unsigned>(0x04u + (destination & 7u) * 8u),
+                               0xda});
+                    store_stack(slot, destination);
+                    if (!invalid.empty()) queue_index_error(instruction, invalid);
+                    break;
+                }
+                case Opcode::StoreF64LocalsIndex: {
+                    if (stack_depth < 2) throw BackendFailure("integer x64 stack underflow");
+                    const unsigned value_slot = --stack_depth;
+                    const unsigned index_slot = --stack_depth;
+                    const auto value = stack_register(value_slot).value_or(10u);
+                    const auto index = stack_register(index_slot).value_or(11u);
+                    load_stack(value_slot, value);
+                    load_stack(index_slot, index);
+                    move_register(11, index);
+                    std::vector<std::size_t> invalid;
+                    if (!guarded_index_access[instruction_index]) {
+                        code_.raw({0x4d, 0x85, 0xdb});
+                        invalid.push_back(emit_jump(0x88));
+                        code_.raw({0x49, 0x81, 0xfb});
+                        code_.i32(static_cast<std::int32_t>(instruction.argument_count));
+                        invalid.push_back(emit_jump(0x83));
+                    }
+                    code_.raw({0x4c, 0x8d, 0x95});
+                    code_.i32(frame.displacement(instruction.index));
+                    code_.raw({0x49, 0xf7, 0xdb,
+                               static_cast<unsigned>(0x4bu | (value >= 8 ? 4u : 0u)),
+                               0x89,
+                               static_cast<unsigned>(0x04u + (value & 7u) * 8u),
+                               0xda});
+                    if (!invalid.empty()) queue_index_error(instruction, invalid);
+                    break;
+                }
+                case Opcode::Label:
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate integer x64 label");
+                    }
+                    break;
+                case Opcode::Jump:
+                    code_.byte(0xe9);
+                    branches.push_back({code_.rel32_placeholder(), instruction.label});
+                    break;
+                case Opcode::JumpIfFalse:
+                case Opcode::JumpIfTrue:
+                    if (stack_depth == 0) throw BackendFailure("integer x64 stack underflow");
+                    {
+                    const unsigned slot = --stack_depth;
+                    const auto condition = stack_register(slot).value_or(10u);
+                    load_stack(slot, condition);
+                    code_.raw({static_cast<unsigned>(0x48u | (condition >= 8 ? 5u : 0u)),
+                               0x85,
+                               static_cast<unsigned>(0xc0u + (condition & 7u) * 9u)});
+                    branches.push_back({
+                        emit_jump(instruction.opcode == Opcode::JumpIfTrue ? 0x85 : 0x84),
+                        instruction.label
+                    });
+                    break;
+                    }
+                case Opcode::ReturnF64:
+                    if (stack_depth == 0) throw BackendFailure("integer x64 stack underflow");
+                    {
+                    const unsigned slot = --stack_depth;
+                    const auto source = stack_register(slot).value_or(10u);
+                    load_stack(slot, source);
+                    code_.raw({0xf2,
+                               static_cast<unsigned>(0x48u | (source >= 8 ? 1u : 0u)),
+                               0x0f, 0x2a,
+                               static_cast<unsigned>(0xc0u + (source & 7u))});
+                    restore_result_context(frame);
+                    store_result_to_r11(0);
+                    if (function.may_error) code_.raw({0x45, 0x31, 0xc9});
+                    epilogue();
+                    break;
+                    }
+                case Opcode::ReturnValues:
+                    throw BackendFailure("integer x64 aggregate return is unsupported");
+                default:
+                    throw BackendFailure("unhandled integer x64 opcode");
+            }
+            if (stack_depth > frame.max_stack) {
+                throw BackendFailure("integer x64 stack exceeds frame");
+            }
+        }
+        for (const auto& branch : branches) {
+            const auto found = labels.find(branch.label);
+            if (found == labels.end()) throw BackendFailure("unknown integer x64 label");
+            code_.patch_rel32(branch.at, found->second);
+        }
+        if (shared_index_error) {
+            const auto abort = code_.position();
+            for (const auto patch : shared_index_error_patches) {
+                code_.patch_rel32(patch, abort);
+            }
+            emit_error_cleanup(function, frame);
+            emit_error_message_registers(
+                shared_index_error->error_message_offset,
+                shared_index_error->byte_count);
+            code_.raw({0x41, 0xb9});
+            code_.i32(vkf::machine_ir::index_error_mask);
+            epilogue();
+        }
+        if (stack_depth != 0) throw BackendFailure("unbalanced integer x64 stack");
+    }
+
     void emit_function(const vkf::machine_ir::Function& function, bool entry) {
         const Frame frame = make_frame(function, entry);
+        if (!entry && policy_.integer_function_tier &&
+            is_integer_function_candidate(function)) {
+            emit_integer_function(function, frame);
+            return;
+        }
         const auto parameter_count = static_cast<unsigned>(function.parameters.size());
         const auto borrowing_safe_opcode = [](vkf::machine_ir::Opcode opcode) {
             using vkf::machine_ir::Opcode;
@@ -3465,10 +4279,17 @@ private:
             }
             return false;
         }();
+        const bool has_packed_reduction_loop = [&]() {
+            for (std::size_t index = 0; index < function.instructions.size(); ++index) {
+                if (detect_packed_matrix_reduction_loop(function, index) ||
+                    detect_packed_dot_reduction_loop(function, index)) return true;
+            }
+            return false;
+        }();
         const auto register_cache_safe = [&]() {
             if (!policy_.register_cache || entry || function.may_error ||
                 function.locals.empty() || has_avx_affine_loop ||
-                has_scalar_recurrence_loop) {
+                has_scalar_recurrence_loop || has_packed_reduction_loop) {
                 return false;
             }
             using vkf::machine_ir::Opcode;
@@ -3489,6 +4310,8 @@ private:
                         case Opcode::SubtractF64:
                         case Opcode::MultiplyF64:
                         case Opcode::DivideF64:
+                        case Opcode::RemainderF64:
+                        case Opcode::SqrtF64:
                         case Opcode::OrderedLessF64:
                         case Opcode::OrderedLessEqualF64:
                         case Opcode::OrderedGreaterF64:
@@ -3497,6 +4320,8 @@ private:
                         case Opcode::UnorderedNotEqualF64:
                         case Opcode::EqualBits:
                         case Opcode::NotEqualBits:
+                        case Opcode::LoadF64LocalsIndex:
+                        case Opcode::StoreF64LocalsIndex:
                         case Opcode::Label:
                         case Opcode::Jump:
                         case Opcode::JumpIfFalse:
@@ -3510,6 +4335,7 @@ private:
                 });
         }();
         std::vector<int> local_register(frame.local_count, -1);
+        std::vector<int> integer_register(frame.local_count, -1);
         if (function.local_classes.size() != function.locals.size()) {
             throw BackendFailure("x64 machine IR local class table mismatch");
         }
@@ -3524,31 +4350,115 @@ private:
         const auto local_is_i64 = [&](unsigned local) {
             return local < native_i64_local.size() && native_i64_local[local];
         };
+        const auto fixed_range_is_i64 = [&](unsigned base, unsigned width) {
+            if (base > native_i64_local.size() ||
+                width > native_i64_local.size() - base) return false;
+            return std::all_of(
+                native_i64_local.begin() + base,
+                native_i64_local.begin() + base + width,
+                [](bool value) { return value; });
+        };
         if (register_cache_safe) {
+            const bool has_implicit_runtime_call = std::any_of(
+                function.instructions.begin(), function.instructions.end(),
+                [](const auto& instruction) {
+                    return instruction.opcode == vkf::machine_ir::Opcode::RemainderF64;
+                });
+            std::vector<bool> indexed_storage(frame.local_count, false);
+            for (const auto& instruction : function.instructions) {
+                if (instruction.opcode != vkf::machine_ir::Opcode::LoadF64LocalsIndex &&
+                    instruction.opcode != vkf::machine_ir::Opcode::StoreF64LocalsIndex) {
+                    continue;
+                }
+                const auto end = std::min<std::size_t>(
+                    frame.local_count,
+                    static_cast<std::size_t>(instruction.index) + instruction.argument_count);
+                for (std::size_t local = instruction.index; local < end; ++local) {
+                    indexed_storage[local] = true;
+                }
+            }
             std::vector<std::pair<unsigned, unsigned>> frequency;
             frequency.reserve(frame.local_count);
+            std::map<std::uint32_t, std::size_t> cache_label_positions;
+            for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+                if (function.instructions[position].opcode ==
+                    vkf::machine_ir::Opcode::Label) {
+                    cache_label_positions.emplace(
+                        function.instructions[position].label, position);
+                }
+            }
+            std::vector<std::pair<std::size_t, std::size_t>> cache_loops;
+            for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+                const auto& instruction = function.instructions[position];
+                if (instruction.opcode != vkf::machine_ir::Opcode::Jump) continue;
+                const auto target = cache_label_positions.find(instruction.label);
+                if (target != cache_label_positions.end() && target->second < position) {
+                    cache_loops.emplace_back(target->second, position);
+                }
+            }
             for (unsigned local = 0; local < frame.local_count; ++local) {
-                if (local_is_i64(local)) continue;
-                const auto count = static_cast<unsigned>(std::count_if(
-                    function.instructions.begin(), function.instructions.end(),
-                    [local](const auto& instruction) {
-                        return (instruction.opcode == vkf::machine_ir::Opcode::LoadLocal ||
-                                instruction.opcode == vkf::machine_ir::Opcode::StoreLocal) &&
-                            instruction.index == local;
-                    }));
+                if (has_implicit_runtime_call || local_is_i64(local) || indexed_storage[local]) {
+                    continue;
+                }
+                unsigned count = 0;
+                for (std::size_t position = 0;
+                     position < function.instructions.size(); ++position) {
+                    const auto& instruction = function.instructions[position];
+                    if ((instruction.opcode != vkf::machine_ir::Opcode::LoadLocal &&
+                         instruction.opcode != vkf::machine_ir::Opcode::StoreLocal) ||
+                        instruction.index != local) {
+                        continue;
+                    }
+                    const auto depth = static_cast<unsigned>(std::count_if(
+                        cache_loops.begin(), cache_loops.end(),
+                        [position](const auto& loop) {
+                            return position >= loop.first && position <= loop.second;
+                        }));
+                    count += 1u << std::min(depth * 3u, 15u);
+                }
                 if (count != 0) frequency.emplace_back(count, local);
             }
             std::sort(frequency.begin(), frequency.end(), [](const auto& left, const auto& right) {
                 return left.first != right.first ? left.first > right.first : left.second < right.second;
             });
-#ifdef _WIN32
-            constexpr unsigned available[] = {3, 4, 5};
-#else
-            constexpr unsigned available[] = {3, 4, 5, 6, 7};
-#endif
+            // Expression lowering owns xmm0..xmm5. Keep cached locals in the
+            // disjoint xmm6/xmm7 pair so arbitrarily shaped expressions cannot
+            // silently clobber loop-carried values.
+            constexpr unsigned available[] = {6, 7};
             for (unsigned index = 0;
                  index < frequency.size() && index < std::size(available); ++index) {
                 local_register[frequency[index].second] = static_cast<int>(available[index]);
+            }
+            frequency.clear();
+            for (unsigned local = 0; local < frame.local_count; ++local) {
+                if (has_implicit_runtime_call || !local_is_i64(local) ||
+                    indexed_storage[local]) continue;
+                unsigned count = 0;
+                for (std::size_t position = 0;
+                     position < function.instructions.size(); ++position) {
+                    const auto& instruction = function.instructions[position];
+                    if ((instruction.opcode != vkf::machine_ir::Opcode::LoadLocal &&
+                         instruction.opcode != vkf::machine_ir::Opcode::StoreLocal) ||
+                        instruction.index != local) {
+                        continue;
+                    }
+                    const auto depth = static_cast<unsigned>(std::count_if(
+                        cache_loops.begin(), cache_loops.end(),
+                        [position](const auto& loop) {
+                            return position >= loop.first && position <= loop.second;
+                        }));
+                    count += 1u << std::min(depth * 3u, 15u);
+                }
+                if (count != 0) frequency.emplace_back(count, local);
+            }
+            std::sort(frequency.begin(), frequency.end(), [](const auto& left, const auto& right) {
+                return left.first != right.first ? left.first > right.first : left.second < right.second;
+            });
+            constexpr unsigned integer_available[] = {13, 14, 15};
+            for (unsigned index = 0;
+                 index < frequency.size() && index < std::size(integer_available); ++index) {
+                integer_register[frequency[index].second] =
+                    static_cast<int>(integer_available[index]);
             }
         }
         const auto load_local = [&](unsigned local, unsigned destination) {
@@ -3556,10 +4466,17 @@ private:
                 throw BackendFailure("invalid cached x64 local load");
             }
             if (local_is_i64(local)) {
-                code_.raw({0x48, 0x8b, 0x85});
-                code_.i32(frame.displacement(local));
-                code_.raw({0xf2, 0x48, 0x0f, 0x2a,
-                           static_cast<unsigned>(0xc0 + destination * 8)});
+                const int cached = integer_register[local];
+                if (cached < 0) {
+                    code_.raw({0x48, 0x8b, 0x85});
+                    code_.i32(frame.displacement(local));
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2a,
+                               static_cast<unsigned>(0xc0 + destination * 8)});
+                } else {
+                    code_.raw({0xf2, 0x49, 0x0f, 0x2a,
+                               static_cast<unsigned>(
+                                   0xc0 + destination * 8 + (cached & 7))});
+                }
                 return;
             }
             if (borrow_aggregate_parameters && local < parameter_count) {
@@ -3580,10 +4497,17 @@ private:
                 throw BackendFailure("invalid cached x64 local store");
             }
             if (local_is_i64(local)) {
-                code_.raw({0xf2, 0x48, 0x0f, 0x2c,
-                           static_cast<unsigned>(0xc0 + source)});
-                code_.raw({0x48, 0x89, 0x85});
-                code_.i32(frame.displacement(local));
+                const int cached = integer_register[local];
+                if (cached < 0) {
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2c,
+                               static_cast<unsigned>(0xc0 + source)});
+                    code_.raw({0x48, 0x89, 0x85});
+                    code_.i32(frame.displacement(local));
+                } else {
+                    code_.raw({0xf2, 0x4c, 0x0f, 0x2c,
+                               static_cast<unsigned>(
+                                   0xc0 + (cached & 7) * 8 + source)});
+                }
                 return;
             }
             const int destination = local_register[local];
@@ -3591,6 +4515,46 @@ private:
             else if (static_cast<unsigned>(destination) != source) {
                 code_.raw({0x66, 0x0f, 0x28,
                            static_cast<unsigned>(0xc0 + destination * 8 + source)});
+            }
+        };
+        const auto load_i64_to_rax = [&](unsigned local) {
+            const int cached = integer_register.at(local);
+            if (cached < 0) {
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(local));
+            } else {
+                code_.raw({0x49, 0x8b,
+                           static_cast<unsigned>(0xc0 + (cached & 7))});
+            }
+        };
+        const auto load_i64_to_rcx = [&](unsigned local) {
+            const int cached = integer_register.at(local);
+            if (cached < 0) {
+                code_.raw({0x48, 0x8b, 0x8d});
+                code_.i32(frame.displacement(local));
+            } else {
+                code_.raw({0x49, 0x8b,
+                           static_cast<unsigned>(0xc8 + (cached & 7))});
+            }
+        };
+        const auto load_i64_to_rdx = [&](unsigned local) {
+            const int cached = integer_register.at(local);
+            if (cached < 0) {
+                code_.raw({0x48, 0x8b, 0x95});
+                code_.i32(frame.displacement(local));
+            } else {
+                code_.raw({0x49, 0x8b,
+                           static_cast<unsigned>(0xd0 + (cached & 7))});
+            }
+        };
+        const auto store_rax_to_i64 = [&](unsigned local) {
+            const int cached = integer_register.at(local);
+            if (cached < 0) {
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(local));
+            } else {
+                code_.raw({0x49, 0x89,
+                           static_cast<unsigned>(0xc0 + (cached & 7))});
             }
         };
         const auto emit_fixed_base_address = [&](std::uint32_t base, std::uint32_t width) {
@@ -3965,8 +4929,7 @@ private:
                 throw BackendFailure("invalid fused x64 fixed-vector index range");
             }
             if (local_is_i64(operand.value->index)) {
-                code_.raw({0x48, 0x8b, 0x8d});
-                code_.i32(frame.displacement(operand.value->index));
+                load_i64_to_rcx(operand.value->index);
             } else {
                 load_local(operand.value->index, destination);
                 code_.raw({0xf2, 0x48, 0x0f, 0x2c,
@@ -3975,8 +4938,16 @@ private:
             emit_fixed_base_address(
                 operand.index->index, operand.index->argument_count);
             code_.raw({0x48, 0xf7, 0xd9,
-                       0xf2, 0x0f, 0x10,
-                       static_cast<unsigned>(0x04 + destination * 8), 0xc8});
+            });
+            if (fixed_range_is_i64(
+                    operand.index->index, operand.index->argument_count)) {
+                code_.raw({0x48, 0x8b, 0x14, 0xc8,
+                           0xf2, 0x48, 0x0f, 0x2a,
+                           static_cast<unsigned>(0xc2 + destination * 8)});
+            } else {
+                code_.raw({0xf2, 0x0f, 0x10,
+                           static_cast<unsigned>(0x04 + destination * 8), 0xc8});
+            }
         };
         struct ExpressionNode {
             enum class Kind { Local, Constant, ProvenFixedIndex, Binary, Sqrt } kind = Kind::Local;
@@ -4133,9 +5104,8 @@ private:
                 if (slot == expression_index_cache.size()) continue;
                 expression_index_cache[slot] = local;
                 if (local_is_i64(local)) {
-                    code_.raw({0x48, 0x8b,
-                               static_cast<unsigned>(slot == 0 ? 0x8d : 0x95)});
-                    code_.i32(frame.displacement(local));
+                    if (slot == 0) load_i64_to_rcx(local);
+                    else load_i64_to_rdx(local);
                 } else {
                     code_.raw({0xf2, 0x48, 0x0f, 0x2c,
                                static_cast<unsigned>(slot == 0 ? 0x8d : 0x95)});
@@ -4172,8 +5142,7 @@ private:
                         const auto cached = cached_slot(node.value->index);
                         if (!cached) {
                             if (local_is_i64(node.value->index)) {
-                                code_.raw({0x48, 0x8b, 0x8d});
-                                code_.i32(frame.displacement(node.value->index));
+                                load_i64_to_rcx(node.value->index);
                                 code_.raw({0x48, 0xf7, 0xd9});
                             } else {
                                 load_local(node.value->index, destination);
@@ -4183,8 +5152,15 @@ private:
                             }
                         }
                         const unsigned sib = !cached || *cached == 0 ? 0xc8 : 0xd0;
-                        code_.raw({0xf2, 0x0f, 0x10,
-                                   static_cast<unsigned>(0x04 + destination * 8), sib});
+                        if (fixed_range_is_i64(
+                                node.index->index, node.index->argument_count)) {
+                            code_.raw({0x48, 0x8b, 0x14, sib,
+                                       0xf2, 0x48, 0x0f, 0x2a,
+                                       static_cast<unsigned>(0xc2 + destination * 8)});
+                        } else {
+                            code_.raw({0xf2, 0x0f, 0x10,
+                                       static_cast<unsigned>(0x04 + destination * 8), sib});
+                        }
                         return;
                     }
                     if (node.kind == ExpressionNode::Kind::Sqrt) {
@@ -4251,7 +5227,13 @@ private:
                 }
             }
             const unsigned sib = !cached || *cached == 0 ? 0xc8 : 0xd0;
-            code_.raw({0xf2, 0x0f, 0x11, 0x04, sib});
+            if (fixed_range_is_i64(
+                    plan.indexed_store->index, plan.indexed_store->argument_count)) {
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xd0,
+                           0x48, 0x89, 0x14, sib});
+            } else {
+                code_.raw({0xf2, 0x0f, 0x11, 0x04, sib});
+            }
         };
         for (std::size_t instruction_index = 0;
              instruction_index < function.instructions.size(); ++instruction_index) {
@@ -4370,22 +5352,32 @@ private:
                          arithmetic == Opcode::MultiplyF64) &&
                         store.opcode == Opcode::StoreLocal && local_is_i64(store.index)) {
                         if (left.opcode == Opcode::LoadLocal) {
-                            code_.raw({0x48, 0x8b, 0x85});
-                            code_.i32(frame.displacement(left.index));
+                            load_i64_to_rax(left.index);
                         } else {
                             code_.raw({0x48, 0xb8});
                             code_.u64(static_cast<std::uint64_t>(
                                 static_cast<std::int64_t>(left.f64)));
                         }
                         if (right.opcode == Opcode::LoadLocal) {
-                            if (arithmetic == Opcode::MultiplyF64) {
+                            const int cached = integer_register[right.index];
+                            if (cached >= 0) {
+                                if (arithmetic == Opcode::MultiplyF64) {
+                                    code_.raw({0x49, 0x0f, 0xaf,
+                                               static_cast<unsigned>(0xc0 + (cached & 7))});
+                                } else {
+                                    code_.raw({0x49,
+                                               arithmetic == Opcode::AddF64 ? 0x03u : 0x2bu,
+                                               static_cast<unsigned>(0xc0 + (cached & 7))});
+                                }
+                            } else if (arithmetic == Opcode::MultiplyF64) {
                                 code_.raw({0x48, 0x0f, 0xaf, 0x85});
+                                code_.i32(frame.displacement(right.index));
                             } else {
                                 code_.raw({0x48,
                                            arithmetic == Opcode::AddF64 ? 0x03u : 0x2bu,
                                            0x85});
+                                code_.i32(frame.displacement(right.index));
                             }
-                            code_.i32(frame.displacement(right.index));
                         } else if (arithmetic == Opcode::MultiplyF64) {
                             code_.raw({0x48, 0x69, 0xc0});
                             code_.i32(static_cast<std::int32_t>(right.f64));
@@ -4394,8 +5386,7 @@ private:
                                        arithmetic == Opcode::AddF64 ? 0x05u : 0x2du});
                             code_.i32(static_cast<std::int32_t>(right.f64));
                         }
-                        code_.raw({0x48, 0x89, 0x85});
-                        code_.i32(frame.displacement(store.index));
+                        store_rax_to_i64(store.index);
                         instruction_index += 3;
                         continue;
                     }
@@ -4433,9 +5424,16 @@ private:
                     // For signed integers, divisibility by 2^n is exactly a test
                     // of the low n bits. This removes both floating conversions
                     // and the division used by the generic remainder path.
-                    code_.raw({0xf6, 0x85});
-                    code_.i32(frame.displacement(dividend.index));
-                    code_.raw({static_cast<unsigned>(absolute_divisor - 1)});
+                    const int cached = integer_register[dividend.index];
+                    if (cached < 0) {
+                        code_.raw({0xf6, 0x85});
+                        code_.i32(frame.displacement(dividend.index));
+                        code_.raw({static_cast<unsigned>(absolute_divisor - 1)});
+                    } else {
+                        code_.raw({0x41, 0xf6,
+                                   static_cast<unsigned>(0xc0 + (cached & 7)),
+                                   static_cast<unsigned>(absolute_divisor - 1)});
+                    }
                     const bool result_when_zero = compare == Opcode::OrderedEqualF64;
                     const bool branch_on_result = jump.opcode == Opcode::JumpIfTrue;
                     const bool branch_when_zero = result_when_zero == branch_on_result;
@@ -4508,15 +5506,19 @@ private:
                     const bool integer_local_right = right.opcode == Opcode::LoadLocal &&
                         local_is_i64(right.index);
                     if (integer_left && (integer_constant_right || integer_local_right)) {
+                        load_i64_to_rax(left.index);
                         if (integer_constant_right) {
-                            code_.raw({0x48, 0x81, 0xbd});
-                            code_.i32(frame.displacement(left.index));
+                            code_.raw({0x48, 0x3d});
                             code_.i32(static_cast<std::int32_t>(right.f64));
                         } else {
-                            code_.raw({0x48, 0x8b, 0x85});
-                            code_.i32(frame.displacement(left.index));
-                            code_.raw({0x48, 0x3b, 0x85});
-                            code_.i32(frame.displacement(right.index));
+                            const int cached = integer_register[right.index];
+                            if (cached < 0) {
+                                code_.raw({0x48, 0x3b, 0x85});
+                                code_.i32(frame.displacement(right.index));
+                            } else {
+                                code_.raw({0x49, 0x3b,
+                                           static_cast<unsigned>(0xc0 + (cached & 7))});
+                            }
                         }
                         const unsigned true_condition = compare == Opcode::OrderedLessF64 ? 0x8c
                             : compare == Opcode::OrderedLessEqualF64 ? 0x8e
@@ -5728,8 +6730,7 @@ private:
                     instruction.index_local &&
                     local_is_i64(*instruction.index_local);
                 if (native_index_local) {
-                    code_.raw({0x48, 0x8b, 0x8d});
-                    code_.i32(frame.displacement(*instruction.index_local));
+                    load_i64_to_rcx(*instruction.index_local);
                 } else {
                     load_xmm(0, frame.displacement(frame.temp_base + first));
                     code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
@@ -5752,8 +6753,13 @@ private:
                 }
                 emit_fixed_base_address(
                     instruction.index, instruction.argument_count);
-                code_.raw({0x48, 0xf7, 0xd9,
-                           0xf2, 0x0f, 0x10, 0x04, 0xc8});
+                code_.raw({0x48, 0xf7, 0xd9});
+                if (fixed_range_is_i64(instruction.index, instruction.argument_count)) {
+                    code_.raw({0x48, 0x8b, 0x14, 0xc8,
+                               0xf2, 0x48, 0x0f, 0x2a, 0xc2});
+                } else {
+                    code_.raw({0xf2, 0x0f, 0x10, 0x04, 0xc8});
+                }
                 store_xmm(0, frame.displacement(frame.temp_base + first));
                 code_.byte(0xe9);
                 const auto done = code_.rel32_placeholder();
@@ -5789,8 +6795,7 @@ private:
                     instruction.index_local &&
                     local_is_i64(*instruction.index_local);
                 if (native_index_local) {
-                    code_.raw({0x48, 0x8b, 0x8d});
-                    code_.i32(frame.displacement(*instruction.index_local));
+                    load_i64_to_rcx(*instruction.index_local);
                 } else {
                     load_xmm(0, frame.displacement(frame.temp_base + first));
                     code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
@@ -5815,7 +6820,12 @@ private:
                 code_.i32(frame.displacement(instruction.index));
                 code_.raw({0x48, 0xf7, 0xd9});
                 load_xmm(0, frame.displacement(frame.temp_base + first + 1));
-                code_.raw({0xf2, 0x0f, 0x11, 0x04, 0xc8});
+                if (fixed_range_is_i64(instruction.index, instruction.argument_count)) {
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xd0,
+                               0x48, 0x89, 0x14, 0xc8});
+                } else {
+                    code_.raw({0xf2, 0x0f, 0x11, 0x04, 0xc8});
+                }
                 code_.byte(0xe9);
                 const auto done = code_.rel32_placeholder();
                 const auto abort = code_.position();

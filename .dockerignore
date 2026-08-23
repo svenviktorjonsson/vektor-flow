@@ -1,7 +1,12 @@
 **
+!package.json
 !compiler/
 !compiler/native/
 !compiler/native/**
+!compiler/self_hosted/
+!compiler/self_hosted/stdlib/
+!compiler/self_hosted/stdlib/**
+!compiler/self_hosted/stdlib.vkf
 !native/
 !native/VfOverlay/
 !native/VfOverlay/vf/
@@ -11,6 +16,7 @@
 !benchmarks/core-comparison/
 !benchmarks/core-comparison/native_process_timer.c
 !benchmarks/core-comparison/native_entry_timer.c
+!benchmarks/core-comparison/native_library_timer.c
 !benchmarks/core-comparison/run.mjs
 !benchmarks/core-comparison/programs/
 !benchmarks/core-comparison/programs/**

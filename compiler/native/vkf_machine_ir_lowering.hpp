@@ -12588,6 +12588,7 @@ inline void refine_integral_local_classes(Function& function) {
         return std::isfinite(value) && value == std::floor(value) &&
             value >= minimum && value < maximum_exclusive;
     };
+
     for (std::size_t pass = 0; pass <= function.locals.size(); ++pass) {
         bool changed = false;
         const auto integral_expression_before = [&](const auto& self,
@@ -12642,6 +12643,215 @@ inline void refine_integral_local_classes(Function& function) {
 inline void refine_integral_local_classes(Module& module) {
     refine_integral_local_classes(module.entry);
     for (auto& function : module.functions) refine_integral_local_classes(function);
+}
+
+inline void promote_integral_numeric_locals(Function& function) {
+    using Opcode = vkf::machine_ir::Opcode;
+    const auto supported = [](Opcode opcode) {
+        switch (opcode) {
+            case Opcode::PushF64:
+            case Opcode::LoadLocal:
+            case Opcode::StoreLocal:
+            case Opcode::Drop:
+            case Opcode::Duplicate:
+            case Opcode::IdentityF64:
+            case Opcode::NegateF64:
+            case Opcode::LogicalNotF64:
+            case Opcode::BooleanizeF64:
+            case Opcode::AddF64:
+            case Opcode::SubtractF64:
+            case Opcode::MultiplyF64:
+            case Opcode::DivideF64:
+            case Opcode::FloorDivideF64:
+            case Opcode::RemainderF64:
+            case Opcode::AbsF64:
+            case Opcode::SqrtF64:
+            case Opcode::OrderedLessF64:
+            case Opcode::OrderedLessEqualF64:
+            case Opcode::OrderedGreaterF64:
+            case Opcode::OrderedGreaterEqualF64:
+            case Opcode::OrderedEqualF64:
+            case Opcode::UnorderedNotEqualF64:
+            case Opcode::EqualBits:
+            case Opcode::NotEqualBits:
+            case Opcode::LoadF64LocalsIndex:
+            case Opcode::StoreF64LocalsIndex:
+            case Opcode::Label:
+            case Opcode::Jump:
+            case Opcode::JumpIfFalse:
+            case Opcode::JumpIfTrue:
+            case Opcode::ReturnF64:
+            case Opcode::ReturnValues:
+                return true;
+            default:
+                return false;
+        }
+    };
+    if (function.local_classes.size() != function.locals.size() ||
+        !std::all_of(function.instructions.begin(), function.instructions.end(),
+                     [&](const auto& instruction) { return supported(instruction.opcode); })) {
+        return;
+    }
+    const auto integral_constant = [](double value) {
+        constexpr double minimum = -9223372036854775808.0;
+        constexpr double maximum_exclusive = 9223372036854775808.0;
+        return std::isfinite(value) && value == std::floor(value) &&
+            value >= minimum && value < maximum_exclusive;
+    };
+    for (std::size_t local = function.parameters.size();
+         local < function.local_classes.size(); ++local) {
+        if (function.local_classes[local] == ValueClass::F64) {
+            function.local_classes[local] = ValueClass::I64;
+        }
+    }
+    for (std::size_t pass = 0; pass <= function.locals.size(); ++pass) {
+        bool changed = false;
+        std::vector<ValueClass> stack;
+        const auto pop = [&]() {
+            if (stack.empty()) throw LoweringFailure("integral promotion stack underflow");
+            const auto value = stack.back();
+            stack.pop_back();
+            return value;
+        };
+        const auto range_is_i64 = [&](std::uint32_t base, std::uint32_t width) {
+            if (base > function.local_classes.size() ||
+                width > function.local_classes.size() - base) return false;
+            return std::all_of(
+                function.local_classes.begin() + base,
+                function.local_classes.begin() + base + width,
+                [](ValueClass value) { return value == ValueClass::I64; });
+        };
+        const auto reject_local = [&](std::uint32_t local) {
+            if (local < function.local_classes.size() &&
+                function.local_classes[local] == ValueClass::I64) {
+                function.local_classes[local] = ValueClass::F64;
+                changed = true;
+            }
+        };
+        for (const auto& instruction : function.instructions) {
+            switch (instruction.opcode) {
+                case Opcode::PushF64:
+                    stack.push_back(integral_constant(instruction.f64)
+                        ? ValueClass::I64 : ValueClass::F64);
+                    break;
+                case Opcode::LoadLocal:
+                    stack.push_back(function.local_classes.at(instruction.index));
+                    break;
+                case Opcode::StoreLocal: {
+                    const auto value = pop();
+                    if (value != ValueClass::I64) reject_local(instruction.index);
+                    break;
+                }
+                case Opcode::Duplicate:
+                    if (stack.empty()) throw LoweringFailure("integral promotion stack underflow");
+                    stack.push_back(stack.back());
+                    break;
+                case Opcode::Drop:
+                case Opcode::JumpIfFalse:
+                case Opcode::JumpIfTrue:
+                case Opcode::ReturnF64:
+                    (void)pop();
+                    break;
+                case Opcode::ReturnValues:
+                    for (std::uint32_t index = 0; index < instruction.result_count; ++index) {
+                        (void)pop();
+                    }
+                    break;
+                case Opcode::IdentityF64:
+                case Opcode::NegateF64:
+                case Opcode::AbsF64:
+                    if (stack.empty()) throw LoweringFailure("integral promotion stack underflow");
+                    break;
+                case Opcode::LogicalNotF64:
+                case Opcode::BooleanizeF64:
+                    (void)pop();
+                    stack.push_back(ValueClass::I64);
+                    break;
+                case Opcode::AddF64:
+                case Opcode::SubtractF64:
+                case Opcode::MultiplyF64:
+                case Opcode::FloorDivideF64:
+                case Opcode::RemainderF64: {
+                    const auto right = pop();
+                    const auto left = pop();
+                    stack.push_back(left == ValueClass::I64 && right == ValueClass::I64
+                        ? ValueClass::I64 : ValueClass::F64);
+                    break;
+                }
+                case Opcode::DivideF64:
+                    (void)pop();
+                    (void)pop();
+                    stack.push_back(ValueClass::F64);
+                    break;
+                case Opcode::SqrtF64:
+                    (void)pop();
+                    stack.push_back(ValueClass::F64);
+                    break;
+                case Opcode::OrderedLessF64:
+                case Opcode::OrderedLessEqualF64:
+                case Opcode::OrderedGreaterF64:
+                case Opcode::OrderedGreaterEqualF64:
+                case Opcode::OrderedEqualF64:
+                case Opcode::UnorderedNotEqualF64:
+                case Opcode::EqualBits:
+                case Opcode::NotEqualBits:
+                    (void)pop();
+                    (void)pop();
+                    stack.push_back(ValueClass::I64);
+                    break;
+                case Opcode::LoadF64LocalsIndex:
+                    (void)pop();
+                    stack.push_back(range_is_i64(instruction.index, instruction.argument_count)
+                        ? ValueClass::I64 : ValueClass::F64);
+                    break;
+                case Opcode::StoreF64LocalsIndex: {
+                    const auto value = pop();
+                    (void)pop();
+                    if (value != ValueClass::I64) {
+                        for (std::uint32_t offset = 0;
+                             offset < instruction.argument_count; ++offset) {
+                            reject_local(instruction.index + offset);
+                        }
+                    }
+                    break;
+                }
+                case Opcode::Label:
+                case Opcode::Jump:
+                    break;
+                default:
+                    throw LoweringFailure("unsupported integral promotion opcode");
+            }
+        }
+        if (!changed) return;
+        if (pass == function.locals.size()) {
+            throw LoweringFailure("machine IR integral promotion did not converge");
+        }
+    }
+}
+
+inline void promote_integral_numeric_locals(Module& module) {
+    promote_integral_numeric_locals(module.entry);
+    for (auto& function : module.functions) promote_integral_numeric_locals(function);
+}
+
+inline void refresh_integral_fixed_indices(Function& function) {
+    using Opcode = vkf::machine_ir::Opcode;
+    for (auto& instruction : function.instructions) {
+        if ((instruction.opcode != Opcode::LoadF64LocalsIndex &&
+             instruction.opcode != Opcode::StoreF64LocalsIndex) ||
+            !instruction.index_local ||
+            *instruction.index_local >= function.local_classes.size()) {
+            continue;
+        }
+        if (function.local_classes[*instruction.index_local] == ValueClass::I64) {
+            instruction.index_is_integral = true;
+        }
+    }
+}
+
+inline void refresh_integral_fixed_indices(Module& module) {
+    refresh_integral_fixed_indices(module.entry);
+    for (auto& function : module.functions) refresh_integral_fixed_indices(function);
 }
 
 inline void inline_small_numeric_calls(Module& module) {
@@ -13009,6 +13219,12 @@ inline Module lower(const vf::JsonValue& typed_ir) {
     refine_integral_local_classes(lowered);
     inline_small_numeric_calls(lowered);
     propagate_constant_numeric_parameters(lowered);
+    // Constant propagation can turn a parameter-fed numeric local into a
+    // provably integral induction variable. Re-run the representation analysis
+    // so the direct backend does not retain f64 conversions and redundant
+    // integrality checks from the pre-specialized function.
+    promote_integral_numeric_locals(lowered);
+    refresh_integral_fixed_indices(lowered);
     return lowered;
 }
 

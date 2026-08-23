@@ -37,6 +37,13 @@ The runner keeps four costs separate:
 - raw kernel runtime: generated code only, excluding process launch, for VKF,
   C, Rust, and Zig
 
+The landing page has one performance table. It shows VKF's raw-kernel mean ±
+sample standard deviation and the same-report `VKF mean / competitor mean`
+ratio for C, Rust, and Zig. Every one of the nine ratios must be strictly below
+`2×`; no aggregate score can hide a failed kernel. Compile and process-runtime
+measurements remain in the JSON/Markdown laboratory report, not the landing
+table.
+
 For the legacy 20,000-operation `scalar-control-small` VKF regression case, a
 full 100-sample run still enforces its own narrow limits: mean internal compiler-core time must be strictly under 10 ms
 and mean raw machine-entry runtime must be strictly under 0.5 ms (500
@@ -95,6 +102,17 @@ Linux-local storage:
 ```bash
 node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,spectral-norm-medium,fannkuch-redux-medium,n-body-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-015
 ```
+
+Run the current strict three-kernel goal locally in one pinned Ubuntu 24.04
+container (including checksum-verified Zig 0.16.0):
+
+```powershell
+docker build -f benchmarks/core-comparison/Dockerfile.comparison-linux -t vkf-comparison-linux-goal .
+docker run --rm vkf-comparison-linux-goal
+```
+
+The container command uses 100 raw runs after 10 warmups for each of VKF, C,
+Rust, and Zig. The runner exits nonzero if any same-host ratio reaches `2×`.
 
 `native-entry-timer` isolates generated-program execution. `native-process-timer`
 includes process startup and is used for source-to-execution and fresh-launch lanes.

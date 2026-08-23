@@ -38,6 +38,8 @@ struct Policy {
     bool dense_affine_maps = true;
     bool avx_affine_loops = true;
     bool register_cache = true;
+    // Experimental until interval proofs can remove checked-index overhead.
+    bool integer_function_tier = true;
 };
 
 inline constexpr std::uint32_t borrowed_aggregate_parameter_bit = 1u << 0u;
@@ -100,6 +102,7 @@ inline Policy policy(std::string_view name) {
         selected.dense_affine_maps = false;
         selected.avx_affine_loops = false;
         selected.register_cache = false;
+        selected.integer_function_tier = false;
         return selected;
     }
     if (name.rfind("mask-", 0) == 0 && name.size() > 5) {

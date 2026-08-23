@@ -896,6 +896,31 @@ export function assertVkfAcceptanceBudgets(results) {
   }
 }
 
+export function assertVkfRelativeKernelGate(
+  results,
+  { maxRatio = 2, minimumSamples = 100,
+    cases = ['spectral-norm-medium', 'fannkuch-redux-medium', 'n-body-medium'],
+    competitors = ['c', 'rust', 'zig'] } = {}
+) {
+  const failures = [];
+  for (const caseId of cases) {
+    const rows = results.filter((result) => result.case === caseId);
+    const vkf = rows.find((result) => result.language === 'vkf');
+    if (!vkf || vkf.nativeRuntime?.count < minimumSamples) continue;
+    for (const language of competitors) {
+      const competitor = rows.find((result) => result.language === language);
+      if (!competitor || competitor.nativeRuntime?.count < minimumSamples) continue;
+      const ratio = vkf.nativeRuntime.meanMs / competitor.nativeRuntime.meanMs;
+      if (!(ratio < maxRatio)) {
+        failures.push(`${caseId} vs ${language}: ${ratio.toFixed(4)}x must be under ${maxRatio.toFixed(1)}x`);
+      }
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`VKF relative kernel gate exceeded: ${failures.join('; ')}`);
+  }
+}
+
 function printReport(payload, report, resultsPath, reportPath) {
   console.log(`Core comparison: compile ${payload.options.compileRuns} measured runs; runtime ${payload.options.runs} measured runs`);
   console.log(report);
@@ -1085,6 +1110,7 @@ export function main(argv = process.argv.slice(2)) {
   writeFileSync(reportPath, report, 'utf8');
   printReport(payload, report, resultsPath, reportPath);
   assertVkfAcceptanceBudgets(normalizedResults);
+  assertVkfRelativeKernelGate(normalizedResults);
   return payload;
 }
 

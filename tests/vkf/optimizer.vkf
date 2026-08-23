@@ -167,3 +167,23 @@ _optimizer_resource_aggregate(program:str, args:[str:3]) -> str:
 
 resource_aggregate_parameters_survive_runtime_calls() -> bit:
     (_optimizer_resource_aggregate("cmd", ["a", "b", "c"]) = "cmd:abc")?!
+
+_optimizer_bounded_left_shift(count:int) -> int:
+    values: [0, 1, 2, 3, 4, 5, 6, 7]
+    index: 0
+    index < count?>
+        values.(index): values.(index + 1)
+        .index: index + 1
+    values.0 * 10000 + values.1 * 1000 + values.2 * 100 + values.6 * 10 + index
+
+bounded_overlapping_vector_shift_preserves_runtime_extent() -> bit:
+    (_optimizer_bounded_left_shift(-1) = 1260 /\
+     _optimizer_bounded_left_shift(0) = 1260 /\
+     _optimizer_bounded_left_shift(3) = 12363 /\
+     _optimizer_bounded_left_shift(7) = 12377)?!
+
+bounded_overlapping_vector_shift_preserves_index_errors() -> bit:
+    caught: 0
+    _optimizer_bounded_left_shift(8)!?
+        errors.IndexError => .caught: 1
+    (caught = 1)?!

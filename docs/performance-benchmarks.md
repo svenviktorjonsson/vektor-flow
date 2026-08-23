@@ -44,6 +44,29 @@ Process startup and compilation are reported separately from kernel execution.
 VKF also reports raw generated-entry timing. Comparable raw native-kernel timing
 for C, Rust, and Zig is required before the README claims a kernel-runtime win.
 
+## Relative reporting
+
+The landing README uses VKF as the absolute-time reference. Other languages are
+shown as ratios calculated from the same host, workload, release report, and
+timing boundary:
+
+```text
+competitor speed relative to VKF = VKF mean time / competitor mean time
+```
+
+A value above `1.00×` means VKF took longer than that competitor. Absolute
+values from different machines are never compared.
+
+The current acceptance goal is evaluated per kernel and per competitor. Each
+of spectral norm, fannkuch-redux, and n-body must keep `VKF mean / competitor
+mean` strictly below `2×` for C, Rust, and Zig in one pinned Linux x64 run with
+100 measured raw samples per lane. There is deliberately no aggregate score:
+an average or geometric mean must not hide one failed kernel.
+
+When results from multiple operating systems are available, each ratio must be
+calculated within one host first. Cross-platform absolute times must never be
+divided to create a ratio.
+
 ## Deliberate exclusions
 
 [Binary trees](https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/binarytrees.html)
