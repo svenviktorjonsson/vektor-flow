@@ -410,6 +410,14 @@ function interleavedProcessSamples(entries, benchmarkCase, warmups, runs) {
   return states;
 }
 
+export function vkfCompileArguments(source) {
+  return [
+    '--aot',
+    '--optimizer-policy', 'tune',
+    '--source', source
+  ];
+}
+
 function interleavedNativeRuntimeSamples(entries, benchmarkCase, warmups, runs) {
   // Rotate languages in short steady-state batches. Five local warmups keep
   // mapping/page costs out of the samples; five measured calls bound the time
@@ -504,26 +512,14 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
       id: 'vkf',
       extension: 'vkf',
       version: `${runCommand(nativeCompiler.driver, ['-v']).stdout.trim()}; built with ${toolVersion(tools.cpp)}`,
-      compileModel: `fresh VKF process + Python-free integrated frontend + compiler-owned direct ${process.arch} artifact`,
+      compileModel: `fresh VKF process + fresh empirical policy search + Python-free integrated frontend + compiler-owned direct ${process.arch} artifact`,
       freshSourcePerCompile: true,
-      internalCompileBatch(sources, manifestPath) {
-        writeFileSync(manifestPath, `${sources.join('\n')}\n`, 'utf8');
-        const result = runCommand(nativeCompiler.driver, ['--batch-sources', manifestPath]);
-        return parseBatchCompileSummaries(result.stdout, sources.length).map((summary) => ({
-          elapsedMs: Number(summary.batch_ms),
-          runtimeArtifact: summary.artifact_path,
-          artifactFallback: Boolean(summary.artifact_fallback),
-          artifactFallbackReason: summary.artifact_fallback_reason || ''
-        }));
-      },
       compile(source) {
-        const result = runCommand(nativeCompiler.driver, [
-          '--aot',
-          '--source', source
-        ]);
+        const result = runCommand(nativeCompiler.driver, vkfCompileArguments(source));
         const summary = JSON.parse(result.stdout);
         return {
           ...result,
+          internalElapsedMs: Number(summary.total_ms),
           runtimeArtifact: summary.artifact_path,
           artifactFallback: Boolean(summary.artifact_fallback),
           artifactFallbackReason: summary.artifact_fallback_reason || ''
@@ -762,6 +758,7 @@ function materializeSource(language, benchmarkCase, caseWork) {
 function compileLanguageCase(language, benchmarkCase, options, caseWork) {
   const { source, template } = materializeSource(language, benchmarkCase, caseWork);
   const samples = [];
+  const internalCompileSamples = [];
   let runtimeArtifact = null;
   let artifactFallback = false;
   let artifactFallbackReason = '';
@@ -785,17 +782,16 @@ function compileLanguageCase(language, benchmarkCase, options, caseWork) {
     if (language.id === 'vkf' && benchmarkCase.requiresDirectVkf && result.artifactFallback) {
       throw new Error(`${benchmarkCase.id} requires direct VKF machine code: ${result.artifactFallbackReason}`);
     }
-    if (index >= options.compileWarmups) samples.push(result.elapsedMs);
+    if (index >= options.compileWarmups) {
+      samples.push(result.elapsedMs);
+      if (Number.isFinite(result.internalElapsedMs)) {
+        internalCompileSamples.push(result.internalElapsedMs);
+      }
+    }
     runtimeArtifact = result.runtimeArtifact || output;
     artifactFallback = result.artifactFallback || false;
     artifactFallbackReason = result.artifactFallbackReason || '';
   }
-  const internalCompileSamples = language.internalCompileBatch
-    ? language.internalCompileBatch(
-        compileSources,
-        resolve(caseWork, `${language.id}-internal-batch-sources.txt`)
-      ).slice(options.compileWarmups).map((result) => result.elapsedMs)
-    : null;
   const nativeRuntimeArtifact = language.prepareNativeRuntime
     ? language.prepareNativeRuntime(source)
     : null;
@@ -812,7 +808,7 @@ function compileLanguageCase(language, benchmarkCase, options, caseWork) {
           : nativeRuntimeArtifact.code)
       : null,
     samples,
-    internalCompileSamples,
+    internalCompileSamples: internalCompileSamples.length > 0 ? internalCompileSamples : null,
     artifactFallback,
     artifactFallbackReason
   };

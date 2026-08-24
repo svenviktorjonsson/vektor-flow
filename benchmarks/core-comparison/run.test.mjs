@@ -9,8 +9,17 @@ import {
   parseNumericOutput,
   parseOptions,
   seriesStats,
+  vkfCompileArguments,
   valuesAgree
 } from './run.mjs';
+
+test('measured VKF compilation forces a fresh optimizer search', () => {
+  assert.deepEqual(vkfCompileArguments('/tmp/program.vkf'), [
+    '--aot',
+    '--optimizer-policy', 'tune',
+    '--source', '/tmp/program.vkf'
+  ]);
+});
 
 test('relative kernel gate evaluates each same-host language pair independently', () => {
   const row = (caseId, language, meanMs, count = 100) => ({

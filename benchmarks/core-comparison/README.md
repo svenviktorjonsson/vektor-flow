@@ -136,9 +136,12 @@ use the same loop/algorithm shape. Idiomatic cases deliberately may not.
 Cross-language results must agree within each case's stated tolerance or the
 run fails.
 
-Every measured VKF compile uses a fresh source/build path. Compiler setup is
-outside the measured region. Program evaluation is deferred to runtime, so
-compile results cannot contain precomputed benchmark answers.
+Every measured VKF compile uses a fresh source/build path and forces a fresh
+empirical optimizer-policy search. Both end-to-end compile time and VKF
+compiler-core time therefore include policy selection; no cached policy is
+reused. Compiler setup is outside the measured region. Program evaluation is
+deferred to runtime, so compile results cannot contain precomputed benchmark
+answers.
 
 Normal direct AOT compilation keeps tokens, AST, typed IR, machine IR, code,
 and data in memory and writes only the runnable artifact. `--diagnostics`
