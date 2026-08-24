@@ -22,9 +22,9 @@ const reportPath = resolve(options.report);
 const report = JSON.parse(readFileSync(reportPath, 'utf8'));
 const version = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).version;
 const expectedCases = [
-  'spectral-norm-medium',
-  'fannkuch-redux-medium',
-  'n-body-medium'
+  'spectral-norm-large',
+  'fannkuch-redux-large',
+  'n-body-large'
 ];
 const expectedLanguages = [
   'vkf', 'c', 'rust', 'zig'
@@ -71,9 +71,9 @@ function sourceLink(result) {
 
 function rawKernelSummary() {
   const caseLabels = {
-    'spectral-norm-medium': 'Spectral norm',
-    'fannkuch-redux-medium': 'Fannkuch',
-    'n-body-medium': 'N-body'
+    'spectral-norm-large': 'Spectral norm',
+    'fannkuch-redux-large': 'Fannkuch',
+    'n-body-large': 'N-body'
   };
   const vkfResults = new Map(expectedCases.map((caseId) => [caseId, resultFor(caseId, 'vkf')]));
   for (const [caseId, result] of vkfResults) {
