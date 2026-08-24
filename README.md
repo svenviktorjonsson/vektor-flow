@@ -187,7 +187,9 @@ and byte-identical stdout and stderr. This is an output-stability check, not a
 per-example timing claim.
 
 The comparative timings below were produced by the 0.2.0 compiler from its
-canonical compact benchmark sources.
+canonical compact benchmark sources. Every reported VKF compile forces a fresh
+policy search; search time is included in total compile time and separately
+recorded in the laboratory evidence.
 
 <!-- readme-platform-evidence:start -->
 | Verification | Windows x64 | Linux x64 | macOS ARM64 |
@@ -204,7 +206,7 @@ Python.
 ### Adaptive Optimizer Policy Landscape
 
 VKF represents lowering choices as data, verifies multiple legal variants,
-deduplicate identical machine code, and retain a policy for the exact program
+deduplicates identical machine code, and retains a policy for the exact program
 and x64 host. Normal search is bounded by the compilation-time budget;
 exhaustive search is an explicit benchmark mode.
 
@@ -229,11 +231,11 @@ linked. Tool versions, source hashes, work counts, output parity, compile
 models, and all 1,000 raw timing samples are retained in the evidence report.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.6.87.2-microsoft-standard-WSL2`, `x64`, Intel(R) Core(TM) Ultra 7 255U, 14 logical CPUs, at `2026-08-23T17:14:11.988Z`.
+Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 7763 64-Core Processor, 4 logical CPUs, at `2026-08-24T08:06:56.450Z`.
 
-Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are same-host ratios to VKF. Absolute times are never compared across machines. Each raw lane contains 1000 measured runs after 50 warmups and excludes process launch.
+Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are represented by same-host VKF/competitor ratios. Absolute times are never compared across machines. Each raw lane contains 1000 measured runs after 50 warmups and excludes process launch.
 
-Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-018-controlled-1000.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-018-controlled-1000.md).
+Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-020.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-020.md).
 
 ### Current raw-kernel comparison
 
@@ -241,9 +243,9 @@ Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner and t
 
 | Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
 | --- | ---: | ---: | ---: | ---: |
-| Spectral norm | 5.593 ± 1.565 ms | 0.988× | 0.888× | 0.964× |
-| Fannkuch | 6.389 ± 2.135 ms | 1.693× | 1.849× | 1.415× |
-| N-body | 1.426 ± 0.515 ms | 1.318× | 1.504× | 0.979× |
+| Spectral norm | 6.460 ± 0.134 ms | 0.454× | 0.452× | 0.450× |
+| Fannkuch | 31.508 ± 0.396 ms | 1.621× | 1.892× | 1.673× |
+| N-body | 4.247 ± 0.052 ms | 1.369× | 1.935× | 1.042× |
 
 ### spectral norm by power method — large, scale 500
 
@@ -295,7 +297,7 @@ spectral_norm() -> num:
 :: spectral_norm()
 ```
 
-**Recorded VKF output; comparison implementations agree within the declared tolerance:**
+**Exact output (all implementations):**
 
 ```text
 1.2742241159529064
@@ -364,7 +366,7 @@ fannkuch(n:num) -> num:
 :: fannkuch(9)
 ```
 
-**Recorded VKF output; comparison implementations agree within the declared tolerance:**
+**Exact output (all implementations):**
 
 ```text
 862930
@@ -456,10 +458,10 @@ n_body(steps:num) -> num:
 :: n_body(50000)
 ```
 
-**Recorded VKF output; comparison implementations agree within the declared tolerance:**
+**Exact output (all implementations):**
 
 ```text
--0.16907807065935254
+-0.16907807065935168
 ```
 
 Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-large/vkf.vkf); C [source](benchmarks/core-comparison/published/n-body-large/c.c); Rust [source](benchmarks/core-comparison/published/n-body-large/rust.rs); Zig [source](benchmarks/core-comparison/published/n-body-large/zig.zig).
@@ -467,9 +469,9 @@ Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-
 <details>
 <summary>Exact toolchains and compile models</summary>
 
-- VKF: `VKF 0.1.8; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + Python-free integrated frontend + compiler-owned direct x64 artifact
+- VKF: `VKF 0.2.0; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + fresh empirical policy search + Python-free integrated frontend + compiler-owned direct x64 artifact
 - C: `Ubuntu clang version 18.1.3 (1ubuntu1)`; Clang -O3 -march=native native link
-- Rust: `rustc 1.75.0 (82e1608df 2023-12-21) (built from a source tarball)`; rustc -O -C target-cpu=native native link
+- Rust: `rustc 1.98.0 (88d9e12ae 2026-08-18)`; rustc -O -C target-cpu=native native link
 - Zig: `0.16.0`; zig build-exe -O ReleaseFast -mcpu native -lc
 
 </details>
@@ -529,6 +531,10 @@ vector; `process.shell` invokes a platform shell and must be treated as unsafe.
 - integral index origins, direct integer branches, power-of-two remainders, and guarded fixed shifts receive dedicated lowering;
 - hot loop headers are aligned and proven two-pointer fixed-vector reversals lower as one tight native loop;
 - packed spectral-norm reductions survive compact range-pipe continuation labels;
+- fixed-vector frame indices lower directly, while three-component affine, scaled-update, and symmetric pair interactions use compact packed/FMA kernels;
+- optimizer profiles retain the exact tested policy, and runtime proof binds the executable and raw entry to the same canonical policy and code fingerprint;
+- comparative compile figures include a fresh empirical policy search instead of reusing cached profiles;
+- transferred string multisets keep owned operands alive across native calls;
 - lexical shadowing, complex small powers, and nested-vector literal updates are fixed in machine lowering;
 - the native suite contains 332 passing VKF tests;
 - the landing README and numbered language guide no longer duplicate installation and release material;

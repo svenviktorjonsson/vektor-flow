@@ -144,7 +144,7 @@ const fragment = [
   `Measured on \`${report.environment.platform}\`, \`${report.environment.architecture}\`, ` +
     `${report.environment.cpu}, ${report.environment.logicalCpuCount} logical CPUs, at \`${report.generatedAt}\`.`,
   '',
-  `Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are same-host ratios to VKF. Absolute times are never compared across machines. Each raw lane contains ${report.options.runs} measured runs after ${report.options.warmups} warmups and excludes process launch.`,
+  `Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are represented by same-host VKF/competitor ratios. Absolute times are never compared across machines. Each raw lane contains ${report.options.runs} measured runs after ${report.options.warmups} warmups and excludes process launch.`,
   '',
   `Evidence: [all samples and hashes](${relative(dirname(readmePath), reportPath).replaceAll('\\', '/')}) and [readable laboratory report](${relative(dirname(readmePath), reportPath.replace(/\.json$/, '.md')).replaceAll('\\', '/')}).`,
   '',
