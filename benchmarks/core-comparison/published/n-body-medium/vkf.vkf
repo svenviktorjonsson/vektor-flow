@@ -1,71 +1,77 @@
 :.math
 
+System: (positions:[[num:3]:5], velocities:[[num:3]:5], masses:[num:5])
+
+offset_momentum(system:System, solar_mass:num) -> System:
+    :system
+    momentum: [0, 0, 0]
+    ..4 >>
+        i: $
+        .momentum+: velocities.(i) * masses.(i)
+    velocities.0: momentum * (-1 / solar_mass)
+    (positions:system.positions, velocities:velocities, masses:masses)
+
+advance(system:System, timestep:num) -> System:
+    :system
+    ..3 >>
+        i: $
+        (i + 1)..4 >>
+            j: $
+            [num:3] displacement: positions.(i) - positions.(j)
+            magnitude: timestep / |displacement|^3
+            velocities.(i) -: displacement * masses.(j) * magnitude
+            velocities.(j) +: displacement * masses.(i) * magnitude
+    ..4 >>
+        i: $
+        positions.(i) +: velocities.(i) * timestep
+    (positions:positions, velocities:velocities, masses:masses)
+
+system_energy(system:System) -> num:
+    :system
+    totals: (kinetic:0, potential:0)
+    ..4 >>
+        i: $
+        totals.kinetic +: 0.5 * masses.(i) * |velocities.(i)|^2
+    ..3 >>
+        i: $
+        (i + 1)..4 >>
+            j: $
+            [num:3] displacement: positions.(i) - positions.(j)
+            totals.potential -: masses.(i) * masses.(j) / |displacement|
+    totals.kinetic + totals.potential
+
 n_body(steps:num) -> num:
-    solar_mass: 39.478417604357434
-    days_per_year: 365.24
-    x: [0, 4.841431442464721, 8.34336671824458, 12.894369562139131, 15.379697114850917]
-    y: [0, -1.1603200440274284, 4.124798564124305, -15.111151401698631, -25.919314609987964]
-    z: [0, -0.10362204447112311, -0.4035234171143214, -0.22330757889265573, 0.17925877295037118]
-    vx: [0, 0.001660076642744037 * days_per_year, -0.002767425107268624 * days_per_year, 0.002964601375647616 * days_per_year, 0.0026806777249038932 * days_per_year]
-    vy: [0, 0.007699011184197404 * days_per_year, 0.004998528012349172 * days_per_year, 0.0023784717395948095 * days_per_year, 0.001628241700382423 * days_per_year]
-    vz: [0, -0.0000690460016972063 * days_per_year, 0.000023041729757376393 * days_per_year, -0.000029658956854023756 * days_per_year, -0.00009515922545197159 * days_per_year]
-    mass: [solar_mass, 0.0009547919384243266 * solar_mass, 0.0002858859806661308 * solar_mass, 0.00004366244043351563 * solar_mass, 0.000051513890204661146 * solar_mass]
-    momentum_x: 0
-    momentum_y: 0
-    momentum_z: 0
-    body: 0
-    body < 5?>
-        .momentum_x: momentum_x + vx.body * mass.body
-        .momentum_y: momentum_y + vy.body * mass.body
-        .momentum_z: momentum_z + vz.body * mass.body
-        .body: body + 1
-    vx.(0): -momentum_x / solar_mass
-    vy.(0): -momentum_y / solar_mass
-    vz.(0): -momentum_z / solar_mass
-
-    step: 0
-    first: 0
-    second: 0
-    dx: 0
-    dy: 0
-    dz: 0
-    distance_squared: 0
-    magnitude: 0
-    step < steps?>
-        .first: 0
-        first < 5?>
-            .second: first + 1
-            second < 5?>
-                .dx: x.first - x.second
-                .dy: y.first - y.second
-                .dz: z.first - z.second
-                .distance_squared: dx * dx + dy * dy + dz * dz
-                .magnitude: 0.01 / (distance_squared * sqrt(distance_squared))
-                vx.first: vx.first - dx * mass.second * magnitude
-                vy.first: vy.first - dy * mass.second * magnitude
-                vz.first: vz.first - dz * mass.second * magnitude
-                vx.second: vx.second + dx * mass.first * magnitude
-                vy.second: vy.second + dy * mass.first * magnitude
-                vz.second: vz.second + dz * mass.first * magnitude
-                .second: second + 1
-            x.first: x.first + 0.01 * vx.first
-            y.first: y.first + 0.01 * vy.first
-            z.first: z.first + 0.01 * vz.first
-            .first: first + 1
-        .step: step + 1
-
-    energy: 0
-    .first: 0
-    first < 5?>
-        .energy: energy + 0.5 * mass.first * (vx.first * vx.first + vy.first * vy.first + vz.first * vz.first)
-        .second: first + 1
-        second < 5?>
-            .dx: x.first - x.second
-            .dy: y.first - y.second
-            .dz: z.first - z.second
-            .energy: energy - mass.first * mass.second / sqrt(dx * dx + dy * dy + dz * dz)
-            .second: second + 1
-        .first: first + 1
-    energy
+    constants: (
+        solar_mass:39.478417604357434,
+        days_per_year:365.24,
+        timestep:0.01
+    )
+    system: (
+        positions:[
+            [0, 0, 0],
+            [4.841431442464721, -1.1603200440274284, -0.10362204447112311],
+            [8.34336671824458, 4.124798564124305, -0.4035234171143214],
+            [12.894369562139131, -15.111151401698631, -0.22330757889265573],
+            [15.379697114850917, -25.919314609987964, 0.17925877295037118]
+        ],
+        velocities:[
+            [0, 0, 0],
+            [0.001660076642744037, 0.007699011184197404, -0.0000690460016972063] * constants.days_per_year,
+            [-0.002767425107268624, 0.004998528012349172, 0.000023041729757376393] * constants.days_per_year,
+            [0.002964601375647616, 0.0023784717395948095, -0.000029658956854023756] * constants.days_per_year,
+            [0.0026806777249038932, 0.001628241700382423, -0.00009515922545197159] * constants.days_per_year
+        ],
+        masses:[
+            constants.solar_mass,
+            0.0009547919384243266 * constants.solar_mass,
+            0.0002858859806661308 * constants.solar_mass,
+            0.00004366244043351563 * constants.solar_mass,
+            0.000051513890204661146 * constants.solar_mass
+        ]
+    )
+    .system: offset_momentum(system, constants.solar_mass)
+    ..steps - 1 >>
+        .system: advance(system, constants.timestep)
+    system_energy(system)
 
 :: n_body(10000)

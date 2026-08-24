@@ -22,11 +22,11 @@ range_pipe_updates_vector_by_onward_index() -> bit:
     ..3 >> working.($): source.($)
     (working == source)?!
 
-compact_named_index_needs_no_parentheses() -> bit:
+evaluated_named_index_requires_parentheses() -> bit:
     source: [4, 3, 2, 1]
     working: [0:4]
     index: 2
-    working.index: source.index
+    working.(index): source.(index)
     (working.2 = 2)?!
 
 indexed_assignment_pipes_its_assigned_value_onward() -> bit:
@@ -34,6 +34,51 @@ indexed_assignment_pipes_its_assigned_value_onward() -> bit:
     working: [0:4]
     values: ..3 >> working.($): source.($) >> $ * 10
     (working == source /\ values == (40, 30, 20, 10))?!
+
+indented_range_pipe_updates_outer_scalar() -> bit:
+    total: 0
+    ..4 >>
+        .total+: $
+    (total = 10)?!
+
+indented_pipe_tail_flows_to_next_segment() -> bit:
+    total: 0
+    values: ..4 >>
+        .total+: $
+    >> $ * 2
+    (total = 10 /\ values.0 = 0 /\ values.2 = 6 /\ values.4 = 20)?!
+
+_increment_pipe_vector(values:[int:2]) -> [int:2]:
+    [values.0 + 1, values.1 + 1]
+
+indented_pipe_updates_outer_fixed_vector() -> bit:
+    values: [1, 2]
+    ..1 >>
+        .values: _increment_pipe_vector(values)
+    (values == [3, 4])?!
+
+pipe_results_generate_requested_container() -> bit:
+    a: (1, 2, 2)
+    value: a >> $
+    vector_from_pipe: [a >> $]
+    vector_from_spill: [:a]
+    nested_vector: [(a >> $)]
+    multiset_from_pipe: {a >> $}
+    multiset_from_spill: {:a}
+    (value == (1, 2, 2) /\
+     vector_from_pipe == [1, 2, 2] /\ vector_from_spill == [1, 2, 2] /\
+     nested_vector.0 == (1, 2, 2) /\
+     multiset_from_pipe == {1:1, 2:2} /\ multiset_from_spill == {1:1, 2:2})?!
+
+runtime_pipe_results_generate_requested_container() -> bit:
+    [num] a: _dynamic_pipe(1, 2, 2)
+    vector_from_pipe: [a >> $]
+    vector_from_spill: [:a]
+    multiset_from_pipe: {a >> $}
+    multiset_from_spill: {:a}
+    (vector_from_pipe.length() = 3 /\ vector_from_pipe.2 = 4 /\
+     vector_from_spill.length() = 3 /\ vector_from_spill.2 = 4 /\
+     multiset_from_pipe == {2:1, 4:2} /\ multiset_from_spill == {2:1, 4:2})?!
 
 pipe_block_return_is_local_to_each_element() -> bit:
     values: (0..3) >>

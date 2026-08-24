@@ -52,7 +52,7 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
-constexpr const char* vkf_release_version = "0.1.8";
+constexpr const char* vkf_release_version = "0.2.0";
 
 std::filesystem::path bundled_stdlib_root;
 

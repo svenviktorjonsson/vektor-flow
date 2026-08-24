@@ -1,5 +1,19 @@
 # Vektor Flow Native Releases
 
+## 0.2.0 — Explicit Structures And Faster Native Kernels
+
+0.2.0 makes recursive vector lifting the only implicit structural application:
+tuples and records are explicit whole values. Compact pipes, evaluated computed
+indices, nested-vector reductions, and axis-aware sums are verified language
+rules. Public programs use grouped records and vector arithmetic.
+
+Direct x64 lowering removes identity aggregate shuffles, recovers integral
+index origins, fuses integer comparison branches, specializes power-of-two
+remainders, and restores packed spectral reductions across compact pipe IR.
+The native suite contains 332 passing VKF tests. The three large controlled
+kernels must remain below 2× C, Rust, and Zig on the same host. Full details:
+[`docs/releases/0.2.0.md`](docs/releases/0.2.0.md).
+
 ## 0.1.8 — Compact Indexing And Pipe Assignment
 
 0.1.8 makes `values.index` the canonical syntax for a simple bound vector

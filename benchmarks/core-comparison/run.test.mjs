@@ -19,22 +19,22 @@ test('relative kernel gate evaluates each same-host language pair independently'
     nativeRuntime: { count, meanMs }
   });
   const passing = [
-    row('spectral-norm-medium', 'vkf', 1.99),
-    row('spectral-norm-medium', 'c', 1),
-    row('spectral-norm-medium', 'rust', 1.01),
-    row('spectral-norm-medium', 'zig', 1.02)
+    row('spectral-norm-large', 'vkf', 1.99),
+    row('spectral-norm-large', 'c', 1),
+    row('spectral-norm-large', 'rust', 1.01),
+    row('spectral-norm-large', 'zig', 1.02)
   ];
   assert.doesNotThrow(() => assertVkfRelativeKernelGate(passing));
   assert.throws(
     () => assertVkfRelativeKernelGate([
       ...passing.filter((result) => result.language !== 'rust'),
-      row('spectral-norm-medium', 'rust', 0.995)
+      row('spectral-norm-large', 'rust', 0.995)
     ]),
-    /spectral-norm-medium vs rust: 2\.0000x must be under 2\.0x/
+    /spectral-norm-large vs rust: 2\.0000x must be under 2\.0x/
   );
   assert.doesNotThrow(() => assertVkfRelativeKernelGate([
-    row('fannkuch-redux-medium', 'vkf', 10, 50),
-    row('fannkuch-redux-medium', 'c', 1, 50)
+    row('fannkuch-redux-large', 'vkf', 10, 50),
+    row('fannkuch-redux-large', 'c', 1, 50)
   ]));
 });
 
@@ -127,7 +127,9 @@ test('parseOptions accepts positive integer sample controls', () => {
     '--compile-runs=7',
     '--compile-warmups=2',
     '--runs=21',
-    '--warmups=4'
+    '--warmups=4',
+    '--process-runs=3',
+    '--process-warmups=1'
   ]), {
     caseId: 'startup',
     languageId: 'vkf',
@@ -136,6 +138,8 @@ test('parseOptions accepts positive integer sample controls', () => {
     compileWarmups: 2,
     runs: 21,
     warmups: 4,
+    processRuns: 3,
+    processWarmups: 1,
     enforceRelativeGate: false
   });
   assert.throws(() => parseOptions(['--runs=0']), /positive integer/);
@@ -152,6 +156,8 @@ test('parseOptions defaults to 100 measured compile and runtime runs', () => {
     compileWarmups: 1,
     runs: 100,
     warmups: 5,
+    processRuns: 10,
+    processWarmups: 1,
     enforceRelativeGate: false
   });
 });

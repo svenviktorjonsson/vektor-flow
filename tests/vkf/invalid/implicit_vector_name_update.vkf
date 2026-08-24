@@ -1,0 +1,7 @@
+# expect-compile-error: vector member i is not an index; use .(i) to evaluate it
+
+replace_at(values:[num:3], i:int) -> [num:3]:
+    values.i: 99
+    values
+
+:: replace_at([10, 20, 30], 1)

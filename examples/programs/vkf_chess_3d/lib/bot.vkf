@@ -86,7 +86,7 @@ evaluate_state(state:GameState, perspective:num) -> num:
     i: 0
     score: castle_rights_score(state, perspective) + tempo_score(state, perspective)
     i < 32?>
-        score: score + piece_score(state.board, state.board.i, perspective)
+        score: score + piece_score(state.board, state.board.(i), perspective)
         i: i + 1
     @: score
 
@@ -211,7 +211,7 @@ opponent_best_reply_score(state:GameState, perspective:num) -> num:
     found: false
     worst_for_perspective: 9999999
     i < 32?>
-        piece: state.board.i
+        piece: state.board.(i)
         piece.captured = false?
             piece.side = state.turn?
                 choice: best_piece_reply(state, piece, perspective)
@@ -307,7 +307,7 @@ best_move_2ply(state:GameState) -> BotChoice:
     best: empty_choice(state)
     i: 0
     i < 32?>
-        piece: state.board.i
+        piece: state.board.(i)
         piece.captured = false?
             piece.side = state.turn?
                 piece_choice: best_piece_2ply(state, piece, perspective)

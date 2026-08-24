@@ -104,6 +104,29 @@ runtime_index_updates_fixed_vector() -> bit:
     [num:3] expected: [1, 9, 3]
     (_dynamic_single_index_update([1, 2, 3], 1) == expected)?!
 
+dynamic_nested_vector_update_replaces_one_row() -> bit:
+    values: [[1, 2, 3], [4, 5, 6]]
+    index: 1
+    values.(index): values.(index) + [10, 20, 30]
+    (values == [[1, 2, 3], [14, 25, 36]])?!
+
+SpilledVectorSystem: (positions:[[num:3]:2], velocities:[[num:3]:2], masses:[num:2])
+
+_advance_spilled_vector_system(system:SpilledVectorSystem) -> SpilledVectorSystem:
+    :system
+    i: 1
+    velocities.(i) +: positions.(i) * masses.(i)
+    (positions:positions, velocities:velocities, masses:masses)
+
+record_spill_preserves_nested_vector_layout() -> bit:
+    system: _advance_spilled_vector_system((
+        positions:[[1, 2, 3], [4, 5, 6]],
+        velocities:[[0, 0, 0], [10, 20, 30]],
+        masses:[2, 3]
+    ))
+    row: system.velocities.1
+    (row.0 = 22 /\ row.1 = 35 /\ row.2 = 48)?!
+
 _fractional_fixed_vector_index(index:num) -> num:
     [num:3] values: [1, 2, 3]
     values.(index)

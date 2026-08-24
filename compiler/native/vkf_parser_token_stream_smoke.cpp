@@ -1745,6 +1745,19 @@ private:
             }
         }
         expect("RBRACKET");
+        const bool sole_pipe = items.size() == 1 && items.front().is_object() &&
+            items.front().as_object().find("kind") != items.front().as_object().end() &&
+            items.front().as_object().at("kind").is_string() &&
+            items.front().as_object().at("kind").as_string() == "pipe_chain";
+        if (sole_pipe &&
+            (items.front().as_object().find("parenthesized") == items.front().as_object().end() ||
+             !items.front().as_object().at("parenthesized").is_boolean() ||
+             !items.front().as_object().at("parenthesized").as_boolean())) {
+            auto out = node("container_spill");
+            out["container"] = vf::JsonValue("vector");
+            out["value"] = std::move(items.front());
+            return vf::JsonValue(std::move(out));
+        }
         auto out = node("list_literal");
         out["items"] = vf::JsonValue(std::move(items));
         return vf::JsonValue(std::move(out));
@@ -1802,6 +1815,29 @@ private:
             }
         }
         expect("RBRACE");
+        if (pairs.size() == 1 && pairs.front().is_object()) {
+            const auto& pair = pairs.front().as_object();
+            const auto& key = pair.at("key");
+            const auto& count = pair.at("count").as_object();
+            const auto count_value = count.find("value");
+            const bool pipe_key = key.is_object() &&
+                key.as_object().find("kind") != key.as_object().end() &&
+                key.as_object().at("kind").is_string() &&
+                key.as_object().at("kind").as_string() == "pipe_chain";
+            if (pipe_key &&
+                (key.as_object().find("parenthesized") == key.as_object().end() ||
+                 !key.as_object().at("parenthesized").is_boolean() ||
+                 !key.as_object().at("parenthesized").as_boolean()) &&
+                count.find("kind") != count.end() && count.at("kind").is_string() &&
+                count.at("kind").as_string() == "number_literal" &&
+                count_value != count.end() && count_value->second.is_number() &&
+                count_value->second.as_number() == 1.0) {
+                auto out = node("container_spill");
+                out["container"] = vf::JsonValue("multiset");
+                out["value"] = key;
+                return vf::JsonValue(std::move(out));
+            }
+        }
         auto out = node("multiset_literal");
         out["pairs"] = vf::JsonValue(std::move(pairs));
         return vf::JsonValue(std::move(out));
@@ -1945,7 +1981,11 @@ private:
         }
         expect("RPAREN");
         if (elements.size() == 1) {
-            return std::move(elements.front());
+            auto grouped = std::move(elements.front());
+            if (grouped.is_object()) {
+                grouped.as_object()["parenthesized"] = vf::JsonValue(true);
+            }
+            return grouped;
         }
         auto out = node("tuple_literal");
         out["elements"] = vf::JsonValue(std::move(elements));

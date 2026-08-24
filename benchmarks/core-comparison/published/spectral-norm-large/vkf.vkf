@@ -2,56 +2,42 @@
 
 multiply_av(values:[num:500]) -> [num:500]:
     output: [0:500]
-    row: 0
-    column: 0
-    total: 0
-    diagonal: 0
-    row < 500?>
-        .column: 0
-        .total: 0
-        column < 500?>
-            .diagonal: row + column
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.column
-            .column: column + 1
-        output.row: total
-        .row: row + 1
+    ..500 - 1 >>
+        i: $
+        total: 0
+        ..500 - 1 >>
+            j: $
+            diagonal: i + j
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + i + 1)) * values.(j)
+        output.(i): total
     output
 
 multiply_atv(values:[num:500]) -> [num:500]:
     output: [0:500]
-    row: 0
-    column: 0
-    total: 0
-    diagonal: 0
-    row < 500?>
-        .column: 0
-        .total: 0
-        column < 500?>
-            .diagonal: column + row
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.column
-            .column: column + 1
-        output.row: total
-        .row: row + 1
+    ..500 - 1 >>
+        i: $
+        total: 0
+        ..500 - 1 >>
+            j: $
+            diagonal: j + i
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + j + 1)) * values.(j)
+        output.(i): total
     output
 
 multiply_at_av(values:[num:500]) -> [num:500]:
     multiply_atv(multiply_av(values))
 
 spectral_norm() -> num:
-    u: [1:500]
-    v: [0:500]
-    iteration: 0
-    iteration < 10?>
-        .v: multiply_at_av(u)
-        .u: multiply_at_av(v)
-        .iteration: iteration + 1
-    index: 0
-    numerator: 0
-    denominator: 0
-    index < 500?>
-        .numerator: numerator + u.index * v.index
-        .denominator: denominator + v.index * v.index
-        .index: index + 1
-    sqrt(numerator / denominator)
+    state: (u:[1:500], v:[0:500])
+    ..9 >>
+        state.v: multiply_at_av(state.u)
+        state.u: multiply_at_av(state.v)
+    u: state.u
+    v: state.v
+    result: (numerator:0, denominator:0)
+    ..500 - 1 >>
+        result.numerator +: u.($) * v.($)
+        result.denominator +: v.($) * v.($)
+    sqrt(result.numerator / result.denominator)
 
 :: spectral_norm()

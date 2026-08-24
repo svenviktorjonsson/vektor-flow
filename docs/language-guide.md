@@ -1,198 +1,5 @@
 # Vektor Flow Language Guide
 
-**Designed by Viktor Jonsson.**
-
-Vektor Flow (VKF) is an experimental, scope-based language for compact native programs, structured data, mathematics, and eventually visual applications.
-
-Its central ideas are bindings that build scope, blocks that return values,
-callable types, explicit structured values, named tensor axes, and functions
-that automatically lift through vectors with exact element types.
-
-> [!WARNING]
-> VKF 0.1.8 is an experimental preview, not a supported production language. It has bugs, incomplete diagnostics, and unstable APIs and syntax.
->
-> The visual system is intended to become VKF's strongest feature, but `ui`, `physics`, and `symbolic` are not included in the native 0.1.8 release.
-
-## Release History
-
-### 0.1.8 — Compact Indexing And Pipe Assignment
-
-0.1.8 makes `values.index` the canonical form for a simple bound vector index
-and reserves `values.(expression)` for computed, multiple, and special indices.
-Indexed assignment can be used directly as a range-pipe stage and passes its
-stored value onward. Public examples now use the compact forms. The release
-gate compiles and executes every documented example 10 times per operating
-system and requires byte-identical output without presenting per-example timing.
-
-### 0.1.7 — Wider SysV Numeric Register Cache
-
-0.1.7 expands the call-free SysV x64 numeric cache from XMM6/XMM7 to XMM6
-through XMM15. More hot loop locals can remain in registers instead of being
-reloaded from stack slots. Windows keeps the smaller ABI-safe allocation. The
-landing page uses one controlled 1,000-run comparison table and retains the
-raw samples, source hashes, compiler hash, output parity, and environment in
-the linked report.
-
-### 0.1.6 — Strict Vector Lifting And Axis Reductions
-
-0.1.6 restricts automatic function lifting to vector layers with exact element
-types. Tuples and records are atomic and use explicit whole-value functions or
-operator overloads. `stat.sum` recursively reduces all vector dimensions by
-default and accepts constant integer, negative, or tuple axes for fixed
-rectangular numeric vectors. Alias-aware overload resolution now finishes in
-typed IR instead of guessing from aggregate layout during machine lowering.
-The current native suite contains 320 VKF tests.
-
-### 0.1.5 — Adaptive Native Optimization
-
-0.1.5 represents eight legal x64 lowering choices as policy data. The compiler
-can verify and time program-specific variants within a compilation budget,
-deduplicate identical machine code, and retain the selected policy for the exact
-program and host. Safe packed matrix and dual-dot reductions join aggregate
-forwarding, native integer/index lowering, parity specialization, and FMA as
-independent decisions. The current native suite contains 320 VKF tests plus
-fresh 100-run proof and a committed 256-policy landscape.
-
-### 0.1.4 — Standard Kernels And Numeric Lowering
-
-0.1.4 replaces ad-hoc comparisons with cited spectral-norm, fannkuch-redux,
-and n-body kernels. Exact seven-language source and output are verified. Direct
-x64 lowering removes proven fixed-vector checks, evaluates long numeric
-expressions in registers, and keeps hot proven indices in integer registers.
-Unproven and fractional indices retain their errors. The release gate contains
-301 native VKF tests plus fresh 100-run proof.
-
-### 0.1.3 — Native Numeric Optimization
-
-0.1.3 keeps the language surface stable while improving direct x64 code:
-
-- straight-line numeric functions with tuple, vector, or record results can inline into hot loops;
-- arithmetic, comparisons, branches, stores, and repeated local loads are fused;
-- supported x64 hosts use AVX2/FMA for recognized four-lane affine recurrences;
-- the x64 SysV record recurrence keeps its four numeric fields in registers;
-- pure numeric Linux programs use a minimal executable shell;
-- that shell uses dedicated numeric conversion plus a direct write syscall;
-- x64 CPU features are included in executable fingerprints;
-- native regression tests verify optimized vector and record results.
-
-Every benchmark keeps its previous source and fixed work count. The release
-gate contains 298 native VKF tests plus fresh 100-run proof.
-
-### 0.1.2 — Explicit Bindings And Inline Proof
-
-0.1.2 removes silent variable overwrites and makes this guide a
-source-hash-bound release-evidence surface:
-
-- `name: value` now only declares; repeating it in the same scope is a compile error;
-- `.name: value` now only updates the nearest reachable name; a missing name is a compile error;
-- every compound assignment also requires the dot, such as `.name +: value`; undotted `name +: value` is rejected;
-- declaration and update assignments work as expressions and return the stored value;
-- function parameters count as existing declarations and may only be updated with dot syntax;
-- `alias: .folder.file` remains separate: its dotted import path is on the right side of `:`;
-- compound aggregate updates were introduced here; current vector-only arithmetic and explicit tuple/record overload rules are documented in section 2.5;
-- bare spilled error types may be raised, while `2!` and other ordinary-value raises are compile errors;
-- native `vkf -t` now verifies both successful programs and exact expected compile failures;
-- `vkf -v` exposes embedded release identity so proof cannot label a stale compiler as current;
-- every documented program shows exact output and a two-row Windows/Linux/macOS timing table generated only from matching 0.1.2 source hashes and compilers.
-
-### 0.1.1 — Native Backend Parity
-
-0.1.1 fills the executable-backend and release-test gaps found while verifying this guide against the complete compiler:
-
-- fixed nested and local function registration, stored lambdas, and returned or stored closures;
-- fixed tuple/vector literal spread and fixed-shape literal classification;
-- fixed compound aggregate updates while preserving aliases;
-- fixed named record aliases inside fixed containers and structural projections;
-- fixed multiple complex outputs through the native formatter;
-- fixed chained named-axis products so `i * j * k` preserves tensor rank;
-- fixed local values shadowing stdlib module names;
-- fixed macOS ARM64 four-byte UTF-8 formatting and monotonic-clock selection;
-- corrected regex documentation to use source-first arguments and its real capture results;
-- moved native test artifacts out of source discovery, restored the original public-test convention, and added the full `vkf -t tests/vkf` release gate;
-- replaced the narrow synthetic release benchmark with 100 fresh compiles and 100 full-process runs of every documented example, including exact output proof and a 20-million-operation container stress case.
-
-Release verification reports **279 passed, 0 failed on each of Windows x64, Linux x64, and macOS ARM64** through the native VKF test runner.
-
-### 0.1.0 — First Native Preview
-
-0.1.0 introduced the Python-free native compiler, installers for three operating systems, the short command interface, executable reuse, the first complete native stdlib set, and the 20k performance gate.
-
-## Download And Run VKF 0.1.8
-
-Download VKF from the [0.1.8 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.8).
-
-| Platform | Recommended download | Installation |
-| --- | --- | --- |
-| Windows x64 | `vektor-flow-windows-x64-setup.exe` | Run it and select **Add VKF to PATH**. |
-| Linux x64 (Debian/Ubuntu) | `vektor-flow-linux-x64.deb` | Run `sudo apt install ./vektor-flow-linux-x64.deb`. |
-| macOS Apple Silicon | `vektor-flow-macos-arm64.pkg` | Open it and follow the installer. |
-
-Portable `.zip` and `.tar.gz` archives are on the same release page. Linux and macOS archives include a per-user `install.sh`; do not run that script with `sudo`.
-
-Open a new terminal and verify the compiler:
-
-```bash
-vkf -e ':: "hello, world"'
-```
-
-The installed compiler requires no Python, C++ compiler, assembler, or separate linker.
-
-### Commands
-
-VKF uses one executable and short, single-purpose flags.
-
-| Command | Result |
-| --- | --- |
-| `vkf program.vkf` | Build beside the source when needed, then run. |
-| `vkf program.vkf -o app` | Build or reuse the named executable, then run. |
-| `vkf -b program.vkf` | Build only. |
-| `vkf -b program.vkf -o app` | Build only with an explicit output name. |
-| `vkf -e ':: 2 + 2'` | Evaluate inline source. |
-| `vkf -t tests.vkf` | Run native tests in a file or directory. |
-| `vkf -v` | Print compiler release version. |
-
-`-b` means build, `-e` means evaluate, `-t` means test, `-v` means version,
-and `-o` names the executable. Passing a `.vkf` file is the run command; there
-is no `-r`.
-
-A fingerprint covers the source, compiler, imports, target, and output choice. An unchanged program can reuse its existing executable.
-
-### Verified Guide Example Matrix
-
-The release proof checks the 60 programs users actually see in this guide.
-Directly below every VKF code example, this guide shows its exact recorded
-output.
-
-On Windows x64, Linux x64, and macOS ARM64, every example is compiled from 10
-fresh paths and executed 10 times in fresh operating-system processes. All
-runs must return the same exit code and byte-identical stdout and stderr.
-Windows CRLF and Unix LF line endings are normalized only when the three
-platform outputs are compared. No per-example timing table is produced.
-
-The dedicated `core/12b-container-stress.vkf` example always performs 10
-million fixed-container element updates and reads, then prints only the
-checksum. Its work count is never adjusted to target a preferred duration.
-
-### Native 0.1.8 Scope
-
-The release includes `math`, `stat`, `random`, `time`, `io`, `collections`, `errors`, `system`, `process`, and `regex`.
-
-Only complete native libraries ship. The partial `physics`, `ui`, and `symbolic` libraries are absent instead of silently falling back to Python, C++, or another runtime.
-
-### Safety
-
-The compiler refuses to overwrite an unrecognized existing file or a symbolic-link output. Installers refuse unsafe roots, non-VKF installation folders, and unrelated existing `vkf` commands.
-
-VKF programs still run with the current user's permissions. `io` can change files and `process` can launch programs. Do not run untrusted `.vkf` files or run VKF as administrator/root without a real need.
-
-`process.run` sends an argument vector directly to a program. `process.shell` invokes the platform shell and must be treated as unsafe.
-
-## Native Core Guide
-
-This guide describes the native compiler, not the older Python interpreter. Its examples are extracted from this guide and checked against the native parser, lowering pipeline, executable backend, and core regression programs.
-
-File extension: `.vkf`. Indentation forms suites. Comments begin with `#`.
-
 ## 1. Programs And Bindings
 
 ### 1.1 Declare With `name:` And Update With `.name:`
@@ -1204,11 +1011,9 @@ Union and intersection patterns use `|` and `&`. Record, tuple, and fixed-vector
 <!-- readme-example: core/33-loops.vkf -->
 ```vkf
 loop_total() -> int:
-    i: 0
     total: 0
-    i < 5?>
-        .total: total + i
-        .i: i + 1
+    ..4 >>
+        .total+: $
     total
 
 switch_loop() -> int:
@@ -1285,6 +1090,12 @@ as `errors.ValueError`.
 
 `value >> expression` binds each onward value as `$`. It maps vectors, tuples, dynamic lists, multisets, ranges, and Unicode string characters. A scalar supplies one onward value.
 
+As the sole unparenthesized value inside a vector or multiset literal, a pipe
+generates that container. `[a >> $]` is equivalent to `[:a]`, and `{a >> $}` is
+equivalent to `{:a}`. Parentheses suppress generation: `[(a >> $)]` is a
+one-element vector containing the result tuple. The same grouping boundary
+applies in `{}`, subject to the multiset's supported key types.
+
 <!-- readme-example: core/35-pipes.vkf -->
 ```vkf
 :: [1, 2, 3] >> $ * 2
@@ -1310,7 +1121,10 @@ Multiset pipes preserve multiplicity. String pipes decode characters from UTF-8 
 
 ### 6.2 Pipe Blocks And Infinite Ranges
 
-A pipe may use a block. `@:` returns that element's result. `@>` skips onward and `@|` stops consumption, including an infinite range.
+A pipe may use an indented block, which runs once for each input like a function.
+The block's final value becomes `$` for the next `>>` stage. Dotted assignment
+can update an existing outer binding. `@:` returns that element's result, `@>`
+skips onward, and `@|` stops consumption, including an infinite range.
 
 <!-- readme-example: core/36-pipe-blocks.vkf -->
 ```vkf
@@ -1501,15 +1315,17 @@ cross(matrix:[[int:2]:2]) -> int:
 
 ### 8.2 Single And Multi-Index Access
 
-Use `.1` for a literal index and `.index` when `index` is a simple bound
-numeric name. Use `.(expression)` for computed, special, or multiple indices.
-The same syntax followed by `:` updates selected positions.
+Use `.1` for a literal index. Use `.(expression)` whenever an index must be
+evaluated, including a bound name such as `index`, the pipe value `$`, a
+calculation, or multiple indices. A bare `.name` is literal member access; it
+never evaluates `name`. The same indexing syntax followed by `:` updates the
+selected positions.
 
 <!-- readme-example: core/41-indexing.vkf -->
 ```vkf
 values: [10, 20, 30, 40]
 index: 1
-:: values.index
+:: values.(index)
 :: values.(0, 2)
 
 values.(1, 3): (21, 41)
@@ -1646,7 +1462,7 @@ text
 
 ## 10. Native Standard Library
 
-These modules are part of the native 0.1.8 release on Windows x64, Linux x64, and macOS ARM64.
+These modules are part of the native 0.2.0 release on Windows x64, Linux x64, and macOS ARM64.
 
 ### 10.1 `math`
 
@@ -1972,43 +1788,18 @@ vkf
 
 ## 11. Coming Soon
 
-The following areas are planned, but unavailable in the native 0.1.8 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
+The following areas are planned, but unavailable in the native 0.2.0 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
 
 ### 11.1 Native `ui`
 
-The visual and scene system is not in the native 0.1.8 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
+The visual and scene system is not in the native 0.2.0 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
 
 ### 11.2 Native `physics`
 
-Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.1.8. No `rigid_body` compatibility module ships in the release.
+Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.2.0. No `rigid_body` compatibility module ships in the release.
 
 ### 11.3 Native `symbolic`
 
-Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.1.8 and must not be presented as native core features.
+Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.2.0 and must not be presented as native core features.
 
 The same rule applies to every future feature: it enters the numbered native guide only after parsing, lowering, executable generation, runtime behavior, and native `vkf -t` verification pass on the release targets.
-
-## Development
-
-The native compiler is under `compiler/native`. The self-hosted standard-library sources are under `compiler/self_hosted/stdlib`.
-
-Compiler, runtime, standard-library, packaging, and test paths contain and
-invoke no Python. Cross-language benchmark fixtures are isolated under
-`benchmarks/core-comparison` and never participate in those paths.
-
-The runnable guide examples are committed under `examples/generated/readme` and
-verified by the native release workflow.
-
-The 0.1.8 acceptance suite is run by VKF itself:
-
-```bash
-vkf -t tests/vkf
-```
-
-The expected result on current main is `323 passed, 0 failed`. Physics, UI, and symbolic fixtures live outside this release directory. Run the additional native build and standard-library proofs in the [testing guide](/testing). Build and packaging details are in the [installation guide](/install), and release procedures are in [RELEASES.md](https://github.com/svenviktorjonsson/vektor-flow/blob/main/RELEASES.md).
-
-VS Code syntax support is under [`vscode/`](https://github.com/svenviktorjonsson/vektor-flow/blob/main/vscode/README.md).
-
-## Status
-
-VKF 0.1.8 is a deliberately incomplete native preview. Use GitHub Issues for reproducible compiler, installer, documentation, and safety problems.

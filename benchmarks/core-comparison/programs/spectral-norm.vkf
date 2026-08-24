@@ -2,56 +2,42 @@
 
 multiply_av(values:[num:{{COUNT}}]) -> [num:{{COUNT}}]:
     output: [0:{{COUNT}}]
-    row: 0
-    column: 0
-    total: 0
-    diagonal: 0
-    row < {{COUNT}}?>
-        .column: 0
-        .total: 0
-        column < {{COUNT}}?>
-            .diagonal: row + column
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + row + 1)) * values.column
-            .column: column + 1
-        output.row: total
-        .row: row + 1
+    ..{{COUNT}} - 1 >>
+        i: $
+        total: 0
+        ..{{COUNT}} - 1 >>
+            j: $
+            diagonal: i + j
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + i + 1)) * values.(j)
+        output.(i): total
     output
 
 multiply_atv(values:[num:{{COUNT}}]) -> [num:{{COUNT}}]:
     output: [0:{{COUNT}}]
-    row: 0
-    column: 0
-    total: 0
-    diagonal: 0
-    row < {{COUNT}}?>
-        .column: 0
-        .total: 0
-        column < {{COUNT}}?>
-            .diagonal: column + row
-            .total: total + (1 / (diagonal * (diagonal + 1) / 2 + column + 1)) * values.column
-            .column: column + 1
-        output.row: total
-        .row: row + 1
+    ..{{COUNT}} - 1 >>
+        i: $
+        total: 0
+        ..{{COUNT}} - 1 >>
+            j: $
+            diagonal: j + i
+            .total+: (1 / (diagonal * (diagonal + 1) / 2 + j + 1)) * values.(j)
+        output.(i): total
     output
 
 multiply_at_av(values:[num:{{COUNT}}]) -> [num:{{COUNT}}]:
     multiply_atv(multiply_av(values))
 
 spectral_norm() -> num:
-    u: [1:{{COUNT}}]
-    v: [0:{{COUNT}}]
-    iteration: 0
-    iteration < 10?>
-        .v: multiply_at_av(u)
-        .u: multiply_at_av(v)
-        .iteration: iteration + 1
-    index: 0
-    numerator: 0
-    denominator: 0
-    index < {{COUNT}}?>
-        .numerator: numerator + u.index * v.index
-        .denominator: denominator + v.index * v.index
-        .index: index + 1
-    sqrt(numerator / denominator)
+    state: (u:[1:{{COUNT}}], v:[0:{{COUNT}}])
+    ..9 >>
+        state.v: multiply_at_av(state.u)
+        state.u: multiply_at_av(state.v)
+    u: state.u
+    v: state.v
+    result: (numerator:0, denominator:0)
+    ..{{COUNT}} - 1 >>
+        result.numerator +: u.($) * v.($)
+        result.denominator +: v.($) * v.($)
+    sqrt(result.numerator / result.denominator)
 
 :: spectral_norm()

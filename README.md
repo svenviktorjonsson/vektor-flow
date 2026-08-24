@@ -8,7 +8,7 @@ Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
 > [!WARNING]
-> VKF 0.1.8 is an unsupported experimental preview. It has bugs, incomplete
+> VKF 0.2.0 is an unsupported experimental preview. It has bugs, incomplete
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
@@ -74,9 +74,9 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Install VKF 0.1.8
+## Install VKF 0.2.0
 
-Download the [0.1.8 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.1.8).
+Download the [0.2.0 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.2.0).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -180,13 +180,13 @@ standard library with runnable examples.
 
 ## Performance Evidence—And Its Limits
 
-The 0.1.8 release gate compiles every documented program 10 times from fresh
+The 0.2.0 release gate compiles every documented program 10 times from fresh
 paths and executes it 10 times in fresh operating-system processes on Windows
 x64, Linux x64, and macOS ARM64. All 10 rounds must produce the same exit code
 and byte-identical stdout and stderr. This is an output-stability check, not a
 per-example timing claim.
 
-The comparative timings below were produced by the 0.1.8 compiler from its
+The comparative timings below were produced by the 0.2.0 compiler from its
 canonical compact benchmark sources.
 
 <!-- readme-platform-evidence:start -->
@@ -197,7 +197,7 @@ canonical compact benchmark sources.
 | Required result | Byte-identical output | Byte-identical output | Byte-identical output |
 <!-- readme-platform-evidence:end -->
 
-These narrow 0.1.8 timings prove reproducibility and expose regressions. They
+These narrow 0.2.0 checks prove reproducibility and expose regressions. They
 do **not** prove that VKF is generally faster than C, Rust, Zig, Go, Julia, or
 Python.
 
@@ -219,7 +219,7 @@ are not treated as proof.
 
 ### Reproducible Language Comparison
 
-This is the controlled **0.1.8** comparison produced by the current compiler
+This is the controlled **0.2.0** comparison produced by the current compiler
 and the exact VKF snippets shown below.
 
 Rows marked **matched** use the same algorithm. The spectral-norm row is
@@ -245,49 +245,49 @@ Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner and t
 | Fannkuch | 6.389 ± 2.135 ms | 1.693× | 1.849× | 1.415× |
 | N-body | 1.426 ± 0.515 ms | 1.318× | 1.504× | 0.979× |
 
-### spectral norm by power method — medium, scale 250
+### spectral norm by power method — large, scale 500
 
 Mode: **idiomatic**. Benchmarks Game power method; NumPy and Julia use optimized matrix operations.
 
 ```vkf
 :.math
 
-multiply_av(values:[num:250]) -> [num:250]:
-    output: [0:250]
-    ..250 - 1 >>
+multiply_av(values:[num:500]) -> [num:500]:
+    output: [0:500]
+    ..500 - 1 >>
         i: $
         total: 0
-        ..250 - 1 >>
+        ..500 - 1 >>
             j: $
             diagonal: i + j
             .total+: (1 / (diagonal * (diagonal + 1) / 2 + i + 1)) * values.(j)
         output.(i): total
     output
 
-multiply_atv(values:[num:250]) -> [num:250]:
-    output: [0:250]
-    ..250 - 1 >>
+multiply_atv(values:[num:500]) -> [num:500]:
+    output: [0:500]
+    ..500 - 1 >>
         i: $
         total: 0
-        ..250 - 1 >>
+        ..500 - 1 >>
             j: $
             diagonal: j + i
             .total+: (1 / (diagonal * (diagonal + 1) / 2 + j + 1)) * values.(j)
         output.(i): total
     output
 
-multiply_at_av(values:[num:250]) -> [num:250]:
+multiply_at_av(values:[num:500]) -> [num:500]:
     multiply_atv(multiply_av(values))
 
 spectral_norm() -> num:
-    state: (u:[1:250], v:[0:250])
+    state: (u:[1:500], v:[0:500])
     ..9 >>
         state.v: multiply_at_av(state.u)
         state.u: multiply_at_av(state.v)
     u: state.u
     v: state.v
     result: (numerator:0, denominator:0)
-    ..250 - 1 >>
+    ..500 - 1 >>
         result.numerator +: u.($) * v.($)
         result.denominator +: v.($) * v.($)
     sqrt(result.numerator / result.denominator)
@@ -298,12 +298,12 @@ spectral_norm() -> num:
 **Recorded VKF output; comparison implementations agree within the declared tolerance:**
 
 ```text
-1.2742238666431718
+1.2742241159529064
 ```
 
-Exact implementations: VKF [source](benchmarks/core-comparison/published/spectral-norm-medium/vkf.vkf); C [source](benchmarks/core-comparison/published/spectral-norm-medium/c.c); Rust [source](benchmarks/core-comparison/published/spectral-norm-medium/rust.rs); Zig [source](benchmarks/core-comparison/published/spectral-norm-medium/zig.zig).
+Exact implementations: VKF [source](benchmarks/core-comparison/published/spectral-norm-large/vkf.vkf); C [source](benchmarks/core-comparison/published/spectral-norm-large/c.c); Rust [source](benchmarks/core-comparison/published/spectral-norm-large/rust.rs); Zig [source](benchmarks/core-comparison/published/spectral-norm-large/zig.zig).
 
-### fannkuch-redux permutations — medium, scale 8
+### fannkuch-redux permutations — large, scale 9
 
 Mode: **matched**. Benchmarks Game permutation order, checksum, and maximum-flip algorithm.
 
@@ -361,18 +361,18 @@ fannkuch(n:num) -> num:
             result.permutation_index +: 1
     result.checksum * 100 + result.maximum_flips
 
-:: fannkuch(8)
+:: fannkuch(9)
 ```
 
 **Recorded VKF output; comparison implementations agree within the declared tolerance:**
 
 ```text
-161622
+862930
 ```
 
-Exact implementations: VKF [source](benchmarks/core-comparison/published/fannkuch-redux-medium/vkf.vkf); C [source](benchmarks/core-comparison/published/fannkuch-redux-medium/c.c); Rust [source](benchmarks/core-comparison/published/fannkuch-redux-medium/rust.rs); Zig [source](benchmarks/core-comparison/published/fannkuch-redux-medium/zig.zig).
+Exact implementations: VKF [source](benchmarks/core-comparison/published/fannkuch-redux-large/vkf.vkf); C [source](benchmarks/core-comparison/published/fannkuch-redux-large/c.c); Rust [source](benchmarks/core-comparison/published/fannkuch-redux-large/rust.rs); Zig [source](benchmarks/core-comparison/published/fannkuch-redux-large/zig.zig).
 
-### five-body symplectic integration — medium, scale 10,000
+### five-body symplectic integration — large, scale 50,000
 
 Mode: **matched**. Benchmarks Game Jovian-body constants and pairwise symplectic integrator.
 
@@ -453,16 +453,16 @@ n_body(steps:num) -> num:
         .system: advance(system, constants.timestep)
     system_energy(system)
 
-:: n_body(10000)
+:: n_body(50000)
 ```
 
 **Recorded VKF output; comparison implementations agree within the declared tolerance:**
 
 ```text
--0.16901644126443249
+-0.16907807065935254
 ```
 
-Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-medium/vkf.vkf); C [source](benchmarks/core-comparison/published/n-body-medium/c.c); Rust [source](benchmarks/core-comparison/published/n-body-medium/rust.rs); Zig [source](benchmarks/core-comparison/published/n-body-medium/zig.zig).
+Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-large/vkf.vkf); C [source](benchmarks/core-comparison/published/n-body-large/c.c); Rust [source](benchmarks/core-comparison/published/n-body-large/rust.rs); Zig [source](benchmarks/core-comparison/published/n-body-large/zig.zig).
 
 <details>
 <summary>Exact toolchains and compile models</summary>
@@ -485,7 +485,7 @@ single table above summarizes the current comparative measurements.
 
 ## Status And Native Scope
 
-The 0.1.8 native release includes `math`, `stat`, `random`, `time`, `io`,
+The 0.2.0 native release includes `math`, `stat`, `random`, `time`, `io`,
 `collections`, `errors`, `system`, `process`, and `regex`. Only fully native,
 verified libraries ship. `physics`, `ui`, and `symbolic` remain future work.
 
@@ -517,6 +517,24 @@ folders, and unrelated existing `vkf` commands.
 VKF programs still run with the current user's permissions. `io` can modify
 files and `process` can launch programs. `process.run` passes an exact argument
 vector; `process.shell` invokes a platform shell and must be treated as unsafe.
+
+## 0.2.0 Changes
+
+0.2.0 makes the compact vector model explicit and improves the native optimizer:
+
+- implicit typed-function application descends recursively through vectors only; tuples and records remain whole values;
+- nested vector sums and axis reductions are verified language behavior;
+- public programs use range pipes, evaluated computed indices, vector arithmetic, and grouped records;
+- unchanged aggregate results no longer produce identity self-copies in hot loops;
+- integral index origins, direct integer branches, power-of-two remainders, and guarded fixed shifts receive dedicated lowering;
+- hot loop headers are aligned and proven two-pointer fixed-vector reversals lower as one tight native loop;
+- packed spectral-norm reductions survive compact range-pipe continuation labels;
+- lexical shadowing, complex small powers, and nested-vector literal updates are fixed in machine lowering;
+- the native suite contains 332 passing VKF tests;
+- the landing README and numbered language guide no longer duplicate installation and release material;
+- GitHub Pages deployment is removed; this README is the landing page.
+
+See the [0.2.0 release notes](docs/releases/0.2.0.md).
 
 ## 0.1.8 Changes
 

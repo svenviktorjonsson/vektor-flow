@@ -28,7 +28,7 @@ piece_at(board:any, file:num, rank:num) -> Piece:
     i: 0
     found: empty_piece()
     i < 32?>
-        p: board.i
+        p: board.(i)
         found.side = Side.none?
             p.captured = false?
                 rules.same_square(p, file, rank)?
@@ -211,7 +211,7 @@ king_piece_on_board(board:any, side:num) -> Piece:
     i: 0
     found: empty_piece()
     i < 32?>
-        p: board.i
+        p: board.(i)
         found.side = Side.none?
             p.captured = false?
                 p.side = side?
@@ -245,7 +245,7 @@ square_attacked_by(board:any, side:num, file:num, rank:num) -> bit:
     i: 0
     attacked: false
     i < 32?>
-        p: board.i
+        p: board.(i)
         attacked = false?
             p.captured = false?
                 p.side = side?

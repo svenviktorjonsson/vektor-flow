@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus, platform, release, tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -119,13 +119,17 @@ export function parseOptions(argv) {
     compileWarmups: 1,
     runs: 100,
     warmups: 5,
+    processRuns: 10,
+    processWarmups: 1,
     enforceRelativeGate: false
   };
   const names = new Map([
     ['compile-runs', 'compileRuns'],
     ['compile-warmups', 'compileWarmups'],
     ['runs', 'runs'],
-    ['warmups', 'warmups']
+    ['warmups', 'warmups'],
+    ['process-runs', 'processRuns'],
+    ['process-warmups', 'processWarmups']
   ]);
   for (const arg of argv) {
     const match = /^--([^=]+)=(.+)$/.exec(arg);
@@ -277,29 +281,38 @@ function sourceFileSha256(path) {
 function buildNativeCompilerTools(tools) {
   const toolRoot = resolve(workRoot, 'native-compiler');
   mkdirSync(toolRoot, { recursive: true });
+  const reuseNativeTools = process.env.VKF_BENCH_REUSE_NATIVE_TOOLS === '1';
+  const compilerOptimization = process.env.VKF_BENCH_COMPILER_OPT || '-O2';
+  if (!/^-O(?:0|1|2|3|s|z)$/.test(compilerOptimization)) {
+    throw new Error(`invalid VKF_BENCH_COMPILER_OPT: ${compilerOptimization}`);
+  }
   const processTimer = resolve(toolRoot, `native-process-timer${executableExtension}`);
   const entryTimer = resolve(toolRoot, `native-entry-timer${executableExtension}`);
   const libraryTimer = resolve(toolRoot, `native-library-timer${executableExtension}`);
-  if (platform() === 'win32') {
+  if (platform() === 'win32' && !(reuseNativeTools && existsSync(processTimer))) {
     runCommand(tools.c.command, [
       '-O2', '-std=c17',
       resolve(benchmarkRoot, 'native_process_timer.c'),
       '-o', processTimer
     ]);
   }
-  runCommand(tools.c.command, [
-    '-O2', '-std=c17',
-    resolve(benchmarkRoot, 'native_entry_timer.c'),
-    '-o', entryTimer,
-    ...(platform() === 'win32' ? [] : ['-lm'])
-  ]);
-  runCommand(tools.c.command, [
-    '-O2', '-std=c17',
-    resolve(benchmarkRoot, 'native_library_timer.c'),
-    '-o', libraryTimer,
-    ...(platform() === 'win32' ? [] : ['-lm']),
-    ...(platform() === 'linux' ? ['-ldl'] : [])
-  ]);
+  if (!(reuseNativeTools && existsSync(entryTimer))) {
+    runCommand(tools.c.command, [
+      '-O2', '-std=c17',
+      resolve(benchmarkRoot, 'native_entry_timer.c'),
+      '-o', entryTimer,
+      ...(platform() === 'win32' ? [] : ['-lm'])
+    ]);
+  }
+  if (!(reuseNativeTools && existsSync(libraryTimer))) {
+    runCommand(tools.c.command, [
+      '-O2', '-std=c17',
+      resolve(benchmarkRoot, 'native_library_timer.c'),
+      '-o', libraryTimer,
+      ...(platform() === 'win32' ? [] : ['-lm']),
+      ...(platform() === 'linux' ? ['-ldl'] : [])
+    ]);
+  }
   const jsonSource = resolve(repoRoot, 'native', 'VfOverlay', 'vf', 'json.cpp');
   const arm64Host = platform() === 'darwin' && process.arch === 'arm64';
   const definitions = [['driver', 'vkf_driver_artifact_smoke.cpp', true]];
@@ -309,6 +322,10 @@ function buildNativeCompilerTools(tools) {
   built.libraryTimer = libraryTimer;
   for (const [name, sourceName, needsJson, outputStem = `vkf-${name}`] of definitions) {
     const output = resolve(toolRoot, `${outputStem}${executableExtension}`);
+    if (reuseNativeTools && existsSync(output)) {
+      built[name] = output;
+      continue;
+    }
     const sources = [resolve(repoRoot, 'compiler', 'native', sourceName)];
     const compileArgs = [];
     if (name === 'driver') {
@@ -335,9 +352,9 @@ function buildNativeCompilerTools(tools) {
         ]
       : [];
     runCommand(tools.cpp.command, [
-      '-std=c++17', '-O2', '-DNDEBUG', '-I', repoRoot, '-I', resolve(repoRoot, 'native', 'VfOverlay'),
+      '-std=c++17', compilerOptimization, '-DNDEBUG', '-I', repoRoot, '-I', resolve(repoRoot, 'native', 'VfOverlay'),
       ...compileArgs, ...sources, ...linkArgs, '-o', output
-    ]);
+    ], { timeoutMs: 600_000 });
     built[name] = output;
   }
   return Object.freeze(built);
@@ -389,6 +406,58 @@ function interleavedProcessSamples(entries, benchmarkCase, warmups, runs) {
   for (let warmup = 0; warmup < warmups; warmup += 1) executeRound(warmup, false);
   for (let iteration = 0; iteration < runs; iteration += 1) {
     executeRound(warmups + iteration, true);
+  }
+  return states;
+}
+
+function interleavedNativeRuntimeSamples(entries, benchmarkCase, warmups, runs) {
+  // Rotate languages in short steady-state batches. Five local warmups keep
+  // mapping/page costs out of the samples; five measured calls bound the time
+  // any one language holds a thermal/turbo state before the next language.
+  const batchWarmups = 5;
+  const batchRuns = 5;
+  const eligible = entries.filter(({ language, compiled }) =>
+    compiled.nativeRuntimeArtifact && language.nativeRuntimeBatch);
+  const states = new Map(eligible.map(({ language }) => [language.id, {
+    samples: [],
+    value: null
+  }]));
+  const executeRound = (round, measured) => {
+    for (let offset = 0; offset < eligible.length; offset += 1) {
+      const entry = eligible[(round + offset) % eligible.length];
+      const result = entry.language.nativeRuntimeBatch(
+        entry.compiled.nativeRuntimeArtifact,
+        batchWarmups,
+        batchRuns
+      );
+      if (!Array.isArray(result.samples) || result.samples.length !== batchRuns) {
+        throw new Error(
+          `${entry.language.id}/${benchmarkCase.id} raw timer must return ${batchRuns} interleaved samples`
+        );
+      }
+      const state = states.get(entry.language.id);
+      if (state.value !== null && !valuesAgree(
+        state.value,
+        result.value,
+        benchmarkCase.tolerance
+      )) {
+        throw new Error(
+          `${entry.language.id}/${benchmarkCase.id} produced unstable raw results`
+        );
+      }
+      state.value = result.value;
+      if (measured) {
+        for (const sample of result.samples) {
+          if (state.samples.length < runs) state.samples.push(Number(sample));
+        }
+      }
+    }
+  };
+  for (let warmup = 0; warmup < Math.ceil(warmups / batchRuns); warmup += 1) {
+    executeRound(warmup, false);
+  }
+  for (let iteration = 0; iteration < Math.ceil(runs / batchRuns); iteration += 1) {
+    executeRound(Math.ceil(warmups / batchRuns) + iteration, true);
   }
   return states;
 }
@@ -799,6 +868,14 @@ function cleanWorkRoot() {
   if (!expectedRepositoryRoot && !expectedWindowsTemporaryRoot) {
     throw new Error(`refusing to clean unexpected work path: ${workRoot}`);
   }
+  if (process.env.VKF_BENCH_REUSE_NATIVE_TOOLS === '1') {
+    mkdirSync(workRoot, { recursive: true });
+    for (const entry of readdirSync(workRoot, { withFileTypes: true })) {
+      if (entry.name === 'native-compiler') continue;
+      rmSync(resolve(workRoot, entry.name), { recursive: true, force: true });
+    }
+    return;
+  }
   rmSync(workRoot, { recursive: true, force: true });
   mkdirSync(workRoot, { recursive: true });
 }
@@ -862,7 +939,7 @@ function createReport(payload) {
   return [
     '# Core language benchmark',
     '',
-    `${payload.options.compileRuns} compile runs and ${payload.options.runs} runtime runs. Values shown as mean ± sample standard deviation in ms. Compile warmups: ${payload.options.compileWarmups}. Runtime warmups: ${payload.options.warmups}.`,
+    `${payload.options.compileRuns} compile runs, ${payload.options.processRuns} fresh-process runs, and ${payload.options.runs} raw runtime runs. Values shown as mean ± sample standard deviation in ms. Compile warmups: ${payload.options.compileWarmups}. Process warmups: ${payload.options.processWarmups}. Raw runtime warmups: ${payload.options.warmups}.`,
     '',
     'Matched rows keep the same algorithm. Idiomatic rows allow each ecosystem\'s normal optimized implementation; inspect the linked source before comparing them.',
     '',
@@ -907,7 +984,7 @@ export function assertVkfAcceptanceBudgets(results) {
 export function assertVkfRelativeKernelGate(
   results,
   { maxRatio = 2, minimumSamples = 100,
-    cases = ['spectral-norm-medium', 'fannkuch-redux-medium', 'n-body-medium'],
+    cases = ['spectral-norm-large', 'fannkuch-redux-large', 'n-body-large'],
     competitors = ['c', 'rust', 'zig'] } = {}
 ) {
   const failures = [];
@@ -930,7 +1007,7 @@ export function assertVkfRelativeKernelGate(
 }
 
 function printReport(payload, report, resultsPath, reportPath) {
-  console.log(`Core comparison: compile ${payload.options.compileRuns} measured runs; runtime ${payload.options.runs} measured runs`);
+  console.log(`Core comparison: compile ${payload.options.compileRuns} measured runs; process ${payload.options.processRuns} measured runs; raw runtime ${payload.options.runs} measured runs`);
   console.log(report);
   console.log(`JSON: ${relative(repoRoot, resultsPath)}`);
   console.log(`Table: ${relative(repoRoot, reportPath)}`);
@@ -1030,18 +1107,18 @@ export function main(argv = process.argv.slice(2)) {
     const interleavedRuntime = interleavedProcessSamples(
       prepared,
       benchmarkCase,
+      options.processWarmups,
+      options.processRuns
+    );
+    const interleavedNativeRuntime = interleavedNativeRuntimeSamples(
+      prepared,
+      benchmarkCase,
       options.warmups,
       options.runs
     );
     for (const { language, compiled } of prepared) {
       const runtime = interleavedRuntime.get(language.id);
-      const nativeRuntime = compiled.nativeRuntimeArtifact && language.nativeRuntimeBatch
-        ? language.nativeRuntimeBatch(
-            compiled.nativeRuntimeArtifact,
-            options.warmups,
-            options.runs
-          )
-        : null;
+      const nativeRuntime = interleavedNativeRuntime.get(language.id) || null;
       if (nativeRuntime && !valuesAgree(
         nativeRuntime.value, runtime.value, benchmarkCase.tolerance
       )) {

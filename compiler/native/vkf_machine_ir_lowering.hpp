@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <map>
 #include <optional>
@@ -1522,7 +1523,9 @@ inline DisplayShape display_shape_from_expression(
     const FunctionDisplayShapes* function_displays = nullptr
 ) {
     const std::string kind = string_field(expression, "kind", "display expression");
-    if (kind == "multiset") return {DisplayKind::Multiset, {}};
+    if (kind == "multiset" || kind == "multiset_from_collection") {
+        return {DisplayKind::Multiset, {}};
+    }
     if (kind == "range") return {DisplayKind::Range, {}};
     if (kind == "complex_const") return {DisplayKind::Complex, {}};
     if (kind == "const") {
@@ -1930,7 +1933,7 @@ inline ValueLayout layout_from_expression_shape(
     if (kind == "bind_expr") return layout_from_expression_shape(
         object_of(field(expression, "value", "bind expression"), "bind expression value"),
         signatures);
-    if (kind == "multiset") {
+    if (kind == "multiset" || kind == "multiset_from_collection") {
         const std::string element_type = string_field(expression, "element_type", "multiset shape");
         if (element_type == "num" || element_type == "int" ||
             element_type == "f32" || element_type == "f64") {
@@ -1943,6 +1946,14 @@ inline ValueLayout layout_from_expression_shape(
         return {};
     }
     if (kind == "load") {
+        // Typed IR already resolved lexical shadowing.  Prefer that type over a
+        // same-named module binding; module layouts are only a fallback for
+        // legacy/untyped loads.
+        const auto type = expression.find("type");
+        if (type != expression.end() && type->second.is_string() &&
+            type->second.as_string() != "any") {
+            return layout_from_type(type->second.as_string(), &signatures);
+        }
         const auto known_layout = signatures.module_layouts.find(
             string_field(expression, "name", "module layout load"));
         if (known_layout != signatures.module_layouts.end()) return known_layout->second;
@@ -2045,6 +2056,11 @@ inline ValueLayout layout_from_expression_shape(
         if (tail_kind == "return") {
             return layout_from_expression_shape(
                 object_of(field(tail, "value", "block return"), "block return value"), signatures);
+        }
+        if (tail_kind == "store_binding") {
+            return layout_from_expression_shape(
+                object_of(field(tail, "value", "block assignment"), "block assignment value"),
+                signatures);
         }
         return {};
     }
@@ -2247,7 +2263,7 @@ inline ValueLayout layout_from_environment_expression_shape(
         environment[string_field(expression, "name", "bind expression")] = value;
         return value;
     }
-    if (kind == "multiset") {
+    if (kind == "multiset" || kind == "multiset_from_collection") {
         return layout_from_expression_shape(expression, signatures);
     }
     if (kind == "load") {
@@ -2423,10 +2439,12 @@ inline ValueLayout layout_from_environment_expression_shape(
             const std::string statement_kind = string_field(statement, "kind", "block statement");
             if (statement_kind == "store_binding") {
                 const std::string name = string_field(statement, "name", "block binding");
-                environment[name] = layout_from_environment_expression_shape(
+                const auto value_layout = layout_from_environment_expression_shape(
                     object_of(field(statement, "value", "block binding"), "block binding value"),
                     environment,
                     signatures);
+                environment[name] = value_layout;
+                if (&value == &body.back()) return value_layout;
             } else if (statement_kind == "expr_stmt") {
                 const auto& value_expression = object_of(
                     field(statement, "expr", "block result"), "block result expression");
@@ -3070,8 +3088,62 @@ public:
         return add_local("$owned_tmp_" + std::to_string(next_owned_temporary_++), layout, true);
     }
 
-    std::uint32_t add_borrowed_temporary(const ValueLayout& layout) {
-        return add_local("$borrowed_tmp_" + std::to_string(next_borrowed_temporary_++), layout, false);
+    std::uint32_t add_borrowed_temporary(
+        const ValueLayout& layout,
+        ValueClass value_class = ValueClass::F64
+    ) {
+        return add_local(
+            "$borrowed_tmp_" + std::to_string(next_borrowed_temporary_++),
+            layout, false, value_class);
+    }
+
+    std::pair<std::uint32_t, bool> flattened_index_local(
+        std::uint32_t source,
+        std::uint32_t width
+    ) {
+        const auto key = std::make_pair(source, width);
+        const auto found = flattened_index_locals_.find(key);
+        if (found != flattened_index_locals_.end()) {
+            return {found->second, false};
+        }
+        const auto local = add_borrowed_temporary({}, ValueClass::I64);
+        flattened_index_locals_.emplace(key, local);
+        return {local, true};
+    }
+
+    void reset_flattened_index_cache() {
+        flattened_index_locals_.clear();
+        component_scalar_locals_.clear();
+    }
+
+    std::pair<std::uint32_t, bool> component_scalar_local(
+        const vf::JsonValue::Object* expression
+    ) {
+        const auto found = component_scalar_locals_.find(expression);
+        if (found != component_scalar_locals_.end()) {
+            return {found->second, false};
+        }
+        const auto local = add_borrowed_temporary({});
+        component_scalar_locals_.emplace(expression, local);
+        return {local, true};
+    }
+
+    void set_numeric_interval(std::uint32_t local, double minimum, double maximum) {
+        numeric_intervals_[local] = {minimum, maximum};
+    }
+
+    std::optional<std::pair<double, double>> numeric_interval(
+        std::uint32_t local
+    ) const {
+        const auto found = numeric_intervals_.find(local);
+        return found == numeric_intervals_.end()
+            ? std::nullopt
+            : std::optional<std::pair<double, double>>(found->second);
+    }
+
+    bool local_is_integral(std::uint32_t local) const {
+        return local < function_.local_classes.size() &&
+            function_.local_classes[local] == ValueClass::I64;
     }
 
     void enable_parameter_mask() {
@@ -3269,6 +3341,11 @@ private:
     std::uint32_t next_label_ = 0;
     std::uint32_t next_owned_temporary_ = 0;
     std::uint32_t next_borrowed_temporary_ = 0;
+    std::map<std::pair<std::uint32_t, std::uint32_t>, std::uint32_t>
+        flattened_index_locals_;
+    std::map<const vf::JsonValue::Object*, std::uint32_t>
+        component_scalar_locals_;
+    std::map<std::uint32_t, std::pair<double, double>> numeric_intervals_;
     std::optional<std::uint32_t> error_handler_;
     std::optional<std::uint32_t> error_value_local_;
     std::optional<std::uint32_t> error_type_local_;
@@ -4090,6 +4167,16 @@ inline void emit_discard_owned_value(FunctionBuilder& builder, const ValueLayout
         builder.emit(std::move(store));
     }
     emit_release_layout_local(builder, temporary, layout);
+}
+
+inline void emit_discard_value(FunctionBuilder& builder, const ValueLayout& layout) {
+    if (has_owned_resources(layout)) {
+        emit_discard_owned_value(builder, layout);
+        return;
+    }
+    for (std::uint32_t component = 0; component < layout.width; ++component) {
+        builder.emit({Opcode::Drop});
+    }
 }
 
 inline void emit_default_value(
@@ -5580,6 +5667,352 @@ inline ValueLayout emit_complex_string(
     return string_layout;
 }
 
+inline bool component_lowering_eligible(
+    const vf::JsonValue::Object& expression,
+    const FunctionSignatures& signatures
+) {
+    const auto layout = layout_from_expression_shape(expression, signatures);
+    if (layout.kind == ValueKind::Numeric && layout.width == 1u) return true;
+    if (layout.kind != ValueKind::Aggregate || !is_numeric_layout(layout) ||
+        is_record_layout(layout)) {
+        return false;
+    }
+    const std::string kind = string_field(
+        expression, "kind", "component expression");
+    if (kind == "load" || kind == "field_access" || kind == "dotted_attr" ||
+        kind == "dotted_index") {
+        return true;
+    }
+    if (kind != "binary_op") return false;
+    const std::string op = string_field(
+        expression, "op", "component binary expression");
+    if (op != "PLUS" && op != "MINUS" && op != "STAR" && op != "SLASH") {
+        return false;
+    }
+    return component_lowering_eligible(
+               object_of(
+                   field(expression, "left", "component binary expression"),
+                   "component binary left"),
+               signatures) &&
+        component_lowering_eligible(
+            object_of(
+                field(expression, "right", "component binary expression"),
+                "component binary right"),
+            signatures);
+}
+
+inline std::optional<std::pair<double, double>> numeric_interval_of(
+    const vf::JsonValue::Object& expression,
+    FunctionBuilder& builder
+) {
+    const std::string kind = string_field(expression, "kind", "numeric interval");
+    if (kind == "const") {
+        const auto found = expression.find("value");
+        if (found != expression.end() && found->second.is_number()) {
+            const double value = found->second.as_number();
+            return std::pair<double, double>{value, value};
+        }
+        return std::nullopt;
+    }
+    if (kind == "load") {
+        return builder.numeric_interval(
+            builder.slot(string_field(expression, "name", "numeric interval load")));
+    }
+    if (kind != "binary_op") return std::nullopt;
+    const auto left = numeric_interval_of(
+        object_of(field(expression, "left", "numeric interval binary"),
+                  "numeric interval left"),
+        builder);
+    const auto right = numeric_interval_of(
+        object_of(field(expression, "right", "numeric interval binary"),
+                  "numeric interval right"),
+        builder);
+    if (!left || !right) return std::nullopt;
+    const std::string op = string_field(expression, "op", "numeric interval binary");
+    if (op == "PLUS") {
+        return std::pair<double, double>{
+            left->first + right->first, left->second + right->second};
+    }
+    if (op == "MINUS") {
+        return std::pair<double, double>{
+            left->first - right->second, left->second - right->first};
+    }
+    return std::nullopt;
+}
+
+inline bool fixed_index_proven(
+    FunctionBuilder& builder,
+    std::uint32_t local,
+    std::uint32_t count,
+    bool integral
+) {
+    const auto interval = builder.numeric_interval(local);
+    return integral && interval && interval->first >= 0.0 &&
+        interval->second < static_cast<double>(count);
+}
+
+inline bool numeric_expression_is_integral(
+    const vf::JsonValue::Object& expression,
+    FunctionBuilder& builder
+) {
+    const std::string kind = string_field(expression, "kind", "integral expression");
+    if (kind == "const") {
+        const auto found = expression.find("value");
+        return found != expression.end() && found->second.is_number() &&
+            std::isfinite(found->second.as_number()) &&
+            found->second.as_number() == std::floor(found->second.as_number());
+    }
+    if (kind == "load") {
+        return builder.local_is_integral(
+            builder.slot(string_field(expression, "name", "integral expression load")));
+    }
+    if (kind != "binary_op") return false;
+    const std::string op = string_field(expression, "op", "integral binary expression");
+    return (op == "PLUS" || op == "MINUS" || op == "STAR") &&
+        numeric_expression_is_integral(
+            object_of(field(expression, "left", "integral binary expression"),
+                      "integral binary left"),
+            builder) &&
+        numeric_expression_is_integral(
+            object_of(field(expression, "right", "integral binary expression"),
+                      "integral binary right"),
+            builder);
+}
+
+inline bool lower_numeric_component(
+    const vf::JsonValue::Object& expression,
+    std::uint32_t component,
+    FunctionBuilder& builder,
+    const FunctionSignatures& signatures,
+    StringPool& strings
+) {
+    const auto layout = layout_from_expression_shape(expression, signatures);
+    if (layout.kind == ValueKind::Numeric && layout.width == 1u) {
+        const std::string scalar_kind = string_field(
+            expression, "kind", "component scalar expression");
+        if (scalar_kind == "load") {
+            emit_load_local_component(
+                builder,
+                builder.slot(string_field(
+                    expression, "name", "component scalar load")));
+            return true;
+        }
+        if (scalar_kind == "field_access" || scalar_kind == "dotted_attr") {
+            const auto projection = projection_of(expression);
+            const auto& root = builder.layout(projection.binding);
+            const auto selected = root.selectors.find(projection.path);
+            if (selected == root.selectors.end() || selected->second.width != 1u) {
+                return false;
+            }
+            emit_load_local_component(
+                builder,
+                builder.slot(projection.binding, selected->second.offset));
+            return true;
+        }
+        const auto [local, initialize] =
+            builder.component_scalar_local(&expression);
+        if (initialize) {
+            const auto scalar = lower_expression(
+                expression, builder, signatures, strings);
+            require_scalar(scalar, "component scalar");
+            emit_store_local_component(builder, local);
+        }
+        emit_load_local_component(builder, local);
+        return true;
+    }
+    if (component >= layout.width || layout.kind != ValueKind::Aggregate ||
+        !is_numeric_layout(layout) || is_record_layout(layout)) {
+        return false;
+    }
+    const std::string kind = string_field(
+        expression, "kind", "component expression");
+    if (kind == "list" || kind == "tuple") {
+        std::uint32_t offset = 0u;
+        for (const auto& raw_item : array_of(
+                 field(expression, "items", "component collection"),
+                 "component collection items")) {
+            const auto& item = object_of(raw_item, "component collection item");
+            const bool spread =
+                string_field(item, "kind", "component collection item") == "spread";
+            const auto& value = spread
+                ? object_of(field(item, "value", "component spread"),
+                            "component spread value")
+                : item;
+            const auto item_layout =
+                layout_from_expression_shape(value, signatures);
+            if (component < offset + item_layout.width) {
+                return lower_numeric_component(
+                    value, component - offset, builder, signatures, strings);
+            }
+            offset += item_layout.width;
+        }
+        return false;
+    }
+    if (kind == "load") {
+        emit_load_local_component(
+            builder,
+            builder.slot(
+                string_field(expression, "name", "component load"),
+                component));
+        return true;
+    }
+    if (kind == "field_access" || kind == "dotted_attr") {
+        const auto projection = projection_of(expression);
+        const auto& root = builder.layout(projection.binding);
+        const auto selected = root.selectors.find(projection.path);
+        if (selected == root.selectors.end() ||
+            component >= selected->second.width) {
+            return false;
+        }
+        emit_load_local_component(
+            builder,
+            builder.slot(
+                projection.binding,
+                selected->second.offset + component));
+        return true;
+    }
+    if (kind == "dotted_index") {
+        const auto& base = object_of(
+            field(expression, "base", "component index"),
+            "component index base");
+        if (string_field(base, "kind", "component index base") != "load") {
+            return false;
+        }
+        const auto& indices = array_of(
+            field(expression, "indices", "component index"),
+            "component indices");
+        if (indices.size() != 1u) return false;
+        const auto& index_expression = object_of(
+            indices.front(), "component index");
+        const std::string binding = string_field(
+            base, "name", "component index base");
+        const auto& base_layout = builder.layout(binding);
+        const auto elements = indexed_element_layouts(base_layout);
+        if (elements.empty() || component >= elements.front().width) {
+            return false;
+        }
+        std::uint32_t source_index_local = 0;
+        if (string_field(
+                index_expression, "kind", "component index") == "load") {
+            source_index_local = builder.slot(string_field(
+                index_expression, "name", "component index"));
+        } else {
+            const auto [local, initialize] =
+                builder.component_scalar_local(&index_expression);
+            source_index_local = local;
+            if (initialize) {
+                auto index_layout = lower_expression(
+                    index_expression, builder, signatures, strings);
+                index_layout = emit_require_real_complex(
+                    builder, strings, index_layout, "index must be int or str");
+                require_scalar(index_layout, "component index");
+                emit_store_local_component(builder, source_index_local);
+            }
+        }
+        const auto [flat_index_local, initialize_flat_index] =
+            builder.flattened_index_local(
+                source_index_local, elements.front().width);
+        if (initialize_flat_index) {
+            const bool index_is_integral = string_field(
+                index_expression, "type", "component index") == "int" ||
+                builder.local_is_integral(source_index_local);
+            if (!fixed_index_proven(
+                    builder, source_index_local,
+                    static_cast<std::uint32_t>(elements.size()),
+                    index_is_integral)) {
+                emit_load_local_component(builder, source_index_local);
+                Instruction validate;
+                validate.opcode = Opcode::LoadF64LocalsIndex;
+                validate.index = builder.slot(binding);
+                validate.argument_count =
+                    static_cast<std::uint32_t>(elements.size());
+                validate.index_local = source_index_local;
+                validate.index_is_integral = index_is_integral;
+                validate.may_error = true;
+                const std::string message = "vector index out of range";
+                validate.error_message_offset = strings.intern(message);
+                validate.byte_count = static_cast<std::uint32_t>(message.size());
+                if (const auto handler = builder.error_handler()) {
+                    validate.has_error_handler = true;
+                    validate.label = *handler;
+                    validate.error_value_local = *builder.error_value_local();
+                    validate.error_type_local = *builder.error_type_local();
+                }
+                builder.emit(std::move(validate));
+                builder.emit({Opcode::Drop});
+            }
+            emit_load_local_component(builder, source_index_local);
+            Instruction width;
+            width.opcode = Opcode::PushF64;
+            width.f64 = static_cast<double>(elements.front().width);
+            builder.emit(std::move(width));
+            builder.emit({Opcode::MultiplyF64});
+            emit_store_local_component(builder, flat_index_local);
+        }
+        emit_load_local_component(builder, flat_index_local);
+        Instruction load;
+        load.opcode = Opcode::LoadF64LocalsIndex;
+        load.index = builder.slot(binding, component);
+        load.argument_count = base_layout.width - component;
+        load.index_local = flat_index_local;
+        load.index_is_integral = true;
+        load.may_error = false;
+        builder.emit(std::move(load));
+        return true;
+    }
+    if (kind == "binary_op") {
+        const auto& left = object_of(
+            field(expression, "left", "component binary expression"),
+            "component binary left");
+        const auto& right = object_of(
+            field(expression, "right", "component binary expression"),
+            "component binary right");
+        const auto left_layout = layout_from_expression_shape(left, signatures);
+        const auto right_layout = layout_from_expression_shape(right, signatures);
+        const auto left_component = left_layout.width == 1u ? 0u : component;
+        const auto right_component = right_layout.width == 1u ? 0u : component;
+        if (!lower_numeric_component(
+                left, left_component, builder, signatures, strings) ||
+            !lower_numeric_component(
+                right, right_component, builder, signatures, strings)) {
+            return false;
+        }
+        const auto opcode = scalar_binary_opcode(string_field(
+            expression, "op", "component binary expression"));
+        if (!opcode) return false;
+        builder.emit({*opcode});
+        return true;
+    }
+    return false;
+}
+
+inline void prepare_numeric_component_expression(
+    const vf::JsonValue::Object& expression,
+    FunctionBuilder& builder,
+    const FunctionSignatures& signatures,
+    StringPool& strings
+) {
+    const std::string kind = string_field(
+        expression, "kind", "component expression preparation");
+    if (kind == "dotted_index") {
+        const auto layout = layout_from_expression_shape(expression, signatures);
+        if (is_numeric_layout(layout) &&
+            lower_numeric_component(expression, 0u, builder, signatures, strings)) {
+            builder.emit({Opcode::Drop});
+        }
+        return;
+    }
+    if (kind != "binary_op") return;
+    prepare_numeric_component_expression(
+        object_of(field(expression, "left", "component preparation binary"),
+                  "component preparation left"),
+        builder, signatures, strings);
+    prepare_numeric_component_expression(
+        object_of(field(expression, "right", "component preparation binary"),
+                  "component preparation right"),
+        builder, signatures, strings);
+}
+
 inline ValueLayout lower_expression(
     const vf::JsonValue::Object& expression,
     FunctionBuilder& builder,
@@ -6383,6 +6816,113 @@ inline ValueLayout lower_expression(
         }
         return result;
     }
+    if (kind == "multiset_from_collection") {
+        const auto& value = object_of(
+            field(expression, "value", "multiset generation"),
+            "multiset generation value");
+        const auto source = lower_expression(value, builder, signatures, strings);
+        const ValueLayout multiset_layout{1, ValueKind::NumericMultiset, {}};
+        if (source.kind == ValueKind::DynamicF64List) {
+            const auto source_local = builder.add_borrowed_temporary(source);
+            emit_store_local_component(builder, source_local);
+            const auto result_local = builder.add_owned_temporary(multiset_layout);
+            Instruction empty;
+            empty.opcode = Opcode::MakeOwnedF64List;
+            empty.argument_count = 0;
+            builder.emit(std::move(empty));
+            emit_store_local_component(builder, result_local);
+            const auto cursor = builder.add_borrowed_temporary({});
+            Instruction zero;
+            zero.opcode = Opcode::PushF64;
+            zero.f64 = 0.0;
+            builder.emit(std::move(zero));
+            emit_store_local_component(builder, cursor);
+            const auto loop = builder.next_label();
+            const auto finish = builder.next_label();
+            Instruction loop_label;
+            loop_label.opcode = Opcode::Label;
+            loop_label.label = loop;
+            builder.emit(std::move(loop_label));
+            emit_load_local_component(builder, cursor);
+            emit_load_local_component(builder, source_local);
+            builder.emit({Opcode::CountF64List});
+            builder.emit({Opcode::OrderedLessF64});
+            Instruction done;
+            done.opcode = Opcode::JumpIfFalse;
+            done.label = finish;
+            builder.emit(std::move(done));
+            emit_load_local_component(builder, result_local);
+            emit_load_local_component(builder, source_local);
+            emit_load_local_component(builder, cursor);
+            builder.emit({Opcode::LoadF64ListIndex});
+            Instruction one;
+            one.opcode = Opcode::PushF64;
+            one.f64 = 1.0;
+            builder.emit(std::move(one));
+            Instruction pair;
+            pair.opcode = Opcode::MakeOwnedF64List;
+            pair.argument_count = 2;
+            builder.emit(std::move(pair));
+            Instruction append;
+            append.opcode = Opcode::ConcatF64Lists;
+            append.owns_left = true;
+            append.owns_right = true;
+            builder.emit(std::move(append));
+            emit_store_local_component(builder, result_local);
+            emit_load_local_component(builder, cursor);
+            Instruction increment;
+            increment.opcode = Opcode::PushF64;
+            increment.f64 = 1.0;
+            builder.emit(std::move(increment));
+            builder.emit({Opcode::AddF64});
+            emit_store_local_component(builder, cursor);
+            Instruction repeat;
+            repeat.opcode = Opcode::Jump;
+            repeat.label = loop;
+            builder.emit(std::move(repeat));
+            Instruction finish_label;
+            finish_label.opcode = Opcode::Label;
+            finish_label.label = finish;
+            builder.emit(std::move(finish_label));
+            emit_load_local_component(builder, result_local);
+            builder.emit({Opcode::NormalizeF64Multiset});
+            builder.emit({Opcode::CloneF64List});
+            emit_release_layout_local(builder, result_local, multiset_layout);
+            if (expression_produces_owned_f64_list(value, signatures)) {
+                emit_release_layout_local(builder, source_local, source);
+            }
+            return multiset_layout;
+        }
+        if (source.kind != ValueKind::Aggregate || !is_numeric_layout(source) ||
+            source.width == 0) {
+            throw LoweringFailure(
+                "multiset generation requires a numeric vector, tuple, list, or multiset");
+        }
+        const auto elements = indexed_element_layouts(source);
+        if (elements.empty()) {
+            throw LoweringFailure("multiset generation requires at least one element");
+        }
+        const auto source_local = builder.add_borrowed_temporary(source);
+        for (std::uint32_t component = source.width; component > 0; --component) {
+            emit_store_local_component(builder, source_local + component - 1u);
+        }
+        std::uint32_t offset = 0;
+        for (const auto& element : elements) {
+            require_scalar(element, "multiset generation element");
+            emit_load_local_component(builder, source_local + offset);
+            Instruction one;
+            one.opcode = Opcode::PushF64;
+            one.f64 = 1.0;
+            builder.emit(std::move(one));
+            offset += element.width;
+        }
+        Instruction make;
+        make.opcode = Opcode::MakeOwnedF64List;
+        make.argument_count = static_cast<std::uint32_t>(elements.size() * 2u);
+        builder.emit(std::move(make));
+        builder.emit({Opcode::NormalizeF64Multiset});
+        return multiset_layout;
+    }
     if (kind == "multiset") {
         const std::string element_type = string_field(expression, "element_type", "multiset");
         const auto& pairs = array_of(field(expression, "pairs", "multiset"), "multiset pairs");
@@ -6538,6 +7078,43 @@ inline ValueLayout lower_expression(
             if (statement_kind == "store_binding") {
                 const std::string name = string_field(statement, "name", "block binding");
                 const auto& value = object_of(field(statement, "value", "block binding"), "block binding value");
+                const auto update = statement.find("update");
+                const bool is_update = update != statement.end() && update->second.is_boolean() &&
+                    update->second.as_boolean();
+                if (is_update) {
+                    const auto* existing = builder.find_layout(name);
+                    if (!existing) {
+                        throw LoweringFailure("block update requires an existing binding " + name);
+                    }
+                    const auto value_layout = lower_expression(value, builder, signatures, strings);
+                    if (!same_layout(*existing, value_layout)) {
+                        throw LoweringFailure("block update layout mismatch for " + name);
+                    }
+                    ensure_independent_value(value, value_layout, builder, signatures);
+                    emit_release_layout_local(builder, builder.slot(name), *existing);
+                    emit_store_binding(builder, name, value_layout, strings);
+                    if (tail) {
+                        emit_load_binding(builder, name, {0, value_layout.width, value_layout.kind});
+                        if (value_layout.kind == ValueKind::String) {
+                            builder.emit({Opcode::CloneString});
+                        } else if (value_layout.kind == ValueKind::DynamicF64List ||
+                                   value_layout.kind == ValueKind::NumericMultiset) {
+                            builder.emit({Opcode::CloneF64List});
+                        } else if ((value_layout.kind == ValueKind::Aggregate ||
+                                    value_layout.kind == ValueKind::StringMultiset) &&
+                                   has_owned_resources(value_layout)) {
+                            clone_nested_resource_values(value_layout, builder);
+                        }
+                        emit_release_layout_local(builder, result_local, result);
+                        for (std::uint32_t component = result.width; component > 0; --component) {
+                            Instruction store;
+                            store.opcode = Opcode::StoreLocal;
+                            store.index = result_local + component - 1;
+                            builder.emit(std::move(store));
+                        }
+                    }
+                    continue;
+                }
                 const std::string value_kind = string_field(value, "kind", "block binding value");
                 auto layout = value_kind == "load"
                     ? builder.layout(string_field(value, "name", "block binding value"))
@@ -6786,29 +7363,86 @@ inline ValueLayout lower_expression(
                 lowered_index = emit_require_real_complex(
                     builder, strings, lowered_index, "index must be int or str");
                 require_scalar(lowered_index, "fixed vector index");
-                Instruction index;
-                index.opcode = Opcode::LoadF64LocalsIndex;
-                index.index = builder.slot(string_field(base, "name", "fixed vector base"));
-                index.argument_count = base_layout.width;
+                const std::optional<std::uint32_t> direct_index_local =
+                    string_field(index_expression, "kind", "fixed vector index") == "load"
+                    ? std::optional<std::uint32_t>(builder.slot(string_field(
+                        index_expression, "name", "fixed vector index")))
+                    : std::nullopt;
+                const auto elements = indexed_element_layouts(base_layout);
+                if (elements.empty() ||
+                    std::any_of(elements.begin(), elements.end(), [&](const auto& element) {
+                        return !same_layout(element, elements.front());
+                    })) {
+                    throw LoweringFailure(
+                        "dynamic fixed vector index requires one uniform element layout");
+                }
                 const auto index_type = index_expression.find("type");
-                index.index_is_integral = index_type != index_expression.end() &&
-                    index_type->second.is_string() && index_type->second.as_string() == "int";
-                if (string_field(index_expression, "kind", "fixed vector index") == "load") {
-                    index.index_local = builder.slot(
-                        string_field(index_expression, "name", "fixed vector index"));
-                }
-                index.may_error = true;
+                const bool index_is_integral =
+                    (index_type != index_expression.end() &&
+                     index_type->second.is_string() && index_type->second.as_string() == "int") ||
+                    (direct_index_local && builder.local_is_integral(*direct_index_local));
+                const bool index_is_proven = direct_index_local && fixed_index_proven(
+                    builder, *direct_index_local,
+                    static_cast<std::uint32_t>(elements.size()),
+                    index_is_integral);
                 const std::string message = "vector index out of range";
-                index.error_message_offset = strings.intern(message);
-                index.byte_count = static_cast<std::uint32_t>(message.size());
-                if (const auto handler = builder.error_handler()) {
-                    index.has_error_handler = true;
-                    index.label = *handler;
-                    index.error_value_local = *builder.error_value_local();
-                    index.error_type_local = *builder.error_type_local();
+                const auto emit_index = [&](
+                    const std::uint32_t count,
+                    const bool integral,
+                    const std::optional<std::uint32_t> direct_index_local = std::nullopt,
+                    const bool may_error = true,
+                    const std::uint32_t base_offset = 0u) {
+                    Instruction index;
+                    index.opcode = Opcode::LoadF64LocalsIndex;
+                    index.index = builder.slot(
+                        string_field(base, "name", "fixed vector base"), base_offset);
+                    index.argument_count = count;
+                    index.index_is_integral = integral;
+                    index.index_local = direct_index_local;
+                    index.may_error = may_error;
+                    index.error_message_offset = strings.intern(message);
+                    index.byte_count = static_cast<std::uint32_t>(message.size());
+                    if (const auto handler = builder.error_handler()) {
+                        index.has_error_handler = true;
+                        index.label = *handler;
+                        index.error_value_local = *builder.error_value_local();
+                        index.error_type_local = *builder.error_type_local();
+                    }
+                    builder.emit(std::move(index));
+                };
+                if (elements.front().width == 1u) {
+                    emit_index(
+                        base_layout.width, index_is_integral, direct_index_local,
+                        !index_is_proven);
+                    return elements.front();
                 }
-                builder.emit(std::move(index));
-                return {};
+                const auto index_local = builder.add_borrowed_temporary(lowered_index);
+                emit_store_local_component(builder, index_local);
+                if (!index_is_proven) {
+                    emit_load_local_component(builder, index_local);
+                    emit_index(static_cast<std::uint32_t>(elements.size()), index_is_integral);
+                    builder.emit({Opcode::Drop});
+                }
+                const auto [component_index_local, initialize_component_index] =
+                    builder.flattened_index_local(
+                        direct_index_local.value_or(index_local),
+                        elements.front().width);
+                if (initialize_component_index) {
+                    emit_load_local_component(builder, index_local);
+                    Instruction width;
+                    width.opcode = Opcode::PushF64;
+                    width.f64 = static_cast<double>(elements.front().width);
+                    builder.emit(std::move(width));
+                    builder.emit({Opcode::MultiplyF64});
+                    emit_store_local_component(builder, component_index_local);
+                }
+                for (std::uint32_t component = 0; component < elements.front().width; ++component) {
+                    emit_load_local_component(builder, component_index_local);
+                    emit_index(
+                        base_layout.width - component, true,
+                        component_index_local, false, component);
+                }
+                return elements.front();
             }
         }
         const auto projection = projection_of(expression);
@@ -6937,6 +7571,147 @@ inline ValueLayout lower_expression(
         const bool structural_arithmetic =
             op == "PLUS" || op == "MINUS" || op == "STAR" || op == "SLASH" ||
             op == "FLOORDIV" || op == "PERCENT" || op == "CARET";
+        if (op == "SLASH" &&
+            string_field(
+                right_expression, "kind", "inverse norm expression") == "binary_op" &&
+            string_field(
+                right_expression, "op", "inverse norm expression") == "CARET") {
+            const auto& exponent = object_of(
+                field(right_expression, "right", "inverse norm expression"),
+                "inverse norm exponent");
+            const auto& norm = object_of(
+                field(right_expression, "left", "inverse norm expression"),
+                "inverse norm base");
+            const auto exponent_value = exponent.find("value");
+            if (string_field(exponent, "kind", "inverse norm exponent") == "const" &&
+                exponent_value != exponent.end() && exponent_value->second.is_number() &&
+                exponent_value->second.as_number() == 3.0 &&
+                string_field(norm, "kind", "inverse norm base") == "unary_op" &&
+                string_field(norm, "op", "inverse norm base") == "NORM") {
+                const auto& vector = object_of(
+                    field(norm, "operand", "inverse norm base"),
+                    "inverse norm operand");
+                const auto vector_layout =
+                    layout_from_expression_shape(vector, signatures);
+                if (vector_layout.kind == ValueKind::Aggregate &&
+                    !is_record_layout(vector_layout) &&
+                    is_numeric_layout(vector_layout) && vector_layout.width > 0u &&
+                    component_lowering_eligible(vector, signatures)) {
+                    const auto numerator = lower_expression(
+                        left_expression, builder, signatures, strings);
+                    require_scalar(numerator, "inverse cubic norm numerator");
+                    const auto numerator_local =
+                        builder.add_borrowed_temporary(numerator);
+                    emit_store_local_component(builder, numerator_local);
+
+                    for (std::uint32_t component = 0;
+                         component < vector_layout.width; ++component) {
+                        if (!lower_numeric_component(
+                                vector, component, builder, signatures, strings) ||
+                            !lower_numeric_component(
+                                vector, component, builder, signatures, strings)) {
+                            throw LoweringFailure(
+                                "inverse cubic norm component lowering failed");
+                        }
+                        builder.emit({Opcode::MultiplyF64});
+                        if (component != 0u) builder.emit({Opcode::AddF64});
+                    }
+                    const auto squared_local =
+                        builder.add_borrowed_temporary({});
+                    emit_store_local_component(builder, squared_local);
+                    emit_load_local_component(builder, numerator_local);
+                    emit_load_local_component(builder, squared_local);
+                    emit_load_local_component(builder, squared_local);
+                    builder.emit({Opcode::SqrtF64});
+                    builder.emit({Opcode::MultiplyF64});
+                    builder.emit({Opcode::DivideF64});
+                    return {};
+                }
+            }
+        }
+        if (op == "CARET" &&
+            string_field(right_expression, "kind", "power exponent") == "const") {
+            const auto exponent = right_expression.find("value");
+            const std::string left_type = string_field(
+                left_expression, "type", "power base");
+            const bool scalar_numeric =
+                left_type == "int" || left_type == "num" ||
+                left_type == "f32" || left_type == "f64";
+            const auto power_base_layout =
+                layout_from_expression_shape(left_expression, signatures);
+            if (scalar_numeric && power_base_layout.width == 1u &&
+                power_base_layout.kind == ValueKind::Numeric &&
+                exponent != right_expression.end() &&
+                exponent->second.is_number() &&
+                (exponent->second.as_number() == 2.0 ||
+                 exponent->second.as_number() == 3.0)) {
+                const auto left = lower_expression(
+                    left_expression, builder, signatures, strings);
+                require_scalar(left, "small integer power base");
+                const auto value = builder.add_borrowed_temporary(left);
+                emit_store_local_component(builder, value);
+                emit_load_local_component(builder, value);
+                emit_load_local_component(builder, value);
+                builder.emit({Opcode::MultiplyF64});
+                if (exponent->second.as_number() == 3.0) {
+                    emit_load_local_component(builder, value);
+                    builder.emit({Opcode::MultiplyF64});
+                }
+                return {};
+            }
+        }
+        if (structural_arithmetic && op != "CARET") {
+            const auto left_shape =
+                layout_from_expression_shape(left_expression, signatures);
+            const auto right_shape =
+                layout_from_expression_shape(right_expression, signatures);
+            const bool left_aggregate =
+                left_shape.kind == ValueKind::Aggregate &&
+                !is_record_layout(left_shape) && is_numeric_layout(left_shape);
+            const bool right_aggregate =
+                right_shape.kind == ValueKind::Aggregate &&
+                !is_record_layout(right_shape) && is_numeric_layout(right_shape);
+            const bool compatible_widths =
+                !left_aggregate || !right_aggregate ||
+                left_shape.width == right_shape.width;
+            if ((left_aggregate || right_aggregate) && compatible_widths &&
+                component_lowering_eligible(left_expression, signatures) &&
+                component_lowering_eligible(right_expression, signatures)) {
+                const auto result =
+                    left_aggregate ? left_shape : right_shape;
+                prepare_numeric_component_expression(
+                    left_expression, builder, signatures, strings);
+                prepare_numeric_component_expression(
+                    right_expression, builder, signatures, strings);
+                const auto result_local = builder.add_borrowed_temporary(result);
+                for (std::uint32_t component = 0;
+                     component < result.width; ++component) {
+                    if (!lower_numeric_component(
+                            left_expression,
+                            left_shape.width == 1u ? 0u : component,
+                            builder, signatures, strings) ||
+                        !lower_numeric_component(
+                            right_expression,
+                            right_shape.width == 1u ? 0u : component,
+                            builder, signatures, strings)) {
+                        throw LoweringFailure(
+                            "component-wise fixed vector lowering failed");
+                    }
+                    const auto opcode = scalar_binary_opcode(op);
+                    if (!opcode) {
+                        throw LoweringFailure(
+                            "unsupported component-wise operator " + op);
+                    }
+                    builder.emit({*opcode});
+                    emit_store_local_component(builder, result_local + component);
+                }
+                for (std::uint32_t component = 0;
+                     component < result.width; ++component) {
+                    emit_load_local_component(builder, result_local + component);
+                }
+                return result;
+            }
+        }
         const auto left = lower_expression(left_expression, builder, signatures, strings);
         const auto right = lower_expression(right_expression, builder, signatures, strings);
         if (structural_arithmetic && left.kind == ValueKind::Aggregate &&
@@ -9616,8 +10391,11 @@ inline bool lower_discarded_range_pipe(
     if (string_field(expression, "kind", "discarded expression") != "pipe_chain") {
         return false;
     }
+    const auto preserved_range = expression.find("range_source");
     const auto& source_expression = object_of(
-        field(expression, "source", "discarded pipe expression"),
+        preserved_range == expression.end()
+            ? field(expression, "source", "discarded pipe expression")
+            : preserved_range->second,
         "discarded pipe source");
     if (layout_from_expression_shape(source_expression, signatures).kind != ValueKind::Range) {
         return false;
@@ -9652,12 +10430,17 @@ inline bool lower_discarded_range_pipe(
                 }
             }
         }
-        const auto cursor = builder.add_borrowed_temporary({});
+        const bool integral_range =
+            numeric_expression_is_integral(start_expression, builder) &&
+            numeric_expression_is_integral(*loop_end_expression, builder);
+        const auto cursor = builder.add_borrowed_temporary(
+            {}, integral_range ? ValueClass::I64 : ValueClass::F64);
         const auto start_layout = lower_expression(
             start_expression, builder, signatures, strings);
         require_scalar(start_layout, "discarded finite range pipe start");
         emit_store_local_component(builder, cursor);
-        const auto end = builder.add_borrowed_temporary({});
+        const auto end = builder.add_borrowed_temporary(
+            {}, integral_range ? ValueClass::I64 : ValueClass::F64);
         const std::string loop_end_kind = string_field(
             *loop_end_expression, "kind", "discarded finite range pipe end");
         const bool direct_exclusive_end = exclusive_end &&
@@ -9695,7 +10478,81 @@ inline bool lower_discarded_range_pipe(
         } else {
             current = builder.add_scoped_local("$", {}, false);
         }
+        std::optional<std::string> cursor_alias;
+        if (segments.size() == 1u) {
+            const auto& segment = object_of(
+                segments.front(), "discarded finite range pipe segment");
+            if (string_field(
+                    segment, "kind", "discarded finite range pipe segment") ==
+                    "block_expr") {
+                const auto& block_body = array_of(
+                    field(segment, "body", "discarded finite range pipe block"),
+                    "discarded finite range pipe block body");
+                if (!block_body.empty()) {
+                    const auto& first = object_of(
+                        block_body.front(), "discarded finite range pipe alias");
+                    const auto value = first.find("value");
+                    const auto update = first.find("update");
+                    if (string_field(
+                            first, "kind", "discarded finite range pipe alias") ==
+                            "store_binding" &&
+                        value != first.end() && value->second.is_object() &&
+                        string_field(
+                            value->second.as_object(), "kind",
+                            "discarded finite range pipe alias value") == "load" &&
+                        string_field(
+                            value->second.as_object(), "name",
+                            "discarded finite range pipe alias value") == "$" &&
+                        update != first.end() && update->second.is_boolean() &&
+                        !update->second.as_boolean()) {
+                        const std::string name = string_field(
+                            first, "name", "discarded finite range pipe alias");
+                        bool reassigned = false;
+                        std::function<void(const vf::JsonValue&)> scan_updates =
+                            [&](const vf::JsonValue& node) {
+                                if (reassigned) return;
+                                if (node.is_array()) {
+                                    for (const auto& item : node.as_array()) {
+                                        scan_updates(item);
+                                    }
+                                    return;
+                                }
+                                if (!node.is_object()) return;
+                                const auto& candidate = node.as_object();
+                                const auto candidate_kind = candidate.find("kind");
+                                const auto candidate_name = candidate.find("name");
+                                const auto candidate_update = candidate.find("update");
+                                if (candidate_kind != candidate.end() &&
+                                    candidate_kind->second.is_string() &&
+                                    candidate_kind->second.as_string() == "store_binding" &&
+                                    candidate_name != candidate.end() &&
+                                    candidate_name->second.is_string() &&
+                                    candidate_name->second.as_string() == name &&
+                                    candidate_update != candidate.end() &&
+                                    candidate_update->second.is_boolean() &&
+                                    candidate_update->second.as_boolean()) {
+                                    reassigned = true;
+                                    return;
+                                }
+                                for (const auto& [key, child] : candidate) {
+                                    (void)key;
+                                    scan_updates(child);
+                                }
+                            };
+                        for (std::size_t body_index = 1;
+                             body_index < block_body.size(); ++body_index) {
+                            scan_updates(block_body[body_index]);
+                        }
+                        if (!reassigned) {
+                            cursor_alias = name;
+                            builder.add_scoped_alias(name, current);
+                        }
+                    }
+                }
+            }
+        }
         const auto emit_body = [&](const std::uint32_t advance) {
+            builder.reset_flattened_index_cache();
             if (!direct_cursor) {
                 emit_load_local_component(builder, cursor);
                 emit_store_local_component(builder, current);
@@ -9704,6 +10561,80 @@ inline bool lower_discarded_range_pipe(
             for (std::size_t index = 0; index < segments.size(); ++index) {
                 const auto& segment = object_of(
                     segments[index], "discarded finite range pipe segment");
+                if (index + 1u == segments.size() &&
+                    string_field(
+                        segment, "kind",
+                        "discarded finite range pipe segment") == "block_expr") {
+                    const auto& block_body = array_of(
+                        field(segment, "body", "discarded finite range pipe block"),
+                        "discarded finite range pipe block body");
+                    vf::JsonValue::Array effects;
+                    const std::size_t begin = cursor_alias ? 1u : 0u;
+                    effects.reserve(block_body.size() - begin);
+                    for (std::size_t body_index = begin;
+                         body_index < block_body.size(); ++body_index) {
+                        effects.push_back(block_body[body_index]);
+                    }
+                    builder.begin_scope();
+                    for (const auto& effect : effects) {
+                        const auto& effect_statement = object_of(
+                            effect, "discarded finite range pipe block effect");
+                        const auto effect_kind = string_field(
+                            effect_statement, "kind",
+                            "discarded finite range pipe block effect");
+                        if (effect_kind == "store_binding") {
+                            const auto update = effect_statement.find("update");
+                            const bool is_update =
+                                update != effect_statement.end() &&
+                                update->second.is_boolean() &&
+                                update->second.as_boolean();
+                            if (!is_update) {
+                                const std::string name = string_field(
+                                    effect_statement, "name",
+                                    "discarded finite range pipe binding");
+                                const auto& value = object_of(
+                                    field(
+                                        effect_statement, "value",
+                                        "discarded finite range pipe binding"),
+                                    "discarded finite range pipe binding value");
+                                auto layout =
+                                    string_field(
+                                        value, "kind",
+                                        "discarded finite range pipe binding value") == "load"
+                                    ? builder.layout(string_field(
+                                        value, "name",
+                                        "discarded finite range pipe binding value"))
+                                    : layout_from_expression_shape(value, signatures);
+                                const auto declared = effect_statement.find("type");
+                                if (declared != effect_statement.end() &&
+                                    declared->second.is_string()) {
+                                    const auto declared_layout = layout_from_type(
+                                        declared->second.as_string(), &signatures);
+                                    if (declared_layout.width > layout.width) {
+                                        layout = declared_layout;
+                                    }
+                                }
+                                builder.add_scoped_local(
+                                    name, layout, true,
+                                    scalar_value_class_from_type(
+                                        string_field(
+                                            effect_statement, "type",
+                                            "discarded finite range pipe binding"),
+                                        layout));
+                            }
+                        }
+                        vf::JsonValue::Array one_effect;
+                        one_effect.push_back(effect);
+                        lower_statements(
+                            one_effect, builder, false, signatures, strings);
+                    }
+                    const auto scoped_locals = builder.end_scope();
+                    for (const auto& local : scoped_locals) {
+                        emit_release_layout_local(
+                            builder, local.base, local.layout);
+                    }
+                    continue;
+                }
                 if (index + 1u == segments.size() &&
                     string_field(segment, "kind", "discarded finite range pipe segment") ==
                         "block_expr") {
@@ -9727,7 +10658,7 @@ inline bool lower_discarded_range_pipe(
                                     "discarded finite range pipe block tail expression");
                                 vf::JsonValue::Array effects;
                                 effects.reserve(block_body.size() - 1u);
-                                for (std::size_t body_index = 0;
+                                for (std::size_t body_index = cursor_alias ? 1u : 0u;
                                      body_index + 1u < block_body.size(); ++body_index) {
                                     vf::JsonValue effect = block_body[body_index];
                                     auto& effect_object = effect.as_object();
@@ -9757,17 +10688,70 @@ inline bool lower_discarded_range_pipe(
                         }
                     }
                 }
+                vf::JsonValue lowered_segment = segments[index];
+                if (cursor_alias &&
+                    string_field(
+                        lowered_segment.as_object(), "kind",
+                        "discarded finite range pipe segment") == "block_expr") {
+                    auto& body = lowered_segment.as_object().at("body").as_array();
+                    body.erase(body.begin());
+                }
                 const auto segment_layout = lower_expression(
-                    segment, builder, signatures, strings);
-                require_scalar(segment_layout, "discarded finite range pipe segment");
+                    lowered_segment.as_object(), builder, signatures, strings);
                 if (index + 1u < segments.size()) {
+                    require_scalar(segment_layout, "discarded finite range pipe segment");
                     emit_store_local_component(builder, current);
                 } else {
-                    builder.emit({Opcode::Drop});
+                    emit_discard_value(builder, segment_layout);
                 }
             }
             builder.pop_loop();
         };
+
+        const auto start_interval = numeric_interval_of(start_expression, builder);
+        const auto end_interval = numeric_interval_of(*loop_end_expression, builder);
+        const bool known_ascending = start_interval && end_interval &&
+            start_interval->second <= end_interval->first;
+        if (known_ascending) {
+            builder.set_numeric_interval(
+                cursor,
+                start_interval->first,
+                end_interval->second - (exclusive_end ? 1.0 : 0.0));
+            Instruction ascending_label;
+            ascending_label.opcode = Opcode::Label;
+            ascending_label.label = ascending_loop;
+            builder.emit(std::move(ascending_label));
+            emit_load_local_component(builder, cursor);
+            emit_ascending_end();
+            builder.emit({
+                exclusive_end ? Opcode::OrderedLessF64 : Opcode::OrderedLessEqualF64});
+            Instruction ascending_done;
+            ascending_done.opcode = Opcode::JumpIfFalse;
+            ascending_done.label = finish;
+            builder.emit(std::move(ascending_done));
+            emit_body(ascending_advance);
+            Instruction ascending_advance_label;
+            ascending_advance_label.opcode = Opcode::Label;
+            ascending_advance_label.label = ascending_advance;
+            builder.emit(std::move(ascending_advance_label));
+            emit_load_local_component(builder, cursor);
+            Instruction one;
+            one.opcode = Opcode::PushF64;
+            one.f64 = 1.0;
+            builder.emit(std::move(one));
+            builder.emit({Opcode::AddF64});
+            emit_store_local_component(builder, cursor);
+            Instruction repeat;
+            repeat.opcode = Opcode::Jump;
+            repeat.label = ascending_loop;
+            builder.emit(std::move(repeat));
+            Instruction finish_label;
+            finish_label.opcode = Opcode::Label;
+            finish_label.label = finish;
+            builder.emit(std::move(finish_label));
+            builder.end_scope();
+            return true;
+        }
 
         emit_load_local_component(builder, cursor);
         emit_ascending_end();
@@ -9999,11 +10983,11 @@ inline bool lower_discarded_range_pipe(
         const auto segment_layout = lower_expression(
             object_of(segments[index], "discarded range pipe segment"),
             builder, signatures, strings);
-        require_scalar(segment_layout, "discarded range pipe segment");
         if (index + 1u < segments.size()) {
+            require_scalar(segment_layout, "discarded range pipe segment");
             emit_store_local_component(builder, current);
         } else {
-            builder.emit({Opcode::Drop});
+            emit_discard_value(builder, segment_layout);
         }
     }
     builder.pop_loop();
@@ -10120,35 +11104,132 @@ inline void lower_statements(
                         object_of(indices.front(), "fixed update index").end();
                 if (dynamic_index) {
                     const auto& index_expression = object_of(indices.front(), "fixed update index");
-                    const auto index_layout = lower_expression(
-                        index_expression, builder, signatures, strings);
+                    const std::optional<std::uint32_t> known_index_local =
+                        string_field(
+                            index_expression, "kind", "fixed update index") == "load"
+                        ? std::optional<std::uint32_t>(builder.slot(string_field(
+                            index_expression, "name", "fixed update index")))
+                        : std::nullopt;
+                    const auto index_layout = known_index_local
+                        ? builder.layout(string_field(
+                            index_expression, "name", "fixed update index"))
+                        : lower_expression(
+                            index_expression, builder, signatures, strings);
                     require_scalar(index_layout, "fixed vector update index");
-                    const auto value_layout = lower_expression(
-                        object_of(field(statement, "value", "fixed vector update"), "fixed vector update value"),
-                        builder, signatures, strings);
-                    require_scalar(value_layout, "fixed vector update value");
-                    Instruction update;
-                    update.opcode = Opcode::StoreF64LocalsIndex;
-                    update.index = builder.slot(binding_name);
-                    update.argument_count = binding_layout.width;
+                    const auto elements = indexed_element_layouts(binding_layout);
+                    if (elements.empty() ||
+                        std::any_of(elements.begin(), elements.end(), [&](const auto& element) {
+                            return !same_layout(element, elements.front());
+                        })) {
+                        throw LoweringFailure(
+                            "dynamic fixed vector update requires one uniform element layout");
+                    }
+                    const auto& value_expression = object_of(
+                        field(statement, "value", "fixed vector update"),
+                        "fixed vector update value");
                     const auto index_type = index_expression.find("type");
-                    update.index_is_integral = index_type != index_expression.end() &&
-                        index_type->second.is_string() && index_type->second.as_string() == "int";
-                    if (string_field(index_expression, "kind", "fixed update index") == "load") {
-                        update.index_local = builder.slot(
-                            string_field(index_expression, "name", "fixed update index"));
-                    }
-                    update.may_error = true;
+                    const bool index_is_integral =
+                        (index_type != index_expression.end() &&
+                         index_type->second.is_string() && index_type->second.as_string() == "int") ||
+                        (known_index_local && builder.local_is_integral(*known_index_local));
+                    const bool index_is_proven = known_index_local && fixed_index_proven(
+                        builder, *known_index_local,
+                        static_cast<std::uint32_t>(elements.size()),
+                        index_is_integral);
                     const std::string message = "vector index out of range";
-                    update.error_message_offset = strings.intern(message);
-                    update.byte_count = static_cast<std::uint32_t>(message.size());
-                    if (const auto handler = builder.error_handler()) {
-                        update.has_error_handler = true;
-                        update.label = *handler;
-                        update.error_value_local = *builder.error_value_local();
-                        update.error_type_local = *builder.error_type_local();
+                    if (elements.front().width == 1u) {
+                        if (known_index_local) {
+                            emit_load_local_component(builder, *known_index_local);
+                        }
+                        const auto value_layout = lower_expression(
+                            value_expression, builder, signatures, strings);
+                        if (!same_layout(value_layout, elements.front())) {
+                            throw LoweringFailure("fixed vector update value layout mismatch");
+                        }
+                        ensure_independent_value(
+                            value_expression, value_layout, builder, signatures);
+                        Instruction update;
+                        update.opcode = Opcode::StoreF64LocalsIndex;
+                        update.index = builder.slot(binding_name);
+                        update.argument_count = binding_layout.width;
+                        update.index_is_integral = index_is_integral;
+                        update.index_local = known_index_local;
+                        update.may_error = !index_is_proven;
+                        if (update.may_error) {
+                            update.error_message_offset = strings.intern(message);
+                            update.byte_count = static_cast<std::uint32_t>(message.size());
+                            if (const auto handler = builder.error_handler()) {
+                                update.has_error_handler = true;
+                                update.label = *handler;
+                                update.error_value_local = *builder.error_value_local();
+                                update.error_type_local = *builder.error_type_local();
+                            }
+                        }
+                        builder.emit(std::move(update));
+                        continue;
                     }
-                    builder.emit(std::move(update));
+                    const auto index_local = known_index_local.value_or(
+                        builder.add_borrowed_temporary(index_layout));
+                    if (!known_index_local) {
+                        emit_store_local_component(builder, index_local);
+                    }
+                    const auto direct_index_local = index_local;
+                    const auto value_layout = layout_from_expression_shape(
+                        value_expression, signatures);
+                    if (!same_layout(value_layout, elements.front())) {
+                        throw LoweringFailure("fixed vector update value layout mismatch");
+                    }
+                    prepare_numeric_component_expression(
+                        value_expression, builder, signatures, strings);
+                    if (value_layout.width > 1u && !index_is_proven) {
+                        emit_load_local_component(builder, index_local);
+                        Instruction validate;
+                        validate.opcode = Opcode::LoadF64LocalsIndex;
+                        validate.index = builder.slot(binding_name);
+                        validate.argument_count = static_cast<std::uint32_t>(elements.size());
+                        validate.index_is_integral = index_is_integral;
+                        validate.index_local = direct_index_local;
+                        validate.may_error = true;
+                        validate.error_message_offset = strings.intern(message);
+                        validate.byte_count = static_cast<std::uint32_t>(message.size());
+                        if (const auto handler = builder.error_handler()) {
+                            validate.has_error_handler = true;
+                            validate.label = *handler;
+                            validate.error_value_local = *builder.error_value_local();
+                            validate.error_type_local = *builder.error_type_local();
+                        }
+                        builder.emit(std::move(validate));
+                        builder.emit({Opcode::Drop});
+                    }
+                    const auto [component_index_local, initialize_component_index] =
+                        builder.flattened_index_local(
+                            direct_index_local, value_layout.width);
+                    if (initialize_component_index) {
+                        emit_load_local_component(builder, index_local);
+                        Instruction width;
+                        width.opcode = Opcode::PushF64;
+                        width.f64 = static_cast<double>(value_layout.width);
+                        builder.emit(std::move(width));
+                        builder.emit({Opcode::MultiplyF64});
+                        emit_store_local_component(builder, component_index_local);
+                    }
+                    for (std::uint32_t component = 0; component < value_layout.width; ++component) {
+                        emit_load_local_component(builder, component_index_local);
+                        if (!lower_numeric_component(
+                                value_expression, component,
+                                builder, signatures, strings)) {
+                            throw LoweringFailure(
+                                "component-wise fixed vector update lowering failed");
+                        }
+                        Instruction update;
+                        update.opcode = Opcode::StoreF64LocalsIndex;
+                        update.index = builder.slot(binding_name, component);
+                        update.argument_count = binding_layout.width - component;
+                        update.index_is_integral = value_layout.width > 1u || index_is_integral;
+                        update.index_local = component_index_local;
+                        update.may_error = false;
+                        builder.emit(std::move(update));
+                    }
                     continue;
                 }
             }
@@ -13054,10 +14135,14 @@ inline void refine_machine_error_effects(Module& module) {
     for (auto& function : module.functions) refine(function);
 }
 
-inline bool is_small_numeric_inline_candidate(const Function& function) {
+inline bool is_small_numeric_inline_candidate(
+    const Function& function,
+    std::size_t instruction_limit = 64u
+) {
     if (function.may_error || function.parameter_mask_local ||
         !function.owned_f64_list_locals.empty() || !function.owned_string_locals.empty() ||
-        function.instructions.empty() || function.instructions.size() > 64) {
+        function.instructions.empty() ||
+        function.instructions.size() > instruction_limit) {
         return false;
     }
     bool has_return = false;
@@ -13094,6 +14179,8 @@ inline bool is_small_numeric_inline_candidate(const Function& function) {
             case Opcode::UnorderedNotEqualF64:
             case Opcode::EqualBits:
             case Opcode::NotEqualBits:
+            case Opcode::LoadF64LocalsIndex:
+            case Opcode::StoreF64LocalsIndex:
             case Opcode::Label:
             case Opcode::Jump:
             case Opcode::JumpIfFalse:
@@ -13108,6 +14195,92 @@ inline bool is_small_numeric_inline_candidate(const Function& function) {
         }
     }
     return has_return;
+}
+
+inline void coalesce_scalar_local_copies(Function& function) {
+    using Opcode = vkf::machine_ir::Opcode;
+    const auto writes_local = [](const Instruction& instruction, std::uint32_t local) {
+        if (instruction.opcode == Opcode::StoreLocal) return instruction.index == local;
+        return instruction.opcode == Opcode::StoreF64LocalsIndex &&
+            local >= instruction.index &&
+            local - instruction.index < instruction.argument_count;
+    };
+    for (std::size_t pass = 0; pass < function.locals.size(); ++pass) {
+        bool changed = false;
+        for (std::uint32_t destination = static_cast<std::uint32_t>(
+                 function.parameters.size());
+             destination < function.locals.size(); ++destination) {
+            std::size_t copy_store = function.instructions.size();
+            std::size_t writes = 0;
+            for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+                if (!writes_local(function.instructions[position], destination)) continue;
+                ++writes;
+                if (function.instructions[position].opcode == Opcode::StoreLocal) {
+                    copy_store = position;
+                }
+            }
+            if (writes != 1 || copy_store == 0 ||
+                copy_store >= function.instructions.size() ||
+                function.instructions[copy_store - 1].opcode != Opcode::LoadLocal) {
+                continue;
+            }
+            const auto source = function.instructions[copy_store - 1].index;
+            if (source == destination || source >= function.locals.size() ||
+                function.local_classes[source] != function.local_classes[destination]) {
+                continue;
+            }
+            bool unsupported_use = false;
+            bool used_before_copy = false;
+            std::size_t last_use = copy_store;
+            for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+                const auto& instruction = function.instructions[position];
+                const bool scalar_use = instruction.opcode == Opcode::LoadLocal &&
+                    instruction.index == destination;
+                const bool index_use = instruction.index_local &&
+                    *instruction.index_local == destination;
+                const bool fixed_storage_use =
+                    (instruction.opcode == Opcode::LoadF64LocalsIndex ||
+                     instruction.opcode == Opcode::StoreF64LocalsIndex) &&
+                    destination >= instruction.index &&
+                    destination - instruction.index < instruction.argument_count;
+                const bool metadata_use = instruction.error_value_local == destination ||
+                    instruction.error_type_local == destination;
+                if (fixed_storage_use || metadata_use) unsupported_use = true;
+                if (!scalar_use && !index_use) continue;
+                if (position < copy_store) used_before_copy = true;
+                last_use = std::max(last_use, position);
+            }
+            if (unsupported_use || used_before_copy) continue;
+            bool source_changes = false;
+            for (std::size_t position = copy_store + 1; position <= last_use; ++position) {
+                if (writes_local(function.instructions[position], source)) {
+                    source_changes = true;
+                    break;
+                }
+            }
+            if (source_changes) continue;
+            for (auto& instruction : function.instructions) {
+                if (instruction.opcode == Opcode::LoadLocal &&
+                    instruction.index == destination) {
+                    instruction.index = source;
+                }
+                if (instruction.index_local && *instruction.index_local == destination) {
+                    instruction.index_local = source;
+                }
+            }
+            function.instructions.erase(
+                function.instructions.begin() + static_cast<std::ptrdiff_t>(copy_store - 1),
+                function.instructions.begin() + static_cast<std::ptrdiff_t>(copy_store + 1));
+            changed = true;
+            break;
+        }
+        if (!changed) return;
+    }
+}
+
+inline void coalesce_scalar_local_copies(Module& module) {
+    coalesce_scalar_local_copies(module.entry);
+    for (auto& function : module.functions) coalesce_scalar_local_copies(function);
 }
 
 inline void refine_integral_local_classes(Function& function) {
@@ -13369,6 +14542,107 @@ inline void promote_integral_numeric_locals(Module& module) {
 
 inline void refresh_integral_fixed_indices(Function& function) {
     using Opcode = vkf::machine_ir::Opcode;
+    // Recover direct index locals from stack-shaped IR after scalar
+    // coalescing/inlining. The frontend records these eagerly when possible,
+    // but compact expressions such as working.(left): working.(right) can keep
+    // the index only as a stack operand. Preserving its origin enables the
+    // backend's guarded-loop range proof.
+    std::vector<std::optional<std::uint32_t>> origins;
+    bool tracking_origins = true;
+    const auto pop_origin = [&]() -> std::optional<std::uint32_t> {
+        if (origins.empty()) return std::nullopt;
+        const auto value = origins.back();
+        origins.pop_back();
+        return value;
+    };
+    for (auto& instruction : function.instructions) {
+        if (!tracking_origins) {
+            if (instruction.opcode == Opcode::Label) {
+                origins.clear();
+                tracking_origins = true;
+            }
+            continue;
+        }
+        switch (instruction.opcode) {
+            case Opcode::PushF64:
+                origins.push_back(std::nullopt);
+                break;
+            case Opcode::LoadLocal:
+                origins.push_back(instruction.index);
+                break;
+            case Opcode::StoreLocal:
+            case Opcode::Drop:
+                (void)pop_origin();
+                break;
+            case Opcode::Duplicate:
+                origins.push_back(origins.empty() ? std::nullopt : origins.back());
+                break;
+            case Opcode::IdentityF64:
+                break;
+            case Opcode::NegateF64:
+            case Opcode::LogicalNotF64:
+            case Opcode::BooleanizeF64:
+            case Opcode::AbsF64:
+            case Opcode::SqrtF64:
+            case Opcode::SinF64:
+            case Opcode::CosF64:
+            case Opcode::ExpF64:
+            case Opcode::LnF64:
+                if (!origins.empty()) origins.back() = std::nullopt;
+                break;
+            case Opcode::AddF64:
+            case Opcode::SubtractF64:
+            case Opcode::MultiplyF64:
+            case Opcode::DivideF64:
+            case Opcode::FloorDivideF64:
+            case Opcode::RemainderF64:
+            case Opcode::PowerF64:
+            case Opcode::LogicalXorF64:
+            case Opcode::OrderedLessF64:
+            case Opcode::OrderedLessEqualF64:
+            case Opcode::OrderedGreaterF64:
+            case Opcode::OrderedGreaterEqualF64:
+            case Opcode::OrderedEqualF64:
+            case Opcode::UnorderedNotEqualF64:
+            case Opcode::EqualBits:
+            case Opcode::NotEqualBits:
+                (void)pop_origin();
+                if (!origins.empty()) origins.back() = std::nullopt;
+                break;
+            case Opcode::LoadF64LocalsIndex: {
+                const auto index = pop_origin();
+                if (!instruction.index_local && index) instruction.index_local = *index;
+                origins.push_back(std::nullopt);
+                break;
+            }
+            case Opcode::StoreF64LocalsIndex: {
+                (void)pop_origin();
+                const auto index = pop_origin();
+                if (!instruction.index_local && index) instruction.index_local = *index;
+                break;
+            }
+            case Opcode::JumpIfFalse:
+            case Opcode::JumpIfTrue:
+                (void)pop_origin();
+                break;
+            case Opcode::Label:
+                origins.clear();
+                break;
+            case Opcode::Jump:
+                tracking_origins = origins.empty();
+                origins.clear();
+                break;
+            case Opcode::ReturnF64:
+            case Opcode::ReturnValues:
+                origins.clear();
+                break;
+            default:
+                // Unknown stack effects cannot safely preserve an origin.
+                origins.clear();
+                tracking_origins = false;
+                break;
+        }
+    }
     for (auto& instruction : function.instructions) {
         if ((instruction.opcode != Opcode::LoadF64LocalsIndex &&
              instruction.opcode != Opcode::StoreF64LocalsIndex) ||
@@ -13389,9 +14663,13 @@ inline void refresh_integral_fixed_indices(Module& module) {
 
 inline void inline_small_numeric_calls(Module& module) {
     std::map<std::string, const Function*> candidates;
+    std::map<std::string, const Function*> aggregate_loop_candidates;
     for (const auto& function : module.functions) {
         if (is_small_numeric_inline_candidate(function)) {
             candidates.emplace(function.name, &function);
+        }
+        if (is_small_numeric_inline_candidate(function, 1024u)) {
+            aggregate_loop_candidates.emplace(function.name, &function);
         }
     }
 
@@ -13426,6 +14704,143 @@ inline void inline_small_numeric_calls(Module& module) {
         for (std::size_t caller_index = 0; caller_index < caller.instructions.size(); ++caller_index) {
             const auto& call = caller.instructions[caller_index];
             const auto found = call.opcode == Opcode::Call ? candidates.find(call.symbol) : candidates.end();
+            const auto aggregate_found = call.opcode == Opcode::Call
+                ? aggregate_loop_candidates.find(call.symbol)
+                : aggregate_loop_candidates.end();
+            const auto alias_aggregate_candidate = [&]() {
+                if (aggregate_found == aggregate_loop_candidates.end() ||
+                    call.result_count <= 1u ||
+                    call.argument_count != aggregate_found->second->parameters.size() ||
+                    call.may_error || call.has_error_handler || call.uses_parameter_mask ||
+                    aggregate_found->second->name == caller.name ||
+                    !is_in_loop(caller_index) ||
+                    rewritten.size() < call.argument_count) {
+                    return false;
+                }
+                const Function& callee = *aggregate_found->second;
+                if (callee.instructions.size() < call.result_count + 1u ||
+                    callee.instructions.back().opcode != Opcode::ReturnValues ||
+                    callee.instructions.back().result_count != call.result_count ||
+                    inline_growth + callee.instructions.size() > inline_growth_budget) {
+                    return false;
+                }
+                const auto argument_begin = rewritten.size() - call.argument_count;
+                for (std::size_t index = argument_begin; index < rewritten.size(); ++index) {
+                    if (rewritten[index].opcode != Opcode::LoadLocal) return false;
+                }
+                const std::size_t result_width = call.result_count;
+                if (caller_index + 3u * result_width >= caller.instructions.size()) {
+                    return false;
+                }
+                std::vector<std::uint32_t> temporaries(result_width);
+                for (std::size_t offset = 0; offset < result_width; ++offset) {
+                    const auto& store = caller.instructions[caller_index + 1u + offset];
+                    if (store.opcode != Opcode::StoreLocal) return false;
+                    temporaries[result_width - 1u - offset] = store.index;
+                }
+                for (std::size_t offset = 0; offset < result_width; ++offset) {
+                    const auto& load = caller.instructions[
+                        caller_index + 1u + result_width + offset];
+                    const auto& store = caller.instructions[
+                        caller_index + 1u + 2u * result_width + offset];
+                    if (load.opcode != Opcode::LoadLocal ||
+                        load.index != temporaries[offset] ||
+                        store.opcode != Opcode::StoreLocal) {
+                        return false;
+                    }
+                    const auto destination = caller.instructions[
+                        caller_index + 3u * result_width - offset].index;
+                    if (destination != rewritten[argument_begin + offset].index) {
+                        return false;
+                    }
+                }
+                const auto return_begin = callee.instructions.size() - result_width - 1u;
+                for (std::size_t offset = 0; offset < result_width; ++offset) {
+                    if (callee.instructions[return_begin + offset].opcode != Opcode::LoadLocal) {
+                        return false;
+                    }
+                }
+                return true;
+            }();
+            if (alias_aggregate_candidate) {
+                const Function& callee = *aggregate_found->second;
+                const auto argument_begin = rewritten.size() - call.argument_count;
+                constexpr std::uint32_t unassigned_local =
+                    std::numeric_limits<std::uint32_t>::max();
+                std::vector<std::uint32_t> local_map(
+                    callee.locals.size(), unassigned_local);
+                for (std::uint32_t index = 0; index < call.argument_count; ++index) {
+                    local_map[index] = rewritten[argument_begin + index].index;
+                }
+                const auto body_end = callee.instructions.size() - call.result_count - 1u;
+                for (std::uint32_t offset = 0; offset < call.result_count; ++offset) {
+                    const auto result_local =
+                        callee.instructions[body_end + offset].index;
+                    const auto destination = rewritten[argument_begin + offset].index;
+                    if (local_map[result_local] != unassigned_local &&
+                        local_map[result_local] != destination) {
+                        throw LoweringFailure(
+                            "aggregate loop inlining result aliases incompatible argument");
+                    }
+                    local_map[result_local] = destination;
+                }
+                rewritten.resize(argument_begin);
+                for (std::uint32_t index = call.argument_count;
+                     index < callee.locals.size(); ++index) {
+                    if (local_map[index] != unassigned_local) continue;
+                    local_map[index] = static_cast<std::uint32_t>(caller.locals.size());
+                    caller.locals.push_back(
+                        "$inline$" + callee.name + "$" + callee.locals[index]);
+                    caller.local_classes.push_back(callee.local_classes.at(index));
+                }
+                std::map<std::uint32_t, std::uint32_t> labels;
+                for (const auto& instruction : callee.instructions) {
+                    if (instruction.opcode == Opcode::Label) {
+                        labels.emplace(instruction.label, next_label++);
+                    }
+                }
+                for (std::size_t position = 0; position < body_end; ++position) {
+                    auto instruction = callee.instructions[position];
+                    if (instruction.opcode == Opcode::LoadLocal ||
+                        instruction.opcode == Opcode::StoreLocal) {
+                        instruction.index = local_map.at(instruction.index);
+                    }
+                    if (instruction.opcode == Opcode::LoadF64LocalsIndex ||
+                        instruction.opcode == Opcode::StoreF64LocalsIndex) {
+                        const auto old_base = instruction.index;
+                        instruction.index = local_map.at(old_base);
+                        for (std::uint32_t offset = 1u;
+                             offset < instruction.argument_count; ++offset) {
+                            if (local_map.at(old_base + offset) !=
+                                instruction.index + offset) {
+                                throw LoweringFailure(
+                                    "aggregate loop inlining requires contiguous fixed storage");
+                            }
+                        }
+                    }
+                    if (instruction.index_local) {
+                        instruction.index_local = local_map.at(*instruction.index_local);
+                    }
+                    if (instruction.has_error_handler) {
+                        instruction.error_value_local =
+                            local_map.at(instruction.error_value_local);
+                        instruction.error_type_local =
+                            local_map.at(instruction.error_type_local);
+                    }
+                    if (instruction.opcode == Opcode::Label ||
+                        instruction.opcode == Opcode::Jump ||
+                        instruction.opcode == Opcode::JumpIfFalse ||
+                        instruction.opcode == Opcode::JumpIfTrue) {
+                        instruction.label = labels.at(instruction.label);
+                    }
+                    rewritten.push_back(std::move(instruction));
+                }
+                caller.max_stack = std::max(
+                    caller.max_stack, original_max_stack + callee.max_stack);
+                inline_growth += callee.instructions.size();
+                caller_index += 3u * call.result_count;
+                continue;
+            }
             const auto aggregate_candidate = [&]() {
                 if (found == candidates.end() || call.result_count <= 1 ||
                     call.result_count > 8 || call.argument_count != found->second->parameters.size() ||
@@ -13727,6 +15142,343 @@ inline void propagate_constant_numeric_parameters(Module& module) {
     }
 }
 
+// Aggregate calls use the operand stack to move contiguous records: load every
+// source field, then store the fields in reverse stack order.  Once a call is
+// inlined and its result aliases its argument, that shuffle can become an exact
+// self-copy.  Leaving it in a loop needlessly reloads and rewrites the complete
+// record on every iteration (notably System in the N-body kernel).
+inline void eliminate_identity_local_shuffles(Function& function) {
+    using Opcode = vkf::machine_ir::Opcode;
+    std::vector<Instruction> rewritten;
+    rewritten.reserve(function.instructions.size());
+    for (std::size_t index = 0; index < function.instructions.size();) {
+        if (function.instructions[index].opcode != Opcode::LoadLocal) {
+            rewritten.push_back(function.instructions[index++]);
+            continue;
+        }
+        std::size_t load_end = index;
+        while (load_end < function.instructions.size() &&
+               function.instructions[load_end].opcode == Opcode::LoadLocal) {
+            ++load_end;
+        }
+        const std::size_t count = load_end - index;
+        std::size_t store_end = load_end;
+        while (store_end < function.instructions.size() &&
+               store_end - load_end < count &&
+               function.instructions[store_end].opcode == Opcode::StoreLocal) {
+            ++store_end;
+        }
+        bool identity = store_end - load_end == count;
+        for (std::size_t offset = 0; identity && offset < count; ++offset) {
+            identity = function.instructions[index + offset].index ==
+                function.instructions[store_end - 1 - offset].index;
+        }
+        if (identity) {
+            index = store_end;
+            continue;
+        }
+        rewritten.push_back(function.instructions[index++]);
+    }
+    function.instructions = std::move(rewritten);
+}
+
+inline void eliminate_identity_local_shuffles(Module& module) {
+    eliminate_identity_local_shuffles(module.entry);
+    for (auto& function : module.functions) eliminate_identity_local_shuffles(function);
+}
+
+inline void propagate_constant_numeric_locals(Function& function) {
+    for (;;) {
+        bool changed = false;
+        for (std::uint32_t local = static_cast<std::uint32_t>(
+                 function.parameters.size());
+             local < function.locals.size(); ++local) {
+            std::size_t store_position = function.instructions.size();
+            std::size_t writes = 0;
+            bool metadata_use = false;
+            for (std::size_t position = 0;
+                 position < function.instructions.size(); ++position) {
+                const auto& instruction = function.instructions[position];
+                if (instruction.opcode == Opcode::StoreLocal &&
+                    instruction.index == local) {
+                    ++writes;
+                    store_position = position;
+                }
+                if ((instruction.opcode == Opcode::LoadF64LocalsIndex ||
+                     instruction.opcode == Opcode::StoreF64LocalsIndex) &&
+                    local >= instruction.index &&
+                    local - instruction.index < instruction.argument_count) {
+                    ++writes;
+                }
+                metadata_use = metadata_use ||
+                    (instruction.index_local && *instruction.index_local == local) ||
+                    instruction.error_value_local == local ||
+                    instruction.error_type_local == local;
+            }
+            if (writes != 1u || metadata_use || store_position == 0u ||
+                store_position >= function.instructions.size() ||
+                function.instructions[store_position - 1u].opcode != Opcode::PushF64) {
+                continue;
+            }
+            const double value = function.instructions[store_position - 1u].f64;
+            for (auto& instruction : function.instructions) {
+                if (instruction.opcode != Opcode::LoadLocal ||
+                    instruction.index != local) {
+                    continue;
+                }
+                instruction = Instruction{};
+                instruction.opcode = Opcode::PushF64;
+                instruction.f64 = value;
+            }
+            function.instructions.erase(
+                function.instructions.begin() +
+                    static_cast<std::ptrdiff_t>(store_position - 1u),
+                function.instructions.begin() +
+                    static_cast<std::ptrdiff_t>(store_position + 1u));
+            changed = true;
+            break;
+        }
+        if (!changed) return;
+    }
+}
+
+inline void propagate_constant_numeric_locals(Module& module) {
+    propagate_constant_numeric_locals(module.entry);
+    for (auto& function : module.functions) {
+        propagate_constant_numeric_locals(function);
+    }
+}
+
+inline void unroll_small_constant_loops(Function& function) {
+    for (unsigned pass = 0; pass < 64u; ++pass) {
+        bool changed = false;
+        std::uint32_t next_label = 0;
+        for (const auto& instruction : function.instructions) {
+            if (instruction.opcode == Opcode::Label ||
+                instruction.opcode == Opcode::Jump ||
+                instruction.opcode == Opcode::JumpIfFalse ||
+                instruction.opcode == Opcode::JumpIfTrue) {
+                next_label = std::max(next_label, instruction.label + 1u);
+            }
+        }
+        for (std::size_t label_position = 0;
+             label_position + 5u < function.instructions.size(); ++label_position) {
+            const auto& loop_label = function.instructions[label_position];
+            if (loop_label.opcode != Opcode::Label) continue;
+            const auto& counter_load = function.instructions[label_position + 1u];
+            const auto& end_value = function.instructions[label_position + 2u];
+            const auto comparison = function.instructions[label_position + 3u].opcode;
+            const auto& exit_jump = function.instructions[label_position + 4u];
+            if (counter_load.opcode != Opcode::LoadLocal ||
+                end_value.opcode != Opcode::PushF64 ||
+                (comparison != Opcode::OrderedLessF64 &&
+                 comparison != Opcode::OrderedLessEqualF64) ||
+                exit_jump.opcode != Opcode::JumpIfFalse) {
+                continue;
+            }
+            const auto counter = counter_load.index;
+            std::size_t back_jump = function.instructions.size();
+            for (std::size_t position = label_position + 5u;
+                 position < function.instructions.size(); ++position) {
+                if (function.instructions[position].opcode == Opcode::Jump &&
+                    function.instructions[position].label == loop_label.label) {
+                    back_jump = position;
+                    break;
+                }
+            }
+            if (back_jump < 4u || back_jump + 1u >= function.instructions.size() ||
+                function.instructions[back_jump + 1u].opcode != Opcode::Label ||
+                function.instructions[back_jump + 1u].label != exit_jump.label) {
+                continue;
+            }
+            const auto& increment_load = function.instructions[back_jump - 4u];
+            const auto& increment = function.instructions[back_jump - 3u];
+            const auto increment_op = function.instructions[back_jump - 2u].opcode;
+            const auto& increment_store = function.instructions[back_jump - 1u];
+            if (increment_load.opcode != Opcode::LoadLocal ||
+                increment_load.index != counter ||
+                increment.opcode != Opcode::PushF64 || increment.f64 != 1.0 ||
+                increment_op != Opcode::AddF64 ||
+                increment_store.opcode != Opcode::StoreLocal ||
+                increment_store.index != counter || label_position == 0u ||
+                function.instructions[label_position - 1u].opcode != Opcode::StoreLocal ||
+                function.instructions[label_position - 1u].index != counter) {
+                continue;
+            }
+            double start = 0.0;
+            std::size_t initialization_begin = 0;
+            if (label_position >= 2u &&
+                function.instructions[label_position - 2u].opcode == Opcode::PushF64) {
+                start = function.instructions[label_position - 2u].f64;
+                initialization_begin = label_position - 2u;
+            } else if (label_position >= 4u &&
+                       function.instructions[label_position - 4u].opcode == Opcode::PushF64 &&
+                       function.instructions[label_position - 3u].opcode == Opcode::PushF64) {
+                const double left = function.instructions[label_position - 4u].f64;
+                const double right = function.instructions[label_position - 3u].f64;
+                const auto op = function.instructions[label_position - 2u].opcode;
+                if (op == Opcode::AddF64) start = left + right;
+                else if (op == Opcode::SubtractF64) start = left - right;
+                else if (op == Opcode::MultiplyF64) start = left * right;
+                else continue;
+                initialization_begin = label_position - 4u;
+            } else {
+                continue;
+            }
+            const double end = end_value.f64;
+            if (!std::isfinite(start) || !std::isfinite(end) ||
+                start != std::floor(start) || end != std::floor(end)) {
+                continue;
+            }
+            const double count_value = comparison == Opcode::OrderedLessEqualF64
+                ? end - start + 1.0 : end - start;
+            if (count_value < 0.0 || count_value > 8.0 ||
+                count_value != std::floor(count_value)) {
+                continue;
+            }
+            const auto body_begin = label_position + 5u;
+            const auto body_end = back_jump - 4u;
+            std::set<std::uint32_t> body_labels;
+            for (std::size_t position = body_begin; position < body_end; ++position) {
+                if (function.instructions[position].opcode == Opcode::Label) {
+                    body_labels.insert(function.instructions[position].label);
+                }
+                if (function.instructions[position].opcode == Opcode::StoreLocal &&
+                    function.instructions[position].index == counter) {
+                    body_labels.clear();
+                    break;
+                }
+            }
+            bool closed_control_flow = true;
+            for (std::size_t position = body_begin;
+                 closed_control_flow && position < body_end; ++position) {
+                const auto& instruction = function.instructions[position];
+                if ((instruction.opcode == Opcode::Jump ||
+                     instruction.opcode == Opcode::JumpIfFalse ||
+                     instruction.opcode == Opcode::JumpIfTrue) &&
+                    !body_labels.count(instruction.label)) {
+                    closed_control_flow = false;
+                }
+            }
+            for (std::size_t position = 0;
+                 closed_control_flow && position < function.instructions.size(); ++position) {
+                if (position >= initialization_begin && position <= back_jump + 1u) continue;
+                const auto& instruction = function.instructions[position];
+                if ((instruction.opcode == Opcode::Jump ||
+                     instruction.opcode == Opcode::JumpIfFalse ||
+                     instruction.opcode == Opcode::JumpIfTrue) &&
+                    (instruction.label == loop_label.label ||
+                     instruction.label == exit_jump.label)) {
+                    closed_control_flow = false;
+                }
+                if (position > back_jump + 1u &&
+                    instruction.opcode == Opcode::LoadLocal &&
+                    instruction.index == counter) {
+                    closed_control_flow = false;
+                }
+            }
+            if (!closed_control_flow ||
+                function.instructions.size() +
+                    static_cast<std::size_t>(count_value) * (body_end - body_begin) >
+                    16384u) {
+                continue;
+            }
+            std::vector<Instruction> replacement;
+            replacement.reserve(
+                static_cast<std::size_t>(count_value) * (body_end - body_begin));
+            for (std::size_t iteration = 0;
+                 iteration < static_cast<std::size_t>(count_value); ++iteration) {
+                Instruction iteration_value;
+                iteration_value.opcode = Opcode::PushF64;
+                iteration_value.f64 = start + static_cast<double>(iteration);
+                replacement.push_back(std::move(iteration_value));
+                Instruction iteration_store;
+                iteration_store.opcode = Opcode::StoreLocal;
+                iteration_store.index = counter;
+                replacement.push_back(std::move(iteration_store));
+                std::map<std::uint32_t, std::uint32_t> labels;
+                for (const auto label : body_labels) labels.emplace(label, next_label++);
+                for (std::size_t position = body_begin; position < body_end; ++position) {
+                    auto instruction = function.instructions[position];
+                    if (instruction.opcode == Opcode::LoadLocal &&
+                        instruction.index == counter) {
+                        instruction = Instruction{};
+                        instruction.opcode = Opcode::PushF64;
+                        instruction.f64 = start + static_cast<double>(iteration);
+                    }
+                    if (instruction.opcode == Opcode::Label ||
+                        instruction.opcode == Opcode::Jump ||
+                        instruction.opcode == Opcode::JumpIfFalse ||
+                        instruction.opcode == Opcode::JumpIfTrue) {
+                        instruction.label = labels.at(instruction.label);
+                    }
+                    replacement.push_back(std::move(instruction));
+                }
+            }
+            function.instructions.erase(
+                function.instructions.begin() +
+                    static_cast<std::ptrdiff_t>(initialization_begin),
+                function.instructions.begin() +
+                    static_cast<std::ptrdiff_t>(back_jump + 2u));
+            function.instructions.insert(
+                function.instructions.begin() +
+                    static_cast<std::ptrdiff_t>(initialization_begin),
+                replacement.begin(), replacement.end());
+            changed = true;
+            break;
+        }
+        if (!changed) return;
+    }
+    throw LoweringFailure("small constant loop unrolling did not converge");
+}
+
+inline void unroll_small_constant_loops(Module& module) {
+    unroll_small_constant_loops(module.entry);
+    for (auto& function : module.functions) unroll_small_constant_loops(function);
+}
+
+inline void fold_constant_numeric_expressions(Function& function) {
+    for (;;) {
+        bool changed = false;
+        for (std::size_t position = 0;
+             position + 2u < function.instructions.size(); ++position) {
+            const auto& left = function.instructions[position];
+            const auto& right = function.instructions[position + 1u];
+            const auto opcode = function.instructions[position + 2u].opcode;
+            if (left.opcode != Opcode::PushF64 ||
+                right.opcode != Opcode::PushF64 ||
+                (opcode != Opcode::AddF64 && opcode != Opcode::SubtractF64 &&
+                 opcode != Opcode::MultiplyF64 && opcode != Opcode::DivideF64)) {
+                continue;
+            }
+            double value = 0.0;
+            if (opcode == Opcode::AddF64) value = left.f64 + right.f64;
+            else if (opcode == Opcode::SubtractF64) value = left.f64 - right.f64;
+            else if (opcode == Opcode::MultiplyF64) value = left.f64 * right.f64;
+            else value = left.f64 / right.f64;
+            Instruction folded;
+            folded.opcode = Opcode::PushF64;
+            folded.f64 = value;
+            function.instructions[position] = std::move(folded);
+            function.instructions.erase(
+                function.instructions.begin() +
+                    static_cast<std::ptrdiff_t>(position + 1u),
+                function.instructions.begin() +
+                    static_cast<std::ptrdiff_t>(position + 3u));
+            changed = true;
+            break;
+        }
+        if (!changed) return;
+    }
+}
+
+inline void fold_constant_numeric_expressions(Module& module) {
+    fold_constant_numeric_expressions(module.entry);
+    for (auto& function : module.functions) {
+        fold_constant_numeric_expressions(function);
+    }
+}
+
 inline Module lower(const vf::JsonValue& typed_ir) {
     const auto variadics = specialize_heterogeneous_variadics(typed_ir);
     const vf::JsonValue& variadic_shaped = variadics ? *variadics : typed_ir;
@@ -13748,10 +15500,15 @@ inline Module lower(const vf::JsonValue& typed_ir) {
         ? *recursive_locals : immediate_shaped;
     const auto local_calls = specialize_direct_local_calls(recursive_shaped);
     auto lowered = lower_monomorphic(local_calls ? *local_calls : recursive_shaped);
+    coalesce_scalar_local_copies(lowered);
     refine_machine_error_effects(lowered);
     refine_integral_local_classes(lowered);
     inline_small_numeric_calls(lowered);
+    eliminate_identity_local_shuffles(lowered);
     propagate_constant_numeric_parameters(lowered);
+    propagate_constant_numeric_locals(lowered);
+    unroll_small_constant_loops(lowered);
+    fold_constant_numeric_expressions(lowered);
     // Constant propagation can turn a parameter-fed numeric local into a
     // provably integral induction variable. Re-run the representation analysis
     // so the direct backend does not retain f64 conversions and redundant

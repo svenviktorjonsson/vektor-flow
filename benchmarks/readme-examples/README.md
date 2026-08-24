@@ -10,7 +10,7 @@ program under `examples/generated/readme`, then records for each program:
 - source/compiler hashes and exact host conditions.
 
 Elapsed samples remain in the machine-readable report for diagnostics, but
-0.1.8 makes no per-example timing claim from them.
+0.2.0 makes no per-example timing claim from them.
 
 ```bash
 node benchmarks/readme-examples/run.mjs \

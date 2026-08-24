@@ -1237,6 +1237,67 @@ private:
 
         if (!type_spill && container == "record") return lowered_subject;
 
+        if (!type_spill && (container == "vector" || container == "multiset")) {
+            std::vector<std::string> element_types;
+            bool dynamic_vector = false;
+            if (starts_with(subject_type, "tuple<") && subject_type.back() == '>') {
+                element_types = split_top_level_type_parts(
+                    subject_type.substr(6, subject_type.size() - 7));
+            } else if (subject_type.size() >= 2 && subject_type.front() == '[' &&
+                       subject_type.back() == ']') {
+                const std::string inner = subject_type.substr(1, subject_type.size() - 2);
+                const std::size_t shape = inner.rfind(':');
+                const std::string element = shape == std::string::npos
+                    ? inner : inner.substr(0, shape);
+                std::size_t count = 1;
+                if (shape == std::string::npos) {
+                    dynamic_vector = true;
+                } else {
+                    try {
+                        count = static_cast<std::size_t>(std::stoull(inner.substr(shape + 1)));
+                    } catch (...) {
+                        throw IRFailure("container value spill requires a fixed numeric shape");
+                    }
+                }
+                element_types.assign(count, element);
+            } else if (starts_with(subject_type, "list<") && subject_type.back() == '>') {
+                element_types.push_back(subject_type.substr(5, subject_type.size() - 6));
+                dynamic_vector = true;
+            } else if (starts_with(subject_type, "multiset<") && subject_type.back() == '>') {
+                if (container == "multiset") return lowered_subject;
+                throw IRFailure("vector generation from a multiset requires explicit count expansion");
+            } else {
+                throw IRFailure("container value spill requires a vector, tuple, list, or multiset");
+            }
+            if (element_types.empty()) {
+                throw IRFailure("container value spill requires at least one element");
+            }
+            const std::string element_type = element_types.front();
+            if (!std::all_of(element_types.begin(), element_types.end(),
+                             [&](const auto& item) { return item == element_type; })) {
+                throw IRFailure("vector and multiset generation require one compatible element type");
+            }
+            if (container == "vector") {
+                if (dynamic_vector) return lowered_subject;
+                auto spread = node("spread");
+                spread["value"] = std::move(lowered_subject);
+                spread["type"] = vf::JsonValue(subject_type);
+                vf::JsonValue::Array items;
+                items.emplace_back(std::move(spread));
+                auto out = node("list");
+                out["items"] = vf::JsonValue(std::move(items));
+                out["element_type"] = vf::JsonValue(element_type);
+                out["type"] = vf::JsonValue(
+                    "[" + element_type + ":" + std::to_string(element_types.size()) + "]");
+                return vf::JsonValue(std::move(out));
+            }
+            auto out = node("multiset_from_collection");
+            out["value"] = std::move(lowered_subject);
+            out["element_type"] = vf::JsonValue(element_type);
+            out["type"] = vf::JsonValue("multiset<" + element_type + ">");
+            return vf::JsonValue(std::move(out));
+        }
+
         std::vector<std::pair<std::string, std::string>> members;
         if (!primitive.empty()) {
             members = primitive_type_fields(primitive);
@@ -1415,8 +1476,14 @@ private:
                     string_field(value.as_object(), "kind", "IR value") == "list") {
                     const auto& items = array_of(
                         field(value.as_object(), "items", "IR list"), "IR list items");
+                    const bool has_spread = std::any_of(
+                        items.begin(), items.end(), [](const auto& item) {
+                            return item.is_object() &&
+                                string_field(item.as_object(), "kind", "IR list item") == "spread";
+                        });
                     const auto element = value.as_object().find("element_type");
-                    if (element != value.as_object().end() && element->second.is_string()) {
+                    if (!has_spread && element != value.as_object().end() &&
+                        element->second.is_string()) {
                         environment_type = "[" + element->second.as_string() + ":" +
                             std::to_string(items.size()) + "]";
                     }
@@ -1428,10 +1495,7 @@ private:
                 out["name"] = vf::JsonValue(name);
                 out["type"] = vf::JsonValue(value_type);
                 out["value"] = std::move(value);
-                const auto update = object.find("update");
-                if (update != object.end() && update->second.is_boolean()) {
-                    out["update"] = update->second;
-                }
+                out["update"] = vf::JsonValue(is_update);
                 return vf::JsonValue(std::move(out));
             }
             if (target_kind == "attribute") {
@@ -1444,19 +1508,10 @@ private:
                 const std::string base_type = env.get(base_name);
                 const bool vector_base = starts_with(base_type, "list<") ||
                     (base_type.size() >= 2 && base_type.front() == '[' && base_type.back() == ']');
-                const std::string index_type = env.get(index_name);
-                if (vector_base && env.contains(index_name) &&
-                    (index_type == "int" || index_type == "num")) {
-                    auto index = node("load");
-                    index["name"] = vf::JsonValue(index_name);
-                    index["type"] = vf::JsonValue(index_type);
-                    vf::JsonValue::Array indices;
-                    indices.emplace_back(std::move(index));
-                    auto out = node("update_index");
-                    out["base_name"] = vf::JsonValue(base_name);
-                    out["indices"] = vf::JsonValue(std::move(indices));
-                    out["value"] = lower_expr(field(object, "value", "bind"), env);
-                    return vf::JsonValue(std::move(out));
+                if (vector_base && index_name != "length") {
+                    throw IRFailure(
+                        "vector member " + index_name + " is not an index; use .(" +
+                        index_name + ") to evaluate it");
                 }
                 auto out = node("update_attr");
                 out["base_name"] = vf::JsonValue(base_name);
@@ -1523,8 +1578,19 @@ private:
                     return vf::JsonValue(std::move(out));
                 }
             }
+            vf::JsonValue lowered_value = lower_expr(
+                field(object, "value", "spill_value"), env);
+            const std::string spill_type = resolve_type_alias(string_field(
+                lowered_value.as_object(), "type", "spill value"));
+            for (const auto& [field_name, field_type] :
+                 ordered_record_type_fields(spill_type)) {
+                if (env.declared_here(field_name)) {
+                    throw IRFailure("Cannot spill duplicate binding " + field_name);
+                }
+                env.declare(field_name, field_type);
+            }
             auto out = node("spill_stmt");
-            out["value"] = lower_expr(field(object, "value", "spill_value"), env);
+            out["value"] = std::move(lowered_value);
             return vf::JsonValue(std::move(out));
         }
         if (kind == "emit") {
@@ -2644,6 +2710,31 @@ private:
             if (try_fold_pipe_chain_expr(object, env, functions_, folded)) {
                 return folded;
             }
+            const auto& raw_source = object_of(
+                field(object, "source", "pipe_chain"), "pipe source");
+            std::optional<vf::JsonValue> range_source;
+            if (string_field(raw_source, "kind", "pipe source") == "range_expr") {
+                auto range = node("range");
+                const auto& raw_start = field(raw_source, "start", "pipe range");
+                const auto& raw_end = field(raw_source, "end", "pipe range");
+                vf::JsonValue lowered_start = raw_start.is_null()
+                    ? num_const(0.0) : lower_expr(raw_start, env);
+                if (raw_start.is_null() && !raw_end.is_null()) {
+                    vf::JsonValue lowered_end = lower_expr(raw_end, env);
+                    if (string_field(
+                            lowered_end.as_object(), "type", "pipe range end") == "int") {
+                        lowered_start.as_object()["type"] = vf::JsonValue("int");
+                    }
+                    range["end"] = std::move(lowered_end);
+                } else {
+                    range["end"] = raw_end.is_null()
+                        ? vf::JsonValue(nullptr) : lower_expr(raw_end, env);
+                }
+                range["start"] = std::move(lowered_start);
+                range["infinite"] = vf::JsonValue(raw_end.is_null());
+                range["type"] = vf::JsonValue("range<num>");
+                range_source = vf::JsonValue(std::move(range));
+            }
             vf::JsonValue source = lower_expr(field(object, "source", "pipe_chain"), env);
             const std::string source_type = string_field(source.as_object(), "type", "pipe source");
             std::string element_type = "any";
@@ -2739,6 +2830,7 @@ private:
             }
             auto out = node("pipe_chain");
             out["source"] = std::move(source);
+            if (range_source) out["range_source"] = std::move(*range_source);
             out["segments"] = vf::JsonValue(std::move(segments));
             out["type"] = vf::JsonValue(result_type);
             return vf::JsonValue(std::move(out));
@@ -3226,27 +3318,10 @@ private:
             const std::string field_name = string_field(object, "name", "attribute");
             const bool vector_object = starts_with(object_type, "list<") ||
                 (object_type.size() >= 2 && object_type.front() == '[' && object_type.back() == ']');
-            const std::string index_type = env.get(field_name);
-            if (vector_object && env.contains(field_name) &&
-                (index_type == "int" || index_type == "num")) {
-                auto index = node("load");
-                index["name"] = vf::JsonValue(field_name);
-                index["type"] = vf::JsonValue(index_type);
-                vf::JsonValue::Array indices;
-                indices.emplace_back(std::move(index));
-                std::string element_type = "any";
-                if (starts_with(object_type, "list<") && object_type.back() == '>') {
-                    element_type = object_type.substr(5, object_type.size() - 6);
-                } else {
-                    const std::string inner = object_type.substr(1, object_type.size() - 2);
-                    const std::size_t shape = inner.rfind(':');
-                    element_type = shape == std::string::npos ? inner : inner.substr(0, shape);
-                }
-                auto out = node("dotted_index");
-                out["base"] = std::move(object_ir);
-                out["indices"] = vf::JsonValue(std::move(indices));
-                out["type"] = vf::JsonValue(element_type);
-                return vf::JsonValue(std::move(out));
+            if (vector_object && field_name != "length") {
+                throw IRFailure(
+                    "vector member " + field_name + " is not an index; use .(" +
+                    field_name + ") to evaluate it");
             }
             auto out = node("field_access");
             out["field"] = vf::JsonValue(field_name);

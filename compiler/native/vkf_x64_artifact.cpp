@@ -25,6 +25,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -268,6 +269,12 @@ public:
     std::size_t position() const { return bytes.size(); }
     void byte(unsigned value) { bytes.push_back(static_cast<unsigned char>(value)); }
     void raw(std::initializer_list<unsigned> values) { for (unsigned value : values) byte(value); }
+    void align(std::size_t boundary) {
+        if (boundary == 0 || (boundary & (boundary - 1u)) != 0u) {
+            throw BackendFailure("x64 code alignment must be a power of two");
+        }
+        while ((position() & (boundary - 1u)) != 0u) byte(0x90);
+    }
     void i32(std::int32_t value) {
         for (unsigned shift = 0; shift < 32; shift += 8) byte(static_cast<std::uint32_t>(value) >> shift);
     }
@@ -1144,10 +1151,20 @@ private:
             at(22).opcode != Opcode::DivideF64 || at(23).opcode != Opcode::LoadLocal ||
             at(24).opcode != Opcode::LoadF64LocalsIndex ||
             at(25).opcode != Opcode::MultiplyF64 || at(26).opcode != Opcode::AddF64 ||
-            at(27).opcode != Opcode::StoreLocal || at(28).opcode != Opcode::LoadLocal ||
-            at(29).opcode != Opcode::PushF64 || at(29).f64 != 1.0 ||
-            at(30).opcode != Opcode::AddF64 || at(31).opcode != Opcode::StoreLocal ||
-            at(32).opcode != Opcode::Jump || at(33).opcode != Opcode::Label) {
+            at(27).opcode != Opcode::StoreLocal) {
+            return std::nullopt;
+        }
+        // Pipe/range lowering may retain the body's continuation label between
+        // the reduction and induction-variable increment.  It is semantically
+        // empty here and must not disable the packed matrix reduction.
+        const std::size_t tail = at(28).opcode == Opcode::Label ? 29u : 28u;
+        if (label_index + tail + 5u >= code.size() ||
+            at(tail).opcode != Opcode::LoadLocal ||
+            at(tail + 1u).opcode != Opcode::PushF64 || at(tail + 1u).f64 != 1.0 ||
+            at(tail + 2u).opcode != Opcode::AddF64 ||
+            at(tail + 3u).opcode != Opcode::StoreLocal ||
+            at(tail + 4u).opcode != Opcode::Jump ||
+            at(tail + 5u).opcode != Opcode::Label) {
             return std::nullopt;
         }
         const auto width_value = at(2).f64;
@@ -1166,19 +1183,20 @@ private:
             counter == row || counter >= function.locals.size() ||
             row >= function.locals.size() || total >= function.locals.size() ||
             diagonal >= function.locals.size() ||
-            at(4).label != at(33).label || at(32).label != at(0).label ||
+            at(4).label != at(tail + 5u).label ||
+            at(tail + 4u).label != at(0).label ||
             at(11).index != diagonal || at(12).index != diagonal ||
             (at(18).index != row && at(18).index != counter) ||
             at(23).index != counter || !at(24).index_is_integral ||
             !at(24).index_local || *at(24).index_local != counter ||
             at(24).argument_count < width || at(27).index != total ||
-            at(28).index != counter || at(31).index != counter ||
+            at(tail).index != counter || at(tail + 3u).index != counter ||
             at(24).index > function.locals.size() ||
             width > function.locals.size() - at(24).index) {
             return std::nullopt;
         }
         return PackedMatrixReductionLoopPlan{
-            label_index + 32, row, counter, total, diagonal,
+            label_index + tail + 4u, row, counter, total, diagonal,
             at(24).index, width, at(18).index == counter
         };
     }
@@ -3514,12 +3532,14 @@ private:
             }
         }
         std::vector<std::pair<std::size_t, std::size_t>> loops;
+        std::set<std::uint32_t> loop_header_labels;
         for (std::size_t position = 0; position < function.instructions.size(); ++position) {
             const auto& instruction = function.instructions[position];
             if (instruction.opcode != Opcode::Jump) continue;
             const auto target = label_positions.find(instruction.label);
             if (target != label_positions.end() && target->second < position) {
                 loops.emplace_back(target->second, position);
+                loop_header_labels.insert(instruction.label);
             }
         }
         std::vector<std::pair<unsigned, unsigned>> frequency;
@@ -3552,6 +3572,11 @@ private:
                 static_cast<int>(available[index]);
         }
         prologue(frame);
+        const auto align_loop_header = [&](std::uint32_t label) {
+            if (loop_header_labels.find(label) != loop_header_labels.end()) {
+                code_.align(16u);
+            }
+        };
         save_result_context(frame);
         for (std::size_t index = 0; index < function.parameters.size(); ++index) {
             if (function.local_classes[index] != vkf::machine_ir::ValueClass::I64) continue;
@@ -3643,6 +3668,8 @@ private:
         };
         struct GuardedIndexLoop {
             std::uint32_t bound_local = 0;
+            std::uint32_t constant_bound = 0;
+            bool bound_is_constant = false;
             std::uint32_t maximum_bound = 0;
             const vkf::machine_ir::Instruction* error = nullptr;
         };
@@ -3654,8 +3681,13 @@ private:
             const auto& bound = function.instructions[label + 2];
             const auto& compare = function.instructions[label + 3];
             const auto& exit = function.instructions[label + 4];
+            const bool local_bound = bound.opcode == Opcode::LoadLocal;
+            const bool constant_bound = bound.opcode == Opcode::PushF64 &&
+                bound.f64 >= 0.0 && bound.f64 == std::floor(bound.f64) &&
+                bound.f64 <= static_cast<double>(
+                    std::numeric_limits<std::uint32_t>::max());
             if (header.opcode != Opcode::Label || index.opcode != Opcode::LoadLocal ||
-                bound.opcode != Opcode::LoadLocal ||
+                (!local_bound && !constant_bound) ||
                 compare.opcode != Opcode::OrderedLessF64 ||
                 exit.opcode != Opcode::JumpIfFalse) continue;
             bool initialized_nonnegative = false;
@@ -3706,14 +3738,17 @@ private:
                     !is_unit_step_store(position, index.index, Opcode::AddF64)) {
                     index_steps_up = false;
                 }
-                if (candidate.index == bound.index &&
+                if (local_bound && candidate.index == bound.index &&
                     !is_unit_step_store(position, bound.index, Opcode::SubtractF64)) {
                     bound_is_invariant_or_steps_down = false;
                 }
             }
             if (!index_steps_up || !bound_is_invariant_or_steps_down) continue;
             GuardedIndexLoop proof;
-            proof.bound_local = bound.index;
+            proof.bound_local = local_bound ? bound.index : 0u;
+            proof.bound_is_constant = constant_bound;
+            proof.constant_bound = constant_bound
+                ? static_cast<std::uint32_t>(bound.f64) : 0u;
             proof.maximum_bound = std::numeric_limits<std::uint32_t>::max();
             for (std::size_t position = label + 5; position < end; ++position) {
                 const auto& candidate = function.instructions[position];
@@ -3721,7 +3756,7 @@ private:
                     candidate.opcode != Opcode::StoreF64LocalsIndex) continue;
                 const bool direct_index = candidate.index_local &&
                     (*candidate.index_local == index.index ||
-                     *candidate.index_local == bound.index);
+                     (local_bound && *candidate.index_local == bound.index));
                 const bool unit_offset_index = !candidate.index_local && position >= 3 &&
                     function.instructions[position - 3].opcode == Opcode::LoadLocal &&
                     function.instructions[position - 3].index == index.index &&
@@ -3734,15 +3769,18 @@ private:
                     function.instructions.begin() + static_cast<std::ptrdiff_t>(position),
                     [&](const auto& prior) {
                         return prior.opcode == Opcode::StoreLocal &&
-                            (prior.index == index.index || prior.index == bound.index);
+                            (prior.index == index.index ||
+                             (local_bound && prior.index == bound.index));
                     });
                 if (reassigned_before_access) continue;
                 const bool requires_strict_bound = unit_offset_index ||
-                    (candidate.index_local && *candidate.index_local == bound.index);
+                    (local_bound && candidate.index_local &&
+                     *candidate.index_local == bound.index);
                 if (requires_strict_bound && candidate.argument_count == 0) continue;
-                guarded_index_access[position] = true;
                 const auto maximum_bound = candidate.argument_count -
                     static_cast<std::uint32_t>(requires_strict_bound);
+                if (constant_bound && proof.constant_bound > maximum_bound) continue;
+                guarded_index_access[position] = true;
                 proof.maximum_bound = std::min(proof.maximum_bound, maximum_bound);
                 if (!proof.error) proof.error = &candidate;
             }
@@ -3783,9 +3821,152 @@ private:
         for (std::size_t instruction_index = 0;
              instruction_index < function.instructions.size(); ++instruction_index) {
             const auto& instruction = function.instructions[instruction_index];
+            if (stack_depth == 0 && instruction.opcode == Opcode::Label &&
+                instruction_index + 24u < function.instructions.size()) {
+                const auto at = [&](std::size_t offset) -> const auto& {
+                    return function.instructions[instruction_index + offset];
+                };
+                const auto& left_load = at(6u);
+                const auto& right_load = at(10u);
+                const auto& left_store = at(11u);
+                const auto& right_store = at(14u);
+                const bool fixed_prefix_reverse =
+                    at(1u).opcode == Opcode::LoadLocal &&
+                    at(2u).opcode == Opcode::LoadLocal &&
+                    at(3u).opcode == Opcode::OrderedLessF64 &&
+                    at(4u).opcode == Opcode::JumpIfFalse &&
+                    at(5u).opcode == Opcode::LoadLocal &&
+                    left_load.opcode == Opcode::LoadF64LocalsIndex &&
+                    at(7u).opcode == Opcode::StoreLocal &&
+                    at(8u).opcode == Opcode::LoadLocal &&
+                    at(9u).opcode == Opcode::LoadLocal &&
+                    right_load.opcode == Opcode::LoadF64LocalsIndex &&
+                    left_store.opcode == Opcode::StoreF64LocalsIndex &&
+                    at(12u).opcode == Opcode::LoadLocal &&
+                    at(13u).opcode == Opcode::LoadLocal &&
+                    right_store.opcode == Opcode::StoreF64LocalsIndex &&
+                    at(15u).opcode == Opcode::LoadLocal &&
+                    at(16u).opcode == Opcode::PushF64 && at(16u).f64 == 1.0 &&
+                    at(17u).opcode == Opcode::AddF64 &&
+                    at(18u).opcode == Opcode::StoreLocal &&
+                    at(19u).opcode == Opcode::LoadLocal &&
+                    at(20u).opcode == Opcode::PushF64 && at(20u).f64 == 1.0 &&
+                    at(21u).opcode == Opcode::SubtractF64 &&
+                    at(22u).opcode == Opcode::StoreLocal &&
+                    at(23u).opcode == Opcode::Jump && at(23u).label == instruction.label &&
+                    at(24u).opcode == Opcode::Label && at(24u).label == at(4u).label &&
+                    at(1u).index == at(5u).index && at(1u).index == at(8u).index &&
+                    at(1u).index == at(15u).index && at(1u).index == at(18u).index &&
+                    at(2u).index == at(9u).index && at(2u).index == at(12u).index &&
+                    at(2u).index == at(19u).index && at(2u).index == at(22u).index &&
+                    at(7u).index == at(13u).index &&
+                    left_load.index == right_load.index &&
+                    left_load.index == left_store.index &&
+                    left_load.index == right_store.index &&
+                    left_load.argument_count == right_load.argument_count &&
+                    left_load.argument_count == left_store.argument_count &&
+                    left_load.argument_count == right_store.argument_count &&
+                    left_load.index_local && *left_load.index_local == at(5u).index &&
+                    right_load.index_local && *right_load.index_local == at(9u).index &&
+                    left_store.index_local && *left_store.index_local == at(8u).index &&
+                    right_store.index_local && *right_store.index_local == at(12u).index &&
+                    guarded_index_access[instruction_index + 6u] &&
+                    guarded_index_access[instruction_index + 10u] &&
+                    guarded_index_access[instruction_index + 11u] &&
+                    guarded_index_access[instruction_index + 14u];
+                if (fixed_prefix_reverse) {
+                    code_.raw({0x48, 0x8d, 0x95});
+                    code_.i32(frame.displacement(left_load.index));
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate integer x64 label");
+                    }
+                    load_local_integer(at(1u).index, 0u);
+                    load_local_integer(at(2u).index, 1u);
+                    code_.raw({0x48, 0x3b, 0xc1});
+                    branches.push_back({emit_jump(0x8d), at(4u).label});
+                    code_.raw({
+                        0x48, 0xf7, 0xd8,
+                        0x48, 0xf7, 0xd9,
+                        0x4c, 0x8b, 0x14, 0xc2,
+                        0x4c, 0x8b, 0x1c, 0xca,
+                        0x4c, 0x89, 0x1c, 0xc2,
+                        0x4c, 0x89, 0x14, 0xca,
+                        0x48, 0xf7, 0xd8,
+                        0x48, 0xf7, 0xd9,
+                        0x48, 0xff, 0xc0,
+                        0x48, 0xff, 0xc9
+                    });
+                    store_local_integer(at(7u).index, 10u);
+                    store_local_integer(at(1u).index, 0u);
+                    store_local_integer(at(2u).index, 1u);
+                    code_.byte(0xe9);
+                    branches.push_back({code_.rel32_placeholder(), instruction.label});
+                    instruction_index += 23u;
+                    continue;
+                }
+            }
+            if (stack_depth == 0 && instruction_index + 9u < function.instructions.size()) {
+                const auto& left_index = function.instructions[instruction_index];
+                const auto& left_load = function.instructions[instruction_index + 1u];
+                const auto& temporary_store = function.instructions[instruction_index + 2u];
+                const auto& destination_index = function.instructions[instruction_index + 3u];
+                const auto& right_index = function.instructions[instruction_index + 4u];
+                const auto& right_load = function.instructions[instruction_index + 5u];
+                const auto& left_store = function.instructions[instruction_index + 6u];
+                const auto& final_right_index = function.instructions[instruction_index + 7u];
+                const auto& temporary_load = function.instructions[instruction_index + 8u];
+                const auto& right_store = function.instructions[instruction_index + 9u];
+                const bool fixed_swap =
+                    left_index.opcode == Opcode::LoadLocal &&
+                    left_load.opcode == Opcode::LoadF64LocalsIndex &&
+                    temporary_store.opcode == Opcode::StoreLocal &&
+                    destination_index.opcode == Opcode::LoadLocal &&
+                    right_index.opcode == Opcode::LoadLocal &&
+                    right_load.opcode == Opcode::LoadF64LocalsIndex &&
+                    left_store.opcode == Opcode::StoreF64LocalsIndex &&
+                    final_right_index.opcode == Opcode::LoadLocal &&
+                    temporary_load.opcode == Opcode::LoadLocal &&
+                    right_store.opcode == Opcode::StoreF64LocalsIndex &&
+                    left_load.index == right_load.index &&
+                    left_load.index == left_store.index &&
+                    left_load.index == right_store.index &&
+                    left_load.argument_count == right_load.argument_count &&
+                    left_load.argument_count == left_store.argument_count &&
+                    left_load.argument_count == right_store.argument_count &&
+                    left_load.index_local && *left_load.index_local == left_index.index &&
+                    right_load.index_local && *right_load.index_local == right_index.index &&
+                    left_store.index_local && *left_store.index_local == destination_index.index &&
+                    right_store.index_local && *right_store.index_local == final_right_index.index &&
+                    destination_index.index == left_index.index &&
+                    final_right_index.index == right_index.index &&
+                    temporary_load.index == temporary_store.index &&
+                    guarded_index_access[instruction_index + 1u] &&
+                    guarded_index_access[instruction_index + 5u] &&
+                    guarded_index_access[instruction_index + 6u] &&
+                    guarded_index_access[instruction_index + 9u];
+                if (fixed_swap) {
+                    load_local_integer(left_index.index, 0u);
+                    load_local_integer(right_index.index, 1u);
+                    code_.raw({0x48, 0x8d, 0x95});
+                    code_.i32(frame.displacement(left_load.index));
+                    code_.raw({
+                        0x48, 0xf7, 0xd8,
+                        0x48, 0xf7, 0xd9,
+                        0x4c, 0x8b, 0x14, 0xc2,
+                        0x4c, 0x8b, 0x1c, 0xca,
+                        0x4c, 0x89, 0x1c, 0xc2,
+                        0x4c, 0x89, 0x14, 0xca
+                    });
+                    store_local_integer(temporary_store.index, 10u);
+                    instruction_index += 9u;
+                    continue;
+                }
+            }
             if (instruction.opcode == Opcode::Label) {
                 const auto proof = guarded_index_loops.find(instruction.label);
-                if (proof != guarded_index_loops.end()) {
+                if (proof != guarded_index_loops.end() &&
+                    !proof->second.bound_is_constant) {
                     load_local_integer(proof->second.bound_local, 11);
                     std::vector<std::size_t> invalid;
                     code_.raw({0x49, 0x81, 0xfb});
@@ -3835,6 +4016,7 @@ private:
                     static_cast<std::uint32_t>(bound.f64) <= source_load.argument_count &&
                     static_cast<std::uint32_t>(bound.f64) <= destination_store.argument_count;
                 if (fixed_copy) {
+                    align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate integer x64 label");
                     }
@@ -3901,6 +4083,7 @@ private:
                     *destination_store.index_local == guard_index.index &&
                     !source_load.index_local;
                 if (bounded_left_shift) {
+                    align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate integer x64 label");
                     }
@@ -3919,6 +4102,119 @@ private:
                         branches.push_back({emit_jump(0x8e), exit.label});
                     }
                     instruction_index += 15;
+                    continue;
+                }
+            }
+            if (policy_.parity_specialization && stack_depth == 0 &&
+                instruction_index + 5 < function.instructions.size()) {
+                const auto& dividend = function.instructions[instruction_index];
+                const auto& divisor = function.instructions[instruction_index + 1];
+                const auto& remainder = function.instructions[instruction_index + 2];
+                const auto& zero = function.instructions[instruction_index + 3];
+                const auto& comparison = function.instructions[instruction_index + 4];
+                const auto& branch = function.instructions[instruction_index + 5];
+                const auto divisor_value = divisor.opcode == Opcode::PushF64
+                    ? static_cast<std::int64_t>(divisor.f64) : 0;
+                const auto absolute_divisor = divisor_value < 0
+                    ? -divisor_value : divisor_value;
+                const bool power_of_two = absolute_divisor > 0 &&
+                    absolute_divisor <= 256 &&
+                    (absolute_divisor & (absolute_divisor - 1)) == 0 &&
+                    divisor.f64 == static_cast<double>(divisor_value);
+                const bool supported_comparison =
+                    comparison.opcode == Opcode::OrderedEqualF64 ||
+                    comparison.opcode == Opcode::UnorderedNotEqualF64;
+                const bool supported_branch = branch.opcode == Opcode::JumpIfFalse ||
+                    branch.opcode == Opcode::JumpIfTrue;
+                if (dividend.opcode == Opcode::LoadLocal &&
+                    dividend.index < function.local_classes.size() &&
+                    function.local_classes[dividend.index] ==
+                        vkf::machine_ir::ValueClass::I64 &&
+                    power_of_two && remainder.opcode == Opcode::RemainderF64 &&
+                    zero.opcode == Opcode::PushF64 && zero.f64 == 0.0 &&
+                    supported_comparison && supported_branch) {
+                    load_local_integer(dividend.index, 10);
+                    // test r10b, 2^n-1. Divisibility by a power of two depends
+                    // only on these low bits, including for signed integers.
+                    code_.raw({0x41, 0xf6, 0xc2,
+                               static_cast<unsigned>(absolute_divisor - 1)});
+                    const bool result_when_zero =
+                        comparison.opcode == Opcode::OrderedEqualF64;
+                    const bool branch_on_result = branch.opcode == Opcode::JumpIfTrue;
+                    const bool branch_when_zero = result_when_zero == branch_on_result;
+                    branches.push_back({
+                        emit_jump(branch_when_zero ? 0x84 : 0x85), branch.label
+                    });
+                    instruction_index += 5;
+                    continue;
+                }
+            }
+            if (stack_depth == 0 && instruction_index + 3 <
+                    function.instructions.size()) {
+                const auto& left = function.instructions[instruction_index];
+                const auto& right = function.instructions[instruction_index + 1];
+                const auto& comparison = function.instructions[instruction_index + 2];
+                const auto& branch = function.instructions[instruction_index + 3];
+                const auto integral_operand = [&](
+                    const vkf::machine_ir::Instruction& operand) {
+                    if (operand.opcode == Opcode::LoadLocal) {
+                        return operand.index < function.local_classes.size() &&
+                            function.local_classes[operand.index] ==
+                                vkf::machine_ir::ValueClass::I64;
+                    }
+                    if (operand.opcode != Opcode::PushF64 ||
+                        !std::isfinite(operand.f64) ||
+                        operand.f64 != std::floor(operand.f64)) {
+                        return false;
+                    }
+                    constexpr double minimum = -9223372036854775808.0;
+                    constexpr double maximum_exclusive = 9223372036854775808.0;
+                    return operand.f64 >= minimum && operand.f64 < maximum_exclusive;
+                };
+                const bool supported_comparison =
+                    comparison.opcode == Opcode::OrderedLessF64 ||
+                    comparison.opcode == Opcode::OrderedLessEqualF64 ||
+                    comparison.opcode == Opcode::OrderedGreaterF64 ||
+                    comparison.opcode == Opcode::OrderedGreaterEqualF64 ||
+                    comparison.opcode == Opcode::OrderedEqualF64 ||
+                    comparison.opcode == Opcode::UnorderedNotEqualF64 ||
+                    comparison.opcode == Opcode::EqualBits ||
+                    comparison.opcode == Opcode::NotEqualBits;
+                const bool supported_branch = branch.opcode == Opcode::JumpIfFalse ||
+                    branch.opcode == Opcode::JumpIfTrue;
+                if (integral_operand(left) && integral_operand(right) &&
+                    supported_comparison && supported_branch) {
+                    const auto load_operand = [&](
+                        const vkf::machine_ir::Instruction& operand,
+                        unsigned destination) {
+                        if (operand.opcode == Opcode::LoadLocal) {
+                            load_local_integer(operand.index, destination);
+                        } else {
+                            code_.raw({static_cast<unsigned>(0x48u |
+                                           (destination >= 8u ? 0x01u : 0u)),
+                                       static_cast<unsigned>(0xb8u + (destination & 7u))});
+                            code_.u64(static_cast<std::uint64_t>(
+                                static_cast<std::int64_t>(operand.f64)));
+                        }
+                    };
+                    load_operand(left, 10);
+                    load_operand(right, 11);
+                    code_.raw({0x4d, 0x3b, 0xd3});  // cmp r10, r11
+                    unsigned condition = comparison.opcode == Opcode::OrderedLessF64 ? 0x8c
+                        : comparison.opcode == Opcode::OrderedLessEqualF64 ? 0x8e
+                        : comparison.opcode == Opcode::OrderedGreaterF64 ? 0x8f
+                        : comparison.opcode == Opcode::OrderedGreaterEqualF64 ? 0x8d
+                        : comparison.opcode == Opcode::OrderedEqualF64 ||
+                            comparison.opcode == Opcode::EqualBits ? 0x84 : 0x85;
+                    if (branch.opcode == Opcode::JumpIfFalse) {
+                        condition = condition == 0x8c ? 0x8d
+                            : condition == 0x8e ? 0x8f
+                            : condition == 0x8f ? 0x8e
+                            : condition == 0x8d ? 0x8c
+                            : condition == 0x84 ? 0x85 : 0x84;
+                    }
+                    branches.push_back({emit_jump(condition), branch.label});
+                    instruction_index += 3;
                     continue;
                 }
             }
@@ -4114,6 +4410,7 @@ private:
                     break;
                 }
                 case Opcode::Label:
+                    align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate integer x64 label");
                     }
@@ -4191,6 +4488,29 @@ private:
             emit_integer_function(function, frame);
             return;
         }
+        std::map<std::uint32_t, std::size_t> label_positions;
+        for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+            if (function.instructions[position].opcode ==
+                vkf::machine_ir::Opcode::Label) {
+                label_positions.emplace(function.instructions[position].label, position);
+            }
+        }
+        std::set<std::uint32_t> loop_header_labels;
+        for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+            const auto& candidate = function.instructions[position];
+            if (candidate.opcode != vkf::machine_ir::Opcode::Jump &&
+                candidate.opcode != vkf::machine_ir::Opcode::JumpIfFalse &&
+                candidate.opcode != vkf::machine_ir::Opcode::JumpIfTrue) continue;
+            const auto target = label_positions.find(candidate.label);
+            if (target != label_positions.end() && target->second < position) {
+                loop_header_labels.insert(candidate.label);
+            }
+        }
+        const auto align_loop_header = [&](std::uint32_t label) {
+            if (loop_header_labels.find(label) != loop_header_labels.end()) {
+                code_.align(16u);
+            }
+        };
         const auto parameter_count = static_cast<unsigned>(function.parameters.size());
         const auto borrowing_safe_opcode = [](vkf::machine_ir::Opcode opcode) {
             using vkf::machine_ir::Opcode;
@@ -4335,6 +4655,7 @@ private:
                         case Opcode::Jump:
                         case Opcode::JumpIfFalse:
                         case Opcode::JumpIfTrue:
+                        case Opcode::Call:
                         case Opcode::ReturnF64:
                         case Opcode::ReturnValues:
                             return true;
@@ -4393,6 +4714,30 @@ private:
             }
             std::vector<std::pair<unsigned, unsigned>> frequency;
             frequency.reserve(frame.local_count);
+            const auto local_crosses_call = [&](unsigned local) {
+                std::size_t first = function.instructions.size();
+                std::size_t last = 0;
+                for (std::size_t position = 0;
+                     position < function.instructions.size(); ++position) {
+                    const auto& instruction = function.instructions[position];
+                    const bool direct =
+                        (instruction.opcode == vkf::machine_ir::Opcode::LoadLocal ||
+                         instruction.opcode == vkf::machine_ir::Opcode::StoreLocal) &&
+                        instruction.index == local;
+                    const bool indexed = instruction.index_local &&
+                        *instruction.index_local == local;
+                    if (!direct && !indexed) continue;
+                    first = std::min(first, position);
+                    last = std::max(last, position);
+                }
+                if (first == function.instructions.size()) return false;
+                return std::any_of(
+                    function.instructions.begin() + static_cast<std::ptrdiff_t>(first),
+                    function.instructions.begin() + static_cast<std::ptrdiff_t>(last + 1u),
+                    [](const auto& instruction) {
+                        return instruction.opcode == vkf::machine_ir::Opcode::Call;
+                    });
+            };
             std::map<std::uint32_t, std::size_t> cache_label_positions;
             for (std::size_t position = 0; position < function.instructions.size(); ++position) {
                 if (function.instructions[position].opcode ==
@@ -4412,7 +4757,8 @@ private:
             }
             for (unsigned local = 0; local < frame.local_count; ++local) {
                 if (has_implicit_runtime_call || local_is_i64(local) ||
-                    indexed_storage[local] || indexed_address_local[local]) {
+                    indexed_storage[local] || indexed_address_local[local] ||
+                    local_crosses_call(local)) {
                     continue;
                 }
                 unsigned count = 0;
@@ -4451,7 +4797,7 @@ private:
             frequency.clear();
             for (unsigned local = 0; local < frame.local_count; ++local) {
                 if (has_implicit_runtime_call || !local_is_i64(local) ||
-                    indexed_storage[local]) continue;
+                    indexed_storage[local] || local_crosses_call(local)) continue;
                 unsigned count = 0;
                 for (std::size_t position = 0;
                      position < function.instructions.size(); ++position) {
@@ -4771,6 +5117,16 @@ private:
         };
         std::vector<bool> index_upper_bound_proven(function.instructions.size(), false);
         std::vector<bool> index_lower_bound_proven(function.instructions.size(), false);
+        for (std::size_t position = 0;
+             position < function.instructions.size(); ++position) {
+            const auto& instruction = function.instructions[position];
+            if ((instruction.opcode == vkf::machine_ir::Opcode::LoadF64LocalsIndex ||
+                 instruction.opcode == vkf::machine_ir::Opcode::StoreF64LocalsIndex) &&
+                !instruction.may_error) {
+                index_lower_bound_proven[position] = true;
+                index_upper_bound_proven[position] = true;
+            }
+        }
         {
             struct GuardFact {
                 std::size_t guard = 0;
@@ -4793,9 +5149,13 @@ private:
                 const auto& bound_operand = function.instructions[guard + 1];
                 const auto& comparison = function.instructions[guard + 2];
                 const auto& exit = function.instructions[guard + 3];
+                const bool strict_less = comparison.opcode ==
+                    vkf::machine_ir::Opcode::OrderedLessF64;
+                const bool less_equal = comparison.opcode ==
+                    vkf::machine_ir::Opcode::OrderedLessEqualF64;
                 if (index_operand.opcode != vkf::machine_ir::Opcode::LoadLocal ||
                     bound_operand.opcode != vkf::machine_ir::Opcode::PushF64 ||
-                    comparison.opcode != vkf::machine_ir::Opcode::OrderedLessF64 ||
+                    (!strict_less && !less_equal) ||
                     exit.opcode != vkf::machine_ir::Opcode::JumpIfFalse ||
                     bound_operand.f64 < 0.0 ||
                     bound_operand.f64 != std::floor(bound_operand.f64)) {
@@ -4805,7 +5165,7 @@ private:
                 if (target == label_positions.end() || target->second <= guard + 3) continue;
                 guards.push_back({
                     guard, guard + 4, target->second, index_operand.index,
-                    bound_operand.f64, false
+                    bound_operand.f64 + (less_equal ? 1.0 : 0.0), false
                 });
             }
             for (auto& fact : guards) {
@@ -4840,9 +5200,7 @@ private:
                         --cursor;
                         const auto& store = function.instructions[cursor];
                         if (store.opcode == vkf::machine_ir::Opcode::Label ||
-                            store.opcode == vkf::machine_ir::Opcode::Jump ||
-                            store.opcode == vkf::machine_ir::Opcode::JumpIfFalse ||
-                            store.opcode == vkf::machine_ir::Opcode::JumpIfTrue) {
+                            store.opcode == vkf::machine_ir::Opcode::Jump) {
                             break;
                         }
                         if (store.opcode != vkf::machine_ir::Opcode::StoreLocal ||
@@ -5061,7 +5419,7 @@ private:
                     continue;
                 }
                 if (instruction.opcode == Opcode::StoreLocal && values.size() == 1 &&
-                    position >= start + 4) {
+                    position >= start + 2) {
                     plan.root = values.back();
                     plan.store_position = position;
                     plan.store_local = instruction.index;
@@ -5074,7 +5432,7 @@ private:
                         return 1u;
                     };
                     plan.register_height = height(plan.root);
-                    if (plan.register_height <= 6) return plan;
+                    if (plan.register_height <= 5) return plan;
                 }
                 if (instruction.opcode == Opcode::StoreF64LocalsIndex && values.size() == 2 &&
                     instruction.index_is_integral && instruction.index_local &&
@@ -5094,7 +5452,7 @@ private:
                         return 1u;
                     };
                     plan.register_height = height(plan.root);
-                    if (plan.register_height <= 5) return plan;
+                    if (plan.register_height <= 6) return plan;
                 }
                 return std::nullopt;
             }
@@ -5268,11 +5626,129 @@ private:
                 code_.raw({0xf2, 0x0f, 0x11, 0x04, sib});
             }
         };
+        const auto emit_packed_affine_indexed_pair =
+            [&](std::size_t start) -> std::optional<std::size_t> {
+                using vkf::machine_ir::Opcode;
+                if (!policy_.packed_dot_reductions ||
+                    start + 19u >= function.instructions.size()) {
+                    return std::nullopt;
+                }
+                const auto lane_matches = [&](std::size_t position) {
+                    const auto& store_index = function.instructions[position];
+                    const auto& load_index = function.instructions[position + 1u];
+                    const auto& current = function.instructions[position + 2u];
+                    const auto& component = function.instructions[position + 3u];
+                    const auto& scale_a = function.instructions[position + 4u];
+                    const auto multiply_a = function.instructions[position + 5u].opcode;
+                    const auto& scale_b = function.instructions[position + 6u];
+                    const auto multiply_b = function.instructions[position + 7u].opcode;
+                    const auto arithmetic = function.instructions[position + 8u].opcode;
+                    const auto& store = function.instructions[position + 9u];
+                    return store_index.opcode == Opcode::LoadLocal &&
+                        load_index.opcode == Opcode::LoadLocal &&
+                        load_index.index == store_index.index &&
+                        local_is_i64(store_index.index) &&
+                        current.opcode == Opcode::LoadF64LocalsIndex &&
+                        current.index_is_integral && !current.may_error &&
+                        current.index_local &&
+                        *current.index_local == store_index.index &&
+                        component.opcode == Opcode::LoadLocal &&
+                        scale_a.opcode == Opcode::LoadLocal &&
+                        multiply_a == Opcode::MultiplyF64 &&
+                        scale_b.opcode == Opcode::LoadLocal &&
+                        multiply_b == Opcode::MultiplyF64 &&
+                        (arithmetic == Opcode::AddF64 ||
+                         arithmetic == Opcode::SubtractF64) &&
+                        store.opcode == Opcode::StoreF64LocalsIndex &&
+                        store.index_is_integral && !store.may_error &&
+                        store.index_local &&
+                        *store.index_local == store_index.index;
+                };
+                if (!lane_matches(start) || !lane_matches(start + 10u)) {
+                    return std::nullopt;
+                }
+                const auto& first_index = function.instructions[start];
+                const auto& second_index = function.instructions[start + 10u];
+                const auto& first_current = function.instructions[start + 2u];
+                const auto& second_current = function.instructions[start + 12u];
+                const auto& first_component = function.instructions[start + 3u];
+                const auto& second_component = function.instructions[start + 13u];
+                const auto& first_scale_a = function.instructions[start + 4u];
+                const auto& second_scale_a = function.instructions[start + 14u];
+                const auto& first_scale_b = function.instructions[start + 6u];
+                const auto& second_scale_b = function.instructions[start + 16u];
+                const auto first_arithmetic = function.instructions[start + 8u].opcode;
+                const auto second_arithmetic = function.instructions[start + 18u].opcode;
+                const auto& first_store = function.instructions[start + 9u];
+                const auto& second_store = function.instructions[start + 19u];
+                if (second_index.index != first_index.index ||
+                    second_current.index != first_current.index + 1u ||
+                    second_current.argument_count + 1u != first_current.argument_count ||
+                    second_component.index != first_component.index + 1u ||
+                    second_scale_a.index != first_scale_a.index ||
+                    second_scale_b.index != first_scale_b.index ||
+                    second_arithmetic != first_arithmetic ||
+                    second_store.index != first_store.index + 1u ||
+                    second_store.argument_count + 1u != first_store.argument_count) {
+                    return std::nullopt;
+                }
+                expression_index_cache = {};
+                load_i64_to_rcx(first_index.index);
+                code_.raw({0x48, 0xf7, 0xd9});
+                emit_fixed_base_address(
+                    first_current.index, first_current.argument_count);
+                code_.raw({0xf2, 0x0f, 0x10, 0x04, 0xc8});
+                emit_fixed_base_address(
+                    second_current.index, second_current.argument_count);
+                code_.raw({0xf2, 0x0f, 0x10, 0x0c, 0xc8,
+                           0x66, 0x0f, 0x14, 0xc1});
+                load_local(first_component.index, 1u);
+                load_local(second_component.index, 2u);
+                code_.raw({0x66, 0x0f, 0x14, 0xca});
+                load_local(first_scale_a.index, 2u);
+                code_.raw({0x66, 0x0f, 0x14, 0xd2,
+                           0x66, 0x0f, 0x59, 0xca});
+                load_local(first_scale_b.index, 2u);
+                code_.raw({0x66, 0x0f, 0x14, 0xd2,
+                           0x66, 0x0f, 0x59, 0xca,
+                           0x66, 0x0f,
+                           first_arithmetic == Opcode::AddF64 ? 0x58u : 0x5cu,
+                           0xc1});
+                emit_fixed_base_address(
+                    first_store.index, first_store.argument_count);
+                code_.raw({0xf2, 0x0f, 0x11, 0x04, 0xc8});
+                emit_fixed_base_address(
+                    second_store.index, second_store.argument_count);
+                code_.raw({0x66, 0x0f, 0x17, 0x04, 0xc8});
+                expression_index_cache = {};
+                return start + 19u;
+            };
         for (std::size_t instruction_index = 0;
              instruction_index < function.instructions.size(); ++instruction_index) {
             const auto& instruction = function.instructions[instruction_index];
             using vkf::machine_ir::Opcode;
             const auto opcode = instruction.opcode;
+            if (stack_depth == 0 && opcode == Opcode::LoadLocal &&
+                instruction_index + 2 < function.instructions.size()) {
+                const auto& validation = function.instructions[instruction_index + 1];
+                const auto& discard = function.instructions[instruction_index + 2];
+                if (validation.opcode == Opcode::LoadF64LocalsIndex &&
+                    validation.index_local && *validation.index_local == instruction.index &&
+                    index_lower_bound_proven[instruction_index + 1] &&
+                    index_upper_bound_proven[instruction_index + 1] &&
+                    discard.opcode == Opcode::Drop) {
+                    instruction_index += 2;
+                    continue;
+                }
+            }
+            if (stack_depth == 0) {
+                const auto packed_affine =
+                    emit_packed_affine_indexed_pair(instruction_index);
+                if (packed_affine) {
+                    instruction_index = *packed_affine;
+                    continue;
+                }
+            }
             if (opcode == Opcode::Label) {
                 expression_index_cache = {};
                 const auto packed_matrix = policy_.packed_matrix_reductions &&
@@ -5283,6 +5759,7 @@ private:
                     if (stack_depth != 0) {
                         throw BackendFailure("packed matrix reduction requires empty x64 machine stack");
                     }
+                    align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate x64 machine IR label");
                     }
@@ -5298,6 +5775,7 @@ private:
                     if (stack_depth != 0) {
                         throw BackendFailure("packed dot reduction requires empty x64 machine stack");
                     }
+                    align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate x64 machine IR label");
                     }
@@ -5312,6 +5790,7 @@ private:
                     if (stack_depth != 0) {
                         throw BackendFailure("dense numeric map loop requires empty x64 machine stack");
                     }
+                    align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate x64 machine IR label");
                     }
@@ -5326,6 +5805,7 @@ private:
                     if (stack_depth != 0) {
                         throw BackendFailure("dense affine map loop requires empty x64 machine stack");
                     }
+                    align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate x64 machine IR label");
                     }
@@ -5338,6 +5818,7 @@ private:
                     if (stack_depth != 0) {
                         throw BackendFailure("scalar recurrence loop requires empty x64 machine stack");
                     }
+                    align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate x64 machine IR label");
                     }
@@ -5352,6 +5833,7 @@ private:
                     if (stack_depth != 0) {
                         throw BackendFailure("AVX affine loop requires empty x64 machine stack");
                     }
+                    align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate x64 machine IR label");
                     }
@@ -5360,7 +5842,33 @@ private:
                     continue;
                 }
             }
-            if (stack_depth == 0) {
+            {
+                if (stack_depth == 0 &&
+                    instruction.opcode == Opcode::LoadLocal &&
+                    instruction_index + 1 < function.instructions.size() &&
+                    function.instructions[instruction_index + 1].opcode == Opcode::Drop) {
+                    ++instruction_index;
+                    continue;
+                }
+                if (instruction_index + 1 < function.instructions.size()) {
+                    const auto& value = function.instructions[instruction_index];
+                    const auto& store = function.instructions[instruction_index + 1];
+                    if (value.opcode == Opcode::PushF64 &&
+                        value.f64 == std::floor(value.f64) &&
+                        value.f64 >= static_cast<double>(
+                            std::numeric_limits<std::int32_t>::min()) &&
+                        value.f64 <= static_cast<double>(
+                            std::numeric_limits<std::int32_t>::max()) &&
+                        store.opcode == Opcode::StoreLocal &&
+                        local_is_i64(store.index)) {
+                        code_.raw({0x48, 0xb8});
+                        code_.u64(static_cast<std::uint64_t>(
+                            static_cast<std::int64_t>(value.f64)));
+                        store_rax_to_i64(store.index);
+                        ++instruction_index;
+                        continue;
+                    }
+                }
                 if (instruction_index + 3 < function.instructions.size()) {
                     const auto& left = function.instructions[instruction_index];
                     const auto& right = function.instructions[instruction_index + 1];
@@ -5424,11 +5932,13 @@ private:
                         continue;
                     }
                 }
-                const auto expression = expression_plan_at(instruction_index);
-                if (expression) {
-                    emit_expression_plan(*expression);
-                    instruction_index = expression->store_position;
-                    continue;
+                if (stack_depth == 0) {
+                    const auto expression = expression_plan_at(instruction_index);
+                    if (expression) {
+                        emit_expression_plan(*expression);
+                        instruction_index = expression->store_position;
+                        continue;
+                    }
                 }
             }
             expression_index_cache = {};
@@ -6769,17 +7279,20 @@ private:
                     code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
                 }
                 std::vector<std::size_t> invalid;
-                if (!instruction.index_is_integral && !native_index_local) {
+                if (instruction.may_error &&
+                    !instruction.index_is_integral && !native_index_local) {
                     code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc9,
                                0x66, 0x0f, 0x2e, 0xc8});
                     invalid.push_back(emit_jump(0x85));
                     invalid.push_back(emit_jump(0x8a));
                 }
-                if (!index_lower_bound_proven[instruction_index]) {
+                if (instruction.may_error &&
+                    !index_lower_bound_proven[instruction_index]) {
                     code_.raw({0x48, 0x85, 0xc9});
                     invalid.push_back(emit_jump(0x88));
                 }
-                if (!index_upper_bound_proven[instruction_index]) {
+                if (instruction.may_error &&
+                    !index_upper_bound_proven[instruction_index]) {
                     code_.raw({0x48, 0x81, 0xf9});
                     code_.i32(static_cast<std::int32_t>(instruction.argument_count));
                     invalid.push_back(emit_jump(0x83));
@@ -6794,29 +7307,31 @@ private:
                     code_.raw({0xf2, 0x0f, 0x10, 0x04, 0xc8});
                 }
                 store_xmm(0, frame.displacement(frame.temp_base + first));
-                code_.byte(0xe9);
-                const auto done = code_.rel32_placeholder();
-                const auto abort = code_.position();
-                for (const auto patch : invalid) code_.patch_rel32(patch, abort);
-                if (instruction.has_error_handler) {
-                    emit_error_message_registers(
-                        instruction.error_message_offset, instruction.byte_count);
-                    store_error_message_local(frame, instruction.error_value_local);
-                    store_error_type_constant(
-                        frame, instruction.error_type_local, vkf::machine_ir::index_error_mask);
+                if (!invalid.empty()) {
                     code_.byte(0xe9);
-                    branches.push_back({code_.rel32_placeholder(), instruction.label});
-                } else if (entry) {
-                    emit_abort();
-                } else {
-                    emit_error_cleanup(function, frame);
-                    emit_error_message_registers(
-                        instruction.error_message_offset, instruction.byte_count);
-                    code_.raw({0x41, 0xb9});
-                    code_.i32(vkf::machine_ir::index_error_mask);
-                    epilogue();
+                    const auto done = code_.rel32_placeholder();
+                    const auto abort = code_.position();
+                    for (const auto patch : invalid) code_.patch_rel32(patch, abort);
+                    if (instruction.has_error_handler) {
+                        emit_error_message_registers(
+                            instruction.error_message_offset, instruction.byte_count);
+                        store_error_message_local(frame, instruction.error_value_local);
+                        store_error_type_constant(
+                            frame, instruction.error_type_local, vkf::machine_ir::index_error_mask);
+                        code_.byte(0xe9);
+                        branches.push_back({code_.rel32_placeholder(), instruction.label});
+                    } else if (entry) {
+                        emit_abort();
+                    } else {
+                        emit_error_cleanup(function, frame);
+                        emit_error_message_registers(
+                            instruction.error_message_offset, instruction.byte_count);
+                        code_.raw({0x41, 0xb9});
+                        code_.i32(vkf::machine_ir::index_error_mask);
+                        epilogue();
+                    }
+                    code_.patch_rel32(done, code_.position());
                 }
-                code_.patch_rel32(done, code_.position());
             } else if (opcode == Opcode::StoreF64LocalsIndex) {
                 require_stack(stack_depth, 2);
                 if (instruction.index > frame.local_count ||
@@ -6834,17 +7349,20 @@ private:
                     code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
                 }
                 std::vector<std::size_t> invalid;
-                if (!instruction.index_is_integral && !native_index_local) {
+                if (instruction.may_error &&
+                    !instruction.index_is_integral && !native_index_local) {
                     code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc9,
                                0x66, 0x0f, 0x2e, 0xc8});
                     invalid.push_back(emit_jump(0x85));
                     invalid.push_back(emit_jump(0x8a));
                 }
-                if (!index_lower_bound_proven[instruction_index]) {
+                if (instruction.may_error &&
+                    !index_lower_bound_proven[instruction_index]) {
                     code_.raw({0x48, 0x85, 0xc9});
                     invalid.push_back(emit_jump(0x88));
                 }
-                if (!index_upper_bound_proven[instruction_index]) {
+                if (instruction.may_error &&
+                    !index_upper_bound_proven[instruction_index]) {
                     code_.raw({0x48, 0x81, 0xf9});
                     code_.i32(static_cast<std::int32_t>(instruction.argument_count));
                     invalid.push_back(emit_jump(0x83));
@@ -6859,29 +7377,31 @@ private:
                 } else {
                     code_.raw({0xf2, 0x0f, 0x11, 0x04, 0xc8});
                 }
-                code_.byte(0xe9);
-                const auto done = code_.rel32_placeholder();
-                const auto abort = code_.position();
-                for (const auto patch : invalid) code_.patch_rel32(patch, abort);
-                if (instruction.has_error_handler) {
-                    emit_error_message_registers(
-                        instruction.error_message_offset, instruction.byte_count);
-                    store_error_message_local(frame, instruction.error_value_local);
-                    store_error_type_constant(
-                        frame, instruction.error_type_local, vkf::machine_ir::index_error_mask);
+                if (!invalid.empty()) {
                     code_.byte(0xe9);
-                    branches.push_back({code_.rel32_placeholder(), instruction.label});
-                } else if (entry) {
-                    emit_abort();
-                } else {
-                    emit_error_cleanup(function, frame);
-                    emit_error_message_registers(
-                        instruction.error_message_offset, instruction.byte_count);
-                    code_.raw({0x41, 0xb9});
-                    code_.i32(vkf::machine_ir::index_error_mask);
-                    epilogue();
+                    const auto done = code_.rel32_placeholder();
+                    const auto abort = code_.position();
+                    for (const auto patch : invalid) code_.patch_rel32(patch, abort);
+                    if (instruction.has_error_handler) {
+                        emit_error_message_registers(
+                            instruction.error_message_offset, instruction.byte_count);
+                        store_error_message_local(frame, instruction.error_value_local);
+                        store_error_type_constant(
+                            frame, instruction.error_type_local, vkf::machine_ir::index_error_mask);
+                        code_.byte(0xe9);
+                        branches.push_back({code_.rel32_placeholder(), instruction.label});
+                    } else if (entry) {
+                        emit_abort();
+                    } else {
+                        emit_error_cleanup(function, frame);
+                        emit_error_message_registers(
+                            instruction.error_message_offset, instruction.byte_count);
+                        code_.raw({0x41, 0xb9});
+                        code_.i32(vkf::machine_ir::index_error_mask);
+                        epilogue();
+                    }
+                    code_.patch_rel32(done, code_.position());
                 }
-                code_.patch_rel32(done, code_.position());
                 stack_depth = first;
             } else if (opcode == Opcode::LoadF64ListIndex) {
                 require_stack(stack_depth, 2);
@@ -7259,6 +7779,7 @@ private:
                     ++instruction_index;
                 }
             } else if (opcode == Opcode::Label) {
+                align_loop_header(instruction.label);
                 if (!labels.emplace(instruction.label, code_.position()).second) {
                     throw BackendFailure("duplicate x64 machine IR label");
                 }

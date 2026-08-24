@@ -1,9 +1,7 @@
 loop_total() -> int:
-    i: 0
     total: 0
-    i < 5?>
-        .total: total + i
-        .i: i + 1
+    ..4 >>
+        .total+: $
     total
 
 switch_loop() -> int:

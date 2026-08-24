@@ -1,0 +1,6 @@
+# expect-compile-error: vector member i is not an index; use .(i) to evaluate it
+
+read_at(values:[num:3], i:int) -> num:
+    values.i
+
+:: read_at([10, 20, 30], 1)
