@@ -8410,7 +8410,11 @@ TuningResult tune_machine_code(
         }
     }
     for (const auto mask : policy_order) {
-        if (landscape_runs == 0 && Clock::now() >= deadline && !candidates.empty()) break;
+        // Auto selection always compares the fully enabled policy with the
+        // scalar-safe reference.  The deadline may prune only the additional
+        // policy landscape; otherwise a large reference kernel can consume
+        // the budget before the primary optimized candidate is even checked.
+        if (landscape_runs == 0 && Clock::now() >= deadline && candidates.size() >= 2u) break;
         auto selected = vkf::adaptive_optimizer::policy_from_mask(mask);
         auto code = MachineX64Emitter(module, selected).emit();
         std::size_t representative = candidates.size();
@@ -8442,6 +8446,7 @@ TuningResult tune_machine_code(
         ? std::size_t{0}
         : static_cast<std::size_t>(reference_found - candidates.begin());
     const auto reference_index = candidates[requested_reference].representative;
+    const auto primary_index = candidates.front().representative;
     Candidate& reference = candidates[reference_index];
     double expected = 0.0;
     try {
@@ -8466,7 +8471,7 @@ TuningResult tune_machine_code(
     for (std::size_t index = 0; index < candidates.size(); ++index) {
         auto& candidate = candidates[index];
         if (index != candidate.representative || &candidate == &reference) continue;
-        if (landscape_runs == 0 &&
+        if (landscape_runs == 0 && index != primary_index &&
             (result.total_runs >= run_budget || Clock::now() >= deadline)) break;
         try {
             const auto run_started = Clock::now();
@@ -8545,6 +8550,9 @@ TuningResult tune_machine_code(
             target_samples = std::min<std::uint32_t>(
                 run_budget, std::max<std::uint32_t>(target_samples + 1u, target_samples * 2u));
         }
+        std::stable_sort(active.begin(), active.end(), [&](std::size_t left, std::size_t right) {
+            return median(candidates[left].samples_ns) < median(candidates[right].samples_ns);
+        });
     }
 
     std::size_t winner = reference_index;
