@@ -414,6 +414,7 @@ export function vkfCompileArguments(source) {
   return [
     '--aot',
     '--optimizer-policy', 'tune',
+    '--optimizer-time-limit-ms', '80',
     '--source', source
   ];
 }

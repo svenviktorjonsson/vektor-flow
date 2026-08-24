@@ -29,6 +29,7 @@ test('measured VKF compilation forces a fresh optimizer search', () => {
   assert.deepEqual(vkfCompileArguments('/tmp/program.vkf'), [
     '--aot',
     '--optimizer-policy', 'tune',
+    '--optimizer-time-limit-ms', '80',
     '--source', '/tmp/program.vkf'
   ]);
 });

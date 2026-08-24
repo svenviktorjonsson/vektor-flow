@@ -3542,11 +3542,28 @@ private:
                 loop_header_labels.insert(instruction.label);
             }
         }
+        std::vector<bool> indexed_storage(function.locals.size(), false);
+        for (const auto& instruction : function.instructions) {
+            if (instruction.opcode != Opcode::LoadF64LocalsIndex &&
+                instruction.opcode != Opcode::StoreF64LocalsIndex) {
+                continue;
+            }
+            if (instruction.index > indexed_storage.size() ||
+                instruction.argument_count >
+                    indexed_storage.size() - instruction.index) {
+                throw BackendFailure("invalid integer x64 indexed local range");
+            }
+            std::fill(
+                indexed_storage.begin() + instruction.index,
+                indexed_storage.begin() +
+                    instruction.index + instruction.argument_count,
+                true);
+        }
         std::vector<std::pair<unsigned, unsigned>> frequency;
         for (unsigned local = 0; local < function.locals.size(); ++local) {
             if (local < function.parameters.size() ||
                 function.local_classes[local] != vkf::machine_ir::ValueClass::I64 ||
-                function.locals[local].find('.') != std::string::npos) continue;
+                indexed_storage[local]) continue;
             unsigned score = 0;
             for (std::size_t position = 0; position < function.instructions.size(); ++position) {
                 const auto& instruction = function.instructions[position];
@@ -4907,6 +4924,25 @@ private:
                 move_xmm(static_cast<unsigned>(destination), source);
             }
         };
+        const auto store_high_local = [&](unsigned local, unsigned source) {
+            if (local >= frame.local_count || source > 7 || local_is_i64(local)) {
+                throw BackendFailure("invalid cached x64 high-lane local store");
+            }
+            const int destination = local_register[local];
+            if (destination < 0) {
+                code_.raw({0x66, 0x0f, 0x17,
+                           static_cast<unsigned>(0x85u + source * 8u)});
+                code_.i32(frame.displacement(local));
+                return;
+            }
+            move_xmm(static_cast<unsigned>(destination), source);
+            code_.byte(0x66);
+            if (destination >= 8) code_.byte(0x45);
+            code_.raw({0x0f, 0xc6,
+                       static_cast<unsigned>(
+                           0xc0u + (destination & 7) * 9u),
+                       0x01});
+        };
         const auto load_i64_to_rax = [&](unsigned local) {
             const int cached = integer_register.at(local);
             if (cached < 0) {
@@ -5338,6 +5374,42 @@ private:
             }
             return static_cast<std::uint32_t>(value.f64);
         };
+        const auto static_integral_local_before = [&](std::size_t position,
+                                                       std::uint32_t local)
+            -> std::optional<std::uint32_t> {
+            using vkf::machine_ir::Opcode;
+            for (std::size_t cursor = position; cursor > 0u; --cursor) {
+                const auto& candidate = function.instructions[cursor - 1u];
+                if (candidate.opcode == Opcode::Label ||
+                    candidate.opcode == Opcode::Jump ||
+                    candidate.opcode == Opcode::JumpIfFalse ||
+                    candidate.opcode == Opcode::JumpIfTrue ||
+                    candidate.opcode == Opcode::ReturnF64 ||
+                    candidate.opcode == Opcode::ReturnValues) {
+                    return std::nullopt;
+                }
+                if (candidate.opcode == Opcode::StoreF64LocalsIndex &&
+                    local >= candidate.index &&
+                    local - candidate.index < candidate.argument_count) {
+                    return std::nullopt;
+                }
+                if (candidate.opcode != Opcode::StoreLocal ||
+                    candidate.index != local) {
+                    continue;
+                }
+                if (cursor < 2u) return std::nullopt;
+                const auto& value = function.instructions[cursor - 2u];
+                if (value.opcode != Opcode::PushF64 ||
+                    !std::isfinite(value.f64) || value.f64 < 0.0 ||
+                    value.f64 != std::floor(value.f64) ||
+                    value.f64 > static_cast<double>(
+                        std::numeric_limits<std::uint32_t>::max())) {
+                    return std::nullopt;
+                }
+                return static_cast<std::uint32_t>(value.f64);
+            }
+            return std::nullopt;
+        };
         struct FusedOperand {
             enum class Kind { Local, Constant, ProvenFixedIndex, StaticFixedIndex } kind = Kind::Local;
             const vkf::machine_ir::Instruction* value = nullptr;
@@ -5766,7 +5838,9 @@ private:
                 const auto difference_lane = [&](std::size_t position,
                                                  std::uint32_t base) {
                     return at[position].opcode == Opcode::LoadLocal &&
-                        local_is_i64(at[position].index) &&
+                        (local_is_i64(at[position].index) ||
+                         static_integral_local_before(
+                             position, at[position].index).has_value()) &&
                         at[position + 1u].opcode == Opcode::LoadF64LocalsIndex &&
                         at[position + 1u].index == base &&
                         at[position + 1u].index_is_integral &&
@@ -5774,7 +5848,10 @@ private:
                         at[position + 1u].index_local &&
                         *at[position + 1u].index_local == at[position].index &&
                         at[position + 2u].opcode == Opcode::LoadLocal &&
-                        local_is_i64(at[position + 2u].index) &&
+                        (local_is_i64(at[position + 2u].index) ||
+                         static_integral_local_before(
+                             position + 2u,
+                             at[position + 2u].index).has_value()) &&
                         at[position + 3u].opcode == Opcode::LoadF64LocalsIndex &&
                         at[position + 3u].index == base &&
                         at[position + 3u].argument_count ==
@@ -5788,6 +5865,10 @@ private:
                 };
                 const auto first_index = at[start].index;
                 const auto second_index = at[start + 2u].index;
+                const auto static_first = static_integral_local_before(
+                    start, first_index);
+                const auto static_second = static_integral_local_before(
+                    start, second_index);
                 const auto position_x = at[start + 1u].index;
                 const auto displacement_x = at[start + 5u].index;
                 const auto displacement_y = at[start + 11u].index;
@@ -5840,7 +5921,10 @@ private:
                         at[position + 1u].index_is_integral &&
                         !at[position + 1u].may_error &&
                         at[position + 1u].index_local &&
-                        local_is_i64(*at[position + 1u].index_local) &&
+                        (local_is_i64(*at[position + 1u].index_local) ||
+                         static_integral_local_before(
+                             position + 1u,
+                             *at[position + 1u].index_local).has_value()) &&
                         at[position + 2u].opcode == Opcode::StoreLocal &&
                         at[position + 3u].opcode == Opcode::LoadLocal &&
                         at[position + 3u].index == at[position + 2u].index &&
@@ -5851,7 +5935,9 @@ private:
                     return at[position].opcode == Opcode::LoadLocal &&
                         at[position + 1u].opcode == Opcode::LoadLocal &&
                         at[position + 1u].index == at[position].index &&
-                        local_is_i64(at[position].index) &&
+                        (local_is_i64(at[position].index) ||
+                         static_integral_local_before(
+                             position, at[position].index).has_value()) &&
                         at[position + 2u].opcode == Opcode::LoadF64LocalsIndex &&
                         at[position + 2u].index_is_integral &&
                         !at[position + 2u].may_error &&
@@ -5918,23 +6004,44 @@ private:
                 }
 
                 expression_index_cache = {};
-                load_i64_to_rcx(first_index);
-                load_i64_to_rdx(second_index);
-                code_.raw({0x48, 0xf7, 0xd9, 0x48, 0xf7, 0xda});
-                emit_fixed_indexed_f64_load(
-                    position_x, at[start + 1u].argument_count, 0u, 0xc8u);
-                emit_fixed_indexed_f64_load(
-                    position_x, at[start + 3u].argument_count, 3u, 0xd0u);
+                if (!static_first) {
+                    load_i64_to_rcx(first_index);
+                    code_.raw({0x48, 0xf7, 0xd9});
+                }
+                if (!static_second) {
+                    load_i64_to_rdx(second_index);
+                    code_.raw({0x48, 0xf7, 0xda});
+                }
+                const auto emit_pair_load = [&](std::uint32_t base,
+                                                std::uint32_t width,
+                                                unsigned destination,
+                                                bool first) {
+                    const auto index = first ? static_first : static_second;
+                    if (index) {
+                        if (*index >= width) {
+                            throw BackendFailure(
+                                "invalid static vector3 pair index");
+                        }
+                        load_local(base + *index, destination);
+                    } else {
+                        emit_fixed_indexed_f64_load(
+                            base, width, destination, first ? 0xc8u : 0xd0u);
+                    }
+                };
+                emit_pair_load(
+                    position_x, at[start + 1u].argument_count, 0u, true);
+                emit_pair_load(
+                    position_x, at[start + 3u].argument_count, 3u, false);
                 code_.raw({0xf2, 0x0f, 0x5c, 0xc3});
-                emit_fixed_indexed_f64_load(
-                    position_x + 1u, at[start + 7u].argument_count, 1u, 0xc8u);
-                emit_fixed_indexed_f64_load(
-                    position_x + 1u, at[start + 9u].argument_count, 3u, 0xd0u);
+                emit_pair_load(
+                    position_x + 1u, at[start + 7u].argument_count, 1u, true);
+                emit_pair_load(
+                    position_x + 1u, at[start + 9u].argument_count, 3u, false);
                 code_.raw({0xf2, 0x0f, 0x5c, 0xcb});
-                emit_fixed_indexed_f64_load(
-                    position_x + 2u, at[start + 13u].argument_count, 2u, 0xc8u);
-                emit_fixed_indexed_f64_load(
-                    position_x + 2u, at[start + 15u].argument_count, 3u, 0xd0u);
+                emit_pair_load(
+                    position_x + 2u, at[start + 13u].argument_count, 2u, true);
+                emit_pair_load(
+                    position_x + 2u, at[start + 15u].argument_count, 3u, false);
                 code_.raw({0xf2, 0x0f, 0x5c, 0xd3,
                            0x66, 0x0f, 0x28, 0xd8,
                            0xf2, 0x0f, 0x59, 0xd8});
@@ -5958,21 +6065,44 @@ private:
 
                 const auto emit_update =
                     [&](std::size_t mass_position, std::size_t affine_position,
-                        std::uint32_t vector_index, bool add) {
+                        std::uint32_t vector_index,
+                        std::optional<std::uint32_t> static_vector_index,
+                        bool add) {
                         const auto& indexed_mass = at[mass_position + 1u];
-                        load_i64_to_rcx(*indexed_mass.index_local);
-                        code_.raw({0x48, 0xf7, 0xd9});
-                        emit_fixed_indexed_f64_load(
-                            indexed_mass.index, indexed_mass.argument_count,
-                            6u, 0xc8u);
-                        load_i64_to_rcx(vector_index);
-                        code_.raw({0x48, 0xf7, 0xd9});
-                        emit_fixed_indexed_f64_load(
-                            at[affine_position + 2u].index,
-                            at[affine_position + 2u].argument_count, 3u, 0xc8u);
-                        emit_fixed_indexed_f64_load(
-                            at[affine_position + 12u].index,
-                            at[affine_position + 12u].argument_count, 5u, 0xc8u);
+                        const auto static_mass = static_fixed_index(
+                            at[mass_position], indexed_mass);
+                        if (static_mass) {
+                            load_local(indexed_mass.index + *static_mass, 6u);
+                        } else {
+                            load_i64_to_rcx(*indexed_mass.index_local);
+                            code_.raw({0x48, 0xf7, 0xd9});
+                            emit_fixed_indexed_f64_load(
+                                indexed_mass.index, indexed_mass.argument_count,
+                                6u, 0xc8u);
+                        }
+                        if (!static_vector_index) {
+                            load_i64_to_rcx(vector_index);
+                            code_.raw({0x48, 0xf7, 0xd9});
+                        }
+                        const auto emit_vector_load = [&](std::size_t position,
+                                                          unsigned destination) {
+                            const auto& indexed = at[position];
+                            if (static_vector_index) {
+                                if (*static_vector_index >= indexed.argument_count) {
+                                    throw BackendFailure(
+                                        "invalid static vector3 update index");
+                                }
+                                load_local(
+                                    indexed.index + *static_vector_index,
+                                    destination);
+                            } else {
+                                emit_fixed_indexed_f64_load(
+                                    indexed.index, indexed.argument_count,
+                                    destination, 0xc8u);
+                            }
+                        };
+                        emit_vector_load(affine_position + 2u, 3u);
+                        emit_vector_load(affine_position + 12u, 5u);
                         code_.raw({0x66, 0x0f, 0x14, 0xdd,
                                    0x66, 0x0f, 0x28, 0xe8,
                                    0x66, 0x0f, 0x14, 0xe9,
@@ -5990,17 +6120,33 @@ private:
                                        0x66, 0x0f,
                                        add ? 0x58u : 0x5cu, 0xdd});
                         }
-                        emit_fixed_indexed_f64_store(
-                            at[affine_position + 2u].index,
-                            at[affine_position + 2u].argument_count,
-                            3u, 0xc8u, false);
-                        emit_fixed_indexed_f64_store(
-                            at[affine_position + 12u].index,
-                            at[affine_position + 12u].argument_count,
-                            3u, 0xc8u, true);
-                        emit_fixed_indexed_f64_load(
-                            at[affine_position + 22u].index,
-                            at[affine_position + 22u].argument_count, 3u, 0xc8u);
+                        const auto emit_vector_store = [&](std::size_t position,
+                                                           unsigned source,
+                                                           bool high = false) {
+                            const auto& indexed = at[position];
+                            if (static_vector_index) {
+                                if (*static_vector_index >= indexed.argument_count) {
+                                    throw BackendFailure(
+                                        "invalid static vector3 update index");
+                                }
+                                if (high) {
+                                    store_high_local(
+                                        indexed.index + *static_vector_index,
+                                        source);
+                                } else {
+                                    store_local(
+                                        indexed.index + *static_vector_index,
+                                        source);
+                                }
+                            } else {
+                                emit_fixed_indexed_f64_store(
+                                    indexed.index, indexed.argument_count,
+                                    source, 0xc8u, high);
+                            }
+                        };
+                        emit_vector_store(affine_position + 2u, 3u);
+                        emit_vector_store(affine_position + 12u, 3u, true);
+                        emit_vector_load(affine_position + 22u, 3u);
                         code_.raw({0x66, 0x0f, 0x28, 0xfa,
                                    0xf2, 0x0f, 0x59, 0xfe});
                         if (policy_.fused_multiply_add &&
@@ -6012,13 +6158,12 @@ private:
                                        0xf2, 0x0f,
                                        add ? 0x58u : 0x5cu, 0xdf});
                         }
-                        emit_fixed_indexed_f64_store(
-                            at[affine_position + 22u].index,
-                            at[affine_position + 22u].argument_count,
-                            3u, 0xc8u, false);
+                        emit_vector_store(affine_position + 22u, 3u);
                     };
-                emit_update(start + 40u, start + 45u, first_index, false);
-                emit_update(start + 78u, start + 83u, second_index, true);
+                emit_update(
+                    start + 40u, start + 45u, first_index, static_first, false);
+                emit_update(
+                    start + 78u, start + 83u, second_index, static_second, true);
                 expression_index_cache = {};
                 return start + 112u;
             };
@@ -6032,7 +6177,9 @@ private:
                 const auto& at = function.instructions;
                 const auto lane_matches = [&](std::size_t position) {
                     return at[position].opcode == Opcode::LoadLocal &&
-                        local_is_i64(at[position].index) &&
+                        (local_is_i64(at[position].index) ||
+                         static_integral_local_before(
+                             position, at[position].index).has_value()) &&
                         at[position + 1u].opcode == Opcode::LoadLocal &&
                         at[position + 1u].index == at[position].index &&
                         at[position + 2u].opcode == Opcode::LoadF64LocalsIndex &&
@@ -6081,19 +6228,52 @@ private:
                 }
 
                 expression_index_cache = {};
-                load_i64_to_rcx(at[start].index);
-                code_.raw({0x48, 0xf7, 0xd9});
-                emit_fixed_indexed_f64_load(
-                    first_current.index, first_current.argument_count, 0u, 0xc8u);
-                emit_fixed_indexed_f64_load(
-                    at[start + 11u].index, at[start + 11u].argument_count,
-                    1u, 0xc8u);
+                const auto static_index = static_integral_local_before(
+                    start, at[start].index);
+                if (!static_index) {
+                    load_i64_to_rcx(at[start].index);
+                    code_.raw({0x48, 0xf7, 0xd9});
+                }
+                const auto emit_lane_load = [&](const auto& indexed,
+                                                unsigned destination) {
+                    if (static_index) {
+                        if (*static_index >= indexed.argument_count) {
+                            throw BackendFailure(
+                                "invalid static scaled vector3 index");
+                        }
+                        load_local(indexed.index + *static_index, destination);
+                    } else {
+                        emit_fixed_indexed_f64_load(
+                            indexed.index, indexed.argument_count,
+                            destination, 0xc8u);
+                    }
+                };
+                const auto emit_lane_store = [&](const auto& indexed,
+                                                 unsigned source,
+                                                 bool high = false) {
+                    if (static_index) {
+                        if (*static_index >= indexed.argument_count) {
+                            throw BackendFailure(
+                                "invalid static scaled vector3 index");
+                        }
+                        if (high) {
+                            store_high_local(
+                                indexed.index + *static_index, source);
+                        } else {
+                            store_local(
+                                indexed.index + *static_index, source);
+                        }
+                    } else {
+                        emit_fixed_indexed_f64_store(
+                            indexed.index, indexed.argument_count,
+                            source, 0xc8u, high);
+                    }
+                };
+                emit_lane_load(first_current, 0u);
+                emit_lane_load(at[start + 11u], 1u);
                 code_.raw({0x66, 0x0f, 0x14, 0xc1});
-                emit_fixed_indexed_f64_load(
-                    first_component.index, first_component.argument_count, 1u, 0xc8u);
-                emit_fixed_indexed_f64_load(
-                    at[start + 13u].index, at[start + 13u].argument_count,
-                    2u, 0xc8u);
+                emit_lane_load(first_component, 1u);
+                emit_lane_load(at[start + 13u], 2u);
                 code_.raw({0x66, 0x0f, 0x14, 0xca});
                 emit_number(at[start + 5u].f64, 2u);
                 code_.raw({0x66, 0x0f, 0x14, 0xd2,
@@ -6102,12 +6282,8 @@ private:
                            arithmetic == Opcode::AddF64 ? 0x58u : 0x5cu,
                            0xc1});
 
-                emit_fixed_indexed_f64_load(
-                    at[start + 20u].index, at[start + 20u].argument_count,
-                    3u, 0xc8u);
-                emit_fixed_indexed_f64_load(
-                    at[start + 22u].index, at[start + 22u].argument_count,
-                    4u, 0xc8u);
+                emit_lane_load(at[start + 20u], 3u);
+                emit_lane_load(at[start + 22u], 4u);
                 emit_number(at[start + 5u].f64, 5u);
                 if (policy_.fused_multiply_add &&
                     vkf::target::host_x64_supports_fma()) {
@@ -6120,15 +6296,9 @@ private:
                                arithmetic == Opcode::AddF64 ? 0x58u : 0x5cu,
                                0xdc});
                 }
-                emit_fixed_indexed_f64_store(
-                    first_store.index, first_store.argument_count,
-                    0u, 0xc8u, false);
-                emit_fixed_indexed_f64_store(
-                    at[start + 17u].index, at[start + 17u].argument_count,
-                    0u, 0xc8u, true);
-                emit_fixed_indexed_f64_store(
-                    at[start + 26u].index, at[start + 26u].argument_count,
-                    3u, 0xc8u, false);
+                emit_lane_store(first_store, 0u);
+                emit_lane_store(at[start + 17u], 0u, true);
+                emit_lane_store(at[start + 26u], 3u);
                 expression_index_cache = {};
                 return start + 26u;
             };
@@ -8875,8 +9045,13 @@ TuningResult tune_machine_code(
     result.landscape_runs = landscape_runs;
     result.policy = vkf::adaptive_optimizer::policy("auto");
     result.eligible = can_tune_machine_code(module);
-    if (!result.eligible ||
-        (landscape_runs == 0 && (run_budget == 0 || !(time_budget_ms > 0.0)))) {
+    if (!result.eligible) {
+        result.code = MachineX64Emitter(module, result.policy).emit();
+        return result;
+    }
+    if (landscape_runs == 0 &&
+        (run_budget == 0 || !(time_budget_ms > 0.0))) {
+        result.policy = vkf::adaptive_optimizer::policy_from_mask(0u);
         result.code = MachineX64Emitter(module, result.policy).emit();
         return result;
     }
@@ -8894,10 +9069,37 @@ TuningResult tune_machine_code(
         bool tested = false;
     };
     std::vector<Candidate> candidates;
+    std::size_t small_vector_sqrt_count = 0u;
+    std::size_t small_vector_store_count = 0u;
+    const auto inspect_small_vector_kernel = [&](const auto& function) {
+        for (const auto& instruction : function.instructions) {
+            if (instruction.opcode == vkf::machine_ir::Opcode::SqrtF64) {
+                ++small_vector_sqrt_count;
+            }
+            if (instruction.opcode ==
+                    vkf::machine_ir::Opcode::StoreF64LocalsIndex &&
+                instruction.argument_count <= 32u) {
+                ++small_vector_store_count;
+            }
+        }
+    };
+    inspect_small_vector_kernel(module.entry);
+    for (const auto& function : module.functions) {
+        inspect_small_vector_kernel(function);
+    }
+    const bool interaction_heavy_small_vectors =
+        small_vector_sqrt_count >= 4u && small_vector_store_count >= 20u;
+    const std::uint32_t guided_primary = interaction_heavy_small_vectors
+        ? vkf::adaptive_optimizer::fused_multiply_add_bit |
+            vkf::adaptive_optimizer::packed_dot_reduction_bit
+        : vkf::adaptive_optimizer::policy_mask;
     std::vector<std::uint32_t> policy_order{
-        vkf::adaptive_optimizer::policy_mask,
+        guided_primary,
         0u,
     };
+    if (guided_primary != vkf::adaptive_optimizer::policy_mask) {
+        policy_order.push_back(vkf::adaptive_optimizer::policy_mask);
+    }
     for (std::uint32_t bit = 1;
          bit <= vkf::adaptive_optimizer::packed_dot_reduction_bit; bit <<= 1u) {
         policy_order.push_back(vkf::adaptive_optimizer::policy_mask ^ bit);
