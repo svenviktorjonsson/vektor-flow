@@ -253,12 +253,12 @@ Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner. Raw 
 
 | Kernel | Measurement | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Spectral norm | Raw runtime | 4.72 ± 0.13 ms | 0.295× | 0.280× | 0.284× |
-| Spectral norm | Compile | 321.50 ± 1.84 ms | 1.688× | 3.395× | 1.785× |
-| Fannkuch | Raw runtime | 24.13 ± 0.30 ms | 1.035× | 1.216× | 1.063× |
-| Fannkuch | Compile | 92.41 ± 0.53 ms | 1.036× | 1.024× | 0.543× |
-| N-body | Raw runtime | 4.49 ± 0.26 ms | 1.336× | 1.904× | 0.984× |
-| N-body | Compile | 122.86 ± 1.06 ms | 1.101× | 1.190× | 0.695× |
+| Spectral norm | Raw runtime | 4.7 ± 0.1 ms | 0.295× | 0.280× | 0.284× |
+| Spectral norm | Compile | 322 ± 2 ms | 1.688× | 3.395× | 1.785× |
+| Fannkuch | Raw runtime | 24.1 ± 0.3 ms | 1.035× | 1.216× | 1.063× |
+| Fannkuch | Compile | 92.4 ± 0.5 ms | 1.036× | 1.024× | 0.543× |
+| N-body | Raw runtime | 4.5 ± 0.3 ms | 1.336× | 1.904× | 0.984× |
+| N-body | Compile | 123 ± 1 ms | 1.101× | 1.190× | 0.695× |
 
 ### spectral norm by power method — large, scale 500
 
