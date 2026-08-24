@@ -878,13 +878,16 @@ function runLanguageCase(language, benchmarkCase, compiled, options) {
   return { samples, value: values[0] };
 }
 
-function assertCrossLanguageParity(caseId, tolerance, results) {
+export function assertCrossLanguageParity(caseId, tolerance, results) {
   if (results.length < 2) return;
-  const reference = results.find(({ language }) => language === 'python-efficient')?.value
-    ?? results[0].value;
+  const referenceResult = results.find(({ language }) => language === 'python-efficient')
+    ?? results[0];
   for (const result of results) {
-    if (!valuesAgree(reference, result.value, tolerance)) {
-      throw new Error(`${caseId} mismatch: python-efficient=${reference}, ${result.language}=${result.value}`);
+    if (!valuesAgree(referenceResult.value, result.value, tolerance)) {
+      throw new Error(
+        `${caseId} mismatch: ${referenceResult.language}=${referenceResult.value}, ` +
+        `${result.language}=${result.value}`
+      );
     }
   }
 }

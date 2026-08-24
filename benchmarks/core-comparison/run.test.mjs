@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assertCrossLanguageParity,
   assertVkfAcceptanceBudgets,
   assertVkfRelativeKernelGate,
   benchmarkWorkRoot,
@@ -13,6 +14,16 @@ import {
   vkfRuntimePreparationArguments,
   valuesAgree
 } from './run.mjs';
+
+test('parity failures name the actual reference language', () => {
+  assert.throws(
+    () => assertCrossLanguageParity('n-body-large', 1e-9, [
+      { language: 'vkf', value: 0.1819 },
+      { language: 'c', value: -0.1691 }
+    ]),
+    /n-body-large mismatch: vkf=0\.1819, c=-0\.1691/
+  );
+});
 
 test('measured VKF compilation forces a fresh optimizer search', () => {
   assert.deepEqual(vkfCompileArguments('/tmp/program.vkf'), [
