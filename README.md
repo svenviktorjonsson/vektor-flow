@@ -8,7 +8,7 @@ Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
 > [!WARNING]
-> VKF 0.2.0 is an unsupported experimental preview. It has bugs, incomplete
+> VKF 0.2.1 is an unsupported experimental preview. It has bugs, incomplete
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
@@ -74,9 +74,9 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Install VKF 0.2.0
+## Install VKF 0.2.1
 
-Download the [0.2.0 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.2.0).
+Download the [0.2.1 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.2.1).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -186,26 +186,30 @@ records the compact canonical forms used by public VKF programs.
 
 ## Performance Evidence—And Its Limits
 
-The 0.2.0 release gate compiles every documented program 10 times from fresh
+The 0.2.1 release gate compiles every documented program 10 times from fresh
 paths and executes it 10 times in fresh operating-system processes on Windows
 x64, Linux x64, and macOS ARM64. All 10 rounds must produce the same exit code
 and byte-identical stdout and stderr. This is an output-stability check, not a
 per-example timing claim.
 
-The comparative timings below were produced by the 0.2.0 compiler from its
+The comparative timings below were produced by the 0.2.1 compiler from its
 canonical compact benchmark sources. Every reported VKF compile forces a fresh
 policy search; search time is included in total compile time and separately
 recorded in the laboratory evidence.
 
 <!-- readme-platform-evidence:start -->
-| Verification | Windows x64 | Linux x64 | macOS ARM64 |
-| --- | ---: | ---: | ---: |
-| Fresh compiles per example | 10 | 10 | 10 |
-| Fresh-process runs per example | 10 | 10 | 10 |
-| Required result | Byte-identical output | Byte-identical output | Byte-identical output |
+| Detail | Windows x64 | Linux x64 | macOS ARM64 |
+| --- | --- | --- | --- |
+| Measured UTC | `2026-08-24T09:45:16.682Z` | `2026-08-24T09:43:32.508Z` | `2026-08-24T09:42:31.668Z` |
+| OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
+| Architecture | `x64` | `x64` | `arm64` |
+| CPU | AMD EPYC 7763 64-Core Processor | AMD EPYC 9V74 80-Core Processor | Apple M1 (Virtual) |
+| Logical CPUs | 4 | 4 | 3 |
+| Compiler size | 4,301,312 bytes | 5,453,256 bytes | 2,406,296 bytes |
+| Compiler SHA-256 | `6a433519afe43aaebe78059b5d86bbc7567024ebbd6eda661dd59f928761cfad` | `835396a855cece1feb2228fd69869fd4b75f6122db7283f0d47416e7c57261c3` | `cddc49ad64548bae1f0315ab0d9aaf822e223e479e39e3cdf33f2a8a622f171c` |
 <!-- readme-platform-evidence:end -->
 
-These narrow 0.2.0 checks prove reproducibility and expose regressions. They
+These narrow 0.2.1 checks prove reproducibility and expose regressions. They
 do **not** prove that VKF is generally faster than C, Rust, Zig, Go, Julia, or
 Python.
 
@@ -227,7 +231,7 @@ are not treated as proof.
 
 ### Reproducible Language Comparison
 
-This is the controlled **0.2.0** comparison produced by the current compiler
+This is the controlled **0.2.1** comparison produced by the current compiler
 and the exact VKF snippets shown below.
 
 Rows marked **matched** use the same algorithm. The spectral-norm row is
@@ -237,11 +241,11 @@ linked. Tool versions, source hashes, work counts, output parity, compile
 models, and all 1,000 raw timing samples are retained in the evidence report.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 7763 64-Core Processor, 4 logical CPUs, at `2026-08-24T08:06:56.450Z`.
+Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 7763 64-Core Processor, 4 logical CPUs, at `2026-08-24T09:52:18.437Z`.
 
 Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are represented by same-host VKF/competitor ratios. Absolute times are never compared across machines. Each raw lane contains 1000 measured runs after 50 warmups and excludes process launch.
 
-Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-020.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-020.md).
+Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-021.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-021.md).
 
 ### Current compile and raw-kernel comparison
 
@@ -249,12 +253,12 @@ Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner. Raw 
 
 | Kernel | Measurement | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Spectral norm | Raw runtime | 6.460 ± 0.134 ms | 0.454× | 0.452× | 0.450× |
-| Spectral norm | Compile | 247.419 ± 2.080 ms | 1.344× | 2.815× | 1.399× |
-| Fannkuch | Raw runtime | 31.508 ± 0.396 ms | 1.621× | 1.892× | 1.673× |
-| Fannkuch | Compile | 81.572 ± 0.380 ms | 0.957× | 0.951× | 0.469× |
-| N-body | Raw runtime | 4.247 ± 0.052 ms | 1.369× | 1.935× | 1.042× |
-| N-body | Compile | 47.083 ± 0.793 ms | 0.445× | 0.493× | 0.272× |
+| Spectral norm | Raw runtime | 6.452 ± 0.047 ms | 0.453× | 0.452× | 0.449× |
+| Spectral norm | Compile | 248.636 ± 2.269 ms | 1.342× | 2.832× | 1.391× |
+| Fannkuch | Raw runtime | 31.583 ± 1.186 ms | 1.626× | 1.891× | 1.676× |
+| Fannkuch | Compile | 80.574 ± 0.470 ms | 0.992× | 0.977× | 0.485× |
+| N-body | Raw runtime | 4.257 ± 0.172 ms | 1.369× | 1.937× | 1.043× |
+| N-body | Compile | 46.414 ± 2.418 ms | 0.437× | 0.481× | 0.265× |
 
 ### spectral norm by power method — large, scale 500
 
@@ -273,7 +277,7 @@ multiply_av(values:[num:500]) -> [num:500]:
             diagonal: i + j
             .total+: (1 / (diagonal * (diagonal + 1) / 2 + i + 1)) * values.(j)
         output.(i): total
-    output
+    @: output
 
 multiply_atv(values:[num:500]) -> [num:500]:
     output: [0:500]
@@ -285,7 +289,7 @@ multiply_atv(values:[num:500]) -> [num:500]:
             diagonal: j + i
             .total+: (1 / (diagonal * (diagonal + 1) / 2 + j + 1)) * values.(j)
         output.(i): total
-    output
+    @: output
 
 multiply_at_av(values:[num:500]) -> [num:500]:
     multiply_atv(multiply_av(values))
@@ -301,7 +305,7 @@ spectral_norm() -> num:
     ..500 - 1 >>
         result.numerator +: u.($) * v.($)
         result.denominator +: v.($) * v.($)
-    sqrt(result.numerator / result.denominator)
+    @: sqrt(result.numerator / result.denominator)
 
 :: spectral_norm()
 ```
@@ -319,7 +323,7 @@ Exact implementations: VKF [source](benchmarks/core-comparison/published/spectra
 Mode: **matched**. Benchmarks Game permutation order, checksum, and maximum-flip algorithm.
 
 ```vkf
-fannkuch(n:num) -> num:
+fannkuch(n:int) -> int:
     permutation: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     working: [0:12]
     rotations: [0:12]
@@ -370,7 +374,7 @@ fannkuch(n:num) -> num:
                     control.r +: 1
         control.running > 0?
             result.permutation_index +: 1
-    result.checksum * 100 + result.maximum_flips
+    @: result.checksum * 100 + result.maximum_flips
 
 :: fannkuch(9)
 ```
@@ -399,7 +403,7 @@ offset_momentum(system:System, solar_mass:num) -> System:
         i: $
         .momentum+: velocities.(i) * masses.(i)
     velocities.0: momentum * (-1 / solar_mass)
-    (positions:system.positions, velocities:velocities, masses:masses)
+    @: (positions:positions, velocities:velocities, masses:masses)
 
 advance(system:System, timestep:num) -> System:
     :system
@@ -414,7 +418,7 @@ advance(system:System, timestep:num) -> System:
     ..4 >>
         i: $
         positions.(i) +: velocities.(i) * timestep
-    (positions:positions, velocities:velocities, masses:masses)
+    @: (positions:positions, velocities:velocities, masses:masses)
 
 system_energy(system:System) -> num:
     :system
@@ -428,7 +432,7 @@ system_energy(system:System) -> num:
             j: $
             [num:3] displacement: positions.(i) - positions.(j)
             totals.potential -: masses.(i) * masses.(j) / |displacement|
-    totals.kinetic + totals.potential
+    @: totals.kinetic + totals.potential
 
 n_body(steps:num) -> num:
     constants: (
@@ -462,7 +466,7 @@ n_body(steps:num) -> num:
     .system: offset_momentum(system, constants.solar_mass)
     ..steps - 1 >>
         .system: advance(system, constants.timestep)
-    system_energy(system)
+    @: system_energy(system)
 
 :: n_body(50000)
 ```
@@ -478,7 +482,7 @@ Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-
 <details>
 <summary>Exact toolchains and compile models</summary>
 
-- VKF: `VKF 0.2.0; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + fresh empirical policy search + Python-free integrated frontend + compiler-owned direct x64 artifact
+- VKF: `VKF 0.2.1; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + fresh empirical policy search + Python-free integrated frontend + compiler-owned direct x64 artifact
 - C: `Ubuntu clang version 18.1.3 (1ubuntu1)`; Clang -O3 -march=native native link
 - Rust: `rustc 1.98.0 (88d9e12ae 2026-08-18)`; rustc -O -C target-cpu=native native link
 - Zig: `0.16.0`; zig build-exe -O ReleaseFast -mcpu native -lc
@@ -496,7 +500,7 @@ single table above summarizes the current comparative measurements.
 
 ## Status And Native Scope
 
-The 0.2.0 native release includes `math`, `stat`, `random`, `time`, `io`,
+The 0.2.1 native release includes `math`, `stat`, `random`, `time`, `io`,
 `collections`, `errors`, `system`, `process`, and `regex`. Only fully native,
 verified libraries ship. `physics`, `ui`, and `symbolic` remain future work.
 
@@ -528,6 +532,22 @@ folders, and unrelated existing `vkf` commands.
 VKF programs still run with the current user's permissions. `io` can modify
 files and `process` can launch programs. `process.run` passes an exact argument
 vector; `process.shell` invokes a platform shell and must be treated as unsafe.
+
+## 0.2.1 Changes
+
+0.2.1 closes two correctness gaps found by exact documented-output checks and
+makes compact integer vector pipes faster:
+
+- compound vector updates inside functions retain their established fixed-vector type across consecutive operations;
+- macOS ARM64 indexed access converts fixed integer locals through the numeric value ABI instead of reinterpreting integer bits as floating-point data;
+- the documented-program harness now compares known high-value examples against committed exact stdout, in addition to checking repeated-run stability;
+- discarded indexed pipe results no longer round-trip through a temporary, and fall-through-only pipe labels are removed before native lowering;
+- fixed vector copies and bounded shifts are recognized directly from compact range-pipe IR;
+- proven prefix-reversal indices remain in registers across the hot loop;
+- Fannkuch uses its exact `int -> int` contract and is verified below `1.5×` C, Rust, and Zig on the controlled Linux runner;
+- the native suite contains 333 passing VKF tests, with all documented outputs reverified on all three release platforms.
+
+See the [0.2.1 release notes](docs/releases/0.2.1.md).
 
 ## 0.2.0 Changes
 

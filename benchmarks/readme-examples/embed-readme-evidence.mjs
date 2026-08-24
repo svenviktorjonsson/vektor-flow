@@ -98,11 +98,14 @@ const readmePath = resolve(options.readme);
 const allowSubset = options["allow-subset"] === "true";
 let readme = readFileSync(readmePath, "utf8");
 const conditionsPattern = /<!-- readme-platform-evidence:start -->[\s\S]*?<!-- readme-platform-evidence:end -->/;
-if (!conditionsPattern.test(readme)) fail("README is missing platform evidence markers");
-readme = readme.replace(
-  conditionsPattern,
-  `<!-- readme-platform-evidence:start -->\n${platformConditionsTable()}\n<!-- readme-platform-evidence:end -->`,
-);
+if (!conditionsPattern.test(readme)) {
+  if (!allowSubset) fail("README is missing platform evidence markers");
+} else {
+  readme = readme.replace(
+    conditionsPattern,
+    `<!-- readme-platform-evidence:start -->\n${platformConditionsTable()}\n<!-- readme-platform-evidence:end -->`,
+  );
+}
 readme = readme.replace(
   /(?:\r?\n)+<!-- readme-evidence:start [^\n]+ -->[\s\S]*?<!-- readme-evidence:end -->(?:\r?\n)+/g,
   "\n\n",

@@ -2982,7 +2982,12 @@ private:
                 invalid.push_back(words_.emit(0x54000002u));
                 emit_frame_address(11, frame.offset(instruction.index));
                 words_.emit(0x8b0c0d6bu);
-                words_.emit(0xfd400160u);
+                if (local_is_i64(instruction.index)) {
+                    words_.emit(0xf9400169u);  // ldr x9, [x11]
+                    words_.emit(0x9e620120u);  // scvtf d0, x9
+                } else {
+                    words_.emit(0xfd400160u);  // ldr d0, [x11]
+                }
                 store_d(0, frame.offset(frame.temp_base + first));
                 const auto done = words_.emit(0x14000000u);
                 const auto abort = words_.offset();
@@ -3032,7 +3037,12 @@ private:
                 emit_frame_address(11, frame.offset(instruction.index));
                 words_.emit(0x8b0c0d6bu);
                 load_d(0, frame.offset(frame.temp_base + first + 1));
-                words_.emit(0xfd000160u);
+                if (local_is_i64(instruction.index)) {
+                    words_.emit(0x9e780009u);  // fcvtzs x9, d0
+                    words_.emit(0xf9000169u);  // str x9, [x11]
+                } else {
+                    words_.emit(0xfd000160u);  // str d0, [x11]
+                }
                 const auto done = words_.emit(0x14000000u);
                 const auto abort = words_.offset();
                 for (const auto branch : invalid) words_.patch_compare_branch19(branch, abort);

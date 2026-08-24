@@ -148,7 +148,7 @@ ret:
 
 <!-- readme-evidence:start core/49-semicolon-pipes.vkf -->
 
-**Recorded stdout (exit code `0`; stderr empty):**
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
 
 ```text
 5
@@ -1499,7 +1499,7 @@ text
 
 ## 10. Native Standard Library
 
-These modules are part of the native 0.2.0 release on Windows x64, Linux x64, and macOS ARM64.
+These modules are part of the native 0.2.1 release on Windows x64, Linux x64, and macOS ARM64.
 
 ### 10.1 `math`
 
@@ -1721,7 +1721,7 @@ path: system.env("PATH")
 windows
 x86_64
 4
-C:\Users\RUNNER~1\AppData\Local\Temp\vkf-readme-proof-lRsunP\runtime\stdlib\08-system
+C:\Users\RUNNER~1\AppData\Local\Temp\vkf-readme-proof-DXUJvs\runtime\stdlib\08-system
 true
 ```
 
@@ -1731,7 +1731,7 @@ true
 linux
 x86_64
 4
-/tmp/vkf-readme-proof-mJ6sCD/runtime/stdlib/08-system
+/tmp/vkf-readme-proof-CBOq1B/runtime/stdlib/08-system
 true
 ```
 
@@ -1741,7 +1741,7 @@ true
 macos
 arm64
 3
-/private/var/folders/_5/zjnzxgh147qcg3bb5cg2wvqw0000gn/T/vkf-readme-proof-FkDrgl/runtime/stdlib/08-system
+/private/var/folders/_5/zjnzxgh147qcg3bb5cg2wvqw0000gn/T/vkf-readme-proof-gMDM0L/runtime/stdlib/08-system
 true
 ```
 
@@ -1825,18 +1825,18 @@ vkf
 
 ## 11. Coming Soon
 
-The following areas are planned, but unavailable in the native 0.2.0 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
+The following areas are planned, but unavailable in the native 0.2.1 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
 
 ### 11.1 Native `ui`
 
-The visual and scene system is not in the native 0.2.0 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
+The visual and scene system is not in the native 0.2.1 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
 
 ### 11.2 Native `physics`
 
-Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.2.0. No `rigid_body` compatibility module ships in the release.
+Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.2.1. No `rigid_body` compatibility module ships in the release.
 
 ### 11.3 Native `symbolic`
 
-Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.2.0 and must not be presented as native core features.
+Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.2.1 and must not be presented as native core features.
 
 The same rule applies to every future feature: it enters the numbered native guide only after parsing, lowering, executable generation, runtime behavior, and native `vkf -t` verification pass on the release targets.

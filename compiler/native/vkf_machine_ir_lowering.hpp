@@ -15195,6 +15195,96 @@ inline void eliminate_identity_local_shuffles(Module& module) {
     for (auto& function : module.functions) eliminate_identity_local_shuffles(function);
 }
 
+// An indexed assignment used only for its side effect is lowered through a
+// $pipe_assignment temporary so the assigned value can continue through a
+// pipe. When the continuation immediately drops that value, the temporary is
+// an exact stack round trip:
+//
+//   value, store temp, load temp, store[index], load temp, drop
+//
+// Keeping it hides fixed-vector copy/shift loops from the native backends and
+// adds two frame stores plus two frame loads per element. Preserve the indexed
+// store and leave the original value on the operand stack until it consumes it.
+inline void eliminate_discarded_index_assignment_temporaries(Function& function) {
+    using Opcode = vkf::machine_ir::Opcode;
+    std::vector<Instruction> rewritten;
+    rewritten.reserve(function.instructions.size());
+    for (std::size_t index = 0; index < function.instructions.size();) {
+        if (index + 4u < function.instructions.size()) {
+            const auto& temporary_store = function.instructions[index];
+            const auto& temporary_load = function.instructions[index + 1u];
+            const auto& indexed_store = function.instructions[index + 2u];
+            const auto& result_load = function.instructions[index + 3u];
+            const auto& result_drop = function.instructions[index + 4u];
+            const auto temporary = temporary_store.index;
+            const bool pipe_temporary = temporary < function.locals.size() &&
+                function.locals[temporary].rfind("$pipe_assignment_", 0u) == 0u;
+            const bool compatible_storage =
+                indexed_store.opcode == Opcode::StoreF64LocalsIndex &&
+                temporary < function.local_classes.size() &&
+                indexed_store.index <= function.local_classes.size() &&
+                indexed_store.argument_count <=
+                    function.local_classes.size() - indexed_store.index &&
+                std::all_of(
+                    function.local_classes.begin() + indexed_store.index,
+                    function.local_classes.begin() +
+                        indexed_store.index + indexed_store.argument_count,
+                    [&](ValueClass value_class) {
+                        return value_class == function.local_classes[temporary];
+                    });
+            if (temporary_store.opcode == Opcode::StoreLocal && pipe_temporary &&
+                temporary_load.opcode == Opcode::LoadLocal &&
+                temporary_load.index == temporary &&
+                result_load.opcode == Opcode::LoadLocal &&
+                result_load.index == temporary &&
+                result_drop.opcode == Opcode::Drop && compatible_storage) {
+                rewritten.push_back(indexed_store);
+                index += 5u;
+                continue;
+            }
+        }
+        rewritten.push_back(function.instructions[index++]);
+    }
+    function.instructions = std::move(rewritten);
+}
+
+inline void eliminate_discarded_index_assignment_temporaries(Module& module) {
+    eliminate_discarded_index_assignment_temporaries(module.entry);
+    for (auto& function : module.functions) {
+        eliminate_discarded_index_assignment_temporaries(function);
+    }
+}
+
+// Pipe blocks create continuation labels even when no branch targets them.
+// Removing these fall-through-only labels exposes the underlying counted-loop
+// shape without changing control flow or error-handler destinations.
+inline void eliminate_unreferenced_labels(Function& function) {
+    using Opcode = vkf::machine_ir::Opcode;
+    std::set<std::uint32_t> referenced;
+    for (const auto& instruction : function.instructions) {
+        if (instruction.opcode == Opcode::Jump ||
+            instruction.opcode == Opcode::JumpIfFalse ||
+            instruction.opcode == Opcode::JumpIfTrue ||
+            instruction.opcode == Opcode::JumpIfParameterProvided ||
+            instruction.has_error_handler) {
+            referenced.insert(instruction.label);
+        }
+    }
+    function.instructions.erase(
+        std::remove_if(
+            function.instructions.begin(), function.instructions.end(),
+            [&](const Instruction& instruction) {
+                return instruction.opcode == Opcode::Label &&
+                    !referenced.count(instruction.label);
+            }),
+        function.instructions.end());
+}
+
+inline void eliminate_unreferenced_labels(Module& module) {
+    eliminate_unreferenced_labels(module.entry);
+    for (auto& function : module.functions) eliminate_unreferenced_labels(function);
+}
+
 inline void propagate_constant_numeric_locals(Function& function) {
     for (;;) {
         bool changed = false;
@@ -15571,6 +15661,8 @@ inline Module lower(const vf::JsonValue& typed_ir) {
     refine_integral_local_classes(lowered);
     inline_small_numeric_calls(lowered);
     eliminate_identity_local_shuffles(lowered);
+    eliminate_discarded_index_assignment_temporaries(lowered);
+    eliminate_unreferenced_labels(lowered);
     propagate_constant_numeric_parameters(lowered);
     propagate_constant_numeric_locals(lowered);
     unroll_small_constant_loops(lowered);

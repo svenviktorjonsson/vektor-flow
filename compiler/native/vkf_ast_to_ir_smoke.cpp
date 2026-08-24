@@ -1472,6 +1472,9 @@ private:
                     }
                 }
                 std::string environment_type = value_type;
+                if (is_update && value_type == "any") {
+                    environment_type = env.get(name);
+                }
                 if ((type_it == object.end() || type_it->second.is_null()) &&
                     string_field(value.as_object(), "kind", "IR value") == "list") {
                     const auto& items = array_of(

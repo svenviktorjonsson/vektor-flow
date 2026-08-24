@@ -3830,7 +3830,19 @@ private:
                 const auto& right_load = at(10u);
                 const auto& left_store = at(11u);
                 const auto& right_store = at(14u);
+                const bool prefix_has_external_entry = std::any_of(
+                    function.instructions.begin(), function.instructions.end(),
+                    [&](const auto& branch) {
+                        const auto position = static_cast<std::size_t>(
+                            &branch - function.instructions.data());
+                        return position != instruction_index + 23u &&
+                            (branch.opcode == Opcode::Jump ||
+                             branch.opcode == Opcode::JumpIfFalse ||
+                             branch.opcode == Opcode::JumpIfTrue) &&
+                            branch.label == instruction.label;
+                    });
                 const bool fixed_prefix_reverse =
+                    !prefix_has_external_entry &&
                     at(1u).opcode == Opcode::LoadLocal &&
                     at(2u).opcode == Opcode::LoadLocal &&
                     at(3u).opcode == Opcode::OrderedLessF64 &&
@@ -3877,14 +3889,14 @@ private:
                 if (fixed_prefix_reverse) {
                     code_.raw({0x48, 0x8d, 0x95});
                     code_.i32(frame.displacement(left_load.index));
+                    load_local_integer(at(1u).index, 0u);
+                    load_local_integer(at(2u).index, 1u);
                     align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate integer x64 label");
                     }
-                    load_local_integer(at(1u).index, 0u);
-                    load_local_integer(at(2u).index, 1u);
                     code_.raw({0x48, 0x3b, 0xc1});
-                    branches.push_back({emit_jump(0x8d), at(4u).label});
+                    const auto finished = emit_jump(0x8d);
                     code_.raw({
                         0x48, 0xf7, 0xd8,
                         0x48, 0xf7, 0xd9,
@@ -3898,10 +3910,13 @@ private:
                         0x48, 0xff, 0xc9
                     });
                     store_local_integer(at(7u).index, 10u);
+                    code_.byte(0xe9);
+                    branches.push_back({code_.rel32_placeholder(), instruction.label});
+                    code_.patch_rel32(finished, code_.position());
                     store_local_integer(at(1u).index, 0u);
                     store_local_integer(at(2u).index, 1u);
                     code_.byte(0xe9);
-                    branches.push_back({code_.rel32_placeholder(), instruction.label});
+                    branches.push_back({code_.rel32_placeholder(), at(4u).label});
                     instruction_index += 23u;
                     continue;
                 }
@@ -3976,7 +3991,7 @@ private:
                 }
             }
             if (instruction.opcode == Opcode::Label &&
-                instruction_index + 14 < function.instructions.size()) {
+                instruction_index + 13 < function.instructions.size()) {
                 const auto& guard_index = function.instructions[instruction_index + 1];
                 const auto& bound = function.instructions[instruction_index + 2];
                 const auto& less = function.instructions[instruction_index + 3];
@@ -3990,7 +4005,6 @@ private:
                 const auto& add = function.instructions[instruction_index + 11];
                 const auto& increment_store = function.instructions[instruction_index + 12];
                 const auto& repeat = function.instructions[instruction_index + 13];
-                const auto& exit_label = function.instructions[instruction_index + 14];
                 const bool fixed_copy = guard_index.opcode == Opcode::LoadLocal &&
                     bound.opcode == Opcode::PushF64 && bound.f64 >= 1.0 &&
                     bound.f64 <= 32.0 && bound.f64 == std::floor(bound.f64) &&
@@ -4005,7 +4019,6 @@ private:
                     add.opcode == Opcode::AddF64 &&
                     increment_store.opcode == Opcode::StoreLocal &&
                     repeat.opcode == Opcode::Jump && repeat.label == instruction.label &&
-                    exit_label.opcode == Opcode::Label && exit_label.label == exit.label &&
                     guard_index.index == store_index.index &&
                     guard_index.index == source_index.index &&
                     guard_index.index == increment_index.index &&
@@ -4035,7 +4048,7 @@ private:
                 }
             }
             if (instruction.opcode == Opcode::Label &&
-                instruction_index + 16 < function.instructions.size()) {
+                instruction_index + 15 < function.instructions.size()) {
                 const auto& guard_index = function.instructions[instruction_index + 1];
                 const auto& bound = function.instructions[instruction_index + 2];
                 const auto& less = function.instructions[instruction_index + 3];
@@ -4051,7 +4064,6 @@ private:
                 const auto& increment_add = function.instructions[instruction_index + 13];
                 const auto& increment_store = function.instructions[instruction_index + 14];
                 const auto& repeat = function.instructions[instruction_index + 15];
-                const auto& exit_label = function.instructions[instruction_index + 16];
                 const auto proof = guarded_index_loops.find(instruction.label);
                 const bool bounded_left_shift = stack_depth == 0 &&
                     proof != guarded_index_loops.end() &&
@@ -4070,7 +4082,6 @@ private:
                     increment_add.opcode == Opcode::AddF64 &&
                     increment_store.opcode == Opcode::StoreLocal &&
                     repeat.opcode == Opcode::Jump && repeat.label == instruction.label &&
-                    exit_label.opcode == Opcode::Label && exit_label.label == exit.label &&
                     guard_index.index == destination_index.index &&
                     guard_index.index == source_index.index &&
                     guard_index.index == increment_index.index &&

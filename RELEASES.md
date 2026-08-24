@@ -1,5 +1,17 @@
 # Vektor Flow Native Releases
 
+## 0.2.1 — Exact Output Proof And Faster Integer Pipes
+
+0.2.1 fixes fixed-vector compound-update typing and ARM64 integer indexed
+transport. The documented-program verifier now checks committed expected output
+instead of accepting any repeatedly wrong result.
+
+Compact indexed pipes shed discarded temporaries and unused continuation
+labels, restoring fixed-copy and bounded-shift lowering. Prefix-reversal loop
+indices remain in registers. The controlled Fannkuch validation is below 1.5×
+C, Rust, and Zig on the same Linux host. Full details:
+[`docs/releases/0.2.1.md`](docs/releases/0.2.1.md).
+
 ## 0.2.0 — Explicit Structures And Faster Native Kernels
 
 0.2.0 makes recursive vector lifting the only implicit structural application:

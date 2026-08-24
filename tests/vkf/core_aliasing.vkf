@@ -7,6 +7,16 @@ fixed_vector_update_preserves_alias_identity() -> bit:
     .values /: 2
     (alias == [3, 4])?!
 
+_named_vector_delta_round_trip() -> [int:4]:
+    values: [1, 2, 3, 4]
+    delta: [1, 2, 3, 4]
+    .values +: delta
+    .values -: delta
+    values
+
+consecutive_named_vector_updates_preserve_fixed_type() -> bit:
+    (_named_vector_delta_round_trip() == [1, 2, 3, 4])?!
+
 Point: (x:int, y:int, name:str)
 
 +(point:Point, delta:int) -> Point:

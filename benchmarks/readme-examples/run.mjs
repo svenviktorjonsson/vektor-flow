@@ -19,6 +19,9 @@ const benchmarkRoot = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(benchmarkRoot, '..', '..');
 const examplesRoot = resolve(repoRoot, 'examples', 'generated', 'readme');
 const resultsRoot = resolve(benchmarkRoot, 'results');
+const expectedStdout = new Map(Object.entries(JSON.parse(
+  readFileSync(resolve(benchmarkRoot, 'expected-stdout.json'), 'utf8')
+)));
 const packageMetadata = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8'));
 
 function parseOptions(argv) {
@@ -324,6 +327,17 @@ function executeExamples(examples, compiled, options, workRoot) {
         throw new Error(`${relativeSlash(examples[index])} produced unstable output at measured run ${iteration + 1}`);
       }
       state.samples.push(result.elapsedMs);
+    }
+  }
+  for (let index = 0; index < runtime.length; index += 1) {
+    const path = relativeSlash(examples[index]);
+    const expected = expectedStdout.get(path);
+    const actual = runtime[index].first.stdout.toString('utf8').replaceAll('\r\n', '\n');
+    if (expected !== undefined && actual !== expected) {
+      throw new Error(
+        `${path} stdout mismatch: expected ${JSON.stringify(expected)}, ` +
+        `received ${JSON.stringify(actual)}`
+      );
     }
   }
   return runtime;
