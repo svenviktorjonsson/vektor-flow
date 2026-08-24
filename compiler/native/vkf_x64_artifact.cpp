@@ -4946,6 +4946,46 @@ private:
                 code_.i32(frame.displacement(base));
             }
         };
+        const auto fixed_base_is_borrowed =
+            [&](std::uint32_t base, std::uint32_t width) {
+                return borrow_aggregate_parameters && base < parameter_count &&
+                    width <= parameter_count - base;
+            };
+        const auto direct_frame_sib = [](unsigned rax_sib) {
+            return rax_sib == 0xd0u ? 0xd5u : 0xcdu;
+        };
+        const auto emit_fixed_indexed_f64_load =
+            [&](std::uint32_t base, std::uint32_t width,
+                unsigned destination, unsigned rax_sib) {
+                if (fixed_base_is_borrowed(base, width)) {
+                    emit_fixed_base_address(base, width);
+                    code_.raw({0xf2, 0x0f, 0x10,
+                               static_cast<unsigned>(0x04u + destination * 8u),
+                               rax_sib});
+                    return;
+                }
+                code_.raw({0xf2, 0x0f, 0x10,
+                           static_cast<unsigned>(0x84u + destination * 8u),
+                           direct_frame_sib(rax_sib)});
+                code_.i32(frame.displacement(base));
+            };
+        const auto emit_fixed_indexed_f64_store =
+            [&](std::uint32_t base, std::uint32_t width,
+                unsigned source, unsigned rax_sib, bool high) {
+                if (fixed_base_is_borrowed(base, width)) {
+                    emit_fixed_base_address(base, width);
+                    code_.raw({high ? 0x66u : 0xf2u, 0x0f,
+                               high ? 0x17u : 0x11u,
+                               static_cast<unsigned>(0x04u + source * 8u),
+                               rax_sib});
+                    return;
+                }
+                code_.raw({high ? 0x66u : 0xf2u, 0x0f,
+                           high ? 0x17u : 0x11u,
+                           static_cast<unsigned>(0x84u + source * 8u),
+                           direct_frame_sib(rax_sib)});
+                code_.i32(frame.displacement(base));
+            };
         const auto emit_horizontal_ymm_sum = [&](unsigned ymm, unsigned temporary_xmm) {
             if (ymm > 7 || temporary_xmm > 7) {
                 throw BackendFailure("invalid packed reduction register");
@@ -5356,18 +5396,19 @@ private:
                 code_.raw({0xf2, 0x48, 0x0f, 0x2c,
                            static_cast<unsigned>(0xc8 + destination)});
             }
-            emit_fixed_base_address(
-                operand.index->index, operand.index->argument_count);
             code_.raw({0x48, 0xf7, 0xd9,
             });
             if (fixed_range_is_i64(
                     operand.index->index, operand.index->argument_count)) {
+                emit_fixed_base_address(
+                    operand.index->index, operand.index->argument_count);
                 code_.raw({0x48, 0x8b, 0x14, 0xc8,
                            0xf2, 0x48, 0x0f, 0x2a,
                            static_cast<unsigned>(0xc2 + destination * 8)});
             } else {
-                code_.raw({0xf2, 0x0f, 0x10,
-                           static_cast<unsigned>(0x04 + destination * 8), 0xc8});
+                emit_fixed_indexed_f64_load(
+                    operand.index->index, operand.index->argument_count,
+                    destination, 0xc8u);
             }
         };
         struct ExpressionNode {
@@ -5589,8 +5630,6 @@ private:
                             load_local(node.value->index, destination);
                             return;
                         }
-                        emit_fixed_base_address(
-                            node.index->index, node.index->argument_count);
                         const auto cached = cached_slot(node.value->index);
                         if (!cached) {
                             if (local_is_i64(node.value->index)) {
@@ -5606,12 +5645,15 @@ private:
                         const unsigned sib = !cached || *cached == 0 ? 0xc8 : 0xd0;
                         if (fixed_range_is_i64(
                                 node.index->index, node.index->argument_count)) {
+                            emit_fixed_base_address(
+                                node.index->index, node.index->argument_count);
                             code_.raw({0x48, 0x8b, 0x14, sib,
                                        0xf2, 0x48, 0x0f, 0x2a,
                                        static_cast<unsigned>(0xc2 + destination * 8)});
                         } else {
-                            code_.raw({0xf2, 0x0f, 0x10,
-                                       static_cast<unsigned>(0x04 + destination * 8), sib});
+                            emit_fixed_indexed_f64_load(
+                                node.index->index, node.index->argument_count,
+                                destination, sib);
                         }
                         return;
                     }
@@ -5677,8 +5719,6 @@ private:
                 }
                 return;
             }
-            code_.raw({0x48, 0x8d, 0x85});
-            code_.i32(frame.displacement(plan.indexed_store->index));
             const auto cached = cached_slot(index_node.value->index);
             if (!cached) {
                 if (local_is_i64(index_node.value->index)) {
@@ -5694,12 +5734,126 @@ private:
             const unsigned sib = !cached || *cached == 0 ? 0xc8 : 0xd0;
             if (fixed_range_is_i64(
                     plan.indexed_store->index, plan.indexed_store->argument_count)) {
+                emit_fixed_base_address(
+                    plan.indexed_store->index, plan.indexed_store->argument_count);
                 code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xd0,
                            0x48, 0x89, 0x14, sib});
             } else {
-                code_.raw({0xf2, 0x0f, 0x11, 0x04, sib});
+                emit_fixed_indexed_f64_store(
+                    plan.indexed_store->index,
+                    plan.indexed_store->argument_count, 0u, sib, false);
             }
         };
+        const auto emit_packed_scaled_vector3_update =
+            [&](std::size_t start) -> std::optional<std::size_t> {
+                using vkf::machine_ir::Opcode;
+                if (!policy_.packed_dot_reductions ||
+                    start + 26u >= function.instructions.size()) {
+                    return std::nullopt;
+                }
+                const auto& at = function.instructions;
+                const auto lane_matches = [&](std::size_t position) {
+                    return at[position].opcode == Opcode::LoadLocal &&
+                        local_is_i64(at[position].index) &&
+                        at[position + 1u].opcode == Opcode::LoadLocal &&
+                        at[position + 1u].index == at[position].index &&
+                        at[position + 2u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 2u].index_is_integral &&
+                        !at[position + 2u].may_error &&
+                        at[position + 2u].index_local &&
+                        *at[position + 2u].index_local == at[position].index &&
+                        at[position + 3u].opcode == Opcode::LoadLocal &&
+                        at[position + 3u].index == at[position].index &&
+                        at[position + 4u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 4u].index_is_integral &&
+                        !at[position + 4u].may_error &&
+                        at[position + 4u].index_local &&
+                        *at[position + 4u].index_local == at[position].index &&
+                        at[position + 5u].opcode == Opcode::PushF64 &&
+                        at[position + 6u].opcode == Opcode::MultiplyF64 &&
+                        (at[position + 7u].opcode == Opcode::AddF64 ||
+                         at[position + 7u].opcode == Opcode::SubtractF64) &&
+                        at[position + 8u].opcode == Opcode::StoreF64LocalsIndex &&
+                        at[position + 8u].index_is_integral &&
+                        !at[position + 8u].may_error &&
+                        at[position + 8u].index_local &&
+                        *at[position + 8u].index_local == at[position].index;
+                };
+                if (!lane_matches(start) || !lane_matches(start + 9u) ||
+                    !lane_matches(start + 18u)) {
+                    return std::nullopt;
+                }
+                const auto& first_current = at[start + 2u];
+                const auto& first_component = at[start + 4u];
+                const auto arithmetic = at[start + 7u].opcode;
+                const auto& first_store = at[start + 8u];
+                if (at[start + 9u].index != at[start].index ||
+                    at[start + 18u].index != at[start].index ||
+                    at[start + 11u].index != first_current.index + 1u ||
+                    at[start + 20u].index != first_current.index + 2u ||
+                    at[start + 13u].index != first_component.index + 1u ||
+                    at[start + 22u].index != first_component.index + 2u ||
+                    at[start + 14u].f64 != at[start + 5u].f64 ||
+                    at[start + 23u].f64 != at[start + 5u].f64 ||
+                    at[start + 16u].opcode != arithmetic ||
+                    at[start + 25u].opcode != arithmetic ||
+                    at[start + 17u].index != first_store.index + 1u ||
+                    at[start + 26u].index != first_store.index + 2u) {
+                    return std::nullopt;
+                }
+
+                expression_index_cache = {};
+                load_i64_to_rcx(at[start].index);
+                code_.raw({0x48, 0xf7, 0xd9});
+                emit_fixed_indexed_f64_load(
+                    first_current.index, first_current.argument_count, 0u, 0xc8u);
+                emit_fixed_indexed_f64_load(
+                    at[start + 11u].index, at[start + 11u].argument_count,
+                    1u, 0xc8u);
+                code_.raw({0x66, 0x0f, 0x14, 0xc1});
+                emit_fixed_indexed_f64_load(
+                    first_component.index, first_component.argument_count, 1u, 0xc8u);
+                emit_fixed_indexed_f64_load(
+                    at[start + 13u].index, at[start + 13u].argument_count,
+                    2u, 0xc8u);
+                code_.raw({0x66, 0x0f, 0x14, 0xca});
+                emit_number(at[start + 5u].f64, 2u);
+                code_.raw({0x66, 0x0f, 0x14, 0xd2,
+                           0x66, 0x0f, 0x59, 0xca,
+                           0x66, 0x0f,
+                           arithmetic == Opcode::AddF64 ? 0x58u : 0x5cu,
+                           0xc1});
+
+                emit_fixed_indexed_f64_load(
+                    at[start + 20u].index, at[start + 20u].argument_count,
+                    3u, 0xc8u);
+                emit_fixed_indexed_f64_load(
+                    at[start + 22u].index, at[start + 22u].argument_count,
+                    4u, 0xc8u);
+                emit_number(at[start + 5u].f64, 5u);
+                if (policy_.fused_multiply_add &&
+                    vkf::target::host_x64_supports_fma()) {
+                    code_.raw({0xc4, 0xe2, 0xd9,
+                               arithmetic == Opcode::AddF64 ? 0xb9u : 0xbdu,
+                               0xdd});
+                } else {
+                    code_.raw({0xf2, 0x0f, 0x59, 0xe5,
+                               0xf2, 0x0f,
+                               arithmetic == Opcode::AddF64 ? 0x58u : 0x5cu,
+                               0xdc});
+                }
+                emit_fixed_indexed_f64_store(
+                    first_store.index, first_store.argument_count,
+                    0u, 0xc8u, false);
+                emit_fixed_indexed_f64_store(
+                    at[start + 17u].index, at[start + 17u].argument_count,
+                    0u, 0xc8u, true);
+                emit_fixed_indexed_f64_store(
+                    at[start + 26u].index, at[start + 26u].argument_count,
+                    3u, 0xc8u, false);
+                expression_index_cache = {};
+                return start + 26u;
+            };
         const auto emit_packed_affine_indexed_pair =
             [&](std::size_t start) -> std::optional<std::size_t> {
                 using vkf::machine_ir::Opcode;
@@ -5766,36 +5920,87 @@ private:
                     second_store.argument_count + 1u != first_store.argument_count) {
                     return std::nullopt;
                 }
+                const bool triple = start + 29u < function.instructions.size() &&
+                    lane_matches(start + 20u) &&
+                    function.instructions[start + 20u].index == first_index.index &&
+                    function.instructions[start + 22u].index == first_current.index + 2u &&
+                    function.instructions[start + 23u].index == first_component.index + 2u &&
+                    function.instructions[start + 24u].index == first_scale_a.index &&
+                    function.instructions[start + 26u].index == first_scale_b.index &&
+                    function.instructions[start + 28u].opcode == first_arithmetic &&
+                    function.instructions[start + 29u].index == first_store.index + 2u;
                 expression_index_cache = {};
                 load_i64_to_rcx(first_index.index);
                 code_.raw({0x48, 0xf7, 0xd9});
-                emit_fixed_base_address(
-                    first_current.index, first_current.argument_count);
-                code_.raw({0xf2, 0x0f, 0x10, 0x04, 0xc8});
-                emit_fixed_base_address(
-                    second_current.index, second_current.argument_count);
-                code_.raw({0xf2, 0x0f, 0x10, 0x0c, 0xc8,
-                           0x66, 0x0f, 0x14, 0xc1});
+                emit_fixed_indexed_f64_load(
+                    first_current.index, first_current.argument_count,
+                    0u, 0xc8u);
+                emit_fixed_indexed_f64_load(
+                    second_current.index, second_current.argument_count,
+                    1u, 0xc8u);
+                code_.raw({0x66, 0x0f, 0x14, 0xc1});
+                if (triple) {
+                    const auto& third_current = function.instructions[start + 22u];
+                    emit_fixed_indexed_f64_load(
+                        third_current.index, third_current.argument_count,
+                        3u, 0xc8u);
+                }
                 load_local(first_component.index, 1u);
                 load_local(second_component.index, 2u);
                 code_.raw({0x66, 0x0f, 0x14, 0xca});
+                if (triple) {
+                    load_local(function.instructions[start + 23u].index, 4u);
+                }
                 load_local(first_scale_a.index, 2u);
-                code_.raw({0x66, 0x0f, 0x14, 0xd2,
-                           0x66, 0x0f, 0x59, 0xca});
+                if (triple) {
+                    code_.raw({0x66, 0x0f, 0x28, 0xea,
+                               0x66, 0x0f, 0x14, 0xed,
+                               0x66, 0x0f, 0x59, 0xcd,
+                               0xf2, 0x0f, 0x59, 0xe2});
+                } else {
+                    code_.raw({0x66, 0x0f, 0x14, 0xd2,
+                               0x66, 0x0f, 0x59, 0xca});
+                }
                 load_local(first_scale_b.index, 2u);
-                code_.raw({0x66, 0x0f, 0x14, 0xd2,
-                           0x66, 0x0f, 0x59, 0xca,
-                           0x66, 0x0f,
-                           first_arithmetic == Opcode::AddF64 ? 0x58u : 0x5cu,
-                           0xc1});
-                emit_fixed_base_address(
-                    first_store.index, first_store.argument_count);
-                code_.raw({0xf2, 0x0f, 0x11, 0x04, 0xc8});
-                emit_fixed_base_address(
-                    second_store.index, second_store.argument_count);
-                code_.raw({0x66, 0x0f, 0x17, 0x04, 0xc8});
+                if (triple) {
+                    code_.raw({0x66, 0x0f, 0x28, 0xea,
+                               0x66, 0x0f, 0x14, 0xed,
+                               0x66, 0x0f, 0x59, 0xcd});
+                    if (policy_.fused_multiply_add &&
+                        vkf::target::host_x64_supports_fma()) {
+                        code_.raw({0xc4, 0xe2, 0xd9,
+                                   first_arithmetic == Opcode::AddF64 ? 0xb9u : 0xbdu,
+                                   0xda});
+                    } else {
+                        code_.raw({0xf2, 0x0f, 0x59, 0xe2,
+                                   0xf2, 0x0f,
+                                   first_arithmetic == Opcode::AddF64 ? 0x58u : 0x5cu,
+                                   0xdc});
+                    }
+                    code_.raw({0x66, 0x0f,
+                               first_arithmetic == Opcode::AddF64 ? 0x58u : 0x5cu,
+                               0xc1});
+                } else {
+                    code_.raw({0x66, 0x0f, 0x14, 0xd2,
+                               0x66, 0x0f, 0x59, 0xca,
+                               0x66, 0x0f,
+                               first_arithmetic == Opcode::AddF64 ? 0x58u : 0x5cu,
+                               0xc1});
+                }
+                emit_fixed_indexed_f64_store(
+                    first_store.index, first_store.argument_count,
+                    0u, 0xc8u, false);
+                emit_fixed_indexed_f64_store(
+                    second_store.index, second_store.argument_count,
+                    0u, 0xc8u, true);
+                if (triple) {
+                    const auto& third_store = function.instructions[start + 29u];
+                    emit_fixed_indexed_f64_store(
+                        third_store.index, third_store.argument_count,
+                        3u, 0xc8u, false);
+                }
                 expression_index_cache = {};
-                return start + 19u;
+                return start + (triple ? 29u : 19u);
             };
         for (std::size_t instruction_index = 0;
              instruction_index < function.instructions.size(); ++instruction_index) {
@@ -5816,6 +6021,12 @@ private:
                 }
             }
             if (stack_depth == 0) {
+                const auto packed_scaled_vector3 =
+                    emit_packed_scaled_vector3_update(instruction_index);
+                if (packed_scaled_vector3) {
+                    instruction_index = *packed_scaled_vector3;
+                    continue;
+                }
                 const auto packed_affine =
                     emit_packed_affine_indexed_pair(instruction_index);
                 if (packed_affine) {
@@ -7371,14 +7582,16 @@ private:
                     code_.i32(static_cast<std::int32_t>(instruction.argument_count));
                     invalid.push_back(emit_jump(0x83));
                 }
-                emit_fixed_base_address(
-                    instruction.index, instruction.argument_count);
                 code_.raw({0x48, 0xf7, 0xd9});
                 if (fixed_range_is_i64(instruction.index, instruction.argument_count)) {
+                    emit_fixed_base_address(
+                        instruction.index, instruction.argument_count);
                     code_.raw({0x48, 0x8b, 0x14, 0xc8,
                                0xf2, 0x48, 0x0f, 0x2a, 0xc2});
                 } else {
-                    code_.raw({0xf2, 0x0f, 0x10, 0x04, 0xc8});
+                    emit_fixed_indexed_f64_load(
+                        instruction.index, instruction.argument_count,
+                        0u, 0xc8u);
                 }
                 store_xmm(0, frame.displacement(frame.temp_base + first));
                 if (!invalid.empty()) {
@@ -7441,15 +7654,17 @@ private:
                     code_.i32(static_cast<std::int32_t>(instruction.argument_count));
                     invalid.push_back(emit_jump(0x83));
                 }
-                code_.raw({0x48, 0x8d, 0x85});
-                code_.i32(frame.displacement(instruction.index));
                 code_.raw({0x48, 0xf7, 0xd9});
                 load_xmm(0, frame.displacement(frame.temp_base + first + 1));
                 if (fixed_range_is_i64(instruction.index, instruction.argument_count)) {
+                    emit_fixed_base_address(
+                        instruction.index, instruction.argument_count);
                     code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xd0,
                                0x48, 0x89, 0x14, 0xc8});
                 } else {
-                    code_.raw({0xf2, 0x0f, 0x11, 0x04, 0xc8});
+                    emit_fixed_indexed_f64_store(
+                        instruction.index, instruction.argument_count,
+                        0u, 0xc8u, false);
                 }
                 if (!invalid.empty()) {
                     code_.byte(0xe9);
