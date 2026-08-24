@@ -69,7 +69,7 @@ function sourceLink(result) {
   return `[source](${relative(dirname(readmePath), result.sourcePath).replaceAll('\\', '/')})`;
 }
 
-function rawKernelSummary() {
+function comparisonSummary() {
   const caseLabels = {
     'spectral-norm-large': 'Spectral norm',
     'fannkuch-redux-large': 'Fannkuch',
@@ -81,28 +81,47 @@ function rawKernelSummary() {
       fail(`${caseId}/vkf raw-kernel sample count does not match report options`);
     }
   }
-  const rows = expectedCases.map((caseId) => {
+  const rows = expectedCases.flatMap((caseId) => {
     const vkf = vkfResults.get(caseId);
-    const ratios = rawLanguages.map((language) => {
+    if (vkf.compile?.count !== report.options.compileRuns) {
+      fail(`${caseId}/vkf compile sample count does not match report options`);
+    }
+    const runtimeRatios = rawLanguages.map((language) => {
       const competitor = resultFor(caseId, language);
       if (competitor.nativeRuntime?.count !== report.options.runs) {
         fail(`${caseId}/${language} raw-kernel sample count does not match report options`);
       }
       return vkf.nativeRuntime.meanMs / competitor.nativeRuntime.meanMs;
     });
+    const compileRatios = rawLanguages.map((language) => {
+      const competitor = resultFor(caseId, language);
+      if (competitor.compile?.count !== report.options.compileRuns) {
+        fail(`${caseId}/${language} compile sample count does not match report options`);
+      }
+      return vkf.compile.meanMs / competitor.compile.meanMs;
+    });
     return [
-      caseLabels[caseId],
-      meanStd(vkf.nativeRuntime),
-      ...ratios.map((ratio) => `${ratio.toFixed(3)}×`)
+      [
+        caseLabels[caseId],
+        'Raw runtime',
+        meanStd(vkf.nativeRuntime),
+        ...runtimeRatios.map((ratio) => `${ratio.toFixed(3)}×`)
+      ],
+      [
+        caseLabels[caseId],
+        'Compile',
+        meanStd(vkf.compile),
+        ...compileRatios.map((ratio) => `${ratio.toFixed(3)}×`)
+      ]
     ];
   });
   return [
-    '### Current raw-kernel comparison',
+    '### Current compile and raw-kernel comparison',
     '',
-    `Every ratio is \`VKF mean / competitor mean\` from the same Linux x64 runner and the same ${report.options.runs.toLocaleString('en-US')}-run report. A value above \`1\` means VKF took longer.`,
+    `Every ratio is \`VKF mean / competitor mean\` from the same Linux x64 runner. Raw runtime uses ${report.options.runs.toLocaleString('en-US')} measured runs; compile time uses ${report.options.compileRuns.toLocaleString('en-US')} fresh compiles. VKF compile time includes its fresh policy search. A value above \`1\` means VKF took longer.`,
     '',
-    '| Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |',
-    '| --- | ---: | ---: | ---: | ---: |',
+    '| Kernel | Measurement | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |',
+    '| --- | --- | ---: | ---: | ---: | ---: |',
     ...rows.map((row) => `| ${row.join(' | ')} |`)
   ].join('\n');
 }
@@ -148,7 +167,7 @@ const fragment = [
   '',
   `Evidence: [all samples and hashes](${relative(dirname(readmePath), reportPath).replaceAll('\\', '/')}) and [readable laboratory report](${relative(dirname(readmePath), reportPath.replace(/\.json$/, '.md')).replaceAll('\\', '/')}).`,
   '',
-  rawKernelSummary(),
+  comparisonSummary(),
   '',
   ...expectedCases.flatMap((caseId) => [section(caseId), '']),
   '<details>',

@@ -237,15 +237,18 @@ Only the three substantial optimization kernels are timed. VKF provides the abso
 
 Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-020.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-020.md).
 
-### Current raw-kernel comparison
+### Current compile and raw-kernel comparison
 
-Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner and the same 1,000-run report. A value above `1` means VKF took longer.
+Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner. Raw runtime uses 1,000 measured runs; compile time uses 100 fresh compiles. VKF compile time includes its fresh policy search. A value above `1` means VKF took longer.
 
-| Kernel | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
-| --- | ---: | ---: | ---: | ---: |
-| Spectral norm | 6.460 ± 0.134 ms | 0.454× | 0.452× | 0.450× |
-| Fannkuch | 31.508 ± 0.396 ms | 1.621× | 1.892× | 1.673× |
-| N-body | 4.247 ± 0.052 ms | 1.369× | 1.935× | 1.042× |
+| Kernel | Measurement | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Spectral norm | Raw runtime | 6.460 ± 0.134 ms | 0.454× | 0.452× | 0.450× |
+| Spectral norm | Compile | 247.419 ± 2.080 ms | 1.344× | 2.815× | 1.399× |
+| Fannkuch | Raw runtime | 31.508 ± 0.396 ms | 1.621× | 1.892× | 1.673× |
+| Fannkuch | Compile | 81.572 ± 0.380 ms | 0.957× | 0.951× | 0.469× |
+| N-body | Raw runtime | 4.247 ± 0.052 ms | 1.369× | 1.935× | 1.042× |
+| N-body | Compile | 47.083 ± 0.793 ms | 0.445× | 0.493× | 0.272× |
 
 ### spectral norm by power method — large, scale 500
 
