@@ -15437,6 +15437,64 @@ inline void unroll_small_constant_loops(Module& module) {
     for (auto& function : module.functions) unroll_small_constant_loops(function);
 }
 
+// Loop unrolling replaces induction-variable reads with constants, but the
+// flattened indices derived from those values still pass through local slots.
+// Propagate adjacent constant stores inside each straight-line basic block so
+// fixed-vector accesses can become direct offsets in the native backend.  All
+// control-flow boundaries clear the facts, keeping the pass conservative.
+inline void propagate_basic_block_constants(Function& function) {
+    for (std::size_t pass = 0; pass <= function.locals.size(); ++pass) {
+        bool changed = false;
+        std::map<std::uint32_t, double> constants;
+        for (std::size_t position = 0; position < function.instructions.size(); ++position) {
+            auto& instruction = function.instructions[position];
+            if (instruction.opcode == Opcode::Label ||
+                instruction.opcode == Opcode::Jump ||
+                instruction.opcode == Opcode::JumpIfFalse ||
+                instruction.opcode == Opcode::JumpIfTrue ||
+                instruction.opcode == Opcode::ReturnF64 ||
+                instruction.opcode == Opcode::ReturnValues) {
+                constants.clear();
+                continue;
+            }
+            if (instruction.opcode == Opcode::LoadLocal) {
+                const auto found = constants.find(instruction.index);
+                if (found != constants.end()) {
+                    instruction = Instruction{};
+                    instruction.opcode = Opcode::PushF64;
+                    instruction.f64 = found->second;
+                    changed = true;
+                }
+                continue;
+            }
+            if (instruction.opcode == Opcode::StoreLocal) {
+                if (position > 0u &&
+                    function.instructions[position - 1u].opcode == Opcode::PushF64) {
+                    constants[instruction.index] =
+                        function.instructions[position - 1u].f64;
+                } else {
+                    constants.erase(instruction.index);
+                }
+                continue;
+            }
+            if (instruction.opcode == Opcode::StoreF64LocalsIndex) {
+                for (std::uint32_t offset = 0; offset < instruction.argument_count; ++offset) {
+                    constants.erase(instruction.index + offset);
+                }
+            }
+        }
+        if (!changed) return;
+    }
+    throw LoweringFailure("basic-block constant propagation did not converge");
+}
+
+inline void propagate_basic_block_constants(Module& module) {
+    propagate_basic_block_constants(module.entry);
+    for (auto& function : module.functions) {
+        propagate_basic_block_constants(function);
+    }
+}
+
 inline void fold_constant_numeric_expressions(Function& function) {
     for (;;) {
         bool changed = false;
@@ -15508,6 +15566,7 @@ inline Module lower(const vf::JsonValue& typed_ir) {
     propagate_constant_numeric_parameters(lowered);
     propagate_constant_numeric_locals(lowered);
     unroll_small_constant_loops(lowered);
+    propagate_basic_block_constants(lowered);
     fold_constant_numeric_expressions(lowered);
     // Constant propagation can turn a parameter-fed numeric local into a
     // provably integral induction variable. Re-run the representation analysis

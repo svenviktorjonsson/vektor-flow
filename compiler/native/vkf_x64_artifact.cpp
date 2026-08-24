@@ -5274,8 +5274,21 @@ private:
         unsigned stack_depth = 0;
         std::map<std::uint32_t, std::size_t> labels;
         std::vector<MachineBranchPatch> branches;
+        const auto static_fixed_index = [](
+            const vkf::machine_ir::Instruction& value,
+            const vkf::machine_ir::Instruction& access
+        ) -> std::optional<std::uint32_t> {
+            if (value.opcode != vkf::machine_ir::Opcode::PushF64 ||
+                !access.index_is_integral || access.may_error ||
+                !std::isfinite(value.f64) || value.f64 < 0.0 ||
+                value.f64 != std::floor(value.f64) ||
+                value.f64 >= static_cast<double>(access.argument_count)) {
+                return std::nullopt;
+            }
+            return static_cast<std::uint32_t>(value.f64);
+        };
         struct FusedOperand {
-            enum class Kind { Local, Constant, ProvenFixedIndex } kind = Kind::Local;
+            enum class Kind { Local, Constant, ProvenFixedIndex, StaticFixedIndex } kind = Kind::Local;
             const vkf::machine_ir::Instruction* value = nullptr;
             const vkf::machine_ir::Instruction* index = nullptr;
             std::size_t next = 0;
@@ -5295,6 +5308,15 @@ private:
                     };
                 }
             }
+            if (first.opcode == Opcode::PushF64 && position + 1 < function.instructions.size()) {
+                const auto& indexed = function.instructions[position + 1];
+                if (indexed.opcode == Opcode::LoadF64LocalsIndex &&
+                    static_fixed_index(first, indexed)) {
+                    return FusedOperand{
+                        FusedOperand::Kind::StaticFixedIndex, &first, &indexed, position + 2
+                    };
+                }
+            }
             if (first.opcode == Opcode::LoadLocal) {
                 return FusedOperand{FusedOperand::Kind::Local, &first, nullptr, position + 1};
             }
@@ -5306,6 +5328,14 @@ private:
         const auto emit_fused_operand = [&](const FusedOperand& operand, unsigned destination) {
             if (operand.kind == FusedOperand::Kind::Constant) {
                 emit_number(operand.value->f64, destination);
+                return;
+            }
+            if (operand.kind == FusedOperand::Kind::StaticFixedIndex) {
+                const auto index = static_fixed_index(*operand.value, *operand.index);
+                if (!index || operand.index->index + *index >= frame.local_count) {
+                    throw BackendFailure("invalid static x64 fixed-vector index");
+                }
+                load_local(operand.index->index + *index, destination);
                 return;
             }
             if (operand.value->index >= frame.local_count) {
@@ -5341,7 +5371,7 @@ private:
             }
         };
         struct ExpressionNode {
-            enum class Kind { Local, Constant, ProvenFixedIndex, Binary, Sqrt } kind = Kind::Local;
+            enum class Kind { Local, Constant, ProvenFixedIndex, StaticFixedIndex, Binary, Sqrt } kind = Kind::Local;
             vkf::machine_ir::Opcode opcode = vkf::machine_ir::Opcode::Drop;
             const vkf::machine_ir::Instruction* value = nullptr;
             const vkf::machine_ir::Instruction* index = nullptr;
@@ -5372,6 +5402,21 @@ private:
                         index_upper_bound_proven[position + 1]) {
                         plan.nodes.push_back({
                             ExpressionNode::Kind::ProvenFixedIndex, Opcode::LoadF64LocalsIndex,
+                            &instruction, &indexed, 0, 0
+                        });
+                        values.push_back(plan.nodes.size() - 1);
+                        position += 2;
+                        continue;
+                    }
+                }
+                if (instruction.opcode == Opcode::PushF64 &&
+                    position + 1 < function.instructions.size()) {
+                    const auto& indexed = function.instructions[position + 1];
+                    if (indexed.opcode == Opcode::LoadF64LocalsIndex &&
+                        static_fixed_index(instruction, indexed)) {
+                        plan.nodes.push_back({
+                            ExpressionNode::Kind::StaticFixedIndex,
+                            Opcode::LoadF64LocalsIndex,
                             &instruction, &indexed, 0, 0
                         });
                         values.push_back(plan.nodes.size() - 1);
@@ -5437,8 +5482,11 @@ private:
                 if (instruction.opcode == Opcode::StoreF64LocalsIndex && values.size() == 2 &&
                     instruction.index_is_integral && instruction.index_local &&
                     index_lower_bound_proven[position] && index_upper_bound_proven[position] &&
-                    plan.nodes[values.front()].kind == ExpressionNode::Kind::Local &&
-                    plan.nodes[values.front()].value->index == *instruction.index_local) {
+                    ((plan.nodes[values.front()].kind == ExpressionNode::Kind::Local &&
+                      plan.nodes[values.front()].value->index == *instruction.index_local) ||
+                     (plan.nodes[values.front()].kind == ExpressionNode::Kind::Constant &&
+                      static_fixed_index(
+                          *plan.nodes[values.front()].value, instruction)))) {
                     plan.root = values.back();
                     plan.store_position = position;
                     plan.indexed_store = &instruction;
@@ -5473,7 +5521,10 @@ private:
                 }
             }
             if (plan.indexed_store) {
-                add_needed_index(plan.nodes[plan.indexed_store_local_node].value->index);
+                const auto& index_node = plan.nodes[plan.indexed_store_local_node];
+                if (index_node.kind == ExpressionNode::Kind::Local) {
+                    add_needed_index(index_node.value->index);
+                }
             }
             if (needed_indices.size() > expression_index_cache.size()) {
                 expression_index_cache = {};
@@ -5520,7 +5571,17 @@ private:
                         return;
                     }
                     if (node.kind == ExpressionNode::Kind::Local ||
-                        node.kind == ExpressionNode::Kind::ProvenFixedIndex) {
+                        node.kind == ExpressionNode::Kind::ProvenFixedIndex ||
+                        node.kind == ExpressionNode::Kind::StaticFixedIndex) {
+                        if (node.kind == ExpressionNode::Kind::StaticFixedIndex) {
+                            const auto index = static_fixed_index(*node.value, *node.index);
+                            if (!index || node.index->index + *index >= frame.local_count) {
+                                throw BackendFailure(
+                                    "invalid static expression x64 fixed-vector index");
+                            }
+                            load_local(node.index->index + *index, destination);
+                            return;
+                        }
                         if (node.value->index >= frame.local_count) {
                             throw BackendFailure("invalid expression x64 local slot");
                         }
@@ -5603,6 +5664,19 @@ private:
                 return;
             }
             const auto& index_node = plan.nodes[plan.indexed_store_local_node];
+            if (index_node.kind == ExpressionNode::Kind::Constant) {
+                const auto index = static_fixed_index(
+                    *index_node.value, *plan.indexed_store);
+                if (!index || plan.indexed_store->index + *index >= frame.local_count) {
+                    throw BackendFailure("invalid static x64 fixed-vector store index");
+                }
+                const auto local = plan.indexed_store->index + *index;
+                store_local(local, 0);
+                for (auto& cached : expression_index_cache) {
+                    if (cached == local) cached.reset();
+                }
+                return;
+            }
             code_.raw({0x48, 0x8d, 0x85});
             code_.i32(frame.displacement(plan.indexed_store->index));
             const auto cached = cached_slot(index_node.value->index);
