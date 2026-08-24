@@ -7902,11 +7902,19 @@ inline ValueLayout lower_expression(
                     op != "EXACT_EQ" && op != "NE" && op != "NEQ") {
                     throw LoweringFailure("string multisets support +, &, -, //, and % count operators");
                 }
-                const auto right_temporary = builder.add_borrowed_temporary(right);
+                const bool owns_right = expression_transfers_aggregate_value(
+                    right_expression, signatures);
+                const bool owns_left = expression_transfers_aggregate_value(
+                    left_expression, signatures);
+                const auto right_temporary = owns_right
+                    ? builder.add_owned_temporary(right)
+                    : builder.add_borrowed_temporary(right);
                 for (std::uint32_t component = right.width; component > 0; --component) {
                     emit_store_local_component(builder, right_temporary + component - 1u);
                 }
-                const auto left_temporary = builder.add_borrowed_temporary(left);
+                const auto left_temporary = owns_left
+                    ? builder.add_owned_temporary(left)
+                    : builder.add_borrowed_temporary(left);
                 for (std::uint32_t component = left.width; component > 0; --component) {
                     emit_store_local_component(builder, left_temporary + component - 1u);
                 }
@@ -8002,10 +8010,10 @@ inline ValueLayout lower_expression(
                     verify_entries(right_temporary, right, left_temporary, left);
                     emit_load_local_component(builder, truth);
                     if (op != "EXACT_EQ") builder.emit({Opcode::LogicalNotF64});
-                    if (expression_transfers_aggregate_value(left_expression, signatures)) {
+                    if (owns_left) {
                         emit_release_layout_local(builder, left_temporary, left);
                     }
-                    if (expression_transfers_aggregate_value(right_expression, signatures)) {
+                    if (owns_right) {
                         emit_release_layout_local(builder, right_temporary, right);
                     }
                     return {};
@@ -8099,10 +8107,10 @@ inline ValueLayout lower_expression(
                     }
                 }
                 const auto normalized = emit_normalize_string_multiset(builder, result_layout);
-                if (expression_transfers_aggregate_value(left_expression, signatures)) {
+                if (owns_left) {
                     emit_release_layout_local(builder, left_temporary, left);
                 }
-                if (expression_transfers_aggregate_value(right_expression, signatures)) {
+                if (owns_right) {
                     emit_release_layout_local(builder, right_temporary, right);
                 }
                 return normalized;
