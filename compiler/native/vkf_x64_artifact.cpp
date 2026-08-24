@@ -9052,26 +9052,10 @@ TuningResult tune_machine_code(
         candidates[index].correct = representative.correct;
         candidates[index].tested = representative.tested;
     }
-    const auto enabled_switch_count = [](std::uint32_t value) {
-        std::uint32_t count = 0;
-        while (value != 0) {
-            value &= value - 1u;
-            ++count;
-        }
-        return count;
-    };
-    std::size_t selected_alias = winner;
-    for (std::size_t index = 0; index < candidates.size(); ++index) {
-        if (candidates[index].representative != winner) continue;
-        const auto candidate_mask = vkf::adaptive_optimizer::mask(candidates[index].policy);
-        const auto selected_mask = vkf::adaptive_optimizer::mask(candidates[selected_alias].policy);
-        if (enabled_switch_count(candidate_mask) < enabled_switch_count(selected_mask) ||
-            (enabled_switch_count(candidate_mask) == enabled_switch_count(selected_mask) &&
-             candidate_mask < selected_mask)) {
-            selected_alias = index;
-        }
-    }
-    result.policy = candidates[selected_alias].policy;
+    // Cache the policy whose code was actually executed and validated.  A
+    // byte-identical alias can depend on target features or later emitter
+    // changes and is not a safe recipe for reconstructing the tested code.
+    result.policy = candidates[winner].policy;
     result.code = candidates[winner].code;
     result.tuned = !candidates[winner].samples_ns.empty();
     for (const auto& candidate : candidates) {
