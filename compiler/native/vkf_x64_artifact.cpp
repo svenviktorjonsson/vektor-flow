@@ -4052,19 +4052,7 @@ private:
                         throw BackendFailure("duplicate integer x64 label");
                     }
                     const auto width = static_cast<std::uint32_t>(bound.f64);
-                    std::uint32_t offset = 0;
-                    for (; offset + 1u < width; offset += 2u) {
-                        // Fixed vectors use eight-byte slots. Copy two slots
-                        // per instruction without introducing AVX/SSE domain
-                        // transitions in otherwise scalar integer kernels.
-                        code_.raw({0xf3, 0x0f, 0x6f, 0x85});
-                        code_.i32(frame.displacement(
-                            source_load.index + offset + 1u));
-                        code_.raw({0xf3, 0x0f, 0x7f, 0x85});
-                        code_.i32(frame.displacement(
-                            destination_store.index + offset + 1u));
-                    }
-                    for (; offset < width; ++offset) {
+                    for (std::uint32_t offset = 0; offset < width; ++offset) {
                         code_.raw({0x48, 0x8b, 0x85});
                         code_.i32(frame.displacement(source_load.index + offset));
                         code_.raw({0x48, 0x89, 0x85});
@@ -6014,6 +6002,122 @@ private:
                     at[start + 99u].index != magnitude ||
                     at[start + 109u].index != magnitude) {
                     return std::nullopt;
+                }
+
+                const auto first_mass_index = static_fixed_index(
+                    at[start + 40u], at[start + 41u]);
+                const auto second_mass_index = static_fixed_index(
+                    at[start + 78u], at[start + 79u]);
+                if (static_first && static_second &&
+                    first_mass_index && second_mass_index) {
+                    const auto require_index = [](std::uint32_t index,
+                                                  std::uint32_t width,
+                                                  const char* message) {
+                        if (index >= width) throw BackendFailure(message);
+                    };
+                    require_index(*static_first,
+                                  at[start + 13u].argument_count,
+                                  "invalid first static vector3 index");
+                    require_index(*static_second,
+                                  at[start + 15u].argument_count,
+                                  "invalid second static vector3 index");
+                    require_index(*first_mass_index,
+                                  at[start + 41u].argument_count,
+                                  "invalid first static mass index");
+                    require_index(*second_mass_index,
+                                  at[start + 79u].argument_count,
+                                  "invalid second static mass index");
+                    const auto load_pair = [&](std::uint32_t base,
+                                               std::uint32_t index,
+                                               unsigned destination) {
+                        code_.raw({0x66, 0x0f, 0x10,
+                                   static_cast<unsigned>(
+                                       0x85u + destination * 8u)});
+                        code_.i32(frame.displacement(base + index + 1u));
+                    };
+                    const auto store_pair = [&](std::uint32_t base,
+                                                std::uint32_t index,
+                                                unsigned source) {
+                        code_.raw({0x66, 0x0f, 0x11,
+                                   static_cast<unsigned>(
+                                       0x85u + source * 8u)});
+                        code_.i32(frame.displacement(base + index + 1u));
+                    };
+
+                    // Local slots descend in address order; these packed
+                    // values are [y, x]. Keep that order throughout so the
+                    // interaction needs one load/store for both lanes.
+                    load_pair(position_x, *static_first, 0u);
+                    load_pair(position_x, *static_second, 3u);
+                    code_.raw({0x66, 0x0f, 0x5c, 0xc3});
+                    load_local(position_x + *static_first + 2u, 2u);
+                    load_local(position_x + *static_second + 2u, 3u);
+                    code_.raw({0xf2, 0x0f, 0x5c, 0xd3,
+                               0x66, 0x0f, 0x28, 0xd8,
+                               0x66, 0x0f, 0x59, 0xdb,
+                               0x66, 0x0f, 0x7c, 0xdb});
+                    if (policy_.fused_multiply_add &&
+                        vkf::target::host_x64_supports_fma()) {
+                        code_.raw({0xc4, 0xe2, 0xe9, 0xb9, 0xda});
+                    } else {
+                        code_.raw({0x66, 0x0f, 0x28, 0xe2,
+                                   0xf2, 0x0f, 0x59, 0xe2,
+                                   0xf2, 0x0f, 0x58, 0xdc});
+                    }
+                    code_.raw({0x66, 0x0f, 0x28, 0xe3,
+                               0xf2, 0x0f, 0x51, 0xe4,
+                               0xf2, 0x0f, 0x59, 0xdc});
+                    emit_number(at[start + 30u].f64, 4u);
+                    code_.raw({0xf2, 0x0f, 0x5e, 0xe3});
+
+                    const auto emit_static_update = [&]
+                        (std::size_t mass_position,
+                         std::size_t affine_position,
+                         std::uint32_t vector_index,
+                         std::uint32_t mass_index,
+                         bool add) {
+                        const auto& mass = at[mass_position + 1u];
+                        load_local(mass.index + mass_index, 6u);
+                        const auto velocity = at[affine_position + 2u].index;
+                        load_pair(velocity, vector_index, 3u);
+                        code_.raw({0x66, 0x0f, 0x28, 0xe8,
+                                   0x66, 0x0f, 0x28, 0xfe,
+                                   0x66, 0x0f, 0x14, 0xff,
+                                   0x66, 0x0f, 0x59, 0xef,
+                                   0x66, 0x0f, 0x28, 0xfc,
+                                   0x66, 0x0f, 0x14, 0xff});
+                        if (policy_.fused_multiply_add &&
+                            vkf::target::host_x64_supports_fma()) {
+                            code_.raw({0xc4, 0xe2, 0xd1,
+                                       add ? 0xb8u : 0xbcu, 0xdf});
+                        } else {
+                            code_.raw({0x66, 0x0f, 0x59, 0xef,
+                                       0x66, 0x0f,
+                                       add ? 0x58u : 0x5cu, 0xdd});
+                        }
+                        store_pair(velocity, vector_index, 3u);
+                        const auto velocity_z =
+                            at[affine_position + 22u].index + vector_index;
+                        load_local(velocity_z, 3u);
+                        code_.raw({0x66, 0x0f, 0x28, 0xfa,
+                                   0xf2, 0x0f, 0x59, 0xfe});
+                        if (policy_.fused_multiply_add &&
+                            vkf::target::host_x64_supports_fma()) {
+                            code_.raw({0xc4, 0xe2, 0xc1,
+                                       add ? 0xb9u : 0xbdu, 0xdc});
+                        } else {
+                            code_.raw({0xf2, 0x0f, 0x59, 0xfc,
+                                       0xf2, 0x0f,
+                                       add ? 0x58u : 0x5cu, 0xdf});
+                        }
+                        store_local(velocity_z, 3u);
+                    };
+                    emit_static_update(start + 40u, start + 45u,
+                                       *static_first, *first_mass_index, false);
+                    emit_static_update(start + 78u, start + 83u,
+                                       *static_second, *second_mass_index, true);
+                    expression_index_cache = {};
+                    return start + 112u;
                 }
 
                 expression_index_cache = {};
