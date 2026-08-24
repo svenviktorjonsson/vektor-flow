@@ -14,6 +14,10 @@ struct ArtifactResult {
     std::filesystem::path manifest_path;
     std::filesystem::path machine_ir_path;
     std::size_t code_bytes = 0;
+    std::string optimizer_policy;
+    std::string machine_code_fingerprint;
+    double optimizer_ms = 0.0;
+    bool optimizer_cache_hit = false;
 };
 
 struct SupportResult {

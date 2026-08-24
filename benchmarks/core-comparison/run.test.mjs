@@ -10,6 +10,7 @@ import {
   parseOptions,
   seriesStats,
   vkfCompileArguments,
+  vkfRuntimePreparationArguments,
   valuesAgree
 } from './run.mjs';
 
@@ -19,6 +20,19 @@ test('measured VKF compilation forces a fresh optimizer search', () => {
     '--optimizer-policy', 'tune',
     '--source', '/tmp/program.vkf'
   ]);
+});
+
+test('runtime proof reuses the measured optimizer policy', () => {
+  assert.deepEqual(vkfRuntimePreparationArguments('/tmp/program.vkf', 'mask-c8'), [
+    '--aot',
+    '--diagnostics',
+    '--optimizer-policy', 'mask-c8',
+    '--source', '/tmp/program.vkf'
+  ]);
+  assert.throws(
+    () => vkfRuntimePreparationArguments('/tmp/program.vkf', 'tune'),
+    /invalid measured VKF optimizer policy/
+  );
 });
 
 test('relative kernel gate evaluates each same-host language pair independently', () => {

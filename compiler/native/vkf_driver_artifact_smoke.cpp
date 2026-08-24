@@ -1689,6 +1689,10 @@ int main(int argc, char** argv) {
         std::string status;
         std::string manifest_path;
         std::string artifact_path;
+        std::string optimizer_policy;
+        std::string machine_code_fingerprint;
+        double optimizer_ms = 0.0;
+        bool optimizer_cache_hit = false;
         if (args.aot) {
             std::optional<vf::JsonValue> parsed_direct_ir;
             if (!integrated_typed_ir) parsed_direct_ir = vf::parse_json(typed_ir.stdout_text);
@@ -1713,6 +1717,10 @@ int main(int argc, char** argv) {
                 status = "compiled";
                 manifest_path = direct.manifest_path.string();
                 artifact_path = direct.artifact_path.string();
+                optimizer_policy = direct.optimizer_policy;
+                machine_code_fingerprint = direct.machine_code_fingerprint;
+                optimizer_ms = direct.optimizer_ms;
+                optimizer_cache_hit = direct.optimizer_cache_hit;
             } catch (const vkf_x64_backend::Unsupported& unsupported) {
                 fallback_reason = unsupported.what();
                 if (args.fallback_artifact.empty()) {
@@ -1849,6 +1857,12 @@ int main(int argc, char** argv) {
         summary["diagnostics_emitted"] = vf::JsonValue(materialize_frontend);
         if (materialize_frontend) summary["ast_path"] = vf::JsonValue(ast_path.string());
         summary["artifact_ms"] = vf::JsonValue(std::chrono::duration<double, std::milli>(artifact_finished - artifact_started).count());
+        if (!optimizer_policy.empty()) summary["optimizer_policy"] = vf::JsonValue(optimizer_policy);
+        if (!machine_code_fingerprint.empty()) {
+            summary["machine_code_fingerprint"] = vf::JsonValue(machine_code_fingerprint);
+        }
+        summary["optimizer_ms"] = vf::JsonValue(optimizer_ms);
+        summary["optimizer_cache_hit"] = vf::JsonValue(optimizer_cache_hit);
 #ifdef VKF_NATIVE_FRONTEND_LIBRARY
         summary["frontend_mode"] = vf::JsonValue(args.external_frontend ? "external-tools" : "integrated");
         summary["stdlib_ast_cache_hits"] = static_cast<double>(stdlib_cache_stats.ast_hits);

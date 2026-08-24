@@ -9357,6 +9357,11 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         build_dir / "machine-ir.json",
         code.size(),
     };
+    result.optimizer_policy = vkf::adaptive_optimizer::policy_from_mask(
+        vkf::adaptive_optimizer::mask(selected_policy)).name;
+    result.machine_code_fingerprint = machine_code_hash(code);
+    result.optimizer_ms = tuning.elapsed_ms;
+    result.optimizer_cache_hit = tuning.cache_hit;
     std::filesystem::create_directories(result.artifact_path.parent_path());
     write_tuning_profile(optimizer_profile_path, tuning);
     if (emit_debug_files) std::filesystem::create_directories(build_dir);

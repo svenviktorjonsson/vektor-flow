@@ -418,6 +418,18 @@ export function vkfCompileArguments(source) {
   ];
 }
 
+export function vkfRuntimePreparationArguments(source, optimizerPolicy) {
+  if (!/^mask-[0-9a-f]+$|^auto$/.test(optimizerPolicy)) {
+    throw new Error(`invalid measured VKF optimizer policy: ${optimizerPolicy}`);
+  }
+  return [
+    '--aot',
+    '--diagnostics',
+    '--optimizer-policy', optimizerPolicy,
+    '--source', source
+  ];
+}
+
 function interleavedNativeRuntimeSamples(entries, benchmarkCase, warmups, runs) {
   // Rotate languages in short steady-state batches. Five local warmups keep
   // mapping/page costs out of the samples; five measured calls bound the time
@@ -520,6 +532,9 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
         return {
           ...result,
           internalElapsedMs: Number(summary.total_ms),
+          optimizerElapsedMs: Number(summary.optimizer_ms),
+          optimizerPolicy: String(summary.optimizer_policy),
+          machineCodeFingerprint: String(summary.machine_code_fingerprint),
           runtimeArtifact: summary.artifact_path,
           artifactFallback: Boolean(summary.artifact_fallback),
           artifactFallbackReason: summary.artifact_fallback_reason || ''
@@ -529,15 +544,20 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
         return runCommand(output, []);
       },
       runtimeBatch: nativeRuntimeBatch,
-      prepareNativeRuntime(source) {
-        const result = runCommand(nativeCompiler.driver, [
-          '--aot',
-          '--diagnostics',
-          '--source', source
-        ]);
+      prepareNativeRuntime(source, optimizerPolicy) {
+        const result = runCommand(
+          nativeCompiler.driver,
+          vkfRuntimePreparationArguments(source, optimizerPolicy)
+        );
         const summary = JSON.parse(result.stdout);
         const manifest = JSON.parse(readFileSync(summary.manifest_path, 'utf8'));
-        return { code: manifest.code_path, data: manifest.data_path };
+        return {
+          code: manifest.code_path,
+          data: manifest.data_path,
+          executable: summary.artifact_path,
+          optimizerPolicy: manifest.empirical_tuning.selected_policy,
+          machineCodeFingerprint: summary.machine_code_fingerprint
+        };
       },
       nativeRuntimeBatch: nativeEntryRuntimeBatch
     }),
@@ -759,7 +779,10 @@ function compileLanguageCase(language, benchmarkCase, options, caseWork) {
   const { source, template } = materializeSource(language, benchmarkCase, caseWork);
   const samples = [];
   const internalCompileSamples = [];
+  const optimizerSamples = [];
   let runtimeArtifact = null;
+  let optimizerPolicy = null;
+  let machineCodeFingerprint = null;
   let artifactFallback = false;
   let artifactFallbackReason = '';
   const total = options.compileWarmups + options.compileRuns;
@@ -787,14 +810,24 @@ function compileLanguageCase(language, benchmarkCase, options, caseWork) {
       if (Number.isFinite(result.internalElapsedMs)) {
         internalCompileSamples.push(result.internalElapsedMs);
       }
+      if (Number.isFinite(result.optimizerElapsedMs)) {
+        optimizerSamples.push(result.optimizerElapsedMs);
+      }
     }
     runtimeArtifact = result.runtimeArtifact || output;
+    optimizerPolicy = result.optimizerPolicy || null;
+    machineCodeFingerprint = result.machineCodeFingerprint || null;
     artifactFallback = result.artifactFallback || false;
     artifactFallbackReason = result.artifactFallbackReason || '';
   }
   const nativeRuntimeArtifact = language.prepareNativeRuntime
-    ? language.prepareNativeRuntime(source)
+    ? language.prepareNativeRuntime(source, optimizerPolicy)
     : null;
+  if (nativeRuntimeArtifact?.executable) {
+    runtimeArtifact = nativeRuntimeArtifact.executable;
+    optimizerPolicy = nativeRuntimeArtifact.optimizerPolicy;
+    machineCodeFingerprint = nativeRuntimeArtifact.machineCodeFingerprint;
+  }
   return {
     source,
     sourceTemplate: relative(repoRoot, template).replaceAll('\\', '/'),
@@ -807,8 +840,11 @@ function compileLanguageCase(language, benchmarkCase, options, caseWork) {
           ? nativeRuntimeArtifact
           : nativeRuntimeArtifact.code)
       : null,
+    optimizerPolicy,
+    machineCodeFingerprint,
     samples,
     internalCompileSamples: internalCompileSamples.length > 0 ? internalCompileSamples : null,
+    optimizerSamples: optimizerSamples.length > 0 ? optimizerSamples : null,
     artifactFallback,
     artifactFallbackReason
   };
@@ -923,12 +959,23 @@ function createReport(payload) {
   const internalCompileResults = payload.results.filter((result) => result.internalCompile);
   const internalCompileTable = internalCompileResults.length === 0 ? [] : [
     '',
-    '## VKF internal compiler-core time (ms)',
+    '## VKF internal compiler-core time, including optimizer (ms)',
     '',
     '| operation | data | size | count | VKF |',
     '| --- | --- | --- | ---: | ---: |',
     ...internalCompileResults.map((result) =>
       `| ${result.operation} | ${result.data} | ${result.size} | ${result.count} | ${meanStd(result.internalCompile)} |`
+    )
+  ];
+  const optimizerResults = payload.results.filter((result) => result.optimizer);
+  const optimizerTable = optimizerResults.length === 0 ? [] : [
+    '',
+    '## VKF empirical optimizer time within compilation (ms)',
+    '',
+    '| operation | data | size | count | VKF |',
+    '| --- | --- | --- | ---: | ---: |',
+    ...optimizerResults.map((result) =>
+      `| ${result.operation} | ${result.data} | ${result.size} | ${result.count} | ${meanStd(result.optimizer)} |`
     )
   ];
   const hasNativeRuntime = payload.results.some((result) => result.nativeRuntime);
@@ -943,6 +990,7 @@ function createReport(payload) {
     '',
     markdownTable(payload, 'runtime'),
     ...internalCompileTable,
+    ...optimizerTable,
     ...(hasNativeRuntime ? ['', markdownTable(payload, 'nativeRuntime')] : []),
     ''
   ].join('\n');
@@ -1119,7 +1167,9 @@ export function main(argv = process.argv.slice(2)) {
         nativeRuntime.value, runtime.value, benchmarkCase.tolerance
       )) {
         throw new Error(
-          `${language.id}/${benchmarkCase.id} raw result mismatch: executable=${runtime.value}, entry=${nativeRuntime.value}`
+          `${language.id}/${benchmarkCase.id} raw result mismatch: executable=${runtime.value}, ` +
+          `entry=${nativeRuntime.value}, policy=${compiled.optimizerPolicy || 'n/a'}, ` +
+          `code=${compiled.machineCodeFingerprint || 'n/a'}`
         );
       }
       const result = Object.freeze({
@@ -1145,9 +1195,12 @@ export function main(argv = process.argv.slice(2)) {
         internalCompile: compiled.internalCompileSamples
           ? seriesStats(compiled.internalCompileSamples)
           : null,
+        optimizer: compiled.optimizerSamples ? seriesStats(compiled.optimizerSamples) : null,
         runtime: seriesStats(runtime.samples),
         nativeRuntime: nativeRuntime ? seriesStats(nativeRuntime.samples) : null,
         nativeCodeSha256: compiled.nativeCodeSha256,
+        optimizerPolicy: compiled.optimizerPolicy,
+        machineCodeFingerprint: compiled.machineCodeFingerprint,
         value: runtime.value
       });
       caseResults.push(result);
