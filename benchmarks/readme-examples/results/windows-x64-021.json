@@ -1,0 +1,3883 @@
+{
+  "schema": 1,
+  "version": "0.2.1",
+  "options": {
+    "compiler": "D:\\a\\vektor-flow\\vektor-flow\\build\\native-compiler-clang\\bin\\vkf-strict.exe",
+    "compileRuns": 10,
+    "compileWarmups": 0,
+    "runs": 10,
+    "warmups": 0,
+    "output": "windows-x64-021"
+  },
+  "conditions": {
+    "measuredAtUtc": "2026-08-24T12:57:36.182Z",
+    "osPlatform": "win32",
+    "osRelease": "10.0.26100",
+    "architecture": "x64",
+    "cpuModel": "AMD EPYC 7763 64-Core Processor",
+    "logicalCpuCount": 4,
+    "nodeVersion": "v22.23.2",
+    "compilerIdentity": "VKF 0.2.1",
+    "compilerVersion": "0.2.1",
+    "compilerPath": "D:\\a\\vektor-flow\\vektor-flow\\build\\native-compiler-clang\\bin\\vkf-strict.exe",
+    "compilerBytes": 4310528,
+    "compilerSha256": "57a1345207d192f64cd0adaf9af18bad5977071362e7d75b253bba17e26ea2fc",
+    "clock": "Node performance.now()",
+    "compileModel": "one persistent native compiler process; fresh source path and emitted artifact for every sample",
+    "compileIncludes": "source read, lex, parse, native stdlib resolution, typed IR, machine lowering, executable emission",
+    "compileExcludes": "compiler process startup",
+    "runtimeModel": "fresh operating-system process for every sample, with executable loading and stdout/stderr capture",
+    "runtimeIncludes": "process startup, generated program work, output capture, process teardown",
+    "runtimeWorkingDirectory": "one isolated temporary directory per example, reused across its runs",
+    "measuredCompileRunsPerExample": 10,
+    "compileWarmupsPerExample": 0,
+    "measuredRuntimeRunsPerExample": 10,
+    "runtimeWarmupsPerExample": 0
+  },
+  "exampleCount": 61,
+  "examples": [
+    {
+      "path": "core/01-bindings.vkf",
+      "sourceBytes": 73,
+      "sourceSha256": "1a692e29ebcfe2cbdb3486cc44bf390ff39e4b0f11732942a86b218aeb265324",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 2.82006,
+        "medianMs": 2.74325,
+        "minMs": 2.5364,
+        "maxMs": 3.8094,
+        "p95Ms": 3.8094,
+        "stddevMs": 0.365799
+      },
+      "compileSamplesMs": [
+        3.8094,
+        2.5812,
+        2.7198,
+        2.5708,
+        2.5364,
+        2.7867,
+        2.7332,
+        2.8659,
+        2.8439,
+        2.7533
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.25828,
+        "medianMs": 16.4203,
+        "minMs": 15.9099,
+        "maxMs": 24.4159,
+        "p95Ms": 24.4159,
+        "stddevMs": 2.554107
+      },
+      "runtimeSamplesMs": [
+        24.4159,
+        16.9179,
+        16.0763,
+        15.9099,
+        16.4307,
+        16.4762,
+        16.1628,
+        16.3157,
+        16.4099,
+        17.4675
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 6,
+        "sha256": "8ef9de27cf321edf99829555463b08b27750fe114d01053a39c7a6ec60c2f73c",
+        "utf8": "7\r\n6\r\n",
+        "base64": "Nw0KNg0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/02-bind-expression.vkf",
+      "sourceBytes": 27,
+      "sourceSha256": "3053708ebf0df7c8eb9a3304dca3c081224269beba850fb61f5ec0185c9f1000",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 2.61945,
+        "medianMs": 2.23315,
+        "minMs": 2.0418,
+        "maxMs": 5.6595,
+        "p95Ms": 5.6595,
+        "stddevMs": 1.08815
+      },
+      "compileSamplesMs": [
+        2.295,
+        2.4747,
+        2.1676,
+        2.6375,
+        2.1713,
+        2.5445,
+        2.1601,
+        2.0425,
+        5.6595,
+        2.0418
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.19172,
+        "medianMs": 16.4952,
+        "minMs": 16.128,
+        "maxMs": 23.8361,
+        "p95Ms": 23.8361,
+        "stddevMs": 2.344334
+      },
+      "runtimeSamplesMs": [
+        23.8361,
+        16.3895,
+        16.7165,
+        16.128,
+        16.2117,
+        16.6009,
+        16.6946,
+        16.3472,
+        16.2995,
+        16.6932
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 6,
+        "sha256": "722b3a2c262caef957158f2efe473dad62c49b3ed1f73593bf789916eb5d799e",
+        "utf8": "3\r\n4\r\n",
+        "base64": "Mw0KNA0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/03-blocks.vkf",
+      "sourceBytes": 307,
+      "sourceSha256": "35ca3989bcf6fb024c70c15c22234b326790707d6beb470b3cbec02c33414bb7",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 13.81507,
+        "medianMs": 7.7068,
+        "minMs": 6.8645,
+        "maxMs": 45.4853,
+        "p95Ms": 45.4853,
+        "stddevMs": 13.577512
+      },
+      "compileSamplesMs": [
+        8.1019,
+        7.4841,
+        7.6251,
+        7.6704,
+        7.7432,
+        7.9913,
+        32.271,
+        6.8645,
+        45.4853,
+        6.9139
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.28824,
+        "medianMs": 16.4631,
+        "minMs": 16.0614,
+        "maxMs": 21.1587,
+        "p95Ms": 21.1587,
+        "stddevMs": 1.785985
+      },
+      "runtimeSamplesMs": [
+        19.9658,
+        16.0614,
+        17.3861,
+        16.2872,
+        16.3497,
+        21.1587,
+        16.2679,
+        16.5765,
+        16.2073,
+        16.6218
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 42,
+        "sha256": "c9059569507a4ed7e7c4adbf89e047e9ec2194eb22ed762ff83f47a597ff2c0d",
+        "utf8": "hello world\r\nmake_base(x:3, y:4)\r\n3\r\nred\r\n",
+        "base64": "aGVsbG8gd29ybGQNCm1ha2VfYmFzZSh4OjMsIHk6NCkNCjMNCnJlZA0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/04-output-assert.vkf",
+      "sourceBytes": 109,
+      "sourceSha256": "3ca9140686c5ff496850a13aeded6598ac2f806c0c4fe5498402766c66cdae26",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.06714,
+        "medianMs": 2.4403,
+        "minMs": 2.3163,
+        "maxMs": 18.4861,
+        "p95Ms": 18.4861,
+        "stddevMs": 5.068144
+      },
+      "compileSamplesMs": [
+        18.4861,
+        2.4277,
+        2.4529,
+        2.3163,
+        2.3435,
+        2.3382,
+        2.3809,
+        2.5585,
+        2.7131,
+        2.6542
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.92199,
+        "medianMs": 16.75055,
+        "minMs": 16.1354,
+        "maxMs": 19.5039,
+        "p95Ms": 19.5039,
+        "stddevMs": 0.964488
+      },
+      "runtimeSamplesMs": [
+        19.5039,
+        16.9044,
+        17.1546,
+        16.1828,
+        16.7104,
+        16.5123,
+        16.9097,
+        16.4157,
+        16.7907,
+        16.1354
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 4,
+        "sha256": "9e4c59bb9e5ca6ca840eb57555c3f45692474ff6c1379d3579eec60e18667cbe",
+        "utf8": "42\r\n",
+        "base64": "NDINCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/05-tagged-test.vkf",
+      "sourceBytes": 100,
+      "sourceSha256": "02ade7b319df3b88480069ebe5038f6a84953a01c4320e5f48d7fd4c97bc3945",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 2.14383,
+        "medianMs": 2.0609,
+        "minMs": 1.922,
+        "maxMs": 2.5398,
+        "p95Ms": 2.5398,
+        "stddevMs": 0.195584
+      },
+      "compileSamplesMs": [
+        2.5398,
+        2.0643,
+        2.0575,
+        2.3007,
+        2.0122,
+        2.0468,
+        2.367,
+        1.922,
+        2.1368,
+        1.9912
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.85493,
+        "medianMs": 16.42885,
+        "minMs": 15.8832,
+        "maxMs": 19.4966,
+        "p95Ms": 19.4966,
+        "stddevMs": 1.365805
+      },
+      "runtimeSamplesMs": [
+        19.4966,
+        16.4737,
+        16.5451,
+        15.9094,
+        16.384,
+        19.2875,
+        16.6027,
+        15.8832,
+        15.9151,
+        16.052
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/06-primitives.vkf",
+      "sourceBytes": 183,
+      "sourceSha256": "f5c39b28f2f69284ef57ed3b3c81211b139ae87d05bcd03bd8ae6bcc059bae63",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 5.43536,
+        "medianMs": 5.3804,
+        "minMs": 5.1394,
+        "maxMs": 5.917,
+        "p95Ms": 5.917,
+        "stddevMs": 0.267486
+      },
+      "compileSamplesMs": [
+        5.4865,
+        5.7507,
+        5.2026,
+        5.43,
+        5.3308,
+        5.917,
+        5.6737,
+        5.1394,
+        5.2184,
+        5.2045
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.72075,
+        "medianMs": 16.307,
+        "minMs": 15.9626,
+        "maxMs": 24.44,
+        "p95Ms": 24.44,
+        "stddevMs": 2.726256
+      },
+      "runtimeSamplesMs": [
+        20.3695,
+        17.9125,
+        16.2773,
+        16.2686,
+        16.1477,
+        24.44,
+        17.4942,
+        15.9626,
+        16.3367,
+        15.9984
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 23,
+        "sha256": "721c48a68c502c33a24953e8c89828a0ecbdc51ce4def46da34120ba3d121513",
+        "utf8": "true\r\nA\r\n1.5\r\n7\r\nnull\r\n",
+        "base64": "dHJ1ZQ0KQQ0KMS41DQo3DQpudWxsDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/07-reflection.vkf",
+      "sourceBytes": 114,
+      "sourceSha256": "7ff42e32a64ec62f1efc172c8e8a0677aa6d1e0cb8d632f79f1daba7d20ff646",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 8.73329,
+        "medianMs": 5.77925,
+        "minMs": 5.5445,
+        "maxMs": 34.8238,
+        "p95Ms": 34.8238,
+        "stddevMs": 9.170102
+      },
+      "compileSamplesMs": [
+        5.7703,
+        5.7318,
+        6.0161,
+        5.7882,
+        6.0488,
+        5.7209,
+        34.8238,
+        6.2981,
+        5.5445,
+        5.5904
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.16257,
+        "medianMs": 16.3819,
+        "minMs": 16.0232,
+        "maxMs": 19.732,
+        "p95Ms": 19.732,
+        "stddevMs": 1.285183
+      },
+      "runtimeSamplesMs": [
+        19.732,
+        18.2966,
+        16.2898,
+        16.3851,
+        16.2656,
+        18.0301,
+        18.1458,
+        16.3787,
+        16.0788,
+        16.0232
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 68,
+        "sha256": "357e12479afaf454b57cfe2bff455a4015404d7681447d97a0663227f10413de",
+        "utf8": "4\r\n(any) -> int\r\n[int:2]\r\n(NumberType:num, reflected:(any) -> int)\r\n",
+        "base64": "NA0KKGFueSkgLT4gaW50DQpbaW50OjJdDQooTnVtYmVyVHlwZTpudW0sIHJlZmxlY3RlZDooYW55KSAtPiBpbnQpDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/08-strings.vkf",
+      "sourceBytes": 153,
+      "sourceSha256": "3076cced06bb533f776793943b650a73de392068721b1c0f9d7f8be125eb065f",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 5.9337,
+        "medianMs": 5.94995,
+        "minMs": 5.5214,
+        "maxMs": 6.3822,
+        "p95Ms": 6.3822,
+        "stddevMs": 0.243483
+      },
+      "compileSamplesMs": [
+        6.0336,
+        5.9154,
+        5.8582,
+        6.122,
+        5.5214,
+        5.6246,
+        6.0264,
+        6.3822,
+        5.9845,
+        5.8687
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.05181,
+        "medianMs": 16.7657,
+        "minMs": 15.896,
+        "maxMs": 19.9303,
+        "p95Ms": 19.9303,
+        "stddevMs": 1.204101
+      },
+      "runtimeSamplesMs": [
+        19.9303,
+        16.8953,
+        16.147,
+        18.1246,
+        15.896,
+        16.4433,
+        17.0788,
+        16.6361,
+        16.1276,
+        17.2391
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 68,
+        "sha256": "3bd04d34af770ded27964be768109210c61994a41ab2cd16fa24f908d8860a6b",
+        "utf8": "Hej världen\r\nvalue=4.23\r\nsum=5 point=(x:2, y:false) cost=$5\r\n😀\r\n",
+        "base64": "SGVqIHbDpHJsZGVuDQp2YWx1ZT00LjIzDQpzdW09NSBwb2ludD0oeDoyLCB5OmZhbHNlKSBjb3N0PSQ1DQrwn5iADQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/09-tuples-records.vkf",
+      "sourceBytes": 142,
+      "sourceSha256": "0f3e3ed467848ffd14b84adbc15dd88c6d007757c5eedeb1fa648c981ceea7bd",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 3.96264,
+        "medianMs": 3.95645,
+        "minMs": 3.6391,
+        "maxMs": 4.5297,
+        "p95Ms": 4.5297,
+        "stddevMs": 0.26097
+      },
+      "compileSamplesMs": [
+        4.5297,
+        3.9908,
+        3.945,
+        4.1946,
+        3.6828,
+        3.6391,
+        3.9679,
+        4.0416,
+        3.8678,
+        3.7671
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.41672,
+        "medianMs": 16.7208,
+        "minMs": 16.0755,
+        "maxMs": 21.175,
+        "p95Ms": 21.175,
+        "stddevMs": 1.690597
+      },
+      "runtimeSamplesMs": [
+        19.8345,
+        17.1125,
+        16.728,
+        21.175,
+        16.0755,
+        16.5904,
+        16.6337,
+        16.7136,
+        16.1899,
+        17.1141
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 16,
+        "sha256": "22a33ca27f7112254d238df755e89c6286972b627a8991601c4635797f436f6b",
+        "utf8": "12\r\norigin\r\n12\r\n",
+        "base64": "MTINCm9yaWdpbg0KMTINCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/11-vectors.vkf",
+      "sourceBytes": 128,
+      "sourceSha256": "91ba75d0c02154ddf7ec7041b1421c95ee3f83238d0da6d202ef37db6244e7a9",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 5.63157,
+        "medianMs": 5.57345,
+        "minMs": 5.4801,
+        "maxMs": 6.0242,
+        "p95Ms": 6.0242,
+        "stddevMs": 0.170942
+      },
+      "compileSamplesMs": [
+        5.8303,
+        6.0242,
+        5.5551,
+        5.5715,
+        5.6066,
+        5.6608,
+        5.5245,
+        5.4872,
+        5.5754,
+        5.4801
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.96937,
+        "medianMs": 16.48155,
+        "minMs": 15.8927,
+        "maxMs": 20.0534,
+        "p95Ms": 20.0534,
+        "stddevMs": 1.238719
+      },
+      "runtimeSamplesMs": [
+        20.0534,
+        16.8878,
+        16.183,
+        18.0459,
+        15.8927,
+        16.413,
+        17.0365,
+        16.5501,
+        16.3894,
+        16.2419
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 43,
+        "sha256": "5ecd52c0a916e2176f0cb2bc2c9d7b616b8633440c565563d2ca5182b24096ef",
+        "utf8": "[1, 2, 3]\r\n[4, 20, 6]\r\n[7, 7, 7, 7, 9, 9]\r\n",
+        "base64": "WzEsIDIsIDNdDQpbNCwgMjAsIDZdDQpbNywgNywgNywgNywgOSwgOV0NCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/12-vector-concat.vkf",
+      "sourceBytes": 98,
+      "sourceSha256": "6ec65ae4b634d2b85562d3e0b5d9a7f5ca7d781cd1c04ce2c590457eccf1b722",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 5.13176,
+        "medianMs": 5.11095,
+        "minMs": 4.8911,
+        "maxMs": 5.4816,
+        "p95Ms": 5.4816,
+        "stddevMs": 0.202423
+      },
+      "compileSamplesMs": [
+        5.3244,
+        5.074,
+        5.3623,
+        5.0967,
+        4.8911,
+        4.9023,
+        5.4816,
+        5.1306,
+        4.9294,
+        5.1252
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.14485,
+        "medianMs": 16.5601,
+        "minMs": 16.0559,
+        "maxMs": 19.8794,
+        "p95Ms": 19.8794,
+        "stddevMs": 1.351808
+      },
+      "runtimeSamplesMs": [
+        19.3929,
+        16.5729,
+        16.0559,
+        19.8794,
+        16.3274,
+        17.0793,
+        16.9317,
+        16.5473,
+        16.3006,
+        16.3611
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 22,
+        "sha256": "8811ce8c596404089b299583392f8c4664d1effb71fa0bd9ee0e73e80778f4d8",
+        "utf8": "[1, 2, 3]\r\n[1, 2, 3]\r\n",
+        "base64": "WzEsIDIsIDNdDQpbMSwgMiwgM10NCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/12b-container-stress.vkf",
+      "sourceBytes": 310,
+      "sourceSha256": "593076ad5cce0f0e6cf8529ab8fd9b093a32eb2923c60f22196114fd3f2f999f",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 5.99149,
+        "medianMs": 4.09065,
+        "minMs": 3.7165,
+        "maxMs": 23.0607,
+        "p95Ms": 23.0607,
+        "stddevMs": 6.001843
+      },
+      "compileSamplesMs": [
+        23.0607,
+        4.0885,
+        4.0595,
+        4.5734,
+        3.7165,
+        3.8465,
+        4.0799,
+        4.0928,
+        4.2734,
+        4.1237
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 21.0536,
+        "medianMs": 20.4357,
+        "minMs": 19.8615,
+        "maxMs": 24.7692,
+        "p95Ms": 24.7692,
+        "stddevMs": 1.619003
+      },
+      "runtimeSamplesMs": [
+        24.7692,
+        19.8615,
+        20.3939,
+        23.2552,
+        20.4775,
+        20.0829,
+        20.6591,
+        20.1198,
+        20.2696,
+        20.6473
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 10,
+        "sha256": "0bd8ccdc7e1dae22f79eb67dab29b4e0373b06a2add164697b04abf307edcac3",
+        "utf8": "10000000\r\n",
+        "base64": "MTAwMDAwMDANCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/13-updates-aliases.vkf",
+      "sourceBytes": 294,
+      "sourceSha256": "44950fe8ffc2330c9fc04d4adc9ef5ae09c441f5cefbf5cff6b1540de3273a17",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 9.29366,
+        "medianMs": 9.1159,
+        "minMs": 8.6857,
+        "maxMs": 11.6354,
+        "p95Ms": 11.6354,
+        "stddevMs": 0.844809
+      },
+      "compileSamplesMs": [
+        9.2948,
+        9.1823,
+        9.1712,
+        9.1962,
+        8.7824,
+        9.0606,
+        11.6354,
+        8.9619,
+        8.9661,
+        8.6857
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.64738,
+        "medianMs": 16.5112,
+        "minMs": 16.0198,
+        "maxMs": 25.7586,
+        "p95Ms": 25.7586,
+        "stddevMs": 2.983486
+      },
+      "runtimeSamplesMs": [
+        25.7586,
+        16.259,
+        16.7074,
+        19.0205,
+        16.0762,
+        17.1762,
+        16.8773,
+        16.0198,
+        16.315,
+        16.2638
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 35,
+        "sha256": "bc8fe972612f0fbd38b39e6a8174f6dd5f235a6bb3a306ed383115e01784c9ef",
+        "utf8": "[3, 4]\r\n(x:5, y:6, name:my point)\r\n",
+        "base64": "WzMsIDRdDQooeDo1LCB5OjYsIG5hbWU6bXkgcG9pbnQpDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/14-multisets.vkf",
+      "sourceBytes": 125,
+      "sourceSha256": "8dd5f741ac6308aaa8c8970ec3693dd0fa0abae94ad5045e186f16d758178387",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 163.97567,
+        "medianMs": 163.08155,
+        "minMs": 160.8389,
+        "maxMs": 170.2586,
+        "p95Ms": 170.2586,
+        "stddevMs": 2.910042
+      },
+      "compileSamplesMs": [
+        162.3351,
+        161.7329,
+        164.5059,
+        166.2062,
+        166.2911,
+        160.8389,
+        170.2586,
+        163.5591,
+        162.604,
+        161.4249
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.29506,
+        "medianMs": 16.35325,
+        "minMs": 16.0183,
+        "maxMs": 22.5014,
+        "p95Ms": 22.5014,
+        "stddevMs": 2.189141
+      },
+      "runtimeSamplesMs": [
+        22.5014,
+        16.4435,
+        16.3143,
+        20.0724,
+        16.0593,
+        16.6928,
+        16.377,
+        16.3295,
+        16.0183,
+        16.1421
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 43,
+        "sha256": "ee4c737983c7e65e4b0975bf781147266b0bc9df4fc1e48f8633a4d1bb0165d1",
+        "utf8": "{a:7, b:1, c:2}\r\n{a:1, b:1}\r\n{a:2}\r\n{a:1}\r\n",
+        "base64": "e2E6NywgYjoxLCBjOjJ9DQp7YToxLCBiOjF9DQp7YToyfQ0Ke2E6MX0NCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/15-ranges.vkf",
+      "sourceBytes": 32,
+      "sourceSha256": "d0bade9480353ce3267722d323c8f402b4f78c7193d632087aafb5574f11a6c2",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 2.86581,
+        "medianMs": 2.8151,
+        "minMs": 2.6739,
+        "maxMs": 3.1421,
+        "p95Ms": 3.1421,
+        "stddevMs": 0.167972
+      },
+      "compileSamplesMs": [
+        2.8106,
+        2.7959,
+        2.9927,
+        3.0572,
+        2.8196,
+        2.6765,
+        2.9884,
+        3.1421,
+        2.7012,
+        2.6739
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.15897,
+        "medianMs": 16.3928,
+        "minMs": 15.9112,
+        "maxMs": 20.5355,
+        "p95Ms": 20.5355,
+        "stddevMs": 1.667452
+      },
+      "runtimeSamplesMs": [
+        20.5355,
+        16.1594,
+        15.984,
+        19.6023,
+        18.0734,
+        16.5115,
+        16.4422,
+        16.0268,
+        15.9112,
+        16.3434
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 42,
+        "sha256": "5e2847062d2a365ad8f24784cf2056dd91d4720fcf59ee4cfe2074b0367d94c5",
+        "utf8": "[0, 1, 2, 3]\r\n[3, 2, 1, 0]\r\n(1, 2, 3, 4)\r\n",
+        "base64": "WzAsIDEsIDIsIDNdDQpbMywgMiwgMSwgMF0NCigxLCAyLCAzLCA0KQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/16-complex.vkf",
+      "sourceBytes": 40,
+      "sourceSha256": "69e222aee88f9423ab9f56b71081077f7428da7f70ba87abeb2b013286426fca",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 11.18235,
+        "medianMs": 10.9293,
+        "minMs": 10.7402,
+        "maxMs": 12.4391,
+        "p95Ms": 12.4391,
+        "stddevMs": 0.531479
+      },
+      "compileSamplesMs": [
+        11.7741,
+        11.2446,
+        10.9315,
+        10.9271,
+        10.8538,
+        10.7402,
+        10.8707,
+        10.9025,
+        11.1399,
+        12.4391
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.09137,
+        "medianMs": 16.42795,
+        "minMs": 16.0919,
+        "maxMs": 20.1532,
+        "p95Ms": 20.1532,
+        "stddevMs": 1.426357
+      },
+      "runtimeSamplesMs": [
+        19.1944,
+        16.1913,
+        16.1186,
+        20.1532,
+        17.0166,
+        16.5429,
+        17.1194,
+        16.313,
+        16.0919,
+        16.1724
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 17,
+        "sha256": "680ea1fe10308a91ef24312a5b52ec44074e698274919dbe27738aa13bfc32df",
+        "utf8": "1 + 2i\r\n-3 + 4i\r\n",
+        "base64": "MSArIDJpDQotMyArIDRpDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/17-equality.vkf",
+      "sourceBytes": 62,
+      "sourceSha256": "72aed102ae5056895331aad9a9b3724886654f712c12392f356651a2a152d325",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 3.60256,
+        "medianMs": 3.5773,
+        "minMs": 3.416,
+        "maxMs": 3.8669,
+        "p95Ms": 3.8669,
+        "stddevMs": 0.15385
+      },
+      "compileSamplesMs": [
+        3.7459,
+        3.7866,
+        3.5651,
+        3.5895,
+        3.4803,
+        3.8669,
+        3.4329,
+        3.416,
+        3.5135,
+        3.6289
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.04672,
+        "medianMs": 16.49895,
+        "minMs": 16.1111,
+        "maxMs": 19.9554,
+        "p95Ms": 19.9554,
+        "stddevMs": 1.34033
+      },
+      "runtimeSamplesMs": [
+        19.9554,
+        16.7234,
+        16.4552,
+        19.0819,
+        16.171,
+        16.5427,
+        16.8689,
+        16.3248,
+        16.1111,
+        16.2328
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 14,
+        "sha256": "725ac9c60c70b7263ccead3bac3923d919af6fe5964230a1a332d7b64ddec9c0",
+        "utf8": "1\r\n1\r\n[1, 1]\r\n",
+        "base64": "MQ0KMQ0KWzEsIDFdDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/18-functions.vkf",
+      "sourceBytes": 135,
+      "sourceSha256": "00f0f116fc8a5965be631bfe78355fffad4ea350d7c368daedc9e973b1e96b06",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.3324,
+        "medianMs": 4.258,
+        "minMs": 4.1603,
+        "maxMs": 4.6857,
+        "p95Ms": 4.6857,
+        "stddevMs": 0.180088
+      },
+      "compileSamplesMs": [
+        4.5475,
+        4.6857,
+        4.2655,
+        4.1916,
+        4.2185,
+        4.4989,
+        4.311,
+        4.1603,
+        4.2505,
+        4.1945
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.81693,
+        "medianMs": 16.26165,
+        "minMs": 15.7562,
+        "maxMs": 19.0954,
+        "p95Ms": 19.0954,
+        "stddevMs": 1.089024
+      },
+      "runtimeSamplesMs": [
+        19.0954,
+        18.1263,
+        17.1439,
+        16.3137,
+        16.0002,
+        15.7562,
+        17.3076,
+        16.1341,
+        16.0823,
+        16.2096
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 12,
+        "sha256": "88f8d52ecf0bdea31a88d56cc23e9f66167f7369317467f2bf597816645d66ca",
+        "utf8": "7\r\n3\r\nnull\r\n",
+        "base64": "Nw0KMw0KbnVsbA0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/19-call-arguments.vkf",
+      "sourceBytes": 149,
+      "sourceSha256": "2afc98ea9dc939c4b523fd8bda94b35efff0eba67ab3e72ecee78466694839a4",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.60374,
+        "medianMs": 4.5872,
+        "minMs": 4.2623,
+        "maxMs": 5.1701,
+        "p95Ms": 5.1701,
+        "stddevMs": 0.287119
+      },
+      "compileSamplesMs": [
+        4.7726,
+        4.6233,
+        5.1701,
+        4.736,
+        4.2761,
+        4.2623,
+        4.8219,
+        4.5511,
+        4.2959,
+        4.5281
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.44035,
+        "medianMs": 16.46625,
+        "minMs": 15.9949,
+        "maxMs": 20.2939,
+        "p95Ms": 20.2939,
+        "stddevMs": 1.895347
+      },
+      "runtimeSamplesMs": [
+        20.2939,
+        19.9135,
+        20.2883,
+        15.9949,
+        16.1669,
+        16.016,
+        16.6738,
+        16.1237,
+        16.4319,
+        16.5006
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 15,
+        "sha256": "7a202ae470e1074ad2ebdb4498025f914a0e4af3473b9b616cae06eba0136055",
+        "utf8": "234\r\n345\r\n345\r\n",
+        "base64": "MjM0DQozNDUNCjM0NQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/20-recursion-closures.vkf",
+      "sourceBytes": 241,
+      "sourceSha256": "e3098cb2dd44f1e4f6a1ba872cdedbf92b825308cbfcdd39823fc4a7ea9a8892",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.55785,
+        "medianMs": 4.55255,
+        "minMs": 4.1489,
+        "maxMs": 5.0904,
+        "p95Ms": 5.0904,
+        "stddevMs": 0.317828
+      },
+      "compileSamplesMs": [
+        4.9347,
+        4.6038,
+        5.0904,
+        4.5013,
+        4.3086,
+        4.2211,
+        4.3041,
+        4.1489,
+        4.8029,
+        4.6627
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.5864,
+        "medianMs": 16.86765,
+        "minMs": 15.9511,
+        "maxMs": 20.7938,
+        "p95Ms": 20.7938,
+        "stddevMs": 1.767234
+      },
+      "runtimeSamplesMs": [
+        19.9442,
+        19.3815,
+        20.7938,
+        16.7208,
+        15.9511,
+        16.5575,
+        17.1784,
+        16.1758,
+        17.0145,
+        16.1464
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 8,
+        "sha256": "8a599d1ccf14566a5ce9bc8930099d0daddfa36030fa719a6d6f3d232f5f0a5f",
+        "utf8": "720\r\n7\r\n",
+        "base64": "NzIwDQo3DQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/21-lambdas.vkf",
+      "sourceBytes": 210,
+      "sourceSha256": "aaf8f3691e673b0e7fd1d1f50cefeccb6c4793147b626175982b49cd57a580ae",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.16064,
+        "medianMs": 3.89145,
+        "minMs": 3.6943,
+        "maxMs": 5.8745,
+        "p95Ms": 5.8745,
+        "stddevMs": 0.726909
+      },
+      "compileSamplesMs": [
+        5.0648,
+        4.0284,
+        5.8745,
+        3.6943,
+        4.0051,
+        3.9625,
+        3.7127,
+        3.7012,
+        3.7425,
+        3.8204
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.31754,
+        "medianMs": 16.6663,
+        "minMs": 16.0841,
+        "maxMs": 19.866,
+        "p95Ms": 19.866,
+        "stddevMs": 1.33229
+      },
+      "runtimeSamplesMs": [
+        19.866,
+        16.6295,
+        19.3282,
+        18.1329,
+        17.0979,
+        16.516,
+        16.5796,
+        16.0841,
+        16.7031,
+        16.2381
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 11,
+        "sha256": "0238bcde0dbdaf471e3a4165547f00d30f982bf62faea7842cf4080d6ad99caa",
+        "utf8": "10\r\n25\r\n9\r\n",
+        "base64": "MTANCjI1DQo5DQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/22-variadics-spreads.vkf",
+      "sourceBytes": 310,
+      "sourceSha256": "4f272eb51d6b7a3c84d941a0abd1d1b4171ff41736378882104763b41514b607",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 5.44283,
+        "medianMs": 5.0723,
+        "minMs": 4.7662,
+        "maxMs": 8.5804,
+        "p95Ms": 8.5804,
+        "stddevMs": 1.141653
+      },
+      "compileSamplesMs": [
+        8.5804,
+        5.6026,
+        5.4171,
+        4.8115,
+        5.4183,
+        5.141,
+        4.8673,
+        4.8203,
+        4.7662,
+        5.0036
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.64603,
+        "medianMs": 17.117,
+        "minMs": 16.4297,
+        "maxMs": 20.2448,
+        "p95Ms": 20.2448,
+        "stddevMs": 1.39141
+      },
+      "runtimeSamplesMs": [
+        20.2448,
+        16.6568,
+        17.7521,
+        18.0239,
+        19.925,
+        16.4297,
+        16.9577,
+        16.4336,
+        17.2763,
+        16.7604
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 31,
+        "sha256": "445dbb647500e08ce6575d31fdf35eeb212a914f314edf9349cd78ea43b1fe24",
+        "utf8": "10\r\n7\r\n(flag:true, mode:fast)\r\n",
+        "base64": "MTANCjcNCihmbGFnOnRydWUsIG1vZGU6ZmFzdCkNCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/22b-literal-spreads.vkf",
+      "sourceBytes": 52,
+      "sourceSha256": "8132a06e57a169e7f1ab019ce632c654bd653d5db4f2d2f6541ef1daa8b91d8f",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 2.73959,
+        "medianMs": 2.62625,
+        "minMs": 2.3307,
+        "maxMs": 3.7521,
+        "p95Ms": 3.7521,
+        "stddevMs": 0.415502
+      },
+      "compileSamplesMs": [
+        3.7521,
+        2.5651,
+        3.1029,
+        2.7306,
+        2.5159,
+        2.3951,
+        2.751,
+        2.6729,
+        2.3307,
+        2.5796
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.90786,
+        "medianMs": 16.6236,
+        "minMs": 16.0288,
+        "maxMs": 22.5491,
+        "p95Ms": 22.5491,
+        "stddevMs": 2.302529
+      },
+      "runtimeSamplesMs": [
+        21.0271,
+        16.3317,
+        19.5085,
+        16.6693,
+        22.5491,
+        16.0288,
+        16.5779,
+        16.3452,
+        17.5436,
+        16.4974
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 17,
+        "sha256": "9d21f93fc3acbaff8a12d4c6620d8d4c0a0076b4314091ca2860afd8a08e66d0",
+        "utf8": "(1, 2, 3, 4)\r\n4\r\n",
+        "base64": "KDEsIDIsIDMsIDQpDQo0DQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/23-shape-parameters.vkf",
+      "sourceBytes": 107,
+      "sourceSha256": "4ccc81964cc5c0e49140ee64b9bfaf67f4df04656345b1ad0016fc7e14f2851b",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 8.92899,
+        "medianMs": 4.3891,
+        "minMs": 4.1733,
+        "maxMs": 49.7509,
+        "p95Ms": 49.7509,
+        "stddevMs": 14.344442
+      },
+      "compileSamplesMs": [
+        49.7509,
+        4.5469,
+        4.4883,
+        4.391,
+        4.3232,
+        4.1999,
+        4.2623,
+        4.1733,
+        4.3872,
+        4.7669
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 18.73253,
+        "medianMs": 17.71865,
+        "minMs": 16.4911,
+        "maxMs": 24.4319,
+        "p95Ms": 24.4319,
+        "stddevMs": 2.642393
+      },
+      "runtimeSamplesMs": [
+        24.4319,
+        16.721,
+        22.0158,
+        16.8177,
+        20.0745,
+        17.8952,
+        18.2403,
+        16.4911,
+        17.0957,
+        17.5421
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 17,
+        "sha256": "93183e3a20daa4bf1fc9c0bb69613ee80fc36bc825014fef709b545f0684f986",
+        "utf8": "[1, 2, 3, 4, 5]\r\n",
+        "base64": "WzEsIDIsIDMsIDQsIDVdDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/24-open-any.vkf",
+      "sourceBytes": 152,
+      "sourceSha256": "e79d095e4a615954f89c885c706449e6e48299a784a4e7196a20676b1edecc1f",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 3.02403,
+        "medianMs": 2.9712,
+        "minMs": 2.7978,
+        "maxMs": 3.549,
+        "p95Ms": 3.549,
+        "stddevMs": 0.227716
+      },
+      "compileSamplesMs": [
+        3.549,
+        3.1568,
+        3.1582,
+        3.0862,
+        2.9498,
+        2.8702,
+        2.8746,
+        2.7978,
+        2.8051,
+        2.9926
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 18.20997,
+        "medianMs": 17.80365,
+        "minMs": 16.1996,
+        "maxMs": 20.6711,
+        "p95Ms": 20.6711,
+        "stddevMs": 1.883197
+      },
+      "runtimeSamplesMs": [
+        20.4928,
+        16.1996,
+        20.3933,
+        16.4135,
+        18.1102,
+        20.6711,
+        19.493,
+        16.4477,
+        16.3814,
+        17.4971
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 6,
+        "sha256": "420f41b538531803a38b2eeb5698105ade7841ef55d453d3159fb26dbb1d64e8",
+        "utf8": "2\r\n7\r\n",
+        "base64": "Mg0KNw0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/25-structural-compatibility.vkf",
+      "sourceBytes": 95,
+      "sourceSha256": "161468b90b4a5ba565a1bc3258d3af3b2dc02464522ca02dd92bac4cf8698a7d",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 3.94061,
+        "medianMs": 3.45705,
+        "minMs": 3.0689,
+        "maxMs": 6.2414,
+        "p95Ms": 6.2414,
+        "stddevMs": 1.193947
+      },
+      "compileSamplesMs": [
+        3.4639,
+        3.6379,
+        3.4502,
+        3.3788,
+        6.1139,
+        6.2414,
+        3.0689,
+        3.3224,
+        3.1079,
+        3.6208
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.70786,
+        "medianMs": 17.1633,
+        "minMs": 16.2977,
+        "maxMs": 20.2993,
+        "p95Ms": 20.2993,
+        "stddevMs": 1.390748
+      },
+      "runtimeSamplesMs": [
+        20.2993,
+        16.8033,
+        17.4594,
+        16.2977,
+        16.8672,
+        19.1146,
+        19.3772,
+        16.7742,
+        16.4974,
+        17.5883
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 29,
+        "sha256": "bd97c1fd7577bdcdda85bf174745041573cb3163a39071b0bb92696022dc7583",
+        "utf8": "[2, 4, 6]\r\n[[2, 4], [6, 8]]\r\n",
+        "base64": "WzIsIDQsIDZdDQpbWzIsIDRdLCBbNiwgOF1dDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/26-structural-conversions.vkf",
+      "sourceBytes": 87,
+      "sourceSha256": "c51dacc2e0b944b8522bd573dddc1e311ac9f5c632ebd248e2e7dd20e405be82",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.74954,
+        "medianMs": 4.08085,
+        "minMs": 3.719,
+        "maxMs": 6.9212,
+        "p95Ms": 6.9212,
+        "stddevMs": 1.249462
+      },
+      "compileSamplesMs": [
+        3.9935,
+        3.9011,
+        4.6358,
+        3.7883,
+        3.719,
+        5.8848,
+        6.9212,
+        6.644,
+        3.8395,
+        4.1682
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.23256,
+        "medianMs": 16.9792,
+        "minMs": 16.1109,
+        "maxMs": 19.5849,
+        "p95Ms": 19.5849,
+        "stddevMs": 0.976386
+      },
+      "runtimeSamplesMs": [
+        19.5849,
+        16.5979,
+        16.8791,
+        16.6708,
+        16.1109,
+        16.9881,
+        18.1157,
+        17.0718,
+        17.3361,
+        16.9703
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 14,
+        "sha256": "7ed67bfcf59158c158a8870a131071074c4aa25479c7b7647602da403a534004",
+        "utf8": "[4, 1.5, -2]\r\n",
+        "base64": "WzQsIDEuNSwgLTJdDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/27-structural-recursion.vkf",
+      "sourceBytes": 146,
+      "sourceSha256": "5df7bd4ee37637a89ab41f0e549b5e1e8b8d7cdf6f35f694a4c73745d811d8cb",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.20424,
+        "medianMs": 3.49615,
+        "minMs": 3.2129,
+        "maxMs": 7.009,
+        "p95Ms": 7.009,
+        "stddevMs": 1.434361
+      },
+      "compileSamplesMs": [
+        4.0524,
+        4.1536,
+        3.5175,
+        3.3948,
+        3.2305,
+        3.2995,
+        3.4748,
+        3.2129,
+        6.6974,
+        7.009
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.45547,
+        "medianMs": 16.9031,
+        "minMs": 16.1198,
+        "maxMs": 20.715,
+        "p95Ms": 20.715,
+        "stddevMs": 1.724463
+      },
+      "runtimeSamplesMs": [
+        20.6245,
+        16.8112,
+        16.2714,
+        16.2683,
+        16.1198,
+        16.9748,
+        16.9409,
+        20.715,
+        16.8653,
+        16.9635
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 30,
+        "sha256": "dc8976f59f6b2a0cae761cdbab66d6f4e6a662f6de162b75684a24b9a41d75e1",
+        "utf8": "[(x:11, y:-8), (x:13, y:-6)]\r\n",
+        "base64": "Wyh4OjExLCB5Oi04KSwgKHg6MTMsIHk6LTYpXQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/28-structural-records.vkf",
+      "sourceBytes": 105,
+      "sourceSha256": "4b252f18504bc75ecc85d99d22fe6808d65178101fecdfe3d37dfa1ae070300a",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.19881,
+        "medianMs": 3.8287,
+        "minMs": 3.6663,
+        "maxMs": 6.9065,
+        "p95Ms": 6.9065,
+        "stddevMs": 0.983619
+      },
+      "compileSamplesMs": [
+        4.0488,
+        4.4083,
+        4.2009,
+        6.9065,
+        3.7043,
+        3.7103,
+        3.8796,
+        3.7778,
+        3.6853,
+        3.6663
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.33155,
+        "medianMs": 16.6722,
+        "minMs": 16.3088,
+        "maxMs": 20.3864,
+        "p95Ms": 20.3864,
+        "stddevMs": 1.421004
+      },
+      "runtimeSamplesMs": [
+        19.433,
+        17.6096,
+        16.707,
+        16.697,
+        16.3088,
+        16.442,
+        16.5831,
+        20.3864,
+        16.5012,
+        16.6474
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 12,
+        "sha256": "d80aa4acb2bbc74db92036c90caec185be4f57a94e780877de8589e141d0797e",
+        "utf8": "[3, 7, 11]\r\n",
+        "base64": "WzMsIDcsIDExXQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/29-structural-exact-match.vkf",
+      "sourceBytes": 96,
+      "sourceSha256": "9dc8c78ceb7076b90daba5e44d786dfbaafc033813bc360862746b47c6802fa0",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 2.81325,
+        "medianMs": 2.78505,
+        "minMs": 2.5357,
+        "maxMs": 3.1104,
+        "p95Ms": 3.1104,
+        "stddevMs": 0.202062
+      },
+      "compileSamplesMs": [
+        2.8243,
+        3.1104,
+        2.7458,
+        2.6338,
+        2.8714,
+        3.0332,
+        2.708,
+        2.6097,
+        2.5357,
+        3.0602
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.15964,
+        "medianMs": 16.9873,
+        "minMs": 16.1987,
+        "maxMs": 19.1281,
+        "p95Ms": 19.1281,
+        "stddevMs": 0.870605
+      },
+      "runtimeSamplesMs": [
+        19.1281,
+        17.2228,
+        16.1987,
+        16.3739,
+        16.5265,
+        16.7174,
+        17.1949,
+        17.6387,
+        17.8157,
+        16.7797
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 11,
+        "sha256": "98ae8ee5435ebd22c076505f24016d49f8741b42750dbcc7d29d46ac7ca2b156",
+        "utf8": "[2, 3, 1]\r\n",
+        "base64": "WzIsIDMsIDFdDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/30-math-structural.vkf",
+      "sourceBytes": 136,
+      "sourceSha256": "ae69a2867ce49f9b7f3bd2d11815a0fc00c911d52f41f02ab0bb02503bded644",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 22.13597,
+        "medianMs": 21.48705,
+        "minMs": 21.0712,
+        "maxMs": 24.3414,
+        "p95Ms": 24.3414,
+        "stddevMs": 1.283135
+      },
+      "compileSamplesMs": [
+        24.2186,
+        23.2244,
+        24.3414,
+        21.0712,
+        21.1064,
+        21.387,
+        21.3551,
+        21.5839,
+        21.3902,
+        21.6815
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.14016,
+        "medianMs": 16.8884,
+        "minMs": 16.0669,
+        "maxMs": 19.3599,
+        "p95Ms": 19.3599,
+        "stddevMs": 0.960286
+      },
+      "runtimeSamplesMs": [
+        19.3599,
+        16.6614,
+        16.2143,
+        17.468,
+        16.0669,
+        16.6817,
+        17.6609,
+        16.5775,
+        17.6159,
+        17.0951
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 37,
+        "sha256": "dd6b5907e1a9644cf01b4ca3b799c849e1842328aa2a419f560ef4fe0b71fa37",
+        "utf8": "[[1, 4], [9, 16]]\r\n[[1, 2], [3, 4]]\r\n",
+        "base64": "W1sxLCA0XSwgWzksIDE2XV0NCltbMSwgMl0sIFszLCA0XV0NCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/31-conditionals.vkf",
+      "sourceBytes": 91,
+      "sourceSha256": "04878c1f51acb3b4e2af4e45503b835e38c82f74237d82e401f7b17bd47266bf",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 7.75536,
+        "medianMs": 3.1324,
+        "minMs": 3.0015,
+        "maxMs": 48.6801,
+        "p95Ms": 48.6801,
+        "stddevMs": 14.380857
+      },
+      "compileSamplesMs": [
+        48.6801,
+        3.1001,
+        3.1568,
+        3.3735,
+        3.108,
+        3.0289,
+        3.0015,
+        3.062,
+        3.5929,
+        3.4498
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.67421,
+        "medianMs": 17.0132,
+        "minMs": 16.0294,
+        "maxMs": 20.9865,
+        "p95Ms": 20.9865,
+        "stddevMs": 1.725187
+      },
+      "runtimeSamplesMs": [
+        20.1244,
+        16.5207,
+        16.1758,
+        20.9865,
+        16.0294,
+        16.5725,
+        17.2011,
+        16.8253,
+        17.4774,
+        18.829
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 12,
+        "sha256": "54682ccb66344d62d4585486e73ceced88beda0e1087147a70489328e2f992ac",
+        "utf8": "1\r\n1.#QNAN\r\n",
+        "base64": "MQ0KMS4jUU5BTg0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/32-match.vkf",
+      "sourceBytes": 158,
+      "sourceSha256": "bd02267c4033d780fa49db68f9ec98acd9d365050d3681adf8ac6f3cde89a5a6",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 3.57354,
+        "medianMs": 3.52535,
+        "minMs": 3.3999,
+        "maxMs": 4.0509,
+        "p95Ms": 4.0509,
+        "stddevMs": 0.183428
+      },
+      "compileSamplesMs": [
+        4.0509,
+        3.6061,
+        3.6559,
+        3.5001,
+        3.4911,
+        3.4555,
+        3.4747,
+        3.3999,
+        3.5506,
+        3.5506
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.51848,
+        "medianMs": 16.76825,
+        "minMs": 16.1504,
+        "maxMs": 20.4714,
+        "p95Ms": 20.4714,
+        "stddevMs": 1.359948
+      },
+      "runtimeSamplesMs": [
+        20.4714,
+        16.7764,
+        16.4623,
+        18.5292,
+        16.7601,
+        16.7171,
+        17.8334,
+        16.1504,
+        16.755,
+        18.7295
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 30,
+        "sha256": "e2a4842cc8b38b2f855dc94cce8ddd3694b27c482e473373a5618e65476fed79",
+        "utf8": "exact three\r\nanother integer\r\n",
+        "base64": "ZXhhY3QgdGhyZWUNCmFub3RoZXIgaW50ZWdlcg0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/33-loops.vkf",
+      "sourceBytes": 291,
+      "sourceSha256": "7a27f1ac8b63ede227f0690005eec0523ebef10aee6b1c5bdfbe9a55ac8da3ae",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 3.88541,
+        "medianMs": 3.555,
+        "minMs": 3.3522,
+        "maxMs": 6.6553,
+        "p95Ms": 6.6553,
+        "stddevMs": 0.994223
+      },
+      "compileSamplesMs": [
+        3.9256,
+        6.6553,
+        3.6255,
+        3.3824,
+        3.8927,
+        3.6701,
+        3.3522,
+        3.4845,
+        3.4123,
+        3.4535
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.21162,
+        "medianMs": 16.662,
+        "minMs": 16.2257,
+        "maxMs": 19.2484,
+        "p95Ms": 19.2484,
+        "stddevMs": 1.146203
+      },
+      "runtimeSamplesMs": [
+        19.2484,
+        16.2257,
+        16.7135,
+        19.1878,
+        16.6105,
+        16.459,
+        17.0677,
+        16.2561,
+        16.5882,
+        17.7593
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 7,
+        "sha256": "57c4833ba4ec5c982a7f0a78e208a914961004c02634d99166644a56ae36dfdc",
+        "utf8": "10\r\n2\r\n",
+        "base64": "MTANCjINCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/34-errors.vkf",
+      "sourceBytes": 104,
+      "sourceSha256": "3373c890f6e39682fd9b54acf5fa4778a41b3b6ae77cc137dc8cbd5e2edc25c3",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 25.26664,
+        "medianMs": 24.91075,
+        "minMs": 24.5278,
+        "maxMs": 28.2593,
+        "p95Ms": 28.2593,
+        "stddevMs": 1.09012
+      },
+      "compileSamplesMs": [
+        25.1502,
+        25.3498,
+        28.2593,
+        24.6408,
+        24.6999,
+        24.8886,
+        25.3876,
+        24.8295,
+        24.9329,
+        24.5278
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.05156,
+        "medianMs": 16.3457,
+        "minMs": 16.0284,
+        "maxMs": 20.7382,
+        "p95Ms": 20.7382,
+        "stddevMs": 1.528194
+      },
+      "runtimeSamplesMs": [
+        18.7496,
+        16.309,
+        16.1584,
+        20.7382,
+        16.0284,
+        16.9901,
+        16.1573,
+        16.3824,
+        16.12,
+        16.8822
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 16,
+        "sha256": "31df944cde860415597b2bf00862d5d78e48dc2c1dba6d02dce9c68390629edb",
+        "utf8": "specific value\r\n",
+        "base64": "c3BlY2lmaWMgdmFsdWUNCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/35-pipes.vkf",
+      "sourceBytes": 79,
+      "sourceSha256": "dfff52f9d9f51c5739f09c4b5ab93ca20971d93b0112bb842c7180be3ca1cc0b",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 7.46592,
+        "medianMs": 7.18475,
+        "minMs": 6.912,
+        "maxMs": 10.1212,
+        "p95Ms": 10.1212,
+        "stddevMs": 0.954768
+      },
+      "compileSamplesMs": [
+        10.1212,
+        7.1781,
+        7.1914,
+        7.548,
+        7.0673,
+        6.9531,
+        6.9916,
+        6.912,
+        7.2874,
+        7.4091
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.17145,
+        "medianMs": 16.9841,
+        "minMs": 16.0755,
+        "maxMs": 19.2308,
+        "p95Ms": 19.2308,
+        "stddevMs": 1.058418
+      },
+      "runtimeSamplesMs": [
+        19.2308,
+        16.5873,
+        16.2704,
+        18.459,
+        16.2078,
+        17.6384,
+        16.4202,
+        17.4442,
+        16.0755,
+        17.3809
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 37,
+        "sha256": "8ae767b7255cfb15d616cb44d1a5ad1d6f43df34422e8021960892d834a31fba",
+        "utf8": "[2, 4, 6]\r\n(11, 12, 13)\r\n16\r\nååAA\r\n",
+        "base64": "WzIsIDQsIDZdDQooMTEsIDEyLCAxMykNCjE2DQrDpcOlQUENCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/36-pipe-blocks.vkf",
+      "sourceBytes": 87,
+      "sourceSha256": "698e3a016927b20f0a94512a50e2670bceace0c2c71f1b2a0657519b6bec777c",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 9.37133,
+        "medianMs": 9.3186,
+        "minMs": 8.9011,
+        "maxMs": 9.8075,
+        "p95Ms": 9.8075,
+        "stddevMs": 0.289166
+      },
+      "compileSamplesMs": [
+        9.8075,
+        9.2685,
+        9.7545,
+        9.3351,
+        9.5179,
+        9.5647,
+        9.0906,
+        9.1713,
+        9.3021,
+        8.9011
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.56164,
+        "medianMs": 16.75655,
+        "minMs": 16.1417,
+        "maxMs": 21.1826,
+        "p95Ms": 21.1826,
+        "stddevMs": 1.748986
+      },
+      "runtimeSamplesMs": [
+        19.978,
+        21.1826,
+        16.4396,
+        18.5865,
+        16.1417,
+        16.6477,
+        16.7492,
+        16.7639,
+        16.3077,
+        16.8195
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 15,
+        "sha256": "359b322fcf9e7f0a1832df387664a4c9f6478eeedb6928ec2f8dc0ee5dcd575a",
+        "utf8": "[1, 20, 3, 4]\r\n",
+        "base64": "WzEsIDIwLCAzLCA0XQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/36b-pipe-assignment.vkf",
+      "sourceBytes": 113,
+      "sourceSha256": "2b5b7a746079ef5b6dcca90393711be73a4c5f0a0cb31d406f47cddc19e914d5",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 6.43637,
+        "medianMs": 6.4259,
+        "minMs": 6.111,
+        "maxMs": 6.9224,
+        "p95Ms": 6.9224,
+        "stddevMs": 0.264012
+      },
+      "compileSamplesMs": [
+        6.5777,
+        6.7472,
+        6.5295,
+        6.4046,
+        6.111,
+        6.9224,
+        6.1678,
+        6.228,
+        6.4472,
+        6.2283
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.27715,
+        "medianMs": 16.7187,
+        "minMs": 16.311,
+        "maxMs": 20.17,
+        "p95Ms": 20.17,
+        "stddevMs": 1.222448
+      },
+      "runtimeSamplesMs": [
+        20.17,
+        17.5486,
+        16.7487,
+        18.6174,
+        16.6887,
+        17.0444,
+        16.5366,
+        16.311,
+        16.5713,
+        16.5348
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 32,
+        "sha256": "83f1e83cc03a0ce741030baab85352f4137365a499d4fe55d215f447c7d8f2b7",
+        "utf8": "[4, 3, 2, 1]\r\n(40, 30, 20, 10)\r\n",
+        "base64": "WzQsIDMsIDIsIDFdDQooNDAsIDMwLCAyMCwgMTApDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/37-operators.vkf",
+      "sourceBytes": 83,
+      "sourceSha256": "0d68eaedc20c2c30e6fe95fddebec88c87c9d079bfca6cb19a8dd9e3cccd39bd",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.10785,
+        "medianMs": 4.1065,
+        "minMs": 3.8283,
+        "maxMs": 4.3201,
+        "p95Ms": 4.3201,
+        "stddevMs": 0.148823
+      },
+      "compileSamplesMs": [
+        4.1858,
+        4.0666,
+        4.3201,
+        4.0264,
+        3.8283,
+        4.1159,
+        4.0971,
+        4.1999,
+        4.2817,
+        3.9567
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.31645,
+        "medianMs": 16.6982,
+        "minMs": 15.9752,
+        "maxMs": 20.3447,
+        "p95Ms": 20.3447,
+        "stddevMs": 1.58288
+      },
+      "runtimeSamplesMs": [
+        19.8459,
+        17.9558,
+        16.0052,
+        20.3447,
+        16.0084,
+        16.6199,
+        16.6723,
+        15.9752,
+        17.013,
+        16.7241
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 27,
+        "sha256": "fe2ea8a3f21b54843e40b9f51159bc9127c40d2ea2a5c22bbe5a7ee2905246ac",
+        "utf8": "14\r\n3\r\n2\r\n256\r\ntrue\r\ntrue\r\n",
+        "base64": "MTQNCjMNCjINCjI1Ng0KdHJ1ZQ0KdHJ1ZQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/38-absolute-norm.vkf",
+      "sourceBytes": 22,
+      "sourceSha256": "e4e29d93d9e886e007965e7fe290ec3196b59023c2c65ab9c7ec3fd25429be66",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 2.10037,
+        "medianMs": 2.0606,
+        "minMs": 1.8637,
+        "maxMs": 2.4656,
+        "p95Ms": 2.4656,
+        "stddevMs": 0.227885
+      },
+      "compileSamplesMs": [
+        2.4656,
+        1.9509,
+        1.8867,
+        2.3248,
+        1.8745,
+        2.3099,
+        1.8637,
+        1.9071,
+        2.1703,
+        2.2502
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.20344,
+        "medianMs": 16.80015,
+        "minMs": 15.9652,
+        "maxMs": 19.7376,
+        "p95Ms": 19.7376,
+        "stddevMs": 1.267401
+      },
+      "runtimeSamplesMs": [
+        19.7376,
+        16.5277,
+        15.9652,
+        19.3016,
+        16.4247,
+        16.7694,
+        16.9871,
+        16.3972,
+        16.8309,
+        17.093
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 6,
+        "sha256": "e53ee59797fb8eaa96e37638df95094f56f0b7ce7beb19e8cbc6a3e0f0ed84d2",
+        "utf8": "5\r\n5\r\n",
+        "base64": "NQ0KNQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/39-overloads.vkf",
+      "sourceBytes": 192,
+      "sourceSha256": "0637e195b28374e693e5cc0eab786bb29b136137aef8497d997295ae11621b05",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.2319,
+        "medianMs": 4.17555,
+        "minMs": 3.9541,
+        "maxMs": 4.4853,
+        "p95Ms": 4.4853,
+        "stddevMs": 0.199137
+      },
+      "compileSamplesMs": [
+        4.4853,
+        4.4284,
+        4.2229,
+        4.1282,
+        4.4226,
+        4.1057,
+        4.4597,
+        4.0604,
+        4.0517,
+        3.9541
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.81951,
+        "medianMs": 16.67665,
+        "minMs": 15.9708,
+        "maxMs": 19.4231,
+        "p95Ms": 19.4231,
+        "stddevMs": 0.976366
+      },
+      "runtimeSamplesMs": [
+        19.4231,
+        16.0478,
+        15.9708,
+        16.8042,
+        16.3843,
+        16.9017,
+        16.5491,
+        16.8432,
+        16.9068,
+        16.3641
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 26,
+        "sha256": "47e44c38aa327b833a612a5be4ad129d0fbf498fa65324668ccbad8643753006",
+        "utf8": "(x:4, y:6)\r\n(x:-3, y:-4)\r\n",
+        "base64": "KHg6NCwgeTo2KQ0KKHg6LTMsIHk6LTQpDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/40-fixed-shapes.vkf",
+      "sourceBytes": 102,
+      "sourceSha256": "93322c6686c1075782047ab9dd8e83cedacb556d2835c53c5e7b1dc876b94084",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.45317,
+        "medianMs": 2.72195,
+        "minMs": 2.5465,
+        "maxMs": 19.6472,
+        "p95Ms": 19.6472,
+        "stddevMs": 5.343674
+      },
+      "compileSamplesMs": [
+        19.6472,
+        3.1642,
+        3.1002,
+        2.6314,
+        2.5624,
+        2.9276,
+        2.8125,
+        2.5911,
+        2.5486,
+        2.5465
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.86178,
+        "medianMs": 16.45455,
+        "minMs": 16.149,
+        "maxMs": 19.7719,
+        "p95Ms": 19.7719,
+        "stddevMs": 1.093442
+      },
+      "runtimeSamplesMs": [
+        19.7719,
+        16.171,
+        16.2409,
+        16.4414,
+        16.4677,
+        17.3605,
+        16.3187,
+        16.9983,
+        16.149,
+        16.6984
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 3,
+        "sha256": "7fb2aaeaf3eef66b52db104118c30f62899f5f0df520350a94a8fcb843c0dfdf",
+        "utf8": "5\r\n",
+        "base64": "NQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/41-indexing.vkf",
+      "sourceBytes": 111,
+      "sourceSha256": "4beb9d01a8d0f2434ff6eebd94caa12fe617bee1c02d05f7abc06b81d7964165",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 3.82463,
+        "medianMs": 3.79695,
+        "minMs": 3.5295,
+        "maxMs": 4.3805,
+        "p95Ms": 4.3805,
+        "stddevMs": 0.272872
+      },
+      "compileSamplesMs": [
+        4.3805,
+        3.7569,
+        4.1646,
+        3.7145,
+        3.5295,
+        3.5995,
+        3.8933,
+        3.8391,
+        3.5314,
+        3.837
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.04157,
+        "medianMs": 16.6884,
+        "minMs": 15.9961,
+        "maxMs": 19.4506,
+        "p95Ms": 19.4506,
+        "stddevMs": 1.130209
+      },
+      "runtimeSamplesMs": [
+        19.4506,
+        16.0664,
+        17.9175,
+        15.9961,
+        17.9695,
+        16.9263,
+        16.1938,
+        17.329,
+        16.116,
+        16.4505
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 32,
+        "sha256": "236f81dcc83ad0ac193211217925c3b9f3e3aeb3fe3993f6cc35007c301ba34b",
+        "utf8": "20\r\n[10, 30]\r\n[10, 21, 30, 41]\r\n",
+        "base64": "MjANClsxMCwgMzBdDQpbMTAsIDIxLCAzMCwgNDFdDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/42-axes.vkf",
+      "sourceBytes": 156,
+      "sourceSha256": "eb4f7f399e29ee754730eb5125b422690aff47802f6b454fe59f534a22434d85",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 6.61875,
+        "medianMs": 6.62635,
+        "minMs": 6.2996,
+        "maxMs": 6.976,
+        "p95Ms": 6.976,
+        "stddevMs": 0.213051
+      },
+      "compileSamplesMs": [
+        6.7495,
+        6.6464,
+        6.6063,
+        6.976,
+        6.2996,
+        6.5259,
+        6.5084,
+        6.3412,
+        6.6692,
+        6.865
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.49998,
+        "medianMs": 16.88355,
+        "minMs": 15.9847,
+        "maxMs": 21.6875,
+        "p95Ms": 21.6875,
+        "stddevMs": 1.693331
+      },
+      "runtimeSamplesMs": [
+        19.1765,
+        16.7176,
+        16.669,
+        17.1901,
+        21.6875,
+        16.9549,
+        16.5267,
+        17.2806,
+        15.9847,
+        16.8122
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 94,
+        "sha256": "bf151195989fea722be6c3afce050c8400c22b89f65e3208616637f9139e7d30",
+        "utf8": "[[1, 2, 3], [2, 4, 6], [3, 6, 9]]\r\n[4, 10, 18]\r\n[[[15, 18], [20, 24]], [[30, 36], [40, 48]]]\r\n",
+        "base64": "W1sxLCAyLCAzXSwgWzIsIDQsIDZdLCBbMywgNiwgOV1dDQpbNCwgMTAsIDE4XQ0KW1tbMTUsIDE4XSwgWzIwLCAyNF1dLCBbWzMwLCAzNl0sIFs0MCwgNDhdXV0NCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/43-modules.vkf",
+      "sourceBytes": 50,
+      "sourceSha256": "88c88a727af79c8ad4ee03833db0158d700dc330d75fc15e77d67e8eefa01b58",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 38.56762,
+        "medianMs": 38.14965,
+        "minMs": 36.2704,
+        "maxMs": 42.079,
+        "p95Ms": 42.079,
+        "stddevMs": 2.049363
+      },
+      "compileSamplesMs": [
+        42.0239,
+        42.079,
+        38.4129,
+        38.2233,
+        39.4377,
+        38.076,
+        37.1023,
+        36.7087,
+        36.2704,
+        37.342
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.08956,
+        "medianMs": 16.44625,
+        "minMs": 15.9657,
+        "maxMs": 20.4154,
+        "p95Ms": 20.4154,
+        "stddevMs": 1.611801
+      },
+      "runtimeSamplesMs": [
+        19.7737,
+        16.0427,
+        16.0752,
+        16.8052,
+        20.4154,
+        16.3495,
+        16.5757,
+        16.5058,
+        15.9657,
+        16.3867
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 6,
+        "sha256": "fc32717c04f9e2f742a0fd75e4a30c2999db1360c8395fef7fa2260fcc0258d1",
+        "utf8": "3\r\n1\r\n",
+        "base64": "Mw0KMQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/44-shadowing.vkf",
+      "sourceBytes": 153,
+      "sourceSha256": "a8472899c43dcde95d763f4e91ce9c0ac43f98c75578c7cb26e4120de1573633",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 23.46211,
+        "medianMs": 23.4975,
+        "minMs": 20.5657,
+        "maxMs": 25.3053,
+        "p95Ms": 25.3053,
+        "stddevMs": 1.353555
+      },
+      "compileSamplesMs": [
+        25.3053,
+        25.1849,
+        23.3004,
+        23.4223,
+        22.7501,
+        23.5727,
+        23.98,
+        22.6197,
+        23.92,
+        20.5657
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.86013,
+        "medianMs": 16.62895,
+        "minMs": 15.9405,
+        "maxMs": 19.1846,
+        "p95Ms": 19.1846,
+        "stddevMs": 1.022762
+      },
+      "runtimeSamplesMs": [
+        19.1846,
+        15.9792,
+        16.0959,
+        16.5735,
+        18.0516,
+        16.8733,
+        16.6844,
+        16.8799,
+        15.9405,
+        16.3384
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 6,
+        "sha256": "c8aace42342a3de458a51ed77e337205f57b20a220398f05054f2a2d2f9bdb83",
+        "utf8": "0\r\n4\r\n",
+        "base64": "MA0KNA0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/45-overloads-dispatch.vkf",
+      "sourceBytes": 127,
+      "sourceSha256": "11514e0090a7b4d8db2e893eb118400837979d6f83c62d7ed4c3bdf0850e0e16",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 2.98771,
+        "medianMs": 3.0119,
+        "minMs": 2.5872,
+        "maxMs": 3.2993,
+        "p95Ms": 3.2993,
+        "stddevMs": 0.22762
+      },
+      "compileSamplesMs": [
+        3.2993,
+        3.0023,
+        3.0534,
+        3.0215,
+        2.5872,
+        2.7875,
+        3.2464,
+        2.8794,
+        2.795,
+        3.2051
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.81237,
+        "medianMs": 16.4958,
+        "minMs": 16.1634,
+        "maxMs": 19.4221,
+        "p95Ms": 19.4221,
+        "stddevMs": 0.962183
+      },
+      "runtimeSamplesMs": [
+        19.4221,
+        16.1634,
+        16.4203,
+        16.5713,
+        16.9009,
+        16.9978,
+        16.2578,
+        16.3896,
+        16.2129,
+        16.7876
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 15,
+        "sha256": "96fba1069b68a627afcdac3fcca52aa8249dee0247718c131ffec617966fb77b",
+        "utf8": "integer\r\ntext\r\n",
+        "base64": "aW50ZWdlcg0KdGV4dA0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/46-member-reflection.vkf",
+      "sourceBytes": 155,
+      "sourceSha256": "c465d419fbc2eeebab6e651a92a2376b57a881232287cc77fffe85ac3fb34c93",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 13.18598,
+        "medianMs": 13.0094,
+        "minMs": 12.6606,
+        "maxMs": 14.3379,
+        "p95Ms": 14.3379,
+        "stddevMs": 0.513082
+      },
+      "compileSamplesMs": [
+        12.9928,
+        14.3379,
+        12.9471,
+        13.8148,
+        13.2602,
+        12.9874,
+        12.7422,
+        12.6606,
+        13.026,
+        13.0908
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.83366,
+        "medianMs": 16.5024,
+        "minMs": 16.0349,
+        "maxMs": 19.3555,
+        "p95Ms": 19.3555,
+        "stddevMs": 0.967992
+      },
+      "runtimeSamplesMs": [
+        19.3555,
+        16.343,
+        16.1827,
+        16.2671,
+        17.1861,
+        17.1582,
+        16.5058,
+        16.8043,
+        16.0349,
+        16.499
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 40,
+        "sha256": "94318d0b7d91ff3f8834b2cb695dfb113e0b8604bea5cb5ada1dafdddc20b562",
+        "utf8": "(x:int, y:int)\r\n[int, int]\r\n{x:1, y:1}\r\n",
+        "base64": "KHg6aW50LCB5OmludCkNCltpbnQsIGludF0NCnt4OjEsIHk6MX0NCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/47-primitive-spill.vkf",
+      "sourceBytes": 18,
+      "sourceSha256": "2eaa791cfb4aa0b87d12028158197dbd65112ec268b80a4fbf1a396b37addb1b",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 3.60556,
+        "medianMs": 1.97005,
+        "minMs": 1.8628,
+        "maxMs": 17.6129,
+        "p95Ms": 17.6129,
+        "stddevMs": 4.925953
+      },
+      "compileSamplesMs": [
+        17.6129,
+        2.5434,
+        1.966,
+        2.0395,
+        2.2599,
+        1.904,
+        1.9726,
+        1.8628,
+        1.9675,
+        1.927
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.76331,
+        "medianMs": 16.2479,
+        "minMs": 16.0747,
+        "maxMs": 20.0059,
+        "p95Ms": 20.0059,
+        "stddevMs": 1.1941
+      },
+      "runtimeSamplesMs": [
+        20.0059,
+        16.0985,
+        16.1566,
+        16.1821,
+        16.8406,
+        16.9639,
+        16.1062,
+        16.8909,
+        16.0747,
+        16.3137
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 4,
+        "sha256": "a0ec0460fc75a1eea654e7a06b4b6addb3a2f8a4dfc8cd3ea9f2356d644ab44f",
+        "utf8": "64\r\n",
+        "base64": "NjQNCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/48-dot-overload.vkf",
+      "sourceBytes": 182,
+      "sourceSha256": "71956fe08206241b4e1259a2372fd86205eff328de903726ac91e87869e76fab",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 4.46082,
+        "medianMs": 4.2897,
+        "minMs": 3.9313,
+        "maxMs": 6.502,
+        "p95Ms": 6.502,
+        "stddevMs": 0.750839
+      },
+      "compileSamplesMs": [
+        4.6532,
+        6.502,
+        4.2292,
+        4.3502,
+        4.2062,
+        4.3754,
+        4.3804,
+        3.9313,
+        3.955,
+        4.0253
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.86999,
+        "medianMs": 16.69915,
+        "minMs": 16.0448,
+        "maxMs": 19.0583,
+        "p95Ms": 19.0583,
+        "stddevMs": 0.863886
+      },
+      "runtimeSamplesMs": [
+        19.0583,
+        16.5825,
+        16.8158,
+        16.0448,
+        16.3719,
+        17.4174,
+        16.3887,
+        16.8759,
+        16.2523,
+        16.8923
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 6,
+        "sha256": "722b3a2c262caef957158f2efe473dad62c49b3ed1f73593bf789916eb5d799e",
+        "utf8": "3\r\n4\r\n",
+        "base64": "Mw0KNA0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "core/49-semicolon-pipes.vkf",
+      "sourceBytes": 147,
+      "sourceSha256": "e7a83488ce50b309da8cfc81f435114d9c0eb3d89b183bdc64aa19607fd204aa",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 5.73165,
+        "medianMs": 5.6181,
+        "minMs": 5.2716,
+        "maxMs": 6.521,
+        "p95Ms": 6.521,
+        "stddevMs": 0.438634
+      },
+      "compileSamplesMs": [
+        5.5966,
+        6.521,
+        5.8341,
+        6.351,
+        5.3276,
+        5.3407,
+        5.6396,
+        5.9996,
+        5.2716,
+        5.4347
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.07384,
+        "medianMs": 16.6096,
+        "minMs": 16.0225,
+        "maxMs": 20.8273,
+        "p95Ms": 20.8273,
+        "stddevMs": 1.39491
+      },
+      "runtimeSamplesMs": [
+        20.8273,
+        17.7124,
+        16.6731,
+        16.0225,
+        16.6554,
+        17.0392,
+        16.4978,
+        16.5638,
+        16.3577,
+        16.3892
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 16,
+        "sha256": "487fbf4754ec22ace9d0ccb2111549e67fad338c8612874cd8b345dc29659a8f",
+        "utf8": "5\r\n[9, 25, 49]\r\n",
+        "base64": "NQ0KWzksIDI1LCA0OV0NCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/01-math.vkf",
+      "sourceBytes": 76,
+      "sourceSha256": "648f56448a3be2717fdae38bde63f532fc0fe43307f681513deefb3772e3809f",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 21.99578,
+        "medianMs": 21.6709,
+        "minMs": 21.1758,
+        "maxMs": 23.8499,
+        "p95Ms": 23.8499,
+        "stddevMs": 0.888163
+      },
+      "compileSamplesMs": [
+        22.9733,
+        22.5961,
+        22.0682,
+        21.8522,
+        23.8499,
+        21.3829,
+        21.1758,
+        21.2347,
+        21.4896,
+        21.3351
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 18.00352,
+        "medianMs": 16.8479,
+        "minMs": 15.9885,
+        "maxMs": 28.1244,
+        "p95Ms": 28.1244,
+        "stddevMs": 3.607568
+      },
+      "runtimeSamplesMs": [
+        28.1244,
+        18.2356,
+        17.375,
+        17.0475,
+        16.3908,
+        16.6014,
+        15.9885,
+        16.8315,
+        16.5762,
+        16.8643
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 9,
+        "sha256": "6f168134c3ba27223b9adc0335b1704d6309c080e57d72f4bebe9e9f2eac0fa1",
+        "utf8": "9\r\n1\r\n3\r\n",
+        "base64": "OQ0KMQ0KMw0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/02-stat.vkf",
+      "sourceBytes": 239,
+      "sourceSha256": "1ecf8a7365dd728a0ef780087e1e6f542969bfc325ad715bae4fa87834c30bec",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 7.4528,
+        "medianMs": 7.1162,
+        "minMs": 6.5378,
+        "maxMs": 11.227,
+        "p95Ms": 11.227,
+        "stddevMs": 1.369264
+      },
+      "compileSamplesMs": [
+        7.5649,
+        7.4543,
+        6.8068,
+        6.9832,
+        11.227,
+        7.2529,
+        6.5378,
+        7.2492,
+        6.7689,
+        6.683
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.69832,
+        "medianMs": 16.7652,
+        "minMs": 16.0933,
+        "maxMs": 23.0446,
+        "p95Ms": 23.0446,
+        "stddevMs": 2.124851
+      },
+      "runtimeSamplesMs": [
+        23.0446,
+        17.2166,
+        18.0131,
+        19.484,
+        16.7285,
+        16.7358,
+        16.2272,
+        16.7946,
+        16.0933,
+        16.6455
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 36,
+        "sha256": "51883c07ad506a1f9d7af2bbdd98f1640327e3ae3416b26bfa812821b8647496",
+        "utf8": "5\r\n4\r\n2\r\n7\r\n21\r\n[5, 7, 9]\r\n[6, 15]\r\n",
+        "base64": "NQ0KNA0KMg0KNw0KMjENCls1LCA3LCA5XQ0KWzYsIDE1XQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/03-random.vkf",
+      "sourceBytes": 146,
+      "sourceSha256": "c0f6c8514b4afedc7f727ac7a45dbe83c3492a26355866a61c5d3e0a4683f9c9",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 10.4417,
+        "medianMs": 9.9309,
+        "minMs": 9.363,
+        "maxMs": 15.0775,
+        "p95Ms": 15.0775,
+        "stddevMs": 1.699876
+      },
+      "compileSamplesMs": [
+        10.0062,
+        9.6693,
+        10.0937,
+        9.8556,
+        15.0775,
+        10.1134,
+        9.363,
+        11.1121,
+        9.5652,
+        9.561
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.53791,
+        "medianMs": 16.6769,
+        "minMs": 16.1986,
+        "maxMs": 21.3428,
+        "p95Ms": 21.3428,
+        "stddevMs": 1.71851
+      },
+      "runtimeSamplesMs": [
+        21.3428,
+        16.6826,
+        19.0703,
+        18.9282,
+        17.537,
+        16.5266,
+        16.2139,
+        16.6712,
+        16.1986,
+        16.2079
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 41,
+        "sha256": "196311bbcfcef99b3220aac51f4aec73c781c34e51acbcbb696cf673901b2a6d",
+        "utf8": "0.009626434189093501\r\n1.791479416094478\r\n",
+        "base64": "MC4wMDk2MjY0MzQxODkwOTM1MDENCjEuNzkxNDc5NDE2MDk0NDc4DQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/04-time.vkf",
+      "sourceBytes": 175,
+      "sourceSha256": "51823bfc80b32b779ef5a52be6f4ca6539808ee478fb5829527147e513bec960",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 81.92737,
+        "medianMs": 81.61455,
+        "minMs": 79.4739,
+        "maxMs": 84.177,
+        "p95Ms": 84.177,
+        "stddevMs": 1.4294
+      },
+      "compileSamplesMs": [
+        83.6996,
+        82.6978,
+        81.8085,
+        81.0605,
+        82.8866,
+        84.177,
+        79.4739,
+        81.4206,
+        80.9979,
+        81.0513
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.87954,
+        "medianMs": 17.249,
+        "minMs": 16.7795,
+        "maxMs": 20.6833,
+        "p95Ms": 20.6833,
+        "stddevMs": 1.372304
+      },
+      "runtimeSamplesMs": [
+        20.6833,
+        17.0941,
+        16.7945,
+        19.6485,
+        18.8252,
+        17.6775,
+        16.7957,
+        17.0932,
+        17.4039,
+        16.7795
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 21,
+        "sha256": "07373f641c45a9731938b679109aa5db02b037aab83348ddbc8665d8f575b769",
+        "utf8": "1970-01-01 00:00:00\r\n",
+        "base64": "MTk3MC0wMS0wMSAwMDowMDowMA0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/05-io.vkf",
+      "sourceBytes": 133,
+      "sourceSha256": "4acc12b3b0ae173316afd56b158a13cdc2e79a606e2282182afbd7de42df1157",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 36.21498,
+        "medianMs": 33.8478,
+        "minMs": 33.4141,
+        "maxMs": 57.5685,
+        "p95Ms": 57.5685,
+        "stddevMs": 7.511622
+      },
+      "compileSamplesMs": [
+        57.5685,
+        34.1731,
+        33.9762,
+        33.4141,
+        33.9434,
+        34.615,
+        33.7145,
+        33.5278,
+        33.465,
+        33.7522
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 18.22895,
+        "medianMs": 17.20985,
+        "minMs": 16.6301,
+        "maxMs": 20.949,
+        "p95Ms": 20.949,
+        "stddevMs": 1.796981
+      },
+      "runtimeSamplesMs": [
+        19.9855,
+        17.4458,
+        16.7971,
+        20.0698,
+        20.949,
+        20.1039,
+        16.6301,
+        16.9739,
+        16.6465,
+        16.6879
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 13,
+        "sha256": "572a95fee9c0f320030789e4883707affe12482fbb1ea04b3ea8267c87a890fb",
+        "utf8": "hello world\r\n",
+        "base64": "aGVsbG8gd29ybGQNCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/06-collections.vkf",
+      "sourceBytes": 216,
+      "sourceSha256": "1882a6ec40607edeaa9fa54db82d6a21aa6d40e572be70e57947d6bceda0742a",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 17.36624,
+        "medianMs": 16.9932,
+        "minMs": 16.5013,
+        "maxMs": 20.1497,
+        "p95Ms": 20.1497,
+        "stddevMs": 1.075943
+      },
+      "compileSamplesMs": [
+        17.8221,
+        17.5892,
+        17.5065,
+        16.8812,
+        16.8067,
+        20.1497,
+        16.6958,
+        16.6047,
+        16.5013,
+        17.1052
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.31773,
+        "medianMs": 16.6258,
+        "minMs": 15.8948,
+        "maxMs": 20.8884,
+        "p95Ms": 20.8884,
+        "stddevMs": 1.587254
+      },
+      "runtimeSamplesMs": [
+        19.0138,
+        16.6294,
+        16.1517,
+        20.8884,
+        15.8948,
+        17.9929,
+        17.4582,
+        16.2109,
+        16.6222,
+        16.315
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 29,
+        "sha256": "a6e2a78c61b9414d9c6889f46aa230909888b0013cc2a723d9c2c0c27a655006",
+        "utf8": "[1, 2, 3]\r\norigin\r\n10\r\ntrue\r\n",
+        "base64": "WzEsIDIsIDNdDQpvcmlnaW4NCjEwDQp0cnVlDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/07-errors.vkf",
+      "sourceBytes": 95,
+      "sourceSha256": "8fea9dd54b580913802ea5173fe75c6b0f401c3cd104c548a57a07180571b7ab",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 25.18332,
+        "medianMs": 24.7378,
+        "minMs": 24.1006,
+        "maxMs": 29.5403,
+        "p95Ms": 29.5403,
+        "stddevMs": 1.582303
+      },
+      "compileSamplesMs": [
+        24.9561,
+        24.6633,
+        24.1276,
+        25.5226,
+        24.1006,
+        24.7129,
+        29.5403,
+        24.773,
+        24.6741,
+        24.7627
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.8996,
+        "medianMs": 16.39145,
+        "minMs": 15.9348,
+        "maxMs": 20.2015,
+        "p95Ms": 20.2015,
+        "stddevMs": 1.307535
+      },
+      "runtimeSamplesMs": [
+        20.2015,
+        16.1455,
+        16.0893,
+        16.7988,
+        16.6231,
+        16.9813,
+        17.9401,
+        16.1218,
+        16.1598,
+        15.9348
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 6,
+        "sha256": "49628009a4b6e1f4b66b9f3b6842423d60085f9ec94467f3ccbbf28862d78f7a",
+        "utf8": "true\r\n",
+        "base64": "dHJ1ZQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/08-system.vkf",
+      "sourceBytes": 132,
+      "sourceSha256": "d8799b0ba15364abc91002d6a4fe0c2f62100dd0ddf4e3e1bbaf27a6acd76268",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 5.39194,
+        "medianMs": 5.30765,
+        "minMs": 4.9319,
+        "maxMs": 6.8118,
+        "p95Ms": 6.8118,
+        "stddevMs": 0.527926
+      },
+      "compileSamplesMs": [
+        6.8118,
+        5.4425,
+        5.277,
+        5.3623,
+        5.1234,
+        5.1967,
+        5.4302,
+        5.0053,
+        4.9319,
+        5.3383
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 16.88933,
+        "medianMs": 16.49035,
+        "minMs": 15.8369,
+        "maxMs": 18.6325,
+        "p95Ms": 18.6325,
+        "stddevMs": 1.103297
+      },
+      "runtimeSamplesMs": [
+        18.6325,
+        16.1912,
+        16.0605,
+        16.7895,
+        16.0425,
+        16.957,
+        18.5232,
+        17.986,
+        15.874,
+        15.8369
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 113,
+        "sha256": "d9519098d7e8e547af9c894f1feb84c92dfa5e29e579ede263aeb298fe14980d",
+        "utf8": "windows\r\nx86_64\r\n4\r\nC:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\vkf-readme-proof-QuOXY1\\runtime\\stdlib\\08-system\r\ntrue\r\n",
+        "base64": "d2luZG93cw0KeDg2XzY0DQo0DQpDOlxVc2Vyc1xSVU5ORVJ+MVxBcHBEYXRhXExvY2FsXFRlbXBcdmtmLXJlYWRtZS1wcm9vZi1RdU9YWTFccnVudGltZVxzdGRsaWJcMDgtc3lzdGVtDQp0cnVlDQo="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/09-process.vkf",
+      "sourceBytes": 108,
+      "sourceSha256": "f11a54f8f0759cc03d369311cf188d07bf34b657563a977d03717ace236db5cc",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 5.31044,
+        "medianMs": 5.152,
+        "minMs": 4.9587,
+        "maxMs": 6.5546,
+        "p95Ms": 6.5546,
+        "stddevMs": 0.480892
+      },
+      "compileSamplesMs": [
+        6.5546,
+        5.3718,
+        5.5866,
+        5.1407,
+        5.3071,
+        5.1633,
+        4.9587,
+        4.9667,
+        5.007,
+        5.0479
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 44.45607,
+        "medianMs": 43.85025,
+        "minMs": 42.5912,
+        "maxMs": 47.9872,
+        "p95Ms": 47.9872,
+        "stddevMs": 1.86981
+      },
+      "runtimeSamplesMs": [
+        46.0552,
+        43.0497,
+        42.8064,
+        43.229,
+        44.0607,
+        44.2575,
+        43.6398,
+        47.9872,
+        46.884,
+        42.5912
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 37,
+        "sha256": "0de7b9c3c8f187d8c042222ff7445e44cfd77c90640a858d28141d2a8abbf6e9",
+        "utf8": "0\r\ngit version 2.55.0.windows.4\r\n\r\n\r\n",
+        "base64": "MA0KZ2l0IHZlcnNpb24gMi41NS4wLndpbmRvd3MuNA0KDQoNCg=="
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    },
+    {
+      "path": "stdlib/10-regex.vkf",
+      "sourceBytes": 174,
+      "sourceSha256": "e5e8411698b53871f0d7035a2845f9bef69974f60caa2f47b92b8f74d21ab6d5",
+      "sourceHashModel": "UTF-8, CRLF normalized to LF, one final LF omitted",
+      "compile": {
+        "count": 10,
+        "meanMs": 9.22605,
+        "medianMs": 9.1476,
+        "minMs": 8.8397,
+        "maxMs": 10.1414,
+        "p95Ms": 10.1414,
+        "stddevMs": 0.396794
+      },
+      "compileSamplesMs": [
+        10.1414,
+        9.6139,
+        8.9687,
+        9.1786,
+        8.9996,
+        9.2196,
+        9.3271,
+        8.8397,
+        8.8553,
+        9.1166
+      ],
+      "runtime": {
+        "count": 10,
+        "meanMs": 17.22113,
+        "medianMs": 17.02655,
+        "minMs": 16.3138,
+        "maxMs": 18.7662,
+        "p95Ms": 18.7662,
+        "stddevMs": 0.737127
+      },
+      "runtimeSamplesMs": [
+        18.7662,
+        16.6306,
+        16.7833,
+        16.9169,
+        17.0988,
+        17.15,
+        17.419,
+        16.9543,
+        18.1784,
+        16.3138
+      ],
+      "exitCode": 0,
+      "outputRuns": 10,
+      "outputStable": true,
+      "stdout": {
+        "bytes": 18,
+        "sha256": "62a4f45d656e1c1aa840717ec641e43b7cc572a79bf9a1328f13b54ee50c5d1b",
+        "utf8": "vektor\r\nvkf\r\n101\r\n",
+        "base64": "dmVrdG9yDQp2a2YNCjEwMQ0K"
+      },
+      "stderr": {
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "utf8": "",
+        "base64": ""
+      }
+    }
+  ]
+}

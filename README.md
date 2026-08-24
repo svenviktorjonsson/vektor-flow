@@ -200,13 +200,13 @@ recorded in the laboratory evidence.
 <!-- readme-platform-evidence:start -->
 | Detail | Windows x64 | Linux x64 | macOS ARM64 |
 | --- | --- | --- | --- |
-| Measured UTC | `2026-08-24T09:45:16.682Z` | `2026-08-24T09:43:32.508Z` | `2026-08-24T09:42:31.668Z` |
+| Measured UTC | `2026-08-24T12:57:36.182Z` | `2026-08-24T12:55:53.931Z` | `2026-08-24T12:54:48.630Z` |
 | OS | `win32 10.0.26100` | `linux 6.8.0-1064-azure` | `darwin 24.6.0` |
 | Architecture | `x64` | `x64` | `arm64` |
 | CPU | AMD EPYC 7763 64-Core Processor | AMD EPYC 9V74 80-Core Processor | Apple M1 (Virtual) |
 | Logical CPUs | 4 | 4 | 3 |
-| Compiler size | 4,301,312 bytes | 5,453,256 bytes | 2,406,296 bytes |
-| Compiler SHA-256 | `6a433519afe43aaebe78059b5d86bbc7567024ebbd6eda661dd59f928761cfad` | `835396a855cece1feb2228fd69869fd4b75f6122db7283f0d47416e7c57261c3` | `cddc49ad64548bae1f0315ab0d9aaf822e223e479e39e3cdf33f2a8a622f171c` |
+| Compiler size | 4,310,528 bytes | 5,472,440 bytes | 2,423,080 bytes |
+| Compiler SHA-256 | `57a1345207d192f64cd0adaf9af18bad5977071362e7d75b253bba17e26ea2fc` | `dfcad593ec22f58345a70644d2d1988439983ba8074fffd7ca7abe86ea7d0559` | `3368be26fe7ee8d19d633761a2d618c00b91f1df934c36e1fe39b3f453be8f17` |
 <!-- readme-platform-evidence:end -->
 
 These narrow 0.2.1 checks prove reproducibility and expose regressions. They
@@ -220,11 +220,11 @@ deduplicates identical machine code, and retains a policy for the exact program
 and x64 host. Normal search is bounded by the compilation-time budget;
 exhaustive search is an explicit benchmark mode.
 
-The latest committed [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.1.7-ci.md)
-was produced by the strict 0.1.7 Windows x64 compiler. All 256 policies were
-correct and collapsed to 18 distinct binaries. The fastest measured basin was
-5.23× faster than the slowest. This run selected `mask-4e` at
-2.300 ± 0.135 ms; the default `mask-ff` measured 2.302 ± 0.072 ms. Their 0.1%
+The latest committed [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.2.1-ci.md)
+was produced by the strict 0.2.1 Windows x64 compiler. All 256 policies were
+correct and collapsed to 36 distinct binaries. The fastest measured basin was
+5.32× faster than the slowest. This run selected `mask-4e` at
+2.291 ± 0.081 ms; the default `mask-ff` measured 2.318 ± 0.098 ms. Their 1.2%
 difference is smaller than run-to-run variance. The report explains every
 switch, exact conditions, code deduplication, and why small noisy differences
 are not treated as proof.
@@ -241,7 +241,7 @@ linked. Tool versions, source hashes, work counts, output parity, compile
 models, and all 1,000 raw timing samples are retained in the evidence report.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 7763 64-Core Processor, 4 logical CPUs, at `2026-08-24T09:52:18.437Z`.
+Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 9V74 80-Core Processor, 4 logical CPUs, at `2026-08-24T13:05:18.860Z`.
 
 Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are represented by same-host VKF/competitor ratios. Absolute times are never compared across machines. Each raw lane contains 1000 measured runs after 50 warmups and excludes process launch.
 
@@ -253,12 +253,12 @@ Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner. Raw 
 
 | Kernel | Measurement | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Spectral norm | Raw runtime | 6.452 ± 0.047 ms | 0.453× | 0.452× | 0.449× |
-| Spectral norm | Compile | 248.636 ± 2.269 ms | 1.342× | 2.832× | 1.391× |
-| Fannkuch | Raw runtime | 31.583 ± 1.186 ms | 1.626× | 1.891× | 1.676× |
-| Fannkuch | Compile | 80.574 ± 0.470 ms | 0.992× | 0.977× | 0.485× |
-| N-body | Raw runtime | 4.257 ± 0.172 ms | 1.369× | 1.937× | 1.043× |
-| N-body | Compile | 46.414 ± 2.418 ms | 0.437× | 0.481× | 0.265× |
+| Spectral norm | Raw runtime | 4.719 ± 0.125 ms | 0.295× | 0.280× | 0.284× |
+| Spectral norm | Compile | 321.500 ± 1.842 ms | 1.688× | 3.395× | 1.785× |
+| Fannkuch | Raw runtime | 24.131 ± 0.301 ms | 1.035× | 1.216× | 1.063× |
+| Fannkuch | Compile | 92.407 ± 0.528 ms | 1.036× | 1.024× | 0.543× |
+| N-body | Raw runtime | 4.488 ± 0.261 ms | 1.336× | 1.904× | 0.984× |
+| N-body | Compile | 122.855 ± 1.062 ms | 1.101× | 1.190× | 0.695× |
 
 ### spectral norm by power method — large, scale 500
 
@@ -313,7 +313,7 @@ spectral_norm() -> num:
 **Exact output (all implementations):**
 
 ```text
-1.2742241159529064
+1.2742241159529069
 ```
 
 Exact implementations: VKF [source](benchmarks/core-comparison/published/spectral-norm-large/vkf.vkf); C [source](benchmarks/core-comparison/published/spectral-norm-large/c.c); Rust [source](benchmarks/core-comparison/published/spectral-norm-large/rust.rs); Zig [source](benchmarks/core-comparison/published/spectral-norm-large/zig.zig).
@@ -474,7 +474,7 @@ n_body(steps:num) -> num:
 **Exact output (all implementations):**
 
 ```text
--0.16907807065935168
+-0.16907807065935543
 ```
 
 Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-large/vkf.vkf); C [source](benchmarks/core-comparison/published/n-body-large/c.c); Rust [source](benchmarks/core-comparison/published/n-body-large/rust.rs); Zig [source](benchmarks/core-comparison/published/n-body-large/zig.zig).
@@ -536,7 +536,7 @@ vector; `process.shell` invokes a platform shell and must be treated as unsafe.
 ## 0.2.1 Changes
 
 0.2.1 closes two correctness gaps found by exact documented-output checks and
-makes compact integer vector pipes faster:
+makes compact integer and three-component vector kernels faster:
 
 - compound vector updates inside functions retain their established fixed-vector type across consecutive operations;
 - macOS ARM64 indexed access converts fixed integer locals through the numeric value ABI instead of reinterpreting integer bits as floating-point data;
@@ -544,6 +544,9 @@ makes compact integer vector pipes faster:
 - discarded indexed pipe results no longer round-trip through a temporary, and fall-through-only pipe labels are removed before native lowering;
 - fixed vector copies and bounded shifts are recognized directly from compact range-pipe IR;
 - proven prefix-reversal indices remain in registers across the hot loop;
+- scalar fields in structured integer locals can remain in registers while true indexed storage stays memory-backed;
+- constant small-vector indices use direct frame addresses, and statically unrolled three-component interactions keep adjacent `x` and `y` lanes packed;
+- the tuner validates a shape-guided small-vector policy against scalar output and uses a conservative policy when no search budget remains;
 - Fannkuch uses its exact `int -> int` contract and is verified below `1.5×` C, Rust, and Zig on the controlled Linux runner;
 - the native suite contains 333 passing VKF tests, with all documented outputs reverified on all three release platforms.
 
