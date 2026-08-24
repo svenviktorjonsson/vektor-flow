@@ -124,7 +124,44 @@ answer: 6 * 7
 
 <!-- readme-evidence:end -->
 
-### 1.4 Tagged Tests
+### 1.4 Semicolons Preserve Logical Indentation
+
+`;` ends the current row and begins another at the same logical indentation.
+Horizontal spaces after the semicolon are ignored. This also works inside an
+indented pipe stage.
+
+<!-- readme-example: core/49-semicolon-pipes.vkf -->
+```vkf
+scope:
+    b: 4; c: 5; :
+
+array: [1, 2, 3]
+ret:
+    array >>
+        doubled: $ * 2; doubled + 1
+    >>
+        $^2
+
+:: scope.c
+:: ret
+```
+
+<!-- readme-evidence:start core/49-semicolon-pipes.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty):**
+
+```text
+5
+[9, 25, 49]
+```
+
+<!-- readme-evidence:end -->
+
+The final bare `:` returns the block scope so `scope.c` is available. Without
+it, the block returns its final row. The direct `ret:` block evaluates to its
+final pipeline value without surrounding parentheses.
+
+### 1.5 Tagged Tests
 
 `test` tags a function for `vkf -t`. A tagged function that needs required arguments is reported as incompatible instead of being called incorrectly. For 0.1 compatibility, a file with no explicit tags treats its public, callable `bit` functions as tests; names beginning with `_` remain helpers.
 

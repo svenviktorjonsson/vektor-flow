@@ -2,14 +2,14 @@
 
 System: (positions:[[num:3]:5], velocities:[[num:3]:5], masses:[num:5])
 
-offset_momentum(system:System, solar_mass:num) -> System:
+offset_momentum(system:System, solar_mass:num) -> [[num:3]:5]:
     :system
     momentum: [0, 0, 0]
     ..4 >>
         i: $
         .momentum+: velocities.(i) * masses.(i)
     velocities.0: momentum * (-1 / solar_mass)
-    (positions:system.positions, velocities:velocities, masses:masses)
+    @: velocities
 
 advance(system:System, timestep:num) -> System:
     :system
@@ -24,7 +24,7 @@ advance(system:System, timestep:num) -> System:
     ..4 >>
         i: $
         positions.(i) +: velocities.(i) * timestep
-    (positions:positions, velocities:velocities, masses:masses)
+    @: (positions:positions, velocities:velocities, masses:masses)
 
 system_energy(system:System) -> num:
     :system
@@ -38,7 +38,7 @@ system_energy(system:System) -> num:
             j: $
             [num:3] displacement: positions.(i) - positions.(j)
             totals.potential -: masses.(i) * masses.(j) / |displacement|
-    totals.kinetic + totals.potential
+    @: totals.kinetic + totals.potential
 
 n_body(steps:num) -> num:
     constants: (
@@ -69,9 +69,13 @@ n_body(steps:num) -> num:
             0.000051513890204661146 * constants.solar_mass
         ]
     )
-    .system: offset_momentum(system, constants.solar_mass)
+    .system: (
+        positions:system.positions,
+        velocities:offset_momentum(system, constants.solar_mass),
+        masses:system.masses
+    )
     ..steps - 1 >>
         .system: advance(system, constants.timestep)
-    system_energy(system)
+    @: system_energy(system)
 
 :: n_body(1000)

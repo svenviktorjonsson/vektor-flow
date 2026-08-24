@@ -37,12 +37,13 @@ The runner keeps four costs separate:
 - raw kernel runtime: generated code only, excluding process launch, for VKF,
   C, Rust, and Zig
 
-The landing page has one performance table. It shows VKF's raw-kernel mean ±
-sample standard deviation and the same-report `VKF mean / competitor mean`
-ratio for C, Rust, and Zig. Compile and process-runtime measurements remain in
-the JSON/Markdown laboratory report, not the landing table. The optional strict
-goal mode checks every ratio independently; ordinary release evidence records
-the measurements without treating runner-specific performance as correctness.
+The landing page has one performance table. It shows VKF's raw-kernel and
+fresh-compile means ± sample standard deviation, plus the same-report
+`VKF mean / competitor mean` ratios for C, Rust, and Zig. Process-runtime
+measurements remain in the JSON/Markdown laboratory report. The optional strict
+goal mode checks every runtime ratio independently; ordinary release evidence
+records the measurements without treating runner-specific performance as
+correctness.
 
 For the legacy 20,000-operation `scalar-control-small` VKF regression case, a
 full 100-sample run still enforces its own narrow limits: mean internal compiler-core time must be strictly under 10 ms

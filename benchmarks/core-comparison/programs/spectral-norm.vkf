@@ -10,7 +10,7 @@ multiply_av(values:[num:{{COUNT}}]) -> [num:{{COUNT}}]:
             diagonal: i + j
             .total+: (1 / (diagonal * (diagonal + 1) / 2 + i + 1)) * values.(j)
         output.(i): total
-    output
+    @: output
 
 multiply_atv(values:[num:{{COUNT}}]) -> [num:{{COUNT}}]:
     output: [0:{{COUNT}}]
@@ -22,7 +22,7 @@ multiply_atv(values:[num:{{COUNT}}]) -> [num:{{COUNT}}]:
             diagonal: j + i
             .total+: (1 / (diagonal * (diagonal + 1) / 2 + j + 1)) * values.(j)
         output.(i): total
-    output
+    @: output
 
 multiply_at_av(values:[num:{{COUNT}}]) -> [num:{{COUNT}}]:
     multiply_atv(multiply_av(values))
@@ -38,6 +38,6 @@ spectral_norm() -> num:
     ..{{COUNT}} - 1 >>
         result.numerator +: u.($) * v.($)
         result.denominator +: v.($) * v.($)
-    sqrt(result.numerator / result.denominator)
+    @: sqrt(result.numerator / result.denominator)
 
 :: spectral_norm()

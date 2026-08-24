@@ -127,6 +127,7 @@ VKF uses indentation for blocks and keeps control flow postfix and compact.
 | `value??` | Match a value or type using `=>` arms. |
 | `value??>` | Repeatedly match a changing value. |
 | `values >> expression` | Pipe each vector/range element through an expression; `$` is the current value. |
+| `first; second` | End one row and begin another at the same logical indentation. |
 | `@:` / `@` | Return a value / return `null`. |
 | `@>` / `@\|` | Continue / break the nearest loop or pipe. |
 | `:: value` | Print a value and newline. |
@@ -136,6 +137,10 @@ the next `>>` stage, and a dotted assignment can update an existing outer bindin
 As the sole unparenthesized value inside `[]` or `{}`, a pipe generates that
 container: `[a >> $]` equals `[:a]`, and `{a >> $}` equals `{:a}`. Parentheses
 suppress generation, so `[(a >> $)]` contains the result tuple as one element.
+
+Semicolons are useful for short multi-row pipe stages. Spaces after `;` do not
+change indentation. For a longer pipeline, prefer an indented value-producing
+block such as `result:` over wrapping the complete pipeline in parentheses.
 
 This complete program uses a range pipe for fixed counting and a repeated match (switch) loop:
 
@@ -176,7 +181,8 @@ switch_loop() -> int:
 
 The [complete language guide](docs/language-guide.md) covers values, functions,
 vectors, ranges, errors, operator overloads, modules, axes, and every native
-standard library with runnable examples.
+standard library with runnable examples. The [VKF style guide](docs/style-guide.md)
+records the compact canonical forms used by public VKF programs.
 
 ## Performance Evidence—And Its Limits
 

@@ -1,0 +1,12 @@
+scope:
+    b: 4; c: 5; :
+
+array: [1, 2, 3]
+ret:
+    array >>
+        doubled: $ * 2; doubled + 1
+    >>
+        $^2
+
+:: scope.c
+:: ret
