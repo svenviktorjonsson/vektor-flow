@@ -94,6 +94,7 @@ if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "(arm64|aarch64|ARM64)")
     list(APPEND VKF_AOT_TARGETS vkf_strict)
 endif()
 vkf_native_target(vkf_wasm_artifact_smoke vkf_wasm_artifact_smoke.cpp TRUE)
+vkf_native_target(vkf_symbolic_kernel_artifact vkf_symbolic_kernel_artifact.cpp TRUE)
 vkf_native_target(vkf_webgpu_artifact_smoke vkf_webgpu_artifact_smoke.cpp TRUE)
 
 install(TARGETS
@@ -105,6 +106,7 @@ install(TARGETS
     vkf_arm64_artifact
     ${VKF_AOT_TARGETS}
     vkf_wasm_artifact_smoke
+    vkf_symbolic_kernel_artifact
     vkf_webgpu_artifact_smoke
     RUNTIME DESTINATION bin
 )

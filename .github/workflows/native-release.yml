@@ -47,6 +47,128 @@ jobs:
       - name: Verify linalg, physics, and symbolic native-WASM parity
         run: node tools/verify-stdlib-wasm.mjs
 
+      - name: Package portable release
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "$env:VKF_RELEASE_VERSION-dev" }
+          .\scripts\package-native-release.ps1 -Version $version
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "$env:VKF_RELEASE_VERSION-dev" }
+          .\scripts\build-windows-installer.ps1 -Version $version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-release
+          path: |
+            dist/releases/vektor-flow-windows-x64.zip
+            dist/releases/vektor-flow-windows-x64.zip.sha256
+            dist/releases/vektor-flow-windows-x64-setup.exe
+            dist/releases/vektor-flow-windows-x64-setup.exe.sha256
+          if-no-files-found: error
+
+  linux-x64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake ninja-build
+
+      - name: Build Python-free compiler and WASM emitter
+        run: |
+          cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict vkf_symbolic_kernel_artifact
+
+      - name: Run full native VKF release suite
+        run: |
+          build/native-compiler/bin/vkf-strict -t tests/vkf
+          build/native-compiler/bin/vkf-strict -t tests/stdlib
+
+      - name: Verify linalg, physics, and symbolic native-WASM parity
+        run: VKF_NATIVE_BIN=build/native-compiler/bin node tools/verify-stdlib-wasm.mjs
+
+      - name: Package native release
+        run: |
+          chmod +x scripts/package-native-release.sh
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=${VKF_RELEASE_VERSION}-dev; fi
+          scripts/package-native-release.sh "$version"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-release
+          path: |
+            dist/releases/vektor-flow-linux-x64.tar.gz
+            dist/releases/vektor-flow-linux-x64.tar.gz.sha256
+            dist/releases/vektor-flow-linux-x64.deb
+            dist/releases/vektor-flow-linux-x64.deb.sha256
+          if-no-files-found: error
+
+  macos-arm64:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build strict native compiler and WASM emitter
+        run: |
+          test "$(uname -m)" = "arm64"
+          cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict vkf_symbolic_kernel_artifact
+
+      - name: Run full native VKF release suite
+        run: |
+          build/native-compiler/bin/vkf-strict -t tests/vkf
+          build/native-compiler/bin/vkf-strict -t tests/stdlib
+
+      - name: Verify linalg, physics, and symbolic native-WASM parity
+        run: VKF_NATIVE_BIN=build/native-compiler/bin node tools/verify-stdlib-wasm.mjs
+
+      - name: Package archive and installer
+        run: |
+          chmod +x scripts/package-native-release-macos.sh packaging/macos/install.sh
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=${VKF_RELEASE_VERSION}-dev; fi
+          scripts/package-native-release-macos.sh "$version"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-release
+          path: |
+            dist/releases/vektor-flow-macos-arm64.tar.gz
+            dist/releases/vektor-flow-macos-arm64.tar.gz.sha256
+            dist/releases/vektor-flow-macos-arm64.pkg
+            dist/releases/vektor-flow-macos-arm64.pkg.sha256
+          if-no-files-found: error
+
+  benchmarks-windows-x64:
+    needs: [windows-x64, linux-x64, macos-arm64]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install native benchmark tools
+        shell: pwsh
+        run: choco install llvm --yes --no-progress
+
+      - name: Build verified compiler revision
+        shell: pwsh
+        run: .\scripts\build-native-compiler.ps1 -OnlyTargets @("vkf-strict")
+
       - name: Build pinned linear-algebra competitors
         shell: pwsh
         run: |
@@ -117,91 +239,8 @@ jobs:
             benchmarks/readme-examples/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}.md
           if-no-files-found: error
 
-      - name: Package portable release
-        shell: pwsh
-        run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "$env:VKF_RELEASE_VERSION-dev" }
-          .\scripts\package-native-release.ps1 -Version $version
-
-      - name: Build installer
-        shell: pwsh
-        run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "$env:VKF_RELEASE_VERSION-dev" }
-          .\scripts\build-windows-installer.ps1 -Version $version
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-x64-release
-          path: |
-            dist/releases/vektor-flow-windows-x64.zip
-            dist/releases/vektor-flow-windows-x64.zip.sha256
-            dist/releases/vektor-flow-windows-x64-setup.exe
-            dist/releases/vektor-flow-windows-x64-setup.exe.sha256
-          if-no-files-found: error
-
-  linux-x64:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install native build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends build-essential cmake ninja-build
-
-      - name: Build Python-free compiler and WASM emitter
-        run: |
-          cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/native-compiler --parallel 2 --target vkf_strict vkf_symbolic_kernel_artifact
-
-      - name: Run full native VKF release suite
-        run: |
-          build/native-compiler/bin/vkf-strict -t tests/vkf
-          build/native-compiler/bin/vkf-strict -t tests/stdlib
-
-      - name: Verify linalg, physics, and symbolic native-WASM parity
-        run: VKF_NATIVE_BIN=build/native-compiler/bin node tools/verify-stdlib-wasm.mjs
-
-      - name: Verify every documented program 10 times
-        run: >-
-          node benchmarks/readme-examples/run.mjs
-          --compiler=build/native-compiler/bin/vkf-strict
-          --compile-runs=10
-          --compile-warmups=0
-          --runs=10
-          --warmups=0
-          --output=linux-x64-${{ env.VKF_PROOF_SUFFIX }}
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: linux-x64-readme-proof
-          path: |
-            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.json
-            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.md
-          if-no-files-found: error
-
-      - name: Package native release
-        run: |
-          chmod +x scripts/package-native-release.sh
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=${VKF_RELEASE_VERSION}-dev; fi
-          scripts/package-native-release.sh "$version"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-x64-release
-          path: |
-            dist/releases/vektor-flow-linux-x64.tar.gz
-            dist/releases/vektor-flow-linux-x64.tar.gz.sha256
-            dist/releases/vektor-flow-linux-x64.deb
-            dist/releases/vektor-flow-linux-x64.deb.sha256
-          if-no-files-found: error
-
-  macos-arm64:
+  benchmarks-macos-arm64:
+    needs: [windows-x64, linux-x64, macos-arm64]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -210,19 +249,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Build strict native compiler and WASM emitter
+      - name: Build verified compiler revision
         run: |
           test "$(uname -m)" = "arm64"
           cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/native-compiler --parallel 2 --target vkf_strict vkf_symbolic_kernel_artifact
-
-      - name: Run full native VKF release suite
-        run: |
-          build/native-compiler/bin/vkf-strict -t tests/vkf
-          build/native-compiler/bin/vkf-strict -t tests/stdlib
-
-      - name: Verify linalg, physics, and symbolic native-WASM parity
-        run: VKF_NATIVE_BIN=build/native-compiler/bin node tools/verify-stdlib-wasm.mjs
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict
 
       - name: Verify every documented program 10 times
         run: >-
@@ -243,23 +274,8 @@ jobs:
             benchmarks/readme-examples/results/macos-arm64-${{ env.VKF_PROOF_SUFFIX }}.md
           if-no-files-found: error
 
-      - name: Package archive and installer
-        run: |
-          chmod +x scripts/package-native-release-macos.sh packaging/macos/install.sh
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}; else version=${VKF_RELEASE_VERSION}-dev; fi
-          scripts/package-native-release-macos.sh "$version"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-arm64-release
-          path: |
-            dist/releases/vektor-flow-macos-arm64.tar.gz
-            dist/releases/vektor-flow-macos-arm64.tar.gz.sha256
-            dist/releases/vektor-flow-macos-arm64.pkg
-            dist/releases/vektor-flow-macos-arm64.pkg.sha256
-          if-no-files-found: error
-
   comparison-linux-x64:
+    needs: [windows-x64, linux-x64, macos-arm64]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -281,6 +297,30 @@ jobs:
           echo "${ZIG_LINUX_X64_SHA256}  /tmp/${zig_archive}" | sha256sum --check --strict
           tar --extract --file "/tmp/${zig_archive}" --directory /tmp
           echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Build verified compiler revision
+        run: |
+          cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict
+
+      - name: Verify every documented program 10 times
+        run: >-
+          node benchmarks/readme-examples/run.mjs
+          --compiler=build/native-compiler/bin/vkf-strict
+          --compile-runs=10
+          --compile-warmups=0
+          --runs=10
+          --warmups=0
+          --output=linux-x64-${{ env.VKF_PROOF_SUFFIX }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-x64-readme-proof
+          path: |
+            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.json
+            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.md
+          if-no-files-found: error
 
       - name: Run controlled large-kernel comparison
         run: >-
@@ -307,7 +347,13 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows-x64, linux-x64, macos-arm64, comparison-linux-x64]
+    needs:
+      - windows-x64
+      - linux-x64
+      - macos-arm64
+      - benchmarks-windows-x64
+      - benchmarks-macos-arm64
+      - comparison-linux-x64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
