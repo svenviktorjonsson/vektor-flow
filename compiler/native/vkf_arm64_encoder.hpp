@@ -3125,8 +3125,12 @@ private:
                 words_.emit(0xf940016du);
                 words_.emit(0xeb0d019fu);
                 invalid.push_back(words_.emit(0x54000002u));
-                words_.emit(0x8b0c0d6bu);
-                words_.emit(0xfd400960u);
+                // Keep x11 at the allocation base. Owned temporaries are
+                // released after the load, so advancing the base register to
+                // the selected element would pass an interior pointer to the
+                // runtime deallocator.
+                words_.emit(0x8b0c0d6eu);  // add x14, x11, x12, lsl #3
+                words_.emit(0xfd4009c0u);  // ldr d0, [x14, #16]
                 store_d(0, frame.offset(frame.temp_base + first));
                 if (instruction.owns_input) {
                     words_.emit(0xaa0b03e0u);
