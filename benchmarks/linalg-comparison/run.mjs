@@ -84,6 +84,17 @@ export function comparison(vkfMeanMs, competitorMeanMs) {
   return { ratio: vkfMeanMs / competitorMeanMs };
 }
 
+export function enforceRelativeGate(comparisons, limit) {
+  for (const [competitor, result] of Object.entries(comparisons)) {
+    if (!(result.ratio < limit)) {
+      throw new Error(
+        `${competitor} ratio ${result.ratio.toFixed(3)} must be below ${limit.toFixed(3)}`,
+      );
+    }
+  }
+  return true;
+}
+
 function parseArguments(argv) {
   const values = new Map();
   for (const argument of argv) {
@@ -99,6 +110,12 @@ function parseArguments(argv) {
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`--${name} must be positive`);
     return value;
   };
+  const optionalPositiveNumber = (name) => {
+    if (!values.has(name)) return undefined;
+    const value = Number(values.get(name));
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`--${name} must be positive`);
+    return value;
+  };
   const selectedKernels = list('kernels', Object.keys(kernels).join(','));
   const languages = list('languages', 'vkf,eigen,faer,scipy');
   for (const kernel of selectedKernels) if (!kernels[kernel]) throw new Error(`unknown kernel ${kernel}`);
@@ -111,6 +128,7 @@ function parseArguments(argv) {
     runs: integer('runs', 10),
     timeoutMs: integer('timeout-ms', 30000),
     threads: integer('threads', 1),
+    relativeLimit: optionalPositiveNumber('relative-limit'),
     vkfRunner: values.get('vkf-runner') ? resolve(values.get('vkf-runner')) : undefined,
     vkfManifest: values.get('vkf-manifest') ? resolve(values.get('vkf-manifest')) : undefined,
     eigenRunner: values.get('eigen') ? resolve(values.get('eigen')) : undefined,
@@ -244,7 +262,7 @@ function markdown(report) {
   });
   return [
     '# VKF linear-algebra comparison evidence', '',
-    `Host: \`${report.machine.cpu}\`, ${report.machine.platform}-${report.machine.architecture}  `,
+    `Host: \`${report.machine.cpu}\`, ${report.machine.platform}-${report.machine.architecture}`,
     `Samples: ${report.conditions.runs}; threads: ${report.conditions.threads}`, '',
     `| Kernel | VKF mean ± std | ${headings.join(' | ')} |`,
     `| --- | ---: | ${headings.map(() => '---:').join(' | ')} |`,
@@ -271,6 +289,7 @@ function main() {
       runs: options.runs,
       timeoutMs: options.timeoutMs,
       threads: options.threads,
+      relativeLimit: options.relativeLimit,
       kernels: options.kernels,
       languages: options.languages,
       scheduling: 'rotating same-host process order',
@@ -294,11 +313,22 @@ function main() {
     process.stderr.write(`benchmarking ${id}\n`);
     report.kernels.push(runKernel(id, languageEntries, options, manifest, index));
   }
-  report.pass = true;
+  report.pass = options.relativeLimit === undefined || report.kernels.every((kernel) => (
+    Object.values(kernel.comparisons).every(({ ratio }) => ratio < options.relativeLimit)
+  ));
   mkdirSync(dirname(options.output), { recursive: true });
   writeFileSync(options.output, `${JSON.stringify(report, null, 2)}\n`);
   writeFileSync(options.output.replace(/\.json$/i, '.md'), markdown(report));
   process.stdout.write(`${markdown(report)}\nJSON: ${options.output}\n`);
+  if (options.relativeLimit !== undefined) {
+    for (const kernel of report.kernels) {
+      try {
+        enforceRelativeGate(kernel.comparisons, options.relativeLimit);
+      } catch (error) {
+        throw new Error(`${kernel.id}: ${error.message}`);
+      }
+    }
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

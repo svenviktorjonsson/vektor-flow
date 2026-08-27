@@ -34,7 +34,7 @@ mkdir -p "$stage_root/bin" "$stage_root/compiler/self_hosted/stdlib" "$stage_roo
 test -x "$binary_root/vkf-strict" || { echo "missing release compiler: $binary_root/vkf-strict" >&2; exit 1; }
 cp "$binary_root/vkf-strict" "$stage_root/bin/vkf"
 
-for module in math stat random time io collections errors system process regex physics symbolic; do
+for module in math stat random time io collections errors system process regex linalg physics symbolic; do
   cp "$repo_root/compiler/self_hosted/stdlib/$module.vkf" "$stage_root/compiler/self_hosted/stdlib/"
 done
 cp -R "$repo_root/compiler/self_hosted/stdlib/physics" "$stage_root/compiler/self_hosted/stdlib/"
@@ -52,7 +52,7 @@ cat > "$stage_root/vektorflow-release.json" <<EOF
   "platform": "linux-x64",
   "entrypoint": "bin/vkf",
   "test_command": "vkf -t",
-  "stdlib_modules": ["math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex", "physics", "physics.units", "physics.units.si", "symbolic"],
+  "stdlib_modules": ["math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex", "linalg", "physics", "physics.units", "physics.units.si", "symbolic"],
   "not_included_partial_modules": ["ui"],
   "strict_direct": true,
   "compatibility_fallback": false,

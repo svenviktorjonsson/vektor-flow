@@ -21,7 +21,11 @@ test('Prism grammar registers VKF aliases and language-specific tokens', () => {
   assert.equal(Prism.languages.vkf, grammar);
   assert.match(':.math', grammar.module.pattern);
   assert.match('math.sin(', grammar['stdlib-call'].pattern);
+  assert.match('linalg.solve(', grammar['stdlib-call'].pattern);
+  assert.match('physics.step(', grammar['stdlib-call'].pattern);
+  assert.match('symbolic.solve(', grammar['stdlib-call'].pattern);
   assert.match('value: 3', grammar.binding.pattern);
+  assert.match('converter:type', grammar.builtin);
   assert.match(':::', grammar['line-print-sugar'].pattern);
   assert.match('native_scene', grammar.variable);
 });

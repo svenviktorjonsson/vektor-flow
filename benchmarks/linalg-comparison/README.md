@@ -32,13 +32,13 @@ and repeated eigenspaces are not unique.
 
 ## Latest verified result
 
-The current Windows x64 evidence is the
-[`readable report`](results/windows-x64-current.md) plus its
-[`raw JSON`](results/windows-x64-current.json). It contains 10 rotated,
-single-thread samples per implementation; the JSON stores every raw sample and
-validation maximum. All numerical gates pass, but
-VKF does **not** yet meet the `<2×` performance objective on these kernels. This
-report is the optimizer baseline, not a performance claim.
+The 0.3.0 Windows x64 evidence is the
+[`readable report`](results/windows-x64-030.md) plus its
+[`raw JSON`](results/windows-x64-030.json). The checked-in pre-release report
+contains 30 rotating, single-thread samples per implementation; the JSON stores
+every raw sample and validation maximum. All numerical gates pass, and every
+VKF/competitor ratio is strictly below `1.5×`. Release automation repeats the
+same combined gate with 100 samples per implementation.
 
 ## Measurement contract
 
@@ -54,7 +54,7 @@ report is the optimizer baseline, not a performance claim.
   variables. Thread count and backend are recorded.
 - Same-host process order rotates each round. Reports store every sample,
   mean, sample standard deviation, machine conditions, and `VKF / competitor`.
-- Ratios are descriptive until a release explicitly declares a speed gate.
+- The 0.3.0 release requires every ratio to be strictly below `1.5×`.
 
 Fixtures are generated from one deterministic integer-mix source. The tall
 least-squares residual is constructed as `[r; -r]` against `A = [G; G]`, making
@@ -105,7 +105,8 @@ node benchmarks/linalg-comparison/run.mjs \
   --faer=/path/to/faer_runner \
   --python=.venv-linalg/bin/python \
   --threads=1 \
-  --runs=30 \
+  --runs=100 \
+  --relative-limit=1.5 \
   --output=benchmarks/linalg-comparison/results/local.json
 ```
 

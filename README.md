@@ -8,15 +8,13 @@ Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
 > [!WARNING]
-> VKF 0.2.1 is an unsupported experimental preview. It has bugs, incomplete
+> VKF 0.3.0 is an unsupported experimental preview. It has bugs, incomplete
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
-> The published 0.2.1 bundles deliberately omit `ui`, `physics`, and
-> `symbolic` rather than using compatibility fallbacks. Current development
-> has native `physics` and `symbolic` implementations; they are not present in
-> the 0.2.1 downloads and will enter the next release only after its complete
-> three-platform proof.
+> The 0.3.0 native bundle includes the verified `linalg`, `physics`, units, and
+> `symbolic` libraries without compatibility fallbacks. The visual `ui` system
+> remains excluded until its native implementation is complete.
 
 ## Why VKF Is Different
 
@@ -77,9 +75,9 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Install VKF 0.2.1
+## Install VKF 0.3.0
 
-Download the [0.2.1 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.2.1).
+Download the [0.3.0 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.3.0).
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -192,13 +190,13 @@ records the compact canonical forms used by public VKF programs.
 
 ## Performance Evidence—And Its Limits
 
-The 0.2.1 release gate compiles every documented program 10 times from fresh
+The 0.3.0 release gate compiles every documented program 10 times from fresh
 paths and executes it 10 times in fresh operating-system processes on Windows
 x64, Linux x64, and macOS ARM64. All 10 rounds must produce the same exit code
 and byte-identical stdout and stderr. This is an output-stability check, not a
 per-example timing claim.
 
-The comparative timings below were produced by the 0.2.1 compiler from its
+The comparative timings below were produced by the 0.3.0 compiler from its
 canonical compact benchmark sources. Every reported VKF compile forces a fresh
 policy search; search time is included in total compile time and separately
 recorded in the laboratory evidence.
@@ -215,7 +213,7 @@ recorded in the laboratory evidence.
 | Compiler SHA-256 | `57a1345207d192f64cd0adaf9af18bad5977071362e7d75b253bba17e26ea2fc` | `dfcad593ec22f58345a70644d2d1988439983ba8074fffd7ca7abe86ea7d0559` | `3368be26fe7ee8d19d633761a2d618c00b91f1df934c36e1fe39b3f453be8f17` |
 <!-- readme-platform-evidence:end -->
 
-These narrow 0.2.1 checks prove reproducibility and expose regressions. They
+These narrow 0.3.0 checks prove reproducibility and expose regressions. They
 do **not** prove that VKF is generally faster than C, Rust, Zig, Go, Julia, or
 Python.
 
@@ -226,18 +224,17 @@ deduplicates identical machine code, and retains a policy for the exact program
 and x64 host. Normal search is bounded by the compilation-time budget;
 exhaustive search is an explicit benchmark mode.
 
-The latest committed [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.2.1-ci.md)
-was produced by the strict 0.2.1 Windows x64 compiler. All 256 policies were
-correct and collapsed to 36 distinct binaries. The fastest measured basin was
-5.32× faster than the slowest. This run selected `mask-4e` at
-2.291 ± 0.081 ms; the default `mask-ff` measured 2.318 ± 0.098 ms. Their 1.2%
-difference is smaller than run-to-run variance. The report explains every
-switch, exact conditions, code deduplication, and why small noisy differences
-are not treated as proof.
+The latest committed [256-policy spectral-norm landscape](benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci.md)
+was produced by the strict 0.3.0 Windows x64 compiler. All 256 policies were
+correct and collapsed to 36 distinct binaries. The run selected `mask-4c` at
+3.95 ± 2.72 ms; the default `mask-ff` measured 4.18 ± 2.73 ms, a 5.41%
+same-host mean improvement. The fastest measured mean was 2.80× faster than
+the slowest, but the high sample variance means this landscape proves policy
+correctness and exposes optimization basins rather than a universal speedup.
 
 ### Reproducible Language Comparison
 
-This is the controlled **0.2.1** comparison produced by the current compiler
+This is the controlled **0.3.0** comparison produced by the current compiler
 and the exact VKF snippets shown below.
 
 Rows marked **matched** use the same algorithm. The spectral-norm row is
@@ -247,11 +244,11 @@ linked. Tool versions, source hashes, work counts, output parity, compile
 models, and all 1,000 raw timing samples are retained in the evidence report.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 9V74 80-Core Processor, 4 logical CPUs, at `2026-08-24T13:05:18.860Z`.
+Measured on `linux 6.6.87.2-microsoft-standard-WSL2`, `x64`, Intel(R) Core(TM) Ultra 7 255U, 14 logical CPUs, at `2026-08-27T17:35:15.213Z`.
 
 Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are represented by same-host VKF/competitor ratios. Absolute times are never compared across machines. Each raw lane contains 1000 measured runs after 50 warmups and excludes process launch.
 
-Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-021.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-021.md).
+Evidence: [all samples and hashes](benchmarks/core-comparison/results/linux-x64-030.json) and [readable laboratory report](benchmarks/core-comparison/results/linux-x64-030.md).
 
 ### Current compile and raw-kernel comparison
 
@@ -259,12 +256,12 @@ Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner. Raw 
 
 | Kernel | Measurement | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Spectral norm | Raw runtime | 4.72 ± 0.13 ms | 0.30× | 0.28× | 0.28× |
-| Spectral norm | Compile | 321.50 ± 1.84 ms | 1.69× | 3.40× | 1.79× |
-| Fannkuch | Raw runtime | 24.13 ± 0.30 ms | 1.04× | 1.22× | 1.06× |
-| Fannkuch | Compile | 92.41 ± 0.53 ms | 1.04× | 1.02× | 0.54× |
-| N-body | Raw runtime | 4.49 ± 0.26 ms | 1.34× | 1.90× | 0.98× |
-| N-body | Compile | 122.86 ± 1.06 ms | 1.10× | 1.19× | 0.70× |
+| Spectral norm | Raw runtime | 8.19 ± 2.64 ms | 0.75× | 0.67× | 0.75× |
+| Spectral norm | Compile | 251.44 ± 53.70 ms | 2.73× | 1.12× | 1.07× |
+| Fannkuch | Raw runtime | 21.95 ± 6.31 ms | 1.23× | 1.15× | 1.25× |
+| Fannkuch | Compile | 105.61 ± 24.37 ms | 1.31× | 0.46× | 0.46× |
+| N-body | Raw runtime | 3.26 ± 1.54 ms | 1.30× | 1.20× | 0.97× |
+| N-body | Compile | 119.32 ± 17.18 ms | 1.14× | 0.40× | 0.32× |
 
 ### spectral norm by power method — large, scale 500
 
@@ -488,7 +485,7 @@ Exact implementations: VKF [source](benchmarks/core-comparison/published/n-body-
 <details>
 <summary>Exact toolchains and compile models</summary>
 
-- VKF: `VKF 0.2.1; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + fresh empirical policy search + Python-free integrated frontend + compiler-owned direct x64 artifact
+- VKF: `VKF 0.3.0; built with Ubuntu clang version 18.1.3 (1ubuntu1)`; fresh VKF process + fresh empirical policy search + Python-free integrated frontend + compiler-owned direct x64 artifact
 - C: `Ubuntu clang version 18.1.3 (1ubuntu1)`; Clang -O3 -march=native native link
 - Rust: `rustc 1.98.0 (88d9e12ae 2026-08-18)`; rustc -O -C target-cpu=native native link
 - Zig: `0.16.0`; zig build-exe -O ReleaseFast -mcpu native -lc
@@ -506,27 +503,31 @@ single table above summarizes the current comparative measurements.
 
 ## Status And Native Scope
 
-The published 0.2.1 native release includes `math`, `stat`, `random`, `time`,
-`io`, `collections`, `errors`, `system`, `process`, and `regex`. Only fully
-native, verified libraries ship in a release.
+The 0.3.0 native release includes `math`, `stat`, `random`, `time`, `io`,
+`collections`, `errors`, `system`, `process`, `regex`, `linalg`, `physics`,
+`physics.units`, `physics.units.si`, and `symbolic`. Only fully native,
+verified libraries ship in a release; `ui` remains future work.
 
-The current development package additionally includes `linalg`, `physics`,
-`physics.units`, `physics.units.si`, and `symbolic`. `.linalg` has 28 direct
-behavioral tests over ordinary rectangular nested vectors. Its reproducible
-[linear-algebra benchmark laboratory](benchmarks/linalg-comparison/README.md)
-currently passes every numerical accuracy gate but does not yet meet the
-project's `<2×` competitor-performance objective. Physics has 28 direct
-engine tests plus 6 dimensioned-SI tests. Symbolic has 363 direct behavioral
-tests plus 14 exact compile-failure diagnostics. Nine physics/symbolic fixtures
-also run identical source through native x64 and standalone WASM, with 10/10
-identical results on each target. The exact published symbolic
-comparison kernels and complete samples are in the
-[symbolic benchmark laboratory](benchmarks/symbolic-comparison/README.md); all
-12 current VKF/competitor ratios pass the `<2×` gate. These development facts
-do not retroactively change the 0.2.1 downloads. `ui` remains future work.
+`.linalg` has 28 direct behavioral tests over ordinary rectangular nested
+vectors. Its reproducible [linear-algebra benchmark laboratory](benchmarks/linalg-comparison/README.md)
+compares seven validated kernels with Eigen, faer, and SciPy. The committed
+[100-run Windows x64 release evidence](benchmarks/linalg-comparison/results/windows-x64-030.md)
+keeps every VKF/competitor ratio strictly below `1.5×`; the worst measured
+ratio is `1.377×` for LU versus SciPy. Every accepted sample first passes its
+operation-specific numerical accuracy gates.
+
+Physics covers rigid dynamics, contacts, materials, and dimensioned SI units.
+Symbolic covers exact expressions, domains and constraints, equations,
+differential and recurrence solving, transforms, and numeric compilation.
+Eleven scientific fixtures run identical source through native x64 and
+standalone WASM, with 10/10 identical results on each target. The
+[symbolic benchmark laboratory](benchmarks/symbolic-comparison/README.md)
+retains its exact kernels, samples, and competitor ratios. The current
+[0.3.0 Windows evidence](benchmarks/symbolic-comparison/results/windows-x64-030.md)
+keeps all 12 VKF/SymEngine, VKF/SymPy, and VKF/Symbolics.jl ratios below `2×`.
 
 The main-branch verification suite includes dedicated compact-index and
-range-pipe regressions plus 64 documented-program checks. Exact output stays
+range-pipe regressions plus 67 documented-program checks. Exact output stays
 beside the examples; controlled comparative timing remains separate.
 
 ## Additional Punctuation
@@ -551,6 +552,23 @@ folders, and unrelated existing `vkf` commands.
 VKF programs still run with the current user's permissions. `io` can modify
 files and `process` can launch programs. `process.run` passes an exact argument
 vector; `process.shell` invokes a platform shell and must be treated as unsafe.
+
+## 0.3.0 Changes
+
+0.3.0 completes the first native scientific stack and strengthens its proof:
+
+- `linalg`, `physics`, dimensioned SI units, and `symbolic` now ship as native standard libraries;
+- ordinary rectangular nested vectors remain the matrix and tensor representation, with numeric and symbolic solvers sharing the same public operations;
+- native/WASM parity covers eleven scientific fixtures with repeated identical output;
+- the linalg comparison validates solve, least-squares, LU, QR, Cholesky, SVD, and symmetric eigen results against exact numerical gates;
+- x64 LU uses contiguous AVX2 row updates, while Cholesky uses AVX2 prefix-dot reductions;
+- the 100-run Windows comparison keeps all 21 VKF/competitor ratios below `1.5×` against Eigen, faer, and SciPy;
+- the embedded linalg machine-code kernel is reproducibly generated from its reviewed source;
+- aliased standard-library dependencies now lower before their importers, preserving default arguments across nested native modules;
+- all portable packages include the complete native `linalg` source dependency;
+- editor grammars recognize the complete released native library surface and the `type` builtin.
+
+See the [0.3.0 release notes](docs/releases/0.3.0.md).
 
 ## 0.2.1 Changes
 

@@ -20,7 +20,7 @@ unsupported imports hard-fail instead of activating a compatibility path.
 
 Current development packages add native `physics`, `physics.units` (SI), and
 `symbolic`; only `ui` remains excluded there. This does not change the contents
-of an already-published 0.2.1 download.
+of an already-published 0.3.0 download.
 
 1. Download and extract the Windows package
 2. Open PowerShell in the extracted folder

@@ -134,7 +134,7 @@
       "patterns": [
         {
           "comment": "Released native stdlib namespace + member call",
-          "match": "\\b(math|stat|random|time|io|collections|errors|system|process|regex)\\b\\s*\\.\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()",
+          "match": "\\b(math|stat|random|time|io|collections|errors|system|process|regex|linalg|physics|symbolic)\\b\\s*\\.\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()",
           "captures": {
             "1": { "name": "entity.name.namespace.std.vektorflow" },
             "2": { "name": "entity.name.function.call.vektorflow" },
@@ -176,7 +176,7 @@
       "patterns": [
         {
           "comment": "Strict declaration: name: value or type name: value",
-          "match": "^\\s*(?:(bit|chr|int|num|str|any)\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*:(?!:)",
+          "match": "^\\s*(?:(bit|chr|int|num|str|type|any)\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\\s*:(?!:)",
           "captures": {
             "1": { "name": "storage.type.primitive.vektorflow" },
             "2": { "name": "variable.name.binding.vektorflow" }
@@ -258,7 +258,7 @@
         },
         {
           "name": "storage.type.primitive.vektorflow",
-          "match": "\\b(bit|chr|int|num|str|any)\\b"
+          "match": "\\b(bit|chr|int|num|str|type|any)\\b"
         }
       ]
     },

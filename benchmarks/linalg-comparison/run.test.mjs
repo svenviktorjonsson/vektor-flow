@@ -6,6 +6,7 @@ import { materialized } from './materialize-fixtures.mjs';
 
 import {
   comparison,
+  enforceRelativeGate,
   parseRunnerOutput,
   rotateEntries,
   seriesStats,
@@ -69,6 +70,14 @@ test('rotates language order without dropping entries', () => {
 
 test('reports VKF divided by competitor and does not impose a speed gate by default', () => {
   assert.deepEqual(comparison(3, 2), { ratio: 1.5 });
+});
+
+test('strict relative gate requires every VKF ratio below its limit', () => {
+  assert.equal(enforceRelativeGate({ eigen: { ratio: 1.499 }, faer: { ratio: 0.8 } }, 1.5), true);
+  assert.throws(
+    () => enforceRelativeGate({ eigen: { ratio: 1.5 }, faer: { ratio: 0.8 } }, 1.5),
+    /eigen.*1\.500.*below 1\.500/,
+  );
 });
 
 test('materialized fixtures have stable hashes and mathematical construction', () => {

@@ -30,7 +30,7 @@ Copy-Item -LiteralPath $compilerSource -Destination (Join-Path $stageRoot "bin/v
 
 $stdlibTarget = Join-Path $stageRoot "compiler/self_hosted/stdlib"
 New-Item -ItemType Directory -Path $stdlibTarget -Force | Out-Null
-$directModules = @("math.vkf", "stat.vkf", "random.vkf", "time.vkf", "io.vkf", "collections.vkf", "errors.vkf", "system.vkf", "process.vkf", "regex.vkf", "physics.vkf", "symbolic.vkf")
+$directModules = @("math.vkf", "stat.vkf", "random.vkf", "time.vkf", "io.vkf", "collections.vkf", "errors.vkf", "system.vkf", "process.vkf", "regex.vkf", "linalg.vkf", "physics.vkf", "symbolic.vkf")
 foreach ($module in $directModules) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "compiler/self_hosted/stdlib/$module") -Destination $stdlibTarget
 }
@@ -52,7 +52,7 @@ $manifest = [ordered]@{
     platform = "windows-x64"
     entrypoint = "bin/vkf.exe"
     test_command = "vkf -t"
-    stdlib_modules = @("math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex", "physics", "physics.units", "physics.units.si", "symbolic")
+    stdlib_modules = @("math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex", "linalg", "physics", "physics.units", "physics.units.si", "symbolic")
     not_included_partial_modules = @("ui")
     strict_direct = $true
     compatibility_fallback = $false

@@ -1,4 +1,4 @@
-export const TEXTMATE_GRAMMAR_SHA256 = '9f4d414a8a02ecf36c9caaa1724cd3835eda5d70840adec1f4a80eda5b70cc0c';
+export const TEXTMATE_GRAMMAR_SHA256 = '5f8c3727423ac51c604bd7af5db38d9abed15cc6b0bf003eff2cf6a41f192924';
 
 export function registerVektorFlowPrism(Prism) {
   if (!Prism?.languages) throw new TypeError('Prism.languages is required.');
@@ -38,7 +38,7 @@ export function registerVektorFlowPrism(Prism) {
       },
     },
     'stdlib-call': {
-      pattern: /\b(?:bridge|io|math|time|screen|widget|collections|capture)\b\s*\.\s*[a-zA-Z_][a-zA-Z0-9_]*\s*(?=\()/,
+      pattern: /\b(?:math|stat|random|time|io|collections|errors|system|process|regex|linalg|physics|symbolic)\b\s*\.\s*[a-zA-Z_][a-zA-Z0-9_]*\s*(?=\()/,
       inside: {
         namespace: /^[a-zA-Z_][a-zA-Z0-9_]*/,
         punctuation: /\./,
@@ -57,7 +57,7 @@ export function registerVektorFlowPrism(Prism) {
     binding: { pattern: /^\s*[a-zA-Z_][a-zA-Z0-9_]*(?=\s*:(?!::))/m, alias: 'variable' },
     boolean: /\b(?:true|false)\??\b/,
     wildcard: { pattern: /\b_\?/, alias: 'keyword' },
-    builtin: /\b(?:int|float|num|str|byte|bytes|bool|any)\b/,
+    builtin: /\b(?:bit|chr|int|num|str|type|any)\b/,
     number: /\b(?:\d+\.\d+|\d+)\b/,
     operator: /:::|::|>>|==|~=|!=|<=|>=|=>|->|\/\/|\.\.|><|\/\\|\\\/|@::|@:|@>|@\||@!|\(\s*[+\-*/]\s*\)|\{\s*[+\-*/]\s*\}|[=<>+\-*/^%&~:$?.|]/,
     function: /\b[a-zA-Z_][a-zA-Z0-9_]*(?=\s*\()/,

@@ -284,8 +284,8 @@ function markdown(report) {
   return [
     '# VKF symbolic comparison evidence',
     '',
-    `Compiler: \`${report.tools.vkf}\`  `,
-    `Host: \`${report.machine.cpu}\`, ${report.machine.platform}-${report.machine.architecture}  `,
+    `Compiler: \`${report.tools.vkf}\``,
+    `Host: \`${report.machine.cpu}\`, ${report.machine.platform}-${report.machine.architecture}`,
     `Samples: ${report.conditions.runs} per kernel/language; timeout: ${report.conditions.timeoutMs} ms`,
     '',
     `| Kernel | VKF mean ± std | ${headings.join(' | ')} | <2× each |`,

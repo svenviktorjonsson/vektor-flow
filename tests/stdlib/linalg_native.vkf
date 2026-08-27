@@ -91,7 +91,10 @@ test numeric_cholesky_returns_the_lower_factor() -> bit:
     (_linalg_abs(lower.(1, 1) - 1) < 0.000000001)?!
     (_linalg_abs(lower.(2, 0) + 8) < 0.000000001)?!
     (_linalg_abs(lower.(2, 1) - 5) < 0.000000001)?!
-    _linalg_abs(lower.(2, 2) - 3) < 0.000000001
+    (_linalg_abs(lower.(2, 2) - 3) < 0.000000001)?!
+    (_linalg_abs(lower.(0, 1)) < 0.000000001)?!
+    (_linalg_abs(lower.(0, 2)) < 0.000000001)?!
+    _linalg_abs(lower.(1, 2)) < 0.000000001
 
 test numeric_qr_reconstructs_a_rectangular_matrix_with_orthonormal_columns() -> bit:
     matrix: [[1, 0], [1, 1], [0, 1]]

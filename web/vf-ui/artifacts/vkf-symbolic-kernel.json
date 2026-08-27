@@ -3,12 +3,12 @@
     "symbolic_affine_context": {
       "index": 23,
       "parameters": 7,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_append_argument_variants": {
       "index": 185,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_append_closed_parameter_ast_points": {
       "index": 398,
@@ -38,7 +38,7 @@
     "symbolic_as_complex": {
       "index": 152,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_ast_contains_call": {
       "index": 210,
@@ -58,12 +58,12 @@
     "symbolic_atan": {
       "index": 133,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_atan2": {
       "index": 132,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_binary": {
       "index": 11,
@@ -118,7 +118,7 @@
     "symbolic_binary_variants": {
       "index": 182,
       "parameters": 5,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_builtin_arity": {
       "index": 471,
@@ -133,7 +133,7 @@
     "symbolic_call_diagnostics": {
       "index": 470,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_call_latex": {
       "index": 102,
@@ -153,12 +153,12 @@
     "symbolic_call_variants": {
       "index": 187,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_chained_relation_classification": {
       "index": 228,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_chained_relation_is_open": {
       "index": 229,
@@ -168,7 +168,7 @@
     "symbolic_clamp_unit": {
       "index": 466,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_classification": {
       "index": 225,
@@ -188,7 +188,7 @@
     "symbolic_closed_region_ranges": {
       "index": 308,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_color_field_vertex": {
       "index": 448,
@@ -208,12 +208,12 @@
     "symbolic_colored_vertex": {
       "index": 451,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_colormap_amount": {
       "index": 463,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_colormap_interpolate": {
       "index": 462,
@@ -253,7 +253,7 @@
     "symbolic_complex": {
       "index": 18,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_complex_binary": {
       "index": 153,
@@ -263,7 +263,7 @@
     "symbolic_complex_divide": {
       "index": 157,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_complex_field_color": {
       "index": 457,
@@ -298,7 +298,7 @@
     "symbolic_constrained_value": {
       "index": 386,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_constraint_ast_contains_or_borders": {
       "index": 389,
@@ -328,7 +328,7 @@
     "symbolic_cursor": {
       "index": 2,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_cursor_advance": {
       "index": 36,
@@ -338,7 +338,7 @@
     "symbolic_cursor_at": {
       "index": 47,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_cursor_eof": {
       "index": 34,
@@ -348,7 +348,7 @@
     "symbolic_cursor_location": {
       "index": 33,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_cursor_peek": {
       "index": 35,
@@ -368,12 +368,12 @@
     "symbolic_curve_family_ranges": {
       "index": 303,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_decimal_end_before_range": {
       "index": 42,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_definition": {
       "index": 16,
@@ -383,12 +383,12 @@
     "symbolic_definition_diagnostics": {
       "index": 472,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_definition_latex": {
       "index": 108,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_definition_or_next": {
       "index": 137,
@@ -398,12 +398,12 @@
     "symbolic_definition_variants": {
       "index": 189,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_diagnostic": {
       "index": 3,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_document_advance": {
       "index": 319,
@@ -423,7 +423,7 @@
     "symbolic_document_command_latex": {
       "index": 325,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_command_span": {
       "index": 324,
@@ -443,7 +443,7 @@
     "symbolic_document_flush_text": {
       "index": 321,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_identifier_is_call": {
       "index": 347,
@@ -483,7 +483,7 @@
     "symbolic_document_math_end_at": {
       "index": 349,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_document_math_operator": {
       "index": 351,
@@ -493,7 +493,7 @@
     "symbolic_document_math_roles": {
       "index": 358,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_math_span": {
       "index": 326,
@@ -508,12 +508,12 @@
     "symbolic_document_normalize_math": {
       "index": 354,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_normalized_identifier": {
       "index": 355,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_platonic_implicit_product": {
       "index": 344,
@@ -523,7 +523,7 @@
     "symbolic_document_program_asts": {
       "index": 338,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_program_entry": {
       "index": 329,
@@ -533,7 +533,7 @@
     "symbolic_document_program_latex": {
       "index": 340,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_program_supported": {
       "index": 345,
@@ -543,17 +543,17 @@
     "symbolic_document_program_values": {
       "index": 337,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_program_variables": {
       "index": 341,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_program_variants": {
       "index": 339,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_programs_plottable": {
       "index": 334,
@@ -573,7 +573,7 @@
     "symbolic_document_role": {
       "index": 362,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_document_scan": {
       "index": 318,
@@ -583,7 +583,7 @@
     "symbolic_document_skip_spaces": {
       "index": 352,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_document_slash_command_end": {
       "index": 353,
@@ -608,12 +608,12 @@
     "symbolic_document_spans_latex": {
       "index": 333,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_text_latex": {
       "index": 356,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_document_text_scalar_latex": {
       "index": 357,
@@ -683,7 +683,7 @@
     "symbolic_draft_call_closer": {
       "index": 247,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_call_end": {
       "index": 248,
@@ -703,7 +703,7 @@
     "symbolic_draft_call_next": {
       "index": 245,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_draft_call_preview": {
       "index": 244,
@@ -728,17 +728,17 @@
     "symbolic_draft_identifier_tail_latex": {
       "index": 243,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_integral_differential": {
       "index": 263,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_integral_lower_operator": {
       "index": 262,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_integral_operator": {
       "index": 261,
@@ -748,7 +748,7 @@
     "symbolic_draft_integral_template_latex": {
       "index": 260,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_last_token_ready": {
       "index": 239,
@@ -758,7 +758,7 @@
     "symbolic_draft_latex_range": {
       "index": 266,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_latex_tokens": {
       "index": 241,
@@ -768,22 +768,22 @@
     "symbolic_draft_parenthesized_latex": {
       "index": 242,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_parenthesized_latex_range": {
       "index": 267,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_parenthesized_power_latex": {
       "index": 270,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_parenthesized_power_latex_range": {
       "index": 271,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_power_group_end": {
       "index": 272,
@@ -818,17 +818,17 @@
     "symbolic_draft_range_template_latex": {
       "index": 259,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_template_body_latex": {
       "index": 264,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_template_bound_latex": {
       "index": 265,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_draft_token_latex": {
       "index": 276,
@@ -853,7 +853,7 @@
     "symbolic_error_node": {
       "index": 17,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_evaluate": {
       "index": 119,
@@ -863,7 +863,7 @@
     "symbolic_evaluate_items": {
       "index": 123,
       "parameters": 6,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_evaluation": {
       "index": 117,
@@ -873,7 +873,7 @@
     "symbolic_exp_reduce": {
       "index": 149,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_exp_scale": {
       "index": 151,
@@ -908,7 +908,7 @@
     "symbolic_face_vertex": {
       "index": 447,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_field_color": {
       "index": 459,
@@ -953,7 +953,7 @@
     "symbolic_global_context": {
       "index": 22,
       "parameters": 0,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_greek_identifier": {
       "index": 110,
@@ -978,7 +978,7 @@
     "symbolic_group_variants": {
       "index": 213,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_grouped_power_exponent_latex": {
       "index": 115,
@@ -1028,7 +1028,7 @@
     "symbolic_integral_template_latex": {
       "index": 104,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_invalid_complex_power": {
       "index": 155,
@@ -1108,12 +1108,12 @@
     "symbolic_items_diagnostics": {
       "index": 469,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_items_variables": {
       "index": 173,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_latex": {
       "index": 96,
@@ -1128,7 +1128,7 @@
     "symbolic_latex_items": {
       "index": 101,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_latex_unwrapped": {
       "index": 100,
@@ -1148,7 +1148,7 @@
     "symbolic_line_vertex": {
       "index": 446,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_linked_collection_items": {
       "index": 177,
@@ -1158,12 +1158,12 @@
     "symbolic_linked_literal_ranges": {
       "index": 305,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_linked_power_items": {
       "index": 178,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_linked_power_plot_result": {
       "index": 304,
@@ -1208,17 +1208,17 @@
     "symbolic_location": {
       "index": 0,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_location_cursor": {
       "index": 37,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_log_normalize": {
       "index": 146,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_log_series": {
       "index": 147,
@@ -1233,22 +1233,22 @@
     "symbolic_map_binary_left": {
       "index": 179,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_map_binary_right": {
       "index": 180,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_mix": {
       "index": 465,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_multiplication_latex": {
       "index": 116,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_multiset": {
       "index": 15,
@@ -1263,7 +1263,7 @@
     "symbolic_multiset_variants": {
       "index": 197,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_natural_log": {
       "index": 145,
@@ -1288,7 +1288,7 @@
     "symbolic_number": {
       "index": 7,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_number_is_finite": {
       "index": 384,
@@ -1298,7 +1298,7 @@
     "symbolic_offset_linked_literal_ranges": {
       "index": 367,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_owned_context": {
       "index": 129,
@@ -1318,7 +1318,7 @@
     "symbolic_parameter_diagnostics": {
       "index": 473,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_parameter_name": {
       "index": 405,
@@ -1328,7 +1328,7 @@
     "symbolic_parameter_names": {
       "index": 135,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_parameter_value": {
       "index": 124,
@@ -1718,7 +1718,7 @@
     "symbolic_power_exponent_items": {
       "index": 430,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_power_exponent_latex": {
       "index": 114,
@@ -1743,7 +1743,7 @@
     "symbolic_power_latex": {
       "index": 112,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_precedence": {
       "index": 98,
@@ -1828,7 +1828,7 @@
     "symbolic_range_template_latex": {
       "index": 103,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_range_values": {
       "index": 120,
@@ -1838,12 +1838,12 @@
     "symbolic_range_values_ascending": {
       "index": 121,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_range_values_descending": {
       "index": 122,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_raw_program_evaluate_at": {
       "index": 285,
@@ -1863,22 +1863,22 @@
     "symbolic_recover_local_x_limit": {
       "index": 290,
       "parameters": 7,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_recover_local_y_limit": {
       "index": 291,
       "parameters": 7,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_recover_world_x_limit": {
       "index": 288,
       "parameters": 8,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_recover_world_y_limit": {
       "index": 289,
       "parameters": 8,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_region_cell_and_rest": {
       "index": 426,
@@ -1898,17 +1898,17 @@
     "symbolic_repeat_unit": {
       "index": 454,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_resolve_explicit_x_sample": {
       "index": 400,
       "parameters": 5,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_resolve_explicit_y_sample": {
       "index": 401,
       "parameters": 5,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_right_value_kind": {
       "index": 171,
@@ -1918,7 +1918,7 @@
     "symbolic_sample_chunk_end": {
       "index": 375,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_sample_color_field": {
       "index": 415,
@@ -1933,7 +1933,7 @@
     "symbolic_sample_coordinate": {
       "index": 445,
       "parameters": 4,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_sample_explicit_x": {
       "index": 380,
@@ -2028,7 +2028,7 @@
     "symbolic_sign_bit": {
       "index": 421,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_simple_closed_x_boundary": {
       "index": 390,
@@ -2063,7 +2063,7 @@
     "symbolic_static_range_lane": {
       "index": 195,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_static_range_length": {
       "index": 194,
@@ -2078,12 +2078,12 @@
     "symbolic_static_range_numbers_ascending": {
       "index": 192,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_static_range_numbers_descending": {
       "index": 193,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_static_range_variants": {
       "index": 190,
@@ -2093,7 +2093,7 @@
     "symbolic_strip_group_items": {
       "index": 281,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_strip_groups": {
       "index": 279,
@@ -2158,12 +2158,12 @@
     "symbolic_tuple_lane_items": {
       "index": 203,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_tuple_lane_variants": {
       "index": 207,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_tuple_lanes_enabled": {
       "index": 211,
@@ -2183,7 +2183,7 @@
     "symbolic_tuple_variants": {
       "index": 188,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_unary": {
       "index": 9,
@@ -2193,7 +2193,7 @@
     "symbolic_unary_variants": {
       "index": 183,
       "parameters": 3,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_uncompiled_draft": {
       "index": 234,
@@ -2228,12 +2228,12 @@
     "symbolic_variable": {
       "index": 8,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_variable_classification": {
       "index": 231,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_variable_dependencies": {
       "index": 216,
@@ -2288,7 +2288,7 @@
     "symbolic_vector": {
       "index": 19,
       "parameters": 2,
-      "resultType": 1
+      "resultType": 6
     },
     "symbolic_vector_binary": {
       "index": 158,
@@ -2318,7 +2318,7 @@
     "symbolic_vector_variants": {
       "index": 184,
       "parameters": 5,
-      "resultType": 1
+      "resultType": 4
     },
     "symbolic_workspace": {
       "index": 27,

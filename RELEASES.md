@@ -1,5 +1,18 @@
 # Vektor Flow Native Releases
 
+## 0.3.0 — Native Scientific Stack
+
+0.3.0 ships native `linalg`, `physics`, dimensioned SI units, and `symbolic`
+on all three release targets. Eleven native/WASM fixtures verify identical
+scientific behavior, and every documented program remains output-locked.
+
+Contiguous AVX2 LU updates and vectorized Cholesky reductions bring all seven
+validated linalg kernels below `1.5×` Eigen, faer, and SciPy in the controlled
+100-run Windows comparison. Dependency-first native module linking preserves
+nested default arguments, and all portable packages now include `linalg`.
+Full details:
+[`docs/releases/0.3.0.md`](docs/releases/0.3.0.md).
+
 ## 0.2.1 — Exact Output Proof And Faster Integer Pipes
 
 0.2.1 fixes fixed-vector compound-update typing and ARM64 integer indexed

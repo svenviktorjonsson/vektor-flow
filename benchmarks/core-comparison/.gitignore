@@ -18,3 +18,5 @@ results/*
 !results/linux-x64-017-controlled-1000.md
 !results/linux-x64-018-controlled-1000.json
 !results/linux-x64-018-controlled-1000.md
+!results/linux-x64-030.json
+!results/linux-x64-030.md

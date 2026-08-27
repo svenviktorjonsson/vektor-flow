@@ -3659,7 +3659,19 @@ private:
                         }
                     }
                 } else if (functions_.contains(callee_name)) {
-                    throw IRFailure("no matching overload for function " + callee_name);
+                    std::string received;
+                    for (std::size_t index = 0; index < argument_type_names.size(); ++index) {
+                        if (index != 0) received += ", ";
+                        received += argument_type_names[index];
+                    }
+                    std::string candidates;
+                    for (const auto* candidate : functions_.family(callee_name)) {
+                        if (!candidates.empty()) candidates += "; ";
+                        candidates += candidate->signature;
+                    }
+                    throw IRFailure(
+                        "no matching overload for function " + callee_name +
+                        " with (" + received + "); candidates: " + candidates);
                 } else if (callee_name == "bit" || callee_name == "chr" ||
                            callee_name == "int" || callee_name == "num" ||
                            callee_name == "str") {

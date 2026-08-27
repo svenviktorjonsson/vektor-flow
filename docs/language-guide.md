@@ -1672,10 +1672,9 @@ text
 
 ## 10. Native Standard Library
 
-Sections 10.1 through 10.10 are part of the native 0.2.1 release on Windows
-x64, Linux x64, and macOS ARM64. Sections 10.11 and 10.12 describe the native
-development implementation intended for the next release; they are not in the
-published 0.2.1 downloads.
+Sections 10.1 through 10.13 are part of the native 0.3.0 release on Windows
+x64, Linux x64, and macOS ARM64. Only fully native, release-verified libraries
+appear in this section.
 
 ### 10.1 `math`
 
@@ -2187,15 +2186,21 @@ numeric value.
 The reproducible [symbolic comparison](../benchmarks/symbolic-comparison/README.md)
 uses the exact `expand1`, `expand2`, `add1`, and `series` kernels published by
 SymEngine and compares the same operations with SymEngine/C++, SymPy/Python,
-and Symbolics.jl/Julia.
+and Symbolics.jl/Julia. The
+[0.3.0 evidence](../benchmarks/symbolic-comparison/results/windows-x64-030.md)
+passes all 12 ratios below `2×`.
 
 ## 11. Coming Soon
+
+The implementation handoff for the next fixed-vector shape operations and the
+first VKF-authored native/WASM UI tracer bullet is
+[`docs/plans/0.4.0.md`](plans/0.4.0.md).
 
 The following area remains planned. Repository prototypes and legacy examples
 are not part of the supported native compiler surface.
 
 ### 11.1 Native `ui`
 
-The visual and scene system is not in the native 0.2.1 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
+The visual and scene system is not in the native 0.3.0 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
 
 The same rule applies to every future feature: it enters the numbered native guide only after parsing, lowering, executable generation, runtime behavior, and native `vkf -t` verification pass on the release targets.

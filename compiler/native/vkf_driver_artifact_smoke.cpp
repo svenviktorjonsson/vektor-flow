@@ -54,7 +54,7 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
-constexpr const char* vkf_release_version = "0.2.1";
+constexpr const char* vkf_release_version = "0.3.0";
 
 std::filesystem::path bundled_stdlib_root;
 
@@ -974,11 +974,15 @@ void collect_linked_aliased_modules(
         if (const auto imported = aliased_module_path(statement, module_source)) {
             const std::string key = imported->alias + "\n" +
                 std::filesystem::absolute(imported->path).lexically_normal().string();
-            if (visited_aliases.insert(key).second) linked_aliases.push_back(*imported);
+            const bool first_alias_visit = visited_aliases.insert(key).second;
             const auto ast = parse_linked_module(imported->path, cache_stats);
             collect_linked_aliased_modules(
                 ast, imported->path, linked_aliases,
                 visited_sources, visited_aliases, cache_stats);
+            // Lower dependencies before their importers. Forward registration
+            // intentionally contains only signatures; complete default-argument
+            // metadata is installed when the dependency body is lowered.
+            if (first_alias_visit) linked_aliases.push_back(*imported);
             continue;
         }
         const auto dependency = spilled_module_path(statement, module_source);
