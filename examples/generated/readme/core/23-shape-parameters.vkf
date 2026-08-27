@@ -1,5 +1,4 @@
-join(x:[int:n], y:[int:m]) -> [int:n+m]:
-    x & y
+join(x:[int:n], y:[int:m]) -> [int:n+m]: x & y
 
 [int:5] joined: join([1, 2], [3, 4, 5])
 :: joined

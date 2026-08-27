@@ -1,0 +1,6 @@
+make_direct_result9() -> [num:9]:
+    [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+test direct_aggregate_result_keeps_register_cached_prefix() -> bit:
+    values: make_direct_result9()
+    (values.0 = 1 /\ values.1 = 2 /\ values.8 = 9)?!

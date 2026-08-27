@@ -1,0 +1,71 @@
+:.symbolic
+errors: .errors
+
+test exponential_growth_and_decay_have_exact_infinite_limits() -> bit:
+    x: R
+    growing: limit(exp(_symbolic_clone(x)), _symbolic_clone(x), inf)
+    decaying: limit(exp(0 - _symbolic_clone(x)), _symbolic_clone(x), inf)
+    reversed: limit(exp(0 - _symbolic_clone(x)), x, -inf)
+    (same(growing, _symbolic_clone(inf)) /\
+     same(decaying, constant(0)) /\
+     same(reversed, inf))
+
+test exponential_growth_dominates_every_fixed_polynomial_order() -> bit:
+    x: R
+    exponential_over_polynomial: limit(exp(_symbolic_clone(x)) / x^100, _symbolic_clone(x), inf)
+    polynomial_over_exponential: limit(x^100 / exp(_symbolic_clone(x)), x, inf)
+    (same(exponential_over_polynomial, _symbolic_clone(inf)) /\
+     same(polynomial_over_exponential, constant(0)))
+
+test additive_asymptotics_select_the_dominant_growth_class() -> bit:
+    x: R
+    source: exp(_symbolic_clone(x)) + x^100
+    leading: asymptotic(_symbolic_clone(source), _symbolic_clone(x))
+    same(_symbolic_clone(leading), exp(_symbolic_clone(x))) /\ verify_asymptotic(leading, source, x)
+
+test additive_growth_facts_drive_the_infinite_limit_strategy() -> bit:
+    x: R
+    source: exp(_symbolic_clone(x)) + x^100
+    value: limit(source, x, inf)
+    same(value, inf)
+
+test equal_additive_growth_classes_combine_leading_scales() -> bit:
+    x: R
+    source: 3 * exp(_symbolic_clone(x)) - exp(_symbolic_clone(x))
+    leading: asymptotic(_symbolic_clone(source), _symbolic_clone(x))
+    expected: 2 * exp(_symbolic_clone(x))
+    same(_symbolic_clone(leading), _symbolic_clone(expected)) /\ verify_asymptotic(leading, source, x)
+
+test cancelled_leading_growth_falls_through_to_the_next_class() -> bit:
+    x: R
+    source: exp(_symbolic_clone(x)) - exp(_symbolic_clone(x)) + x^2
+    leading: asymptotic(_symbolic_clone(source), _symbolic_clone(x))
+    same(_symbolic_clone(leading), x^2) /\ verify_asymptotic(leading, source, x)
+
+test logarithm_diverges_at_positive_infinity() -> bit:
+    x: R
+    logarithm: limit(log(_symbolic_clone(x)), _symbolic_clone(x), inf)
+    same(logarithm, _symbolic_clone(inf))
+
+test logarithmic_growth_is_slower_than_polynomial_growth() -> bit:
+    x: R
+    ratio: limit(log(_symbolic_clone(x)) / x, x, inf)
+    same(ratio, constant(0))
+
+test mixed_growth_asymptotic_keeps_its_complete_leading_scale() -> bit:
+    x: R
+    source: 3 * exp(2 * _symbolic_clone(x)) / x^4
+    leading: asymptotic(_symbolic_clone(source), _symbolic_clone(x))
+    same(leading, source) /\ verify_asymptotic(leading, source, x)
+
+test asymptotic_verification_rejects_a_slower_growth_class() -> bit:
+    x: R
+    source: exp(_symbolic_clone(x)) / x^4
+    ~verify_asymptotic(x^100, source, x)
+
+test infinite_limit_requires_a_real_variable_domain() -> bit:
+    z: C
+    raised: false
+    limit(exp(_symbolic_clone(z)), z, inf)!?
+        errors.TypeError => .raised: true
+    raised

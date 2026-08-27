@@ -278,7 +278,17 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     out.u16(6); out.u16(0); out.u16(0); out.u16(0); out.u16(6); out.u16(0);
     out.u32(0); out.u32(image_size); out.u32(headers_size); out.u32(0);
     out.u16(3); out.u16(0x100);
-    out.u64(0x100000); out.u64(0x1000); out.u64(0x100000); out.u64(0x1000);
+    // Fixed vectors are lowered into native stack frames. Decomposition
+    // kernels can legitimately nest several large aggregate frames, so the
+    // PE reserve must not retain the Windows linker default of 1 MiB. Reserve
+    // address space only; pages are still committed on demand by the emitted
+    // stack probes.
+    constexpr std::uint64_t stack_reserve = 64ull * 1024ull * 1024ull;
+    constexpr std::uint64_t stack_commit = 64ull * 1024ull;
+    constexpr std::uint64_t heap_reserve = 1ull * 1024ull * 1024ull;
+    constexpr std::uint64_t heap_commit = 4ull * 1024ull;
+    out.u64(stack_reserve); out.u64(stack_commit);
+    out.u64(heap_reserve); out.u64(heap_commit);
     out.u32(0); out.u32(16);
     for (unsigned index = 0; index < 16; ++index) {
         if (index == 1) { out.u32(rdata_rva); out.u32(60); }

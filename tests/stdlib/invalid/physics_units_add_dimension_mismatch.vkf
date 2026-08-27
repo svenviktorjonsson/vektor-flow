@@ -1,0 +1,5 @@
+# expect-compile-error: cannot add quantities with dimensions length and time
+
+:.physics.units.si
+
+invalid: 1m + 1s

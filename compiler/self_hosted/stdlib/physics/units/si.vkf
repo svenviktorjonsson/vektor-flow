@@ -1,0 +1,19 @@
+# SI unit catalog. The native compiler expands this compact catalog into the
+# complete prefix set while preserving each unit's physical dimension.
+
+si: (
+    m: 1,
+    km: 1000,
+    s: 1,
+    kg: 1,
+    A: 1,
+    K: 1,
+    mol: 1,
+    cd: 1,
+    N: 1,
+    Pa: 1,
+    J: 1,
+    W: 1
+)
+
+:si

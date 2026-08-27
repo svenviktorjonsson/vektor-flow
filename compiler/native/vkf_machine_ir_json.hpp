@@ -82,6 +82,7 @@ inline const char* opcode_name(Opcode opcode) {
         case Opcode::RangeF64Locals: return "range_f64_locals";
         case Opcode::CountLocalValues: return "count_local_values";
         case Opcode::MakeOwnedF64List: return "make_owned_f64_list";
+        case Opcode::MakeOwnedRepeatedF64List: return "make_owned_repeated_f64_list";
         case Opcode::MakeOwnedF64ListLiteral: return "make_owned_f64_list_literal";
         case Opcode::LoadF64LocalsIndex: return "load_f64_locals_index";
         case Opcode::StoreF64LocalsIndex: return "store_f64_locals_index";
@@ -335,6 +336,10 @@ inline vf::JsonValue instruction_json(const Instruction& instruction) {
 inline vf::JsonValue function_json(const Function& function) {
     vf::JsonValue::Array parameters;
     for (const auto& parameter : function.parameters) parameters.emplace_back(parameter);
+    vf::JsonValue::Array numeric_parameters;
+    for (const bool numeric : function.parameter_is_numeric_scalar) {
+        numeric_parameters.emplace_back(numeric);
+    }
     vf::JsonValue::Array locals;
     for (const auto& local : function.locals) locals.emplace_back(local);
     vf::JsonValue::Array local_classes;
@@ -365,6 +370,9 @@ inline vf::JsonValue function_json(const Function& function) {
         ? vf::JsonValue(static_cast<double>(*function.parameter_mask_local))
         : vf::JsonValue(nullptr);
     object["parameters"] = vf::JsonValue(std::move(parameters));
+    object["parameter_is_numeric_scalar"] = vf::JsonValue(std::move(numeric_parameters));
+    object["result_is_numeric_scalar"] = function.result_is_numeric_scalar;
+    object["result_is_dynamic_f64_list"] = function.result_is_dynamic_f64_list;
     return vf::JsonValue(std::move(object));
 }
 

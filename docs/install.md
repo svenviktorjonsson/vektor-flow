@@ -18,6 +18,10 @@ The installer is strict-native. It ships direct core plus `math`, `stat`,
 `regex`. The partial `physics`, `ui`, and `symbolic` modules are absent;
 unsupported imports hard-fail instead of activating a compatibility path.
 
+Current development packages add native `physics`, `physics.units` (SI), and
+`symbolic`; only `ui` remains excluded there. This does not change the contents
+of an already-published 0.2.1 download.
+
 1. Download and extract the Windows package
 2. Open PowerShell in the extracted folder
 3. Run:
@@ -98,6 +102,10 @@ path. Unsupported UI/scene programs hard-fail in this release.
 
 Package manifests carry the same Python-free contract. `physics`, `ui`, and
 `symbolic` remain excluded until their native lowering is complete.
+
+For next-release development packages, the manifest instead lists `physics`,
+`physics.units`, `physics.units.si`, and `symbolic` as included and lists only
+`ui` as partial.
 
 ## Need more detail?
 

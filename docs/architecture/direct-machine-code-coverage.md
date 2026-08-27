@@ -92,12 +92,13 @@ scalar conversion, it performs one normal call. This is how an explicit
 container parameter requests whole-container behavior.
 
 If the whole argument does not match, the compiler may descend through fixed or
-dynamic vector layers until it reaches the exact parameter type. Conversions do
-not select lifted leaves. Tuples and records are atomic: the compiler does not
+dynamic vector layers until it reaches a scalar-compatible parameter type. Safe
+scalar widening applies at lifted leaves, with exact overloads preferred.
+Tuples and records are atomic: the compiler does not
 search their fields and does not preserve a partially transformed remainder.
 They require a direct whole-type function or an explicit operator overload.
 
-Each exact vector element is replaced by that call's result. Thus a `[int] ->
+Each compatible vector element is replaced by that call's result. Thus a `[int] ->
 num` row function maps a fixed matrix to a vector of row results, while a
 `[int] -> [int]` function preserves the matrix shape. Open container parameters
 are specialized to exact fixed rows for direct lowering.
@@ -105,8 +106,8 @@ are specialized to exact fixed rows for direct lowering.
 Typed IR records the selected vector path before scalar types are erased by the
 numeric machine ABI. Fixed layouts lower to statically unrolled direct calls.
 Dynamic numeric vectors are cloned once and updated by one direct O(n) loop,
-with no user-authored loop or repeated concatenation. A vector with no exact
-matching leaf type is a compile error.
+with no user-authored loop or repeated concatenation. A vector with no
+compatible leaf type is a compile error.
 
 ## Historical direct-backend performance proof
 

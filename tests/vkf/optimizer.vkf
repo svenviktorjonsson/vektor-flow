@@ -162,6 +162,43 @@ packed_dual_dot_reduction_preserves_remainder_elements() -> bit:
     ((ratio - 0.889975550122249) < 0.000000000001 /\
      (ratio - 0.889975550122249) > -0.000000000001)?!
 
+_optimizer_matrix_row_update(
+    matrix:[[num:8]:8],
+    target_row:int,
+    source_row:int,
+    first_column:int,
+    factor:num
+) -> [[num:8]:8]:
+    result: matrix * 1.0
+    column_count: matrix.0.length()
+    first_column < column_count?
+        first_column..column_count - 1 >>
+            column: $
+            result.(target_row, column):
+                result.(target_row, column) - factor * result.(source_row, column)
+    result
+
+packed_matrix_row_update_preserves_prefix_and_remainder() -> bit:
+    result: _optimizer_matrix_row_update(
+        [
+            [1, 2, 3, 4, 5, 6, 7, 8],
+            [10, 11, 12, 13, 14, 15, 16, 17],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0]
+        ],
+        1,
+        0,
+        2,
+        2
+    )
+    (result.(1, 0) = 10 /\ result.(1, 1) = 11 /\
+     result.(1, 2) = 6 /\ result.(1, 3) = 5 /\
+     result.(1, 6) = 2 /\ result.(1, 7) = 1)?!
+
 _optimizer_resource_aggregate(program:str, args:[str:3]) -> str:
     program & ":" & args.0 & args.1 & args.2
 
@@ -187,3 +224,23 @@ bounded_overlapping_vector_shift_preserves_index_errors() -> bit:
     _optimizer_bounded_left_shift(8)!?
         errors.IndexError => .caught: 1
     (caught = 1)?!
+
+_optimizer_discarded_list_result(values:[num]) -> [num]:
+    values.0 +: 1
+    values
+
+discarded_dynamic_list_result_preserves_mutation() -> bit:
+    [num] values: [1, 2, 3]
+    _optimizer_discarded_list_result(values)
+    (values.0 = 2 /\ values.1 = 2 /\ values.2 = 3)?!
+
+_optimizer_discarded_list_error(values:[num]) -> [num]:
+    values.99 +: 1
+    values
+
+discarded_dynamic_list_result_preserves_error_transport() -> bit:
+    [num] values: [1, 2, 3]
+    caught: 0
+    _optimizer_discarded_list_error(values)!?
+        errors.IndexError => .caught: 1
+    (caught = 1 /\ values.0 = 1)?!

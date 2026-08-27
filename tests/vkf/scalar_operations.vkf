@@ -13,8 +13,16 @@ ordered_comparisons() -> bit:
 boolean_short_circuit() -> bit:
     ((1 < 2) /\ (2 < 3))?!
 
+boolean_implication_truth_table() -> bit:
+    ((false => false) /\ (false => true) /\
+     ~(true => false) /\ (true => true))?!
+
 unary_negation() -> bit:
     (-5 + 8 == 3)?!
+
+literal_adjacency_multiplies_a_numeric_binding() -> bit:
+    a: 3
+    (3a + 4^2 = 25)?!
 
 logical_negation() -> bit:
     (~(2 > 3))?!
@@ -22,8 +30,35 @@ logical_negation() -> bit:
 logical_xor() -> bit:
     ((1 >< 0) /\ ~(1 >< 1))?!
 
+runtime_number(value:num) -> num:
+    value
+
+dynamic_numeric_not_equal() -> bit:
+    zero: runtime_number(0)
+    one: runtime_number(1)
+    (zero == 0 /\ ~(zero != 0) /\ one != 0)?!
+
 logical_and_short_circuits() -> bit:
     (~(0 /\ (0)?!))?!
 
 logical_or_short_circuits() -> bit:
     (1 \/ (0)?!)?!
+
+adjacent_name_stays_one_divisor() -> bit:
+    x: 2
+    y: 4
+    xy: x * y
+    (1 / xy = 0.125)?!
+
+space_resumes_product_after_division() -> bit:
+    x: 2
+    y: 4
+    (1 / x y = 2)?!
+
+adjacent_product_stays_inside_divisor() -> bit:
+    m: 4
+    (1 / 2m = 0.125)?!
+
+spaced_product_resumes_after_division() -> bit:
+    m: 4
+    (1 / 2 m = 2)?!

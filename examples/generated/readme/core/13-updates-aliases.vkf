@@ -8,8 +8,7 @@ alias: values
 
 Point: (x:int, y:int, name:str)
 
-+(point:Point, delta:int) -> Point:
-    (x: point.x + delta, y: point.y + delta, name: point.name)
++(point:Point, delta:int) -> Point: (x:point.x + delta, y:point.y + delta, name:point.name)
 
 p: (x:3, y:4, name:"my point")
 .p +: 2

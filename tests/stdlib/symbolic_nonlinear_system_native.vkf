@@ -1,0 +1,47 @@
+:.symbolic
+
+test separable_nonlinear_system_uses_exact_domain_solvers_and_verifies_residuals() -> bit:
+    x: N
+    y: R
+    solutions: solve([equation(x^2, 4), equation(y, 2)], [x, y])
+    (solution_count(_symbolic_clone(solutions)) = 1 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(2)) /\
+     solution_verified(solutions))
+
+test separable_multiroot_system_returns_complete_verified_cartesian_product() -> bit:
+    x: Z
+    y: Z
+    solutions: solve([equation(x^2, 1), equation(y^2, 4)], [x, y])
+    (solution_count(_symbolic_clone(solutions)) = 4 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(-1)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(-2)) /\
+     same(solution_value(_symbolic_clone(solutions), 1, 0), constant(1)) /\
+     same(solution_value(_symbolic_clone(solutions), 1, 1), constant(-2)) /\
+     same(solution_value(_symbolic_clone(solutions), 2, 0), constant(-1)) /\
+     same(solution_value(_symbolic_clone(solutions), 2, 1), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 3, 0), constant(1)) /\
+     same(solution_value(_symbolic_clone(solutions), 3, 1), constant(2)) /\
+     solution_verified(solutions))
+
+test coupled_nonlinear_system_uses_affine_elimination() -> bit:
+    x: R
+    y: R
+    solutions: solve([equation(x + y, 3), equation(x^2, 1)], [x, y])
+    (solution_count(_symbolic_clone(solutions)) = 2 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(-1)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(4)) /\
+     same(solution_value(_symbolic_clone(solutions), 1, 0), constant(1)) /\
+     same(solution_value(_symbolic_clone(solutions), 1, 1), constant(2)) /\
+     solution_verified(solutions))
+
+test affine_elimination_reduces_a_coupled_product_to_a_quadratic() -> bit:
+    x: R
+    y: R
+    solutions: solve([equation(x + y, 3), equation(x * y, 2)], [x, y])
+    (solution_count(_symbolic_clone(solutions)) = 2 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(1)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 1, 0), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 1, 1), constant(1)) /\
+     solution_verified(solutions))

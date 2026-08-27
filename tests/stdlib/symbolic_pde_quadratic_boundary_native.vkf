@@ -1,0 +1,30 @@
+:.symbolic
+
+test unit_circle_quadratic_boundary_has_a_harmonic_interior_solution() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = x^2, x^2 + y^2 = 1)
+    solution: solve_pde(relation, [boundary], f, [x, y])
+    (
+        verify_pde_solution(solution, relation, [boundary], f, [x, y]) /\
+        evaluate(_symbolic_clone(solution), [0, 0]) = 0.5 /\
+        evaluate(_symbolic_clone(solution), [1, 0]) = 1 /\
+        evaluate(solution, [0, 1]) = 0
+    )
+
+test general_solver_selects_the_quadratic_dirichlet_strategy() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = x^2, x^2 + y^2 = 1)
+    solution: solve(relation, [boundary], f, [x, y])
+    verify_pde_solution(solution, relation, [boundary], f, [x, y])
+
+test quadratic_pde_verifier_rejects_a_harmonic_boundary_offset() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = x^2, x^2 + y^2 = 1)
+    wrong: 1.5 + 0.5 * x^2 - 0.5 * y^2
+    ~verify_pde_solution(wrong, relation, [boundary], f, [x, y])

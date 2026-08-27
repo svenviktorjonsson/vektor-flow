@@ -1,0 +1,32 @@
+:.symbolic
+
+symbolic_wasm_conformance() -> num:
+    x: R
+    y: R
+    five: constant(5)
+    expression: x + 2
+    expanded: expand((x + 1)^3)
+    derivative: differentiate(x^3, x)
+    replaced: substitute(x + 2, x, 4)
+    simplified: simplify(x * 1 + 0)
+    integrated: integrate(expand(3 * x^2 + 2 * x + 1), x)
+    infinite_limit: limit((3 * x^2 + 1) / (2 * x^2 - 1), x, inf)
+    series_product: series_multiply([0, 1, 2, 3], [0, 1, 2, 3], 4)
+    _symbolic_root_kind(x) * 10000 +
+    _symbolic_root_kind(five) * 1000 +
+    _symbolic_root_kind(expression) * 100 +
+    evaluate(expression, [3]) * 10 +
+    evaluate(sin(x), [0]) +
+    evaluate(cos(x), [0]) +
+    evaluate(sqrt(x), [4]) +
+    evaluate(exp(x), [0]) +
+    evaluate(ln(x), [1]) +
+    evaluate(expanded, [2]) +
+    evaluate(derivative, [2]) +
+    evaluate(replaced, []) +
+    evaluate(simplified, [3]) +
+    evaluate(integrated, [2]) +
+    evaluate(infinite_limit, []) +
+    series_product.3
+
+:: symbolic_wasm_conformance()

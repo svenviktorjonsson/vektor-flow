@@ -1,5 +1,0 @@
-# expect-compile-error: automatic function broadcasting requires an exact vector element type match
-halve(value:num) -> num:
-    value / 2
-
-halve([1, 2, 3])

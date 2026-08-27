@@ -2,6 +2,9 @@ m: .math
 s: .stat
 r: .random
 t: .time
+p: .physics
+sy: .symbolic
+:.physics.units
 
 test release_math_source_surface() -> bit:
     logarithms: m.lg(100) + m.lg2(8) + m.log(8, 2)
@@ -49,3 +52,17 @@ test release_time_source_surface() -> bit:
      t.format_time(-86400, "%F day=%j week=%w/%u", true) =
         "1969-12-31 day=365 week=3/3" /\
      t.wall_time() > 1700000000 /\ t.monotonic() >= 0)?!
+
+test release_physics_source_surface() -> bit:
+    cross: p.cross3([1, 0, 0], [0, 1, 0])
+    (p.dot3([1, 2, 3], [4, 5, 6]) = 32 /\
+     cross.0 = 0 /\ cross.1 = 0 /\ cross.2 = 1)?!
+
+test release_physics_units_source_surface() -> bit:
+    distance: 2km
+    (distance = 2000m /\ 1N = 1kg * 1m / 1s^2)?!
+
+test release_symbolic_source_surface() -> bit:
+    x: R
+    expanded: sy.expand((x + 1)^3)
+    (sy.term_count(expanded) = 4 /\ sy.evaluate(expanded, [2]) = 27)?!

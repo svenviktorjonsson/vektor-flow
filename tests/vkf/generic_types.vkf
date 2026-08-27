@@ -1,0 +1,62 @@
+_generic_identity(value:T) -> T:
+    value
+
+named_generic_type_binds_parameter_and_result_per_call() -> bit:
+    (_generic_identity(7) == 7 /\ _generic_identity("vkf") == "vkf")?!
+
+_generic_first(left:T, right:T) -> T:
+    left
+
+repeated_named_generic_type_accepts_one_exact_type() -> bit:
+    (_generic_first(3, 4) == 3 /\ _generic_first("a", "b") == "a")?!
+
+_generic_vector_identity(values:[T:n]) -> [T:n]:
+    values
+
+named_element_and_shape_parameters_construct_exact_vector_types() -> bit:
+    [int:3] integers: _generic_vector_identity([1, 2, 3])
+    [str:2] words: _generic_vector_identity(["vector", "flow"])
+    (integers.2 == 3 /\ words.1 == "flow")?!
+
+_generic_pair_first(pair:(T,T)) -> T:
+    pair.0
+
+named_generic_types_bind_recursively_inside_tuples() -> bit:
+    (_generic_pair_first((2, 3)) == 2 /\
+     _generic_pair_first(("left", "right")) == "left")?!
+
+_generic_double(value:T) -> T:
+    value + value
+
+generic_function_bodies_compile_against_each_concrete_specialization() -> bit:
+    (_generic_double(3) == 6 /\ _generic_double(2.5) == 5)?!
+
+_generic_rank(value:T) -> int: 1
+
+_generic_rank(value:int) -> int: 2
+
+exact_overload_beats_named_generic_fallback() -> bit:
+    (_generic_rank(4) == 2 /\ _generic_rank("metadata") == 1)?!
+
+_generic_dynamic_identity(values:[T]) -> [T]:
+    values
+
+named_generic_types_construct_dynamic_vector_types() -> bit:
+    [int] integers: _generic_dynamic_identity([1, 2, 3])
+    [num] decimals: _generic_dynamic_identity([1.5, 2.5])
+    (integers.1 == 2 /\ decimals.0 == 1.5)?!
+
+_generic_record_value(value:(payload:T,)) -> T:
+    value.payload
+
+named_generic_types_bind_recursively_inside_records() -> bit:
+    (_generic_record_value((payload:9,)) == 9 /\
+     _generic_record_value((payload:"typed",)) == "typed")?!
+
+_generic_multiset_identity(values:{T}) -> {T}:
+    values
+
+named_generic_types_construct_multiset_types() -> bit:
+    integers: _generic_multiset_identity({1:2, 3:1})
+    words: _generic_multiset_identity({"a":2, "b":1})
+    ("$integers" == "{1:2, 3:1}" /\ "$words" == "{a:2, b:1}")?!

@@ -93,8 +93,8 @@ axis_broadcast_builds_outer_product() -> bit:
     a: [1, 2] -> i
     b: [10, 20] -> j
     outer: a * b
-    (outer.(0).(0) = 10 /\ outer.(0).(1) = 20 /\
-     outer.(1).(0) = 20 /\ outer.(1).(1) = 40)?!
+    (outer.(0, 0) = 10 /\ outer.(0, 1) = 20 /\
+     outer.(1, 0) = 20 /\ outer.(1, 1) = 40)?!
 
 _dynamic_single_index_update(values:[num:3], index:num) -> [num:3]:
     values.(index): 9
@@ -109,6 +109,74 @@ dynamic_nested_vector_update_replaces_one_row() -> bit:
     index: 1
     values.(index): values.(index) + [10, 20, 30]
     (values == [[1, 2, 3], [14, 25, 36]])?!
+
+two_dimensional_index_get_and_update() -> bit:
+    matrix: [[1, 2, 3], [4, 5, 6]]
+    row: 1
+    column: 2
+    selected: matrix.(row, column)
+    matrix.(row, column): 9
+    (selected = 6 /\ matrix.(1, 2) = 9)?!
+
+three_dimensional_index_get_and_update() -> bit:
+    tensor: [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+    layer: 1
+    row: 0
+    column: 1
+    selected: tensor.(layer, row, column)
+    tensor.(layer, row, column): 9
+    (selected = 6 /\ tensor.(1, 0, 1) = 9)?!
+
+vector_index_distributes_multidimensional_fetches() -> bit:
+    tensor: [
+        [[0, 1], [2, 3]],
+        [[10, 11], [12, 13]],
+        [[20, 21], [22, 23]],
+        [[30, 31], [32, 33]]
+    ]
+    selected: tensor.([1, 2, 3], 1, 0)
+    selected = [12, 22, 32]
+
+nested_vector_index_preserves_its_multivec_shape() -> bit:
+    tensor: [
+        [[0, 1], [2, 3]],
+        [[10, 11], [12, 13]],
+        [[20, 21], [22, 23]],
+        [[30, 31], [32, 33]]
+    ]
+    selected: tensor.([[0, 1], [2, 3]], 1, 0)
+    selected = [[2, 12], [22, 32]]
+
+matching_vector_indices_zip_like_function_arguments() -> bit:
+    tensor: [
+        [[0, 1], [2, 3]],
+        [[10, 11], [12, 13]],
+        [[20, 21], [22, 23]],
+        [[30, 31], [32, 33]]
+    ]
+    selected: tensor.([0, 1, 2], [0, 1, 0], 1)
+    selected = [1, 13, 21]
+
+distributed_vector_indices_update_matching_values() -> bit:
+    tensor: [
+        [[0, 1], [2, 3]],
+        [[10, 11], [12, 13]],
+        [[20, 21], [22, 23]],
+        [[30, 31], [32, 33]]
+    ]
+    tensor.([0, 2], [1, 0], 1): [90, 80]
+    tensor.(0, 1, 1) = 90 /\ tensor.(2, 0, 1) = 80
+
+spilled_index_vector_binds_each_dimension() -> bit:
+    tensor: [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+    coordinates: [1, 0, 1]
+    tensor.(:coordinates) = 6
+
+spilled_index_vector_updates_one_coordinate() -> bit:
+    tensor: [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+    coordinates: [1, 0, 1]
+    tensor.(:coordinates): 9
+    tensor.(1, 0, 1) = 9
 
 SpilledVectorSystem: (positions:[[num:3]:2], velocities:[[num:3]:2], masses:[num:2])
 
@@ -136,3 +204,17 @@ fractional_num_index_remains_an_error() -> bit:
     _fractional_fixed_vector_index(1.5)!?
         errors.IndexError => .caught: 1
     (caught == 1)?!
+
+_generic_index_read(values:[num:n], index:int) -> num:
+    values.(index)
+
+_generic_index_update(values:[num:n], index:int, value:num) -> [num:n]:
+    values.(index): value
+    values
+
+symbolic_shape_functions_specialize_for_fixed_and_dynamic_vectors() -> bit:
+    [num] dynamic: collections.list(1, 2, 3)
+    [num] changed: _generic_index_update(dynamic, 1, 9)
+    fixed: _generic_index_update([4, 5, 6], 2, 8)
+    (_generic_index_read(dynamic, 2) = 3 /\ changed.1 = 9 /\
+     _generic_index_read(fixed, 0) = 4 /\ fixed.2 = 8)?!

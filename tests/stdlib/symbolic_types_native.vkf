@@ -1,0 +1,31 @@
+:.symbolic
+
+_accept_expression(value:expression) -> bit: true
+_accept_symbol(value:symbol) -> bit: true
+_accept_relation(value:relation) -> bit: true
+_accept_proposition(value:proposition) -> bit: true
+_accept_constant(value:constant) -> bit: true
+
+test symbolic_public_types_form_an_expression_hierarchy() -> bit:
+    x: R
+    a: symbol("a", R, constant:true)
+    literal: constant(2)
+    relation_value: x + 1 = 3
+    (_accept_expression(x) /\
+     _accept_expression(a) /\
+     _accept_expression(literal) /\
+     _accept_expression(relation_value) /\
+     _accept_symbol(x) /\
+     _accept_symbol(a) /\
+     _accept_constant(a) /\
+     _accept_constant(literal) /\
+     _accept_relation(relation_value))
+
+test implication_of_relations_is_a_proposition() -> bit:
+    x: R
+    y: R
+    claim: y = sin(x) => y <= 1
+    (_accept_proposition(claim) /\
+     _accept_expression(claim) /\
+     _symbolic_dag_operation(_symbolic_clone(claim)) = 27 /\
+     katex(claim) = "y = \\sin\\left(x\\right) \\Rightarrow y \\le 1")

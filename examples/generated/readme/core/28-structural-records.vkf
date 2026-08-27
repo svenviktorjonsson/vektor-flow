@@ -1,5 +1,4 @@
-row_sum(row:[int]) -> num:
-    stat.sum(row)
+row_sum(row:[int]) -> num: stat.sum(row)
 
 matrix: [[1, 2], [3, 4], [5, 6]]
 

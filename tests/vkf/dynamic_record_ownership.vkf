@@ -1,0 +1,55 @@
+_return_dynamic_vector() -> [num]:
+    [num] values: [1]
+    values
+
+_return_record_with_dynamic_vector() -> (handled:bit,values:[num]):
+    [num] values: [1]
+    (handled:true, values:values)
+
+_return_record_with_owned_vector_literal() -> (handled:bit,values:[num]):
+    (handled:true, values:[1])
+
+_wrap_borrowed_dynamic_vector(values:[num]) -> (handled:bit,values:[num]):
+    (handled:true, values:values)
+
+_clone_borrowed_dynamic_vector(values:[num]) -> [num]:
+    values
+
+_return_single_field_record_with_dynamic_vector() -> (values:[num],):
+    [num] values: [1]
+    (values:values,)
+
+direct_dynamic_vector_result_owns_one_allocation() -> bit:
+    values: _return_dynamic_vector()
+    (values.length() = 1 /\ values.0 = 1)?!
+
+local_record_with_dynamic_vector_releases_once() -> bit:
+    [num] values: [1]
+    result: (handled:true, values:values)
+    (result.handled /\ result.values.length() = 1 /\ result.values.0 = 1)?!
+
+ignored_record_result_still_releases_nested_vector_once() -> bit:
+    result: _return_record_with_dynamic_vector()
+    true?!
+
+single_component_aggregate_uses_scalar_return_ownership() -> bit:
+    result: _return_single_field_record_with_dynamic_vector()
+    (result.values.length() = 1 /\ result.values.0 = 1)?!
+
+record_result_transfers_nested_dynamic_vector_ownership_once() -> bit:
+    result: _return_record_with_dynamic_vector()
+    (result.handled /\ result.values.length() = 1 /\ result.values.0 = 1)?!
+
+owned_vector_literal_record_result_releases_once() -> bit:
+    result: _return_record_with_owned_vector_literal()
+    (result.handled /\ result.values.length() = 1 /\ result.values.0 = 1)?!
+
+borrowed_vector_field_is_cloned_before_record_return() -> bit:
+    [num] values: [1]
+    result: _wrap_borrowed_dynamic_vector(values)
+    (result.handled /\ result.values.length() = 1 /\ result.values.0 = 1)?!
+
+borrowed_vector_scalar_return_is_cloned_once() -> bit:
+    [num] values: [1]
+    result: _clone_borrowed_dynamic_vector(values)
+    (result.length() = 1 /\ result.0 = 1)?!

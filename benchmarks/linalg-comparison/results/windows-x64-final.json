@@ -1,0 +1,1023 @@
+{
+  "schema": "vkf.linalg-comparison",
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-27T00:11:26.640Z",
+  "revision": "ec7adce163a23a841f10e1b7662b9d2da747955e",
+  "machine": {
+    "hostname": "LAPTOP-0P888BLM",
+    "platform": "win32",
+    "architecture": "x64",
+    "osRelease": "10.0.26200",
+    "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+    "logicalCpus": 14,
+    "memoryBytes": 33837342720
+  },
+  "conditions": {
+    "runs": 10,
+    "timeoutMs": 30000,
+    "threads": 1,
+    "kernels": [
+      "solve-general-96",
+      "least-squares-tall-96x48",
+      "lu-general-96",
+      "qr-tall-96x48",
+      "cholesky-spd-96",
+      "svd-tall-96x48",
+      "eigen-symmetric-96"
+    ],
+    "languages": [
+      "vkf",
+      "eigen",
+      "faer",
+      "scipy"
+    ],
+    "scheduling": "rotating same-host process order",
+    "timer": "factorization/solve only; fixture load, warmup, cloning, and validation excluded",
+    "vkfRunnerManifest": {
+      "path": "C:\\Users\\viktor.jonsson\\OneDrive - CellMax Technologies AB\\Documents\\Repositories\\svenviktorjonsson\\vektor-flow\\.work\\linalg-vkf-runners-final-pass\\manifest.json",
+      "sha256": "bf4033792492a5a8643ad3fad1a821d7a89b64c3a1947e52bbd473586c1915af"
+    }
+  },
+  "fixtures": {
+    "general-96": {
+      "file": "general-96.f64le",
+      "sha256": "fcce237fa774912fdfaca4dbf253fd2ad0e1e5572ad2b7723853cce7e1e810dc",
+      "rows": 96,
+      "columns": 96,
+      "layout": "row-major f64 little-endian",
+      "arrays": {
+        "matrix": {
+          "offsetElements": 0,
+          "length": 9216
+        },
+        "x_true": {
+          "offsetElements": 9216,
+          "length": 96
+        },
+        "rhs": {
+          "offsetElements": 9312,
+          "length": 96
+        }
+      },
+      "fileSha256": "fcce237fa774912fdfaca4dbf253fd2ad0e1e5572ad2b7723853cce7e1e810dc"
+    },
+    "tall-96x48": {
+      "file": "tall-96x48.f64le",
+      "sha256": "635db7b206a61172d749a9132d9ec8946d2e4699ecbf41b9b6b0b0f66c7f20a6",
+      "rows": 96,
+      "columns": 48,
+      "layout": "row-major f64 little-endian",
+      "arrays": {
+        "matrix": {
+          "offsetElements": 0,
+          "length": 4608
+        },
+        "x_true": {
+          "offsetElements": 4608,
+          "length": 48
+        },
+        "rhs": {
+          "offsetElements": 4656,
+          "length": 96
+        }
+      },
+      "fileSha256": "635db7b206a61172d749a9132d9ec8946d2e4699ecbf41b9b6b0b0f66c7f20a6"
+    },
+    "spd-96": {
+      "file": "spd-96.f64le",
+      "sha256": "e746ff139801b6e92b61d6fcdc8dc18dfaa482901d417aac144f4d0574b61f5d",
+      "rows": 96,
+      "columns": 96,
+      "layout": "row-major f64 little-endian",
+      "arrays": {
+        "matrix": {
+          "offsetElements": 0,
+          "length": 9216
+        }
+      },
+      "fileSha256": "e746ff139801b6e92b61d6fcdc8dc18dfaa482901d417aac144f4d0574b61f5d"
+    }
+  },
+  "kernels": [
+    {
+      "id": "solve-general-96",
+      "fixture": "general-96",
+      "limits": {
+        "residual": 3e-12,
+        "solution_error": 3e-11
+      },
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            0.0948999950196594,
+            0.107200001366436,
+            0.125699996715412,
+            0.0858000130392611,
+            0.101200013887137,
+            0.083099992480129,
+            0.0982999918051064,
+            0.0804000010248274,
+            0.0958999735303223,
+            0.0968000094871968
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.09692999883554873,
+            "stddevMs": 0.013110135567401354
+          },
+          "validation": {
+            "residual": 5.3893413591333e-17,
+            "solution_error": 5.78776987037455e-16
+          },
+          "metadata": {
+            "implementation": "VKF .linalg",
+            "backend": "direct native machine code; one thread",
+            "algorithm": "partial-pivot Gaussian solve"
+          }
+        },
+        "eigen": {
+          "samplesMs": [
+            0.0932,
+            0.0787,
+            0.0812,
+            0.0846,
+            0.0743,
+            0.0854,
+            0.0687,
+            0.0635,
+            0.0751,
+            0.0824
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.07871000000000002,
+            "stddevMs": 0.008649014073548757
+          },
+          "validation": {
+            "residual": 3.374865166144672e-17,
+            "solution_error": 3.7494163758015353e-16
+          },
+          "metadata": {
+            "implementation": "Eigen 5.0.0 (single-thread)"
+          }
+        },
+        "faer": {
+          "samplesMs": [
+            0.1219,
+            0.1094,
+            0.12689999999999999,
+            0.0746,
+            0.1144,
+            0.0871,
+            0.07930000000000001,
+            0.10060000000000001,
+            0.1059,
+            0.0878
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.10079,
+            "stddevMs": 0.018002373300330277
+          },
+          "validation": {
+            "residual": 5e-17,
+            "solution_error": 5.5e-16
+          },
+          "metadata": {
+            "implementation": "faer 0.24.4",
+            "backend": "faer native kernels; parallelism=sequential",
+            "algorithm": "partial-pivot LU factorization and solve"
+          }
+        },
+        "scipy": {
+          "samplesMs": [
+            0.1252,
+            0.1247,
+            0.1215,
+            0.1215,
+            0.1357,
+            0.1218,
+            0.1192,
+            0.1198,
+            0.122,
+            0.1252
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.12366000000000002,
+            "stddevMs": 0.0047272731157730966
+          },
+          "validation": {
+            "residual": 3.381975110937048e-17,
+            "solution_error": 4.279573306469047e-16
+          },
+          "metadata": {
+            "implementation": "SciPy 1.16.3",
+            "backend": "scipy-openblas 0.3.30",
+            "algorithm": "LAPACK general solve"
+          }
+        }
+      },
+      "comparisons": {
+        "eigen": {
+          "ratio": 1.231482643063762
+        },
+        "faer": {
+          "ratio": 0.9617025383028944
+        },
+        "scipy": {
+          "ratio": 0.7838427853432696
+        }
+      },
+      "pass": true
+    },
+    {
+      "id": "least-squares-tall-96x48",
+      "fixture": "tall-96x48",
+      "limits": {
+        "residual": 3e-11,
+        "solution_error": 3e-10
+      },
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            0.0702999823261052,
+            0.0541000044904649,
+            0.0542000052519143,
+            0.0505999778397381,
+            0.0544000067748129,
+            0.0711000175215304,
+            0.0474999833386391,
+            0.0543000060133636,
+            0.0501000031363219,
+            0.0542000052519143
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.05607999919448046,
+            "stddevMs": 0.00805671847680338
+          },
+          "validation": {
+            "residual": 6.25702135676616e-15,
+            "solution_error": 1.6867799795035e-12
+          },
+          "metadata": {
+            "implementation": "VKF .linalg",
+            "backend": "direct native machine code; one thread",
+            "algorithm": "modified Gram-Schmidt QR solve"
+          }
+        },
+        "eigen": {
+          "samplesMs": [
+            0.0774,
+            0.0792,
+            0.0757,
+            0.0696,
+            0.0752,
+            0.0933,
+            0.0723,
+            0.0678,
+            0.2208,
+            0.0799
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.09111999999999999,
+            "stddevMs": 0.046104008020513315
+          },
+          "validation": {
+            "residual": 8.464532106938955e-15,
+            "solution_error": 5.3227472817907676e-15
+          },
+          "metadata": {
+            "implementation": "Eigen 5.0.0 (single-thread)"
+          }
+        },
+        "faer": {
+          "samplesMs": [
+            0.12999999999999998,
+            0.124,
+            0.11270000000000001,
+            0.12029999999999999,
+            0.1293,
+            0.12990000000000002,
+            0.1152,
+            0.1192,
+            0.1283,
+            0.1141
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.1223,
+            "stddevMs": 0.006898953221725419
+          },
+          "validation": {
+            "residual": 7.61e-15,
+            "solution_error": 1.898e-14
+          },
+          "metadata": {
+            "implementation": "faer 0.24.4",
+            "backend": "faer native kernels; parallelism=sequential",
+            "algorithm": "column-pivot QR least-squares solve"
+          }
+        },
+        "scipy": {
+          "samplesMs": [
+            0.1316,
+            0.1097,
+            0.102,
+            0.0991,
+            0.0948,
+            0.1011,
+            0.1189,
+            0.1143,
+            0.1047,
+            0.0914
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.10676,
+            "stddevMs": 0.012140309349893484
+          },
+          "validation": {
+            "residual": 8.381861839164575e-15,
+            "solution_error": 1.8106365384629392e-15
+          },
+          "metadata": {
+            "implementation": "SciPy 1.16.3",
+            "backend": "scipy-openblas 0.3.30",
+            "algorithm": "LAPACK gelsy pivoted QR"
+          }
+        }
+      },
+      "comparisons": {
+        "eigen": {
+          "ratio": 0.615452142169452
+        },
+        "faer": {
+          "ratio": 0.45854455596468074
+        },
+        "scipy": {
+          "ratio": 0.5252903633802966
+        }
+      },
+      "pass": true
+    },
+    {
+      "id": "lu-general-96",
+      "fixture": "general-96",
+      "limits": {
+        "reconstruction": 3e-11
+      },
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            0.109499989775941,
+            0.175099994521588,
+            0.111299974378198,
+            0.127300008898601,
+            0.136700022267178,
+            0.119900010759011,
+            0.117399991722777,
+            0.116900017019361,
+            0.136500020744279,
+            0.123100006021559
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.12737000361084932,
+            "stddevMs": 0.019175221440049753
+          },
+          "validation": {
+            "reconstruction": 4.05703694608599e-16
+          },
+          "metadata": {
+            "implementation": "VKF .linalg",
+            "backend": "direct native machine code; one thread",
+            "algorithm": "partial-pivot LU"
+          }
+        },
+        "eigen": {
+          "samplesMs": [
+            0.0775,
+            0.2039,
+            0.0614,
+            0.0961,
+            0.0744,
+            0.076,
+            0.0905,
+            0.0756,
+            0.097,
+            0.0868
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.09391999999999999,
+            "stddevMs": 0.040190070636635836
+          },
+          "validation": {
+            "reconstruction": 1.6839143917548268e-16
+          },
+          "metadata": {
+            "implementation": "Eigen 5.0.0 (single-thread)"
+          }
+        },
+        "faer": {
+          "samplesMs": [
+            0.1085,
+            0.0875,
+            0.0469,
+            0.04729999999999999,
+            0.0518,
+            0.0476,
+            0.0429,
+            0.051,
+            0.0447,
+            0.0476
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.05758,
+            "stddevMs": 0.02202295771840528
+          },
+          "validation": {
+            "reconstruction": 1.3e-16
+          },
+          "metadata": {
+            "implementation": "faer 0.24.4",
+            "backend": "faer native kernels; parallelism=sequential",
+            "algorithm": "partial-pivot LU"
+          }
+        },
+        "scipy": {
+          "samplesMs": [
+            0.0559,
+            0.0615,
+            0.0587,
+            0.0554,
+            0.0582,
+            0.0601,
+            0.0614,
+            0.0664,
+            0.063,
+            0.0589
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.05994999999999999,
+            "stddevMs": 0.0033042901406101334
+          },
+          "validation": {
+            "reconstruction": 1.121639739933718e-16
+          },
+          "metadata": {
+            "implementation": "SciPy 1.16.3",
+            "backend": "scipy-openblas 0.3.30",
+            "algorithm": "LAPACK partial-pivot LU"
+          }
+        }
+      },
+      "comparisons": {
+        "eigen": {
+          "ratio": 1.3561542122109171
+        },
+        "faer": {
+          "ratio": 2.212052858819891
+        },
+        "scipy": {
+          "ratio": 2.124603896761457
+        }
+      },
+      "pass": true
+    },
+    {
+      "id": "qr-tall-96x48",
+      "fixture": "tall-96x48",
+      "limits": {
+        "reconstruction": 3e-11,
+        "orthogonality": 3e-11
+      },
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            0.0651000009384006,
+            0.0666000123601407,
+            0.0634999887552112,
+            0.0625000102445483,
+            0.0623999803792685,
+            0.0639999925624579,
+            0.0620999780949205,
+            0.07410001126118,
+            0.0709999876562506,
+            0.362199993105605
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.09534999553579834,
+            "stddevMs": 0.09384541895809065
+          },
+          "validation": {
+            "reconstruction": 2.33751428253525e-16,
+            "orthogonality": 1.65397561026341e-15
+          },
+          "metadata": {
+            "implementation": "VKF .linalg",
+            "backend": "direct native machine code; one thread",
+            "algorithm": "modified Gram-Schmidt thin QR"
+          }
+        },
+        "eigen": {
+          "samplesMs": [
+            0.1635,
+            0.1397,
+            0.1532,
+            0.1454,
+            0.1478,
+            0.1725,
+            0.1807,
+            0.1584,
+            0.1492,
+            0.1424
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.15528000000000003,
+            "stddevMs": 0.013430876532990856
+          },
+          "validation": {
+            "reconstruction": 4.3908708013728584e-16,
+            "orthogonality": 7.048055668599887e-17
+          },
+          "metadata": {
+            "implementation": "Eigen 5.0.0 (single-thread)"
+          }
+        },
+        "faer": {
+          "samplesMs": [
+            0.1818,
+            0.1908,
+            0.1926,
+            0.1641,
+            0.17670000000000002,
+            0.1807,
+            0.20550000000000002,
+            0.174,
+            0.1776,
+            0.1726
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.18164,
+            "stddevMs": 0.011844848856969199
+          },
+          "validation": {
+            "reconstruction": 4.5e-16,
+            "orthogonality": 6e-17
+          },
+          "metadata": {
+            "implementation": "faer 0.24.4",
+            "backend": "faer native kernels; parallelism=sequential",
+            "algorithm": "Householder QR with explicit thin Q"
+          }
+        },
+        "scipy": {
+          "samplesMs": [
+            0.1177,
+            0.1292,
+            0.113,
+            0.1107,
+            0.1311,
+            0.1254,
+            0.1133,
+            0.1328,
+            0.124,
+            0.1672
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.12644,
+            "stddevMs": 0.016382999318399136
+          },
+          "validation": {
+            "reconstruction": 5.285759575412745e-16,
+            "orthogonality": 7.902345955346968e-17
+          },
+          "metadata": {
+            "implementation": "SciPy 1.16.3",
+            "backend": "scipy-openblas 0.3.30",
+            "algorithm": "LAPACK economic QR"
+          }
+        }
+      },
+      "comparisons": {
+        "eigen": {
+          "ratio": 0.6140520062841212
+        },
+        "faer": {
+          "ratio": 0.524939416074644
+        },
+        "scipy": {
+          "ratio": 0.7541125872809107
+        }
+      },
+      "pass": true
+    },
+    {
+      "id": "cholesky-spd-96",
+      "fixture": "spd-96",
+      "limits": {
+        "reconstruction": 3e-11
+      },
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            0.0841000000946224,
+            0.0534999999217689,
+            0.0540000037290156,
+            0.0520000176038593,
+            0.044800020987168,
+            0.0523999915458262,
+            0.0486999924760312,
+            0.0504000054206699,
+            0.0465000048279762,
+            0.0467000063508749
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.05331000429578127,
+            "stddevMs": 0.011270849869927187
+          },
+          "validation": {
+            "reconstruction": 1.56176658383499e-16
+          },
+          "metadata": {
+            "implementation": "VKF .linalg",
+            "backend": "direct native machine code; one thread",
+            "algorithm": "lower Cholesky"
+          }
+        },
+        "eigen": {
+          "samplesMs": [
+            0.0502,
+            0.0426,
+            0.0427,
+            0.0399,
+            0.0354,
+            0.0412,
+            0.0431,
+            0.0482,
+            0.0359,
+            0.0413
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.042050000000000004,
+            "stddevMs": 0.004643095231990545
+          },
+          "validation": {
+            "reconstruction": 8.62387282464432e-17
+          },
+          "metadata": {
+            "implementation": "Eigen 5.0.0 (single-thread)"
+          }
+        },
+        "faer": {
+          "samplesMs": [
+            0.0309,
+            0.0259,
+            0.0254,
+            0.0379,
+            0.0278,
+            0.0238,
+            0.0219,
+            0.0274,
+            0.0258,
+            0.0224
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.02692,
+            "stddevMs": 0.004683018969283241
+          },
+          "validation": {
+            "reconstruction": 3.1e-16
+          },
+          "metadata": {
+            "implementation": "faer 0.24.4",
+            "backend": "faer native kernels; parallelism=sequential",
+            "algorithm": "LLT Cholesky"
+          }
+        },
+        "scipy": {
+          "samplesMs": [
+            0.0331,
+            0.0328,
+            0.0281,
+            0.0315,
+            0.0317,
+            0.0332,
+            0.0322,
+            0.0373,
+            0.0301,
+            0.0316
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.03216000000000001,
+            "stddevMs": 0.002368403118840484
+          },
+          "validation": {
+            "reconstruction": 3.782341632386137e-17
+          },
+          "metadata": {
+            "implementation": "SciPy 1.16.3",
+            "backend": "scipy-openblas 0.3.30",
+            "algorithm": "LAPACK lower Cholesky"
+          }
+        }
+      },
+      "comparisons": {
+        "eigen": {
+          "ratio": 1.267776558758175
+        },
+        "faer": {
+          "ratio": 1.9803121952370457
+        },
+        "scipy": {
+          "ratio": 1.6576493873066311
+        }
+      },
+      "pass": true
+    },
+    {
+      "id": "svd-tall-96x48",
+      "fixture": "tall-96x48",
+      "limits": {
+        "reconstruction": 6e-11,
+        "orthogonality": 6e-11
+      },
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            0.217400025576353,
+            1.04269999428652,
+            0.236699997913092,
+            0.219200010178611,
+            0.219799985643476,
+            0.248099997406825,
+            0.294299999950454,
+            0.234200007980689,
+            0.266799994278699,
+            0.213200022699311
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.31924000359140303,
+            "stddevMs": 0.25546994745781965
+          },
+          "validation": {
+            "reconstruction": 1.93346290948638e-15,
+            "orthogonality": 1.03975558487257e-12
+          },
+          "metadata": {
+            "implementation": "VKF .linalg",
+            "backend": "direct native machine code; one thread",
+            "algorithm": "Gram eigen thin SVD"
+          }
+        },
+        "eigen": {
+          "samplesMs": [
+            0.717,
+            0.7261,
+            0.756,
+            0.7123,
+            0.875,
+            0.9459,
+            0.7359,
+            0.7561,
+            0.7431,
+            0.6924
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.76598,
+            "stddevMs": 0.08039285208690301
+          },
+          "validation": {
+            "reconstruction": 3.3901818970597263e-15,
+            "orthogonality": 2.8877878795324314e-16
+          },
+          "metadata": {
+            "implementation": "Eigen 5.0.0 (single-thread)"
+          }
+        },
+        "faer": {
+          "samplesMs": [
+            0.4008,
+            0.3991,
+            0.4398,
+            0.4092,
+            0.47,
+            0.4279,
+            0.4345,
+            0.41800000000000004,
+            0.392,
+            0.5981
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.43894,
+            "stddevMs": 0.060559579478945066
+          },
+          "validation": {
+            "reconstruction": 3.13e-15,
+            "orthogonality": 2.9e-16
+          },
+          "metadata": {
+            "implementation": "faer 0.24.4",
+            "backend": "faer native kernels; parallelism=sequential",
+            "algorithm": "thin SVD"
+          }
+        },
+        "scipy": {
+          "samplesMs": [
+            0.4094,
+            0.4196,
+            0.4783,
+            0.3954,
+            0.8648,
+            0.4074,
+            0.391,
+            0.4028,
+            0.3851,
+            0.4394
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.45932000000000006,
+            "stddevMs": 0.14506433668471994
+          },
+          "validation": {
+            "reconstruction": 2.2416275746898938e-15,
+            "orthogonality": 2.566005464057966e-16
+          },
+          "metadata": {
+            "implementation": "SciPy 1.16.3",
+            "backend": "scipy-openblas 0.3.30",
+            "algorithm": "LAPACK gesdd thin SVD"
+          }
+        }
+      },
+      "comparisons": {
+        "eigen": {
+          "ratio": 0.41677328858639
+        },
+        "faer": {
+          "ratio": 0.7272975887169159
+        },
+        "scipy": {
+          "ratio": 0.6950274396747431
+        }
+      },
+      "pass": true
+    },
+    {
+      "id": "eigen-symmetric-96",
+      "fixture": "spd-96",
+      "limits": {
+        "residual": 6e-11,
+        "reconstruction": 6e-11,
+        "orthogonality": 6e-11
+      },
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            0.765699980547652,
+            1.04380000266247,
+            0.855100020999089,
+            0.71699998807162,
+            0.774500018451363,
+            0.928699999349192,
+            0.826999981654808,
+            0.83259999519214,
+            0.751499988837168,
+            0.826300005428493
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.8322199981193995,
+            "stddevMs": 0.09557330118489393
+          },
+          "validation": {
+            "residual": 9.50839541452855e-16,
+            "reconstruction": 2.94340656267947e-15,
+            "orthogonality": 2.70926510261967e-16
+          },
+          "metadata": {
+            "implementation": "VKF .linalg",
+            "backend": "direct native machine code; one thread",
+            "algorithm": "Householder plus implicit QL symmetric eigen"
+          }
+        },
+        "eigen": {
+          "samplesMs": [
+            0.7002,
+            0.7845,
+            0.8146,
+            0.7361,
+            0.9257,
+            0.7755,
+            0.9028,
+            0.8749,
+            0.7784,
+            0.7241
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.80168,
+            "stddevMs": 0.07693748977795763
+          },
+          "validation": {
+            "residual": 2.55924951171264e-15,
+            "reconstruction": 4.875169604416795e-15,
+            "orthogonality": 2.7611483694832317e-16
+          },
+          "metadata": {
+            "implementation": "Eigen 5.0.0 (single-thread)"
+          }
+        },
+        "faer": {
+          "samplesMs": [
+            0.7936,
+            0.7862,
+            0.8344999999999999,
+            0.7703,
+            0.8387,
+            0.7940999999999999,
+            0.7808,
+            0.8422,
+            0.7638,
+            0.7187
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.79229,
+            "stddevMs": 0.03845835987720281
+          },
+          "validation": {
+            "residual": 2.75e-15,
+            "reconstruction": 5.09e-15,
+            "orthogonality": 2.8e-16
+          },
+          "metadata": {
+            "implementation": "faer 0.24.4",
+            "backend": "faer native kernels; parallelism=sequential",
+            "algorithm": "self-adjoint eigendecomposition"
+          }
+        },
+        "scipy": {
+          "samplesMs": [
+            0.8072,
+            0.6794,
+            0.6357,
+            0.6333,
+            0.7481,
+            0.6717,
+            0.7367,
+            0.6378,
+            0.7352,
+            0.689
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.69741,
+            "stddevMs": 0.057853040830481275
+          },
+          "validation": {
+            "residual": 1.1419275146197336e-15,
+            "reconstruction": 2.2077209204546672e-15,
+            "orthogonality": 1.798854707612417e-16
+          },
+          "metadata": {
+            "implementation": "SciPy 1.16.3",
+            "backend": "scipy-openblas 0.3.30",
+            "algorithm": "LAPACK evd symmetric eigen"
+          }
+        }
+      },
+      "comparisons": {
+        "eigen": {
+          "ratio": 1.0380949981531278
+        },
+        "faer": {
+          "ratio": 1.0503982104019987
+        },
+        "scipy": {
+          "ratio": 1.1933009250217226
+        }
+      },
+      "pass": true
+    }
+  ],
+  "pass": true
+}

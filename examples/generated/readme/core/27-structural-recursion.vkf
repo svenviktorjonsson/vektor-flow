@@ -1,5 +1,4 @@
-translate(point:(x:int,y:int)) -> (x:int,y:int):
-    (x:point.x + 10, y:point.y - 10)
+translate(point:(x:int,y:int)) -> (x:int,y:int): (x:point.x + 10, y:point.y - 10)
 
 points: [(x:1, y:2), (x:3, y:4)]
 :: translate(points)

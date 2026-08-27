@@ -1,0 +1,12 @@
+# SymEngine benchmarks/add1.cpp, commit
+# 0c183629a35dd9d8123fafcc47b0e0283bbae80d.
+:.symbolic
+
+x: R
+accumulator: polynomial(x, 3000)
+coefficient_value: 1
+..2999 >>
+    add_term(accumulator, coefficient_value, $)
+    .coefficient_value *: -1
+# SymEngine Add.get_dict() excludes the separately stored constant term.
+:: term_count(accumulator) - 1

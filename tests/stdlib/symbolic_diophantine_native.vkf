@@ -1,0 +1,52 @@
+:.symbolic
+errors: .errors
+
+test two_variable_linear_diophantine_equation_returns_a_verified_integer_family() -> bit:
+    x: Z
+    y: Z
+    solutions: solve([equation(6 * x + 9 * y, 3)], [x, y])
+    (solution_is_family(_symbolic_clone(solutions)) /\
+     solution_family_dimension(_symbolic_clone(solutions)) = 1 /\
+     same(solution_particular_value(_symbolic_clone(solutions), 0), constant(-1)) /\
+     same(solution_particular_value(_symbolic_clone(solutions), 1), constant(1)) /\
+     same(solution_direction_value(_symbolic_clone(solutions), 0, 0), constant(3)) /\
+     same(solution_direction_value(_symbolic_clone(solutions), 0, 1), constant(-2)) /\
+     solution_verified(solutions))
+
+test unsatisfiable_linear_diophantine_equation_is_verified_empty() -> bit:
+    x: Z
+    y: Z
+    solutions: solve([equation(6 * x + 9 * y, 2)], [x, y])
+    solution_count(_symbolic_clone(solutions)) = 0 /\ solution_verified(solutions)
+
+test one_variable_system_does_not_project_a_missing_second_variable() -> bit:
+    x: R
+    a: symbol("a", R, constant:true)
+    raised: false
+    solve([equation(x + a, 1)], [x])!?
+        errors.RuntimeError => .raised: true
+    raised
+
+test integer_sum_of_two_squares_returns_every_verified_lattice_point() -> bit:
+    x: Z
+    y: Z
+    solutions: solve([equation(x^2 + y^2, 5)], [x, y])
+    (solution_count(_symbolic_clone(solutions)) = 8 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(-2)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(-1)) /\
+     same(solution_value(_symbolic_clone(solutions), 3, 0), constant(-1)) /\
+     same(solution_value(_symbolic_clone(solutions), 3, 1), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 7, 0), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 7, 1), constant(1)) /\
+     solution_verified(solutions))
+
+test natural_sum_of_two_squares_filters_negative_lattice_points() -> bit:
+    x: N
+    y: N
+    solutions: solve([equation(x^2 + y^2, 5)], [x, y])
+    (solution_count(_symbolic_clone(solutions)) = 2 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(1)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 1, 0), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 1, 1), constant(1)) /\
+     solution_verified(solutions))

@@ -1,0 +1,12 @@
+:.symbolic
+
+symbolic_proposition_value() -> proposition:
+    x: R
+    y: R
+    y = sin(x) => y <= 1
+
+symbolic_proposition_wasm_conformance() -> num:
+    claim: symbolic_proposition_value()
+    _symbolic_dag_operation(_symbolic_clone(claim))
+
+:: symbolic_proposition_wasm_conformance()

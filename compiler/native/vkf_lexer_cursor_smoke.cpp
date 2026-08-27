@@ -1,9 +1,11 @@
 #include "compiler/native/vkf_string_primitives.hpp"
 #include "compiler/native/vkf_native_frontend.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -91,6 +93,20 @@ static bool last_token_is(const std::vector<SmokeToken>& tokens, std::string_vie
     return !tokens.empty() && tokens.back().kind == kind;
 }
 
+static bool quote_is_prime_suffix(const VkfCursor& cursor, const std::vector<SmokeToken>& tokens) {
+    if (cursor.index == 0 || tokens.empty()) {
+        return false;
+    }
+    const char previous = cursor.source[cursor.index - 1];
+    if (previous == ' ' || previous == '\t' || previous == '\r' || previous == '\n') {
+        return false;
+    }
+    const std::string& kind = tokens.back().kind;
+    return kind == "IDENT" || kind == "NUMBER" || kind == "STRING" || kind == "STRING_RAW"
+        || kind == "TRUE" || kind == "FALSE" || kind == "NULL" || kind == "PRIME"
+        || kind == "RPAREN" || kind == "RBRACKET" || kind == "RBRACE";
+}
+
 static void emit_token(
     std::vector<SmokeToken>& tokens,
     std::string kind,
@@ -146,6 +162,7 @@ static std::string normalize_number_json(std::string value) {
 
 static bool peek_literal(const VkfCursor& cursor, std::string_view literal);
 static void advance_bytes(VkfCursor& cursor, std::size_t byte_count);
+static void skip_multiline_comment(VkfCursor& cursor);
 static std::vector<SmokeInterpolation> scan_interpolations(
     const std::string& text,
     const std::string& file
@@ -177,7 +194,7 @@ static SmokeToken scan_identifier(VkfCursor& cursor) {
     };
 }
 
-static SmokeToken scan_number(VkfCursor& cursor) {
+static SmokeToken scan_number(VkfCursor& cursor, bool allow_decimal = true) {
     const VkfCursor start = cursor;
     bool saw_dot = false;
     while (!vkf_string_eof(cursor.source, cursor.index)) {
@@ -186,7 +203,7 @@ static SmokeToken scan_number(VkfCursor& cursor) {
             cursor = vkf_cursor_advance_scalar(cursor);
             continue;
         }
-        if (scalar == "." && !saw_dot) {
+        if (scalar == "." && allow_decimal && !saw_dot) {
             VkfCursor after_dot = vkf_cursor_advance_scalar(cursor);
             if (peek_literal(cursor, "..")
                 || vkf_string_eof(after_dot.source, after_dot.index)
@@ -232,16 +249,68 @@ static std::string decode_escape(const std::string& scalar) {
     throw std::runtime_error("Unknown escape sequence \\" + scalar);
 }
 
+static std::optional<std::string> multiline_indentation_prefix(
+    const VkfCursor& cursor
+) {
+    std::size_t line_start = cursor.index;
+    while (line_start > 0 && cursor.source[line_start - 1] != '\n') --line_start;
+    std::size_t prefix_end = line_start;
+    while (prefix_end < cursor.index &&
+           (cursor.source[prefix_end] == ' ' || cursor.source[prefix_end] == '\t')) {
+        ++prefix_end;
+    }
+    return std::string(cursor.source.substr(line_start, prefix_end - line_start));
+}
+
+static std::string dedent_multiline_value(
+    const std::string& value,
+    const std::optional<std::string>& indentation
+) {
+    if (!indentation.has_value() || indentation->empty()) return value;
+    const auto whitespace_only = [](std::string_view line) {
+        return std::all_of(line.begin(), line.end(), [](char ch) {
+            return ch == ' ' || ch == '\t';
+        });
+    };
+    std::vector<std::string_view> lines;
+    std::size_t start = 0;
+    while (true) {
+        const auto end = value.find('\n', start);
+        lines.push_back(std::string_view(value).substr(
+            start, end == std::string::npos ? value.size() - start : end - start));
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    for (std::size_t index = 1; index < lines.size(); ++index) {
+        const auto line = lines[index];
+        if (whitespace_only(line)) continue;
+        if (line.size() < indentation->size() ||
+            line.substr(0, indentation->size()) != *indentation) return value;
+    }
+    std::string out(lines.front());
+    for (std::size_t index = 1; index < lines.size(); ++index) {
+        out.push_back('\n');
+        const auto line = lines[index];
+        if (whitespace_only(line)) continue;
+        out.append(line.substr(indentation->size()));
+    }
+    return out;
+}
+
 static SmokeToken scan_double_string(VkfCursor& cursor) {
     const VkfCursor start = cursor;
     const bool triple = peek_literal(cursor, "\"\"\"");
+    const auto indentation = triple
+        ? multiline_indentation_prefix(cursor) : std::optional<std::string>{};
     advance_bytes(cursor, triple ? 3 : 1);
 
     std::string out;
     while (!vkf_string_eof(cursor.source, cursor.index)) {
         if (triple && peek_literal(cursor, "\"\"\"")) {
             advance_bytes(cursor, 3);
-            return {"STRING", out, false, std::string(start.file), start.line, start.column};
+            return {
+                "STRING", dedent_multiline_value(out, indentation), false,
+                std::string(start.file), start.line, start.column};
         }
         const std::string scalar = vkf_string_peek_scalar(cursor.source, cursor.index);
         if (!triple && scalar == "\"") {
@@ -271,13 +340,17 @@ static SmokeToken scan_double_string(VkfCursor& cursor) {
 static SmokeToken scan_single_raw_string(VkfCursor& cursor) {
     const VkfCursor start = cursor;
     const bool triple = peek_literal(cursor, "'''");
+    const auto indentation = triple
+        ? multiline_indentation_prefix(cursor) : std::optional<std::string>{};
     advance_bytes(cursor, triple ? 3 : 1);
 
     std::string out;
     while (!vkf_string_eof(cursor.source, cursor.index)) {
         if (triple && peek_literal(cursor, "'''")) {
             advance_bytes(cursor, 3);
-            return {"STRING_RAW", out, false, std::string(start.file), start.line, start.column};
+            return {
+                "STRING_RAW", dedent_multiline_value(out, indentation), false,
+                std::string(start.file), start.line, start.column};
         }
         const std::string scalar = vkf_string_peek_scalar(cursor.source, cursor.index);
         if (!triple && scalar == "'") {
@@ -337,6 +410,11 @@ static void handle_line_start(
     bool& at_line_start
 ) {
     const std::size_t indent_column = consume_leading_indent(cursor);
+    if (peek_literal(cursor, "##")) {
+        skip_multiline_comment(cursor);
+        at_line_start = true;
+        return;
+    }
     if (!line_has_content(cursor)) {
         while (!vkf_string_eof(cursor.source, cursor.index)
             && vkf_string_peek_scalar(cursor.source, cursor.index) != "\n") {
@@ -394,6 +472,18 @@ static void advance_bytes(VkfCursor& cursor, std::size_t byte_count) {
     while (cursor.index < stop) {
         cursor = vkf_cursor_advance_scalar(cursor);
     }
+}
+
+static void skip_multiline_comment(VkfCursor& cursor) {
+    advance_bytes(cursor, 2);
+    while (!vkf_string_eof(cursor.source, cursor.index)) {
+        if (peek_literal(cursor, "##")) {
+            advance_bytes(cursor, 2);
+            return;
+        }
+        cursor = vkf_cursor_advance_scalar(cursor);
+    }
+    throw std::runtime_error("Unterminated multiline comment");
 }
 
 static bool scan_operator_or_punctuation(
@@ -577,6 +667,10 @@ static std::vector<SmokeToken> scan_tokens(std::string_view source, std::string_
             continue;
         }
         if (scalar == "#") {
+            if (peek_literal(cursor, "##")) {
+                skip_multiline_comment(cursor);
+                continue;
+            }
             while (!vkf_string_eof(cursor.source, cursor.index)
                 && vkf_string_peek_scalar(cursor.source, cursor.index) != "\n") {
                 cursor = vkf_cursor_advance_scalar(cursor);
@@ -596,7 +690,11 @@ static std::vector<SmokeToken> scan_tokens(std::string_view source, std::string_
             continue;
         }
         if (is_ascii_digit(scalar)) {
-            tokens.push_back(scan_number(cursor));
+            // After an indexing dot, another dot starts the next compact index:
+            // `matrix.0.1` is `(matrix.0).1`, never the invalid decimal index
+            // `matrix.(0.1)`. Decimal literals elsewhere retain normal scanning.
+            const bool dotted_index = !tokens.empty() && tokens.back().kind == "DOT";
+            tokens.push_back(scan_number(cursor, !dotted_index));
             continue;
         }
         if (scalar == "\"") {
@@ -606,6 +704,12 @@ static std::vector<SmokeToken> scan_tokens(std::string_view source, std::string_
             continue;
         }
         if (scalar == "'") {
+            if (quote_is_prime_suffix(cursor, tokens)) {
+                const VkfCursor loc = cursor;
+                cursor = vkf_cursor_advance_scalar(cursor);
+                emit_token(tokens, "PRIME", "", loc);
+                continue;
+            }
             tokens.push_back(scan_single_raw_string(cursor));
             continue;
         }

@@ -1,0 +1,10 @@
+# SymEngine benchmarks/expand1.cpp, commit
+# 0c183629a35dd9d8123fafcc47b0e0283bbae80d.
+:.symbolic
+
+x: R
+y: R
+z: R
+w: R
+expanded: expand((x + y + z + w)^60)
+:: term_count(expanded)

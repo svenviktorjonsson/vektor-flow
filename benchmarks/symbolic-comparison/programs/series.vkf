@@ -1,0 +1,9 @@
+# SymEngine benchmarks/series.cpp, commit
+# 0c183629a35dd9d8123fafcc47b0e0283bbae80d.
+:.symbolic
+
+order: 1000
+coefficients: [0:order]
+..order - 1 >> coefficients.($): $
+product: series_multiply(coefficients, coefficients, order)
+:: product.999

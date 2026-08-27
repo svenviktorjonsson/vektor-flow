@@ -1,0 +1,35 @@
+:.symbolic
+
+transform_check(value:bit) -> num:
+    value?
+        @: 1
+    0
+
+symbolic_fourier_wasm_conformance() -> num:
+    values: [1, -2, 3.5, 4]
+    spectrum: fourier(values)
+    restored: inverse_fourier(spectrum)
+    error: ((restored.0 - values.0)^2 +
+            (restored.1 - values.1)^2 +
+            (restored.2 - values.2)^2 +
+            (restored.3 - values.3)^2)
+    transform_check(
+        error < 0.0000000001 /\
+        verify_inverse_fourier(restored, spectrum)
+    )
+
+symbolic_haar_wasm_conformance() -> num:
+    values: [1, -2, 3.5, 4]
+    coefficients: haar_wavelet(values)
+    restored: inverse_haar_wavelet(coefficients)
+    transform_check(
+        verify_inverse_haar_wavelet(restored, coefficients, 0.000000001)
+    )
+
+symbolic_sampled_transforms_wasm_conformance() -> num:
+    transform_check(
+        symbolic_fourier_wasm_conformance() = 1 /\
+        symbolic_haar_wasm_conformance() = 1
+    )
+
+:: symbolic_sampled_transforms_wasm_conformance()

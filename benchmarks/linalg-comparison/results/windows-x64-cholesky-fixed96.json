@@ -1,0 +1,225 @@
+{
+  "schema": "vkf.linalg-comparison",
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-27T00:42:22.269Z",
+  "revision": "ec7adce163a23a841f10e1b7662b9d2da747955e",
+  "machine": {
+    "hostname": "LAPTOP-0P888BLM",
+    "platform": "win32",
+    "architecture": "x64",
+    "osRelease": "10.0.26200",
+    "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+    "logicalCpus": 14,
+    "memoryBytes": 33837342720
+  },
+  "conditions": {
+    "runs": 10,
+    "timeoutMs": 30000,
+    "threads": 1,
+    "kernels": [
+      "cholesky-spd-96"
+    ],
+    "languages": [
+      "vkf",
+      "eigen",
+      "faer",
+      "scipy"
+    ],
+    "scheduling": "rotating same-host process order",
+    "timer": "factorization/solve only; fixture load, warmup, cloning, and validation excluded",
+    "vkfRunnerManifest": {
+      "path": "C:\\Users\\viktor.jonsson\\OneDrive - CellMax Technologies AB\\Documents\\Repositories\\svenviktorjonsson\\vektor-flow\\.work\\linalg-vkf-cholesky-fixed96\\manifest.json",
+      "sha256": "b274bf4f9ba6c5f0ef4692ca29c10591713b6b65dcba70f161e1dbce721b9418"
+    }
+  },
+  "fixtures": {
+    "general-96": {
+      "file": "general-96.f64le",
+      "sha256": "fcce237fa774912fdfaca4dbf253fd2ad0e1e5572ad2b7723853cce7e1e810dc",
+      "rows": 96,
+      "columns": 96,
+      "layout": "row-major f64 little-endian",
+      "arrays": {
+        "matrix": {
+          "offsetElements": 0,
+          "length": 9216
+        },
+        "x_true": {
+          "offsetElements": 9216,
+          "length": 96
+        },
+        "rhs": {
+          "offsetElements": 9312,
+          "length": 96
+        }
+      },
+      "fileSha256": "fcce237fa774912fdfaca4dbf253fd2ad0e1e5572ad2b7723853cce7e1e810dc"
+    },
+    "tall-96x48": {
+      "file": "tall-96x48.f64le",
+      "sha256": "635db7b206a61172d749a9132d9ec8946d2e4699ecbf41b9b6b0b0f66c7f20a6",
+      "rows": 96,
+      "columns": 48,
+      "layout": "row-major f64 little-endian",
+      "arrays": {
+        "matrix": {
+          "offsetElements": 0,
+          "length": 4608
+        },
+        "x_true": {
+          "offsetElements": 4608,
+          "length": 48
+        },
+        "rhs": {
+          "offsetElements": 4656,
+          "length": 96
+        }
+      },
+      "fileSha256": "635db7b206a61172d749a9132d9ec8946d2e4699ecbf41b9b6b0b0f66c7f20a6"
+    },
+    "spd-96": {
+      "file": "spd-96.f64le",
+      "sha256": "e746ff139801b6e92b61d6fcdc8dc18dfaa482901d417aac144f4d0574b61f5d",
+      "rows": 96,
+      "columns": 96,
+      "layout": "row-major f64 little-endian",
+      "arrays": {
+        "matrix": {
+          "offsetElements": 0,
+          "length": 9216
+        }
+      },
+      "fileSha256": "e746ff139801b6e92b61d6fcdc8dc18dfaa482901d417aac144f4d0574b61f5d"
+    }
+  },
+  "kernels": [
+    {
+      "id": "cholesky-spd-96",
+      "fixture": "spd-96",
+      "limits": {
+        "reconstruction": 3e-11
+      },
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            0.0371999922208488,
+            0.0369000190403312,
+            0.0356999807991087,
+            0.0392999791074544,
+            0.0410000211559236,
+            0.0372999929822981,
+            0.0366999884136021,
+            0.0396000104956329,
+            0.0435000110883266,
+            0.0371999922208488
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.03843999875243752,
+            "stddevMs": 0.0023926821405485625
+          },
+          "validation": {
+            "reconstruction": 1.56176258912455e-16
+          },
+          "metadata": {
+            "implementation": "VKF .linalg",
+            "backend": "direct native machine code; one thread",
+            "algorithm": "lower Cholesky"
+          }
+        },
+        "eigen": {
+          "samplesMs": [
+            0.0484,
+            0.0463,
+            0.0509,
+            0.0438,
+            0.0444,
+            0.0406,
+            0.0397,
+            0.041,
+            0.0443,
+            0.041
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.044039999999999996,
+            "stddevMs": 0.0036603582095502923
+          },
+          "validation": {
+            "reconstruction": 8.62387282464432e-17
+          },
+          "metadata": {
+            "implementation": "Eigen 5.0.0 (single-thread)"
+          }
+        },
+        "faer": {
+          "samplesMs": [
+            0.0226,
+            0.0253,
+            0.0226,
+            0.0352,
+            0.0263,
+            0.0258,
+            0.0218,
+            0.0251,
+            0.0276,
+            0.0251
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.025740000000000002,
+            "stddevMs": 0.0037936203757829487
+          },
+          "validation": {
+            "reconstruction": 3.1e-16
+          },
+          "metadata": {
+            "implementation": "faer 0.24.4",
+            "backend": "faer native kernels; parallelism=sequential",
+            "algorithm": "LLT Cholesky"
+          }
+        },
+        "scipy": {
+          "samplesMs": [
+            0.0314,
+            0.0351,
+            0.0318,
+            0.0303,
+            0.0371,
+            0.0326,
+            0.0324,
+            0.0319,
+            0.0296,
+            0.0309
+          ],
+          "stats": {
+            "count": 10,
+            "meanMs": 0.03230999999999999,
+            "stddevMs": 0.0022471957833906883
+          },
+          "validation": {
+            "reconstruction": 3.782341632386137e-17
+          },
+          "metadata": {
+            "implementation": "SciPy 1.16.3",
+            "backend": "scipy-openblas 0.3.30",
+            "algorithm": "LAPACK lower Cholesky"
+          }
+        }
+      },
+      "comparisons": {
+        "eigen": {
+          "ratio": 0.8728428417901345
+        },
+        "faer": {
+          "ratio": 1.4933954449276423
+        },
+        "scipy": {
+          "ratio": 1.1897245048727183
+        }
+      },
+      "pass": true
+    }
+  ],
+  "pass": true
+}

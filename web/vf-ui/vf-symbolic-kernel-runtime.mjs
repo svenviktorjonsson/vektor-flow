@@ -336,6 +336,9 @@ export function createSymbolicKernel({ instance, manifest }) {
 
   const kernel = Object.freeze({
     invoke,
+    invokeValue(name, args = []) {
+      return invokeTransient(name, args, (value) => value);
+    },
     compile(source) {
       return invoke("symbolic_compile", [source]);
     },

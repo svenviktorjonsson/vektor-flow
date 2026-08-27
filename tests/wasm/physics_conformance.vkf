@@ -1,0 +1,43 @@
+:.physics
+
+physics_vector_wasm_conformance() -> num:
+    product: dot3([1, 2, 3], [4, 5, 6])
+    normal: cross3([1, 0, 0], [0, 1, 0])
+    moved: mat_vec3(identity3x3(), [2, 3, 4])
+    applied: force_at_point3([0, 1, 0], [1, 0, 0], [0, 0, 0])
+    product + normal.2 + moved.0 + moved.1 + moved.2 + applied.torque.2
+
+physics_mass_wasm_conformance() -> num:
+    properties: tetra_mass_properties3(
+        [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], 6
+    )
+    properties.mass + 4 * (
+        properties.center_of_mass.0 +
+        properties.center_of_mass.1 +
+        properties.center_of_mass.2
+    )
+
+physics_step_wasm_conformance() -> num:
+    state: rigid_state3([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+    stepped: step_rigid_body_momentum3(
+        state, (mass:2, inertia_tensor:identity3x3()), 0.5,
+        [4, 0, 0], [0, 0, 2]
+    )
+    stepped.momentum.0 + stepped.position.0 + stepped.angular_velocity.2
+
+physics_contact_wasm_conformance() -> num:
+    matrix: (pp:identity3x3(), pL:zero3x3(), Lp:zero3x3(), LL:identity3x3())
+    normal_hit: normal_restitution_impulse3(matrix, [0, 0, -2], [0, 0, 1], 0.5)
+    tangent_hit: tangential_friction_impulse3(
+        matrix, [10, 0, 0], [0, 0, 1], 1,
+        (e_t:0, mu_s:0.1, mu_d:0.05)
+    )
+    normal_hit.magnitude + normal_hit.impulse.2 + tangent_hit.mode - 20 * tangent_hit.impulse.0
+
+physics_wasm_conformance() -> num:
+    physics_vector_wasm_conformance() +
+    physics_mass_wasm_conformance() +
+    physics_step_wasm_conformance() +
+    physics_contact_wasm_conformance()
+
+:: physics_wasm_conformance()

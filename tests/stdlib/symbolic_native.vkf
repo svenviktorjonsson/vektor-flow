@@ -1,0 +1,407 @@
+:.symbolic
+errors: .errors
+
+test expression_hierarchy_is_native_compiler_type_information() -> bit:
+    x: R
+    expression: x^2 + 1
+    relation_value: x = 2
+    constant_value: constant(2)
+    (x. = "symbol" /\ expression. = "expression" /\
+     relation_value. = "relation" /\ constant_value. = "constant")?!
+
+test symbolic_same_compares_expression_structure() -> bit:
+    x: R
+    same(x^2 + 1, x^2 + 1)?!
+
+test symbolic_representation_order_remains_explicit() -> bit:
+    x: R
+    (same(x + 1, 1 + x) = false)?!
+
+test symbolic_subtrees_are_exact() -> bit:
+    x: R
+    y: R
+    expression: (x + y)^3
+    same(_symbolic_left(expression), x + y)?!
+    right: _symbolic_right(expression)
+    (_symbolic_root_kind(right) = 2)?!
+    (_symbolic_number_value(right) = 3)?!
+
+test symbolic_sum_children_are_exact() -> bit:
+    x: R
+    y: R
+    sum: x + y
+    same(_symbolic_left(sum), x)?!
+    same(_symbolic_right(sum), y)?!
+
+test adjacent_symbol_names_stay_together_in_the_divisor() -> bit:
+    x: R
+    y: R
+    expression: 1 / xy
+    (_symbolic_root_operation(expression) = 4)?!
+    divisor: _symbolic_right(expression)
+    (_symbolic_root_operation(divisor) = 3)?!
+    same(_symbolic_left(divisor), x)?!
+    same(_symbolic_right(divisor), y)?!
+
+test space_after_the_divisor_resumes_the_outer_product() -> bit:
+    x: R
+    y: R
+    expression: 1 / x y
+    (_symbolic_root_operation(expression) = 3)?!
+    quotient: _symbolic_left(expression)
+    (_symbolic_root_operation(quotient) = 4)?!
+    same(_symbolic_right(quotient), x)?!
+    same(_symbolic_right(expression), y)?!
+
+test bound_adjacent_symbol_name_wins_over_implicit_product() -> bit:
+    x: R
+    y: R
+    xy: R
+    expression: 1 / xy
+    (_symbolic_root_operation(expression) = 4)?!
+    same(_symbolic_right(expression), xy)?!
+
+test symbolic_expand_canonicalizes_sum() -> bit:
+    x: R
+    y: R
+    expanded: expand(x + y)
+    (term_count(expanded) = 2)?!
+    (coefficient(expanded, [1, 0]) = 1)?!
+    (coefficient(expanded, [0, 1]) = 1)?!
+
+test symbolic_nested_binary_has_complete_dag() -> bit:
+    x: R
+    y: R
+    expression: (x * x) + (y * x)
+    (_symbolic_storage_kind(expression) = 10)?!
+    (_symbolic_dag_node_count(expression) = 6)?!
+
+test symbolic_term_count_reads_sum_tree() -> bit:
+    x: R
+    y: R
+    (term_count((x * x) + (y * x)) = 2)?!
+
+test symbolic_binomial_power_degree_one() -> bit:
+    x: R
+    y: R
+    (term_count(_symbolic_expand_binomial_power(x + y, 1)) = 2)?!
+
+test symbolic_binomial_power_degree_two() -> bit:
+    x: R
+    y: R
+    (term_count(_symbolic_expand_binomial_power(x + y, 2)) = 3)?!
+
+test symbolic_expanded_sum_remains_owned_for_next_call() -> bit:
+    x: R
+    y: R
+    intermediate: expand(x + y)
+    squared: _symbolic_polynomial_multiply(intermediate, intermediate)
+    (term_count(squared) = 3)?!
+    (coefficient(squared, [1, 1]) = 2)?!
+
+test symbolic_power_only_path_owns_intermediates() -> bit:
+    x: R
+    y: R
+    (term_count(_symbolic_expand_power_only((x + y)^2)) = 3)?!
+
+test symbolic_repeated_update_owns_each_generation() -> bit:
+    x: R
+    y: R
+    result: x
+    ..1 >>
+        .result: result + y
+    (term_count(result) = 3)?!
+
+test symbolic_expand_distributes_square() -> bit:
+    x: R
+    y: R
+    (term_count(expand((x + y)^2)) = 3)?!
+
+test symbolic_expand_combines_multinomial_terms() -> bit:
+    x: R
+    y: R
+    expanded: expand((x + y)^3)
+    (term_count(expanded) = 4)?!
+
+test symbolic_expand_preserves_binomial_coefficients() -> bit:
+    x: R
+    y: R
+    expanded: expand((x + y)^2)
+    (coefficient(expanded, [2, 0]) = 1)?!
+    (coefficient(expanded, [1, 1]) = 2)?!
+    (coefficient(expanded, [0, 2]) = 1)?!
+
+test symbolic_packed_polynomial_evaluates_exactly() -> bit:
+    x: R
+    y: R
+    expanded: expand((x + y)^2)
+    (evaluate(expanded, [2, 3]) = 25)?!
+
+test symbolic_multinomial_expansion_is_canonical() -> bit:
+    x: R
+    y: R
+    z: R
+    w: R
+    expanded: expand((x + y + z + w)^5)
+    (term_count(expanded) = 56)?!
+    (coefficient(expanded, [2, 1, 1, 1]) = 60)?!
+    (evaluate(expanded, [1, 1, 1, 1]) = 1024)?!
+
+test symbolic_polynomial_addition_merges_like_terms() -> bit:
+    x: R
+    y: R
+    expanded: expand((x + y)^2 + (x + y)^2)
+    (term_count(expanded) = 3)?!
+    (coefficient(expanded, [2, 0]) = 2)?!
+    (coefficient(expanded, [1, 1]) = 4)?!
+    (coefficient(expanded, [0, 2]) = 2)?!
+
+test symbolic_polynomial_multiplication_convolves_terms() -> bit:
+    x: R
+    y: R
+    expanded: expand((x + y)^2 * (x + y))
+    (term_count(expanded) = 4)?!
+    (coefficient(expanded, [3, 0]) = 1)?!
+    (coefficient(expanded, [2, 1]) = 3)?!
+    (coefficient(expanded, [1, 2]) = 3)?!
+    (coefficient(expanded, [0, 3]) = 1)?!
+
+test symbolic_polynomial_power_reuses_an_expanded_value() -> bit:
+    x: R
+    y: R
+    base: expand(x + y)
+    expanded: expand(base^3)
+    (term_count(expanded) = 4)?!
+    (coefficient(expanded, [2, 1]) = 3)?!
+
+test symbolic_expand2_shape_matches_the_published_kernel() -> bit:
+    x: R
+    y: R
+    z: R
+    w: R
+    e: (x + y + z + w)^3
+    expanded: expand(e * (e + w))
+    (term_count(expanded) = 104)?!
+    (coefficient(expanded, [6, 0, 0, 0]) = 1)?!
+    (coefficient(expanded, [3, 0, 0, 1]) = 1)?!
+
+test symbolic_univariate_series_multiplication_truncates_to_order() -> bit:
+    product: series_multiply([0, 1, 2, 3], [0, 1, 2, 3], 4)
+    (product.length() = 4)?!
+    (product.0 = 0)?!
+    (product.1 = 0)?!
+    (product.2 = 1)?!
+    (product.3 = 4)?!
+
+test symbolic_collect_canonicalizes_repeated_addition() -> bit:
+    x: R
+    accumulator: _symbolic_as_polynomial(x)
+    coefficient_value: 1
+    term: x
+    ..4 >>
+        .term: coefficient_value * x^$
+        .accumulator: collect(accumulator + term)
+        .coefficient_value *: -1
+    (term_count(accumulator) = 4)?!
+    (coefficient(accumulator, [0]) = 1)?!
+    (coefficient(accumulator, [3]) = -1)?!
+
+test symbolic_univariate_polynomial_grows_and_cancels_terms() -> bit:
+    x: R
+    value: polynomial(x, 2)
+    add_term(value, 1, 0)
+    add_term(value, -1, 1)
+    .value: add_term(value, 1, 8)
+    (term_count(value) = 2)?!
+    (coefficient(value, [0]) = 1)?!
+    (coefficient(value, [1]) = 0)?!
+    (coefficient(value, [8]) = 1)?!
+    (evaluate(value, [2]) = 257)?!
+
+test symbolic_add_term_rejects_negative_exponents() -> bit:
+    x: R
+    raised: false
+    add_term(polynomial(x), 1, -1)!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_add_term_rejects_fractional_exponents() -> bit:
+    x: R
+    raised: false
+    add_term(polynomial(x), 1, 1.5)!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_add_term_rejects_nonpolynomial_values() -> bit:
+    x: R
+    raised: false
+    add_term(x + 1, 1, 2)!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_evaluate_rejects_wrong_variable_arity() -> bit:
+    x: R
+    y: R
+    raised: false
+    evaluate(x + y, [2])!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_differentiate_requires_a_symbol_variable() -> bit:
+    x: R
+    raised: false
+    differentiate(x^2, x + 1)!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_polynomial_requires_a_symbol_variable() -> bit:
+    x: R
+    raised: false
+    polynomial(x + 1)!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_polynomial_rejects_fractional_capacity() -> bit:
+    x: R
+    raised: false
+    polynomial(x, 2.5)!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_coefficient_rejects_wrong_exponent_arity() -> bit:
+    x: R
+    y: R
+    raised: false
+    coefficient(expand(x + y), [1])!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_series_rejects_invalid_order() -> bit:
+    raised: false
+    series_multiply([1, 2], [3, 4], -1)!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_elementary_functions_are_owned_nodes() -> bit:
+    x: R
+    expression: sin(x)
+    (_symbolic_root_kind(expression) = 7)?!
+    (_symbolic_root_operation(expression) = 1)?!
+    same(_symbolic_argument(expression), x)?!
+
+test symbolic_polynomial_differentiation_is_exact() -> bit:
+    x: R
+    derivative: differentiate(expand((x + 1)^4), x)
+    (term_count(derivative) = 4)?!
+    (coefficient(derivative, [3]) = 4)?!
+    (coefficient(derivative, [2]) = 12)?!
+    (coefficient(derivative, [1]) = 12)?!
+    (coefficient(derivative, [0]) = 4)?!
+    (evaluate(derivative, [2]) = 108)?!
+
+test symbolic_chain_rule_evaluates_exactly() -> bit:
+    x: R
+    derivative: differentiate(sin(x^2), x)
+    result: evaluate(derivative, [1])
+    (result > 1.0805 /\ result < 1.0807)?!
+
+test symbolic_derivative_cache_preserves_semantics() -> bit:
+    x: R
+    shared: sin(x^2)
+    expression: shared * shared + shared
+    cached: differentiate(expression, x, cache: true)
+    uncached: differentiate(expression, x, cache: false)
+    cached_value: evaluate(cached, [0.5])
+    uncached_value: evaluate(uncached, [0.5])
+    (cached_value > uncached_value - 0.000000000001)?!
+    (cached_value < uncached_value + 0.000000000001)?!
+
+test symbolic_named_subexpressions_remain_shared_in_a_dag() -> bit:
+    x: R
+    y: R
+    shared: sin(x + y)
+    expression: shared^2 + shared
+    (_symbolic_storage_kind(expression) = 10)?!
+    (_symbolic_dag_node_count(expression) = 7)?!
+    same(_symbolic_left(expression), shared^2)?!
+    same(_symbolic_right(expression), shared)?!
+
+test symbolic_simplify_removes_neutral_operations() -> bit:
+    x: R
+    y: R
+    simplified: simplify((x * 1) + (0 * y))
+    same(simplified, x)?!
+
+test symbolic_simplify_cancels_identical_subtraction() -> bit:
+    x: R
+    simplified: simplify(x - x)
+    (_symbolic_root_kind(simplified) = 2)?!
+    (_symbolic_number_value(simplified) = 0)?!
+
+test symbolic_substitute_replaces_an_exact_symbol() -> bit:
+    x: R
+    y: R
+    replaced: substitute((x + y)^2, x, constant(3))
+    (evaluate(replaced, [2]) = 25)?!
+
+test symbolic_substitute_requires_a_symbol_variable() -> bit:
+    x: R
+    raised: false
+    substitute(x^2, x + 1, constant(3))!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_polynomial_integration_cubic_coefficient_is_exact() -> bit:
+    x: R
+    integrated: integrate(expand(3 * x^2 + 2 * x + 1), x)
+    (coefficient(integrated, [3]) = 1)?!
+
+test symbolic_polynomial_integration_quadratic_coefficient_is_exact() -> bit:
+    x: R
+    integrated: integrate(expand(3 * x^2 + 2 * x + 1), x)
+    (coefficient(integrated, [2]) = 1)?!
+
+test symbolic_polynomial_integration_linear_coefficient_is_exact() -> bit:
+    x: R
+    integrated: integrate(expand(3 * x^2 + 2 * x + 1), x)
+    (coefficient(integrated, [1]) = 1)?!
+
+test symbolic_polynomial_integration_constant_is_zero() -> bit:
+    x: R
+    integrated: integrate(expand(3 * x^2 + 2 * x + 1), x)
+    (coefficient(integrated, [0]) = 0)?!
+
+test symbolic_polynomial_integration_constructs() -> bit:
+    x: R
+    integrated: integrate(expand(3 * x^2 + 2 * x + 1), x)
+    (integrated. = "symbolic")?!
+
+test symbolic_elementary_integration_is_exact() -> bit:
+    x: R
+    sine_integral: integrate(sin(x), x)
+    cosine_integral: integrate(cos(x), x)
+    (evaluate(sine_integral, [0]) = -1)?!
+    (evaluate(cosine_integral, [0]) = 0)?!
+
+test symbolic_integrate_rejects_unsupported_forms() -> bit:
+    x: R
+    raised: false
+    integrate(x * sin(x), x)!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_log_and_ln_are_the_same_operation() -> bit:
+    x: R
+    same(log(x), ln(x))?!
+
+test symbolic_depends_on_reads_the_expression_catalog() -> bit:
+    x: R
+    y: R
+    expression: sin(x^2) + 3
+    (depends_on(expression, x) /\ ~depends_on(expression, y))?!
+
+test symbolic_diff_alias_matches_differentiate() -> bit:
+    x: R
+    via_alias: diff(x^4 + x, x)
+    direct: differentiate(x^4 + x, x)
+    (same(via_alias, direct) /\ evaluate(via_alias, [2]) = 33)?!

@@ -1,0 +1,80 @@
+_scalar_identity(value:num) -> num:
+    value
+
+_grouped_scalar_identity(value:(num)) -> (num):
+    value
+
+grouping_parentheses_canonicalize_to_the_inner_type() -> bit:
+    (_grouped_scalar_identity(3.5) == 3.5)?!
+
+_apply_bare_unary(f:num->num, value:num) -> num:
+    f(value)
+
+_apply_grouped_unary(f:(num)->num, value:num) -> num:
+    f(value)
+
+bare_and_grouped_unary_function_domains_are_equivalent() -> bit:
+    (_apply_bare_unary(_scalar_identity, 2.5) == 2.5 /\
+     _apply_grouped_unary(_scalar_identity, 4.5) == 4.5)?!
+
+_singleton_tuple_identity(value:(num,)) -> (num,):
+    value
+
+singleton_tuple_requires_a_trailing_comma() -> bit:
+    result: _singleton_tuple_identity((7.5,))
+    (result. == (num,) /\ result.0 == 7.5)?!
+
+bare_commas_construct_tuple_values() -> bit:
+    pair: 1, 2
+    singleton: 3,
+    (pair. == (int,int) /\ pair.0 == 1 /\ pair.1 == 2 /\
+     singleton. == (int,) /\ singleton.0 == 3)?!
+
+_take_singleton_tuple(value:(num,)) -> num:
+    value.0
+
+_apply_singleton_tuple_function(f:(num,)->num, value:(num,)) -> num:
+    f(value)
+
+singleton_tuple_function_domain_is_one_tuple_argument() -> bit:
+    (_apply_singleton_tuple_function(_take_singleton_tuple, (8.5,)) == 8.5)?!
+
+_apply_bare_singleton_tuple_function(f:num,->num, value:(num,)) -> num:
+    f(value)
+
+bare_trailing_domain_comma_denotes_a_singleton_tuple_argument() -> bit:
+    (_apply_bare_singleton_tuple_function(_take_singleton_tuple, (10.5,)) == 10.5)?!
+
+_box_scalar(value:num) -> (num,):
+    (value,)
+
+singleton_tuple_function_codomain_is_preserved() -> bit:
+    result: _box_scalar(9.5)
+    (result. == (num,) /\ result.0 == 9.5)?!
+
+_add_two(left:num, right:num) -> num:
+    left + right
+
+_apply_two_argument_function(f:(num,num)->num, left:num, right:num) -> num:
+    f(left, right)
+
+function_domain_pair_means_two_arguments() -> bit:
+    (_apply_two_argument_function(_add_two, 3.0, 4.0) == 7.0)?!
+
+_add_scalar_and_singleton(left:num, right:(num,)) -> num:
+    left + right.0
+
+_apply_scalar_and_singleton(f:(num,(num,))->num, left:num, right:(num,)) -> num:
+    f(left, right)
+
+nested_singleton_tuple_remains_one_of_multiple_arguments() -> bit:
+    (_apply_scalar_and_singleton(_add_scalar_and_singleton, 3.0, (5.0,)) == 8.0)?!
+
+_sum_tuple_pair(value:(num,num)) -> num:
+    value.0 + value.1
+
+_apply_one_tuple_pair_argument(f:((num,num))->num, value:(num,num)) -> num:
+    f(value)
+
+double_parentheses_distinguish_one_tuple_from_two_arguments() -> bit:
+    (_apply_one_tuple_pair_argument(_sum_tuple_pair, (6.0, 7.0)) == 13.0)?!

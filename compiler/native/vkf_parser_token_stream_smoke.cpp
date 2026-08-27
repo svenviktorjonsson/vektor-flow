@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -29,6 +30,50 @@ struct Token {
     Location location;
     vf::JsonValue interpolations;
 };
+
+int utf8_scalar_count(std::string_view text) {
+    int count = 0;
+    for (const unsigned char byte : text) {
+        if ((byte & 0xC0U) != 0x80U) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+std::optional<int> token_source_width(const Token& token) {
+    if (token.kind == "NUMBER") {
+        return utf8_scalar_count(token.raw);
+    }
+    if (token.kind == "IDENT") {
+        return utf8_scalar_count(token.value.as_string());
+    }
+    if (token.kind == "TRUE") return 4;
+    if (token.kind == "FALSE") return 5;
+    if (token.kind == "NULL") return 4;
+
+    if (token.kind == "ELLIPSIS") return 3;
+    if (token.kind == "EMIT" || token.kind == "FAT_ARROW" || token.kind == "ARROW"
+        || token.kind == "RANGE" || token.kind == "EXACT_EQ" || token.kind == "NEQ"
+        || token.kind == "STRUCT_NEQ" || token.kind == "LE" || token.kind == "GE"
+        || token.kind == "PIPE" || token.kind == "AND" || token.kind == "OR"
+        || token.kind == "FLOORDIV" || token.kind == "XOR" || token.kind == "BANG_QUESTION") {
+        return 2;
+    }
+
+    if (token.kind == "PLUS" || token.kind == "MINUS" || token.kind == "STAR"
+        || token.kind == "SLASH" || token.kind == "CARET" || token.kind == "PERCENT"
+        || token.kind == "AMPERSAND" || token.kind == "COMMA" || token.kind == "SEMICOLON"
+        || token.kind == "QUESTION" || token.kind == "DOLLAR" || token.kind == "NOT"
+        || token.kind == "BAR" || token.kind == "LPAREN" || token.kind == "RPAREN"
+        || token.kind == "LBRACKET" || token.kind == "RBRACKET" || token.kind == "LBRACE"
+        || token.kind == "RBRACE" || token.kind == "COLON" || token.kind == "EQ"
+        || token.kind == "LT" || token.kind == "GT" || token.kind == "BANG"
+        || token.kind == "DOT" || token.kind == "AT" || token.kind == "PRIME") {
+        return 1;
+    }
+    return std::nullopt;
+}
 
 class ParseFailure : public std::runtime_error {
 public:
@@ -226,7 +271,13 @@ private:
             || kind == "OR"
             || kind == "XOR"
             || kind == "NOT"
+            || kind == "FAT_ARROW"
             || kind == "EMIT"
+            || kind == "EQ"
+            || kind == "LT"
+            || kind == "LE"
+            || kind == "GT"
+            || kind == "GE"
             || kind == "DOT";
     }
 
@@ -245,7 +296,13 @@ private:
         if (token.kind == "OR") return "\\/";
         if (token.kind == "XOR") return "><";
         if (token.kind == "NOT") return "~";
+        if (token.kind == "FAT_ARROW") return "=>";
         if (token.kind == "EMIT") return "::";
+        if (token.kind == "EQ") return "=";
+        if (token.kind == "LT") return "<";
+        if (token.kind == "LE") return "<=";
+        if (token.kind == "GT") return ">";
+        if (token.kind == "GE") return ">=";
         if (token.kind == "DOT") return ".";
         throw ParseFailure("unsupported function name token", token.location);
     }
@@ -442,7 +499,7 @@ private:
             if (is_at("NEWLINE")) {
                 value = parse_indented_suite(true, true);
             } else {
-                value = parse_expression();
+                value = parse_tuple_expression();
             }
             auto out = node("bind");
             out["target"] = ident_node(name);
@@ -467,7 +524,7 @@ private:
             if (is_at("NEWLINE")) {
                 value = parse_indented_suite(true, true);
             } else {
-                value = parse_expression();
+                value = parse_tuple_expression();
             }
             auto out = node("bind");
             out["target"] = ident_node(name);
@@ -484,7 +541,7 @@ private:
             if (is_at("NEWLINE")) {
                 value = parse_indented_suite(true, true);
             } else {
-                value = parse_expression();
+                value = parse_tuple_expression();
             }
             auto out = node("bind");
             out["target"] = ident_node(name);
@@ -511,11 +568,11 @@ private:
             if (is_at("COLON")) {
                 advance();
                 auto out = node("label_emit");
-                out["value"] = parse_expression();
+                out["value"] = parse_tuple_expression();
                 return vf::JsonValue(std::move(out));
             }
             auto out = node("emit");
-            out["value"] = parse_expression();
+            out["value"] = parse_tuple_expression();
             return vf::JsonValue(std::move(out));
         }
         if (is_at("COLON")) {
@@ -530,13 +587,13 @@ private:
                 return vf::JsonValue(node("struct_identity"));
             }
             auto out = node("spill_value");
-            out["value"] = parse_expression();
+            out["value"] = parse_tuple_expression();
             return vf::JsonValue(std::move(out));
         }
         if (is_at("AT_COLON")) {
             advance();
             auto out = node("return");
-            out["value"] = parse_expression();
+            out["value"] = parse_tuple_expression();
             return vf::JsonValue(std::move(out));
         }
         if (is_at("AT")) {
@@ -581,7 +638,7 @@ private:
                 if (is_at("NEWLINE")) {
                     value = parse_indented_suite(true, true);
                 } else {
-                    value = parse_expression();
+                    value = parse_tuple_expression();
                 }
                 auto out = node("bind");
                 out["target"] = ident_node(name);
@@ -599,7 +656,7 @@ private:
                     expect("COLON");
                     vf::JsonValue right = is_at("NEWLINE")
                         ? parse_indented_suite(true, true)
-                        : parse_expression();
+                        : parse_tuple_expression();
                     auto binary = node("binary_op");
                     binary["op"] = vf::JsonValue(operation.kind);
                     binary["left"] = bind_target;
@@ -615,7 +672,7 @@ private:
                 if (is_at("NEWLINE")) {
                     value = parse_indented_suite(true, true);
                 } else {
-                    value = parse_expression();
+                    value = parse_tuple_expression();
                 }
                 auto out = node("bind");
                 out["target"] = std::move(bind_target);
@@ -623,7 +680,7 @@ private:
                 return vf::JsonValue(std::move(out));
             }
         }
-        return parse_expression();
+        return parse_tuple_expression();
     }
 
     bool try_parse_bind_target(vf::JsonValue& out_target) {
@@ -659,7 +716,7 @@ private:
                 vf::JsonValue::Array indices;
                 if (!is_at("RPAREN")) {
                     while (true) {
-                        indices.push_back(parse_expression());
+                        indices.push_back(parse_call_argument());
                         if (is_at("COMMA")) {
                             advance();
                             continue;
@@ -902,7 +959,11 @@ private:
         bool consumed = false;
         while (!is_at("EOF")) {
             if (angle_depth == 0 && bracket_depth == 0 && brace_depth == 0 && paren_depth == 0) {
-                if (is_at("EQ") || is_at("COMMA") || is_at("RPAREN") || is_at("NEWLINE") || is_at("INDENT") || is_at("DEDENT")) {
+                const bool singleton_domain_comma = is_at("COMMA") &&
+                    index_ + 1 < tokens_.size() && tokens_[index_ + 1].kind == "ARROW";
+                if (is_at("EQ") || (is_at("COMMA") && !singleton_domain_comma) ||
+                    is_at("RPAREN") || is_at("NEWLINE") || is_at("INDENT") ||
+                    is_at("DEDENT")) {
                     break;
                 }
                 if (is_at("COLON")) {
@@ -985,6 +1046,32 @@ private:
         return expr;
     }
 
+    vf::JsonValue parse_tuple_expression(bool allow_pipe = true) {
+        vf::JsonValue first = parse_expression(allow_pipe);
+        if (is_at("COLON")) {
+            fail_here("named tuples require parentheses");
+        }
+        if (!is_at("COMMA")) return first;
+
+        vf::JsonValue::Array elements;
+        elements.push_back(std::move(first));
+        while (is_at("COMMA")) {
+            advance();
+            if (is_at("NEWLINE") || is_at("DEDENT") || is_at("EOF") ||
+                is_at("SEMICOLON") || is_at("RPAREN") || is_at("RBRACKET") ||
+                is_at("RBRACE")) {
+                break;
+            }
+            elements.push_back(parse_expression(allow_pipe));
+            if (is_at("COLON")) {
+                fail_here("named tuples require parentheses");
+            }
+        }
+        auto out = node("tuple_literal");
+        out["elements"] = vf::JsonValue(std::move(elements));
+        return vf::JsonValue(std::move(out));
+    }
+
     vf::JsonValue parse_conditional_body() {
         if (is_at("NEWLINE")) {
             return parse_indented_suite(true, false);
@@ -993,7 +1080,7 @@ private:
     }
 
     vf::JsonValue parse_pipe_expr() {
-        vf::JsonValue source = parse_range_expr();
+        vf::JsonValue source = parse_implication_expr();
         vf::JsonValue::Array segments;
         while (is_at("PIPE")) {
             advance();
@@ -1041,7 +1128,7 @@ private:
                     block["statements"] = vf::JsonValue(std::move(statements));
                     segments.emplace_back(std::move(block));
                 } else {
-                    segments.push_back(parse_range_expr());
+                    segments.push_back(parse_implication_expr());
                 }
             }
         }
@@ -1146,13 +1233,13 @@ private:
         return left;
     }
 
-    bool line_has_fat_arrow() const {
+    std::optional<std::size_t> line_fat_arrow() const {
         std::size_t cursor = index_;
         int depth = 0;
         while (cursor < tokens_.size()) {
             const std::string& kind = tokens_[cursor].kind;
             if (kind == "NEWLINE" || kind == "DEDENT" || kind == "EOF") {
-                return false;
+                return std::nullopt;
             }
             if (kind == "LPAREN" || kind == "LBRACKET" || kind == "LBRACE") {
                 depth += 1;
@@ -1161,11 +1248,15 @@ private:
                     depth -= 1;
                 }
             } else if (depth == 0 && kind == "FAT_ARROW") {
-                return true;
+                return cursor;
             }
             cursor += 1;
         }
-        return false;
+        return std::nullopt;
+    }
+
+    bool line_has_fat_arrow() const {
+        return line_fat_arrow().has_value();
     }
 
     bool implicit_mul_follows() const {
@@ -1181,6 +1272,19 @@ private:
             || is_at("DOT")
             || is_at("STRING")
             || is_at("STRING_RAW");
+    }
+
+    bool tight_implicit_mul_follows() const {
+        if (!implicit_mul_follows() || index_ == 0) {
+            return false;
+        }
+        const Token& previous = tokens_[index_ - 1];
+        const Token& next = tokens_[index_];
+        const std::optional<int> width = token_source_width(previous);
+        return width.has_value()
+            && previous.location.file == next.location.file
+            && previous.location.line == next.location.line
+            && previous.location.column + *width == next.location.column;
     }
 
     static bool builtin_type_name(const std::string& name) {
@@ -1277,12 +1381,16 @@ private:
     }
 
     vf::JsonValue parse_match_arm() {
-        if (line_has_fat_arrow()) {
+        const std::optional<std::size_t> arm_arrow = line_fat_arrow();
+        if (arm_arrow.has_value()) {
             vf::JsonValue condition;
             if (match_arm_has_type_pattern()) {
                 condition = parse_match_arm_type_pattern();
             } else {
+                const std::optional<std::size_t> previous_separator = match_arm_separator_;
+                match_arm_separator_ = arm_arrow;
                 condition = parse_expression();
+                match_arm_separator_ = previous_separator;
             }
             expect("FAT_ARROW");
             vf::JsonValue body = is_at("NEWLINE")
@@ -1408,19 +1516,27 @@ private:
     }
 
     vf::JsonValue parse_mul_expr() {
-        vf::JsonValue left = parse_pow_expr();
+        vf::JsonValue left = parse_implicit_mul_expr();
         while (true) {
             if (is_at("STAR") || is_at("SLASH") || is_at("FLOORDIV") || is_at("PERCENT")) {
                 const Token& op = advance();
                 skip_newlines();
-                left = binary_node(op.kind, std::move(left), parse_pow_expr());
+                left = binary_node(op.kind, std::move(left), parse_implicit_mul_expr());
                 continue;
             }
             if (implicit_mul_follows()) {
-                left = binary_node("STAR", std::move(left), parse_pow_expr());
+                left = binary_node("STAR", std::move(left), parse_implicit_mul_expr());
                 continue;
             }
             break;
+        }
+        return left;
+    }
+
+    vf::JsonValue parse_implicit_mul_expr() {
+        vf::JsonValue left = parse_pow_expr();
+        while (tight_implicit_mul_follows()) {
+            left = binary_node("STAR", std::move(left), parse_pow_expr());
         }
         return left;
     }
@@ -1482,6 +1598,10 @@ private:
                     }
                 }
             }
+            if (is_at("PRIME")) {
+                expr = parse_derivative_suffix(std::move(expr));
+                continue;
+            }
             if (is_at("LPAREN")) {
                 expr = parse_call(std::move(expr));
                 continue;
@@ -1541,7 +1661,7 @@ private:
                     vf::JsonValue::Array indices;
                     if (!is_at("RPAREN")) {
                         while (true) {
-                            indices.push_back(parse_expression());
+                            indices.push_back(parse_call_argument());
                             if (is_at("COMMA")) {
                                 advance();
                                 continue;
@@ -1795,8 +1915,10 @@ private:
             while (true) {
                 vf::JsonValue key = parse_expression();
                 vf::JsonValue count;
+                bool explicit_count = false;
                 if (is_at("COLON")) {
                     advance();
+                    explicit_count = true;
                     count = parse_expression();
                 } else {
                     auto one = node("number_literal");
@@ -1806,6 +1928,7 @@ private:
                 auto pair = node("multiset_pair");
                 pair["key"] = std::move(key);
                 pair["count"] = std::move(count);
+                pair["explicit_count"] = vf::JsonValue(explicit_count);
                 pairs.push_back(vf::JsonValue(std::move(pair)));
                 if (is_at("COMMA")) {
                     advance();
@@ -1971,16 +2094,19 @@ private:
         }
 
         vf::JsonValue::Array elements;
+        bool saw_separator = false;
         while (true) {
             elements.push_back(parse_literal_element());
             if (is_at("COMMA")) {
                 advance();
+                saw_separator = true;
+                if (is_at("RPAREN")) break;
                 continue;
             }
             break;
         }
         expect("RPAREN");
-        if (elements.size() == 1) {
+        if (elements.size() == 1 && !saw_separator) {
             auto grouped = std::move(elements.front());
             if (grouped.is_object()) {
                 grouped.as_object()["parenthesized"] = vf::JsonValue(true);
@@ -2032,6 +2158,210 @@ private:
         return vf::JsonValue(std::move(out));
     }
 
+    vf::JsonValue parse_implication_expr() {
+        vf::JsonValue premise = parse_range_expr();
+        if (!is_at("FAT_ARROW") ||
+            (match_arm_separator_.has_value() && index_ == *match_arm_separator_)) {
+            return premise;
+        }
+        advance();
+        skip_newlines();
+        return binary_node(
+            "IMPLIES",
+            std::move(premise),
+            parse_implication_expr()
+        );
+    }
+
+    static vf::JsonValue named_identifier(std::string name) {
+        auto out = node("identifier");
+        out["name"] = vf::JsonValue(std::move(name));
+        return vf::JsonValue(std::move(out));
+    }
+
+    static vf::JsonValue named_call(std::string name, vf::JsonValue::Array args) {
+        auto out = node("call");
+        out["callee"] = named_identifier(std::move(name));
+        out["args"] = vf::JsonValue(std::move(args));
+        return vf::JsonValue(std::move(out));
+    }
+
+    static std::optional<std::string> identifier_name(const vf::JsonValue& value) {
+        if (!is_node_kind(value, "identifier")) return std::nullopt;
+        const auto found = value.as_object().find("name");
+        if (found == value.as_object().end() || !found->second.is_string()) return std::nullopt;
+        return found->second.as_string();
+    }
+
+    static void collect_suffix_splits(
+        std::string_view suffix,
+        const std::vector<std::string>& candidates,
+        std::size_t remaining,
+        std::vector<std::string>& current,
+        std::vector<std::vector<std::string>>& matches
+    ) {
+        if (remaining == 0) {
+            if (suffix.empty()) matches.push_back(current);
+            return;
+        }
+        for (const std::string& candidate : candidates) {
+            if (candidate.empty() || suffix.size() < candidate.size() ||
+                suffix.substr(0, candidate.size()) != candidate) {
+                continue;
+            }
+            current.push_back(candidate);
+            collect_suffix_splits(
+                suffix.substr(candidate.size()), candidates, remaining - 1, current, matches);
+            current.pop_back();
+        }
+    }
+
+    vf::JsonValue parse_derivative_suffix(vf::JsonValue value) {
+        const Location location = peek().location;
+        std::size_t order = 0;
+        while (is_at("PRIME")) {
+            advance();
+            order += 1;
+        }
+
+        std::vector<std::string> suffix_tokens;
+        while (is_at("IDENT") && suffix_tokens.size() < order) {
+            suffix_tokens.push_back(advance().value.as_string());
+        }
+
+        vf::JsonValue::Array call_args;
+        bool has_call = false;
+        if (is_at("LPAREN")) {
+            has_call = true;
+            expect("LPAREN");
+            skip_newlines();
+            if (!is_at("RPAREN")) {
+                while (true) {
+                    call_args.push_back(parse_call_argument());
+                    if (is_at("COMMA")) {
+                        advance();
+                        skip_newlines();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            expect("RPAREN");
+        }
+
+        std::vector<std::string> variables;
+        if (has_call && order == 1 && suffix_tokens.size() == 1) {
+            std::vector<std::string> candidates;
+            for (const auto& argument : call_args) {
+                const auto name = identifier_name(argument);
+                if (name.has_value() &&
+                    std::find(candidates.begin(), candidates.end(), *name) == candidates.end()) {
+                    candidates.push_back(*name);
+                }
+            }
+            const bool exact_argument = std::find(
+                candidates.begin(), candidates.end(), suffix_tokens.front()) != candidates.end();
+            if (!exact_argument) {
+                std::sort(candidates.begin(), candidates.end(), [](const auto& left, const auto& right) {
+                    if (left.size() != right.size()) return left.size() > right.size();
+                    return left < right;
+                });
+                std::vector<std::vector<std::string>> matches;
+                for (std::size_t inferred_order = 2; inferred_order <= suffix_tokens.front().size(); ++inferred_order) {
+                    std::vector<std::string> current;
+                    collect_suffix_splits(
+                        suffix_tokens.front(), candidates, inferred_order, current, matches);
+                }
+                if (matches.size() == 1) {
+                    variables = std::move(matches.front());
+                    order = variables.size();
+                } else if (matches.size() > 1) {
+                    throw ParseFailure(
+                        "ambiguous derivative suffix; separate derivative variables with spaces", location);
+                }
+            }
+        }
+        if (variables.empty() && suffix_tokens.size() == order) {
+            variables = suffix_tokens;
+        } else if (variables.empty() && suffix_tokens.size() == 1 && order > 1) {
+            std::vector<std::string> candidates;
+            for (const auto& argument : call_args) {
+                const auto name = identifier_name(argument);
+                if (name.has_value() &&
+                    std::find(candidates.begin(), candidates.end(), *name) == candidates.end()) {
+                    candidates.push_back(*name);
+                }
+            }
+            std::sort(candidates.begin(), candidates.end(), [](const auto& left, const auto& right) {
+                if (left.size() != right.size()) return left.size() > right.size();
+                return left < right;
+            });
+            std::vector<std::vector<std::string>> matches;
+            std::vector<std::string> current;
+            collect_suffix_splits(suffix_tokens.front(), candidates, order, current, matches);
+            if (matches.size() == 1) {
+                variables = std::move(matches.front());
+            } else if (matches.empty() && suffix_tokens.front().size() == order) {
+                for (char ch : suffix_tokens.front()) variables.emplace_back(1, ch);
+            } else if (matches.size() > 1) {
+                throw ParseFailure(
+                    "ambiguous derivative suffix; separate derivative variables with spaces", location);
+            }
+        }
+
+        if (!suffix_tokens.empty() && variables.size() != order) {
+            throw ParseFailure(
+                "derivative suffix requires exactly one unambiguous variable per prime", location);
+        }
+
+        if (has_call && !variables.empty()) {
+            auto application = node("call");
+            application["callee"] = std::move(value);
+            application["args"] = vf::JsonValue(std::move(call_args));
+            vf::JsonValue derivative = vf::JsonValue(std::move(application));
+            for (const std::string& variable : variables) {
+                vf::JsonValue::Array args;
+                args.push_back(std::move(derivative));
+                args.push_back(named_identifier(variable));
+                derivative = named_call("differentiate", std::move(args));
+            }
+            return derivative;
+        }
+
+        vf::JsonValue derivative = std::move(value);
+        if (variables.empty()) {
+            auto order_node = node("number_literal");
+            order_node["value"] = vf::JsonValue(static_cast<double>(order));
+            order_node["is_integer_surface"] = vf::JsonValue(true);
+            vf::JsonValue::Array args;
+            args.push_back(std::move(derivative));
+            args.emplace_back(std::move(order_node));
+            derivative = named_call("prime", std::move(args));
+        } else {
+            for (const std::string& variable : variables) {
+                vf::JsonValue::Array args;
+                args.push_back(std::move(derivative));
+                args.push_back(named_identifier(variable));
+                derivative = named_call("derivative", std::move(args));
+            }
+        }
+
+        if (!has_call) return derivative;
+        if (call_args.empty()) {
+            throw ParseFailure("derivative evaluation requires at least one argument", location);
+        }
+        vf::JsonValue::Array at_args;
+        at_args.push_back(std::move(derivative));
+        if (call_args.size() == 1) {
+            at_args.push_back(std::move(call_args.front()));
+        } else {
+            auto list = node("list_literal");
+            list["items"] = vf::JsonValue(std::move(call_args));
+            at_args.emplace_back(std::move(list));
+        }
+        return named_call("at", std::move(at_args));
+    }
+
     static vf::JsonValue ident_node(const Token& token) {
         if (!token.value.is_string()) {
             throw ParseFailure("IDENT token requires string value", token.location);
@@ -2056,6 +2386,7 @@ private:
 
     std::vector<Token> tokens_;
     std::size_t index_ = 0;
+    std::optional<std::size_t> match_arm_separator_;
 };
 
 std::string read_stdin() {

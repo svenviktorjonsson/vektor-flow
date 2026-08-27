@@ -1,0 +1,7 @@
+# expect-compile-error: symbolic function field argument 1 requires R^3, received R^2
+
+:.symbolic
+
+field: symbol("field", R^3->R)
+point: symbol("point", R^2)
+invalid: field(point)

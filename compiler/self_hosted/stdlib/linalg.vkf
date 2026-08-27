@@ -1,0 +1,1237 @@
+# Linear algebra over ordinary VKF vectors and rectangular nested vectors.
+# Algorithms live in VKF source; no Matrix wrapper or host-language fallback.
+
+m: .math
+errors: .errors
+
+_linalg_abs(value:num) -> num:
+    m.abs(value)
+
+_linalg_numeric_dot(left:[num:n], right:[num:n]) -> num:
+    result: 0
+    count: left.length()
+    count > 0?
+        ..count - 1 >>
+            .result+: left.($) * right.($)
+    result
+
+dot(left:[num:n], right:[num:n]) -> num:
+    _linalg_numeric_dot(left, right)
+
+dot(left:[expression:n], right:[expression:n]) -> expression:
+    result: constant(0)
+    count: left.length()
+    count > 0?
+        ..count - 1 >>
+            .result: simplify(result + simplify(left.($) * right.($)))
+    simplify(result)
+
+cross(left:[num:3], right:[num:3]) -> [num:3]:
+    [
+        left.1 * right.2 - left.2 * right.1,
+        left.2 * right.0 - left.0 * right.2,
+        left.0 * right.1 - left.1 * right.0
+    ]
+
+outer(left:[num:n], right:[num:m]):
+    left->i * right->j
+
+matmul(left:[[num:k]:r], right:[[num:c]:k]) -> [[num:c]:r]:
+    first_row: right.0
+    result: [left >> [first_row >> 0.0]]
+    ..left.length() - 1 >>
+        row: $
+        ..first_row.length() - 1 >>
+            column: $
+            total: 0
+            ..right.length() - 1 >>
+                inner: $
+                .total+: left.(row, inner) * right.(inner, column)
+            result.(row, column): total
+    result
+
+transpose(matrix:[[num:c]:r]) -> [[num:r]:c]:
+    first_row: matrix.0
+    result: [first_row >> [matrix >> 0.0]]
+    ..matrix.length() - 1 >>
+        row: $
+        ..first_row.length() - 1 >>
+            column: $
+            result.(column, row): matrix.(row, column)
+    result
+
+diag(values:[num:n]) -> [[num:n]:n]:
+    result: [values >> values * 0.0]
+    values.length() > 0?
+        ..values.length() - 1 >>
+            result.($, $): values.($)
+    result
+
+trace(matrix:[[num:n]:n]) -> num:
+    result: 0
+    matrix.length() > 0?
+        ..matrix.length() - 1 >>
+            .result+: matrix.($, $)
+    result
+
+determinant(matrix:[[num:n]:n], tolerance:num=0.000000000001) -> num:
+    working: matrix * 1.0
+    size: matrix.length()
+    result: 1
+    sign: 1
+    temporary_value: 0
+    size > 0?
+        ..size - 1 >>
+            column: $
+            pivot: column
+            pivot_magnitude: _linalg_abs(working.(column, column))
+            column + 1 < size?
+                (column + 1)..size - 1 >>
+                    candidate: $
+                    candidate_magnitude: _linalg_abs(working.(candidate, column))
+                    candidate_magnitude > pivot_magnitude?
+                        .pivot: candidate
+                        .pivot_magnitude: candidate_magnitude
+            pivot_magnitude <= tolerance? @: 0
+            pivot != column?
+                ..size - 1 >>
+                    swap_column: $
+                    .temporary_value: working.(pivot, swap_column)
+                    working.(pivot, swap_column): working.(column, swap_column)
+                    working.(column, swap_column): temporary_value
+                .sign: 0 - sign
+            pivot_value: working.(column, column)
+            .result*: pivot_value
+            column + 1 < size?
+                (column + 1)..size - 1 >>
+                    row: $
+                    factor: working.(row, column) / pivot_value
+                    working.(row, column): 0
+                    (column + 1)..size - 1 >>
+                        target: $
+                        working.(row, target): working.(row, target) - factor * working.(column, target)
+    sign * result
+
+solve(matrix:[[num:n]:n], values:[num:n], tolerance:num=0.000000000001) -> [num:n]:
+    working: matrix * 1.0
+    right: values * 1.0
+    size: values.length()
+    temporary_value: 0
+    temporary_right: 0
+    size > 0?
+        ..size - 1 >>
+            column: $
+            pivot: column
+            pivot_magnitude: _linalg_abs(working.(column, column))
+            column + 1 < size?
+                (column + 1)..size - 1 >>
+                    candidate: $
+                    candidate_magnitude: _linalg_abs(working.(candidate, column))
+                    candidate_magnitude > pivot_magnitude?
+                        .pivot: candidate
+                        .pivot_magnitude: candidate_magnitude
+            pivot_magnitude <= tolerance?
+                errors.ValueError("linalg.solve matrix is singular")!
+            pivot != column?
+                ..size - 1 >>
+                    swap_column: $
+                    .temporary_value: working.(pivot, swap_column)
+                    working.(pivot, swap_column): working.(column, swap_column)
+                    working.(column, swap_column): temporary_value
+                .temporary_right: right.(pivot)
+                right.(pivot): right.(column)
+                right.(column): temporary_right
+            pivot_value: working.(column, column)
+            column + 1 < size?
+                (column + 1)..size - 1 >>
+                    row: $
+                    factor: working.(row, column) / pivot_value
+                    working.(row, column): 0
+                    (column + 1)..size - 1 >>
+                        target: $
+                        working.(row, target): working.(row, target) - factor * working.(column, target)
+                    right.(row): right.(row) - factor * right.(column)
+    result: right * 0
+    size > 0?
+        (size - 1)..0 >>
+            row: $
+            total: right.(row)
+            row + 1 < size?
+                (row + 1)..size - 1 >>
+                    column: $
+                    .total-: working.(row, column) * result.(column)
+            result.(row): total / working.(row, row)
+    result
+
+inverse(matrix:[[num:n]:n], tolerance:num=0.000000000001) -> [[num:n]:n]:
+    result: matrix * 0
+    basis: matrix.0 * 0
+    size: matrix.length()
+    size > 0?
+        ..size - 1 >>
+            column: $
+            .basis: matrix.0 * 0
+            basis.(column): 1
+            solution: solve(matrix, basis, tolerance)
+            ..size - 1 >>
+                row: $
+                result.(row, column): solution.(row)
+    result
+
+rref(matrix:[[num:c]:r], tolerance:num=0.000000000001) -> [[num:c]:r]:
+    working: matrix * 1.0
+    row_count: matrix.length()
+    column_count: matrix.0.length()
+    pivot_row: 0
+    pivot: 0
+    pivot_magnitude: 0
+    candidate_magnitude: 0
+    pivot_value: 0
+    factor: 0
+    temporary_value: 0
+    column_count > 0?
+        ..column_count - 1 >>
+            column: $
+            pivot_row < row_count?
+                .pivot: pivot_row
+                .pivot_magnitude: _linalg_abs(working.(pivot_row, column))
+                pivot_row + 1 < row_count?
+                    (pivot_row + 1)..row_count - 1 >>
+                        candidate: $
+                        .candidate_magnitude: _linalg_abs(working.(candidate, column))
+                        candidate_magnitude > pivot_magnitude?
+                            .pivot: candidate
+                            .pivot_magnitude: candidate_magnitude
+                pivot_magnitude > tolerance?
+                    pivot != pivot_row?
+                        ..column_count - 1 >>
+                            swap_column: $
+                            .temporary_value: working.(pivot, swap_column)
+                            working.(pivot, swap_column): working.(pivot_row, swap_column)
+                            working.(pivot_row, swap_column): temporary_value
+                    .pivot_value: working.(pivot_row, column)
+                    ..column_count - 1 >>
+                        target: $
+                        working.(pivot_row, target): working.(pivot_row, target) / pivot_value
+                    ..row_count - 1 >>
+                        row: $
+                        row != pivot_row?
+                            .factor: working.(row, column)
+                            _linalg_abs(factor) > tolerance?
+                                ..column_count - 1 >>
+                                    target: $
+                                    working.(row, target): working.(row, target) - factor * working.(pivot_row, target)
+                    .pivot_row+: 1
+    working
+
+rank(matrix:[[num:c]:r], tolerance:num=0.000000000001) -> int:
+    reduced: rref(matrix, tolerance)
+    result: 0
+    row_nonzero: false
+    matrix.length() > 0?
+        ..matrix.length() - 1 >>
+            row: $
+            .row_nonzero: false
+            matrix.0.length() > 0?
+                ..matrix.0.length() - 1 >>
+                    column: $
+                    _linalg_abs(reduced.(row, column)) > tolerance?
+                        .row_nonzero: true
+            row_nonzero?
+                .result+: 1
+    result
+
+lu(matrix:[[num:n]:n], tolerance:num=0.000000000001):
+    lower: matrix * 0
+    upper: matrix * 1.0
+    permutation: matrix.0 * 0
+    size: matrix.length()
+    sign: 1
+    pivot: 0
+    pivot_magnitude: 0
+    candidate_magnitude: 0
+    pivot_value: 0
+    factor: 0
+    temporary_value: 0
+    temporary_permutation: 0
+    size > 0?
+        ..size - 1 >>
+            index: $
+            lower.(index, index): 1
+            permutation.(index): index
+        ..size - 1 >>
+            column: $
+            .pivot: column
+            .pivot_magnitude: _linalg_abs(upper.(column, column))
+            column + 1 < size?
+                (column + 1)..size - 1 >>
+                    candidate: $
+                    .candidate_magnitude: _linalg_abs(upper.(candidate, column))
+                    candidate_magnitude > pivot_magnitude?
+                        .pivot: candidate
+                        .pivot_magnitude: candidate_magnitude
+            pivot_magnitude <= tolerance?
+                errors.ValueError("linalg.lu matrix is singular")!
+            pivot != column?
+                ..size - 1 >>
+                    swap_column: $
+                    .temporary_value: upper.(pivot, swap_column)
+                    upper.(pivot, swap_column): upper.(column, swap_column)
+                    upper.(column, swap_column): temporary_value
+                column > 0?
+                    ..column - 1 >>
+                        prior: $
+                        .temporary_value: lower.(pivot, prior)
+                        lower.(pivot, prior): lower.(column, prior)
+                        lower.(column, prior): temporary_value
+                .temporary_permutation: permutation.(pivot)
+                permutation.(pivot): permutation.(column)
+                permutation.(column): temporary_permutation
+                .sign: 0 - sign
+            .pivot_value: upper.(column, column)
+            column + 1 < size?
+                (column + 1)..size - 1 >>
+                    row: $
+                    .factor: upper.(row, column) / pivot_value
+                    lower.(row, column): factor
+                    column..size - 1 >>
+                        target: $
+                        upper.(row, target): upper.(row, target) - factor * upper.(column, target)
+    (lower:lower, upper:upper, permutation:permutation, sign:sign)
+
+cholesky(matrix:[[num:n]:n], tolerance:num=0.000000000001) -> [[num:n]:n]:
+    lower: matrix * 0
+    size: matrix.length()
+    total: 0
+    size > 0?
+        ..size - 1 >>
+            row: $
+            ..row >>
+                column: $
+                .total: matrix.(row, column)
+                column > 0?
+                    ..column - 1 >>
+                        inner: $
+                        .total-: lower.(row, inner) * lower.(column, inner)
+                row = column?
+                    total <= tolerance?
+                        errors.ValueError("linalg.cholesky matrix is not positive definite")!
+                    lower.(row, column): m.sqrt(total)
+                row != column?
+                    lower.(row, column): total / lower.(column, column)
+    lower
+
+qr(matrix:[[num:c]:r], tolerance:num=0.000000000001) -> (q:[[num:c]:r],r:[[num:c]:c]):
+    q: matrix * 0
+    r_upper: [matrix.0 >> matrix.0 * 0.0]
+    vector: [matrix >> 0]
+    row_count: matrix.length()
+    column_count: matrix.0.length()
+    total: 0
+    norm: 0
+    column_count > 0?
+        ..column_count - 1 >>
+            column: $
+            .vector: [matrix >> 0]
+            row_count > 0?
+                ..row_count - 1 >>
+                    row: $
+                    vector.(row): matrix.(row, column)
+            column > 0?
+                ..column - 1 >>
+                    prior: $
+                    .total: 0
+                    ..row_count - 1 >>
+                        row: $
+                        .total+: q.(row, prior) * vector.(row)
+                    r_upper.(prior, column): total
+                    ..row_count - 1 >>
+                        row: $
+                        vector.(row): vector.(row) - total * q.(row, prior)
+            .total: 0
+            ..row_count - 1 >>
+                row: $
+                .total+: vector.(row) * vector.(row)
+            .norm: m.sqrt(total)
+            norm <= tolerance?
+                errors.ValueError("linalg.qr matrix has dependent columns")!
+            r_upper.(column, column): norm
+            ..row_count - 1 >>
+                row: $
+                q.(row, column): vector.(row) / norm
+    (q:q, r:r_upper)
+
+_eigen_householder_reference(
+    matrix:[[num:n]:n],
+    tolerance:num=0.000000000001,
+    max_sweeps:num=64,
+    verify_result:bit=true
+) -> (
+    values:[num:n],
+    vectors:[[num:n]:n],
+    converged:bit,
+    sweeps:int,
+    relative_residual:num,
+    verified:bit
+):
+    size: matrix.length()
+    size = 0?
+        errors.ValueError("linalg.eigen requires a nonempty square matrix")!
+    vectors: matrix * 1.0
+    ..size - 1 >>
+        row: $
+        row + 1 < size?
+            (row + 1)..size - 1 >>
+                column: $
+                _linalg_abs(vectors.(row, column) - vectors.(column, row)) > tolerance?
+                    errors.ValueError("linalg.eigen currently requires a real symmetric matrix")!
+
+    values: matrix.0 * 0.0
+    off_diagonal: matrix.0 * 0.0
+    ..size - 1 >>
+        values.($): vectors.(size - 1, $)
+
+    # Householder reduction to symmetric tridiagonal form (EISPACK TRED2).
+    reduction_index: size - 1
+    scale: 0
+    h: 0
+    f: 0
+    g: 0
+    half_projection: 0
+    reduction_index > 0?>
+        .scale: 0
+        .h: 0
+        ..reduction_index - 1 >>
+            .scale+: _linalg_abs(values.($))
+        scale = 0?
+            off_diagonal.(reduction_index): values.(reduction_index - 1)
+            ..reduction_index - 1 >>
+                values.($): vectors.(reduction_index - 1, $)
+                vectors.(reduction_index, $): 0
+                vectors.($, reduction_index): 0
+        scale != 0?
+            ..reduction_index - 1 >>
+                values.($): values.($) / scale
+                .h+: values.($) * values.($)
+            .f: values.(reduction_index - 1)
+            .g: m.sqrt(h)
+            f > 0?
+                .g: -g
+            off_diagonal.(reduction_index): scale * g
+            .h: h - f * g
+            values.(reduction_index - 1): f - g
+            ..reduction_index - 1 >>
+                off_diagonal.($): 0
+            ..reduction_index - 1 >>
+                column: $
+                .f: values.(column)
+                vectors.(column, reduction_index): f
+                .g: off_diagonal.(column) + vectors.(column, column) * f
+                column + 1 < reduction_index?
+                    (column + 1)..reduction_index - 1 >>
+                        row: $
+                        .g+: vectors.(row, column) * values.(row)
+                        off_diagonal.(row)+: vectors.(row, column) * f
+                off_diagonal.(column): g
+            .f: 0
+            ..reduction_index - 1 >>
+                off_diagonal.($): off_diagonal.($) / h
+                .f+: off_diagonal.($) * values.($)
+            .half_projection: f / (h + h)
+            ..reduction_index - 1 >>
+                off_diagonal.($)-: half_projection * values.($)
+            ..reduction_index - 1 >>
+                column: $
+                .f: values.(column)
+                .g: off_diagonal.(column)
+                column..reduction_index - 1 >>
+                    row: $
+                    vectors.(row, column)-: (
+                        f * off_diagonal.(row) + g * values.(row)
+                    )
+                values.(column): vectors.(reduction_index - 1, column)
+                vectors.(reduction_index, column): 0
+        values.(reduction_index): h
+        .reduction_index-: 1
+
+    # Accumulate the Householder transformations.
+    accumulation_index: 0
+    accumulation_index < size - 1?>
+        vectors.(size - 1, accumulation_index): (
+            vectors.(accumulation_index, accumulation_index)
+        )
+        vectors.(accumulation_index, accumulation_index): 1
+        .h: values.(accumulation_index + 1)
+        h != 0?
+            ..accumulation_index >>
+                values.($): vectors.($, accumulation_index + 1) / h
+            ..accumulation_index >>
+                column: $
+                .g: 0
+                ..accumulation_index >>
+                    .g+: (
+                        vectors.($, accumulation_index + 1) *
+                        vectors.($, column)
+                    )
+                ..accumulation_index >>
+                    vectors.($, column)-: g * values.($)
+        ..accumulation_index >>
+            vectors.($, accumulation_index + 1): 0
+        .accumulation_index+: 1
+    ..size - 1 >>
+        values.($): vectors.(size - 1, $)
+        vectors.(size - 1, $): 0
+    vectors.(size - 1, size - 1): 1
+    off_diagonal.0: 0
+
+    # Implicit QL on the tridiagonal matrix (EISPACK TQL2).
+    size > 1?
+        1..size - 1 >>
+            off_diagonal.($ - 1): off_diagonal.($)
+    off_diagonal.(size - 1): 0
+    shift: 0
+    test_scale: 0
+    eigen_index: 0
+    sweeps: 0
+    converged: true
+    candidate_scale: 0
+    split_index: 0
+    iteration: 0
+    next_index: 0
+    p: 0
+    radius: 0
+    next_value: 0
+    cosine: 1
+    previous_cosine: 1
+    older_cosine: 1
+    sine: 0
+    previous_sine: 0
+    first_off_diagonal: 0
+    rotation_index: 0
+    selected_index: 0
+    selected_value: 0
+    eigen_index < size?>
+        .candidate_scale: (
+            _linalg_abs(values.(eigen_index)) +
+            _linalg_abs(off_diagonal.(eigen_index))
+        )
+        candidate_scale > test_scale?
+            .test_scale: candidate_scale
+        .split_index: eigen_index
+        split_index < size /\ (
+            _linalg_abs(off_diagonal.(split_index)) >
+            0.0000000000000002220446049250313 * test_scale
+        )?>
+            .split_index+: 1
+        .iteration: 0
+        (
+            split_index > eigen_index /\
+            _linalg_abs(off_diagonal.(eigen_index)) >
+                0.0000000000000002220446049250313 * test_scale /\
+            iteration < max_sweeps
+        )?>
+            .iteration+: 1
+            .sweeps+: 1
+            .next_index: eigen_index + 1
+            .g: values.(eigen_index)
+            .p: (
+                (values.(next_index) - g) /
+                (2 * off_diagonal.(eigen_index))
+            )
+            .radius: m.sqrt(p * p + 1)
+            p < 0?
+                .radius: -radius
+            values.(eigen_index): (
+                off_diagonal.(eigen_index) / (p + radius)
+            )
+            values.(next_index): (
+                off_diagonal.(eigen_index) * (p + radius)
+            )
+            .next_value: values.(next_index)
+            .h: g - values.(eigen_index)
+            next_index + 1 < size?
+                (next_index + 1)..size - 1 >>
+                    values.($)-: h
+            .shift+: h
+            .p: values.(split_index)
+            .cosine: 1
+            .previous_cosine: 1
+            .older_cosine: 1
+            .sine: 0
+            .previous_sine: 0
+            .first_off_diagonal: off_diagonal.(next_index)
+            .rotation_index: split_index - 1
+            rotation_index >= eigen_index?>
+                .older_cosine: previous_cosine
+                .previous_cosine: cosine
+                .previous_sine: sine
+                .g: cosine * off_diagonal.(rotation_index)
+                .h: cosine * p
+                .radius: m.sqrt(
+                    p * p + off_diagonal.(rotation_index) *
+                    off_diagonal.(rotation_index)
+                )
+                off_diagonal.(rotation_index + 1): sine * radius
+                .sine: off_diagonal.(rotation_index) / radius
+                .cosine: p / radius
+                .p: cosine * values.(rotation_index) - sine * g
+                values.(rotation_index + 1): (
+                    h + sine * (
+                        cosine * g + sine * values.(rotation_index)
+                    )
+                )
+                ..size - 1 >>
+                    row: $
+                    .h: vectors.(row, rotation_index + 1)
+                    vectors.(row, rotation_index + 1): (
+                        sine * vectors.(row, rotation_index) + cosine * h
+                    )
+                    vectors.(row, rotation_index): (
+                        cosine * vectors.(row, rotation_index) - sine * h
+                    )
+                .rotation_index-: 1
+            .p: (
+                -sine * previous_sine * older_cosine *
+                first_off_diagonal * off_diagonal.(eigen_index) /
+                next_value
+            )
+            off_diagonal.(eigen_index): sine * p
+            values.(eigen_index): cosine * p
+        (
+            split_index > eigen_index /\
+            _linalg_abs(off_diagonal.(eigen_index)) >
+                0.0000000000000002220446049250313 * test_scale
+        )?
+            .converged: false
+        values.(eigen_index)+: shift
+        off_diagonal.(eigen_index): 0
+        .eigen_index+: 1
+
+    # Stable ascending ordering, including corresponding eigenvectors.
+    order_index: 0
+    order_index < size - 1?>
+        .selected_index: order_index
+        .selected_value: values.(order_index)
+        (order_index + 1)..size - 1 >>
+            values.($) < selected_value?
+                .selected_index: $
+                .selected_value: values.($)
+        selected_index != order_index?
+            values.(selected_index): values.(order_index)
+            values.(order_index): selected_value
+            ..size - 1 >>
+                .f: vectors.($, order_index)
+                vectors.($, order_index): vectors.($, selected_index)
+                vectors.($, selected_index): f
+        .order_index+: 1
+
+    maximum_relative_residual: 0
+    verified: false
+    verify_result?
+        matrix_norm: _linalg_matrix_infinity_norm(matrix)
+        ..size - 1 >>
+            column: $
+            vector: matrix.0 * 0.0
+            ..size - 1 >>
+                vector.($): vectors.($, column)
+            difference: _linalg_numeric_dot(matrix, vector) - values.(column) * vector
+            numerator: _linalg_vector_infinity_norm(difference)
+            vector_norm: _linalg_vector_infinity_norm(vector)
+            scale_for_pair: (
+                matrix_norm * vector_norm +
+                _linalg_abs(values.(column)) * vector_norm
+            )
+            pair_residual: numerator
+            scale_for_pair > 0?
+                .pair_residual: numerator / scale_for_pair
+            pair_residual > maximum_relative_residual?
+                .maximum_relative_residual: pair_residual
+        .verified: converged /\ maximum_relative_residual <= tolerance * 10
+
+    (
+        values:values,
+        vectors:vectors,
+        converged:converged,
+        sweeps:int(sweeps),
+        relative_residual:maximum_relative_residual,
+        verified:verified
+    )
+
+eigen(
+    matrix:[[num:n]:n],
+    tolerance:num=0.000000000001,
+    max_sweeps:num=64,
+    verify_result:bit=true
+) -> (
+    values:[num:n],
+    vectors:[[num:n]:n],
+    converged:bit,
+    sweeps:int,
+    relative_residual:num,
+    verified:bit
+):
+    size: matrix.length()
+    size = 0?
+        errors.ValueError("linalg.eigen requires a nonempty square matrix")!
+    working: matrix * 1.0
+    vectors: matrix * 0.0
+    ..size - 1 >>
+        vectors.($, $): 1
+
+    ..size - 1 >>
+        row: $
+        row + 1 < size?
+            (row + 1)..size - 1 >>
+                column: $
+                _linalg_abs(working.(row, column) - working.(column, row)) > tolerance?
+                    errors.ValueError("linalg.eigen currently requires a real symmetric matrix")!
+
+    converged: size = 1
+    sweeps: 0
+    pivot_row: 0
+    pivot_column: 1
+    largest: 0
+    diagonal_left: 0
+    diagonal_right: 0
+    off_diagonal: 0
+    angle: 0
+    cosine: 1
+    sine: 0
+    left_value: 0
+    right_value: 0
+    rotated_left: 0
+    rotated_right: 0
+    sweeps < max_sweeps /\ ~converged?>
+        .largest: 0
+        ..size - 1 >>
+            .pivot_row: $
+            pivot_row + 1 < size?
+                (pivot_row + 1)..size - 1 >>
+                    .pivot_column: $
+                    .off_diagonal: working.(pivot_row, pivot_column)
+                    _linalg_abs(off_diagonal) > tolerance?
+                        .diagonal_left: working.(pivot_row, pivot_row)
+                        .diagonal_right: working.(pivot_column, pivot_column)
+                        .angle: 0.5 * m.atan2(
+                            2 * off_diagonal,
+                            diagonal_right - diagonal_left
+                        )
+                        .cosine: m.cos(angle)
+                        .sine: m.sin(angle)
+
+                        ..size - 1 >>
+                            row: $
+                            row != pivot_row /\ row != pivot_column?
+                                .left_value: working.(row, pivot_row)
+                                .right_value: working.(row, pivot_column)
+                                .rotated_left: cosine * left_value - sine * right_value
+                                .rotated_right: sine * left_value + cosine * right_value
+                                working.(row, pivot_row): rotated_left
+                                working.(pivot_row, row): rotated_left
+                                working.(row, pivot_column): rotated_right
+                                working.(pivot_column, row): rotated_right
+
+                        working.(pivot_row, pivot_row): (
+                            cosine * cosine * diagonal_left -
+                            2 * sine * cosine * off_diagonal +
+                            sine * sine * diagonal_right
+                        )
+                        working.(pivot_column, pivot_column): (
+                            sine * sine * diagonal_left +
+                            2 * sine * cosine * off_diagonal +
+                            cosine * cosine * diagonal_right
+                        )
+                        working.(pivot_row, pivot_column): 0
+                        working.(pivot_column, pivot_row): 0
+
+                        ..size - 1 >>
+                            row: $
+                            .left_value: vectors.(row, pivot_row)
+                            .right_value: vectors.(row, pivot_column)
+                            vectors.(row, pivot_row): cosine * left_value - sine * right_value
+                            vectors.(row, pivot_column): sine * left_value + cosine * right_value
+        .sweeps+: 1
+        .largest: 0
+        ..size - 1 >>
+            row: $
+            row + 1 < size?
+                (row + 1)..size - 1 >>
+                    magnitude: _linalg_abs(working.(row, $))
+                    magnitude > largest?
+                        .largest: magnitude
+        .converged: largest <= tolerance
+
+    values: matrix.0 * 0.0
+    ..size - 1 >>
+        values.($): working.($, $)
+
+    maximum_relative_residual: 0
+    verified: false
+    verify_result?
+        matrix_norm: _linalg_matrix_infinity_norm(matrix)
+        ..size - 1 >>
+            column: $
+            vector: matrix.0 * 0.0
+            ..size - 1 >>
+                vector.($): vectors.($, column)
+            difference: _linalg_numeric_dot(matrix, vector) - values.(column) * vector
+            numerator: _linalg_vector_infinity_norm(difference)
+            vector_norm: _linalg_vector_infinity_norm(vector)
+            scale: matrix_norm * vector_norm + _linalg_abs(values.(column)) * vector_norm
+            pair_residual: numerator
+            scale > 0?
+                .pair_residual: numerator / scale
+            pair_residual > maximum_relative_residual?
+                .maximum_relative_residual: pair_residual
+        .verified: converged /\ maximum_relative_residual <= tolerance * 10
+
+    (
+        values:values,
+        vectors:vectors,
+        converged:converged,
+        sweeps:int(sweeps),
+        relative_residual:maximum_relative_residual,
+        verified:verified
+    )
+
+svd(
+    matrix:[[num:c]:r],
+    tolerance:num=0.000000000001,
+    max_sweeps:num=64,
+    verify_result:bit=true
+) -> (
+    u:[[num:c]:r],
+    s:[num:c],
+    vh:[[num:c]:c],
+    converged:bit,
+    relative_residual:num,
+    orthogonality_residual:num,
+    verified:bit
+):
+    row_count: matrix.length()
+    row_count = 0?
+        errors.ValueError("linalg.svd requires a nonempty matrix")!
+    column_count: matrix.0.length()
+    column_count = 0?
+        errors.ValueError("linalg.svd requires at least one column")!
+    row_count < column_count?
+        errors.ValueError("linalg.svd thin factorization requires rows >= columns")!
+    size: column_count
+
+    [[num:c]:c] gram: [matrix.0 >> matrix.0 * 0.0]
+    gram_total: 0
+    ..size - 1 >>
+        left_column: $
+        ..size - 1 >>
+            right_column: $
+            .gram_total: 0
+            ..row_count - 1 >>
+                row: $
+                .gram_total+: (
+                    matrix.(row, left_column) * matrix.(row, right_column)
+                )
+            gram.(left_column, right_column): gram_total
+
+    spectral: eigen(gram, tolerance, max_sweeps, verify_result)
+    singular_values: matrix.0 * 0.0
+    [[num:c]:c] right_vectors: gram * 0.0
+    used: matrix.0 * 0.0
+    best_source: 0
+    best_value: 0
+    selected_value: 0
+    ..size - 1 >>
+        target: $
+        .best_source: 0
+        .best_value: -1
+        ..size - 1 >>
+            candidate: $
+            used.(candidate) = 0 /\ spectral.values.(candidate) > best_value?
+                .best_source: candidate
+                .best_value: spectral.values.(candidate)
+        used.(best_source): 1
+        .selected_value: best_value
+        selected_value < 0 /\ _linalg_abs(selected_value) <= tolerance?
+            .selected_value: 0
+        selected_value < 0?
+            errors.ValueError("linalg.svd encountered a negative Gram eigenvalue")!
+        singular_values.(target): m.sqrt(selected_value)
+        ..size - 1 >>
+            row: $
+            right_vectors.(row, target): spectral.vectors.(row, best_source)
+
+    [[num:c]:r] left_vectors: matrix * 0.0
+    ..size - 1 >>
+        column: $
+        right_vector: matrix.0 * 0.0
+        ..size - 1 >>
+            right_vector.($): right_vectors.($, column)
+        [num:r] transformed: _linalg_numeric_dot(matrix, right_vector)
+        singular_values.(column) > tolerance?
+            ..row_count - 1 >>
+                left_vectors.($, column): transformed.($) / singular_values.(column)
+
+    basis_candidate: [matrix >> 0.0]
+    basis_index: 0
+    candidate_norm: 0
+    projection: 0
+    found_basis: false
+    ..size - 1 >>
+        column: $
+        singular_values.(column) <= tolerance?
+            .basis_index: 0
+            .found_basis: false
+            basis_index < row_count /\ ~found_basis?>
+                .basis_candidate: [matrix >> 0.0]
+                basis_candidate.(basis_index): 1
+                column > 0?
+                    ..column - 1 >>
+                        prior: $
+                        .projection: 0
+                        ..row_count - 1 >>
+                            row: $
+                            .projection+: (
+                                left_vectors.(row, prior) * basis_candidate.(row)
+                            )
+                        ..row_count - 1 >>
+                            row: $
+                            basis_candidate.(row): (
+                                basis_candidate.(row) -
+                                projection * left_vectors.(row, prior)
+                            )
+                .candidate_norm: m.sqrt(_linalg_numeric_dot(
+                    basis_candidate,
+                    basis_candidate
+                ))
+                candidate_norm > tolerance?
+                    ..row_count - 1 >>
+                        left_vectors.($, column): basis_candidate.($) / candidate_norm
+                    .found_basis: true
+                .basis_index+: 1
+            ~found_basis?
+                errors.RuntimeError("linalg.svd could not complete the left singular basis")!
+
+    [[num:c]:c] right_adjoint: gram * 0.0
+    ..size - 1 >>
+        row: $
+        ..size - 1 >>
+            right_adjoint.(row, $): right_vectors.($, row)
+
+    measured_residual: 0
+    orthogonality_residual: 0
+    verified: false
+    reconstruction_total: 0
+    numerator: 0
+    scale: 0
+    error_row_sum: 0
+    matrix_row_sum: 0
+    left_orthogonality: 0
+    right_orthogonality: 0
+    left_total: 0
+    right_total: 0
+    expected: 0
+    orthogonality_error: 0
+    [[num:c]:r] reconstructed: matrix * 0.0
+    [[num:c]:r] reconstruction_error: matrix * 0.0
+    verify_result?
+        ..row_count - 1 >>
+            row: $
+            ..size - 1 >>
+                column: $
+                .reconstruction_total: 0
+                ..size - 1 >>
+                    inner: $
+                    .reconstruction_total+: (
+                        left_vectors.(row, inner) * singular_values.(inner) *
+                        right_adjoint.(inner, column)
+                    )
+                reconstructed.(row, column): reconstruction_total
+        .reconstruction_error: reconstructed - matrix
+        ..row_count - 1 >>
+            row: $
+            .error_row_sum: 0
+            .matrix_row_sum: 0
+            ..size - 1 >>
+                column: $
+                .error_row_sum+: _linalg_abs(reconstruction_error.(row, column))
+                .matrix_row_sum+: _linalg_abs(matrix.(row, column))
+            error_row_sum > numerator?
+                .numerator: error_row_sum
+            matrix_row_sum > scale?
+                .scale: matrix_row_sum
+        .measured_residual: numerator
+        scale > 0?
+            .measured_residual: numerator / scale
+
+        ..size - 1 >>
+            first: $
+            ..size - 1 >>
+                second: $
+                .left_total: 0
+                ..row_count - 1 >>
+                    component: $
+                    .left_total+: (
+                        left_vectors.(component, first) *
+                        left_vectors.(component, second)
+                    )
+                .right_total: 0
+                ..size - 1 >>
+                    component: $
+                    .right_total+: (
+                        right_adjoint.(first, component) *
+                        right_adjoint.(second, component)
+                    )
+                .expected: 0
+                first = second?
+                    .expected: 1
+                .orthogonality_error: _linalg_abs(left_total - expected)
+                orthogonality_error > left_orthogonality?
+                    .left_orthogonality: orthogonality_error
+                .orthogonality_error: _linalg_abs(right_total - expected)
+                orthogonality_error > right_orthogonality?
+                    .right_orthogonality: orthogonality_error
+        .orthogonality_residual: left_orthogonality
+        right_orthogonality > orthogonality_residual?
+            .orthogonality_residual: right_orthogonality
+        .verified: (
+            spectral.converged /\ spectral.verified /\
+            measured_residual <= tolerance * 10 /\
+            orthogonality_residual <= tolerance * 100
+        )
+    (
+        u:left_vectors,
+        s:singular_values,
+        vh:right_adjoint,
+        converged:spectral.converged,
+        relative_residual:measured_residual,
+        orthogonality_residual:orthogonality_residual,
+        verified:verified
+    )
+
+least_squares(
+    matrix:[[num:c]:r],
+    values:[num:r],
+    tolerance:num=0.000000000001
+) -> [num:c]:
+    matrix.length() < matrix.0.length()?
+        errors.ValueError("linalg.least_squares requires rows >= columns")!
+    factors: qr(matrix, tolerance)
+    projected: _linalg_numeric_dot(transpose(factors.q), values)
+    solve(factors.r, projected, tolerance)
+
+null_space(
+    matrix:[[num:c]:r],
+    tolerance:num=0.000000000001
+) -> (dimension:int,basis:[[num:c]:c]):
+    reduced: rref(matrix, tolerance)
+    row_count: matrix.length()
+    column_count: matrix.0.length()
+    pivot_for_row: [matrix >> -1.0]
+    is_pivot: matrix.0 * 0
+    basis: matmul(transpose(matrix), matrix) * 0.0
+    found: false
+    pivot: 0
+    row_count > 0?
+        ..row_count - 1 >>
+            row: $
+            .found: false
+            column_count > 0?
+                ..column_count - 1 >>
+                    column: $
+                    found = false?
+                        _linalg_abs(reduced.(row, column)) > tolerance?
+                            pivot_for_row.(row): column
+                            is_pivot.(column): 1
+                            .found: true
+    dimension: 0
+    column_count > 0?
+        ..column_count - 1 >>
+            free_column: $
+            is_pivot.(free_column) = 0?
+                basis.(dimension, free_column): 1
+                row_count > 0?
+                    ..row_count - 1 >>
+                        row: $
+                        .pivot: pivot_for_row.(row)
+                        pivot >= 0?
+                            basis.(dimension, pivot): 0 - reduced.(row, free_column)
+                .dimension+: 1
+    (dimension:dimension, basis:basis)
+
+_rref_system(
+    matrix:[[num:c]:r],
+    values:[num:r],
+    tolerance:num
+) -> (matrix:[[num:c]:r],values:[num:r]):
+    working: matrix * 1.0
+    right: values * 1.0
+    row_count: matrix.length()
+    column_count: matrix.0.length()
+    pivot_row: 0
+    pivot: 0
+    pivot_magnitude: 0
+    candidate_magnitude: 0
+    pivot_value: 0
+    factor: 0
+    temporary_value: 0
+    temporary_right: 0
+    column_count > 0?
+        ..column_count - 1 >>
+            column: $
+            pivot_row < row_count?
+                .pivot: pivot_row
+                .pivot_magnitude: _linalg_abs(working.(pivot_row, column))
+                pivot_row + 1 < row_count?
+                    (pivot_row + 1)..row_count - 1 >>
+                        candidate: $
+                        .candidate_magnitude: _linalg_abs(working.(candidate, column))
+                        candidate_magnitude > pivot_magnitude?
+                            .pivot: candidate
+                            .pivot_magnitude: candidate_magnitude
+                pivot_magnitude > tolerance?
+                    pivot != pivot_row?
+                        ..column_count - 1 >>
+                            swap_column: $
+                            .temporary_value: working.(pivot, swap_column)
+                            working.(pivot, swap_column): working.(pivot_row, swap_column)
+                            working.(pivot_row, swap_column): temporary_value
+                        .temporary_right: right.(pivot)
+                        right.(pivot): right.(pivot_row)
+                        right.(pivot_row): temporary_right
+                    .pivot_value: working.(pivot_row, column)
+                    ..column_count - 1 >>
+                        target: $
+                        working.(pivot_row, target): working.(pivot_row, target) / pivot_value
+                    right.(pivot_row): right.(pivot_row) / pivot_value
+                    ..row_count - 1 >>
+                        row: $
+                        row != pivot_row?
+                            .factor: working.(row, column)
+                            _linalg_abs(factor) > tolerance?
+                                ..column_count - 1 >>
+                                    target: $
+                                    working.(row, target): working.(row, target) - factor * working.(pivot_row, target)
+                                right.(row): right.(row) - factor * right.(pivot_row)
+                    .pivot_row+: 1
+    (matrix:working, values:right)
+
+solution_space(
+    matrix:[[num:c]:r],
+    values:[num:r],
+    tolerance:num=0.000000000001
+) -> (
+    consistent:bit,
+    unique:bit,
+    rank:int,
+    nullity:int,
+    particular:[num:c],
+    directions:[[num:c]:c]
+):
+    reduced_system: _rref_system(matrix, values, tolerance)
+    reduced: reduced_system.matrix
+    right: reduced_system.values
+    kernel: null_space(matrix, tolerance)
+    row_count: matrix.length()
+    column_count: matrix.0.length()
+    particular: matrix.0 * 0
+    consistent: true
+    row_nonzero: false
+    pivot_found: false
+    pivot: 0
+    row_count > 0?
+        ..row_count - 1 >>
+            row: $
+            .row_nonzero: false
+            .pivot_found: false
+            column_count > 0?
+                ..column_count - 1 >>
+                    column: $
+                    _linalg_abs(reduced.(row, column)) > tolerance?
+                        .row_nonzero: true
+                        pivot_found = false?
+                            .pivot: column
+                            .pivot_found: true
+            row_nonzero?
+                particular.(pivot): right.(row)
+            row_nonzero = false?
+                _linalg_abs(right.(row)) > tolerance?
+                    .consistent: false
+    solution_rank: column_count - kernel.dimension
+    unique: consistent /\ kernel.dimension = 0
+    (
+        consistent:consistent,
+        unique:unique,
+        rank:solution_rank,
+        nullity:kernel.dimension,
+        particular:particular,
+        directions:kernel.basis
+    )
+
+residual(
+    matrix:[[num:c]:r],
+    values:[num:c],
+    targets:[num:r]
+) -> [num:r]:
+    _linalg_numeric_dot(matrix, values) - targets
+
+_linalg_vector_infinity_norm(values:[num:n]) -> num:
+    result: 0
+    values.length() > 0?
+        ..values.length() - 1 >>
+            magnitude: _linalg_abs(values.($))
+            magnitude > result?
+                .result: magnitude
+    result
+
+_linalg_matrix_infinity_norm(matrix:[[num:c]:r]) -> num:
+    result: 0
+    row_sum: 0
+    matrix.length() > 0?
+        ..matrix.length() - 1 >>
+            row: $
+            .row_sum: 0
+            matrix.0.length() > 0?
+                ..matrix.0.length() - 1 >>
+                    .row_sum+: _linalg_abs(matrix.(row, $))
+            row_sum > result?
+                .result: row_sum
+    result
+
+condition_number(
+    matrix:[[num:n]:n],
+    tolerance:num=0.000000000001
+) -> num:
+    (
+        _linalg_matrix_infinity_norm(matrix) *
+        _linalg_matrix_infinity_norm(inverse(matrix, tolerance))
+    )
+
+relative_residual(
+    matrix:[[num:c]:r],
+    values:[num:c],
+    targets:[num:r]
+) -> num:
+    difference: residual(matrix, values, targets)
+    numerator: _linalg_vector_infinity_norm(difference)
+    scale: (
+        _linalg_matrix_infinity_norm(matrix) *
+        _linalg_vector_infinity_norm(values) +
+        _linalg_vector_infinity_norm(targets)
+    )
+    scale = 0? @: numerator
+    numerator / scale
+
+verify_solution(
+    matrix:[[num:n]:n],
+    values:[num:n],
+    targets:[num:n],
+    tolerance:num=0.000000001,
+    condition_limit:num=1000000000000
+):
+    measured_residual: relative_residual(matrix, values, targets)
+    measured_condition: condition_number(matrix)
+    (
+        valid:measured_residual <= tolerance /\ measured_condition <= condition_limit,
+        relative_residual:measured_residual,
+        condition_number:measured_condition,
+        forward_error_bound:measured_condition * measured_residual
+    )

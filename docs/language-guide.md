@@ -72,12 +72,9 @@ make_message():
     first: "hello"
     first & " world"
 
-make_base(x:int, y:int):
-    :
+make_base(x:int, y:int): :
 
-make_colored(x:int, y:int, color:str):
-    : make_base(x, y)
-    :
+make_colored(x:int, y:int, color:str): (x:x, y:y, color:color)
 
 message: make_message()
 base: make_base(3, 4)
@@ -104,11 +101,21 @@ red
 
 ### 1.3 Output, Comments, And Assertions
 
-`:: value` writes a value. `condition?!` asserts truth. An optional following expression is the error message.
+`:: value` writes a value. `condition?!` asserts truth. An optional following
+expression is the error message. `#` comments through the end of its row. Paired
+`## ... ##` delimit a non-nesting multiline comment; putting such a block first
+inside a function or nominal constructor is the recommended source-documentation
+style. The compact `### text##` form is therefore `##` + comment text beginning
+with `#` + `##`; it is not a third comment syntax. Comments are absent from
+runtime artifacts.
 
 <!-- readme-example: core/04-output-assert.vkf -->
 ```vkf
 # Comments continue to the end of the row.
+##
+Paired double hashes delimit a multiline comment.
+Editors may use a first-body block as documentation.
+##
 answer: 6 * 7
 (answer == 42)?! "the answer changed"
 :: answer
@@ -167,11 +174,9 @@ final pipeline value without surrounding parentheses.
 
 <!-- readme-example: core/05-tagged-test.vkf -->
 ```vkf
-test addition_works() -> bit:
-    2 + 2 = 4
+test addition_works() -> bit: 2 + 2 = 4
 
-test needs_input(value:int) -> bit:
-    value = 1
+test needs_input(value:int) -> bit: value = 1
 ```
 
 <!-- readme-evidence:start core/05-tagged-test.vkf -->
@@ -194,8 +199,7 @@ int count: int(7.0)
 num ratio: num(3) / 2
 str label: str(count)
 
-empty():
-    @
+empty(): @
 
 :: enabled
 :: letter
@@ -218,7 +222,7 @@ null
 
 <!-- readme-evidence:end -->
 
-Primitive names are values. Calling one converts a compatible value; postfix `.` reflects a value or type. Primitive type values also expose their members when spilled.
+Primitive names are first-class values of metatype `type`. Calling one converts a compatible value; postfix `.` returns the actual type value of any value or callable, rather than a string containing its name. Bare `..` remains exclusively the range operator. Primitive type values also expose their members when spilled.
 
 <!-- readme-example: core/07-reflection.vkf -->
 ```vkf
@@ -227,10 +231,8 @@ NumberType: num
 :: int.
 :: [1, 2].
 
-type_scope:
-    reflected: int.
-    :
-:: type_scope
+TypeScope(reflected:type): :
+:: TypeScope(int.)
 ```
 
 <!-- readme-evidence:start core/07-reflection.vkf -->
@@ -239,9 +241,9 @@ type_scope:
 
 ```text
 4
-(any) -> int
+type
 [int:2]
-(NumberType:num, reflected:(any) -> int)
+TypeScope(reflected:type)
 ```
 
 <!-- readme-evidence:end -->
@@ -250,18 +252,32 @@ type_scope:
 
 ### 2.2 Strings, Characters, And Interpolation
 
-`&` concatenates text and converts the other operand when needed. Strings compare by content and support `$name`, `$(expression)`, dotted paths, number formats, and escaped `\$`.
+`&` concatenates text and converts the other operand when needed. Strings
+compare by content and support `$name`, `$(expression)`, dotted paths, number
+formats, and escaped `\$`. Triple double-quoted and raw triple single-quoted
+strings span rows. The opening row's leading indentation is removed from
+continuation rows only if every nonblank row keeps that whole indentation
+region empty. This also applies when a binding precedes the delimiter, such as
+`text: """first row`. Any content inside the indentation region preserves all
+indentation for the complete literal. Content immediately after the delimiter
+does not add an initial newline; putting the first content on the next row does.
 
 <!-- readme-example: core/08-strings.vkf -->
 ```vkf
 name: "världen"
 value: 4.2345
 point: (x:2, y:false)
+multiline:
+    """
+    alpha
+      beta
+    """
 
 :: "Hej $name"
 :: "value=$value.2f"
 :: "sum=$(2 + 3) point=$point cost=\$5"
 :: chr(128512)
+:: multiline == "\nalpha\n  beta\n"
 ```
 
 <!-- readme-evidence:start core/08-strings.vkf -->
@@ -273,13 +289,16 @@ Hej världen
 value=4.23
 sum=5 point=(x:2, y:false) cost=$5
 😀
+true
 ```
 
 <!-- readme-evidence:end -->
 
 ### 2.3 Tuples And Records
 
-Tuples use positional fields. Records use named fields. Fields are read with `.field` or `.index` and updated with `:`.
+Tuples use positional fields. Records use named fields. Read a record field with
+`.field`, a literal tuple or vector index with `.0`, and a computed index with
+`.(index)`. Update the same selection by placing it on the left of `:`.
 
 <!-- readme-example: core/09-tuples-records.vkf -->
 ```vkf
@@ -308,7 +327,12 @@ origin
 
 ### 2.4 Fixed And Dynamic Vectors
 
-`[T:n]` is a fixed vector type and `[T]` is dynamic. A literal is fixed unless a dynamic type is requested. `[value:count]` repeats an element.
+`[T:n]` is a fixed vector type and `[T]` is dynamic. Type values use the same
+forms: `[int, int, int]` canonicalizes to `[int:3]`, while the one-item
+`[int]` denotes the dynamic vector type rather than `[int:1]`. `[any]` is an
+open uniform vector type whose exact element type is inferred when specialized;
+it never permits heterogeneous elements. A value literal is fixed unless a
+dynamic type is requested. `[value:count]` repeats an element.
 
 <!-- readme-example: core/11-vectors.vkf -->
 ```vkf
@@ -356,6 +380,46 @@ dynamic: collections.list(1, 2) & collections.list(3)
 
 <!-- readme-evidence:end -->
 
+#### 2.4.1 Multidimensional And Distributed Indexing
+
+`vector.(i, j, k)` indexes every dimension in one operation. A spilled fixed
+coordinate vector supplies the same arguments, so `vector.(:coordinates)` is
+equivalent to `vector.(coordinates.0, coordinates.1, coordinates.2)`.
+
+Vector-valued indices use the ordinary function-application rule. Matching
+index shapes zip, scalar indices repeat for every selected value, and nested
+index vectors preserve their nested result shape. The same forms work on the
+left of `:` for updates.
+
+<!-- readme-example: core/11b-multidimensional-indexing.vkf -->
+```vkf
+tensor: [
+    [[0, 1], [2, 3]],
+    [[10, 11], [12, 13]],
+    [[20, 21], [22, 23]],
+    [[30, 31], [32, 33]]
+]
+coordinates: [1, 0, 1]
+
+:: tensor.(1, 0, 1)
+:: tensor.(:coordinates)
+:: tensor.([0, 1, 2], [0, 1, 0], 1)
+:: tensor.([[0, 1], [2, 3]], 1, 0)
+```
+
+<!-- readme-evidence:start core/11b-multidimensional-indexing.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+11
+11
+[1, 13, 21]
+[[2, 12], [22, 32]]
+```
+
+<!-- readme-evidence:end -->
+
 This deliberately heavy example performs 10 million fixed-container element
 updates and reads. It is the runtime stress case in the per-example release
 report; only its checksum is printed.
@@ -365,13 +429,12 @@ report; only its checksum is printed.
 container_work(n:int) -> int:
     values: [1, 2, 3, 4]
     delta: [1, 2, 3, 4]
-    i: 0
     checksum: 0
-    i < n?>
-        .values +: delta
-        .values -: delta
-        .checksum: checksum + values.0 + values.1 + values.2 + values.3
-        .i: i + 1
+    n > 0?
+        ..n - 1 >>
+            .values +: delta
+            .values -: delta
+            .checksum+: values.0 + values.1 + values.2 + values.3
     checksum
 
 :: container_work(1000000)
@@ -408,8 +471,7 @@ alias: values
 
 Point: (x:int, y:int, name:str)
 
-+(point:Point, delta:int) -> Point:
-    (x: point.x + delta, y: point.y + delta, name: point.name)
++(point:Point, delta:int) -> Point: (x:point.x + delta, y:point.y + delta, name:point.name)
 
 p: (x:3, y:4, name:"my point")
 .p +: 2
@@ -433,7 +495,14 @@ Both updates remain visible through older aliases of the same aggregate.
 
 ### 2.6 Multisets
 
-`{value:count}` creates a multiset. Duplicate keys combine and nonpositive counts disappear. `+` or `&` adds counts, `-` subtracts, `//` divides matching counts, and `%` keeps remainders.
+`{value:count}` creates a multiset. Ordinary multiset keys require one exact
+type. `{int}` is instead the first-class multiset type whose elements are
+`int`; `{any}` is its open uniform form. Counted type values remain data:
+`{int:3, num:2}` counts two different type objects and its reflected type is
+`{type}`. This is the only container/type syntax where counts deliberately keep
+the result as a value rather than constructing a type. Duplicate keys combine
+and nonpositive counts disappear. `+` or `&` adds counts, `-` subtracts, `//`
+divides matching counts, and `%` keeps remainders.
 
 <!-- readme-example: core/14-multisets.vkf -->
 ```vkf
@@ -461,7 +530,12 @@ right: {"a":2, "c":2}
 
 ### 2.7 Inclusive Ranges
 
-`start..end` is inclusive. Omitting the start uses zero. Descending ranges infer a negative step. Omitting the end creates an infinite range, which must be stopped by its consumer.
+`start..end` is an inclusive integer range. Omitting the start uses zero.
+Descending ranges infer a negative step. Omitting the end creates an infinite
+range, which must be stopped by its consumer. A bare range remains a range
+object. Parentheses materialize it as a tuple, `[]` as a vector, and `{}` as a
+multiset. Arithmetic then follows the container rules; for example, `[..4] / 4`
+has type `[num:5]` and value `[0, 0.25, 0.5, 0.75, 1]`.
 
 <!-- readme-example: core/15-ranges.vkf -->
 ```vkf
@@ -529,7 +603,13 @@ z: num(1, 2)
 
 ### 2.10 Member Reflection And Spill
 
-Postfix `.` reflects member names and types. Spilling that reflection into `()`, `[]`, or `{}` produces a record, vector, or multiset view. A primitive type may also be spilled into scope.
+Postfix `.` produces a first-class type value. A structured type can be spilled
+into another type container: `(:Point)` exposes a nominal type's backing record
+type, while `[:Point]` produces a fixed-vector type when every backing field has
+one exact type. Likewise, `[:(1, 2, 3).]`, `[int, int, int]`, and `[int:3]` are
+the same `[int:3]` type value. Mixed type values such as `[int, num]` have type
+`[type:2]`; they remain type data and do not promote to a numeric vector. A
+primitive type may also be spilled into scope.
 
 <!-- readme-example: core/46-member-reflection.vkf -->
 ```vkf
@@ -549,7 +629,7 @@ member_names: {:point.}
 
 ```text
 (x:int, y:int)
-[int, int]
+[int:2]
 {x:1, y:1}
 ```
 
@@ -584,8 +664,7 @@ choose(value:int) -> int:
         @: 7
     3
 
-do_nothing():
-    @
+do_nothing(): @
 
 :: choose(1)
 :: choose(0)
@@ -610,8 +689,7 @@ Parameters and results may be typed. Defaults can use earlier parameters. Named 
 
 <!-- readme-example: core/19-call-arguments.vkf -->
 ```vkf
-weighted(x:num, y:num=x + 1, z:num=y + 1) -> num:
-    x * 100 + y * 10 + z
+weighted(x:num, y:num=x + 1, z:num=y + 1) -> num: x * 100 + y * 10 + z
 
 :: weighted(2)
 :: weighted(y:4, x:3, z:5)
@@ -642,8 +720,7 @@ factorial(n:int) -> int:
     n * factorial(n - 1)
 
 make_offset(offset:num) -> num->num:
-    add(value:num) -> num:
-        value + offset
+    add(value:num) -> num: value + offset
     add
 
 add_two: make_offset(2)
@@ -669,11 +746,9 @@ Functions are values and may be passed to typed function parameters. `(parameter
 
 <!-- readme-example: core/21-lambdas.vkf -->
 ```vkf
-apply_twice(f:int->int, value:int) -> int:
-    f(f(value))
+apply_twice(f:int->int, value:int) -> int: f(f(value))
 
-increment(value:int) -> int:
-    value + 3
+increment(value:int) -> int: value + 3
 
 square: (value): value^2
 
@@ -700,14 +775,11 @@ square: (value): value^2
 
 <!-- readme-example: core/22-variadics-spreads.vkf -->
 ```vkf
-sum_rest(head:int, ...rest:int) -> int:
-    head + stat.sum(rest)
+sum_rest(head:int, ...rest:int) -> int: head + stat.sum(rest)
 
-point_sum(x:int, y:int) -> int:
-    x + y
+point_sum(x:int, y:int) -> int: x + y
 
-capture_named(value:int, :::named):
-    named
+capture_named(value:int, :::named): named
 
 args: collections.list(2, 3, 4)
 point: (y:4, x:3)
@@ -757,8 +829,7 @@ Lowercase names inside fixed vector sizes are inferred compile-time numbers. Siz
 
 <!-- readme-example: core/23-shape-parameters.vkf -->
 ```vkf
-join(x:[int:n], y:[int:m]) -> [int:n+m]:
-    x & y
+join(x:[int:n], y:[int:m]) -> [int:n+m]: x & y
 
 [int:5] joined: join([1, 2], [3, 4, 5])
 :: joined
@@ -774,17 +845,63 @@ join(x:[int:n], y:[int:m]) -> [int:n+m]:
 
 <!-- readme-evidence:end -->
 
+#### 3.6.1 Named Generic Types And Singleton Tuples
+
+An unbound uppercase type name such as `T` is a compile-time generic type. The
+compiler binds it from each call and specializes the complete function body.
+Repeated occurrences of `T` must receive one exact type. Generic types compose
+inside vectors, multisets, tuples, and records; shape names such as `n` bind
+independently.
+
+Parentheses group one type, so `(num)` canonicalizes to `num`. A one-element
+tuple requires its trailing comma: `(num,)`. Consequently `num->num` takes one
+numeric argument, while `num,->num` takes one argument whose value is a
+one-element tuple. A pair domain `(num,num)->num` takes two arguments;
+`((num,num))->num` takes one tuple argument.
+
+<!-- readme-example: core/50-generic-types.vkf -->
+```vkf
+identity(value:T) -> T: value
+
+first(pair:(T,T)) -> T: pair.0
+
+vector_identity(values:[T:n]) -> [T:n]: values
+
+take_singleton(value:(num,)) -> num: value.0
+
+same: vector_identity([1, 2, 3])
+:: identity("vkf")
+:: first((4, 5))
+:: same.
+:: take_singleton((6,))
+```
+
+<!-- readme-evidence:start core/50-generic-types.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+vkf
+4
+[int:3]
+6
+```
+
+<!-- readme-evidence:end -->
+
 ### 3.7 Open `any` Inference
 
-An `any` parameter may use fields or fixed indices. The compiler infers the required open shape and ignores unrelated record fields.
+`any` is an anonymous compile-time inference hole, not runtime type erasure.
+Each occurrence may specialize independently. `[any]` and `{any}` still require
+one uniform concrete element type. An `any` parameter may use fields or fixed
+indices; the compiler infers the required open shape and ignores unrelated
+record fields.
 
 <!-- readme-example: core/24-open-any.vkf -->
 ```vkf
-read_x(value:any) -> num:
-    value.x
+read_x(value:any) -> num: value.x
 
-sum_pair(value:any) -> num:
-    value.0 + value.1
+sum_pair(value:any) -> num: value.0 + value.1
 
 :: read_x((x:2, metadata:"kept"))
 :: sum_pair([3, 4])
@@ -801,22 +918,84 @@ sum_pair(value:any) -> num:
 
 <!-- readme-evidence:end -->
 
+### 3.8 Nominal Constructors And Overloads
+
+An uppercase function name defines a nominal type. Its returned value is the
+type's backing representation and may be a scalar, vector, tuple, record, or
+local scope. A lowercase function does not create a nominal type; its result
+retains the type of the value returned by its body, including an existing
+nominal type.
+
+Functions of either case may share a name when their parameter signatures
+differ. Exact parameter matches win over compatible conversions. All uppercase
+overloads with one name construct the same nominal type. Postfix `.` on an
+instance returns that nominal type; explicitly spilling a record instance before
+reflection, `(:value).`, reveals its structural type. Bare `..` remains the range
+operator. A nominal type itself may be spilled: `(:Point)` is its backing record
+type, `(:Point).` is `type`, and `[:Point]` is the corresponding fixed-vector
+type when its fields are homogeneous.
+
+<!-- readme-example: core/49-nominal-constructors.vkf -->
+```vkf
+Point(x:num, y:num): (x:x, y:y)
+
+Point(values:[num:2]): Point(:values)
+
+make_point(x:num, y:num): (x:x, y:y)
+
+describe(value:int) -> str: "integer"
+
+describe(value:num) -> str: "number"
+
+point: Point([3, 4])
+plain: make_point(3, 4)
+
+:: point.
+:: (:point).
+:: (:Point)
+:: (:Point).
+:: [:Point]
+:: [int, int, int] == [int:3]
+:: [:(1, 2, 3).]
+:: plain.
+:: describe(3)
+:: describe(3.5)
+```
+
+<!-- readme-evidence:start core/49-nominal-constructors.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+Point
+(x:num, y:num)
+(x:num, y:num)
+type
+[num:2]
+true
+[int:3]
+(x:num, y:num)
+integer
+number
+```
+
+<!-- readme-evidence:end -->
+
 ## 4. Automatic Vector Function Application
 
 Vector lifting is a core language rule, not a special feature of `math`. If a
 whole argument does not match a one-parameter function, VKF may descend through
-vector layers and call the function on exact matching elements. It never searches
+vector layers and call the function on compatible elements. It never searches
 inside tuples or records for fields to transform.
 
-### 4.1 Exact Vector Elements Are Selected
+### 4.1 Compatible Vector Elements Are Selected
 
-The element type must match the parameter type exactly. Nested vectors are
-traversed recursively and retain their shape.
+The element type must satisfy the same safe conversion rule as an ordinary
+scalar call. Nested vectors are traversed recursively and retain their shape.
 
 <!-- readme-example: core/25-structural-compatibility.vkf -->
 ```vkf
-double(value:int) -> int:
-    value * 2
+double(value:int) -> int: value * 2
 
 :: double([1, 2, 3])
 :: double([[1, 2], [3, 4]])
@@ -836,19 +1015,18 @@ double(value:int) -> int:
 The first call lifts over one vector layer. The second reaches the same `int`
 leaf type through two vector layers.
 
-### 4.2 Lifting Does Not Use Conversions
+### 4.2 Safe Scalar Conversions Apply At Every Vector Depth
 
-Ordinary direct calls may still convert `int` to `num`, but conversion does not
-select elements for implicit lifting. A function accepting `num` lifts over a
-`[num]`; passing `[int]` is a compile error rather than a partial or converted
-map.
+An `int` can widen to `num` in a direct call, so the same widening is allowed
+when lifting through one or more vector dimensions. Narrowing and unrelated
+conversions remain errors. Exact leaf overloads outrank converted leaf
+overloads, and an exact whole-container overload outranks all lifting.
 
 <!-- readme-example: core/26-structural-conversions.vkf -->
 ```vkf
-halve(value:num) -> num:
-    value / 2
+halve(value:num) -> num: value / 2
 
-values: [8.0, 3.0, -4.0]
+values: [8, 3, -4]
 :: halve(values)
 ```
 
@@ -870,8 +1048,7 @@ accepting that complete type can lift over a vector of those values.
 
 <!-- readme-example: core/27-structural-recursion.vkf -->
 ```vkf
-translate(point:(x:int,y:int)) -> (x:int,y:int):
-    (x:point.x + 10, y:point.y - 10)
+translate(point:(x:int,y:int)) -> (x:int,y:int): (x:point.x + 10, y:point.y - 10)
 
 points: [(x:1, y:2), (x:3, y:4)]
 :: translate(points)
@@ -895,12 +1072,11 @@ search for the `x` and `y` subset.
 ### 4.4 Container Functions Can Lift Over Outer Vectors
 
 A function accepting a complete vector row can lift over a matrix when each row
-has that exact vector type.
+has a compatible vector type.
 
 <!-- readme-example: core/28-structural-records.vkf -->
 ```vkf
-row_sum(row:[int]) -> num:
-    stat.sum(row)
+row_sum(row:[int]) -> num: stat.sum(row)
 
 matrix: [[1, 2], [3, 4], [5, 6]]
 
@@ -923,8 +1099,7 @@ If the complete argument matches the declared type, VKF calls the function once.
 
 <!-- readme-example: core/29-structural-exact-match.vkf -->
 ```vkf
-rotate(values:[int:3]) -> [int:3]:
-    [values.1, values.2, values.0]
+rotate(values:[int:3]) -> [int:3]: [values.1, values.2, values.0]
 
 :: rotate([1, 2, 3])
 ```
@@ -1125,7 +1300,11 @@ as `errors.ValueError`.
 
 ### 6.1 Mapping With `>>`
 
-`value >> expression` binds each onward value as `$`. It maps vectors, tuples, dynamic lists, multisets, ranges, and Unicode string characters. A scalar supplies one onward value.
+`value >> expression` binds each onward value as `$`. It maps vectors, tuples,
+dynamic lists, multisets, ranges, and Unicode string characters. A scalar
+supplies one onward value. Evaluation is eager: every stage runs when the pipe
+statement is evaluated, even if its result is discarded. A completed finite
+range pipe materializes a tuple by default; this does not defer its effects.
 
 As the sole unparenthesized value inside a vector or multiset literal, a pipe
 generates that container. `[a >> $]` is equivalent to `[:a]`, and `{a >> $}` is
@@ -1274,11 +1453,9 @@ Define an operator like a function with custom parameter types. Unary operators 
 ```vkf
 Point: (x:num, y:num)
 
-+(a:Point, b:Point) -> Point:
-    (x:a.x + b.x, y:a.y + b.y)
++(a:Point, b:Point) -> Point: (x:a.x + b.x, y:a.y + b.y)
 
--(value:Point) -> Point:
-    (x:-value.x, y:-value.y)
+-(value:Point) -> Point: (x:-value.x, y:-value.y)
 
 :: (x:1, y:2) + (x:3, y:4)
 :: -(x:3, y:4)
@@ -1334,8 +1511,7 @@ Fixed vector shapes nest, survive calls, and compose through compile-time size e
 
 <!-- readme-example: core/40-fixed-shapes.vkf -->
 ```vkf
-cross(matrix:[[int:2]:2]) -> int:
-    matrix.(0).(1) + matrix.(1).(0)
+cross(matrix:[[int:2]:2]) -> int: matrix.(0, 1) + matrix.(1, 0)
 
 :: cross([[1, 2], [3, 4]])
 ```
@@ -1446,8 +1622,7 @@ Local names shadow outer value layouts and unbound builtin module names. A bound
 ```vkf
 m: .math
 
-sin(value:num) -> num:
-    m.sin(value)
+sin(value:num) -> num: m.sin(value)
 
 values: [10, 20, 30]
 
@@ -1476,11 +1651,9 @@ Multiple functions with the same name form an overload family selected by parame
 
 <!-- readme-example: core/45-overloads-dispatch.vkf -->
 ```vkf
-describe(value:int) -> str:
-    "integer"
+describe(value:int) -> str: "integer"
 
-describe(value:str) -> str:
-    "text"
+describe(value:str) -> str: "text"
 
 :: describe(3)
 :: describe("three")
@@ -1499,7 +1672,10 @@ text
 
 ## 10. Native Standard Library
 
-These modules are part of the native 0.2.1 release on Windows x64, Linux x64, and macOS ARM64.
+Sections 10.1 through 10.10 are part of the native 0.2.1 release on Windows
+x64, Linux x64, and macOS ARM64. Sections 10.11 and 10.12 describe the native
+development implementation intended for the next release; they are not in the
+published 0.2.1 downloads.
 
 ### 10.1 `math`
 
@@ -1527,7 +1703,7 @@ math: .math
 
 <!-- readme-evidence:end -->
 
-Unary math functions use the exact vector-lifting rule in section 4.
+Unary math functions use the safe vector-lifting rule in section 4.
 
 ### 10.2 `stat`
 
@@ -1823,20 +1999,203 @@ vkf
 
 <!-- readme-evidence:end -->
 
+### 10.11 `linalg`
+
+`:.linalg` uses ordinary rectangular nested vectors rather than a separate
+matrix class. Numeric operations include `dot`, `cross`, `outer`, `matmul`,
+`transpose`, `trace`, `determinant`, `rank`, `inverse`, `solve`,
+`least_squares`, `solution_space`, `rref`, `null_space`, `lu`, `qr`,
+`cholesky`, `svd`, and `eigen`.
+
+The same vector-lifting rule makes `dot(matrix, vector)` apply the declared
+vector-vector dot product to every compatible matrix row. Decompositions and
+solvers return verification metadata where convergence, residuals, or singular
+systems require an explicit result rather than an assumption.
+
+<!-- readme-example: stdlib/11-linalg.vkf -->
+```vkf
+:.linalg
+
+product: matmul([[1, 2], [3, 4]], [[5, 6], [7, 8]])
+solution: solve([[2, 1], [1, 1]], [5, 3])
+
+:: dot([1, 2, 3], [4, 5, 6])
+:: cross([1, 0, 0], [0, 1, 0])
+:: product
+:: determinant([[1, 2], [3, 4]])
+:: solution
+```
+
+<!-- readme-evidence:start stdlib/11-linalg.vkf -->
+
+**Recorded stdout (exit code `0`; stderr empty), all platforms:**
+
+```text
+32
+[0, 0, 1]
+[[19, 22], [43, 50]]
+-2
+[2, 1]
+```
+
+<!-- readme-evidence:end -->
+
+### 10.12 `physics` And Dimensioned Units
+
+Import the engine and units separately. `:.physics.units` selects the native SI
+catalog; `:.physics.units.si` is the explicit equivalent. Unit symbols are not
+spilled by `:.physics`.
+
+```vkf
+:.physics
+:.physics.units
+
+force: 2kg * 3m / 1s^2
+normal: cross3([1, 0, 0], [0, 1, 0])
+
+:: force / 1N
+:: normal
+```
+
+**Exact output:**
+
+```text
+6
+[0, 0, 1]
+```
+
+Both `2km` and `2 km` are quantity literals. A unit supplies its scale and one
+seven-exponent physical dimension. Multiplication and division add and
+subtract dimensions; addition, subtraction, ordering, and equality require
+matching dimensions. The native SI catalog provides all seven bases, coherent
+derived units, and prefixes from quecto through quetta. SI is the only catalog
+currently declared; future catalogs may change names and scales but never the
+dimension model.
+
+The engine surface includes 2D/3D vectors, 3×3 matrices, tetrahedral mass
+properties, rigid momentum stepping, collision matrices, restitution,
+tangential/rolling/spin friction, coupled solid contacts, materials, and the
+deterministic dice example. Rigid-body functions live only in `physics`; there
+is no release `rigid_body` compatibility module.
+
+### 10.13 `symbolic`
+
+`:.symbolic` provides domains `N`, `Z`, `Q`, `R`, and `C`; exact expression
+construction; elementary functions; expansion and collection; simplification;
+substitution; evaluation; differentiation; integration; and truncated series
+multiplication.
+
+The public hierarchy is `Expression`, with `Symbol IS Expression`,
+`Constant IS Symbol`, and `Relation IS Proposition IS Expression`. Symbolic
+`=` and the ordered comparison operators create relations. `=>` has lower
+precedence than those operators and joins propositions without parentheses.
+It preserves a symbolic `Proposition`; with two `bit` operands it evaluates
+ordinary logical implication. The same token remains the arm separator after
+`??`, where its role is fixed by the match context.
+
+```vkf
+:.symbolic
+
+x: R
+y: R
+claim: y = sin(x) => y <= 1
+
+:: katex(claim)
+```
+
+**Exact output:**
+
+```text
+y = \sin\left(x\right) \Rightarrow y \le 1
+```
+
+A power on a domain denotes a vector space, so `R^3` is a real three-vector
+domain and `R^3->R` is a scalar function on that space.
+
+```vkf
+:.symbolic
+
+x: R
+y: R
+expanded: expand((x + 1)^3)
+derivative: diff(expanded, x)
+
+:: term_count(expanded)
+:: evaluate(expanded, [2])
+:: evaluate(derivative, [2])
+:: evaluate(1/xy, [2, 4])
+:: evaluate(1/x y, [2, 4])
+```
+
+**Exact output:**
+
+```text
+4
+27
+27
+0.125
+2
+```
+
+In symbolic code, an unbound adjacent name such as `xy` is decomposed only
+when it has one unambiguous factorization into already-bound symbolic names.
+A real `xy` binding wins. Consequently `1/xy` above is `1/(x*y)`, while the
+space in `1/x y` resumes the outer product and gives `(1/x)*y`. Ambiguous
+factorizations are compile errors; `*` or parentheses always make intent
+explicit.
+
+Literal adjacency uses the same multiplication rule for values and symbols:
+`a:3; 3a+4^2` evaluates to `25`, while `x:R; 3x+4^2` constructs an evaluable
+`Expression`. Symbol spelling is case-preserving. Ordinary multi-character
+names render with `\operatorname{...}`; a one-character subscript stays exact
+(`x_r` renders as `x_{r}`), while a multi-character subscript uses
+`\mathrm{...}` (`x_tot` renders as `x_{\mathrm{tot}}`).
+
+Ordinary typed functions have one source definition for numeric and symbolic
+use. A call whose arguments are fully numeric is compiled to its numeric form.
+A call containing symbols traces the same function body into an `Expression`:
+
+```vkf
+:.symbolic
+
+radius_squared(x:num, y:num) -> num: x^2 + y^2
+
+x: R
+y: R
+numeric: radius_squared(3, 4)
+symbolic_value: radius_squared(x, y)
+numeric_function: compile(symbolic_value, [x, y])
+
+:: numeric
+:: numeric_function(3, 4)
+```
+
+**Exact output:**
+
+```text
+25
+25
+```
+
+`compile(expression, variables)` produces an ordinary native function. If the
+listed variables resolve the expression completely, calls return numbers. Any
+unresolved symbolic constant or symbolic function remains in the returned
+expression; literals can still replace the arguments that are known. Thus an
+unknown `f:R->R` called as `f(2)` is a symbolic application, not an invented
+numeric value.
+
+The reproducible [symbolic comparison](../benchmarks/symbolic-comparison/README.md)
+uses the exact `expand1`, `expand2`, `add1`, and `series` kernels published by
+SymEngine and compares the same operations with SymEngine/C++, SymPy/Python,
+and Symbolics.jl/Julia.
+
 ## 11. Coming Soon
 
-The following areas are planned, but unavailable in the native 0.2.1 release. Their repository prototypes and legacy examples are not part of the supported compiler surface.
+The following area remains planned. Repository prototypes and legacy examples
+are not part of the supported native compiler surface.
 
 ### 11.1 Native `ui`
 
 The visual and scene system is not in the native 0.2.1 compiler. Older repository examples may run through legacy tooling, but they are not evidence of the released native language.
-
-### 11.2 Native `physics`
-
-Rigid-body work belongs under `physics`, but the module is partial and excluded from 0.2.1. No `rigid_body` compatibility module ships in the release.
-
-### 11.3 Native `symbolic`
-
-Symbolic domains, relations, transformations, solving, calculus, and symbolic UI inspection remain experimental. They are excluded from 0.2.1 and must not be presented as native core features.
 
 The same rule applies to every future feature: it enters the numbered native guide only after parsing, lowering, executable generation, runtime behavior, and native `vkf -t` verification pass on the release targets.

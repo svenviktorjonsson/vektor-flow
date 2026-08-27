@@ -1,0 +1,35 @@
+open_uniform_container_types_are_first_class() -> bit:
+    vector_type: [any]
+    multiset_type: {any}
+    (vector_type. == type /\ multiset_type. == type)?!
+
+open_vector_type_is_distinct_from_fixed_one_element_shape() -> bit:
+    ([any] != [any:1])?!
+
+mixed_type_values_form_a_fixed_vector_of_metatype_values() -> bit:
+    values: [int, num]
+    (values. == [type:2] /\ values.0 == int /\ values.1 == num)?!
+
+_both_int_types(values:[type:2]) -> bit:
+    values.0 == int /\ values.1 == int
+
+fixed_vector_type_descriptor_matches_its_underlying_metatype_shape() -> bit:
+    _both_int_types([int:2])?!
+
+_rank_type_container(value:type) -> int: 1
+
+_rank_type_container(values:[type:2]) -> int: 2
+
+exact_metatype_overload_beats_descriptor_expansion_fallback() -> bit:
+    (_rank_type_container([int:2]) == 1 /\
+     _rank_type_container([int, num]) == 2)?!
+
+heterogeneous_type_entries_construct_a_tuple_type_descriptor() -> bit:
+    pair_type: (int, num)
+    (pair_type. == type /\ pair_type == (1, 2.5).)?!
+
+_is_int_num_type_pair(values:(type,type)) -> bit:
+    values.0 == int /\ values.1 == num
+
+tuple_type_descriptor_matches_its_underlying_metatype_tuple() -> bit:
+    _is_int_num_type_pair((int, num))?!

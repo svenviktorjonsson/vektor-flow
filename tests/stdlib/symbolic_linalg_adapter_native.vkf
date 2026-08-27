@@ -1,0 +1,43 @@
+: .symbolic
+: .linalg
+
+_adapter_cell(row:symbol, column:symbol) -> expression:
+    simplify(row + column)
+
+_adapter_row(row:symbol, columns:[symbol:c]) -> [expression:c]:
+    _adapter_cell(row, columns)
+
+_adapter_matrix(
+    rows:[symbol:r],
+    columns:[symbol:c]
+) -> [[expression:c]:r]:
+    _adapter_row(rows, columns)
+
+_adapter_cell_at(
+    matrix:[[expression:c]:r],
+    row:num,
+    column:num
+) -> expression:
+    simplify(matrix.(row, column))
+
+test nested_symbolic_vectors_preserve_matrix_rank_through_lifted_calls() -> bit:
+    x: R
+    y: R
+    rows: [x, y]
+    columns: [x, y]
+    matrix: _adapter_matrix(rows, columns)
+    (same(matrix.0.1, simplify(x + y)) /\
+     same(matrix.1.0, simplify(y + x)))
+
+test nested_symbolic_matrix_parameters_preserve_row_layout() -> bit:
+    x: R
+    matrix: [[x, constant(2)], [constant(3), constant(4)]]
+    same(_adapter_cell_at(matrix, 0, 1), constant(2))
+
+test symbolic_dot_lifts_over_matrix_rows_while_holding_the_vector_fixed() -> bit:
+    x: R
+    matrix: [[x, constant(1)], [constant(2), x]]
+    values: [x, constant(3)]
+    result: dot(matrix, values)
+    (same(result.0, simplify(x * x + 3)) /\
+     same(result.1, simplify(2 * x + x * 3)))

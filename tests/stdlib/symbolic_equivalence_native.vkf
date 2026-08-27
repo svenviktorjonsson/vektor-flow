@@ -1,0 +1,46 @@
+:.symbolic
+
+test structural_identity_distinguishes_different_function_rates() -> bit:
+    x: R
+    t: R
+    left: sin(_symbolic_clone(x)) * exp(-2 * _symbolic_clone(t))
+    right: sin(_symbolic_clone(x)) * exp(0 - _symbolic_clone(t))
+    ~same(left, right)
+
+test function_detection_reaches_nested_dag_factors() -> bit:
+    x: R
+    t: R
+    value: sin(_symbolic_clone(x)) * exp(-2 * _symbolic_clone(t))
+    _symbolic_contains_function(value)
+
+test function_product_exposes_function_dag_children() -> bit:
+    x: R
+    t: R
+    value: sin(_symbolic_clone(x)) * exp(-2 * _symbolic_clone(t))
+    (_symbolic_root_kind(_symbolic_clone(value)) = 3 /\
+     _symbolic_root_kind(_symbolic_left(_symbolic_clone(value))) = 7 /\
+     _symbolic_root_kind(_symbolic_right(value)) = 7)
+
+test algebraic_equivalence_never_erases_different_function_rates() -> bit:
+    x: R
+    t: R
+    left: sin(_symbolic_clone(x)) * exp(-2 * _symbolic_clone(t))
+    right: sin(_symbolic_clone(x)) * exp(0 - _symbolic_clone(t))
+    ~equivalent(left, right)
+
+test transform_rational_forms_do_not_retain_source_functions() -> bit:
+    w: symbol("w", R, constant:true)
+    t: symbol("t", R)
+    s: symbol("s", C)
+    transformed: laplace(sin(w * t), t, s)
+    expected: w / (s^2 + w^2)
+    (~_symbolic_contains_function(transformed) /\
+     ~_symbolic_contains_function(expected))
+
+test transform_rational_forms_remain_algebraically_equivalent() -> bit:
+    w: symbol("w", R, constant:true)
+    t: symbol("t", R)
+    s: symbol("s", C)
+    transformed: laplace(sin(w * t), t, s)
+    expected: w / (s^2 + w^2)
+    equivalent(transformed, expected)

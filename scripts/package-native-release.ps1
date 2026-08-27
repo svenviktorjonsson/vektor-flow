@@ -30,10 +30,11 @@ Copy-Item -LiteralPath $compilerSource -Destination (Join-Path $stageRoot "bin/v
 
 $stdlibTarget = Join-Path $stageRoot "compiler/self_hosted/stdlib"
 New-Item -ItemType Directory -Path $stdlibTarget -Force | Out-Null
-$directModules = @("math.vkf", "stat.vkf", "random.vkf", "time.vkf", "io.vkf", "collections.vkf", "errors.vkf", "system.vkf", "process.vkf", "regex.vkf")
+$directModules = @("math.vkf", "stat.vkf", "random.vkf", "time.vkf", "io.vkf", "collections.vkf", "errors.vkf", "system.vkf", "process.vkf", "regex.vkf", "physics.vkf", "symbolic.vkf")
 foreach ($module in $directModules) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "compiler/self_hosted/stdlib/$module") -Destination $stdlibTarget
 }
+Copy-Item -LiteralPath (Join-Path $repoRoot "compiler/self_hosted/stdlib/physics") -Destination $stdlibTarget -Recurse
 
 $samplesTarget = Join-Path $stageRoot "samples"
 New-Item -ItemType Directory -Path $samplesTarget -Force | Out-Null
@@ -51,8 +52,8 @@ $manifest = [ordered]@{
     platform = "windows-x64"
     entrypoint = "bin/vkf.exe"
     test_command = "vkf -t"
-    stdlib_modules = @("math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex")
-    not_included_partial_modules = @("physics", "ui", "symbolic")
+    stdlib_modules = @("math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex", "physics", "physics.units", "physics.units.si", "symbolic")
+    not_included_partial_modules = @("ui")
     strict_direct = $true
     compatibility_fallback = $false
     runtime_contract = [ordered]@{
@@ -162,8 +163,8 @@ caught: 0
         throw "Packaged native collections/errors smoke failed"
     }
     $stdlibProof = & $compiler -t (Join-Path $repoRoot "tests/release_stdlibs.vkf")
-    if ($LASTEXITCODE -ne 0 -or ($stdlibProof -join "`n") -notmatch "(?m)^4 passed, 0 failed$") {
-        throw "Packaged native math/stat/random/time proof failed"
+    if ($LASTEXITCODE -ne 0 -or ($stdlibProof -join "`n") -notmatch "(?m)^7 passed, 0 failed$") {
+        throw "Packaged native stdlib proof failed"
     }
     @"
 system: .system
@@ -216,7 +217,7 @@ test installed_test() -> bit:
     if ($LASTEXITCODE -ne 0 -or ($testOutput -join "`n") -notmatch "PASS .*installed_test") {
         throw "Packaged integrated test smoke failed"
     }
-    $unsupportedOutput = & $compiler -e 'physics: .physics; :: physics.rigid_material("x", 1, 1, 1, 1, 1, 1)' 2>&1
+    $unsupportedOutput = & $compiler -e 'ui: .ui; :: 0' 2>&1
     $unsupportedExitCode = $LASTEXITCODE
     if ($unsupportedExitCode -eq 0 -or ($unsupportedOutput -join "`n") -notmatch "not included in the strict native release") {
         throw "Strict release accepted an excluded stdlib module"

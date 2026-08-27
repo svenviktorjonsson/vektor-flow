@@ -10,48 +10,50 @@ WASM running modes share one source of truth for dynamics. UI rendering,
 native scene staging, and symbolic display may inspect physics state, but they
 should not reimplement physics formulas.
 
+Platonic Play follows the same rule: it supplies stable editable topology
+records, authored geometry and properties, input, and rendering. Constraints
+and boundary relations remain VKF relations. VKF derives collision geometry
+from the authored topology and returns authoritative physics state and
+diagnostics through dense typed buffers. Moving or splitting an edge therefore
+updates collision geometry immediately without duplicating collision rules in
+Platonic Play.
+
 ## VKF Stdlib Surface
 
 VKF code imports physics through:
 
 ```vkf
-physics: .physics
-d: physics.dimensions
-s: d.L
-t: d.T
-x: 3 * physics.km
+:.physics
+:.physics.units
+
+distance: 3km
+duration: 2s
+velocity: distance / duration
 ```
 
 The stdlib surface owns:
 
-- seven-dimensional basis quantities: `L`, `M`, `T`, `Theta`, `I`, `N`, `J`
-- unit constants and aliases: `m`, `km`, `cm`, `mm`, `um`, `kg`, `g`, `mg`,
-  `s`, `sec`, `second`, `seconds`, `min`, `minutes`, `h`, `d`, `month`,
-  `months`, `y`, `K`, `A`, `mol`, `cd`
-- prefixes through `physics.prefixes`
+- one compiler-owned seven-exponent dimension model over length, mass, time,
+  current, temperature, amount, and luminous intensity
+- an SI catalog under `physics.units` and `physics.units.si`, separate from the
+  engine namespace
+- SI base and coherent-derived unit constants, with the complete decimal
+  prefix range synthesized from one catalog
 - quantity arithmetic where multiplication/division add or subtract dimension
   exponents
 - addition, subtraction, equality, and ordering only between matching
   dimensions, or between unitless quantities/numbers
 - math functions only over unitless quantities or plain numbers
 
-When dimensions are used symbolically, scalar dimension powers use `^` and
-shape uses fixed-vector type syntax:
+Units reveal dimensions, and ordinary arithmetic composes them:
 
 ```vkf
-:.symbolic
-:.physics
+:.physics.units
 
-x: L
-area: L^2
-velocity: L/T
-force: [M*L/T^2:3]
-inertia: [[M*L^2:3]:3]
+area: 3m * 4m
+velocity: 10m / 2s
+force: 2kg * 3m / 1s^2
 ```
-
-`N` is intentionally shared by `symbolic.N` and `physics.N`; bare `N` follows
-normal VKF spill order. Use explicit namespace aliases when both meanings must
-be visible in the same scope.
 
 ## Internal Engine Area
 
@@ -116,6 +118,10 @@ then feed the same rigid-body interface.
 
 These are not separate packages yet. They are named now so future work has
 locality and does not spread formulas across renderers or examples.
+
+All vector, matrix, tensor, factorization, and linear-solve work belongs to the
+separate `.linalg` module described by ADR 0007. `.physics` consumes that module
+and must not retain parallel matrix implementations.
 
 ### Contact Core
 
@@ -212,6 +218,11 @@ Owns:
 - electric and magnetic fields
 - Maxwell-equation stepping
 - coupling between fields, charges, and motion
+- charged-particle motion with electric and magnetic Lorentz forces
+- particle-particle charge interaction or a verified particle-in-cell
+  approximation
+- explicit plate boundaries and absorbing/open field boundaries
+- SI-scaled fields, charges, masses, timesteps, and configurable time units
 
 The browser reference implementation provides electrostatic Poisson solving and
 time-domain Maxwell stepping for every vector component in one through three
@@ -222,14 +233,19 @@ registry; disabled modules publish no symbols or fields.
 The `q` and `sigma_*` properties belong to the physics property core; field
 evolution belongs here.
 
+Particle and field state uses structure-of-arrays typed buffers. The target
+interface supports at least 100,000 particles without allocating one host
+language object per particle.
+
 ## Performance Direction
 
 The package interface should stay small and data-oriented. Future performance
 adapters may include:
 
-- Python compatibility adapters that execute canonical VKF source in tests/tools
-- native implementation for runtime stepping
-- GPU implementation for field, fluid, granular, or electromagnetic solvers
+- native and WASM adapters executing the same canonical VKF source
+- GPU adapters for field, fluid, granular, or electromagnetic kernels
+- dense typed state buffers suitable for large particle clouds without
+  per-particle host objects
 
 One adapter is hypothetical. Add real adapter seams only when there are at least
 two implementations or a clear runtime/codegen split.
@@ -246,3 +262,9 @@ The interface is the test surface:
   sliding and rolling acceleration, rolling resistance, and exact settled rest
 - future thermal/transport/electromagnetic tests should lock conservation and
   stability invariants
+- dropped-ball impact time and restitution bounce height
+- sliding-block stopping distance and time under declared friction
+- live polygon collision while a wall vertex moves
+- exact circle/polygon and circle/arc normals, impulses, and inertia
+- electron-gun field trajectory, electron repulsion, and unit consistency
+- native/WASM state and output parity within fixture-specific tolerances

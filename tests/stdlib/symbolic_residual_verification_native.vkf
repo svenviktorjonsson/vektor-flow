@@ -1,0 +1,108 @@
+:.symbolic
+
+test first_order_ode_verifier_accepts_an_equivalent_noncanonical_solution() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y'(t) = 2 * y(t) + 1
+    condition: y(0) = 3
+    candidate: (7 * exp(2 * _symbolic_clone(t)) - 1) / 2
+    verify_ode_solution(candidate, relation, condition, y, t)
+
+test second_order_ode_verifier_accepts_an_equivalent_noncanonical_solution() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y''(t) + 4 * y(t) = 0
+    conditions: [y(0) = 3, y'(0) = 4]
+    candidate: (6 * cos(2 * _symbolic_clone(t)) + 4 * sin(2 * t)) / 2
+    verify_ode_solution(candidate, relation, conditions, y, t)
+
+test recurrence_verifier_accepts_an_equivalent_noncanonical_solution() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 2 * a(n + 1) - a(n)
+    conditions: [a(0) = 3, a(1) = 5]
+    candidate: (6 + 4 * n) / 2
+    verify_recurrence(candidate, relation, conditions, a, n)
+
+test distinct_root_recurrence_verifier_accepts_factored_equivalent_solution() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = a(n + 1) + a(n)
+    conditions: [a(0) = 0, a(1) = 1]
+    root: sqrt(constant(5))
+    first_root: (1 + _symbolic_clone(root)) / 2
+    second_root: (1 - _symbolic_clone(root)) / 2
+    candidate: (first_root^n - second_root^n) / root
+    verify_recurrence(candidate, relation, conditions, a, n)
+
+test distinct_root_recurrence_verifier_rejects_wrong_modes_that_match_conditions() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 3 * a(n + 1) - 2 * a(n)
+    conditions: [a(0) = 4, a(1) = 5]
+    wrong: (7 + 3^n) / 2
+    ~verify_recurrence(wrong, relation, conditions, a, n)
+
+test first_order_ode_verification_uses_the_relation_not_its_written_orientation() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: 2 * y(t) + 1 = y'(t)
+    condition: y(0) = 3
+    candidate: 3.5 * exp(2 * t) - 0.5
+    verify_ode_solution(candidate, relation, condition, y, t)
+
+test second_order_ode_verification_uses_the_relation_not_its_written_orientation() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: 0 = y''(t) + 4 * y(t)
+    conditions: [y(0) = 3, y'(0) = 4]
+    candidate: 3 * cos(2 * _symbolic_clone(t)) + 2 * sin(2 * t)
+    verify_ode_solution(candidate, relation, conditions, y, t)
+
+test recurrence_verification_uses_the_relation_not_its_written_orientation() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: 2 * a(n + 1) - a(n) = a(n + 2)
+    conditions: [a(0) = 3, a(1) = 5]
+    candidate: 3 + 2 * n
+    verify_recurrence(candidate, relation, conditions, a, n)
+
+test general_solver_selects_a_reversed_recurrence_relation() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: 2 * a(n + 1) - a(n) = a(n + 2)
+    conditions: [a(0) = 3, a(1) = 5]
+    solution: solve(relation, conditions, a, n)
+    same(simplify(solution), simplify(3 + 2 * n))
+
+test general_solver_selects_a_reversed_first_order_ode_relation() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: 2 * y(t) + 1 = y'(t)
+    condition: y(0) = 3
+    solution: solve(relation, [condition], y, t)
+    verify_ode_solution(solution, relation, condition, y, t)
+
+test general_solver_selects_a_reversed_second_order_ode_relation() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: 0 = y''(t) + 4 * y(t)
+    conditions: [y(0) = 3, y'(0) = 4]
+    solution: solve(relation, conditions, y, t)
+    verify_ode_solution(solution, relation, conditions, y, t)
+
+test finite_solution_verifier_rejects_a_set_from_another_equation() -> bit:
+    x: R
+    wrong_solutions: solve(x = 2, [x])
+    ~verify_solutions(wrong_solutions, [x = 3], [x])
+
+test finite_solution_verifier_accepts_the_original_relation() -> bit:
+    x: R
+    solutions: solve(x = 2, [x])
+    verify_solutions(solutions, [x = 2], [x])
+
+test finite_solution_verifier_enforces_the_requested_symbol_domain() -> bit:
+    real_x: R
+    natural_x: N
+    wrong_domain: solve(real_x = -1, [real_x])
+    ~verify_solutions(wrong_domain, [natural_x = -1], [natural_x])

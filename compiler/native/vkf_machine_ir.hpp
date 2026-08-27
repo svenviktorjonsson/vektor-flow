@@ -9,7 +9,7 @@
 
 namespace vkf::machine_ir {
 
-inline constexpr std::uint32_t schema_version = 21;
+inline constexpr std::uint32_t schema_version = 23;
 // The native entry ABI owns slots 0..36. Keep returned aggregate components
 // beyond that table so adding host functions cannot silently corrupt output.
 inline constexpr std::uint32_t runtime_slot_count = 37;
@@ -126,6 +126,7 @@ enum class Opcode : std::uint8_t {
     RangeF64Locals,
     CountLocalValues,
     MakeOwnedF64List,
+    MakeOwnedRepeatedF64List,
     MakeOwnedF64ListLiteral,
     LoadF64LocalsIndex,
     StoreF64LocalsIndex,
@@ -206,6 +207,12 @@ struct Instruction {
 struct Function {
     std::string name;
     std::vector<std::string> parameters;
+    // Parallel to `parameters`. Constant propagation must never treat a
+    // one-word pointer/resource parameter as a numeric scalar merely because
+    // both use one machine stack slot.
+    std::vector<bool> parameter_is_numeric_scalar;
+    bool result_is_numeric_scalar = false;
+    bool result_is_dynamic_f64_list = false;
     std::vector<std::string> locals;
     // Parallel to `locals`. This preserves source-level scalar identity for
     // optimization while the value stack remains representation-compatible.

@@ -1,0 +1,32 @@
+:.symbolic
+
+test finite_limit_verification_rejects_an_invalid_approach_side() -> bit:
+    x: R
+    ~verify_limit(constant(1), x, x, 0, "diagonal")
+
+test finite_limit_verification_rejects_a_nonsymbol_variable() -> bit:
+    x: R
+    ~verify_limit(constant(1), x, constant(1), 0)
+
+test finite_limit_verification_accepts_a_removable_singularity() -> bit:
+    x: R
+    verify_limit(constant(2), (x^2 - 1) / (x - 1), x, 1)
+
+test finite_limit_verification_rejects_a_wrong_candidate() -> bit:
+    x: R
+    ~verify_limit(constant(3), (x^2 - 1) / (x - 1), x, 1)
+
+test directed_pole_verification_preserves_the_approach_side() -> bit:
+    x: R
+    verify_limit(-inf, 1 / _symbolic_clone(x), _symbolic_clone(x), 0, "left") /\
+    verify_limit(inf, 1 / _symbolic_clone(x), x, 0, "right")
+
+test infinite_limit_verification_accepts_an_exact_quotient_candidate() -> bit:
+    x: R
+    value: (3 * x^2 + 1) / (2 * x^2 - 1)
+    verify_limit(constant(3) / constant(2), value, x, inf)
+
+test infinite_limit_verification_rejects_a_wrong_candidate() -> bit:
+    x: R
+    value: (3 * x^2 + 1) / (2 * x^2 - 1)
+    ~verify_limit(constant(2), value, x, inf)

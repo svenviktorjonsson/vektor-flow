@@ -1,0 +1,58 @@
+:.symbolic
+
+test general_real_quadratic_returns_both_verified_roots() -> bit:
+    x: R
+    solutions: solve(equation(x^2 - 5 * x + 6, 0), [x])
+    (solution_count(_symbolic_clone(solutions)) = 2 /\
+     same(solution_value(_symbolic_clone(solutions), 0), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 1), constant(3)) /\
+     solution_verified(solutions))
+
+test integer_quadratic_filters_to_exact_integral_roots() -> bit:
+    x: Z
+    solutions: solve(equation(x^2 + x - 2, 0), [x])
+    (solution_count(_symbolic_clone(solutions)) = 2 /\
+     same(solution_value(_symbolic_clone(solutions), 0), constant(-2)) /\
+     same(solution_value(_symbolic_clone(solutions), 1), constant(1)) /\
+     solution_verified(solutions))
+
+test natural_quadratic_filters_the_negative_root() -> bit:
+    x: N
+    solutions: solve(equation(x^2 + x - 2, 0), [x])
+    (solution_count(_symbolic_clone(solutions)) = 1 /\
+     same(solution_value(_symbolic_clone(solutions), 0), constant(1)) /\
+     solution_verified(solutions))
+
+test real_quadratic_with_negative_discriminant_is_verified_empty() -> bit:
+    x: R
+    solutions: solve(equation(x^2 + x + 1, 0), [x])
+    solution_count(_symbolic_clone(solutions)) = 0 /\ solution_verified(solutions)
+
+test rational_quadratic_preserves_exact_quotient_roots() -> bit:
+    x: Q
+    solutions: solve(equation(2 * x^2 - 3 * x + 1, 0), [x])
+    half: constant(1) / constant(2)
+    (solution_count(_symbolic_clone(solutions)) = 2 /\
+     same(solution_value(_symbolic_clone(solutions), 0), half) /\
+     same(solution_value(_symbolic_clone(solutions), 1), constant(1)) /\
+     solution_verified(solutions))
+
+test roots_preserve_repeated_quadratic_multiplicity_in_a_multiset() -> bit:
+    x: R
+    roots(equation((x - 2)^2, 0), x) = {2:2}
+
+test roots_multiset_contains_each_distinct_quadratic_root_once() -> bit:
+    x: R
+    roots(equation(x^2 - 5 * x + 6, 0), x) = {2:1, 3:1}
+
+test roots_multiset_respects_the_symbol_domain() -> bit:
+    x: N
+    roots(equation(x^2 + x - 2, 0), x) = {1:1}
+
+test roots_returns_a_single_linear_root_as_a_multiset() -> bit:
+    x: Z
+    roots(2x = 6, x) = {3:1}
+
+test literal_adjacency_builds_an_evaluable_symbolic_expression() -> bit:
+    x: R
+    evaluate(3x + 4^2, [2]) = 22

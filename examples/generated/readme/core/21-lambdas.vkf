@@ -1,8 +1,6 @@
-apply_twice(f:int->int, value:int) -> int:
-    f(f(value))
+apply_twice(f:int->int, value:int) -> int: f(f(value))
 
-increment(value:int) -> int:
-    value + 3
+increment(value:int) -> int: value + 3
 
 square: (value): value^2
 

@@ -1,0 +1,229 @@
+:.linalg
+
+_generic_zero_row(columns:[num:c]) -> [num:c]:
+    [columns >> 0]
+
+_generic_zero_matrix(rows:[num:r], columns:[num:c]) -> [[num:c]:r]:
+    [[num:c]:r] result: [..rows.length() - 1 >> _generic_zero_row(columns)]
+    result
+
+test numeric_dot_uses_ordinary_vectors_without_a_matrix_class() -> bit:
+    dot([1, 2, 3], [4, 5, 6]) = 32
+
+test numeric_dot_broadcasts_exactly_over_matrix_rows() -> bit:
+    result: dot([[1, 2, 3], [4, 5, 6]], [7, 8, 9])
+    (result.0 = 50)?!
+    result.1 = 122
+
+test numeric_cross_preserves_vector_shape() -> bit:
+    result: cross([1, 0, 0], [0, 1, 0])
+    result.0 = 0 /\ result.1 = 0 /\ result.2 = 1
+
+test numeric_outer_produces_rectangular_nested_vectors() -> bit:
+    result: outer([1, 2], [3, 4, 5])
+    result.(0, 0) = 3 /\ result.(0, 2) = 5 /\
+    result.(1, 0) = 6 /\ result.(1, 2) = 10
+
+test numeric_matmul_handles_rectangular_nested_vectors() -> bit:
+    result: matmul([[1, 2, 3], [4, 5, 6]], [[7, 8], [9, 10], [11, 12]])
+    result.(0, 0) = 58 /\ result.(0, 1) = 64 /\
+    result.(1, 0) = 139 /\ result.(1, 1) = 154
+
+test numeric_transpose_swaps_rectangular_axes() -> bit:
+    result: transpose([[1, 2, 3], [4, 5, 6]])
+    (result.(0, 0) = 1 /\ result.(0, 1) = 4)?!
+    (result.(1, 0) = 2 /\ result.(1, 1) = 5)?!
+    result.(2, 0) = 3 /\ result.(2, 1) = 6
+
+test numeric_trace_sums_the_main_diagonal() -> bit:
+    trace([[1, 2, 3], [4, 5, 6], [7, 8, 9]]) = 15
+
+test numeric_determinant_uses_pivoted_elimination() -> bit:
+    determinant([[6, 1, 1], [4, -2, 5], [2, 8, 7]]) = -306
+
+test numeric_solve_returns_the_verified_unique_solution() -> bit:
+    result: solve([[2, 1, -1], [-3, -1, 2], [-2, 1, 2]], [8, -11, -3])
+    (_linalg_abs(result.0 - 2) < 0.000000001)?!
+    (_linalg_abs(result.1 - 3) < 0.000000001)?!
+    _linalg_abs(result.2 + 1) < 0.000000001
+
+test numeric_inverse_multiplies_back_to_identity() -> bit:
+    result: inverse([[4, 7], [2, 6]])
+    product: matmul([[4, 7], [2, 6]], result)
+    (_linalg_abs(product.(0, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(product.(0, 1)) < 0.000000001)?!
+    (_linalg_abs(product.(1, 0)) < 0.000000001)?!
+    _linalg_abs(product.(1, 1) - 1) < 0.000000001
+
+test numeric_rref_reduces_a_rectangular_matrix() -> bit:
+    result: rref([[1, 2, -1, -4], [2, 3, -1, -11], [-2, 0, -3, 22]])
+    (_linalg_abs(result.(0, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(result.(0, 1)) < 0.000000001)?!
+    (_linalg_abs(result.(0, 2)) < 0.000000001)?!
+    (_linalg_abs(result.(0, 3) + 8) < 0.000000001)?!
+    (_linalg_abs(result.(1, 0)) < 0.000000001)?!
+    (_linalg_abs(result.(1, 1) - 1) < 0.000000001)?!
+    (_linalg_abs(result.(1, 2)) < 0.000000001)?!
+    (_linalg_abs(result.(1, 3) - 1) < 0.000000001)?!
+    (_linalg_abs(result.(2, 0)) < 0.000000001)?!
+    (_linalg_abs(result.(2, 1)) < 0.000000001)?!
+    (_linalg_abs(result.(2, 2) - 1) < 0.000000001)?!
+    _linalg_abs(result.(2, 3) + 2) < 0.000000001
+
+test numeric_rank_counts_independent_rows() -> bit:
+    rank([[1, 2, 3], [2, 4, 6], [1, 1, 1]]) = 2
+
+test numeric_lu_uses_partial_pivoting() -> bit:
+    result: lu([[0, 2], [1, 3]])
+    (result.permutation.0 = 1 / result.permutation.1 = 0)?!
+    (result.sign = -1)?!
+    (_linalg_abs(result.lower.(0, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(result.lower.(1, 1) - 1) < 0.000000001)?!
+    (_linalg_abs(result.upper.(0, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(result.upper.(0, 1) - 3) < 0.000000001)?!
+    (_linalg_abs(result.upper.(1, 0)) < 0.000000001)?!
+    _linalg_abs(result.upper.(1, 1) - 2) < 0.000000001
+
+test numeric_cholesky_returns_the_lower_factor() -> bit:
+    lower: cholesky([[4, 12, -16], [12, 37, -43], [-16, -43, 98]])
+    (_linalg_abs(lower.(0, 0) - 2) < 0.000000001)?!
+    (_linalg_abs(lower.(1, 0) - 6) < 0.000000001)?!
+    (_linalg_abs(lower.(1, 1) - 1) < 0.000000001)?!
+    (_linalg_abs(lower.(2, 0) + 8) < 0.000000001)?!
+    (_linalg_abs(lower.(2, 1) - 5) < 0.000000001)?!
+    _linalg_abs(lower.(2, 2) - 3) < 0.000000001
+
+test numeric_qr_reconstructs_a_rectangular_matrix_with_orthonormal_columns() -> bit:
+    matrix: [[1, 0], [1, 1], [0, 1]]
+    factors: qr(matrix)
+    reconstructed: matmul(factors.q, factors.r)
+    orthogonal: matmul(transpose(factors.q), factors.q)
+    (_linalg_abs(reconstructed.(0, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(0, 1)) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(1, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(1, 1) - 1) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(2, 0)) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(2, 1) - 1) < 0.000000001)?!
+    (_linalg_abs(orthogonal.(0, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(orthogonal.(0, 1)) < 0.000000001)?!
+    (_linalg_abs(orthogonal.(1, 0)) < 0.000000001)?!
+    _linalg_abs(orthogonal.(1, 1) - 1) < 0.000000001
+
+test numeric_least_squares_solves_an_overdetermined_system() -> bit:
+    result: least_squares([[1, 1], [1, 2], [1, 3]], [1, 2, 2])
+    (_linalg_abs(result.0 - 0.666666666666667) < 0.000000001)?!
+    _linalg_abs(result.1 - 0.5) < 0.000000001
+
+test numeric_null_space_returns_verified_basis_directions() -> bit:
+    result: null_space([[1, 2, 3], [2, 4, 6]])
+    first_residual: dot([[1, 2, 3], [2, 4, 6]], result.basis.0)
+    second_residual: dot([[1, 2, 3], [2, 4, 6]], result.basis.1)
+    (result.dimension = 2)?!
+    (_linalg_abs(first_residual.0) < 0.000000001)?!
+    (_linalg_abs(first_residual.1) < 0.000000001)?!
+    (_linalg_abs(second_residual.0) < 0.000000001)?!
+    (_linalg_abs(second_residual.1) < 0.000000001)?!
+    (_linalg_abs(result.basis.(0, 1) - 1) < 0.000000001)?!
+    _linalg_abs(result.basis.(1, 2) - 1) < 0.000000001
+
+test numeric_solution_space_classifies_and_verifies_an_affine_family() -> bit:
+    result: solution_space([[1, 1, 1], [2, 2, 2]], [3, 6])
+    particular_residual: dot([[1, 1, 1], [2, 2, 2]], result.particular)
+    direction_residual: dot([[1, 1, 1], [2, 2, 2]], result.directions.0)
+    (result.consistent /\ ~result.unique)?!
+    (result.rank = 1 /\ result.nullity = 2)?!
+    (_linalg_abs(particular_residual.0 - 3) < 0.000000001)?!
+    (_linalg_abs(particular_residual.1 - 6) < 0.000000001)?!
+    (_linalg_abs(direction_residual.0) < 0.000000001)?!
+    _linalg_abs(direction_residual.1) < 0.000000001
+
+test numeric_residual_uses_the_same_lifted_matrix_vector_semantics() -> bit:
+    result: residual([[2, 1], [1, 3], [4, -1]], [2, -1], [3, -1, 9])
+    (_linalg_abs(result.0) < 0.000000001)?!
+    (_linalg_abs(result.1) < 0.000000001)?!
+    _linalg_abs(result.2) < 0.000000001
+
+test numeric_solution_verification_reports_scale_and_condition() -> bit:
+    matrix: [[4, 0], [0, 1]]
+    exact: verify_solution(matrix, [2, 3], [8, 3])
+    wrong: verify_solution(matrix, [2.001, 3], [8, 3])
+    (exact.valid /\ exact.relative_residual = 0)?!
+    (_linalg_abs(exact.condition_number - 4) < 0.000000001)?!
+    (~wrong.valid)?!
+    wrong.relative_residual > 0
+
+test one_by_one_solution_space_preserves_nested_vector_rank() -> bit:
+    result: solution_space([[1]], [1])
+    (result.consistent /\ result.unique)?!
+    (result.rank = 1 /\ result.nullity = 0)?!
+    _linalg_abs(result.particular.0 - 1) < 0.000000001
+
+test singular_one_by_one_solution_space_returns_one_free_direction() -> bit:
+    result: solution_space([[0]], [0])
+    (result.consistent /\ ~result.unique)?!
+    (result.rank = 0 /\ result.nullity = 1)?!
+    result.directions.(0, 0) = 1
+
+test generic_nested_vector_construction_preserves_one_by_one_rank() -> bit:
+    matrix: _generic_zero_matrix([0], [0])
+    result: solution_space(matrix, [0])
+    result.consistent /\ result.nullity = 1 /\ result.directions.(0, 0) = 1
+
+test symmetric_eigen_returns_residual_verified_eigenpairs() -> bit:
+    matrix: [[2, 1], [1, 2]]
+    result: eigen(matrix)
+    first_vector: [result.vectors.(0, 0), result.vectors.(1, 0)]
+    second_vector: [result.vectors.(0, 1), result.vectors.(1, 1)]
+    first_residual: dot(matrix, first_vector) - result.values.0 * first_vector
+    second_residual: dot(matrix, second_vector) - result.values.1 * second_vector
+    (result.converged /\ result.verified)?!
+    (_linalg_vector_infinity_norm(first_residual) < 0.000000001)?!
+    (_linalg_vector_infinity_norm(second_residual) < 0.000000001)?!
+    _linalg_abs(result.values.0 + result.values.1 - 4) < 0.000000001
+
+test numeric_diag_builds_a_diagonal_matrix_from_a_vector() -> bit:
+    result: diag([2, 3, 5])
+    (result.(0, 0) = 2 /\ result.(1, 1) = 3 /\ result.(2, 2) = 5)?!
+    (result.(0, 1) = 0 /\ result.(0, 2) = 0)?!
+    result.(1, 0) = 0 /\ result.(1, 2) = 0 /\ result.(2, 0) = 0
+
+test numeric_svd_reconstructs_a_full_rank_square_matrix() -> bit:
+    matrix: [[3, 1], [1, 3]]
+    factors: svd(matrix)
+    reconstructed: matmul(matmul(factors.u, diag(factors.s)), factors.vh)
+    (factors.converged /\ factors.verified)?!
+    (_linalg_abs(factors.s.0 - 4) < 0.000000001)?!
+    (_linalg_abs(factors.s.1 - 2) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(0, 0) - 3) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(0, 1) - 1) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(1, 0) - 1) < 0.000000001)?!
+    _linalg_abs(reconstructed.(1, 1) - 3) < 0.000000001
+
+test numeric_svd_completes_rank_deficient_orthonormal_bases() -> bit:
+    matrix: [[1, 0], [0, 0]]
+    factors: svd(matrix)
+    reconstructed: matmul(matmul(factors.u, diag(factors.s)), factors.vh)
+    orthogonal: matmul(transpose(factors.u), factors.u)
+    (factors.converged /\ factors.verified)?!
+    (_linalg_abs(factors.s.0 - 1) < 0.000000001 /\ factors.s.1 = 0)?!
+    (_linalg_abs(reconstructed.(0, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(0, 1)) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(1, 0)) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(1, 1)) < 0.000000001)?!
+    (_linalg_abs(orthogonal.(0, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(orthogonal.(1, 1) - 1) < 0.000000001)?!
+    _linalg_abs(orthogonal.(0, 1)) < 0.000000001
+
+test numeric_svd_returns_a_thin_factorization_for_tall_matrices() -> bit:
+    matrix: [[1, 0], [0, 2], [0, 0]]
+    factors: svd(matrix)
+    reconstructed: matmul(matmul(factors.u, diag(factors.s)), factors.vh)
+    (factors.converged /\ factors.verified)?!
+    (_linalg_abs(factors.s.0 - 2) < 0.000000001)?!
+    (_linalg_abs(factors.s.1 - 1) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(0, 0) - 1) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(0, 1)) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(1, 0)) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(1, 1) - 2) < 0.000000001)?!
+    (_linalg_abs(reconstructed.(2, 0)) < 0.000000001)?!
+    _linalg_abs(reconstructed.(2, 1)) < 0.000000001

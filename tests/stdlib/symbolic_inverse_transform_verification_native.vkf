@@ -1,0 +1,60 @@
+:.symbolic
+
+test inverse_laplace_verifies_the_original_frequency_expression() -> bit:
+    a: symbol("a", R, constant:true)
+    b: symbol("b", C, constant:true)
+    t: symbol("t", R)
+    s: symbol("s", C)
+    source: a * exp(b * t)
+    transformed: laplace(_symbolic_clone(source), t, s)
+    candidate: inverse_laplace(_symbolic_clone(transformed), s, t)
+    (verify_inverse_laplace(candidate, transformed, s, t) /\
+     ~verify_inverse_laplace(candidate + 1, transformed, s, t))
+
+test inverse_z_verifies_the_original_frequency_expression() -> bit:
+    a: symbol("a", C, constant:true)
+    r: symbol("r", C, constant:true)
+    n: symbol("n", N)
+    z: symbol("z", C)
+    source: a * r^n
+    transformed: z_transform(_symbolic_clone(source), n, z)
+    candidate: inverse_z_transform(_symbolic_clone(transformed), z, n)
+    (verify_inverse_z_transform(candidate, transformed, z, n) /\
+     ~verify_inverse_z_transform(candidate + 1, transformed, z, n))
+
+test inverse_fourier_verifies_equivalent_noncanonical_candidates() -> bit:
+    t: symbol("t", R)
+    omega: symbol("omega", R)
+    source: exp(0 - t^2)
+    transformed: fourier(_symbolic_clone(source), t, omega)
+    candidate: 0.5 * _symbolic_clone(source) + 0.5 * _symbolic_clone(source)
+    wrong: source + exp(0 - 2 * t^2)
+    (verify_inverse_fourier(candidate, _symbolic_clone(transformed), omega, t) /\
+     ~verify_inverse_fourier(wrong, transformed, omega, t))
+
+test sampled_inverse_fourier_verifies_every_spectrum_component() -> bit:
+    values: [1, -2, 3.5, 4]
+    spectrum: fourier(values)
+    candidate: inverse_fourier(spectrum)
+    verify_inverse_fourier(candidate, spectrum, 0.000000001)
+
+test sampled_inverse_fourier_rejects_a_perturbed_candidate() -> bit:
+    values: [1, -2, 3.5, 4]
+    spectrum: fourier(values)
+    candidate: inverse_fourier(spectrum)
+    [num] wrong: [candidate.0 + 0.01, candidate.1, candidate.2, candidate.3]
+    ~verify_inverse_fourier(wrong, spectrum, 0.000000001)
+
+test sampled_inverse_haar_verifies_the_original_coefficients() -> bit:
+    values: [3, -1, 4, 2, 8, 0, -2, 6]
+    coefficients: haar_wavelet(values)
+    candidate: inverse_haar_wavelet(coefficients)
+    verify_inverse_haar_wavelet(candidate, coefficients, 0.000000001)
+
+test sampled_inverse_haar_rejects_a_perturbed_candidate() -> bit:
+    values: [3, -1, 4, 2, 8, 0, -2, 6]
+    coefficients: haar_wavelet(values)
+    candidate: inverse_haar_wavelet(coefficients)
+    [num] wrong: [..7 >> candidate.($)]
+    wrong.0: wrong.0 + 0.01
+    ~verify_inverse_haar_wavelet(wrong, coefficients, 0.000000001)

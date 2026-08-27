@@ -1,0 +1,5 @@
+# expect-compile-error: named generic type T received inconsistent argument types
+
+same(left:T, right:T) -> T: left
+
+same(1, 2.5)

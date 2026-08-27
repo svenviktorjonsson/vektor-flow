@@ -47,6 +47,17 @@ dynamic_list_update() -> bit:
     values.(1): 21
     (values.(1) = 21)?!
 
+_repeat_dynamic(value:num, count:num) -> [num]:
+    [value:count]
+
+dynamic_repeat_allocates_the_requested_length() -> bit:
+    values: _repeat_dynamic(3, 4)
+    (values.length() = 4 /\ stat.sum(values) = 12)?!
+
+dynamic_repeat_allows_an_empty_vector() -> bit:
+    values: _repeat_dynamic(7, 0)
+    (values.length() = 0)?!
+
 _copy_list(values: [num]) -> [num]:
     values
 
@@ -67,3 +78,21 @@ numeric_queue_is_fifo_and_empty_get_returns_null() -> bit:
     second: q.get()
     missing: q.get()
     (first = 10 /\ second = 20 /\ missing = null /\ q.empty())?!
+
+copy_with_unused_degree(value:[num], degree:num) -> [num]:
+    [..value.length() - 1 >> value.($)]
+
+read_nested_dynamic_copy(value:[num]) -> num:
+    copied: copy_with_unused_degree(value, value.(1))
+    copied.(0)
+
+owned_parameter_is_not_rewritten_as_numeric_constant() -> bit:
+    (read_nested_dynamic_copy([7, 2]) = 7)?!
+
+update_one_nested_column(matrix:[[num:2]:2], row:num) -> [[num:2]:2]:
+    matrix.(row, 1): 9
+    matrix
+
+mixed_dynamic_and_constant_nested_index_update() -> bit:
+    result: update_one_nested_column([[1, 2], [3, 4]], 1)
+    result.(0, 1) = 2 /\ result.(1, 0) = 3 /\ result.(1, 1) = 9

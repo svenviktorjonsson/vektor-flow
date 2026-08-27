@@ -1,0 +1,32 @@
+:.symbolic
+
+test compact_prime_suffix_splits_known_multiletter_variables() -> bit:
+    f: (R, R)->R
+    x: R
+    phi: R
+    actual: f''phix(x, phi)
+    applied: at(_symbolic_clone(f), [_symbolic_clone(x), _symbolic_clone(phi)])
+    expected: derivative(
+        derivative(applied, _symbolic_clone(phi)),
+        _symbolic_clone(x)
+    )
+    same(actual, expected)
+
+test repeated_multiletter_prime_suffix_uses_the_same_variable_twice() -> bit:
+    f: (R, R)->R
+    x: R
+    phi: R
+    actual: f''phiphi(phi, x)
+    applied: at(_symbolic_clone(f), [_symbolic_clone(phi), _symbolic_clone(x)])
+    expected: derivative(
+        derivative(applied, _symbolic_clone(phi)),
+        _symbolic_clone(phi)
+    )
+    same(actual, expected)
+
+test implicit_univariate_prime_preserves_derivative_order_at_a_numeric_point() -> bit:
+    f: R
+    condition: f'(0) = 2
+    evaluated_derivative: _symbolic_left(_symbolic_clone(condition))
+    unresolved_derivative: _symbolic_left(evaluated_derivative)
+    _symbolic_dag_operation(condition) = 13 /\ _symbolic_dag_operation(unresolved_derivative) = 24

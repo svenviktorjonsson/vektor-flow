@@ -1,0 +1,59 @@
+:.symbolic
+errors: .errors
+
+test forward_haar_rejects_a_non_power_of_two_sample_count() -> bit:
+    raised: false
+    haar_wavelet([1, 2, 3])!?
+        errors.ValueError => .raised: true
+    raised
+
+test fourier_real_rejects_a_malformed_spectrum() -> bit:
+    raised: false
+    fourier_real([4, 1], 0)!?
+        errors.ValueError => .raised: true
+    raised
+
+test fourier_real_rejects_a_frequency_at_the_upper_bound() -> bit:
+    spectrum: fourier([1, 0, 0, 0])
+    raised: false
+    fourier_real(spectrum, 4)!?
+        errors.ValueError => .raised: true
+    raised
+
+test fourier_real_rejects_a_negative_frequency() -> bit:
+    spectrum: fourier([1, 0, 0, 0])
+    raised: false
+    fourier_real(spectrum, -1)!?
+        errors.ValueError => .raised: true
+    raised
+
+test fourier_real_rejects_a_fractional_frequency() -> bit:
+    spectrum: fourier([1, 0, 0, 0])
+    raised: false
+    fourier_real(spectrum, 0.5)!?
+        errors.ValueError => .raised: true
+    raised
+
+test fourier_real_reads_a_valid_frequency() -> bit:
+    spectrum: fourier([1, 0, 0, 0])
+    fourier_real(_symbolic_clone_numeric_vector(spectrum), 0) = 1
+
+test fourier_imag_rejects_a_malformed_spectrum() -> bit:
+    raised: false
+    fourier_imag([1, 7, 8, 9], 0)!?
+        errors.ValueError => .raised: true
+    raised
+
+test fourier_imag_rejects_a_negative_frequency() -> bit:
+    spectrum: fourier([1, 0, 0, 0])
+    raised: false
+    fourier_imag(spectrum, -1)!?
+        errors.ValueError => .raised: true
+    raised
+
+test fourier_imag_rejects_a_fractional_frequency() -> bit:
+    spectrum: fourier([1, 0, 0, 0])
+    raised: false
+    fourier_imag(spectrum, 0.5)!?
+        errors.ValueError => .raised: true
+    raised

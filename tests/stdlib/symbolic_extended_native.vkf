@@ -1,0 +1,21 @@
+:.symbolic
+errors: .errors
+
+test symbolic_simplify_folds_numeric_division() -> bit:
+    same(simplify(constant(6) / constant(3)), constant(2))?!
+
+test symbolic_natural_domain_evaluates() -> bit:
+    x: N
+    (evaluate(x, [7]) = 7)?!
+
+test symbolic_multi_character_names_evaluate() -> bit:
+    temperature: R
+    (evaluate(temperature, [7]) = 7)?!
+
+test symbolic_all_scalar_domains_participate_in_expressions() -> bit:
+    n: N
+    z: Z
+    q: Q
+    r: R
+    c: C
+    (evaluate(n + z + q + r + c, [1, 2, 3, 4, 5]) = 15)?!

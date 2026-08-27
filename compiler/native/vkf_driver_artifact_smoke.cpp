@@ -12,6 +12,8 @@
 #endif
 #ifdef VKF_NATIVE_FRONTEND_LIBRARY
 #include "compiler/native/vkf_native_frontend.hpp"
+#include "compiler/native/vkf_physical_dimensions.hpp"
+#include "compiler/native/vkf_stdlib_registry.hpp"
 #endif
 
 #include <algorithm>
@@ -341,10 +343,20 @@ std::vector<Dependency> resolve_stdlib_dependencies(const std::string& source_te
                 return;
             }
         }
-        if (!std::filesystem::exists(path)) {
+        std::filesystem::path resolved = path;
+        if (!std::filesystem::exists(resolved) && !bundled_stdlib_root.empty()) {
+            const auto repository_stdlib = std::filesystem::current_path()
+                / "compiler" / "self_hosted" / "stdlib";
+            const auto relative = path.lexically_relative(stdlib_root);
+            const auto repository_candidate = repository_stdlib / relative;
+            if (!relative.empty() && std::filesystem::exists(repository_candidate)) {
+                resolved = repository_candidate;
+            }
+        }
+        if (!std::filesystem::exists(resolved)) {
             throw DriverFailure("missing stdlib dependency " + name + " at " + path.string());
         }
-        deps.push_back({name, path});
+        deps.push_back({name, resolved});
     };
     if (source_text.find("math.") != std::string::npos) {
         add_dep("math", stdlib_root / "math.vkf");
@@ -678,9 +690,17 @@ vf::JsonValue parse_linked_module(
 
 std::optional<std::filesystem::path> resolve_dot_module(
     const std::filesystem::path& importing_source,
-    const std::string& segment
+    const std::string& module_path
 ) {
-    std::filesystem::path relative(segment);
+    std::filesystem::path relative;
+    std::size_t start = 0;
+    while (start < module_path.size()) {
+        const auto end = module_path.find('.', start);
+        relative /= module_path.substr(
+            start, end == std::string::npos ? std::string::npos : end - start);
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
     if (relative.extension().empty()) relative += ".vkf";
     const auto local = std::filesystem::absolute(importing_source).parent_path() / relative;
     if (std::filesystem::is_regular_file(local)) return std::filesystem::weakly_canonical(local);
@@ -710,6 +730,26 @@ std::optional<std::filesystem::path> resolve_dot_module(
     return std::nullopt;
 }
 
+std::optional<std::string> dot_module_name(const vf::JsonValue& path_value) {
+    if (!path_value.is_object()) return std::nullopt;
+    const auto& path = path_value.as_object();
+    const auto kind = path.find("kind");
+    const auto segments = path.find("segments");
+    if (kind == path.end() || !kind->second.is_string()
+        || kind->second.as_string() != "dot_module_path"
+        || segments == path.end() || !segments->second.is_array()
+        || segments->second.as_array().empty()) {
+        return std::nullopt;
+    }
+    std::string name;
+    for (const auto& segment : segments->second.as_array()) {
+        if (!segment.is_string() || segment.as_string().empty()) return std::nullopt;
+        if (!name.empty()) name += '.';
+        name += segment.as_string();
+    }
+    return name;
+}
+
 void append_fingerprint_source(
     const std::filesystem::path& source,
     std::set<std::filesystem::path>& visited,
@@ -720,21 +760,34 @@ void append_fingerprint_source(
     const std::string text = read_file(canonical);
     material += "\nFILE:" + canonical.filename().string() + "\n" + text;
 
-    std::istringstream lines(text);
-    std::string line;
-    while (std::getline(lines, line)) {
-        const auto first = line.find_first_not_of(" \t");
-        if (first == std::string::npos || line.compare(first, 3, "::.") != 0) continue;
-        std::size_t end = first + 3;
-        while (end < line.size() &&
-               (std::isalnum(static_cast<unsigned char>(line[end])) ||
-                line[end] == '_' || line[end] == '-')) {
-            ++end;
+    try {
+        std::string normalized = text;
+        normalize_source_for_lexer(normalized);
+        const auto tokens = vkf::native_frontend::lex_value(
+            normalized, canonical.string());
+        const auto module = vkf::native_frontend::parse_value(tokens);
+        const auto& object = module.as_object();
+        const auto body = object.find("body");
+        if (body == object.end() || !body->second.is_array()) return;
+        for (const auto& statement_value : body->second.as_array()) {
+            if (!statement_value.is_object()) continue;
+            const auto& statement = statement_value.as_object();
+            const auto kind = statement.find("kind");
+            const auto path = statement.find("path");
+            if (kind == statement.end() || !kind->second.is_string() ||
+                kind->second.as_string() != "spill_import" ||
+                path == statement.end()) {
+                continue;
+            }
+            const auto name = dot_module_name(path->second);
+            if (!name) continue;
+            const auto resolved = resolve_dot_module(canonical, *name);
+            if (resolved) append_fingerprint_source(*resolved, visited, material);
         }
-        if (end == first + 3) continue;
-        const std::string module = line.substr(first + 3, end - first - 3);
-        const auto resolved = resolve_dot_module(canonical, module);
-        if (resolved) append_fingerprint_source(*resolved, visited, material);
+    } catch (const std::exception&) {
+        // Invalid source must still reach the normal frontend diagnostic path.
+        // Its own bytes remain part of the fingerprint even when imports cannot
+        // yet be discovered from a valid module AST.
     }
 }
 
@@ -743,7 +796,7 @@ std::string native_build_fingerprint(
     const std::filesystem::path& source
 ) {
     (void)self;
-    std::string material = "VKF-NATIVE-BUILD-V2\n" __DATE__ "\n" __TIME__ "\n";
+    std::string material = "VKF-NATIVE-BUILD-V3\n" __DATE__ "\n" __TIME__ "\n";
 #ifdef VKF_X64_BACKEND_LIBRARY
     material += std::string(vkf::target::host_x64_feature_key()) + "\n";
 #endif
@@ -870,17 +923,9 @@ std::optional<std::filesystem::path> spilled_module_path(
     if (alias != statement.end() && !alias->second.is_null()) return std::nullopt;
     const auto path = statement.find("path");
     if (path == statement.end() || !path->second.is_object()) return std::nullopt;
-    const auto& path_object = path->second.as_object();
-    const auto path_kind = path_object.find("kind");
-    const auto segments = path_object.find("segments");
-    if (path_kind == path_object.end() || !path_kind->second.is_string()
-        || path_kind->second.as_string() != "dot_module_path"
-        || segments == path_object.end() || !segments->second.is_array()
-        || segments->second.as_array().size() != 1
-        || !segments->second.as_array().front().is_string()) {
-        return std::nullopt;
-    }
-    return resolve_dot_module(importing_source, segments->second.as_array().front().as_string());
+    const auto name = dot_module_name(path->second);
+    if (!name) return std::nullopt;
+    return resolve_dot_module(importing_source, *name);
 }
 
 struct AliasedModule {
@@ -902,19 +947,47 @@ std::optional<AliasedModule> aliased_module_path(
         || path == statement.end() || !path->second.is_object()) {
         return std::nullopt;
     }
-    const auto& path_object = path->second.as_object();
-    const auto path_kind = path_object.find("kind");
-    const auto segments = path_object.find("segments");
-    if (path_kind == path_object.end() || !path_kind->second.is_string()
-        || path_kind->second.as_string() != "dot_module_path"
-        || segments == path_object.end() || !segments->second.is_array()
-        || segments->second.as_array().size() != 1
-        || !segments->second.as_array().front().is_string()) {
-        return std::nullopt;
-    }
-    const auto resolved = resolve_dot_module(importing_source, segments->second.as_array().front().as_string());
+    const auto name = dot_module_name(path->second);
+    if (!name) return std::nullopt;
+    const auto resolved = resolve_dot_module(importing_source, *name);
     if (!resolved) return std::nullopt;
     return AliasedModule{alias->second.as_string(), *resolved};
+}
+
+void collect_linked_aliased_modules(
+    const vf::JsonValue& module_value,
+    const std::filesystem::path& module_source,
+    std::vector<AliasedModule>& linked_aliases,
+    std::set<std::filesystem::path>& visited_sources,
+    std::set<std::string>& visited_aliases,
+    StdlibCacheStats& cache_stats
+) {
+    const auto normalized_source = std::filesystem::absolute(module_source).lexically_normal();
+    if (!visited_sources.insert(normalized_source).second) return;
+    if (!module_value.is_object()) throw DriverFailure("linked module AST is not an object");
+    const auto& module = module_value.as_object();
+    const auto body = module.find("body");
+    if (body == module.end() || !body->second.is_array()) {
+        throw DriverFailure("linked module AST has no body");
+    }
+    for (const auto& statement : body->second.as_array()) {
+        if (const auto imported = aliased_module_path(statement, module_source)) {
+            const std::string key = imported->alias + "\n" +
+                std::filesystem::absolute(imported->path).lexically_normal().string();
+            if (visited_aliases.insert(key).second) linked_aliases.push_back(*imported);
+            const auto ast = parse_linked_module(imported->path, cache_stats);
+            collect_linked_aliased_modules(
+                ast, imported->path, linked_aliases,
+                visited_sources, visited_aliases, cache_stats);
+            continue;
+        }
+        const auto dependency = spilled_module_path(statement, module_source);
+        if (!dependency) continue;
+        const auto ast = parse_linked_module(*dependency, cache_stats);
+        collect_linked_aliased_modules(
+            ast, *dependency, linked_aliases,
+            visited_sources, visited_aliases, cache_stats);
+    }
 }
 
 vf::JsonValue rewrite_module_symbols(
@@ -1017,6 +1090,142 @@ vf::JsonValue rewrite_aliased_module_calls(
     return vf::JsonValue(std::move(rewritten));
 }
 
+const vf::JsonValue* resolve_static_record(
+    const vf::JsonValue& expression,
+    const std::map<std::string, const vf::JsonValue*>& bindings,
+    std::set<std::string>& resolving
+) {
+    if (!expression.is_object()) return nullptr;
+    const auto& object = expression.as_object();
+    const auto kind = object.find("kind");
+    if (kind == object.end() || !kind->second.is_string()) return nullptr;
+    if (kind->second.as_string() == "record_literal") return &expression;
+    if (kind->second.as_string() == "identifier") {
+        const auto name = object.find("name");
+        if (name == object.end() || !name->second.is_string()) return nullptr;
+        const std::string binding_name = name->second.as_string();
+        const auto binding = bindings.find(binding_name);
+        if (binding == bindings.end() || !resolving.insert(binding_name).second) return nullptr;
+        const auto* result = resolve_static_record(*binding->second, bindings, resolving);
+        resolving.erase(binding_name);
+        return result;
+    }
+    if (kind->second.as_string() != "attribute") return nullptr;
+    const auto base = object.find("object");
+    const auto name = object.find("name");
+    if (base == object.end() || name == object.end() || !name->second.is_string()) return nullptr;
+    const auto* record = resolve_static_record(base->second, bindings, resolving);
+    if (!record) return nullptr;
+    const auto& record_object = record->as_object();
+    const auto fields = record_object.find("fields");
+    if (fields == record_object.end() || !fields->second.is_array()) return nullptr;
+    for (const auto& field_value : fields->second.as_array()) {
+        if (!field_value.is_object()) continue;
+        const auto& field = field_value.as_object();
+        const auto field_name = field.find("name");
+        const auto value = field.find("value");
+        if (field_name != field.end() && field_name->second.is_string()
+            && field_name->second.as_string() == name->second.as_string()
+            && value != field.end()) {
+            return resolve_static_record(value->second, bindings, resolving);
+        }
+    }
+    return nullptr;
+}
+
+vf::JsonValue::Array expand_top_level_record_spills(vf::JsonValue::Array body) {
+    std::map<std::string, const vf::JsonValue*> bindings;
+    for (const auto& statement_value : body) {
+        if (!statement_value.is_object()) continue;
+        const auto& statement = statement_value.as_object();
+        const auto kind = statement.find("kind");
+        const auto target = statement.find("target");
+        const auto value = statement.find("value");
+        if (kind == statement.end() || !kind->second.is_string()
+            || kind->second.as_string() != "bind"
+            || target == statement.end() || !target->second.is_object()
+            || value == statement.end()) continue;
+        const auto& target_object = target->second.as_object();
+        const auto target_kind = target_object.find("kind");
+        const auto target_name = target_object.find("name");
+        if (target_kind != target_object.end() && target_kind->second.is_string()
+            && target_kind->second.as_string() == "identifier"
+            && target_name != target_object.end() && target_name->second.is_string()) {
+            bindings[target_name->second.as_string()] = &value->second;
+        }
+    }
+
+    vf::JsonValue::Array expanded;
+    for (const auto& statement_value : body) {
+        if (!statement_value.is_object()) {
+            expanded.push_back(statement_value);
+            continue;
+        }
+        const auto& statement = statement_value.as_object();
+        const auto kind = statement.find("kind");
+        const auto value = statement.find("value");
+        if (kind == statement.end() || !kind->second.is_string()
+            || kind->second.as_string() != "spill_value" || value == statement.end()) {
+            expanded.push_back(statement_value);
+            continue;
+        }
+        std::set<std::string> resolving;
+        const auto* record = resolve_static_record(value->second, bindings, resolving);
+        if (!record) {
+            expanded.push_back(statement_value);
+            continue;
+        }
+        const auto& fields = record->as_object().at("fields").as_array();
+        const bool si_catalog = [&]() {
+            if (!value->second.is_object()) return false;
+            const auto& expression = value->second.as_object();
+            const auto expression_kind = expression.find("kind");
+            const auto expression_name = expression.find("name");
+            if (expression_kind == expression.end() || !expression_kind->second.is_string()
+                || expression_name == expression.end() || !expression_name->second.is_string()) {
+                return false;
+            }
+            const auto& kind_name = expression_kind->second.as_string();
+            return (kind_name == "identifier" || kind_name == "attribute")
+                && expression_name->second.as_string() == "si";
+        }();
+        const auto append_binding = [&](const std::string& name,
+                                        const vf::JsonValue& binding_value,
+                                        const std::optional<vkf::physical::Dimension>& dimension) {
+            vf::JsonValue::Object target;
+            target["kind"] = "identifier";
+            target["name"] = name;
+            vf::JsonValue::Object bind;
+            bind["kind"] = "bind";
+            bind["target"] = vf::JsonValue(std::move(target));
+            bind["value"] = binding_value;
+            if (dimension) {
+                vf::JsonValue::Object type;
+                type["kind"] = "type_annotation";
+                type["name"] = vkf::physical::unit_type(*dimension);
+                bind["type"] = vf::JsonValue(std::move(type));
+            }
+            expanded.emplace_back(std::move(bind));
+        };
+        if (si_catalog) {
+            for (const auto& unit : vkf::physical::catalog_units("physics.units.si")) {
+                vf::JsonValue::Object number;
+                number["kind"] = "number_literal";
+                number["value"] = unit.scale;
+                append_binding(
+                    unit.symbol, vf::JsonValue(std::move(number)), unit.dimension);
+            }
+            continue;
+        }
+        for (const auto& field_value : fields) {
+            const auto& field = field_value.as_object();
+            append_binding(
+                field.at("name").as_string(), field.at("value"), std::nullopt);
+        }
+    }
+    return expanded;
+}
+
 void append_linked_spilled_module_body(
     vf::JsonValue::Array& linked_body,
     const vf::JsonValue& module_value,
@@ -1051,12 +1260,19 @@ vf::JsonValue link_spilled_file_modules(
         linked_body, root_module, root_source, linked_sources, cache_stats);
     vf::JsonValue::Array namespaced_modules;
     std::map<std::string, std::map<std::string, std::string>> exports;
-    const auto& root_body = root_module.as_object().at("body").as_array();
-    for (const auto& statement : root_body) {
-        const auto imported = aliased_module_path(statement, root_source);
-        if (!imported) continue;
-        const auto dependency_ast = parse_linked_module(imported->path, cache_stats);
-        const auto& dependency_body = dependency_ast.as_object().at("body").as_array();
+    std::vector<AliasedModule> linked_aliases;
+    std::set<std::filesystem::path> visited_alias_sources;
+    std::set<std::string> visited_aliases;
+    collect_linked_aliased_modules(
+        root_module, root_source, linked_aliases,
+        visited_alias_sources, visited_aliases, cache_stats);
+    for (const auto& imported : linked_aliases) {
+        const auto dependency_ast = parse_linked_module(imported.path, cache_stats);
+        vf::JsonValue::Array dependency_body;
+        std::set<std::filesystem::path> dependency_sources;
+        append_linked_spilled_module_body(
+            dependency_body, dependency_ast, imported.path,
+            dependency_sources, cache_stats);
         std::map<std::string, std::string> symbols;
         for (const auto& dependency_statement : dependency_body) {
             if (!dependency_statement.is_object()) continue;
@@ -1066,9 +1282,9 @@ vf::JsonValue link_spilled_file_modules(
             if (kind != object.end() && kind->second.is_string()
                 && kind->second.as_string() == "function_definition"
                 && name != object.end() && name->second.is_string()) {
-                const std::string mangled = "__vkf_module_" + imported->alias + "__" + name->second.as_string();
+                const std::string mangled = "__vkf_module_" + imported.alias + "__" + name->second.as_string();
                 symbols[name->second.as_string()] = mangled;
-                exports[imported->alias][name->second.as_string()] = mangled;
+                exports[imported.alias][name->second.as_string()] = mangled;
             }
             if (kind != object.end() && kind->second.is_string() &&
                 kind->second.as_string() == "bind") {
@@ -1080,10 +1296,10 @@ vf::JsonValue link_spilled_file_modules(
                     if (target_kind != target_object.end() && target_kind->second.is_string() &&
                         target_kind->second.as_string() == "identifier" &&
                         target_name != target_object.end() && target_name->second.is_string()) {
-                        const std::string mangled = "__vkf_module_" + imported->alias + "__" +
+                        const std::string mangled = "__vkf_module_" + imported.alias + "__" +
                             target_name->second.as_string();
                         symbols[target_name->second.as_string()] = mangled;
-                        exports[imported->alias][target_name->second.as_string()] = mangled;
+                        exports[imported.alias][target_name->second.as_string()] = mangled;
                     }
                 }
             }
@@ -1093,24 +1309,20 @@ vf::JsonValue link_spilled_file_modules(
         }
     }
     vf::JsonValue::Array rewritten_body;
-    for (auto& statement : namespaced_modules) rewritten_body.push_back(std::move(statement));
+    for (auto& statement : namespaced_modules) {
+        rewritten_body.push_back(rewrite_aliased_module_calls(statement, exports));
+    }
     for (const auto& statement : linked_body) {
         rewritten_body.push_back(rewrite_aliased_module_calls(statement, exports));
     }
     vf::JsonValue::Object linked_module;
     linked_module["kind"] = "module";
-    linked_module["body"] = vf::JsonValue(std::move(rewritten_body));
+    linked_module["body"] = vf::JsonValue(
+        expand_top_level_record_spills(std::move(rewritten_body)));
     return vf::JsonValue(std::move(linked_module));
 }
 
 #ifdef VKF_STRICT_DIRECT_ONLY
-const std::set<std::string>& unavailable_release_modules() {
-    static const std::set<std::string> modules{
-        "events", "physics", "rigid_body", "screen", "symbolic", "ui"
-    };
-    return modules;
-}
-
 [[noreturn]] void fail_unavailable_release_module(const std::string& name) {
     throw DriverFailure(
         "stdlib module '" + name +
@@ -1135,7 +1347,7 @@ void enforce_strict_release_surface(const vf::JsonValue& value) {
                     && segments->second.as_array().size() == 1
                     && segments->second.as_array().front().is_string()) {
                     const auto& name = segments->second.as_array().front().as_string();
-                    if (unavailable_release_modules().count(name) != 0) {
+                    if (vkf::stdlib::known_but_unavailable(name)) {
                         fail_unavailable_release_module(name);
                     }
                 }
@@ -1150,7 +1362,7 @@ void enforce_strict_release_surface(const vf::JsonValue& value) {
                 if (base_kind != base_object.end() && base_kind->second.is_string()
                     && base_kind->second.as_string() == "identifier"
                     && base_name != base_object.end() && base_name->second.is_string()
-                    && unavailable_release_modules().count(base_name->second.as_string()) != 0) {
+                    && vkf::stdlib::known_but_unavailable(base_name->second.as_string())) {
                     fail_unavailable_release_module(base_name->second.as_string());
                 }
             }

@@ -1,0 +1,66 @@
+:.symbolic
+
+test laplace_verifier_rejects_an_unsupported_source_without_raising() -> bit:
+    : symbols("ts", (R, C))
+    raised: false
+    verify_laplace(constant(0), sin(t^2), t, s)!?
+        errors.RuntimeError => .raised: true
+    ~raised /\ ~verify_laplace(constant(0), sin(t^2), t, s)
+
+test fourier_verifier_rejects_an_unsupported_source_without_raising() -> bit:
+    : symbols("tw", R)
+    raised: false
+    verify_fourier(constant(0), sin(t^2), t, w)!?
+        errors.RuntimeError => .raised: true
+    ~raised /\ ~verify_fourier(constant(0), sin(t^2), t, w)
+
+test z_verifier_rejects_an_unsupported_source_without_raising() -> bit:
+    : symbols("nz", (N, C))
+    raised: false
+    verify_z_transform(constant(0), sin(n), n, z)!?
+        errors.RuntimeError => .raised: true
+    ~raised /\ ~verify_z_transform(constant(0), sin(n), n, z)
+
+test haar_verifier_rejects_an_unsupported_source_without_raising() -> bit:
+    x: symbol("x", R)
+    raised: false
+    verify_haar_wavelet(constant(0), sin(x^2), x, 1, 0)!?
+        errors.RuntimeError => .raised: true
+        errors.TypeError => .raised: true
+    ~raised /\ ~verify_haar_wavelet(constant(0), sin(x^2), x, 1, 0)
+
+test laplace_condition_verifier_rejects_an_unsupported_source_without_raising() -> bit:
+    : symbols("ts", (R, C))
+    candidate: real_part(s) > constant(0)
+    raised: false
+    verify_laplace_condition(candidate, sin(t^2), t, s)!?
+        errors.RuntimeError => .raised: true
+        errors.TypeError => .raised: true
+    ~raised /\ ~verify_laplace_condition(candidate, sin(t^2), t, s)
+
+test z_condition_verifier_rejects_an_unsupported_source_without_raising() -> bit:
+    : symbols("nz", (N, C))
+    candidate: magnitude(z) > constant(1)
+    raised: false
+    verify_z_transform_condition(candidate, sin(n), n, z)!?
+        errors.RuntimeError => .raised: true
+        errors.TypeError => .raised: true
+    ~raised /\ ~verify_z_transform_condition(candidate, sin(n), n, z)
+
+test laplace_condition_set_verifier_rejects_an_unsupported_source_without_raising() -> bit:
+    : symbols("ts", (R, C))
+    [num] candidate: [0.0]
+    raised: false
+    verify_laplace_conditions(candidate, sin(t^2), t, s)!?
+        errors.RuntimeError => .raised: true
+        errors.TypeError => .raised: true
+    ~raised /\ ~verify_laplace_conditions(candidate, sin(t^2), t, s)
+
+test z_condition_set_verifier_rejects_an_unsupported_source_without_raising() -> bit:
+    : symbols("nz", (N, C))
+    [num] candidate: [0.0]
+    raised: false
+    verify_z_transform_conditions(candidate, sin(n), n, z)!?
+        errors.RuntimeError => .raised: true
+        errors.TypeError => .raised: true
+    ~raised /\ ~verify_z_transform_conditions(candidate, sin(n), n, z)

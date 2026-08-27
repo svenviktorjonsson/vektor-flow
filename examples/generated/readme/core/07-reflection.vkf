@@ -3,7 +3,5 @@ NumberType: num
 :: int.
 :: [1, 2].
 
-type_scope:
-    reflected: int.
-    :
-:: type_scope
+TypeScope(reflected:type): :
+:: TypeScope(int.)

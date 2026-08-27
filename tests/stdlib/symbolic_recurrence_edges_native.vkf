@@ -1,0 +1,75 @@
+:.symbolic
+m: .math
+
+test repeated_characteristic_root_recurrence_uses_the_n_times_root_power_basis() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 2 * a(n + 1) - a(n)
+    conditions: [a(0) = 3, a(1) = 5]
+    solution: solve_recurrence(relation, conditions, a, n)
+    expected: 3 + 2 * n
+    (same(simplify(_symbolic_clone(solution)), simplify(_symbolic_clone(expected))) /\
+     evaluate(_symbolic_clone(solution), [10]) = 23 /\
+     verify_recurrence(solution, relation, conditions, a, n))
+
+test repeated_root_recurrence_verification_rejects_wrong_slope() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 2 * a(n + 1) - a(n)
+    conditions: [a(0) = 3, a(1) = 5]
+    wrong: 3 + 3 * n
+    ~verify_recurrence(wrong, relation, conditions, a, n)
+
+test general_solver_selects_the_repeated_root_recurrence_strategy() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 2 * a(n + 1) - a(n)
+    conditions: [a(0) = 3, a(1) = 5]
+    solution: solve(relation, conditions, a, n)
+    same(simplify(solution), simplify(3 + 2 * n))
+
+test complex_characteristic_roots_produce_a_verified_real_sequence() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 0 * a(n + 1) - a(n)
+    conditions: [a(0) = 1, a(1) = 0]
+    solution: solve_recurrence(relation, conditions, a, n)
+    (
+        m.abs(evaluate(_symbolic_clone(solution), [0]) - 1) < 0.000000001 /\
+        m.abs(evaluate(_symbolic_clone(solution), [1])) < 0.000000001 /\
+        m.abs(evaluate(_symbolic_clone(solution), [2]) + 1) < 0.000000001 /\
+        m.abs(evaluate(_symbolic_clone(solution), [3])) < 0.000000001 /\
+        m.abs(evaluate(_symbolic_clone(solution), [4]) - 1) < 0.000000001 /\
+        verify_recurrence(solution, relation, conditions, a, n)
+    )
+
+test nonunit_complex_roots_preserve_radius_and_phase() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 2 * a(n + 1) - 2 * a(n)
+    conditions: [a(0) = 1, a(1) = 1]
+    solution: solve_recurrence(relation, conditions, a, n)
+    (
+        m.abs(evaluate(_symbolic_clone(solution), [0]) - 1) < 0.000000001 /\
+        m.abs(evaluate(_symbolic_clone(solution), [1]) - 1) < 0.000000001 /\
+        m.abs(evaluate(_symbolic_clone(solution), [2])) < 0.000000001 /\
+        m.abs(evaluate(_symbolic_clone(solution), [3]) + 2) < 0.000000001 /\
+        m.abs(evaluate(_symbolic_clone(solution), [4]) + 4) < 0.000000001 /\
+        verify_recurrence(solution, relation, conditions, a, n)
+    )
+
+test complex_root_verification_rejects_initial_point_alias() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 0 * a(n + 1) - a(n)
+    conditions: [a(0) = 1, a(1) = 0]
+    wrong: 1 - n
+    ~verify_recurrence(wrong, relation, conditions, a, n)
+
+test general_solver_selects_complex_root_recurrence_strategy() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 2 * a(n + 1) - 2 * a(n)
+    conditions: [a(0) = 1, a(1) = 1]
+    solution: solve(relation, conditions, a, n)
+    verify_recurrence(solution, relation, conditions, a, n)

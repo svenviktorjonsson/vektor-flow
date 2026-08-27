@@ -1,0 +1,5 @@
+# expect-compile-error: greek_symbols case: must be "lower" or "upper"
+
+:.symbolic
+
+: greek_symbols(case:"title")

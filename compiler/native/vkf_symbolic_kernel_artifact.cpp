@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -24,6 +26,7 @@ struct Arguments {
     std::filesystem::path wasm;
     std::filesystem::path manifest;
     std::string entry;
+    bool prune_to_entry = false;
 };
 
 Arguments parse_arguments(int argc, char** argv) {
@@ -38,6 +41,8 @@ Arguments parse_arguments(int argc, char** argv) {
             arguments.manifest = argv[++index];
         } else if (argument == "--entry" && index + 1 < argc) {
             arguments.entry = argv[++index];
+        } else if (argument == "--prune-to-entry") {
+            arguments.prune_to_entry = true;
         } else {
             throw ArtifactError(
                 "usage: vkf_symbolic_kernel_artifact "
@@ -52,6 +57,9 @@ Arguments parse_arguments(int argc, char** argv) {
         throw ArtifactError(
             "typed IR, WASM, and manifest paths are required"
         );
+    }
+    if (arguments.prune_to_entry && arguments.entry.empty()) {
+        throw ArtifactError("--prune-to-entry requires --entry");
     }
     return arguments;
 }
@@ -165,6 +173,98 @@ vf::JsonValue manifest_value(
     return vf::JsonValue(std::move(manifest));
 }
 
+void collect_direct_calls(
+    const vf::JsonValue& value,
+    std::set<std::string>& calls
+) {
+    if (value.is_array()) {
+        for (const auto& item : value.as_array()) collect_direct_calls(item, calls);
+        return;
+    }
+    if (!value.is_object()) return;
+    const auto& object = value.as_object();
+    const auto kind = object.find("kind");
+    if (kind != object.end() && kind->second.is_string() &&
+        kind->second.as_string() == "call") {
+        const auto callee = object.find("callee");
+        if (callee != object.end() && callee->second.is_object()) {
+            const auto& callee_object = callee->second.as_object();
+            const auto callee_kind = callee_object.find("kind");
+            const auto name = callee_object.find("name");
+            if (callee_kind != callee_object.end() && callee_kind->second.is_string() &&
+                callee_kind->second.as_string() == "load" &&
+                name != callee_object.end() && name->second.is_string()) {
+                calls.insert(name->second.as_string());
+            }
+        }
+    }
+    for (const auto& entry : object) collect_direct_calls(entry.second, calls);
+}
+
+vf::JsonValue executable_typed_module(
+    const vf::JsonValue& typed_ir,
+    const std::string& root_function = ""
+) {
+    const auto& root = typed_ir.as_object();
+    auto filtered = root;
+    std::map<std::string, std::vector<const vf::JsonValue*>> functions;
+    for (const auto& item : root.at("body").as_array()) {
+        if (!item.is_object()) continue;
+        const auto& declaration = item.as_object();
+        const auto kind = declaration.find("kind");
+        const auto name = declaration.find("name");
+        if (kind != declaration.end() && kind->second.is_string() &&
+            kind->second.as_string() == "function" &&
+            name != declaration.end() && name->second.is_string()) {
+            functions[name->second.as_string()].push_back(&item);
+        }
+    }
+    std::set<std::string> reachable;
+    if (!root_function.empty()) {
+        std::vector<std::string> pending{root_function};
+        while (!pending.empty()) {
+            const std::string name = std::move(pending.back());
+            pending.pop_back();
+            if (!reachable.insert(name).second) continue;
+            const auto found = functions.find(name);
+            if (found == functions.end()) continue;
+            std::set<std::string> calls;
+            for (const auto* declaration : found->second) {
+                collect_direct_calls(*declaration, calls);
+            }
+            for (const auto& called : calls) {
+                if (functions.find(called) != functions.end() &&
+                    reachable.find(called) == reachable.end()) {
+                    pending.push_back(called);
+                }
+            }
+        }
+    }
+    vf::JsonValue::Array body;
+    for (const auto& item : root.at("body").as_array()) {
+        const auto& declaration = item.as_object();
+        const auto kind = declaration.find("kind");
+        if (kind != declaration.end() && kind->second.is_string() &&
+            kind->second.as_string() == "module_import") {
+            continue;
+        }
+        if (!root_function.empty() && kind != declaration.end() &&
+            kind->second.is_string()) {
+            if (kind->second.as_string() == "expr_stmt") continue;
+            if (kind->second.as_string() == "function") {
+                const auto name = declaration.find("name");
+                if (name == declaration.end() || !name->second.is_string() ||
+                    reachable.find(name->second.as_string()) == reachable.end()) {
+                    continue;
+                }
+            }
+        }
+        body.push_back(item);
+    }
+    filtered["body"] = vf::JsonValue(std::move(body));
+    return vf::JsonValue(std::move(filtered));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -172,7 +272,12 @@ int main(int argc, char** argv) {
         const Arguments arguments = parse_arguments(argc, argv);
         const vf::JsonValue typed_ir =
             vf::parse_json(read_text(arguments.typed_ir));
-        const auto typed_module = vkf::wasm::parse_typed_module(typed_ir);
+        const auto typed_module = vkf::wasm::parse_typed_module(
+            executable_typed_module(
+                typed_ir,
+                arguments.prune_to_entry ? arguments.entry : ""
+            )
+        );
         auto bytecode =
             vkf::wasm::bytecode::lower_typed_module_to_bytecode(typed_module);
         if (!arguments.entry.empty()) {

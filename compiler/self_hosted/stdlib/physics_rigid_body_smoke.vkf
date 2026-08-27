@@ -14,7 +14,7 @@ stepped: step_rigid_body_momentum3(state, props, 0.1, application.force, applica
 
 mass: props.mass
 center_x: props.center_of_mass.0
-inertia_xx: props.inertia_tensor.(0).(0)
+inertia_xx: props.inertia_tensor.(0, 0)
 momentum_y: stepped.momentum.1
 angular_velocity_z: stepped.angular_velocity.2
 

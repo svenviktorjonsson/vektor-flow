@@ -1,0 +1,2 @@
+cache_value() -> int:
+    1

@@ -1,0 +1,333 @@
+{
+  "schema": "vkf.symbolic-comparison",
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-24T23:14:51.780Z",
+  "revision": "ec7adce163a23a841f10e1b7662b9d2da747955e",
+  "machine": {
+    "hostname": "LAPTOP-0P888BLM",
+    "platform": "win32",
+    "architecture": "x64",
+    "osRelease": "10.0.26200",
+    "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+    "logicalCpus": 14,
+    "memoryBytes": 33837342720
+  },
+  "conditions": {
+    "runs": 3,
+    "timeoutMs": 30000,
+    "kernels": [
+      "expand1",
+      "expand2",
+      "add1",
+      "series"
+    ],
+    "languages": [
+      "vkf",
+      "symengine",
+      "sympy",
+      "symbolics"
+    ],
+    "scheduling": "rotating same-host process order within every kernel round",
+    "timer": "each language times only its symbolic operation; process startup and setup are excluded",
+    "optimizerPolicy": "auto"
+  },
+  "tools": {
+    "vkf": "VKF 0.2.1",
+    "compilerSha256": "580a87059921d7412cdedc6764d09c055fa9e79ae1a68db1af46dbf28c1fb3a8",
+    "python": "Python 3.13.9",
+    "sympy": "1.14.0",
+    "sympyRunnerSha256": "9a0d37646e0a4d075a7fef5e286f52a10b20898752186fabf341e204f81fde52",
+    "julia": "julia version 1.12.6",
+    "symbolics": "Precompiling packages...\n┌ Warning: attempting to remove probably stale pidfile\n│   path = \"C:\\\\Users\\\\viktor.jonsson\\\\AppData\\\\Local\\\\Temp\\\\vkf-julia-depot-symbolics-7.31.0\\\\compiled\\\\v1.12\\\\SymbolicUtils\\\\flNzo_D00bo.ji.pidfile\"\n└ @ FileWatching.Pidfile C:\\Users\\viktor.jonsson\\AppData\\Local\\Programs\\Julia-1.12.6\\share\\julia\\stdlib\\v1.12\\FileWatching\\src\\pidfile.jl:250",
+    "symbolicsProjectSha256": "04dd883aa58f7e7cd7f8f837772613d1c2f8b1f7d06c749d5b3d3baaa95a440b",
+    "symbolicsRunnerSha256": "09ed383bb83aad8561f43b12e6c4eaf6e27ee9d32fd0add5732355b896e66252",
+    "symengineCommit": "0c183629a35dd9d8123fafcc47b0e0283bbae80d",
+    "symengineRunnerSha256": "c4596bd7d1df07b6ef858a0722454091e0126ddbbed0d5d8c3baba21409f387e",
+    "symengineExecutableSha256": "bf6a40f4632d0a1e45b380374cc5a08e62da769946a910354bd5ceed6a8106c7"
+  },
+  "sources": {
+    "expand1": {
+      "vkfSha256": "1398080e84149a0be1125d8fa4d14e443776b182ce49cbfbdc6ccaaf493c90dd"
+    },
+    "expand2": {
+      "vkfSha256": "5efa5f113c05a8593017c5516f7cfc183c3b2bf22ff4428fd647bffef419c4a2"
+    },
+    "add1": {
+      "vkfSha256": "e849082e865685abf796c1571cd4d09060a5738e79fac70fcd20e912743bdf11"
+    },
+    "series": {
+      "vkfSha256": "156e118bf7a23e13e8d766752a0786bc5d3e079ed0b7378866716ca423897015"
+    }
+  },
+  "kernels": [
+    {
+      "id": "expand1",
+      "expectedOutput": 39711,
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            5.325300036929548,
+            13.265599962323904,
+            7.8436000039801
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 8.811500001077851,
+            "stddevMs": 4.057673413372591
+          }
+        },
+        "symengine": {
+          "samplesMs": [
+            69.3954,
+            76.8029,
+            95.7722
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 80.65683333333332,
+            "stddevMs": 13.604172013148519
+          }
+        },
+        "sympy": {
+          "samplesMs": [
+            20423.6162,
+            19164.8186,
+            18919.9708
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 19502.801866666665,
+            "stddevMs": 806.7911059532664
+          }
+        },
+        "symbolics": {
+          "samplesMs": [],
+          "timeouts": 3,
+          "censored": true,
+          "meanLowerBoundMs": 30000
+        }
+      },
+      "comparisons": {
+        "symengine": {
+          "ratio": 0.10924678836152985,
+          "pass": true
+        },
+        "sympy": {
+          "ratio": 0.00045180687684358224,
+          "pass": true
+        },
+        "symbolics": {
+          "ratioUpperBound": 0.00029371666670259506,
+          "pass": true
+        }
+      },
+      "pass": true
+    },
+    {
+      "id": "expand2",
+      "expectedOutput": 6272,
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            71.4219999499619,
+            83.08070001658052,
+            65.46760001219809
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 73.32343332624684,
+            "stddevMs": 8.959180185956294
+          }
+        },
+        "symengine": {
+          "samplesMs": [
+            667.362,
+            647.297,
+            640.791
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 651.8166666666667,
+            "stddevMs": 13.850092069489362
+          }
+        },
+        "sympy": {
+          "samplesMs": [],
+          "timeouts": 3,
+          "censored": true,
+          "meanLowerBoundMs": 30000
+        },
+        "symbolics": {
+          "samplesMs": [],
+          "timeouts": 3,
+          "censored": true,
+          "meanLowerBoundMs": 30000
+        }
+      },
+      "comparisons": {
+        "symengine": {
+          "ratio": 0.11249088444027744,
+          "pass": true
+        },
+        "sympy": {
+          "ratioUpperBound": 0.002444114444208228,
+          "pass": true
+        },
+        "symbolics": {
+          "ratioUpperBound": 0.002444114444208228,
+          "pass": true
+        }
+      },
+      "pass": true
+    },
+    {
+      "id": "add1",
+      "expectedOutput": 2998,
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            0.5008999723941088,
+            0.4067999543622136,
+            0.5579999415203929
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 0.4885666227589051,
+            "stddevMs": 0.07635078692506403
+          }
+        },
+        "symengine": {
+          "samplesMs": [
+            214.733,
+            209.548,
+            198.616
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 207.63233333333335,
+            "stddevMs": 8.22750000506431
+          }
+        },
+        "sympy": {
+          "samplesMs": [
+            31.4677,
+            39.4536,
+            38.0015
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 36.3076,
+            "stddevMs": 4.2538949928271625
+          }
+        },
+        "symbolics": {
+          "samplesMs": [],
+          "timeouts": 3,
+          "censored": true,
+          "meanLowerBoundMs": 30000
+        }
+      },
+      "comparisons": {
+        "symengine": {
+          "ratio": 0.0023530372891131524,
+          "pass": true
+        },
+        "sympy": {
+          "ratio": 0.013456318312389283,
+          "pass": true
+        },
+        "symbolics": {
+          "ratioUpperBound": 0.000016285554091963505,
+          "pass": true
+        }
+      },
+      "pass": true
+    },
+    {
+      "id": "series",
+      "expectedOutput": 166167000,
+      "languages": {
+        "vkf": {
+          "samplesMs": [
+            10.114800068549812,
+            1.6818000003695488,
+            2.572599914856255
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 4.789733327925205,
+            "stddevMs": 4.633101873042741
+          }
+        },
+        "symengine": {
+          "samplesMs": [
+            359.15,
+            196.99,
+            293.474
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 283.2046666666667,
+            "stddevMs": 81.5662969941221
+          }
+        },
+        "sympy": {
+          "samplesMs": [
+            76.2467,
+            100.6482,
+            85.6371
+          ],
+          "timeouts": 0,
+          "censored": false,
+          "stats": {
+            "count": 3,
+            "meanMs": 87.51066666666668,
+            "stddevMs": 12.308167597304374
+          }
+        },
+        "symbolics": {
+          "samplesMs": [],
+          "timeouts": 3,
+          "censored": true,
+          "meanLowerBoundMs": 30000
+        }
+      },
+      "comparisons": {
+        "symengine": {
+          "ratio": 0.016912621477253923,
+          "pass": true
+        },
+        "sympy": {
+          "ratio": 0.054733137231939774,
+          "pass": true
+        },
+        "symbolics": {
+          "ratioUpperBound": 0.00015965777759750684,
+          "pass": true
+        }
+      },
+      "pass": true
+    }
+  ],
+  "pass": true
+}

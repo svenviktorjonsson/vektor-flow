@@ -1,0 +1,194 @@
+:.symbolic
+errors: .errors
+
+test laplace_preserves_symbolic_constant_coefficients_and_rates() -> bit:
+    a: symbol("a", R, constant:true)
+    b: symbol("b", R, constant:true)
+    t: symbol("t", R)
+    s: symbol("s", C)
+    transformed: laplace(a * exp(b * t), t, s)
+    equivalent(transformed, a / (s - b))
+
+test laplace_maps_integer_power_basis_exactly() -> bit:
+    t: symbol("t", R)
+    s: symbol("s", C)
+    equivalent(laplace(t^3, t, s), 6 / s^4)
+
+test laplace_maps_symbolic_frequency_sine_basis_exactly() -> bit:
+    w: symbol("w", R, constant:true)
+    t: symbol("t", R)
+    s: symbol("s", C)
+    transformed: laplace(sin(w * t), t, s)
+    equivalent(transformed, w / (s^2 + w^2))
+
+test analytic_fourier_maps_the_unit_gaussian_exactly() -> bit:
+    t: symbol("t", R)
+    w: symbol("w", R)
+    source: exp(0 - t^2)
+    transformed: fourier(source, t, w)
+    expected: sqrt(constant(3.141592653589793)) * exp((0 - w^2) / 4)
+    same(_symbolic_clone(transformed), expected) /\ verify_fourier(transformed, source, t, w)
+
+test analytic_inverse_fourier_round_trips_the_unit_gaussian() -> bit:
+    t: symbol("t", R)
+    w: symbol("w", R)
+    source: exp(0 - t^2)
+    restored: inverse_fourier(fourier(_symbolic_clone(source), t, w), w, t)
+    same(restored, source)
+
+test analytic_fourier_preserves_a_symbolic_constant_scale() -> bit:
+    a: symbol("a", R, constant:true)
+    t: symbol("t", R)
+    w: symbol("w", R)
+    source: a * exp(0 - t^2)
+    transformed: fourier(source, t, w)
+    expected: a * (sqrt(constant(3.141592653589793)) * exp((0 - w^2) / 4))
+    same(_symbolic_clone(transformed), expected) /\ verify_fourier(transformed, source, t, w)
+
+test analytic_fourier_maps_a_positive_width_gaussian_exactly() -> bit:
+    t: symbol("t", R)
+    w: symbol("w", R)
+    source: exp(0 - 2 * t^2)
+    transformed: fourier(source, t, w)
+    expected: sqrt(constant(3.141592653589793 / 2)) * exp((0 - w^2) / 8)
+    same(_symbolic_clone(transformed), expected) /\ verify_fourier(transformed, source, t, w)
+
+test analytic_inverse_fourier_round_trips_a_positive_width_gaussian() -> bit:
+    t: symbol("t", R)
+    w: symbol("w", R)
+    source: exp(0 - 2 * t^2)
+    restored: inverse_fourier(fourier(_symbolic_clone(source), t, w), w, t)
+    same(restored, source)
+
+test analytic_haar_wavelet_integrates_a_linear_basis_exactly() -> bit:
+    x: symbol("x", R)
+    coefficient: haar_wavelet(x, x, 0, 0)
+    same(_symbolic_clone(coefficient), constant(-0.25)) /\ verify_haar_wavelet(coefficient, x, x, 0, 0)
+
+test z_transform_preserves_symbolic_constant_coefficients_and_rates() -> bit:
+    a: symbol("a", R, constant:true)
+    r: symbol("r", C, constant:true)
+    n: symbol("n", N)
+    z: symbol("z", C)
+    transformed: z_transform(a * r^n, n, z)
+    equivalent(transformed, a * z / (z - r))
+
+test inverse_laplace_round_trips_symbolic_coefficients_and_rates() -> bit:
+    a: symbol("a", R, constant:true)
+    b: symbol("b", C, constant:true)
+    t: symbol("t", R)
+    s: symbol("s", C)
+    source: a * exp(b * t)
+    restored: inverse_laplace(laplace(_symbolic_clone(source), t, s), s, t)
+    same(restored, source)
+
+test inverse_laplace_round_trips_arbitrary_integer_power_basis() -> bit:
+    t: symbol("t", R)
+    s: symbol("s", C)
+    source: t^3
+    restored: inverse_laplace(laplace(_symbolic_clone(source), t, s), s, t)
+    same(restored, source)
+
+test inverse_z_transform_round_trips_symbolic_coefficients_and_rates() -> bit:
+    a: symbol("a", C, constant:true)
+    r: symbol("r", C, constant:true)
+    n: symbol("n", N)
+    z: symbol("z", C)
+    source: a * r^n
+    restored: inverse_z_transform(z_transform(_symbolic_clone(source), n, z), z, n)
+    same(restored, source)
+
+test laplace_preserves_its_convergence_half_plane() -> bit:
+    b: symbol("b", C, constant:true)
+    t: symbol("t", R)
+    s: symbol("s", C)
+    condition: laplace_condition(exp(b * t), t, s)
+    expected: real_part(s) > real_part(b)
+    same(condition, expected) /\ verify_laplace_condition(condition, exp(b * t), t, s)
+
+test unilateral_z_transform_preserves_its_region_of_convergence() -> bit:
+    r: symbol("r", C, constant:true)
+    n: symbol("n", N)
+    z: symbol("z", C)
+    condition: z_transform_condition(r^n, n, z)
+    expected: magnitude(z) > magnitude(r)
+    same(condition, expected) /\ verify_z_transform_condition(condition, r^n, n, z)
+
+test laplace_sum_preserves_every_basis_convergence_condition() -> bit:
+    a: symbol("a", C, constant:true)
+    b: symbol("b", C, constant:true)
+    : symbols("ts", (R, C))
+    conditions: laplace_conditions(exp(a * t) + exp(b * t), t, s)
+    expected_a: real_part(s) > real_part(a)
+    expected_b: real_part(s) > real_part(b)
+    (transform_condition_count(conditions) = 2 /\
+        same(transform_condition(conditions, 0), expected_a) /\
+        same(transform_condition(conditions, 1), expected_b) /\
+        verify_laplace_conditions(conditions, exp(a * t) + exp(b * t), t, s))
+
+test z_transform_sum_preserves_every_basis_region_of_convergence() -> bit:
+    r: symbol("r", C, constant:true)
+    q: symbol("q", C, constant:true)
+    : symbols("nz", (N, C))
+    conditions: z_transform_conditions(r^n + q^n, n, z)
+    expected_r: magnitude(z) > magnitude(r)
+    expected_q: magnitude(z) > magnitude(q)
+    (transform_condition_count(conditions) = 2 /\
+        same(transform_condition(conditions, 0), expected_r) /\
+        same(transform_condition(conditions, 1), expected_q) /\
+        verify_z_transform_conditions(conditions, r^n + q^n, n, z))
+
+test singular_transform_condition_rejects_multiple_basis_terms() -> bit:
+    a: symbol("a", C, constant:true)
+    b: symbol("b", C, constant:true)
+    : symbols("ts", (R, C))
+    raised: false
+    laplace_condition(exp(a * t) + exp(b * t), t, s)!?
+        errors.RuntimeError => .raised: true
+    raised
+
+test transform_condition_verifiers_reject_wrong_regions() -> bit:
+    b: symbol("b", C, constant:true)
+    r: symbol("r", C, constant:true)
+    : symbols("ts", (R, C))
+    : symbols("nz", (N, C))
+    wrong_laplace: real_part(s) < real_part(b)
+    wrong_z: magnitude(z) < magnitude(r)
+    (~verify_laplace_condition(wrong_laplace, exp(b * t), t, s) /\
+     ~verify_z_transform_condition(wrong_z, r^n, n, z))
+
+test transform_condition_operators_are_first_class_expressions() -> bit:
+    x: symbol("x", R)
+    real_value: evaluate(real_part(_symbolic_clone(x)), [-3])
+    magnitude_value: evaluate(magnitude(_symbolic_clone(x)), [-3])
+    relation: magnitude(x) > 2
+    real_value = -3 /\ magnitude_value = 3 /\ _symbolic_dag_operation(relation) = 22
+
+test symbolic_magnitude_requires_assumptions_before_differentiation() -> bit:
+    x: symbol("x", R)
+    raised: false
+    differentiate(magnitude(_symbolic_clone(x)), x)!?
+        errors.TypeError => .raised: true
+    raised
+
+test exact_transform_verifiers_reject_wrong_candidates() -> bit:
+    : symbols("ts", (R, C))
+    : symbols("nz", (N, C))
+    (~verify_laplace(2 / s, constant(1), t, s) /\
+     ~verify_z_transform(2 * z / (z - 1), constant(1), n, z))
+
+test laplace_requires_real_time_and_complex_frequency_domains() -> bit:
+    t: symbol("t", N)
+    s: symbol("s", R)
+    raised: false
+    laplace(constant(1), t, s)!?
+        errors.TypeError => .raised: true
+    raised
+
+test z_transform_requires_natural_index_and_complex_frequency_domains() -> bit:
+    n: symbol("n", R)
+    z: symbol("z", R)
+    raised: false
+    z_transform(constant(1), n, z)!?
+        errors.TypeError => .raised: true
+    raised

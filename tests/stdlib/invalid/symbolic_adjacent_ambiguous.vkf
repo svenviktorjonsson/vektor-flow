@@ -1,0 +1,9 @@
+# expect-compile-error: ambiguous adjacent symbolic product abc; separate its factors with spaces or `*`
+
+:.symbolic
+
+a: R
+ab: R
+bc: R
+c: R
+invalid: abc

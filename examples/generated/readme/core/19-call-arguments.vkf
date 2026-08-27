@@ -1,5 +1,4 @@
-weighted(x:num, y:num=x + 1, z:num=y + 1) -> num:
-    x * 100 + y * 10 + z
+weighted(x:num, y:num=x + 1, z:num=y + 1) -> num: x * 100 + y * 10 + z
 
 :: weighted(2)
 :: weighted(y:4, x:3, z:5)

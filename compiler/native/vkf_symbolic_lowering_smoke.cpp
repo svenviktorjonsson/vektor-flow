@@ -17,6 +17,23 @@ int main() {
     if (function.domain_surface != "R") return 7;
     if (function.codomain_surface != "R") return 8;
 
+    const auto vector_space = vkf_symbolic_type_facts("R^3");
+    if (!vector_space.symbolic) return 21;
+    if (vector_space.shape != VkfSymbolicTypeShape::VectorSpaceDomain) return 22;
+    if (vector_space.base_surface != "R") return 23;
+    if (vector_space.exponent_surface != "3") return 24;
+
+    const auto vector_function = vkf_symbolic_type_facts("R^3->R");
+    if (!vector_function.symbolic) return 25;
+    if (vector_function.shape != VkfSymbolicTypeShape::FunctionDomain) return 26;
+    if (vector_function.domain_surface != "R^3") return 27;
+    if (vector_function.codomain_surface != "R") return 28;
+
+    const auto multivariate_function = vkf_symbolic_type_facts("(R^3,R)->R");
+    if (!multivariate_function.symbolic) return 29;
+    if (multivariate_function.shape != VkfSymbolicTypeShape::FunctionDomain) return 30;
+    if (multivariate_function.domain_surface != "(R^3,R)") return 31;
+
     const auto vector = vkf_symbolic_type_facts("[R:n]");
     if (!vector.symbolic) return 9;
     if (vector.shape != VkfSymbolicTypeShape::FixedVectorDomain) return 10;

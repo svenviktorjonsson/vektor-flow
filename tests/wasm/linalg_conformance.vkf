@@ -1,0 +1,37 @@
+:.linalg
+
+linalg_dot_wasm_conformance() -> num:
+    dot([1, 2, 3], [4, 5, 6])
+
+linalg_cross_wasm_conformance() -> num:
+    normal: cross([1, 0, 0], [0, 1, 0])
+    normal.2
+
+linalg_matmul_wasm_conformance() -> num:
+    multiplied: matmul(
+        [[1, 2, 3], [4, 5, 6]],
+        [[7, 8], [9, 10], [11, 12]]
+    )
+    multiplied.(0, 0) + multiplied.(0, 1) +
+    multiplied.(1, 0) + multiplied.(1, 1)
+
+linalg_determinant_wasm_conformance() -> num:
+    determinant([[1, 2], [3, 4]])
+
+linalg_solve_wasm_conformance() -> num:
+    solved: solve([[2, 1], [1, 1]], [5, 3])
+    solved.0 + solved.1
+
+linalg_inverse_wasm_conformance() -> num:
+    inverted: inverse([[1, 0], [0, 1]])
+    inverted.(0, 0) + inverted.(1, 1)
+
+linalg_wasm_conformance() -> num:
+    linalg_dot_wasm_conformance() +
+    linalg_cross_wasm_conformance() +
+    linalg_matmul_wasm_conformance() +
+    linalg_determinant_wasm_conformance() +
+    linalg_solve_wasm_conformance() +
+    linalg_inverse_wasm_conformance()
+
+:: linalg_wasm_conformance()

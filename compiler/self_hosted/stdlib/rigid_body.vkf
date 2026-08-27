@@ -1,4 +1,0 @@
-# Compatibility import. Rigid-body ownership lives in the physics stdlib.
-# New source should import `.physics`; this alias remains for older programs.
-
-:.physics

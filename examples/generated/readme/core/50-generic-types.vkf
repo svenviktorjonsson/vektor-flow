@@ -1,0 +1,13 @@
+identity(value:T) -> T: value
+
+first(pair:(T,T)) -> T: pair.0
+
+vector_identity(values:[T:n]) -> [T:n]: values
+
+take_singleton(value:(num,)) -> num: value.0
+
+same: vector_identity([1, 2, 3])
+:: identity("vkf")
+:: first((4, 5))
+:: same.
+:: take_singleton((6,))

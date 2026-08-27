@@ -1,0 +1,5 @@
+# expect-compile-error: symbolic vector-space dimension must be a positive compile-time integer
+
+:.symbolic
+
+invalid: symbol("invalid", R^2.5)

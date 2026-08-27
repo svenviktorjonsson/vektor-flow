@@ -1,7 +1,6 @@
 m: .math
 
-sin(value:num) -> num:
-    m.sin(value)
+sin(value:num) -> num: m.sin(value)
 
 values: [10, 20, 30]
 

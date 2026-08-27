@@ -1,0 +1,60 @@
+:.symbolic
+:.math
+
+quadratic_radius(x:num, y:num) -> num:
+    x^2 + y^2
+
+test ordinary_numeric_function_traces_when_called_with_symbols() -> bit:
+    x: R
+    y: R
+    traced: quadratic_radius(x, y)
+    same(traced, x^2 + y^2)
+
+test ordinary_numeric_function_keeps_its_numeric_specialization() -> bit:
+    quadratic_radius(3, 4) = 25
+
+test prime_suffix_differentiates_an_ordinary_function_symbolically() -> bit:
+    x: R
+    y: R
+    same(simplify(quadratic_radius''xx(x, y)), constant(2))
+
+test one_prime_marker_can_infer_order_from_an_unambiguous_suffix() -> bit:
+    x: R
+    y: R
+    same(simplify(quadratic_radius'xx(x, y)), constant(2))
+
+test math_elementary_function_builds_real_and_complex_expressions() -> bit:
+    x: R
+    z: C
+    (same(math.sin(x), _symbolic_function(x, 1)) /\
+     same(math.sin(z), _symbolic_function(z, 1)))
+
+test fully_bound_expression_compiles_to_an_ordinary_numeric_function() -> bit:
+    x: R
+    y: R
+    compiled: compile(x^2 + y^2, [x, y])
+    compiled(3, 4) = 25
+
+test bound_expression_compiles_to_an_ordinary_numeric_function() -> bit:
+    x: R
+    y: R
+    expression_value: quadratic_radius(x, y)
+    compiled: compile(expression_value, [x, y])
+    compiled(3, 4) = 25
+
+test unresolved_symbolic_constant_keeps_the_compiled_call_symbolic() -> bit:
+    x: R
+    a: symbol("a", R, constant:true)
+    partially_compiled: compile(a * x + 1, [x])
+    same(partially_compiled(3), a * 3 + 1)
+
+test bound_expression_with_unresolved_constant_stays_symbolic() -> bit:
+    x: R
+    a: symbol("a", R, constant:true)
+    expression_value: a * x + 1
+    partially_compiled: compile(expression_value, [x])
+    same(partially_compiled(3), a * 3 + 1)
+
+test unresolved_symbolic_function_accepts_a_literal_and_stays_symbolic() -> bit:
+    f: symbol("f", R->R)
+    same(f(2), at(f, 2))

@@ -1,0 +1,67 @@
+:.symbolic
+errors: .errors
+
+test symbolic_simplify_preserves_indeterminate_zero_over_zero() -> bit:
+    expression: constant(0) / constant(0)
+    same(simplify(expression), expression)?!
+
+test symbolic_simplify_recursively_folds_numeric_arithmetic() -> bit:
+    expression: (constant(2) + constant(3)) * constant(4) - constant(1)
+    same(simplify(expression), constant(19))?!
+
+test symbolic_simplify_applies_power_identities() -> bit:
+    x: R
+    same(simplify(x^0), constant(1))?!
+
+test symbolic_simplify_removes_a_unit_exponent() -> bit:
+    x: R
+    same(simplify(x^1), x)?!
+
+test symbolic_simplify_preserves_combined_power_semantics() -> bit:
+    x: R
+    (evaluate(simplify(x^0 + x^1), [3]) = 4)?!
+
+test symbolic_substitute_accepts_numeric_replacements() -> bit:
+    x: R
+    y: R
+    replaced: substitute(x^2 + y, x, 3)
+    (evaluate(replaced, [4]) = 13)?!
+
+test symbolic_substitute_leaves_absent_variables_unchanged() -> bit:
+    x: R
+    y: R
+    expression: sin(x) + 2
+    same(substitute(expression, y, 7), expression)?!
+
+test symbolic_substitute_descends_through_elementary_functions() -> bit:
+    x: R
+    result: evaluate(substitute(sin(x^2), x, 2), [])
+    (result > -0.7569 /\ result < -0.7567)?!
+
+test symbolic_substitute_rejects_expanded_storage() -> bit:
+    x: R
+    raised: false
+    substitute(expand(x^2 + 1), x, 2)!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_depends_on_requires_a_symbol_variable() -> bit:
+    x: R
+    raised: false
+    depends_on(x^2, x + 1)!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_depends_on_supports_expanded_polynomials() -> bit:
+    x: R
+    y: R
+    z: R
+    expanded: expand((x + y)^2)
+    (depends_on(expanded, x) /\ depends_on(expanded, y) /\ ~depends_on(expanded, z))?!
+
+test symbolic_evaluate_rejects_extra_variable_values() -> bit:
+    x: R
+    raised: false
+    evaluate(x^2, [2, 3])!?
+        errors.ValueError => .raised: true
+    raised?!

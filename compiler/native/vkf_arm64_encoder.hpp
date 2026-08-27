@@ -2808,6 +2808,51 @@ private:
                 }
                 store_x(11, frame.offset(frame.temp_base + first));
                 stack_depth = first + 1;
+            } else if (opcode == Opcode::MakeOwnedRepeatedF64List) {
+                require_stack(stack_depth, 2);
+                const auto first = stack_depth - 2;
+                load_d(0, frame.offset(frame.temp_base + first + 1));
+                words_.emit(0x9e78000cu);
+                words_.emit(0x9e620181u);
+                words_.emit(0x1e602020u);
+                std::vector<std::size_t> invalid;
+                invalid.push_back(words_.emit(0x54000001u));
+                invalid.push_back(words_.emit(0x54000006u));
+                words_.emit(0xf100019fu);
+                invalid.push_back(words_.emit(0x5400000bu));
+                emit_u64(13, 536870909u);
+                words_.emit(0xeb0d019fu);
+                invalid.push_back(words_.emit(0x54000008u));
+                words_.emit(0xd37df180u);
+                words_.emit(0x91004000u);
+                call_runtime_slot(8);
+                const auto allocated = words_.emit(0xb5000000u);
+                emit_abort();
+                words_.patch_compare_branch19(allocated, words_.offset());
+                words_.emit(0xaa0003ebu);
+                load_d(0, frame.offset(frame.temp_base + first + 1));
+                words_.emit(0x9e78000cu);
+                words_.emit(0xf900016cu);
+                words_.emit(0xf900056cu);
+                words_.emit(0x9100416du);
+                const auto empty = words_.emit(0xb400000cu);
+                load_d(0, frame.offset(frame.temp_base + first));
+                const auto fill = words_.offset();
+                words_.emit(0xfd0001a0u);
+                words_.emit(0x910021adu);
+                words_.emit(0xf100058cu);
+                const auto repeat = words_.emit(0x54000001u);
+                words_.patch_compare_branch19(repeat, fill);
+                words_.patch_compare_branch19(empty, words_.offset());
+                store_x(11, frame.offset(frame.temp_base + first));
+                const auto valid = words_.emit(0x14000000u);
+                const auto invalid_target = words_.offset();
+                for (const auto branch : invalid) {
+                    words_.patch_compare_branch19(branch, invalid_target);
+                }
+                emit_abort();
+                words_.patch_branch26(valid, words_.offset());
+                stack_depth = first + 1;
             } else if (opcode == Opcode::MakeOwnedF64ListLiteral) {
                 const std::uint64_t payload_bytes =
                     static_cast<std::uint64_t>(instruction.argument_count) * 8ull;

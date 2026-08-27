@@ -1,0 +1,23 @@
+Point(x:num, y:num): (x:x, y:y)
+
+Point(values:[num:2]): Point(:values)
+
+make_point(x:num, y:num): (x:x, y:y)
+
+describe(value:int) -> str: "integer"
+
+describe(value:num) -> str: "number"
+
+point: Point([3, 4])
+plain: make_point(3, 4)
+
+:: point.
+:: (:point).
+:: (:Point)
+:: (:Point).
+:: [:Point]
+:: [int, int, int] == [int:3]
+:: [:(1, 2, 3).]
+:: plain.
+:: describe(3)
+:: describe(3.5)

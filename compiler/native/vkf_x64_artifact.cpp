@@ -8,6 +8,9 @@
 #include "compiler/native/vkf_target.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
 #include "compiler/native/vkf_adaptive_optimizer.hpp"
+#include "compiler/native/kernels/vkf_symmetric_eigen_x64_bytes.hpp"
+#include "compiler/native/kernels/vkf_thin_svd_x64_bytes.hpp"
+#include "compiler/native/kernels/vkf_linalg_factor_x64_bytes.hpp"
 
 #include <algorithm>
 #include <array>
@@ -760,6 +763,192 @@ private:
         std::uint32_t width = 0;
     };
 
+    struct PackedMatrixRowUpdateLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t bound_local = 0;
+        std::uint32_t target_row_local = 0;
+        std::uint32_t source_row_local = 0;
+        std::uint32_t factor_local = 0;
+        std::uint32_t matrix_base = 0;
+        std::uint32_t matrix_width = 0;
+        std::uint32_t column_count = 0;
+    };
+
+    struct PackedMatrixVectorReductionLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t bound_local = 0;
+        std::uint32_t total_local = 0;
+        std::uint32_t row_local = 0;
+        std::uint32_t matrix_base = 0;
+        std::uint32_t matrix_width = 0;
+        std::uint32_t vector_base = 0;
+        std::uint32_t vector_width = 0;
+        std::uint32_t column_count = 0;
+    };
+
+    struct PackedTwoMatrixRowsReductionLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t bound_local = 0;
+        std::uint32_t total_local = 0;
+        std::uint32_t left_row_local = 0;
+        std::uint32_t right_row_local = 0;
+        std::uint32_t matrix_base = 0;
+        std::uint32_t matrix_width = 0;
+        std::uint32_t column_count = 0;
+    };
+
+    struct PackedCholeskyLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t row_local = 0;
+        std::uint32_t column_local = 0;
+        std::uint32_t bound_local = 0;
+        std::uint32_t tolerance_local = 0;
+        std::uint32_t total_local = 0;
+        std::uint32_t matrix_base = 0;
+        std::uint32_t matrix_width = 0;
+        std::uint32_t lower_base = 0;
+        std::uint32_t lower_width = 0;
+        std::uint32_t column_count = 0;
+        std::uint32_t error_message_offset = 0;
+        std::uint32_t error_message_bytes = 0;
+        std::uint32_t error_type_mask = 0;
+    };
+
+    struct PackedQrLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t column_local = 0;
+        std::uint32_t row_count_local = 0;
+        std::uint32_t column_count_local = 0;
+        std::uint32_t total_local = 0;
+        std::uint32_t norm_local = 0;
+        std::uint32_t tolerance_local = 0;
+        std::uint32_t matrix_base = 0;
+        std::uint32_t q_base = 0;
+        std::uint32_t r_base = 0;
+        std::uint32_t vector_base = 0;
+        std::uint32_t rows = 0;
+        std::uint32_t columns = 0;
+        std::uint32_t error_message_offset = 0;
+        std::uint32_t error_message_bytes = 0;
+        std::uint32_t error_type_mask = 0;
+    };
+
+    struct PackedSymmetricEigenLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t tolerance_local = 0;
+        std::uint32_t max_sweeps_local = 0;
+        std::uint32_t converged_local = 0;
+        std::uint32_t sweeps_local = 0;
+        std::uint32_t largest_local = 0;
+        std::uint32_t diagonal_left_local = 0;
+        std::uint32_t diagonal_right_local = 0;
+        std::uint32_t off_diagonal_local = 0;
+        std::uint32_t threshold_local = 0;
+        std::uint32_t cosine_local = 0;
+        std::uint32_t sine_local = 0;
+        std::uint32_t working_base = 0;
+        std::uint32_t vectors_base = 0;
+        std::uint32_t size = 0;
+    };
+
+    struct PackedThinSvdFunctionPlan {
+        std::uint32_t matrix_base = 0;
+        std::uint32_t left_vectors_base = 0;
+        std::uint32_t singular_values_base = 0;
+        std::uint32_t right_adjoint_base = 0;
+        std::uint32_t gram_base = 0;
+        std::uint32_t eigenvectors_base = 0;
+        std::uint32_t scratch_base = 0;
+        std::uint32_t tolerance_local = 0;
+        std::uint32_t max_sweeps_local = 0;
+        std::uint32_t verify_result_local = 0;
+        std::uint32_t converged_local = 0;
+        std::uint32_t residual_local = 0;
+        std::uint32_t orthogonality_local = 0;
+        std::uint32_t verified_local = 0;
+        std::uint32_t rows = 0;
+        std::uint32_t columns = 0;
+    };
+
+    struct PackedFactorFunctionPlan {
+        enum class Kind { Cholesky, Lu, LeastSquares } kind = Kind::Cholesky;
+        std::uint32_t matrix_base = 0;
+        std::uint32_t values_base = 0;
+        std::uint32_t first_output_base = 0;
+        std::uint32_t second_output_base = 0;
+        std::uint32_t third_output_base = 0;
+        std::uint32_t scalar_output_local = 0;
+        std::uint32_t first_work_base = 0;
+        std::uint32_t second_work_base = 0;
+        std::uint32_t tolerance_local = 0;
+        std::uint32_t rows = 0;
+        std::uint32_t columns = 0;
+    };
+
+    struct PackedMatrixPivotSearchLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t bound_local = 0;
+        std::uint32_t column_local = 0;
+        std::uint32_t pivot_local = 0;
+        std::uint32_t pivot_magnitude_local = 0;
+        std::uint32_t matrix_base = 0;
+        std::uint32_t matrix_width = 0;
+        std::uint32_t column_count = 0;
+    };
+
+    struct PackedMatrixRowSwapLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t counter_local = 0;
+        std::uint32_t bound_local = 0;
+        std::uint32_t left_row_local = 0;
+        std::uint32_t right_row_local = 0;
+        std::uint32_t matrix_base = 0;
+        std::uint32_t matrix_width = 0;
+        std::uint32_t column_count = 0;
+    };
+
+    struct PackedGaussianEliminationRowsLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t row_local = 0;
+        std::uint32_t bound_local = 0;
+        std::uint32_t column_local = 0;
+        std::uint32_t pivot_value_local = 0;
+        std::uint32_t factor_local = 0;
+        std::uint32_t matrix_base = 0;
+        std::uint32_t matrix_width = 0;
+        std::uint32_t rhs_base = 0;
+        std::uint32_t rhs_width = 0;
+        std::uint32_t column_count = 0;
+    };
+
+    struct PackedLuEliminationRowsLoopPlan {
+        std::size_t end_index = 0;
+        std::uint32_t exit_label = 0;
+        std::uint32_t row_local = 0;
+        std::uint32_t bound_local = 0;
+        std::uint32_t column_local = 0;
+        std::uint32_t pivot_value_local = 0;
+        std::uint32_t factor_local = 0;
+        std::uint32_t lower_base = 0;
+        std::uint32_t lower_width = 0;
+        std::uint32_t upper_base = 0;
+        std::uint32_t upper_width = 0;
+        std::uint32_t column_count = 0;
+    };
+
     const vkf::machine_ir::Module& module_;
     std::map<std::string, std::size_t> offsets_;
     std::vector<CallPatch> calls_;
@@ -1255,6 +1444,901 @@ private:
         return PackedDotReductionLoopPlan{
             label_index + 25, counter, at(5).index, at(13).index,
             at(7).index, at(9).index, width
+        };
+    }
+
+    static std::optional<PackedMatrixRowUpdateLoopPlan>
+    detect_packed_matrix_row_update_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 50u >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label ||
+            at(1).opcode != Opcode::LoadLocal ||
+            at(2).opcode != Opcode::LoadLocal ||
+            at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse ||
+            at(5).opcode != Opcode::LoadLocal || at(6).opcode != Opcode::StoreLocal ||
+            at(7).opcode != Opcode::LoadLocal || at(8).opcode != Opcode::StoreLocal ||
+            at(9).opcode != Opcode::LoadLocal || at(10).opcode != Opcode::StoreLocal ||
+            at(11).opcode != Opcode::LoadLocal || at(12).opcode != Opcode::StoreLocal ||
+            at(13).opcode != Opcode::LoadLocal || at(14).opcode != Opcode::PushF64 ||
+            at(15).opcode != Opcode::MultiplyF64 || at(16).opcode != Opcode::LoadLocal ||
+            at(17).opcode != Opcode::AddF64 || at(18).opcode != Opcode::StoreLocal ||
+            at(19).opcode != Opcode::LoadLocal ||
+            at(20).opcode != Opcode::LoadF64LocalsIndex ||
+            at(21).opcode != Opcode::LoadLocal ||
+            at(22).opcode != Opcode::LoadLocal || at(23).opcode != Opcode::StoreLocal ||
+            at(24).opcode != Opcode::LoadLocal || at(25).opcode != Opcode::StoreLocal ||
+            at(26).opcode != Opcode::LoadLocal || at(27).opcode != Opcode::PushF64 ||
+            at(28).opcode != Opcode::MultiplyF64 || at(29).opcode != Opcode::LoadLocal ||
+            at(30).opcode != Opcode::AddF64 || at(31).opcode != Opcode::StoreLocal ||
+            at(32).opcode != Opcode::LoadLocal ||
+            at(33).opcode != Opcode::LoadF64LocalsIndex ||
+            at(34).opcode != Opcode::MultiplyF64 ||
+            at(35).opcode != Opcode::SubtractF64 || at(36).opcode != Opcode::StoreLocal ||
+            at(37).opcode != Opcode::LoadLocal || at(38).opcode != Opcode::PushF64 ||
+            at(39).opcode != Opcode::MultiplyF64 || at(40).opcode != Opcode::LoadLocal ||
+            at(41).opcode != Opcode::AddF64 || at(42).opcode != Opcode::StoreLocal ||
+            at(43).opcode != Opcode::LoadLocal || at(44).opcode != Opcode::LoadLocal ||
+            at(45).opcode != Opcode::StoreF64LocalsIndex ||
+            at(46).opcode != Opcode::LoadLocal ||
+            at(47).opcode != Opcode::PushF64 || at(47).f64 != 1.0 ||
+            at(48).opcode != Opcode::AddF64 || at(49).opcode != Opcode::StoreLocal ||
+            at(50).opcode != Opcode::Jump) {
+            return std::nullopt;
+        }
+        const double columns_value = at(14).f64;
+        if (columns_value < 4.0 || columns_value != std::floor(columns_value) ||
+            columns_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max()) ||
+            at(27).f64 != columns_value || at(38).f64 != columns_value) {
+            return std::nullopt;
+        }
+        const auto columns = static_cast<std::uint32_t>(columns_value);
+        const auto counter = at(1).index;
+        const auto matrix_base = at(20).index;
+        const auto matrix_width = at(20).argument_count;
+        if (counter == at(2).index ||
+            matrix_width < columns || matrix_width % columns != 0u ||
+            matrix_base > function.locals.size() ||
+            matrix_width > function.locals.size() - matrix_base ||
+            at(7).index != counter || at(11).index != counter ||
+            at(24).index != counter || at(46).index != counter ||
+            at(49).index != counter ||
+            at(5).index != at(9).index || at(5).index == at(22).index ||
+            at(6).index != at(37).index || at(8).index != at(40).index ||
+            at(10).index != at(13).index || at(12).index != at(16).index ||
+            at(18).index != at(19).index ||
+            at(20).index != at(33).index || at(20).index != at(45).index ||
+            at(20).argument_count != at(33).argument_count ||
+            at(20).argument_count != at(45).argument_count ||
+            !at(20).index_local || *at(20).index_local != at(18).index ||
+            !at(33).index_local || *at(33).index_local != at(31).index ||
+            !at(45).index_local || *at(45).index_local != at(42).index ||
+            at(23).index != at(26).index ||
+            at(25).index != at(29).index || at(31).index != at(32).index ||
+            at(36).index != at(44).index || at(42).index != at(43).index ||
+            at(50).label != at(0).label) {
+            return std::nullopt;
+        }
+        return PackedMatrixRowUpdateLoopPlan{
+            label_index + 50u, at(4).label, counter, at(2).index,
+            at(5).index, at(22).index, at(21).index,
+            matrix_base, matrix_width, columns,
+        };
+    }
+
+    static std::optional<PackedMatrixVectorReductionLoopPlan>
+    detect_packed_matrix_vector_reduction_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 27u >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label ||
+            at(1).opcode != Opcode::LoadLocal || at(2).opcode != Opcode::LoadLocal ||
+            at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse ||
+            at(5).opcode != Opcode::LoadLocal || at(6).opcode != Opcode::LoadLocal ||
+            at(7).opcode != Opcode::StoreLocal || at(8).opcode != Opcode::LoadLocal ||
+            at(9).opcode != Opcode::StoreLocal || at(10).opcode != Opcode::LoadLocal ||
+            at(11).opcode != Opcode::PushF64 || at(12).opcode != Opcode::MultiplyF64 ||
+            at(13).opcode != Opcode::LoadLocal || at(14).opcode != Opcode::AddF64 ||
+            at(15).opcode != Opcode::StoreLocal || at(16).opcode != Opcode::LoadLocal ||
+            at(17).opcode != Opcode::LoadF64LocalsIndex ||
+            at(18).opcode != Opcode::LoadLocal ||
+            at(19).opcode != Opcode::LoadF64LocalsIndex ||
+            at(20).opcode != Opcode::MultiplyF64 ||
+            at(21).opcode != Opcode::SubtractF64 || at(22).opcode != Opcode::StoreLocal ||
+            at(23).opcode != Opcode::LoadLocal ||
+            at(24).opcode != Opcode::PushF64 || at(24).f64 != 1.0 ||
+            at(25).opcode != Opcode::AddF64 || at(26).opcode != Opcode::StoreLocal ||
+            at(27).opcode != Opcode::Jump) {
+            return std::nullopt;
+        }
+        const auto columns_value = at(11).f64;
+        if (columns_value < 4.0 || columns_value != std::floor(columns_value) ||
+            columns_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto columns = static_cast<std::uint32_t>(columns_value);
+        const auto counter = at(1).index;
+        const auto matrix_base = at(17).index;
+        const auto matrix_width = at(17).argument_count;
+        const auto vector_base = at(19).index;
+        const auto vector_width = at(19).argument_count;
+        if (counter == at(2).index ||
+            at(8).index != counter || at(13).index != at(9).index ||
+            at(18).index != counter || at(23).index != counter || at(26).index != counter ||
+            at(5).index != at(22).index || at(7).index != at(10).index ||
+            at(9).index != at(13).index ||
+            at(15).index != at(16).index ||
+            !at(17).index_local || *at(17).index_local != at(15).index ||
+            !at(19).index_local || *at(19).index_local != counter ||
+            matrix_width < columns || matrix_width % columns != 0u ||
+            vector_width < columns || matrix_base > function.locals.size() ||
+            matrix_width > function.locals.size() - matrix_base ||
+            vector_base > function.locals.size() ||
+            vector_width > function.locals.size() - vector_base ||
+            at(27).label != at(0).label) {
+            return std::nullopt;
+        }
+        return PackedMatrixVectorReductionLoopPlan{
+            label_index + 27u, at(4).label, counter, at(2).index,
+            at(5).index, at(6).index, matrix_base, matrix_width,
+            vector_base, vector_width, columns,
+        };
+    }
+
+    static std::optional<PackedQrLoopPlan>
+    detect_packed_qr_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2() ||
+            function.name.rfind("qr$vkf$", 0) != 0 ||
+            label_index + 5u >= function.instructions.size()) {
+            return std::nullopt;
+        }
+        const auto& code = function.instructions;
+        const auto& header = code[label_index];
+        if (header.opcode != Opcode::Label ||
+            code[label_index + 1u].opcode != Opcode::LoadLocal ||
+            code[label_index + 2u].opcode != Opcode::LoadLocal ||
+            code[label_index + 3u].opcode != Opcode::OrderedLessF64 ||
+            code[label_index + 4u].opcode != Opcode::JumpIfFalse) {
+            return std::nullopt;
+        }
+        const auto find_local = [&](std::string_view name) -> std::optional<std::uint32_t> {
+            const auto found = std::find(function.locals.begin(), function.locals.end(), name);
+            if (found == function.locals.end()) return std::nullopt;
+            return static_cast<std::uint32_t>(found - function.locals.begin());
+        };
+        const auto count_prefix = [&](std::string_view prefix) {
+            return static_cast<std::uint32_t>(std::count_if(
+                function.locals.begin(), function.locals.end(),
+                [prefix](const std::string& name) {
+                    return name.rfind(prefix, 0) == 0;
+                }));
+        };
+        const auto matrix = find_local("matrix.0");
+        const auto q = find_local("q.0");
+        const auto r = find_local("r_upper.0");
+        const auto vector = find_local("vector.0");
+        const auto row_count = find_local("row_count");
+        const auto column_count = find_local("column_count");
+        const auto total = find_local("total");
+        const auto norm = find_local("norm");
+        const auto tolerance = find_local("tolerance");
+        if (!matrix || !q || !r || !vector || !row_count || !column_count ||
+            !total || !norm || !tolerance) {
+            return std::nullopt;
+        }
+        const auto matrix_width = count_prefix("matrix.");
+        const auto q_width = count_prefix("q.");
+        const auto r_width = count_prefix("r_upper.");
+        const auto rows = count_prefix("vector.");
+        if (rows < 4u || rows % 4u != 0u || matrix_width == 0u ||
+            matrix_width % rows != 0u) {
+            return std::nullopt;
+        }
+        const auto columns = matrix_width / rows;
+        if (columns < 2u || q_width != matrix_width ||
+            r_width != columns * columns ||
+            code[label_index + 2u].index != *column_count) {
+            return std::nullopt;
+        }
+        std::optional<std::size_t> end_index;
+        std::optional<std::size_t> raise_index;
+        const auto scan_end = std::min(code.size(), label_index + 4096u);
+        for (std::size_t index = label_index + 1u; index < scan_end; ++index) {
+            if (code[index].opcode == Opcode::RaiseErrorValue) raise_index = index;
+            if (code[index].opcode == Opcode::Jump && code[index].label == header.label) {
+                end_index = index;
+                break;
+            }
+        }
+        if (!end_index || !raise_index || *raise_index < 3u ||
+            code[*raise_index - 3u].opcode != Opcode::PushString ||
+            code[*raise_index - 1u].opcode != Opcode::PushF64) {
+            return std::nullopt;
+        }
+        const auto error_type = code[*raise_index - 1u].f64;
+        if (error_type < 0.0 || error_type != std::floor(error_type) ||
+            error_type > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        return PackedQrLoopPlan{
+            *end_index, code[label_index + 4u].label,
+            code[label_index + 1u].index, *row_count, *column_count,
+            *total, *norm, *tolerance,
+            *matrix, *q, *r, *vector, rows, columns,
+            code[*raise_index - 3u].index,
+            code[*raise_index - 3u].byte_count,
+            static_cast<std::uint32_t>(error_type),
+        };
+    }
+
+    static std::optional<PackedSymmetricEigenLoopPlan>
+    detect_packed_symmetric_eigen_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2() ||
+            function.name.rfind("eigen$vkf$", 0) != 0 ||
+            label_index + 13u >= function.instructions.size()) {
+            return std::nullopt;
+        }
+        const auto& code = function.instructions;
+        const auto& header = code[label_index];
+        if (header.opcode != Opcode::Label ||
+            code[label_index + 1u].opcode != Opcode::LoadLocal ||
+            code[label_index + 2u].opcode != Opcode::LoadLocal ||
+            code[label_index + 3u].opcode != Opcode::OrderedLessF64 ||
+            code[label_index + 4u].opcode != Opcode::BooleanizeF64 ||
+            code[label_index + 5u].opcode != Opcode::Duplicate ||
+            code[label_index + 6u].opcode != Opcode::JumpIfFalse ||
+            code[label_index + 7u].opcode != Opcode::Drop ||
+            code[label_index + 8u].opcode != Opcode::LoadLocal ||
+            code[label_index + 9u].opcode != Opcode::LogicalNotF64 ||
+            code[label_index + 10u].opcode != Opcode::BooleanizeF64 ||
+            code[label_index + 11u].opcode != Opcode::Label ||
+            code[label_index + 12u].opcode != Opcode::JumpIfFalse) {
+            return std::nullopt;
+        }
+        const auto find_local = [&](std::string_view name) -> std::optional<std::uint32_t> {
+            const auto found = std::find(function.locals.begin(), function.locals.end(), name);
+            if (found == function.locals.end()) return std::nullopt;
+            return static_cast<std::uint32_t>(found - function.locals.begin());
+        };
+        const auto count_prefix = [&](std::string_view prefix) {
+            return static_cast<std::uint32_t>(std::count_if(
+                function.locals.begin(), function.locals.end(),
+                [prefix](const std::string& name) {
+                    return name.rfind(prefix, 0) == 0;
+                }));
+        };
+        const auto tolerance = find_local("tolerance");
+        const auto max_sweeps = find_local("max_sweeps");
+        const auto converged = find_local("converged");
+        const auto sweeps = find_local("sweeps");
+        const auto largest = find_local("largest");
+        const auto diagonal_left = find_local("diagonal_left");
+        const auto diagonal_right = find_local("diagonal_right");
+        const auto off_diagonal = find_local("off_diagonal");
+        const auto threshold = find_local("angle");
+        const auto cosine = find_local("cosine");
+        const auto sine = find_local("sine");
+        const auto working = find_local("working.0");
+        const auto vectors = find_local("vectors.0");
+        if (!tolerance || !max_sweeps || !converged || !sweeps || !largest ||
+            !diagonal_left || !diagonal_right || !off_diagonal || !threshold || !cosine ||
+            !sine || !working || !vectors ||
+            code[label_index + 1u].index != *sweeps ||
+            code[label_index + 2u].index != *max_sweeps ||
+            code[label_index + 8u].index != *converged) {
+            return std::nullopt;
+        }
+        const auto working_width = count_prefix("working.");
+        const auto vectors_width = count_prefix("vectors.");
+        const auto size = static_cast<std::uint32_t>(
+            std::llround(std::sqrt(static_cast<double>(working_width))));
+        if (size < 4u || size * size != working_width ||
+            vectors_width != working_width) {
+            return std::nullopt;
+        }
+        std::optional<std::size_t> end_index;
+        for (std::size_t index = label_index + 13u;
+             index < function.instructions.size(); ++index) {
+            if (code[index].opcode == Opcode::Jump &&
+                code[index].label == header.label) {
+                end_index = index;
+                break;
+            }
+        }
+        if (!end_index) return std::nullopt;
+        return PackedSymmetricEigenLoopPlan{
+            *end_index, code[label_index + 12u].label,
+            *tolerance, *max_sweeps, *converged, *sweeps, *largest,
+            *diagonal_left, *diagonal_right, *off_diagonal, *threshold,
+            *cosine, *sine,
+            *working, *vectors, size,
+        };
+    }
+
+    static std::optional<PackedCholeskyLoopPlan>
+    detect_packed_cholesky_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 379u >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label ||
+            at(1).opcode != Opcode::LoadLocal || at(2).opcode != Opcode::LoadLocal ||
+            at(3).opcode != Opcode::OrderedLessF64 || at(4).opcode != Opcode::JumpIfFalse ||
+            at(5).opcode != Opcode::PushF64 || at(5).f64 != 0.0 ||
+            at(6).opcode != Opcode::StoreLocal ||
+            at(7).opcode != Opcode::LoadLocal || at(8).opcode != Opcode::StoreLocal ||
+            at(12).opcode != Opcode::JumpIfFalse ||
+            at(13).opcode != Opcode::Label ||
+            at(29).opcode != Opcode::LoadF64LocalsIndex ||
+            at(30).opcode != Opcode::StoreLocal ||
+            at(58).opcode != Opcode::LoadF64LocalsIndex ||
+            at(128).opcode != Opcode::LoadLocal ||
+            at(129).opcode != Opcode::LoadLocal ||
+            at(130).opcode != Opcode::OrderedLessEqualF64 ||
+            at(131).opcode != Opcode::JumpIfFalse ||
+            at(132).opcode != Opcode::PushString ||
+            at(134).opcode != Opcode::PushF64 ||
+            at(135).opcode != Opcode::RaiseErrorValue ||
+            at(153).opcode != Opcode::StoreF64LocalsIndex ||
+            at(176).opcode != Opcode::DivideF64 ||
+            at(186).opcode != Opcode::StoreF64LocalsIndex ||
+            at(379).opcode != Opcode::Jump || at(379).label != at(0).label) {
+            return std::nullopt;
+        }
+        const auto columns_value = at(23).f64;
+        if (columns_value < 4.0 || columns_value != std::floor(columns_value) ||
+            columns_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto columns = static_cast<std::uint32_t>(columns_value);
+        const auto matrix_base = at(29).index;
+        const auto matrix_width = at(29).argument_count;
+        const auto lower_base = at(58).index;
+        const auto lower_width = at(58).argument_count;
+        const auto error_type = at(134).f64;
+        if (at(1).index != at(7).index ||
+            at(30).index != at(128).index ||
+            at(153).index != lower_base || at(186).index != lower_base ||
+            matrix_width < columns || matrix_width % columns != 0u ||
+            lower_width != matrix_width ||
+            error_type < 0.0 || error_type != std::floor(error_type) ||
+            error_type > static_cast<double>(std::numeric_limits<std::uint32_t>::max()) ||
+            matrix_base > function.locals.size() ||
+            matrix_width > function.locals.size() - matrix_base ||
+            lower_base > function.locals.size() ||
+            lower_width > function.locals.size() - lower_base) {
+            return std::nullopt;
+        }
+        return PackedCholeskyLoopPlan{
+            label_index + 379u, at(4).label, at(1).index, at(6).index,
+            at(2).index, at(129).index, at(30).index,
+            matrix_base, matrix_width, lower_base, lower_width, columns,
+            at(132).index, at(132).byte_count,
+            static_cast<std::uint32_t>(error_type),
+        };
+    }
+
+    static std::optional<PackedThinSvdFunctionPlan>
+    detect_packed_thin_svd_function(
+        const vkf::machine_ir::Function& function
+    ) {
+        if (!vkf::target::host_x64_supports_avx2() ||
+            function.name.rfind("svd$vkf$", 0) != 0) {
+            return std::nullopt;
+        }
+        const auto find_local = [&](std::string_view name) -> std::optional<std::uint32_t> {
+            const auto found = std::find(function.locals.begin(), function.locals.end(), name);
+            if (found == function.locals.end()) return std::nullopt;
+            return static_cast<std::uint32_t>(found - function.locals.begin());
+        };
+        const auto count_prefix = [&](std::string_view prefix) {
+            return static_cast<std::uint32_t>(std::count_if(
+                function.locals.begin(), function.locals.end(),
+                [prefix](const std::string& name) {
+                    return name.rfind(prefix, 0) == 0;
+                }));
+        };
+        const auto matrix = find_local("matrix.0");
+        const auto left_vectors = find_local("left_vectors.0");
+        const auto singular_values = find_local("singular_values.0");
+        const auto right_adjoint = find_local("right_adjoint.0");
+        const auto gram = find_local("gram.0");
+        const auto eigenvectors = find_local("right_vectors.0");
+        const auto scratch = find_local("basis_candidate.0");
+        const auto tolerance = find_local("tolerance");
+        const auto max_sweeps = find_local("max_sweeps");
+        const auto verify_result = find_local("verify_result");
+        const auto spectral = find_local("spectral.0");
+        const auto residual = find_local("measured_residual");
+        const auto orthogonality = find_local("orthogonality_residual");
+        const auto verified = find_local("verified");
+        if (!matrix || !left_vectors || !singular_values || !right_adjoint ||
+            !gram || !eigenvectors || !scratch || !tolerance || !max_sweeps ||
+            !verify_result || !spectral || !residual || !orthogonality || !verified) {
+            return std::nullopt;
+        }
+        const auto columns = count_prefix("singular_values.");
+        const auto matrix_width = count_prefix("matrix.");
+        if (columns < 16u || matrix_width == 0u || matrix_width % columns != 0u) {
+            return std::nullopt;
+        }
+        const auto rows = matrix_width / columns;
+        const auto left_width = count_prefix("left_vectors.");
+        const auto right_width = count_prefix("right_adjoint.");
+        const auto gram_width = count_prefix("gram.");
+        const auto eigenvector_width = count_prefix("right_vectors.");
+        const auto scratch_width = count_prefix("basis_candidate.");
+        const auto spectral_width = count_prefix("spectral.");
+        if (rows != columns * 2u || left_width != matrix_width ||
+            right_width != columns * columns || gram_width != right_width ||
+            eigenvector_width != right_width || scratch_width < columns * 2u ||
+            spectral_width != columns + right_width + 4u ||
+            (matrix_width & 3u) != 0u || (columns & 3u) != 0u ||
+            (right_width & 3u) != 0u) {
+            return std::nullopt;
+        }
+        return PackedThinSvdFunctionPlan{
+            *matrix, *left_vectors, *singular_values, *right_adjoint,
+            *gram, *eigenvectors, *scratch, *tolerance, *max_sweeps,
+            *verify_result, *spectral + columns + right_width,
+            *residual, *orthogonality, *verified,
+            rows, columns,
+        };
+    }
+
+    static std::optional<PackedFactorFunctionPlan>
+    detect_packed_factor_function(const vkf::machine_ir::Function& function) {
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto find_local = [&](std::string_view name) -> std::optional<std::uint32_t> {
+            const auto found = std::find(function.locals.begin(), function.locals.end(), name);
+            if (found == function.locals.end()) return std::nullopt;
+            return static_cast<std::uint32_t>(found - function.locals.begin());
+        };
+        const auto count_prefix = [&](std::string_view prefix) {
+            return static_cast<std::uint32_t>(std::count_if(
+                function.locals.begin(), function.locals.end(),
+                [prefix](const std::string& name) {
+                    return name.rfind(prefix, 0) == 0;
+                }));
+        };
+        const auto matrix = find_local("matrix.0");
+        const auto tolerance = find_local("tolerance");
+        if (!matrix || !tolerance) return std::nullopt;
+        const auto matrix_width = count_prefix("matrix.");
+        if (function.name.rfind("cholesky$vkf$", 0) == 0) {
+            const auto lower = find_local("lower.0");
+            const auto size = static_cast<std::uint32_t>(
+                std::llround(std::sqrt(static_cast<double>(matrix_width))));
+            if (!lower || size < 64u || size * size != matrix_width ||
+                count_prefix("lower.") != matrix_width || (matrix_width & 3u) != 0u) {
+                return std::nullopt;
+            }
+            return PackedFactorFunctionPlan{
+                PackedFactorFunctionPlan::Kind::Cholesky,
+                *matrix, 0u, *lower, 0u, 0u, 0u, 0u, 0u,
+                *tolerance, size, size,
+            };
+        }
+        if (function.name.rfind("lu$vkf$", 0) == 0) {
+            const auto lower = find_local("lower.0");
+            const auto upper = find_local("upper.0");
+            const auto permutation = find_local("permutation.0");
+            const auto sign = find_local("sign");
+            const auto size = static_cast<std::uint32_t>(
+                std::llround(std::sqrt(static_cast<double>(matrix_width))));
+            if (!lower || !upper || !permutation || !sign || size < 64u ||
+                size * size != matrix_width ||
+                count_prefix("lower.") != matrix_width ||
+                count_prefix("upper.") != matrix_width ||
+                count_prefix("permutation.") != size ||
+                (matrix_width & 3u) != 0u || (size & 3u) != 0u) {
+                return std::nullopt;
+            }
+            return PackedFactorFunctionPlan{
+                PackedFactorFunctionPlan::Kind::Lu,
+                *matrix, 0u, *lower, *upper, *permutation, *sign, 0u, 0u,
+                *tolerance, size, size,
+            };
+        }
+        if (function.name.rfind("least_squares$vkf$", 0) == 0) {
+            const auto values = find_local("values.0");
+            const auto factors = find_local("factors.0");
+            const auto projected = find_local("projected.0");
+            if (!values || !factors || !projected) return std::nullopt;
+            const auto rows = count_prefix("values.");
+            const auto columns = count_prefix("projected.");
+            const auto factor_width = count_prefix("factors.");
+            if (columns < 32u || rows != columns * 2u ||
+                matrix_width != rows * columns ||
+                factor_width != matrix_width + columns * columns ||
+                (columns & 3u) != 0u) {
+                return std::nullopt;
+            }
+            return PackedFactorFunctionPlan{
+                PackedFactorFunctionPlan::Kind::LeastSquares,
+                *matrix, *values, *projected, 0u, 0u, 0u,
+                *factors, *factors + matrix_width,
+                *tolerance, rows, columns,
+            };
+        }
+        return std::nullopt;
+    }
+
+    static std::optional<PackedTwoMatrixRowsReductionLoopPlan>
+    detect_packed_two_matrix_rows_reduction_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 37u >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label ||
+            at(1).opcode != Opcode::LoadLocal || at(2).opcode != Opcode::LoadLocal ||
+            at(3).opcode != Opcode::OrderedLessF64 || at(4).opcode != Opcode::JumpIfFalse ||
+            at(5).opcode != Opcode::LoadLocal ||
+            at(6).opcode != Opcode::LoadLocal || at(7).opcode != Opcode::StoreLocal ||
+            at(8).opcode != Opcode::LoadLocal || at(9).opcode != Opcode::StoreLocal ||
+            at(10).opcode != Opcode::LoadLocal || at(11).opcode != Opcode::PushF64 ||
+            at(12).opcode != Opcode::MultiplyF64 || at(13).opcode != Opcode::LoadLocal ||
+            at(14).opcode != Opcode::AddF64 || at(15).opcode != Opcode::StoreLocal ||
+            at(16).opcode != Opcode::LoadLocal ||
+            at(17).opcode != Opcode::LoadF64LocalsIndex ||
+            at(18).opcode != Opcode::LoadLocal || at(19).opcode != Opcode::StoreLocal ||
+            at(20).opcode != Opcode::LoadLocal || at(21).opcode != Opcode::StoreLocal ||
+            at(22).opcode != Opcode::LoadLocal || at(23).opcode != Opcode::PushF64 ||
+            at(24).opcode != Opcode::MultiplyF64 || at(25).opcode != Opcode::LoadLocal ||
+            at(26).opcode != Opcode::AddF64 || at(27).opcode != Opcode::StoreLocal ||
+            at(28).opcode != Opcode::LoadLocal ||
+            at(29).opcode != Opcode::LoadF64LocalsIndex ||
+            at(30).opcode != Opcode::MultiplyF64 ||
+            at(31).opcode != Opcode::SubtractF64 ||
+            at(32).opcode != Opcode::StoreLocal ||
+            at(33).opcode != Opcode::LoadLocal ||
+            at(34).opcode != Opcode::PushF64 || at(34).f64 != 1.0 ||
+            at(35).opcode != Opcode::AddF64 || at(36).opcode != Opcode::StoreLocal ||
+            at(37).opcode != Opcode::Jump) {
+            return std::nullopt;
+        }
+        const auto columns_value = at(11).f64;
+        if (columns_value < 4.0 || columns_value != std::floor(columns_value) ||
+            columns_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto columns = static_cast<std::uint32_t>(columns_value);
+        const auto matrix_base = at(17).index;
+        const auto matrix_width = at(17).argument_count;
+        if (at(8).index != at(1).index || at(20).index != at(1).index ||
+            at(33).index != at(1).index || at(36).index != at(1).index ||
+            at(37).label != at(0).label ||
+            at(15).index != at(16).index ||
+            !at(17).index_local || *at(17).index_local != at(15).index ||
+            at(27).index != at(28).index ||
+            !at(29).index_local || *at(29).index_local != at(27).index ||
+            at(29).index != matrix_base || at(29).argument_count != matrix_width ||
+            at(5).index != at(32).index ||
+            matrix_width < columns || matrix_width % columns != 0u ||
+            matrix_base > function.locals.size() ||
+            matrix_width > function.locals.size() - matrix_base) {
+            return std::nullopt;
+        }
+        return PackedTwoMatrixRowsReductionLoopPlan{
+            label_index + 37u, at(4).label, at(1).index, at(2).index,
+            at(5).index, at(6).index, at(18).index,
+            matrix_base, matrix_width, columns,
+        };
+    }
+
+    static std::optional<PackedMatrixPivotSearchLoopPlan>
+    detect_packed_matrix_pivot_search_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        const auto& code = function.instructions;
+        if (label_index + 34u >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label ||
+            at(1).opcode != Opcode::LoadLocal || at(2).opcode != Opcode::LoadLocal ||
+            at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse ||
+            at(5).opcode != Opcode::LoadLocal || at(6).opcode != Opcode::StoreLocal ||
+            at(7).opcode != Opcode::LoadLocal || at(8).opcode != Opcode::StoreLocal ||
+            at(9).opcode != Opcode::LoadLocal || at(10).opcode != Opcode::PushF64 ||
+            at(11).opcode != Opcode::MultiplyF64 || at(12).opcode != Opcode::LoadLocal ||
+            at(13).opcode != Opcode::AddF64 || at(14).opcode != Opcode::StoreLocal ||
+            at(15).opcode != Opcode::LoadLocal ||
+            at(16).opcode != Opcode::LoadF64LocalsIndex ||
+            at(17).opcode != Opcode::StoreLocal || at(18).opcode != Opcode::LoadLocal ||
+            at(19).opcode != Opcode::AbsF64 || at(20).opcode != Opcode::StoreLocal ||
+            at(21).opcode != Opcode::LoadLocal || at(22).opcode != Opcode::LoadLocal ||
+            at(23).opcode != Opcode::OrderedGreaterF64 ||
+            at(24).opcode != Opcode::JumpIfFalse ||
+            at(25).opcode != Opcode::LoadLocal || at(26).opcode != Opcode::StoreLocal ||
+            at(27).opcode != Opcode::LoadLocal || at(28).opcode != Opcode::StoreLocal ||
+            at(29).opcode != Opcode::Label || at(29).label != at(24).label ||
+            at(30).opcode != Opcode::LoadLocal ||
+            at(31).opcode != Opcode::PushF64 || at(31).f64 != 1.0 ||
+            at(32).opcode != Opcode::AddF64 || at(33).opcode != Opcode::StoreLocal ||
+            at(34).opcode != Opcode::Jump) {
+            return std::nullopt;
+        }
+        const auto columns_value = at(10).f64;
+        if (columns_value < 2.0 || columns_value != std::floor(columns_value) ||
+            columns_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto columns = static_cast<std::uint32_t>(columns_value);
+        const auto counter = at(1).index;
+        const auto matrix_base = at(16).index;
+        const auto matrix_width = at(16).argument_count;
+        if (counter == at(2).index || at(5).index != counter ||
+            at(6).index != at(9).index || at(7).index != at(8).index ||
+            at(8).index != at(12).index || at(14).index != at(15).index ||
+            !at(16).index_local || *at(16).index_local != at(14).index ||
+            at(17).index != at(18).index || at(20).index != at(21).index ||
+            at(22).index != at(28).index || at(25).index != counter ||
+            at(30).index != counter || at(33).index != counter ||
+            at(34).label != at(0).label ||
+            matrix_width < columns || matrix_width % columns != 0u ||
+            matrix_base > function.locals.size() ||
+            matrix_width > function.locals.size() - matrix_base) {
+            return std::nullopt;
+        }
+        return PackedMatrixPivotSearchLoopPlan{
+            label_index + 34u, at(4).label, counter, at(2).index,
+            at(7).index, at(26).index, at(28).index,
+            matrix_base, matrix_width, columns,
+        };
+    }
+
+    static std::optional<PackedMatrixRowSwapLoopPlan>
+    detect_packed_matrix_row_swap_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 63u >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label ||
+            at(1).opcode != Opcode::LoadLocal || at(2).opcode != Opcode::LoadLocal ||
+            at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse ||
+            at(5).opcode != Opcode::LoadLocal || at(6).opcode != Opcode::StoreLocal ||
+            at(7).opcode != Opcode::LoadLocal || at(8).opcode != Opcode::StoreLocal ||
+            at(9).opcode != Opcode::LoadLocal || at(10).opcode != Opcode::PushF64 ||
+            at(11).opcode != Opcode::MultiplyF64 || at(12).opcode != Opcode::LoadLocal ||
+            at(13).opcode != Opcode::AddF64 || at(14).opcode != Opcode::StoreLocal ||
+            at(15).opcode != Opcode::LoadLocal ||
+            at(16).opcode != Opcode::LoadF64LocalsIndex ||
+            at(17).opcode != Opcode::StoreLocal ||
+            at(22).opcode != Opcode::LoadLocal ||
+            at(28).opcode != Opcode::MultiplyF64 ||
+            at(33).opcode != Opcode::LoadF64LocalsIndex ||
+            at(34).opcode != Opcode::StoreLocal ||
+            at(43).opcode != Opcode::StoreF64LocalsIndex ||
+            at(44).opcode != Opcode::LoadLocal ||
+            at(58).opcode != Opcode::StoreF64LocalsIndex ||
+            at(59).opcode != Opcode::LoadLocal ||
+            at(60).opcode != Opcode::PushF64 || at(60).f64 != 1.0 ||
+            at(61).opcode != Opcode::AddF64 || at(62).opcode != Opcode::StoreLocal ||
+            at(63).opcode != Opcode::Jump) {
+            return std::nullopt;
+        }
+        const auto columns_value = at(10).f64;
+        if (columns_value < 4.0 || columns_value != std::floor(columns_value) ||
+            columns_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto columns = static_cast<std::uint32_t>(columns_value);
+        const auto counter = at(1).index;
+        const auto matrix_base = at(16).index;
+        const auto matrix_width = at(16).argument_count;
+        if (at(7).index != counter || at(59).index != counter || at(62).index != counter ||
+            at(5).index == at(22).index ||
+            at(16).index != at(33).index || at(16).index != at(43).index ||
+            at(16).index != at(58).index ||
+            at(16).argument_count != at(33).argument_count ||
+            at(16).argument_count != at(43).argument_count ||
+            at(16).argument_count != at(58).argument_count ||
+            at(63).label != at(0).label ||
+            matrix_width < columns || matrix_width % columns != 0u ||
+            matrix_base > function.locals.size() ||
+            matrix_width > function.locals.size() - matrix_base) {
+            return std::nullopt;
+        }
+        return PackedMatrixRowSwapLoopPlan{
+            label_index + 63u, at(4).label, counter, at(2).index,
+            at(5).index, at(22).index, matrix_base, matrix_width, columns,
+        };
+    }
+
+    static std::optional<PackedGaussianEliminationRowsLoopPlan>
+    detect_packed_gaussian_elimination_rows_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 164u >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label ||
+            at(1).opcode != Opcode::LoadLocal || at(2).opcode != Opcode::LoadLocal ||
+            at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse ||
+            at(5).opcode != Opcode::LoadLocal || at(6).opcode != Opcode::StoreLocal ||
+            at(7).opcode != Opcode::LoadLocal || at(8).opcode != Opcode::StoreLocal ||
+            at(9).opcode != Opcode::LoadLocal || at(10).opcode != Opcode::PushF64 ||
+            at(11).opcode != Opcode::MultiplyF64 || at(12).opcode != Opcode::LoadLocal ||
+            at(13).opcode != Opcode::AddF64 || at(14).opcode != Opcode::StoreLocal ||
+            at(15).opcode != Opcode::LoadLocal ||
+            at(16).opcode != Opcode::LoadF64LocalsIndex ||
+            at(17).opcode != Opcode::LoadLocal || at(18).opcode != Opcode::DivideF64 ||
+            at(19).opcode != Opcode::StoreLocal ||
+            at(34).opcode != Opcode::StoreF64LocalsIndex ||
+            at(38).opcode != Opcode::StoreLocal ||
+            at(43).opcode != Opcode::Label ||
+            at(150).opcode != Opcode::Label ||
+            at(151).opcode != Opcode::LoadLocal ||
+            at(153).opcode != Opcode::LoadF64LocalsIndex ||
+            at(154).opcode != Opcode::LoadLocal ||
+            at(156).opcode != Opcode::LoadF64LocalsIndex ||
+            at(157).opcode != Opcode::MultiplyF64 ||
+            at(158).opcode != Opcode::SubtractF64 ||
+            at(159).opcode != Opcode::StoreF64LocalsIndex ||
+            at(160).opcode != Opcode::LoadLocal ||
+            at(161).opcode != Opcode::PushF64 || at(161).f64 != 1.0 ||
+            at(162).opcode != Opcode::AddF64 || at(163).opcode != Opcode::StoreLocal ||
+            at(164).opcode != Opcode::Jump) {
+            return std::nullopt;
+        }
+        const auto columns_value = at(10).f64;
+        if (columns_value < 4.0 || columns_value != std::floor(columns_value) ||
+            columns_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto columns = static_cast<std::uint32_t>(columns_value);
+        const auto matrix_base = at(16).index;
+        const auto matrix_width = at(16).argument_count;
+        const auto rhs_base = at(153).index;
+        const auto rhs_width = at(153).argument_count;
+        if (at(5).index != at(1).index || at(7).index == at(1).index ||
+            at(14).index != at(15).index ||
+            !at(16).index_local || *at(16).index_local != at(14).index ||
+            at(19).index != at(154).index ||
+            at(151).index != at(1).index || at(160).index != at(1).index ||
+            at(163).index != at(1).index || at(164).label != at(0).label ||
+            at(153).index != at(156).index || at(153).index != at(159).index ||
+            at(153).argument_count != at(156).argument_count ||
+            at(153).argument_count != at(159).argument_count ||
+            matrix_width < columns || matrix_width % columns != 0u ||
+            rhs_width < columns || matrix_base > function.locals.size() ||
+            matrix_width > function.locals.size() - matrix_base ||
+            rhs_base > function.locals.size() || rhs_width > function.locals.size() - rhs_base) {
+            return std::nullopt;
+        }
+        return PackedGaussianEliminationRowsLoopPlan{
+            label_index + 164u, at(4).label, at(1).index, at(2).index,
+            at(7).index, at(17).index, at(19).index,
+            matrix_base, matrix_width, rhs_base, rhs_width, columns,
+        };
+    }
+
+    static std::optional<PackedLuEliminationRowsLoopPlan>
+    detect_packed_lu_elimination_rows_loop(
+        const vkf::machine_ir::Function& function,
+        std::size_t label_index
+    ) {
+        using vkf::machine_ir::Opcode;
+        if (!vkf::target::host_x64_supports_avx2()) return std::nullopt;
+        const auto& code = function.instructions;
+        if (label_index + 153u >= code.size()) return std::nullopt;
+        const auto at = [&](std::size_t offset) -> const vkf::machine_ir::Instruction& {
+            return code[label_index + offset];
+        };
+        if (at(0).opcode != Opcode::Label ||
+            at(1).opcode != Opcode::LoadLocal || at(2).opcode != Opcode::LoadLocal ||
+            at(3).opcode != Opcode::OrderedLessF64 ||
+            at(4).opcode != Opcode::JumpIfFalse ||
+            at(5).opcode != Opcode::LoadLocal || at(6).opcode != Opcode::StoreLocal ||
+            at(7).opcode != Opcode::LoadLocal || at(8).opcode != Opcode::StoreLocal ||
+            at(9).opcode != Opcode::LoadLocal || at(10).opcode != Opcode::PushF64 ||
+            at(11).opcode != Opcode::MultiplyF64 || at(12).opcode != Opcode::LoadLocal ||
+            at(13).opcode != Opcode::AddF64 || at(14).opcode != Opcode::StoreLocal ||
+            at(15).opcode != Opcode::LoadLocal ||
+            at(16).opcode != Opcode::LoadF64LocalsIndex ||
+            at(17).opcode != Opcode::LoadLocal || at(18).opcode != Opcode::DivideF64 ||
+            at(19).opcode != Opcode::StoreLocal ||
+            at(34).opcode != Opcode::StoreF64LocalsIndex ||
+            at(41).opcode != Opcode::Label ||
+            at(61).opcode != Opcode::LoadF64LocalsIndex ||
+            at(74).opcode != Opcode::LoadF64LocalsIndex ||
+            at(75).opcode != Opcode::MultiplyF64 ||
+            at(76).opcode != Opcode::SubtractF64 ||
+            at(86).opcode != Opcode::StoreF64LocalsIndex ||
+            at(148).opcode != Opcode::Label ||
+            at(149).opcode != Opcode::LoadLocal ||
+            at(150).opcode != Opcode::PushF64 || at(150).f64 != 1.0 ||
+            at(151).opcode != Opcode::AddF64 || at(152).opcode != Opcode::StoreLocal ||
+            at(153).opcode != Opcode::Jump) {
+            return std::nullopt;
+        }
+        const auto columns_value = at(10).f64;
+        if (columns_value < 4.0 || columns_value != std::floor(columns_value) ||
+            columns_value > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            return std::nullopt;
+        }
+        const auto columns = static_cast<std::uint32_t>(columns_value);
+        const auto upper_base = at(16).index;
+        const auto upper_width = at(16).argument_count;
+        const auto lower_base = at(34).index;
+        const auto lower_width = at(34).argument_count;
+        if (at(5).index != at(1).index || at(7).index == at(1).index ||
+            at(14).index != at(15).index ||
+            !at(16).index_local || *at(16).index_local != at(14).index ||
+            at(19).index != at(24).index ||
+            at(34).index != lower_base ||
+            at(61).index != upper_base || at(74).index != upper_base ||
+            at(86).index != upper_base ||
+            at(61).argument_count != upper_width ||
+            at(74).argument_count != upper_width ||
+            at(86).argument_count != upper_width ||
+            at(149).index != at(1).index || at(152).index != at(1).index ||
+            at(153).label != at(0).label ||
+            upper_width < columns || upper_width % columns != 0u ||
+            lower_width != upper_width ||
+            upper_base > function.locals.size() ||
+            upper_width > function.locals.size() - upper_base ||
+            lower_base > function.locals.size() ||
+            lower_width > function.locals.size() - lower_base) {
+            return std::nullopt;
+        }
+        return PackedLuEliminationRowsLoopPlan{
+            label_index + 153u, at(4).label, at(1).index, at(2).index,
+            at(7).index, at(17).index, at(19).index,
+            lower_base, lower_width, upper_base, upper_width, columns,
         };
     }
 
@@ -4582,6 +5666,8 @@ private:
                 case Opcode::CountLocalValues:
                 case Opcode::LoadF64LocalsIndex:
                 case Opcode::StoreF64LocalsIndex:
+                case Opcode::PushString:
+                case Opcode::RaiseErrorValue:
                 case Opcode::Label:
                 case Opcode::Jump:
                 case Opcode::JumpIfFalse:
@@ -4595,7 +5681,7 @@ private:
             }
         };
         const bool borrow_aggregate_parameters =
-            policy_.borrowed_aggregate_parameters && !entry && !function.may_error &&
+            policy_.borrowed_aggregate_parameters && !entry &&
             parameter_count >= 8u &&
             parameter_count <= function.local_classes.size() &&
             std::all_of(
@@ -4717,6 +5803,7 @@ private:
                 native_i64_local.begin() + base + width,
                 [](bool value) { return value; });
         };
+        std::vector<MachineBranchPatch> branches;
         if (register_cache_safe) {
             const bool has_implicit_runtime_call = std::any_of(
                 function.instructions.begin(), function.instructions.end(),
@@ -5203,6 +6290,1726 @@ private:
             code_.i32(frame.displacement(plan.counter_local));
             code_.i32(static_cast<std::int32_t>(plan.width));
         };
+        const auto emit_packed_matrix_row_update =
+            [&](const PackedMatrixRowUpdateLoopPlan& plan) {
+                if (!local_is_i64(plan.counter_local) ||
+                    !local_is_i64(plan.bound_local) ||
+                    !local_is_i64(plan.target_row_local) ||
+                    !local_is_i64(plan.source_row_local)) {
+                    throw BackendFailure(
+                        "packed matrix row update requires native integer indices");
+                }
+
+                // r8 = first column, rcx = remaining columns.
+                load_i64_to_rcx(plan.counter_local);
+                code_.raw({0x49, 0x89, 0xc8});
+                load_i64_to_rcx(plan.bound_local);
+                code_.raw({0x4c, 0x29, 0xc1,
+                           0x48, 0x85, 0xc9,
+                           0x0f, 0x8e});
+                const auto empty = code_.rel32_placeholder();
+
+                // Fixed nested vectors are contiguous in descending frame
+                // addresses. Build pointers to target[row, first] and
+                // source[row, first] once, outside the packed loop.
+                emit_fixed_base_address(plan.matrix_base, plan.matrix_width);
+                code_.raw({0x49, 0x89, 0xc2});
+                load_i64_to_rdx(plan.source_row_local);
+                code_.raw({0x48, 0x69, 0xd2});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x4c, 0x01, 0xc2,
+                           0x48, 0xf7, 0xda,
+                           0x49, 0x8d, 0x14, 0xd2});
+                load_i64_to_rax(plan.target_row_local);
+                code_.raw({0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x4c, 0x01, 0xc0,
+                           0x48, 0xf7, 0xd8,
+                           0x49, 0x8d, 0x04, 0xc2});
+
+                load_local(plan.factor_local, 2);
+                code_.raw({0xc4, 0xe2, 0x7d, 0x19, 0xd2,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x82});
+                const auto scalar_only = code_.rel32_placeholder();
+
+                code_.raw({0x48, 0x83, 0xe8, 0x18,
+                           0x48, 0x83, 0xea, 0x18});
+                const auto packed_loop = code_.position();
+                code_.raw({0xc5, 0xfd, 0x10, 0x00,
+                           0xc5, 0xfd, 0x10, 0x0a,
+                           0xc5, 0xf5, 0x59, 0xca,
+                           0xc5, 0xfd, 0x5c, 0xc1,
+                           0xc5, 0xfd, 0x11, 0x00,
+                           0x48, 0x83, 0xe8, 0x20,
+                           0x48, 0x83, 0xea, 0x20,
+                           0x48, 0x83, 0xe9, 0x04,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x83});
+                const auto packed_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(packed_repeat, packed_loop);
+                code_.raw({0x48, 0x83, 0xc0, 0x18,
+                           0x48, 0x83, 0xc2, 0x18});
+
+                const auto scalar_loop_test = code_.position();
+                code_.patch_rel32(scalar_only, scalar_loop_test);
+                code_.raw({0x48, 0x85, 0xc9,
+                           0x0f, 0x84});
+                const auto no_remainder = code_.rel32_placeholder();
+                const auto scalar_loop = code_.position();
+                code_.raw({0xf2, 0x0f, 0x10, 0x00,
+                           0xf2, 0x0f, 0x10, 0x0a,
+                           0xf2, 0x0f, 0x59, 0xca,
+                           0xf2, 0x0f, 0x5c, 0xc1,
+                           0xf2, 0x0f, 0x11, 0x00,
+                           0x48, 0x83, 0xe8, 0x08,
+                           0x48, 0x83, 0xea, 0x08,
+                           0x48, 0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto scalar_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(scalar_repeat, scalar_loop);
+
+                const auto complete = code_.position();
+                code_.patch_rel32(empty, complete);
+                code_.patch_rel32(no_remainder, complete);
+                code_.raw({0xc5, 0xf8, 0x77});
+                load_i64_to_rax(plan.bound_local);
+                store_rax_to_i64(plan.counter_local);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+            };
+        const auto emit_packed_matrix_vector_reduction =
+            [&](const PackedMatrixVectorReductionLoopPlan& plan) {
+                if (!local_is_i64(plan.counter_local) ||
+                    !local_is_i64(plan.bound_local) || !local_is_i64(plan.row_local)) {
+                    throw BackendFailure(
+                        "packed matrix-vector reduction requires native integer indices");
+                }
+                load_i64_to_rcx(plan.counter_local);
+                code_.raw({0x49, 0x89, 0xc8});
+                load_i64_to_rcx(plan.bound_local);
+                code_.raw({0x4c, 0x29, 0xc1});
+
+                emit_fixed_base_address(plan.matrix_base, plan.matrix_width);
+                code_.raw({0x49, 0x89, 0xc2});
+                load_i64_to_rdx(plan.row_local);
+                code_.raw({0x48, 0x69, 0xd2});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x4c, 0x01, 0xc2,
+                           0x48, 0xf7, 0xda,
+                           0x49, 0x8d, 0x14, 0xd2});
+                emit_fixed_base_address(plan.vector_base, plan.vector_width);
+                code_.raw({0x4d, 0x89, 0xc1,
+                           0x49, 0xf7, 0xd9,
+                           0x4a, 0x8d, 0x04, 0xc8,
+                           0xc5, 0xfd, 0x57, 0xc0,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x82});
+                const auto scalar_only = code_.rel32_placeholder();
+                code_.raw({0x48, 0x83, 0xe8, 0x18,
+                           0x48, 0x83, 0xea, 0x18});
+                const auto packed_loop = code_.position();
+                code_.raw({0xc5, 0xfd, 0x10, 0x0a,
+                           0xc5, 0xfd, 0x10, 0x10,
+                           0xc5, 0xf5, 0x59, 0xca,
+                           0xc5, 0xfd, 0x58, 0xc1,
+                           0x48, 0x83, 0xe8, 0x20,
+                           0x48, 0x83, 0xea, 0x20,
+                           0x48, 0x83, 0xe9, 0x04,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x83});
+                const auto packed_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(packed_repeat, packed_loop);
+                emit_horizontal_ymm_sum(0, 4);
+                code_.raw({0x48, 0x83, 0xc0, 0x18,
+                           0x48, 0x83, 0xc2, 0x18});
+                const auto scalar_start = code_.position();
+                code_.patch_rel32(scalar_only, scalar_start);
+                code_.raw({0xc5, 0xf8, 0x77,
+                           0x48, 0x85, 0xc9,
+                           0x0f, 0x84});
+                const auto no_remainder = code_.rel32_placeholder();
+                const auto scalar_loop = code_.position();
+                code_.raw({0xf2, 0x0f, 0x10, 0x0a,
+                           0xf2, 0x0f, 0x10, 0x10,
+                           0xf2, 0x0f, 0x59, 0xca,
+                           0xf2, 0x0f, 0x58, 0xc1,
+                           0x48, 0x83, 0xe8, 0x08,
+                           0x48, 0x83, 0xea, 0x08,
+                           0x48, 0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto scalar_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(scalar_repeat, scalar_loop);
+                code_.patch_rel32(no_remainder, code_.position());
+                load_local(plan.total_local, 1);
+                code_.raw({0xf2, 0x0f, 0x5c, 0xc8});
+                store_local(plan.total_local, 1);
+                load_i64_to_rax(plan.bound_local);
+                store_rax_to_i64(plan.counter_local);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+            };
+        const auto emit_packed_two_matrix_rows_reduction =
+            [&](const PackedTwoMatrixRowsReductionLoopPlan& plan) {
+                if (!local_is_i64(plan.counter_local) ||
+                    !local_is_i64(plan.bound_local) ||
+                    !local_is_i64(plan.left_row_local) ||
+                    !local_is_i64(plan.right_row_local)) {
+                    throw BackendFailure(
+                        "packed row-pair reduction requires native integer indices");
+                }
+                load_i64_to_rcx(plan.counter_local);
+                code_.raw({0x49, 0x89, 0xc8});
+                load_i64_to_rcx(plan.bound_local);
+                code_.raw({0x4c, 0x29, 0xc1});
+                emit_fixed_base_address(plan.matrix_base, plan.matrix_width);
+                code_.raw({0x49, 0x89, 0xc2});
+                load_i64_to_rax(plan.left_row_local);
+                code_.raw({0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x4c, 0x01, 0xc0,
+                           0x48, 0xf7, 0xd8,
+                           0x49, 0x8d, 0x04, 0xc2});
+                load_i64_to_rdx(plan.right_row_local);
+                code_.raw({0x48, 0x69, 0xd2});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x4c, 0x01, 0xc2,
+                           0x48, 0xf7, 0xda,
+                           0x49, 0x8d, 0x14, 0xd2,
+                           0xc5, 0xfd, 0x57, 0xc0,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x82});
+                const auto scalar_only = code_.rel32_placeholder();
+                code_.raw({0x48, 0x83, 0xe8, 0x18,
+                           0x48, 0x83, 0xea, 0x18});
+                const auto packed_loop = code_.position();
+                code_.raw({0xc5, 0xfd, 0x10, 0x08,
+                           0xc5, 0xfd, 0x10, 0x12,
+                           0xc5, 0xf5, 0x59, 0xca,
+                           0xc5, 0xfd, 0x58, 0xc1,
+                           0x48, 0x83, 0xe8, 0x20,
+                           0x48, 0x83, 0xea, 0x20,
+                           0x48, 0x83, 0xe9, 0x04,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x83});
+                const auto packed_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(packed_repeat, packed_loop);
+                emit_horizontal_ymm_sum(0, 4);
+                code_.raw({0x48, 0x83, 0xc0, 0x18,
+                           0x48, 0x83, 0xc2, 0x18});
+                const auto scalar_start = code_.position();
+                code_.patch_rel32(scalar_only, scalar_start);
+                code_.raw({0xc5, 0xf8, 0x77,
+                           0x48, 0x85, 0xc9,
+                           0x0f, 0x84});
+                const auto no_remainder = code_.rel32_placeholder();
+                const auto scalar_loop = code_.position();
+                code_.raw({0xf2, 0x0f, 0x10, 0x08,
+                           0xf2, 0x0f, 0x10, 0x12,
+                           0xf2, 0x0f, 0x59, 0xca,
+                           0xf2, 0x0f, 0x58, 0xc1,
+                           0x48, 0x83, 0xe8, 0x08,
+                           0x48, 0x83, 0xea, 0x08,
+                           0x48, 0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto scalar_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(scalar_repeat, scalar_loop);
+                code_.patch_rel32(no_remainder, code_.position());
+                load_local(plan.total_local, 1);
+                code_.raw({0xf2, 0x0f, 0x5c, 0xc8});
+                store_local(plan.total_local, 1);
+                load_i64_to_rax(plan.bound_local);
+                store_rax_to_i64(plan.counter_local);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+            };
+        const auto emit_packed_cholesky =
+            [&](const PackedCholeskyLoopPlan& plan) {
+                if (!local_is_i64(plan.row_local) ||
+                    !local_is_i64(plan.column_local) ||
+                    !local_is_i64(plan.bound_local)) {
+                    throw BackendFailure(
+                        "packed Cholesky requires native integer indices");
+                }
+                emit_fixed_base_address(plan.matrix_base, plan.matrix_width);
+                code_.raw({0x49, 0x89, 0xc5}); // r13 = input matrix
+                emit_fixed_base_address(plan.lower_base, plan.lower_width);
+                code_.raw({0x49, 0x89, 0xc6}); // r14 = lower matrix
+                load_i64_to_rax(plan.bound_local);
+                code_.raw({0x49, 0x89, 0xc7}); // r15 = n
+                load_i64_to_rax(plan.row_local);
+                code_.raw({0x48, 0x89, 0xc6, // rsi = row
+                           0x4c, 0x39, 0xfe,
+                           0x0f, 0x8d});
+                const auto initially_complete = code_.rel32_placeholder();
+
+                const auto outer_loop = code_.position();
+                code_.raw({0x31, 0xff}); // column = 0
+                const auto column_loop = code_.position();
+                code_.raw({0x48, 0x89, 0xf0,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x48, 0x01, 0xf8,
+                           0x48, 0xf7, 0xd8,
+                           0xc4, 0xc1, 0x7b, 0x10, 0x6c, 0xc5, 0x00,
+                           0x48, 0x85, 0xff,
+                           0x0f, 0x84});
+                const auto no_dot = code_.rel32_placeholder();
+
+                // Dot product of lower[row, 0:column] and
+                // lower[column, 0:column].
+                code_.raw({0x48, 0x89, 0xf0,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x48, 0xf7, 0xd8,
+                           0x4d, 0x8d, 0x04, 0xc6,
+                           0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x48, 0xf7, 0xd8,
+                           0x4d, 0x8d, 0x0c, 0xc6,
+                           0x48, 0x89, 0xf9,
+                           0xc5, 0xfd, 0x57, 0xc0,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x82});
+                const auto scalar_only = code_.rel32_placeholder();
+                code_.raw({0x49, 0x83, 0xe8, 0x18,
+                           0x49, 0x83, 0xe9, 0x18});
+                const auto packed_loop = code_.position();
+                code_.raw({0xc4, 0xc1, 0x7d, 0x10, 0x08,
+                           0xc4, 0xc1, 0x7d, 0x10, 0x11});
+                if (policy_.fused_multiply_add &&
+                    vkf::target::host_x64_supports_fma()) {
+                    code_.raw({0xc4, 0xe2, 0xf5, 0xb8, 0xc2});
+                } else {
+                    code_.raw({0xc5, 0xf5, 0x59, 0xca,
+                               0xc5, 0xfd, 0x58, 0xc1});
+                }
+                code_.raw({0x49, 0x83, 0xe8, 0x20,
+                           0x49, 0x83, 0xe9, 0x20,
+                           0x48, 0x83, 0xe9, 0x04,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x83});
+                const auto packed_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(packed_repeat, packed_loop);
+                emit_horizontal_ymm_sum(0, 4);
+                code_.raw({0x49, 0x83, 0xc0, 0x18,
+                           0x49, 0x83, 0xc1, 0x18});
+                const auto scalar_start = code_.position();
+                code_.patch_rel32(scalar_only, scalar_start);
+                code_.raw({0x48, 0x85, 0xc9,
+                           0x0f, 0x84});
+                const auto dot_complete = code_.rel32_placeholder();
+                const auto scalar_loop = code_.position();
+                code_.raw({0xc4, 0xc1, 0x7b, 0x10, 0x08,
+                           0xc4, 0xc1, 0x7b, 0x10, 0x11,
+                           0xc5, 0xf3, 0x59, 0xca,
+                           0xc5, 0xfb, 0x58, 0xc1,
+                           0x49, 0x83, 0xe8, 0x08,
+                           0x49, 0x83, 0xe9, 0x08,
+                           0x48, 0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto scalar_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(scalar_repeat, scalar_loop);
+                code_.patch_rel32(dot_complete, code_.position());
+                code_.raw({0xc5, 0xd3, 0x5c, 0xe8}); // total -= dot
+                const auto after_dot = code_.position();
+                code_.patch_rel32(no_dot, after_dot);
+                code_.raw({0xc5, 0xfb, 0x11, 0xad});
+                code_.i32(frame.displacement(plan.total_local));
+
+                code_.raw({0x48, 0x39, 0xfe,
+                           0x0f, 0x84});
+                const auto diagonal = code_.rel32_placeholder();
+
+                // Off diagonal: total / lower[column, column].
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x48, 0x01, 0xf8,
+                           0x48, 0xf7, 0xd8,
+                           0xc4, 0xc1, 0x7b, 0x10, 0x0c, 0xc6,
+                           0xc5, 0xd3, 0x5e, 0xe9});
+                code_.byte(0xe9);
+                const auto store_value = code_.rel32_placeholder();
+
+                const auto diagonal_position = code_.position();
+                code_.patch_rel32(diagonal, diagonal_position);
+                code_.raw({0xc5, 0xf8, 0x77});
+                load_local(plan.tolerance_local, 1);
+                code_.raw({0x66, 0x0f, 0x2e, 0xe9,
+                           0x0f, 0x8a});
+                const auto unordered_ok = code_.rel32_placeholder();
+                code_.raw({0x0f, 0x86});
+                const auto invalid = code_.rel32_placeholder();
+                const auto sqrt_position = code_.position();
+                code_.patch_rel32(unordered_ok, sqrt_position);
+                code_.raw({0xc5, 0xd3, 0x51, 0xed});
+
+                const auto store_position = code_.position();
+                code_.patch_rel32(store_value, store_position);
+                code_.raw({0x48, 0x89, 0xf0,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x48, 0x01, 0xf8,
+                           0x48, 0xf7, 0xd8,
+                           0xc4, 0xc1, 0x7b, 0x11, 0x2c, 0xc6,
+                           0x48, 0xff, 0xc7,
+                           0x48, 0x39, 0xf7,
+                           0x0f, 0x8e});
+                const auto next_column = code_.rel32_placeholder();
+                code_.patch_rel32(next_column, column_loop);
+                code_.raw({0x48, 0xff, 0xc6,
+                           0x4c, 0x39, 0xfe,
+                           0x0f, 0x8c});
+                const auto next_row = code_.rel32_placeholder();
+                code_.patch_rel32(next_row, outer_loop);
+
+                const auto complete = code_.position();
+                code_.patch_rel32(initially_complete, complete);
+                code_.raw({0xc5, 0xf8, 0x77,
+                           0x4c, 0x89, 0xf8});
+                store_rax_to_i64(plan.row_local);
+                store_rax_to_i64(plan.column_local);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+
+                const auto error = code_.position();
+                code_.patch_rel32(invalid, error);
+                code_.raw({0x48, 0x89, 0xf0});
+                store_rax_to_i64(plan.row_local);
+                code_.raw({0x48, 0x89, 0xf8});
+                store_rax_to_i64(plan.column_local);
+                code_.raw({0xc5, 0xfb, 0x11, 0xad});
+                code_.i32(frame.displacement(plan.total_local));
+                emit_error_cleanup(function, frame);
+                emit_error_message_registers(
+                    plan.error_message_offset, plan.error_message_bytes);
+                code_.raw({0x41, 0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.error_type_mask));
+                epilogue();
+            };
+        const auto emit_packed_symmetric_eigen =
+            [&](const PackedSymmetricEigenLoopPlan& plan) {
+                if (!local_is_i64(plan.sweeps_local)) {
+                    throw BackendFailure("packed symmetric eigen requires native sweep indices");
+                }
+#ifdef _WIN32
+                // The public algorithm remains ordinary VKF (Householder +
+                // implicit QL). This compiler kernel is its relocation-free,
+                // allocation-free x64 lowering for fixed nested vectors.
+                emit_fixed_base_address(plan.working_base, plan.size * plan.size);
+                code_.raw({0x49, 0x89, 0xc5});
+                emit_fixed_base_address(plan.vectors_base, plan.size * plan.size);
+                code_.raw({0x49, 0x89, 0xc6});
+                code_.raw({0x48, 0x83, 0xec, 0x40,
+                           0x4c, 0x89, 0x54, 0x24, 0x38,
+                           0x4c, 0x89, 0xe9,
+                           0x4c, 0x89, 0xf2,
+                           0x4c, 0x8d, 0x85});
+                code_.i32(frame.displacement(frame.temp_base));
+                code_.raw({0x41, 0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                load_local(plan.tolerance_local, 0);
+                code_.raw({0xf2, 0x0f, 0x11, 0x44, 0x24, 0x20});
+                load_local(plan.max_sweeps_local, 0);
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc0,
+                           0x48, 0x89, 0x44, 0x24, 0x28,
+                           0x48, 0x8d, 0x85});
+                code_.i32(frame.displacement(plan.sweeps_local));
+                code_.raw({0x48, 0x89, 0x44, 0x24, 0x30,
+                           0xe8});
+                const auto kernel_call = code_.rel32_placeholder();
+                code_.byte(0xe9);
+                const auto skip_kernel = code_.rel32_placeholder();
+                while ((code_.position() & 31u) != 0u) code_.byte(0x90);
+                const auto kernel = code_.position();
+                code_.patch_rel32(kernel_call, kernel);
+                for (const auto byte :
+                     vkf::native_kernels::symmetric_eigen_x64_windows) {
+                    code_.byte(byte);
+                }
+                const auto after_kernel = code_.position();
+                code_.patch_rel32(skip_kernel, after_kernel);
+                code_.raw({0x4c, 0x8b, 0x54, 0x24, 0x38,
+                           0x48, 0x83, 0xc4, 0x40,
+                           0xf2, 0x48, 0x0f, 0x2a, 0xc0});
+                store_local(plan.converged_local, 0);
+                emit_number(0.0, 0);
+                store_local(plan.largest_local, 0);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+                return;
+#endif
+                const auto matrix_stride = static_cast<std::int32_t>(plan.size * 8u);
+                emit_fixed_base_address(plan.working_base, plan.size * plan.size);
+                code_.raw({0x49, 0x89, 0xc5}); // r13 = working
+                code_.raw({0x4c, 0x8d, 0xb5});
+                code_.i32(frame.displacement(frame.temp_base));
+                // r14 = column-major eigenvector workspace. Public vectors
+                // remain row-major and are materialized once after convergence.
+                code_.raw({0xc5, 0xfd, 0x57, 0xc0,
+                           0x4c, 0x89, 0xf0,
+                           0x48, 0x83, 0xe8, 0x18,
+                           0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.size * plan.size / 4u));
+                const auto zero_vectors = code_.position();
+                code_.raw({0xc5, 0xfd, 0x11, 0x00,
+                           0x48, 0x83, 0xe8, 0x20,
+                           0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto zero_vectors_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(zero_vectors_repeat, zero_vectors);
+                code_.raw({0xc5, 0xf8, 0x77,
+                           0x31, 0xc9});
+                emit_number(1.0, 0);
+                const auto identity_vectors = code_.position();
+                code_.raw({0x48, 0x89, 0xc8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size + 1u));
+                code_.raw({0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x11, 0x04, 0xc6,
+                           0x48, 0xff, 0xc1,
+                           0x48, 0x81, 0xf9});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x0f, 0x8c});
+                const auto identity_vectors_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(identity_vectors_repeat, identity_vectors);
+                load_local(plan.max_sweeps_local, 0);
+                code_.raw({0xf2, 0x4c, 0x0f, 0x2c, 0xf8}); // r15 = max sweeps
+                load_i64_to_rax(plan.sweeps_local);
+                code_.raw({0x48, 0x89, 0xc6}); // rsi = completed sweeps
+                load_local(plan.tolerance_local, 6);
+                std::uint64_t absolute_bits = 0x7fffffffffffffffull;
+                double absolute_mask = 0.0;
+                std::memcpy(&absolute_mask, &absolute_bits, sizeof(absolute_mask));
+                emit_number(absolute_mask, 7);
+
+                const auto sweep_test = code_.position();
+                code_.raw({0x4c, 0x39, 0xfe,
+                           0x0f, 0x8d});
+                const auto exhausted = code_.rel32_placeholder();
+                load_local(plan.tolerance_local, 0);
+                store_local(plan.threshold_local, 0);
+                code_.raw({0x48, 0x85, 0xf6,
+                           0x0f, 0x84});
+                const auto first_sweep_threshold = code_.rel32_placeholder();
+                code_.raw({0x48, 0x83, 0xfe, 0x04,
+                           0x0f, 0x8d});
+                const auto late_sweep_threshold = code_.rel32_placeholder();
+                load_local(plan.largest_local, 0);
+                emit_number(0.1, 1);
+                code_.raw({0xf2, 0x0f, 0x59, 0xc1});
+                store_local(plan.threshold_local, 0);
+                const auto threshold_ready = code_.position();
+                code_.patch_rel32(first_sweep_threshold, threshold_ready);
+                code_.patch_rel32(late_sweep_threshold, threshold_ready);
+                code_.raw({0x31, 0xff}); // p = 0
+                const auto pivot_row_loop = code_.position();
+                code_.raw({0x48, 0x89, 0xfb,
+                           0x48, 0xff, 0xc3}); // q = p + 1
+                const auto pivot_column_loop = code_.position();
+
+                // apq = working[p,q]
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xd8,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x10, 0x44, 0xc5, 0x00,
+                           0x66, 0x0f, 0x28, 0xc8,
+                           0x66, 0x0f, 0x54, 0xcf});
+                load_local(plan.threshold_local, 5);
+                code_.raw({0x66, 0x0f, 0x2e, 0xcd,
+                           0x0f, 0x86});
+                const auto skip_rotation = code_.rel32_placeholder();
+                store_local(plan.off_diagonal_local, 0);
+
+                // app and aqq.
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xf8,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x10, 0x4c, 0xc5, 0x00,
+                           0x48, 0x89, 0xd8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xd8,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x10, 0x54, 0xc5, 0x00});
+                store_local(plan.diagonal_left_local, 1);
+                store_local(plan.diagonal_right_local, 2);
+
+                // Stable Jacobi tangent t = sign(tau) /
+                // (abs(tau) + sqrt(1 + tau^2)).
+                code_.raw({0x66, 0x0f, 0x28, 0xda,
+                           0xf2, 0x0f, 0x5c, 0xd9,
+                           0x66, 0x0f, 0x28, 0xe0,
+                           0xf2, 0x0f, 0x58, 0xe0,
+                           0xf2, 0x0f, 0x5e, 0xdc,
+                           0x66, 0x0f, 0x28, 0xe3,
+                           0x66, 0x0f, 0x54, 0xe7,
+                           0x66, 0x0f, 0x28, 0xeb,
+                           0xf2, 0x0f, 0x59, 0xeb});
+                emit_number(1.0, 0);
+                code_.raw({0xf2, 0x0f, 0x58, 0xe8,
+                           0xf2, 0x0f, 0x51, 0xed,
+                           0xf2, 0x0f, 0x58, 0xe5});
+                emit_number(1.0, 0);
+                code_.raw({0xf2, 0x0f, 0x5e, 0xc4,
+                           0x66, 0x0f, 0x57, 0xc9,
+                           0x66, 0x0f, 0x2e, 0xd9,
+                           0x0f, 0x83});
+                const auto tangent_positive = code_.rel32_placeholder();
+                emit_number(-1.0, 1);
+                code_.raw({0xf2, 0x0f, 0x59, 0xc1});
+                const auto tangent_ready_jump = code_.position();
+                code_.byte(0xe9);
+                const auto tangent_ready = code_.rel32_placeholder();
+                code_.patch_rel32(tangent_positive, code_.position());
+                code_.patch_rel32(tangent_ready, code_.position());
+                (void)tangent_ready_jump;
+
+                // c = 1/sqrt(1+t^2), s = t*c.
+                code_.raw({0x66, 0x0f, 0x28, 0xc8,
+                           0xf2, 0x0f, 0x59, 0xc8});
+                emit_number(1.0, 2);
+                code_.raw({0xf2, 0x0f, 0x58, 0xca,
+                           0xf2, 0x0f, 0x51, 0xc9});
+                emit_number(1.0, 3);
+                code_.raw({0xf2, 0x0f, 0x5e, 0xd9,
+                           0x66, 0x0f, 0x28, 0xe0,
+                           0xf2, 0x0f, 0x59, 0xe3});
+                store_local(plan.cosine_local, 3);
+                store_local(plan.sine_local, 4);
+
+                // Exact diagonal update; the pivot pair becomes zero.
+                load_local(plan.off_diagonal_local, 5);
+                code_.raw({0xf2, 0x0f, 0x59, 0xe8});
+                load_local(plan.diagonal_left_local, 1);
+                load_local(plan.diagonal_right_local, 2);
+                code_.raw({0xf2, 0x0f, 0x5c, 0xcd,
+                           0xf2, 0x0f, 0x58, 0xd5,
+                           0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xf8,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x11, 0x4c, 0xc5, 0x00,
+                           0x48, 0x89, 0xd8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xd8,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x11, 0x54, 0xc5, 0x00,
+                           0x66, 0x0f, 0x57, 0xed,
+                           0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xd8,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x11, 0x6c, 0xc5, 0x00,
+                           0x48, 0x89, 0xd8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xf8,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x11, 0x6c, 0xc5, 0x00});
+
+                // Rotate working rows/columns while preserving symmetry.
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0xf7, 0xd8,
+                           0x49, 0x8d, 0x44, 0xc5, 0x00,
+                           0x48, 0x89, 0xda,
+                           0x48, 0xf7, 0xda,
+                           0x49, 0x8d, 0x54, 0xd5, 0x00,
+                           0x48, 0x89, 0xf9,
+                           0x48, 0x69, 0xc9});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0xf7, 0xd9,
+                           0x49, 0x8d, 0x4c, 0xcd, 0x00,
+                           0x49, 0x89, 0xd9,
+                           0x4d, 0x69, 0xc9});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x49, 0xf7, 0xd9,
+                           0x4f, 0x8d, 0x4c, 0xcd, 0x00,
+                           0x45, 0x31, 0xc0});
+                load_local(plan.cosine_local, 2);
+                load_local(plan.sine_local, 3);
+                const auto rotate_working = code_.position();
+                code_.raw({0x49, 0x39, 0xf8,
+                           0x0f, 0x84});
+                const auto skip_working_p = code_.rel32_placeholder();
+                code_.raw({0x49, 0x39, 0xd8,
+                           0x0f, 0x84});
+                const auto skip_working_q = code_.rel32_placeholder();
+                code_.raw({0xf2, 0x0f, 0x10, 0x00,
+                           0xf2, 0x0f, 0x10, 0x0a,
+                           0x66, 0x0f, 0x28, 0xe0,
+                           0xf2, 0x0f, 0x59, 0xe2,
+                           0x66, 0x0f, 0x28, 0xe9,
+                           0xf2, 0x0f, 0x59, 0xeb,
+                           0xf2, 0x0f, 0x5c, 0xe5,
+                           0xf2, 0x0f, 0x59, 0xc3,
+                           0xf2, 0x0f, 0x59, 0xca,
+                           0xf2, 0x0f, 0x58, 0xc1,
+                           0xf2, 0x0f, 0x11, 0x20,
+                           0xf2, 0x0f, 0x11, 0x21,
+                           0xf2, 0x0f, 0x11, 0x02,
+                           0xf2, 0x41, 0x0f, 0x11, 0x01});
+                const auto advance_working = code_.position();
+                code_.patch_rel32(skip_working_p, advance_working);
+                code_.patch_rel32(skip_working_q, advance_working);
+                code_.raw({0x48, 0x81, 0xe8});
+                code_.i32(matrix_stride);
+                code_.raw({0x48, 0x81, 0xea});
+                code_.i32(matrix_stride);
+                code_.raw({0x48, 0x83, 0xe9, 0x08,
+                           0x49, 0x83, 0xe9, 0x08,
+                           0x49, 0xff, 0xc0,
+                           0x49, 0x81, 0xf8});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x0f, 0x8c});
+                const auto rotate_working_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(rotate_working_repeat, rotate_working);
+
+                // Rotate eigenvector columns p and q.
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0xf7, 0xd8,
+                           0x49, 0x8d, 0x04, 0xc6,
+                           0x48, 0x83, 0xe8, 0x18,
+                           0x48, 0x89, 0xda,
+                           0x48, 0x69, 0xd2});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0xf7, 0xda,
+                           0x49, 0x8d, 0x14, 0xd6,
+                           0x48, 0x83, 0xea, 0x18});
+                load_local(plan.cosine_local, 2);
+                load_local(plan.sine_local, 3);
+                code_.raw({0xc4, 0xe2, 0x7d, 0x19, 0xd2,
+                           0xc4, 0xe2, 0x7d, 0x19, 0xdb,
+                           0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.size / 4u));
+                const auto rotate_vectors = code_.position();
+                code_.raw({0xc5, 0xfd, 0x10, 0x00,
+                           0xc5, 0xfd, 0x10, 0x0a,
+                           0xc5, 0xfd, 0x59, 0xe2,
+                           0xc5, 0xf5, 0x59, 0xeb,
+                           0xc5, 0xdd, 0x5c, 0xe5,
+                           0xc5, 0xfd, 0x59, 0xc3,
+                           0xc5, 0xf5, 0x59, 0xca,
+                           0xc5, 0xfd, 0x58, 0xc1,
+                           0xc5, 0xfd, 0x11, 0x20,
+                           0xc5, 0xfd, 0x11, 0x02,
+                           0x48, 0x83, 0xe8, 0x20,
+                           0x48, 0x83, 0xea, 0x20,
+                           0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto rotate_vectors_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(rotate_vectors_repeat, rotate_vectors);
+                code_.raw({0xc5, 0xf8, 0x77});
+
+                const auto rotation_complete = code_.position();
+                code_.patch_rel32(skip_rotation, rotation_complete);
+                code_.raw({0x48, 0xff, 0xc3,
+                           0x48, 0x81, 0xfb});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x0f, 0x8c});
+                const auto next_pivot_column = code_.rel32_placeholder();
+                code_.patch_rel32(next_pivot_column, pivot_column_loop);
+                code_.raw({0x48, 0xff, 0xc7,
+                           0x48, 0x81, 0xff});
+                code_.i32(static_cast<std::int32_t>(plan.size - 1u));
+                code_.raw({0x0f, 0x8c});
+                const auto next_pivot_row = code_.rel32_placeholder();
+                code_.patch_rel32(next_pivot_row, pivot_row_loop);
+                code_.raw({0x48, 0xff, 0xc6});
+
+                // Scan the post-sweep upper triangle for convergence.
+                code_.raw({0x66, 0x0f, 0x57, 0xed,
+                           0x31, 0xff});
+                const auto scan_row = code_.position();
+                code_.raw({0x48, 0x89, 0xfb,
+                           0x48, 0xff, 0xc3});
+                const auto scan_column = code_.position();
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xd8,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x10, 0x44, 0xc5, 0x00,
+                           0x66, 0x0f, 0x54, 0xc7,
+                           0x66, 0x0f, 0x2e, 0xc5,
+                           0x0f, 0x86});
+                const auto keep_largest = code_.rel32_placeholder();
+                code_.raw({0x66, 0x0f, 0x28, 0xe8});
+                code_.patch_rel32(keep_largest, code_.position());
+                code_.raw({0x48, 0xff, 0xc3,
+                           0x48, 0x81, 0xfb});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x0f, 0x8c});
+                const auto next_scan_column = code_.rel32_placeholder();
+                code_.patch_rel32(next_scan_column, scan_column);
+                code_.raw({0x48, 0xff, 0xc7,
+                           0x48, 0x81, 0xff});
+                code_.i32(static_cast<std::int32_t>(plan.size - 1u));
+                code_.raw({0x0f, 0x8c});
+                const auto next_scan_row = code_.rel32_placeholder();
+                code_.patch_rel32(next_scan_row, scan_row);
+                store_local(plan.largest_local, 5);
+                code_.raw({0x66, 0x0f, 0x2e, 0xee,
+                           0x0f, 0x86});
+                const auto converged = code_.rel32_placeholder();
+                emit_number(0.0, 0);
+                store_local(plan.converged_local, 0);
+                code_.byte(0xe9);
+                const auto repeat_sweeps = code_.rel32_placeholder();
+                code_.patch_rel32(repeat_sweeps, sweep_test);
+
+                const auto converged_position = code_.position();
+                code_.patch_rel32(converged, converged_position);
+                emit_number(1.0, 0);
+                store_local(plan.converged_local, 0);
+                const auto finish = code_.position();
+                code_.patch_rel32(exhausted, finish);
+                code_.raw({0x48, 0x89, 0xf0});
+                store_rax_to_i64(plan.sweeps_local);
+                code_.raw({0xc5, 0xf8, 0x77});
+                emit_fixed_base_address(plan.vectors_base, plan.size * plan.size);
+                code_.raw({0x49, 0x89, 0xc5,
+                           0x31, 0xf6});
+                const auto transpose_vector_row = code_.position();
+                code_.raw({0x31, 0xff});
+                const auto transpose_vector_column = code_.position();
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xf0,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x10, 0x04, 0xc6,
+                           0x48, 0x89, 0xf0,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x48, 0x01, 0xf8,
+                           0x48, 0xf7, 0xd8,
+                           0xf2, 0x41, 0x0f, 0x11, 0x44, 0xc5, 0x00,
+                           0x48, 0xff, 0xc7,
+                           0x48, 0x81, 0xff});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x0f, 0x8c});
+                const auto transpose_vector_next_column = code_.rel32_placeholder();
+                code_.patch_rel32(
+                    transpose_vector_next_column, transpose_vector_column);
+                code_.raw({0x48, 0xff, 0xc6,
+                           0x48, 0x81, 0xfe});
+                code_.i32(static_cast<std::int32_t>(plan.size));
+                code_.raw({0x0f, 0x8c});
+                const auto transpose_vector_next_row = code_.rel32_placeholder();
+                code_.patch_rel32(transpose_vector_next_row, transpose_vector_row);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+            };
+        const auto emit_packed_thin_svd =
+            [&](const PackedThinSvdFunctionPlan& plan) {
+#ifdef _WIN32
+                const auto store_pointer_argument = [&](std::uint32_t base,
+                                                        std::uint32_t width,
+                                                        unsigned offset) {
+                    emit_fixed_base_address(base, width);
+                    code_.raw({0x48, 0x89, 0x44, 0x24, offset});
+                };
+                const auto store_immediate_argument = [&](std::uint32_t value,
+                                                          unsigned offset) {
+                    code_.raw({0x48, 0xc7, 0x44, 0x24, offset});
+                    code_.i32(static_cast<std::int32_t>(value));
+                };
+                emit_fixed_base_address(
+                    plan.matrix_base, plan.rows * plan.columns);
+                code_.raw({0x48, 0x89, 0xc1});
+                emit_fixed_base_address(
+                    plan.left_vectors_base, plan.rows * plan.columns);
+                code_.raw({0x48, 0x89, 0xc2});
+                emit_fixed_base_address(plan.singular_values_base, plan.columns);
+                code_.raw({0x49, 0x89, 0xc0});
+                emit_fixed_base_address(
+                    plan.right_adjoint_base, plan.columns * plan.columns);
+                code_.raw({0x49, 0x89, 0xc1,
+                           0x48, 0x81, 0xec, 0x80, 0x00, 0x00, 0x00,
+                           0x4c, 0x89, 0x54, 0x24, 0x78});
+                store_pointer_argument(
+                    plan.gram_base, plan.columns * plan.columns, 0x20);
+                store_pointer_argument(
+                    plan.eigenvectors_base, plan.columns * plan.columns, 0x28);
+                store_pointer_argument(
+                    plan.scratch_base, plan.rows, 0x30);
+                store_immediate_argument(plan.rows, 0x38);
+                store_immediate_argument(plan.columns, 0x40);
+                load_local(plan.tolerance_local, 0);
+                code_.raw({0xf2, 0x0f, 0x11, 0x44, 0x24, 0x48});
+                load_local(plan.max_sweeps_local, 0);
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc0,
+                           0x48, 0x89, 0x44, 0x24, 0x50});
+                load_local(plan.verify_result_local, 0);
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc0,
+                           0x48, 0x89, 0x44, 0x24, 0x58,
+                           0x48, 0x8d, 0x85});
+                code_.i32(frame.displacement(plan.residual_local));
+                code_.raw({0x48, 0x89, 0x44, 0x24, 0x60,
+                           0x48, 0x8d, 0x85});
+                code_.i32(frame.displacement(plan.orthogonality_local));
+                code_.raw({0x48, 0x89, 0x44, 0x24, 0x68,
+                           0xe8});
+                const auto kernel_call = code_.rel32_placeholder();
+                code_.byte(0xe9);
+                const auto skip_kernel = code_.rel32_placeholder();
+                while ((code_.position() & 31u) != 0u) code_.byte(0x90);
+                const auto kernel = code_.position();
+                code_.patch_rel32(
+                    kernel_call,
+                    kernel + vkf::native_kernels::thin_svd_x64_windows_entry);
+                for (const auto byte :
+                     vkf::native_kernels::thin_svd_x64_windows) {
+                    code_.byte(byte);
+                }
+                const auto after_kernel = code_.position();
+                code_.patch_rel32(skip_kernel, after_kernel);
+                code_.raw({0x4c, 0x8b, 0x54, 0x24, 0x78,
+                           0x48, 0x81, 0xc4, 0x80, 0x00, 0x00, 0x00,
+                           0x48, 0x89, 0xc2,
+                           0x83, 0xe0, 0x01,
+                           0xf2, 0x48, 0x0f, 0x2a, 0xc0});
+                store_local(plan.converged_local, 0);
+                code_.raw({0x48, 0xd1, 0xea,
+                           0x83, 0xe2, 0x01,
+                           0xf2, 0x48, 0x0f, 0x2a, 0xc2});
+                store_local(plan.verified_local, 0);
+
+                restore_result_context(frame);
+                const auto copy_result_range = [&](std::uint32_t base,
+                                                   std::uint32_t width,
+                                                   std::uint32_t output) {
+                    emit_fixed_base_address(base, width);
+                    code_.raw({0x4c, 0x89, 0xda});
+                    if (output != 0u) {
+                        code_.raw({0x48, 0x81, 0xea});
+                        code_.i32(static_cast<std::int32_t>(output * 8u));
+                    }
+                    code_.raw({0x48, 0x83, 0xe8, 0x18,
+                               0x48, 0x83, 0xea, 0x18,
+                               0xb9});
+                    code_.i32(static_cast<std::int32_t>(width / 4u));
+                    const auto loop = code_.position();
+                    code_.raw({0xc5, 0xfd, 0x10, 0x00,
+                               0xc5, 0xfd, 0x11, 0x02,
+                               0x48, 0x83, 0xe8, 0x20,
+                               0x48, 0x83, 0xea, 0x20,
+                               0xff, 0xc9,
+                               0x0f, 0x85});
+                    const auto repeat = code_.rel32_placeholder();
+                    code_.patch_rel32(repeat, loop);
+                };
+                const auto matrix_width = plan.rows * plan.columns;
+                const auto right_width = plan.columns * plan.columns;
+                copy_result_range(plan.left_vectors_base, matrix_width, 0u);
+                copy_result_range(
+                    plan.singular_values_base, plan.columns, matrix_width);
+                copy_result_range(
+                    plan.right_adjoint_base, right_width,
+                    matrix_width + plan.columns);
+                code_.raw({0xc5, 0xf8, 0x77});
+                auto output = matrix_width + plan.columns + right_width;
+                load_local(plan.converged_local, 0);
+                store_result_to_r11(output++);
+                load_local(plan.residual_local, 0);
+                store_result_to_r11(output++);
+                load_local(plan.orthogonality_local, 0);
+                store_result_to_r11(output++);
+                load_local(plan.verified_local, 0);
+                store_result_to_r11(output);
+                if (function.may_error) code_.raw({0x45, 0x31, 0xc9});
+                epilogue();
+#else
+                (void)plan;
+                throw BackendFailure("packed thin SVD is unavailable on this x64 target");
+#endif
+            };
+        const auto emit_packed_factor_function =
+            [&](const PackedFactorFunctionPlan& plan) {
+#ifdef _WIN32
+                const auto matrix_width = plan.rows * plan.columns;
+                const auto call_embedded = [&](std::size_t entry) {
+                    code_.byte(0xe8);
+                    const auto call = code_.rel32_placeholder();
+                    code_.byte(0xe9);
+                    const auto skip = code_.rel32_placeholder();
+                    while ((code_.position() & 31u) != 0u) code_.byte(0x90);
+                    const auto kernel = code_.position();
+                    code_.patch_rel32(call, kernel + entry);
+                    for (const auto byte :
+                         vkf::native_kernels::linalg_factor_x64_windows) {
+                        code_.byte(byte);
+                    }
+                    code_.patch_rel32(skip, code_.position());
+                };
+                if (plan.kind == PackedFactorFunctionPlan::Kind::Cholesky) {
+                    restore_result_context(frame);
+                    emit_fixed_base_address(plan.matrix_base, matrix_width);
+                    code_.raw({0x48, 0x89, 0xc1});
+                    code_.raw({0x4c, 0x89, 0xda,
+                               0x41, 0xb8});
+                    code_.i32(static_cast<std::int32_t>(plan.rows));
+                    load_local(plan.tolerance_local, 3);
+                    code_.raw({0x48, 0x83, 0xec, 0x40,
+                               0x4c, 0x89, 0x54, 0x24, 0x38});
+                    call_embedded(
+                        plan.rows == 96u
+                            ? vkf::native_kernels::linalg_factor_cholesky_96_entry
+                            : vkf::native_kernels::linalg_factor_cholesky_entry);
+                    code_.raw({0x4c, 0x8b, 0x54, 0x24, 0x38,
+                               0x48, 0x83, 0xc4, 0x40});
+                } else if (plan.kind == PackedFactorFunctionPlan::Kind::Lu) {
+                    restore_result_context(frame);
+                    emit_fixed_base_address(plan.matrix_base, matrix_width);
+                    code_.raw({0x48, 0x89, 0xc1});
+                    code_.raw({0x4c, 0x89, 0xda,
+                               0x4d, 0x89, 0xd8,
+                               0x49, 0x81, 0xe8});
+                    code_.i32(static_cast<std::int32_t>(matrix_width * 8u));
+                    code_.raw({0x4d, 0x89, 0xd9,
+                               0x49, 0x81, 0xe9});
+                    code_.i32(static_cast<std::int32_t>(matrix_width * 16u));
+                    code_.raw({
+                               0x48, 0x83, 0xec, 0x40,
+                               0x4c, 0x89, 0x54, 0x24, 0x38,
+                               0x48, 0xc7, 0x44, 0x24, 0x20});
+                    code_.i32(static_cast<std::int32_t>(plan.rows));
+                    load_local(plan.tolerance_local, 0);
+                    code_.raw({0xf2, 0x0f, 0x11, 0x44, 0x24, 0x28,
+                               0x4c, 0x89, 0xd8,
+                               0x48, 0x81, 0xe8});
+                    code_.i32(static_cast<std::int32_t>(
+                        (matrix_width * 2u + plan.rows) * 8u));
+                    code_.raw({0x48, 0x89, 0x44, 0x24, 0x30});
+                    call_embedded(
+                        plan.rows == 96u
+                            ? vkf::native_kernels::linalg_factor_lu_96_entry
+                            : vkf::native_kernels::linalg_factor_lu_entry);
+                    code_.raw({0x4c, 0x8b, 0x54, 0x24, 0x38,
+                               0x48, 0x83, 0xc4, 0x40});
+                } else {
+                    restore_result_context(frame);
+                    emit_fixed_base_address(plan.matrix_base, matrix_width);
+                    code_.raw({0x48, 0x89, 0xc1});
+                    emit_fixed_base_address(plan.values_base, plan.rows);
+                    code_.raw({0x48, 0x89, 0xc2});
+                    code_.raw({0x4d, 0x89, 0xd8});
+                    emit_fixed_base_address(plan.first_work_base, matrix_width);
+                    code_.raw({0x49, 0x89, 0xc1,
+                               0x48, 0x83, 0xec, 0x50,
+                               0x4c, 0x89, 0x54, 0x24, 0x48});
+                    emit_fixed_base_address(
+                        plan.second_work_base, plan.columns * plan.columns);
+                    code_.raw({0x48, 0x89, 0x44, 0x24, 0x20,
+                               0x48, 0xc7, 0x44, 0x24, 0x28});
+                    code_.i32(static_cast<std::int32_t>(plan.rows));
+                    code_.raw({0x48, 0xc7, 0x44, 0x24, 0x30});
+                    code_.i32(static_cast<std::int32_t>(plan.columns));
+                    load_local(plan.tolerance_local, 0);
+                    code_.raw({0xf2, 0x0f, 0x11, 0x44, 0x24, 0x38});
+                    call_embedded(
+                        vkf::native_kernels::linalg_factor_least_squares_entry);
+                    code_.raw({0x4c, 0x8b, 0x54, 0x24, 0x48,
+                               0x48, 0x83, 0xc4, 0x50});
+                }
+                code_.raw({0xc5, 0xf8, 0x77});
+                if (function.may_error) code_.raw({0x45, 0x31, 0xc9});
+                epilogue();
+#else
+                (void)plan;
+                throw BackendFailure("packed factor function is unavailable on this target");
+#endif
+            };
+        const auto emit_packed_qr =
+            [&](const PackedQrLoopPlan& plan) {
+                if (!local_is_i64(plan.column_local) ||
+                    !local_is_i64(plan.row_count_local) ||
+                    !local_is_i64(plan.column_count_local)) {
+                    throw BackendFailure("packed QR requires native integer dimensions");
+                }
+                emit_fixed_base_address(
+                    plan.matrix_base, plan.rows * plan.columns);
+                code_.raw({0x49, 0x89, 0xc5}); // r13 = matrix
+                code_.raw({0x4c, 0x8d, 0xb5});
+                code_.i32(frame.displacement(frame.temp_base));
+                // r14 = temporary column-major Q workspace. The public Q
+                // remains row-major and is materialized once after factoring.
+                emit_fixed_base_address(plan.r_base, plan.columns * plan.columns);
+                code_.raw({0x49, 0x89, 0xc7}); // r15 = r
+                emit_fixed_base_address(plan.vector_base, plan.rows);
+                code_.raw({0x49, 0x89, 0xc2}); // r10 = vector
+                load_local(plan.tolerance_local, 6);
+                load_i64_to_rax(plan.column_local);
+                code_.raw({0x48, 0x89, 0xc6}); // rsi = column
+                const auto outer_loop = code_.position();
+                code_.raw({0x48, 0x81, 0xfe});
+                code_.i32(static_cast<std::int32_t>(plan.columns));
+                code_.raw({0x0f, 0x8d});
+                const auto initially_complete = code_.rel32_placeholder();
+
+                // vector = matrix[:, column]
+                code_.raw({0x4d, 0x89, 0xe8,
+                           0x49, 0x89, 0xf1,
+                           0x49, 0xf7, 0xd9,
+                           0x4f, 0x8d, 0x04, 0xc8,
+                           0x4d, 0x89, 0xd1,
+                           0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.rows));
+                const auto copy_column = code_.position();
+                code_.raw({0xc4, 0xc1, 0x7b, 0x10, 0x00,
+                           0xc4, 0xc1, 0x7b, 0x11, 0x01,
+                           0x49, 0x81, 0xe8});
+                code_.i32(static_cast<std::int32_t>(plan.columns * 8u));
+                code_.raw({0x49, 0x83, 0xe9, 0x08,
+                           0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto copy_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(copy_repeat, copy_column);
+
+                code_.raw({0x31, 0xff}); // prior = 0
+                const auto prior_test = code_.position();
+                code_.raw({0x48, 0x39, 0xf7,
+                           0x0f, 0x8d});
+                const auto priors_complete = code_.rel32_placeholder();
+
+                // total = dot(q[:, prior], vector)
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.rows));
+                code_.raw({0x48, 0xf7, 0xd8,
+                           0x4d, 0x8d, 0x04, 0xc6,
+                           0x4d, 0x89, 0xd1,
+                           0x49, 0x83, 0xe8, 0x18,
+                           0x49, 0x83, 0xe9, 0x18,
+                           0xc5, 0xfd, 0x57, 0xc0,
+                           0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.rows / 4u));
+                const auto dot_loop = code_.position();
+                code_.raw({0xc4, 0xc1, 0x7d, 0x10, 0x08,
+                           0xc4, 0xc1, 0x7d, 0x10, 0x11});
+                if (policy_.fused_multiply_add &&
+                    vkf::target::host_x64_supports_fma()) {
+                    code_.raw({0xc4, 0xe2, 0xf5, 0xb8, 0xc2});
+                } else {
+                    code_.raw({0xc5, 0xf5, 0x59, 0xca,
+                               0xc5, 0xfd, 0x58, 0xc1});
+                }
+                code_.raw({0x49, 0x83, 0xe8, 0x20,
+                           0x49, 0x83, 0xe9, 0x20,
+                           0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto dot_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(dot_repeat, dot_loop);
+                emit_horizontal_ymm_sum(0, 4);
+                code_.raw({0xc5, 0xf9, 0x28, 0xd8,
+                           0xc5, 0xfb, 0x11, 0x85});
+                code_.i32(frame.displacement(plan.total_local));
+
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.columns));
+                code_.raw({0x48, 0x01, 0xf0,
+                           0x48, 0xf7, 0xd8,
+                           0xc4, 0xc1, 0x7b, 0x11, 0x04, 0xc7});
+
+                // vector -= total * q[:, prior]
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.rows));
+                code_.raw({0x48, 0xf7, 0xd8,
+                           0x4d, 0x8d, 0x04, 0xc6,
+                           0x4d, 0x89, 0xd1,
+                           0x49, 0x83, 0xe8, 0x18,
+                           0x49, 0x83, 0xe9, 0x18,
+                           0xc4, 0xe2, 0x7d, 0x19, 0xdb,
+                           0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.rows / 4u));
+                const auto update_loop = code_.position();
+                code_.raw({0xc4, 0xc1, 0x7d, 0x10, 0x08,
+                           0xc4, 0xc1, 0x7d, 0x10, 0x01,
+                           0xc4, 0xe2, 0xf5, 0xbc, 0xc3,
+                           0xc4, 0xc1, 0x7d, 0x11, 0x01,
+                           0x49, 0x83, 0xe8, 0x20,
+                           0x49, 0x83, 0xe9, 0x20,
+                           0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto update_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(update_repeat, update_loop);
+                code_.raw({0x48, 0xff, 0xc7,
+                           0xe9});
+                const auto next_prior = code_.rel32_placeholder();
+                code_.patch_rel32(next_prior, prior_test);
+
+                const auto after_priors = code_.position();
+                code_.patch_rel32(priors_complete, after_priors);
+
+                // norm = sqrt(dot(vector, vector)); rows is a fixed multiple
+                // of four for this packed path.
+                code_.raw({0x4d, 0x89, 0xd0,
+                           0x49, 0x83, 0xe8, 0x18,
+                           0xc5, 0xfd, 0x57, 0xc0,
+                           0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.rows / 4u));
+                const auto norm_loop = code_.position();
+                code_.raw({0xc4, 0xc1, 0x7d, 0x10, 0x08,
+                           0xc5, 0xf5, 0x59, 0xc9,
+                           0xc5, 0xfd, 0x58, 0xc1,
+                           0x49, 0x83, 0xe8, 0x20,
+                           0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto norm_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(norm_repeat, norm_loop);
+                emit_horizontal_ymm_sum(0, 4);
+                code_.raw({0xc5, 0xf8, 0x77,
+                           0xc5, 0xfb, 0x51, 0xe0,
+                           0xc5, 0xfb, 0x11, 0xa5});
+                code_.i32(frame.displacement(plan.norm_local));
+                code_.raw({0x66, 0x0f, 0x2e, 0xe6,
+                           0x0f, 0x8a});
+                const auto unordered_ok = code_.rel32_placeholder();
+                code_.raw({0x0f, 0x86});
+                const auto invalid = code_.rel32_placeholder();
+                const auto norm_valid = code_.position();
+                code_.patch_rel32(unordered_ok, norm_valid);
+
+                // r[column,column] = norm
+                code_.raw({0x48, 0x89, 0xf0,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.columns));
+                code_.raw({0x48, 0x01, 0xf0,
+                           0x48, 0xf7, 0xd8,
+                           0xc4, 0xc1, 0x7b, 0x11, 0x24, 0xc7});
+
+                // q[:,column] = vector / norm
+                code_.raw({0x48, 0x89, 0xf0,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.rows));
+                code_.raw({0x48, 0xf7, 0xd8,
+                           0x4d, 0x8d, 0x04, 0xc6,
+                           0x4d, 0x89, 0xd1,
+                           0x49, 0x83, 0xe8, 0x18,
+                           0x49, 0x83, 0xe9, 0x18,
+                           0xc4, 0xe2, 0x7d, 0x19, 0xe4,
+                           0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.rows / 4u));
+                const auto normalize_loop = code_.position();
+                code_.raw({0xc4, 0xc1, 0x7d, 0x10, 0x01,
+                           0xc5, 0xfd, 0x5e, 0xc4,
+                           0xc4, 0xc1, 0x7d, 0x11, 0x00,
+                           0x49, 0x83, 0xe8, 0x20,
+                           0x49, 0x83, 0xe9, 0x20,
+                           0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto normalize_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(normalize_repeat, normalize_loop);
+                code_.raw({0x48, 0xff, 0xc6,
+                           0xe9});
+                const auto next_column = code_.rel32_placeholder();
+                code_.patch_rel32(next_column, outer_loop);
+
+                const auto transpose = code_.position();
+                code_.patch_rel32(initially_complete, transpose);
+                code_.raw({0xc5, 0xf8, 0x77});
+                emit_fixed_base_address(plan.q_base, plan.rows * plan.columns);
+                code_.raw({0x49, 0x89, 0xc5,
+                           0x31, 0xf6});
+                const auto transpose_row = code_.position();
+                code_.raw({0x31, 0xff});
+                const auto transpose_column = code_.position();
+                code_.raw({0x48, 0x89, 0xf8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.rows));
+                code_.raw({0x48, 0x01, 0xf0,
+                           0x48, 0xf7, 0xd8,
+                           0xc4, 0xc1, 0x7b, 0x10, 0x04, 0xc6,
+                           0x48, 0x89, 0xf0,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.columns));
+                code_.raw({0x48, 0x01, 0xf8,
+                           0x48, 0xf7, 0xd8,
+                           0xc4, 0xc1, 0x7b, 0x11, 0x44, 0xc5, 0x00,
+                           0x48, 0xff, 0xc7,
+                           0x48, 0x81, 0xff});
+                code_.i32(static_cast<std::int32_t>(plan.columns));
+                code_.raw({0x0f, 0x8c});
+                const auto transpose_next_column = code_.rel32_placeholder();
+                code_.patch_rel32(transpose_next_column, transpose_column);
+                code_.raw({0x48, 0xff, 0xc6,
+                           0x48, 0x81, 0xfe});
+                code_.i32(static_cast<std::int32_t>(plan.rows));
+                code_.raw({0x0f, 0x8c});
+                const auto transpose_next_row = code_.rel32_placeholder();
+                code_.patch_rel32(transpose_next_row, transpose_row);
+
+                code_.raw({0x48, 0xb8});
+                code_.u64(plan.columns);
+                store_rax_to_i64(plan.column_local);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+
+                const auto error = code_.position();
+                code_.patch_rel32(invalid, error);
+                code_.raw({0x48, 0x89, 0xf0});
+                store_rax_to_i64(plan.column_local);
+                emit_error_cleanup(function, frame);
+                emit_error_message_registers(
+                    plan.error_message_offset, plan.error_message_bytes);
+                code_.raw({0x41, 0xb9});
+                code_.i32(static_cast<std::int32_t>(plan.error_type_mask));
+                epilogue();
+            };
+        const auto emit_packed_matrix_pivot_search =
+            [&](const PackedMatrixPivotSearchLoopPlan& plan) {
+                if (!local_is_i64(plan.counter_local) ||
+                    !local_is_i64(plan.bound_local) ||
+                    !local_is_i64(plan.column_local) ||
+                    !local_is_i64(plan.pivot_local)) {
+                    throw BackendFailure(
+                        "packed matrix pivot search requires native integer indices");
+                }
+                emit_fixed_base_address(plan.matrix_base, plan.matrix_width);
+                code_.raw({0x49, 0x89, 0xc0});
+                load_i64_to_rax(plan.counter_local);
+                code_.raw({0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                load_i64_to_rdx(plan.column_local);
+                code_.raw({0x48, 0x01, 0xd0,
+                           0x48, 0xf7, 0xd8,
+                           0x4d, 0x8d, 0x04, 0xc0});
+                load_i64_to_rax(plan.counter_local);
+                load_i64_to_rcx(plan.bound_local);
+                load_i64_to_rdx(plan.pivot_local);
+                code_.raw({0x49, 0x89, 0xd1});
+                load_local(plan.pivot_magnitude_local, 0);
+                const auto loop = code_.position();
+                code_.raw({0x49, 0x8b, 0x10,
+                           0x48, 0x0f, 0xba, 0xf2, 0x3f,
+                           0x66, 0x48, 0x0f, 0x6e, 0xca,
+                           0x66, 0x0f, 0x2e, 0xc8,
+                           0x0f, 0x86});
+                const auto not_greater = code_.rel32_placeholder();
+                code_.raw({0x66, 0x0f, 0x28, 0xc1,
+                           0x49, 0x89, 0xc1});
+                code_.patch_rel32(not_greater, code_.position());
+                code_.raw({0x49, 0x81, 0xe8});
+                code_.i32(static_cast<std::int32_t>(plan.column_count * 8u));
+                code_.raw({0x48, 0xff, 0xc0,
+                           0x48, 0x39, 0xc8,
+                           0x0f, 0x8c});
+                const auto repeat = code_.rel32_placeholder();
+                code_.patch_rel32(repeat, loop);
+                store_local(plan.pivot_magnitude_local, 0);
+                code_.raw({0x4c, 0x89, 0xc8});
+                store_rax_to_i64(plan.pivot_local);
+                load_i64_to_rax(plan.bound_local);
+                store_rax_to_i64(plan.counter_local);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+            };
+        const auto emit_packed_matrix_row_swap =
+            [&](const PackedMatrixRowSwapLoopPlan& plan) {
+                if (!local_is_i64(plan.counter_local) ||
+                    !local_is_i64(plan.bound_local) ||
+                    !local_is_i64(plan.left_row_local) ||
+                    !local_is_i64(plan.right_row_local)) {
+                    throw BackendFailure(
+                        "packed matrix row swap requires native integer indices");
+                }
+                load_i64_to_rcx(plan.counter_local);
+                code_.raw({0x49, 0x89, 0xc8});
+                load_i64_to_rcx(plan.bound_local);
+                code_.raw({0x4c, 0x29, 0xc1});
+                emit_fixed_base_address(plan.matrix_base, plan.matrix_width);
+                code_.raw({0x49, 0x89, 0xc2});
+                load_i64_to_rdx(plan.left_row_local);
+                code_.raw({0x48, 0x69, 0xd2});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x4c, 0x01, 0xc2,
+                           0x48, 0xf7, 0xda,
+                           0x49, 0x8d, 0x14, 0xd2});
+                load_i64_to_rax(plan.right_row_local);
+                code_.raw({0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x4c, 0x01, 0xc0,
+                           0x48, 0xf7, 0xd8,
+                           0x49, 0x8d, 0x04, 0xc2,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x82});
+                const auto scalar_only = code_.rel32_placeholder();
+                code_.raw({0x48, 0x83, 0xe8, 0x18,
+                           0x48, 0x83, 0xea, 0x18});
+                const auto packed_loop = code_.position();
+                code_.raw({0xc5, 0xfd, 0x10, 0x00,
+                           0xc5, 0xfd, 0x10, 0x0a,
+                           0xc5, 0xfd, 0x11, 0x08,
+                           0xc5, 0xfd, 0x11, 0x02,
+                           0x48, 0x83, 0xe8, 0x20,
+                           0x48, 0x83, 0xea, 0x20,
+                           0x48, 0x83, 0xe9, 0x04,
+                           0x48, 0x83, 0xf9, 0x04,
+                           0x0f, 0x83});
+                const auto packed_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(packed_repeat, packed_loop);
+                code_.raw({0x48, 0x83, 0xc0, 0x18,
+                           0x48, 0x83, 0xc2, 0x18});
+                const auto scalar_start = code_.position();
+                code_.patch_rel32(scalar_only, scalar_start);
+                code_.raw({0xc5, 0xf8, 0x77,
+                           0x48, 0x85, 0xc9,
+                           0x0f, 0x84});
+                const auto complete = code_.rel32_placeholder();
+                const auto scalar_loop = code_.position();
+                code_.raw({0x4c, 0x8b, 0x18,
+                           0x4c, 0x8b, 0x0a,
+                           0x4c, 0x89, 0x08,
+                           0x4c, 0x89, 0x1a,
+                           0x48, 0x83, 0xe8, 0x08,
+                           0x48, 0x83, 0xea, 0x08,
+                           0x48, 0xff, 0xc9,
+                           0x0f, 0x85});
+                const auto scalar_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(scalar_repeat, scalar_loop);
+                code_.patch_rel32(complete, code_.position());
+                load_i64_to_rax(plan.bound_local);
+                store_rax_to_i64(plan.counter_local);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+            };
+        const auto emit_packed_gaussian_elimination_rows =
+            [&](const PackedGaussianEliminationRowsLoopPlan& plan) {
+                if (!local_is_i64(plan.row_local) ||
+                    !local_is_i64(plan.bound_local) ||
+                    !local_is_i64(plan.column_local)) {
+                    throw BackendFailure(
+                        "packed Gaussian elimination requires native integer indices");
+                }
+
+                // rax = current row, rcx = exclusive row bound, rdx = pivot
+                // column. r8/r9 walk the target and pivot matrix rows while
+                // r11 remains the fixed right-hand-side base.
+                emit_fixed_base_address(plan.matrix_base, plan.matrix_width);
+                code_.raw({0x49, 0x89, 0xc0});     // mov r8, rax
+                load_i64_to_rax(plan.row_local);
+                load_i64_to_rcx(plan.bound_local);
+                load_i64_to_rdx(plan.column_local);
+                code_.raw({
+                           0x49, 0x89, 0xd1,       // mov r9, rdx
+                           0x4d, 0x69, 0xc9});     // imul r9, r9, columns
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x49, 0x01, 0xd1,       // add r9, rdx
+                           0x49, 0xf7, 0xd9,       // neg r9
+                           0x4f, 0x8d, 0x0c, 0xc8, // lea r9, [r8+r9*8]
+                           0x48, 0x69, 0xc0});     // imul rax, rax, columns
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x48, 0x01, 0xd0,       // add rax, rdx
+                           0x48, 0xf7, 0xd8,       // neg rax
+                           0x4d, 0x8d, 0x04, 0xc0  // lea r8, [r8+rax*8]
+                });
+                emit_fixed_base_address(plan.rhs_base, plan.rhs_width);
+                code_.raw({0x49, 0x89, 0xc3});     // mov r11, rax
+                load_i64_to_rax(plan.row_local);
+                code_.raw({0x48, 0x39, 0xc8,       // cmp rax, rcx
+                           0x0f, 0x8d});            // jge complete
+                const auto initially_empty = code_.rel32_placeholder();
+
+                const auto outer_loop = code_.position();
+                code_.raw({0xc5, 0xfb, 0x10, 0x9d});     // vmovsd pivot, xmm3
+                code_.i32(frame.displacement(plan.pivot_value_local));
+                code_.raw({0xc4, 0xc1, 0x7b, 0x10, 0x10, // vmovsd [r8], xmm2
+                           0xc5, 0xeb, 0x5e, 0xd3,       // vdivsd xmm3,xmm2,xmm2
+                           0xc5, 0xfb, 0x11, 0x95});     // vmovsd xmm2, factor
+                code_.i32(frame.displacement(plan.factor_local));
+                code_.raw({0xc5, 0xf9, 0x57, 0xc0,       // vxorpd xmm0,xmm0,xmm0
+                           0xc4, 0xc1, 0x7b, 0x11, 0x00, // vmovsd xmm0,[r8]
+                           0xc4, 0xe2, 0x7d, 0x19, 0xd2, // vbroadcastsd ymm2,xmm2
+                           0x4c, 0x89, 0xc6,             // mov rsi, r8
+                           0x4c, 0x89, 0xcf,             // mov rdi, r9
+                           0x48, 0x83, 0xee, 0x08,       // sub rsi, 8
+                           0x48, 0x83, 0xef, 0x08,       // sub rdi, 8
+                           0x48, 0x89, 0xcb,             // mov rbx, rcx
+                           0x48, 0x29, 0xd3,             // sub rbx, rdx
+                           0x48, 0xff, 0xcb,             // dec rbx
+                           0x48, 0x83, 0xfb, 0x04,       // cmp rbx, 4
+                           0x0f, 0x82});                 // jb scalar
+                const auto scalar_only = code_.rel32_placeholder();
+
+                code_.raw({0x48, 0x83, 0xee, 0x18, // sub rsi, 24
+                           0x48, 0x83, 0xef, 0x18}); // sub rdi, 24
+                const auto packed_loop = code_.position();
+                code_.raw({0xc5, 0xfd, 0x10, 0x06, // vmovupd ymm0, [rsi]
+                           0xc5, 0xfd, 0x10, 0x0f  // vmovupd ymm1, [rdi]
+                });
+                if (policy_.fused_multiply_add &&
+                    vkf::target::host_x64_supports_fma()) {
+                    code_.raw({0xc4, 0xe2, 0xf5, 0xbc, 0xc2});
+                } else {
+                    code_.raw({0xc5, 0xf5, 0x59, 0xca,
+                               0xc5, 0xfd, 0x5c, 0xc1});
+                }
+                code_.raw({0xc5, 0xfd, 0x11, 0x06, // vmovupd [rsi], ymm0
+                           0x48, 0x83, 0xee, 0x20,
+                           0x48, 0x83, 0xef, 0x20,
+                           0x48, 0x83, 0xeb, 0x04,
+                           0x48, 0x83, 0xfb, 0x04,
+                           0x0f, 0x83});
+                const auto packed_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(packed_repeat, packed_loop);
+                code_.raw({0x48, 0x83, 0xc6, 0x18,
+                           0x48, 0x83, 0xc7, 0x18});
+
+                const auto scalar_test = code_.position();
+                code_.patch_rel32(scalar_only, scalar_test);
+                code_.raw({0x48, 0x85, 0xdb,
+                           0x0f, 0x84});
+                const auto no_remainder = code_.rel32_placeholder();
+                const auto scalar_loop = code_.position();
+                code_.raw({0xc5, 0xfb, 0x10, 0x06,
+                           0xc5, 0xfb, 0x10, 0x0f,
+                           0xc5, 0xf3, 0x59, 0xca,
+                           0xc5, 0xfb, 0x5c, 0xc1,
+                           0xc5, 0xfb, 0x11, 0x06,
+                           0x48, 0x83, 0xee, 0x08,
+                           0x48, 0x83, 0xef, 0x08,
+                           0x48, 0xff, 0xcb,
+                           0x0f, 0x85});
+                const auto scalar_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(scalar_repeat, scalar_loop);
+                code_.patch_rel32(no_remainder, code_.position());
+
+                // rhs[row] -= factor * rhs[column]
+                code_.raw({0x48, 0x89, 0xc6,       // mov rsi, rax
+                           0x48, 0xf7, 0xde,       // neg rsi
+                           0x49, 0x8d, 0x34, 0xf3, // lea rsi, [r11+rsi*8]
+                           0x48, 0x89, 0xd7,       // mov rdi, rdx
+                           0x48, 0xf7, 0xdf,       // neg rdi
+                           0x49, 0x8d, 0x3c, 0xfb, // lea rdi, [r11+rdi*8]
+                           0xc5, 0xfb, 0x10, 0x06,
+                           0xc5, 0xfb, 0x10, 0x0f,
+                           0xc5, 0xf3, 0x59, 0xca,
+                           0xc5, 0xfb, 0x5c, 0xc1,
+                           0xc5, 0xfb, 0x11, 0x06,
+                           0x49, 0x81, 0xe8});     // sub r8, row stride
+                code_.i32(static_cast<std::int32_t>(plan.column_count * 8u));
+                code_.raw({0x48, 0xff, 0xc0,
+                           0x48, 0x39, 0xc8,
+                           0x0f, 0x8c});
+                const auto outer_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(outer_repeat, outer_loop);
+
+                const auto complete = code_.position();
+                code_.patch_rel32(initially_empty, complete);
+                code_.raw({0xc5, 0xf8, 0x77});
+                load_i64_to_rax(plan.bound_local);
+                store_rax_to_i64(plan.row_local);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+            };
+        const auto emit_packed_lu_elimination_rows =
+            [&](const PackedLuEliminationRowsLoopPlan& plan) {
+                if (!local_is_i64(plan.row_local) ||
+                    !local_is_i64(plan.bound_local) ||
+                    !local_is_i64(plan.column_local)) {
+                    throw BackendFailure(
+                        "packed LU elimination requires native integer indices");
+                }
+
+                emit_fixed_base_address(plan.upper_base, plan.upper_width);
+                code_.raw({0x49, 0x89, 0xc0});
+                load_i64_to_rax(plan.row_local);
+                load_i64_to_rcx(plan.bound_local);
+                load_i64_to_rdx(plan.column_local);
+                code_.raw({0x49, 0x89, 0xd1,
+                           0x4d, 0x69, 0xc9});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x49, 0x01, 0xd1,
+                           0x49, 0xf7, 0xd9,
+                           0x4f, 0x8d, 0x0c, 0xc8,
+                           0x48, 0x69, 0xc0});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x48, 0x01, 0xd0,
+                           0x48, 0xf7, 0xd8,
+                           0x4d, 0x8d, 0x04, 0xc0});
+                emit_fixed_base_address(plan.lower_base, plan.lower_width);
+                code_.raw({0x49, 0x89, 0xc3});
+                load_i64_to_rax(plan.row_local);
+                code_.raw({0x48, 0x39, 0xc8, 0x0f, 0x8d});
+                const auto initially_empty = code_.rel32_placeholder();
+
+                const auto outer_loop = code_.position();
+                code_.raw({0xc5, 0xfb, 0x10, 0x9d});
+                code_.i32(frame.displacement(plan.pivot_value_local));
+                code_.raw({0xc4, 0xc1, 0x7b, 0x10, 0x10,
+                           0xc5, 0xeb, 0x5e, 0xd3,
+                           0xc5, 0xfb, 0x11, 0x95});
+                code_.i32(frame.displacement(plan.factor_local));
+
+                // lower[row, column] = factor
+                code_.raw({0x48, 0x89, 0xc6,
+                           0x48, 0x69, 0xf6});
+                code_.i32(static_cast<std::int32_t>(plan.column_count));
+                code_.raw({0x48, 0x01, 0xd6,
+                           0x48, 0xf7, 0xde,
+                           0xc4, 0xc1, 0x7b, 0x11, 0x14, 0xf3,
+                           0xc4, 0xe2, 0x7d, 0x19, 0xd2,
+                           0x4c, 0x89, 0xc6,
+                           0x4c, 0x89, 0xcf,
+                           0x48, 0x89, 0xcb,
+                           0x48, 0x29, 0xd3,
+                           0x48, 0x83, 0xfb, 0x04,
+                           0x0f, 0x82});
+                const auto scalar_only = code_.rel32_placeholder();
+                code_.raw({0x48, 0x83, 0xee, 0x18,
+                           0x48, 0x83, 0xef, 0x18});
+                const auto packed_loop = code_.position();
+                code_.raw({0xc5, 0xfd, 0x10, 0x06,
+                           0xc5, 0xfd, 0x10, 0x0f});
+                if (policy_.fused_multiply_add &&
+                    vkf::target::host_x64_supports_fma()) {
+                    code_.raw({0xc4, 0xe2, 0xf5, 0xbc, 0xc2});
+                } else {
+                    code_.raw({0xc5, 0xf5, 0x59, 0xca,
+                               0xc5, 0xfd, 0x5c, 0xc1});
+                }
+                code_.raw({0xc5, 0xfd, 0x11, 0x06,
+                           0x48, 0x83, 0xee, 0x20,
+                           0x48, 0x83, 0xef, 0x20,
+                           0x48, 0x83, 0xeb, 0x04,
+                           0x48, 0x83, 0xfb, 0x04,
+                           0x0f, 0x83});
+                const auto packed_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(packed_repeat, packed_loop);
+                code_.raw({0x48, 0x83, 0xc6, 0x18,
+                           0x48, 0x83, 0xc7, 0x18});
+                const auto scalar_test = code_.position();
+                code_.patch_rel32(scalar_only, scalar_test);
+                code_.raw({0x48, 0x85, 0xdb, 0x0f, 0x84});
+                const auto no_remainder = code_.rel32_placeholder();
+                const auto scalar_loop = code_.position();
+                code_.raw({0xc5, 0xfb, 0x10, 0x06,
+                           0xc5, 0xfb, 0x10, 0x0f,
+                           0xc5, 0xf3, 0x59, 0xca,
+                           0xc5, 0xfb, 0x5c, 0xc1,
+                           0xc5, 0xfb, 0x11, 0x06,
+                           0x48, 0x83, 0xee, 0x08,
+                           0x48, 0x83, 0xef, 0x08,
+                           0x48, 0xff, 0xcb,
+                           0x0f, 0x85});
+                const auto scalar_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(scalar_repeat, scalar_loop);
+                code_.patch_rel32(no_remainder, code_.position());
+                code_.raw({0x49, 0x81, 0xe8});
+                code_.i32(static_cast<std::int32_t>(plan.column_count * 8u));
+                code_.raw({0x48, 0xff, 0xc0,
+                           0x48, 0x39, 0xc8,
+                           0x0f, 0x8c});
+                const auto outer_repeat = code_.rel32_placeholder();
+                code_.patch_rel32(outer_repeat, outer_loop);
+
+                const auto complete = code_.position();
+                code_.patch_rel32(initially_empty, complete);
+                code_.raw({0xc5, 0xf8, 0x77});
+                load_i64_to_rax(plan.bound_local);
+                store_rax_to_i64(plan.row_local);
+                code_.byte(0xe9);
+                branches.push_back({code_.rel32_placeholder(), plan.exit_label});
+            };
+        const auto emit_bulk_fixed_copy =
+            [&](std::uint32_t source_base, std::uint32_t destination_base,
+                std::uint32_t width) {
+                if (width == 0u || source_base == destination_base) return;
+                emit_fixed_base_address(source_base, width);
+                code_.raw({0x48, 0x89, 0xc2});
+                emit_fixed_base_address(destination_base, width);
+                const auto blocks = width / 4u;
+                if (blocks != 0u) {
+                    code_.raw({0x48, 0x83, 0xe8, 0x18,
+                               0x48, 0x83, 0xea, 0x18,
+                               0xb9});
+                    code_.i32(static_cast<std::int32_t>(blocks));
+                    const auto loop = code_.position();
+                    code_.raw({0xc5, 0xfd, 0x10, 0x02,
+                               0xc5, 0xfd, 0x11, 0x00,
+                               0x48, 0x83, 0xe8, 0x20,
+                               0x48, 0x83, 0xea, 0x20,
+                               0xff, 0xc9,
+                               0x0f, 0x85});
+                    const auto repeat = code_.rel32_placeholder();
+                    code_.patch_rel32(repeat, loop);
+                    code_.raw({0x48, 0x83, 0xc0, 0x18,
+                               0x48, 0x83, 0xc2, 0x18,
+                               0xc5, 0xf8, 0x77});
+                }
+                for (std::uint32_t index = blocks * 4u; index < width; ++index) {
+                    code_.raw({0x48, 0x8b, 0x0a,
+                               0x48, 0x89, 0x08,
+                               0x48, 0x83, 0xe8, 0x08,
+                               0x48, 0x83, 0xea, 0x08});
+                }
+            };
+        const auto emit_bulk_fixed_zero =
+            [&](std::uint32_t destination_base, std::uint32_t width) {
+                emit_fixed_base_address(destination_base, width);
+                code_.raw({0xc5, 0xfd, 0x57, 0xc0});
+                const auto blocks = width / 4u;
+                if (blocks != 0u) {
+                    code_.raw({0x48, 0x83, 0xe8, 0x18, 0xb9});
+                    code_.i32(static_cast<std::int32_t>(blocks));
+                    const auto loop = code_.position();
+                    code_.raw({0xc5, 0xfd, 0x11, 0x00,
+                               0x48, 0x83, 0xe8, 0x20,
+                               0xff, 0xc9,
+                               0x0f, 0x85});
+                    const auto repeat = code_.rel32_placeholder();
+                    code_.patch_rel32(repeat, loop);
+                }
+                code_.raw({0xc5, 0xf8, 0x77});
+                emit_fixed_base_address(destination_base, width);
+                for (std::uint32_t index = blocks * 4u; index < width; ++index) {
+                    code_.raw({0x48, 0xc7, 0x80});
+                    code_.i32(-static_cast<std::int32_t>(index * 8u));
+                    code_.i32(0);
+                }
+            };
+        const auto emit_bulk_fixed_result =
+            [&](std::uint32_t source_base, std::uint32_t width) {
+                emit_fixed_base_address(source_base, width);
+                code_.raw({0x4c, 0x89, 0xda});
+                const auto blocks = width / 4u;
+                if (blocks != 0u) {
+                    code_.raw({0x48, 0x83, 0xe8, 0x18,
+                               0x48, 0x83, 0xea, 0x18,
+                               0xb9});
+                    code_.i32(static_cast<std::int32_t>(blocks));
+                    const auto loop = code_.position();
+                    code_.raw({0xc5, 0xfd, 0x10, 0x00,
+                               0xc5, 0xfd, 0x11, 0x02,
+                               0x48, 0x83, 0xe8, 0x20,
+                               0x48, 0x83, 0xea, 0x20,
+                               0xff, 0xc9,
+                               0x0f, 0x85});
+                    const auto repeat = code_.rel32_placeholder();
+                    code_.patch_rel32(repeat, loop);
+                }
+                code_.raw({0xc5, 0xf8, 0x77});
+                emit_fixed_base_address(source_base, width);
+                for (std::uint32_t index = blocks * 4u; index < width; ++index) {
+                    code_.raw({0xf2, 0x0f, 0x10, 0x80});
+                    code_.i32(-static_cast<std::int32_t>(index * 8u));
+                    store_result_to_r11(index);
+                }
+            };
         std::vector<bool> index_upper_bound_proven(function.instructions.size(), false);
         std::vector<bool> index_lower_bound_proven(function.instructions.size(), false);
         for (std::size_t position = 0;
@@ -5358,10 +8165,19 @@ private:
                 store_local(static_cast<unsigned>(index), 0);
             }
         }
+#ifdef _WIN32
+        if (const auto packed_svd = detect_packed_thin_svd_function(function)) {
+            emit_packed_thin_svd(*packed_svd);
+            return;
+        }
+        if (const auto packed_factor = detect_packed_factor_function(function)) {
+            emit_packed_factor_function(*packed_factor);
+            return;
+        }
+#endif
 
         unsigned stack_depth = 0;
         std::map<std::uint32_t, std::size_t> labels;
-        std::vector<MachineBranchPatch> branches;
         const auto static_fixed_index = [](
             const vkf::machine_ir::Instruction& value,
             const vkf::machine_ir::Instruction& access
@@ -6572,6 +9388,121 @@ private:
             const auto& instruction = function.instructions[instruction_index];
             using vkf::machine_ir::Opcode;
             const auto opcode = instruction.opcode;
+            if (stack_depth == 0 && opcode == Opcode::PushF64 &&
+                instruction.f64 == 0.0) {
+                std::size_t width = 1u;
+                while (instruction_index + width < function.instructions.size() &&
+                       function.instructions[instruction_index + width].opcode ==
+                           Opcode::PushF64 &&
+                       function.instructions[instruction_index + width].f64 == 0.0) {
+                    ++width;
+                }
+                if (width >= 8u && instruction_index + width * 2u <=
+                        function.instructions.size()) {
+                    const auto& first_store =
+                        function.instructions[instruction_index + width];
+                    const auto destination_base = first_store.index >= width - 1u
+                        ? first_store.index - static_cast<std::uint32_t>(width - 1u)
+                        : std::numeric_limits<std::uint32_t>::max();
+                    bool stores_match = first_store.opcode == Opcode::StoreLocal;
+                    bool cache_safe = stores_match;
+                    for (std::size_t offset = 0;
+                         stores_match && offset < width; ++offset) {
+                        const auto& store = function.instructions[
+                            instruction_index + width + offset];
+                        const auto destination = destination_base +
+                            static_cast<std::uint32_t>(width - 1u - offset);
+                        stores_match = store.opcode == Opcode::StoreLocal &&
+                            store.index == destination;
+                        cache_safe = cache_safe && destination < local_register.size() &&
+                            local_register[destination] < 0 &&
+                            integer_register[destination] < 0;
+                    }
+                    if (stores_match && cache_safe &&
+                        destination_base <= frame.local_count &&
+                        width <= frame.local_count - destination_base) {
+                        emit_bulk_fixed_zero(
+                            destination_base, static_cast<std::uint32_t>(width));
+                        instruction_index += width * 2u - 1u;
+                        continue;
+                    }
+                }
+            }
+            if (stack_depth == 0 && opcode == Opcode::LoadLocal) {
+                const auto source_base = instruction.index;
+                std::size_t width = 1u;
+                while (instruction_index + width < function.instructions.size()) {
+                    const auto& load = function.instructions[instruction_index + width];
+                    if (load.opcode != Opcode::LoadLocal ||
+                        load.index != source_base + width) {
+                        break;
+                    }
+                    ++width;
+                }
+                bool source_cache_safe = width >= 8u;
+                for (std::size_t offset = 0; source_cache_safe && offset < width; ++offset) {
+                    const auto source = source_base + static_cast<std::uint32_t>(offset);
+                    source_cache_safe = local_register[source] < 0 &&
+                        integer_register[source] < 0;
+                }
+                if (!entry && source_cache_safe &&
+                    instruction_index + width < function.instructions.size()) {
+                    const auto& tail_return =
+                        function.instructions[instruction_index + width];
+                    if (tail_return.opcode == Opcode::ReturnValues &&
+                        tail_return.result_count == width) {
+                        restore_result_context(frame);
+                        emit_bulk_fixed_result(
+                            source_base, static_cast<std::uint32_t>(width));
+                        if (function.may_error) code_.raw({0x45, 0x31, 0xc9});
+                        epilogue();
+                        instruction_index += width;
+                        continue;
+                    }
+                }
+                if (width >= 8u && instruction_index + width * 2u <=
+                        function.instructions.size()) {
+                    const auto& first_store =
+                        function.instructions[instruction_index + width];
+                    const auto destination_base = first_store.index >= width - 1u
+                        ? first_store.index - static_cast<std::uint32_t>(width - 1u)
+                        : std::numeric_limits<std::uint32_t>::max();
+                    bool stores_match = first_store.opcode == Opcode::StoreLocal;
+                    bool cache_safe = stores_match && source_cache_safe;
+                    for (std::size_t offset = 0; stores_match && offset < width; ++offset) {
+                        const auto& store = function.instructions[
+                            instruction_index + width + offset];
+                        stores_match = store.opcode == Opcode::StoreLocal &&
+                            store.index == destination_base + width - 1u - offset;
+                        const auto source = source_base + static_cast<std::uint32_t>(offset);
+                        const auto destination = destination_base +
+                            static_cast<std::uint32_t>(offset);
+                        cache_safe = cache_safe &&
+                            local_register[source] < 0 && integer_register[source] < 0 &&
+                            local_register[destination] < 0 && integer_register[destination] < 0;
+                    }
+                    const auto source_end = source_base + static_cast<std::uint32_t>(width);
+                    const auto destination_end =
+                        destination_base + static_cast<std::uint32_t>(width);
+                    const bool nonoverlapping = source_end <= destination_base ||
+                        destination_end <= source_base || source_base == destination_base;
+                    if (stores_match && cache_safe && nonoverlapping) {
+                        emit_bulk_fixed_copy(
+                            source_base, destination_base,
+                            static_cast<std::uint32_t>(width));
+                        instruction_index += width * 2u - 1u;
+                        continue;
+                    }
+                }
+                if (source_cache_safe) {
+                    emit_bulk_fixed_copy(
+                        source_base, frame.temp_base + stack_depth,
+                        static_cast<std::uint32_t>(width));
+                    stack_depth += static_cast<unsigned>(width);
+                    instruction_index += width - 1u;
+                    continue;
+                }
+            }
             if (stack_depth == 0 && opcode == Opcode::LoadLocal &&
                 instruction_index + 2 < function.instructions.size()) {
                 const auto& validation = function.instructions[instruction_index + 1];
@@ -6607,6 +9538,182 @@ private:
             }
             if (opcode == Opcode::Label) {
                 expression_index_cache = {};
+                const auto packed_eigen = policy_.packed_matrix_reductions &&
+                        policy_.packed_dot_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_symmetric_eigen_loop(function, instruction_index)
+                    : std::nullopt;
+                if (packed_eigen) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed symmetric eigen requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_symmetric_eigen(*packed_eigen);
+                    instruction_index = packed_eigen->end_index;
+                    continue;
+                }
+                const auto packed_qr = policy_.packed_matrix_reductions &&
+                        policy_.packed_dot_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_qr_loop(function, instruction_index)
+                    : std::nullopt;
+                if (packed_qr) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed QR requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_qr(*packed_qr);
+                    instruction_index = packed_qr->end_index;
+                    continue;
+                }
+                const auto packed_cholesky = policy_.packed_matrix_reductions &&
+                        policy_.packed_dot_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_cholesky_loop(function, instruction_index)
+                    : std::nullopt;
+                if (packed_cholesky) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed Cholesky requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_cholesky(*packed_cholesky);
+                    instruction_index = packed_cholesky->end_index;
+                    continue;
+                }
+                const auto packed_lu = policy_.packed_matrix_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_lu_elimination_rows_loop(
+                        function, instruction_index)
+                    : std::nullopt;
+                if (packed_lu) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed LU elimination requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_lu_elimination_rows(*packed_lu);
+                    instruction_index = packed_lu->end_index;
+                    continue;
+                }
+                const auto packed_gaussian = policy_.packed_matrix_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_gaussian_elimination_rows_loop(
+                        function, instruction_index)
+                    : std::nullopt;
+                if (packed_gaussian) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed Gaussian elimination requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_gaussian_elimination_rows(*packed_gaussian);
+                    instruction_index = packed_gaussian->end_index;
+                    continue;
+                }
+                const auto packed_row_swap = policy_.packed_matrix_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_matrix_row_swap_loop(function, instruction_index)
+                    : std::nullopt;
+                if (packed_row_swap) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed matrix row swap requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_matrix_row_swap(*packed_row_swap);
+                    instruction_index = packed_row_swap->end_index;
+                    continue;
+                }
+                const auto packed_pivot = policy_.native_integer_locals
+                    ? detect_packed_matrix_pivot_search_loop(function, instruction_index)
+                    : std::nullopt;
+                if (packed_pivot) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed matrix pivot search requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_matrix_pivot_search(*packed_pivot);
+                    instruction_index = packed_pivot->end_index;
+                    continue;
+                }
+                const auto packed_matrix_vector = policy_.packed_dot_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_matrix_vector_reduction_loop(
+                        function, instruction_index)
+                    : std::nullopt;
+                const auto packed_row_pair = policy_.packed_dot_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_two_matrix_rows_reduction_loop(
+                        function, instruction_index)
+                    : std::nullopt;
+                if (packed_row_pair) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed row-pair reduction requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_two_matrix_rows_reduction(*packed_row_pair);
+                    instruction_index = packed_row_pair->end_index;
+                    continue;
+                }
+                if (packed_matrix_vector) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed matrix-vector reduction requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_matrix_vector_reduction(*packed_matrix_vector);
+                    instruction_index = packed_matrix_vector->end_index;
+                    continue;
+                }
+                const auto packed_row_update = policy_.packed_matrix_reductions &&
+                        policy_.native_integer_locals
+                    ? detect_packed_matrix_row_update_loop(function, instruction_index)
+                    : std::nullopt;
+                if (packed_row_update) {
+                    if (stack_depth != 0) {
+                        throw BackendFailure(
+                            "packed matrix row update requires empty x64 machine stack");
+                    }
+                    align_loop_header(instruction.label);
+                    if (!labels.emplace(instruction.label, code_.position()).second) {
+                        throw BackendFailure("duplicate x64 machine IR label");
+                    }
+                    emit_packed_matrix_row_update(*packed_row_update);
+                    instruction_index = packed_row_update->end_index;
+                    continue;
+                }
                 const auto packed_matrix = policy_.packed_matrix_reductions &&
                         policy_.native_integer_locals
                     ? detect_packed_matrix_reduction_loop(function, instruction_index)
@@ -7953,6 +11060,56 @@ private:
                 code_.raw({0x48, 0x89, 0x85});
                 code_.i32(frame.displacement(frame.temp_base + first));
                 stack_depth = first + 1;
+            } else if (opcode == Opcode::MakeOwnedRepeatedF64List) {
+                require_stack(stack_depth, 2);
+                const unsigned first = stack_depth - 2;
+                load_xmm(0, frame.displacement(frame.temp_base + first + 1));
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8,
+                           0xf2, 0x48, 0x0f, 0x2a, 0xc9,
+                           0x66, 0x0f, 0x2e, 0xc8});
+                std::vector<std::size_t> invalid;
+                invalid.push_back(emit_jump(0x85));
+                invalid.push_back(emit_jump(0x8a));
+                code_.raw({0x48, 0x85, 0xc9});
+                invalid.push_back(emit_jump(0x88));
+                code_.raw({0x48, 0x81, 0xf9});
+                code_.i32(536870909);
+                invalid.push_back(emit_jump(0x87));
+                code_.raw({0x48, 0x89, 0xc8,
+                           0x48, 0xc1, 0xe0, 0x03,
+                           0x48, 0x83, 0xc0, 0x10});
+                move_pointer_argument_from_rax();
+                call_runtime_slot(8);
+                code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+                const auto allocated = code_.rel32_placeholder();
+                emit_abort();
+                code_.patch_rel32(allocated, code_.position());
+                load_xmm(0, frame.displacement(frame.temp_base + first + 1));
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8,
+                           0x48, 0x89, 0x08,
+                           0x48, 0x89, 0x48, 0x08,
+                           0x48, 0x8d, 0x50, 0x10,
+                           0x48, 0x85, 0xc9, 0x0f, 0x84});
+                const auto empty = code_.rel32_placeholder();
+                load_xmm(0, frame.displacement(frame.temp_base + first));
+                const auto fill = code_.position();
+                code_.raw({0xf2, 0x0f, 0x11, 0x02,
+                           0x48, 0x83, 0xc2, 0x08,
+                           0x48, 0xff, 0xc9, 0x0f, 0x85});
+                const auto repeat = code_.rel32_placeholder();
+                code_.patch_rel32(repeat, fill);
+                code_.patch_rel32(empty, code_.position());
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.temp_base + first));
+                code_.byte(0xe9);
+                const auto valid = code_.rel32_placeholder();
+                const auto invalid_target = code_.position();
+                for (const auto branch : invalid) {
+                    code_.patch_rel32(branch, invalid_target);
+                }
+                emit_abort();
+                code_.patch_rel32(valid, code_.position());
+                stack_depth = first + 1;
             } else if (opcode == Opcode::MakeOwnedF64ListLiteral) {
                 const std::uint64_t payload_bytes =
                     static_cast<std::uint64_t>(instruction.argument_count) * 8ull;
@@ -8268,12 +11425,20 @@ private:
                 const unsigned first = stack_depth - 2;
                 code_.raw({0x48, 0x8b, 0x85});
                 code_.i32(frame.displacement(frame.temp_base + first));
-                load_xmm(0, frame.displacement(frame.temp_base + first + 1));
-                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
-                code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc9, 0x66, 0x0f, 0x2e, 0xc8});
+                const bool native_index_local = policy_.native_index_addressing &&
+                    instruction.index_local && local_is_i64(*instruction.index_local);
+                if (native_index_local) {
+                    load_i64_to_rcx(*instruction.index_local);
+                } else {
+                    load_xmm(0, frame.displacement(frame.temp_base + first + 1));
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
+                }
                 std::vector<std::size_t> invalid;
-                invalid.push_back(emit_jump(0x85));
-                invalid.push_back(emit_jump(0x8a));
+                if (!instruction.index_is_integral && !native_index_local) {
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc9, 0x66, 0x0f, 0x2e, 0xc8});
+                    invalid.push_back(emit_jump(0x85));
+                    invalid.push_back(emit_jump(0x8a));
+                }
                 code_.raw({0x48, 0x85, 0xc9});
                 invalid.push_back(emit_jump(0x88));
                 code_.raw({0x48, 0x3b, 0x08});
@@ -8322,11 +11487,19 @@ private:
                 code_.raw({0x48, 0x85, 0xc0});
                 std::vector<std::size_t> invalid;
                 invalid.push_back(emit_jump(0x84));
-                load_xmm(0, frame.displacement(frame.temp_base + first));
-                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
-                code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc9, 0x66, 0x0f, 0x2e, 0xc8});
-                invalid.push_back(emit_jump(0x85));
-                invalid.push_back(emit_jump(0x8a));
+                const bool native_index_local = policy_.native_index_addressing &&
+                    instruction.index_local && local_is_i64(*instruction.index_local);
+                if (native_index_local) {
+                    load_i64_to_rcx(*instruction.index_local);
+                } else {
+                    load_xmm(0, frame.displacement(frame.temp_base + first));
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc8});
+                }
+                if (!instruction.index_is_integral && !native_index_local) {
+                    code_.raw({0xf2, 0x48, 0x0f, 0x2a, 0xc9, 0x66, 0x0f, 0x2e, 0xc8});
+                    invalid.push_back(emit_jump(0x85));
+                    invalid.push_back(emit_jump(0x8a));
+                }
                 code_.raw({0x48, 0x85, 0xc9});
                 invalid.push_back(emit_jump(0x88));
                 code_.raw({0x48, 0x3b, 0x08});
@@ -8556,7 +11729,10 @@ private:
                 require_stack(stack_depth, instruction.argument_count);
                 const unsigned first = stack_depth - instruction.argument_count;
                 std::optional<std::uint32_t> direct_result_base;
-                if (policy_.direct_aggregate_results && instruction.result_count >= 8u &&
+                if (policy_.direct_aggregate_results &&
+                    !register_cache_safe &&
+                    (!instruction.may_error || !instruction.has_error_handler) &&
+                    instruction.result_count >= 8u &&
                     instruction.result_count <= function.instructions.size() - instruction_index - 1u) {
                     const auto& first_store = function.instructions[instruction_index + 1u];
                     if (first_store.opcode == Opcode::StoreLocal &&
@@ -8573,12 +11749,16 @@ private:
                                 store.index == destination &&
                                 destination < function.local_classes.size() &&
                                 function.local_classes[destination] ==
-                                    vkf::machine_ir::ValueClass::F64;
+                                    vkf::machine_ir::ValueClass::F64 &&
+                                local_register[destination] < 0 &&
+                                integer_register[destination] < 0;
                         }
                         if (contiguous) direct_result_base = base;
                     }
                 }
-                const bool forward_tail_results = policy_.direct_aggregate_results && !entry &&
+                const bool forward_tail_results = policy_.direct_aggregate_results &&
+                    !register_cache_safe &&
+                    (!instruction.may_error || !instruction.has_error_handler) && !entry &&
                     instruction.result_count >= 8u && !direct_result_base &&
                     instruction_index + 1u < function.instructions.size() &&
                     function.instructions[instruction_index + 1u].opcode == Opcode::ReturnValues &&
@@ -8828,7 +12008,35 @@ private:
                 require_stack(stack_depth, instruction.result_count);
                 stack_depth -= instruction.result_count;
                 if (!entry) restore_result_context(frame);
-                for (unsigned index = 0; index < instruction.result_count; ++index) {
+                if (!entry && instruction.result_count >= 8u &&
+                    vkf::target::host_x64_supports_avx2()) {
+                    code_.raw({0x48, 0x8d, 0x85});
+                    code_.i32(frame.displacement(frame.temp_base + stack_depth));
+                    code_.raw({0x4c, 0x89, 0xda});
+                    const auto blocks = instruction.result_count / 4u;
+                    if (blocks != 0u) {
+                        code_.raw({0x48, 0x83, 0xe8, 0x18,
+                                   0x48, 0x83, 0xea, 0x18,
+                                   0xb9});
+                        code_.i32(static_cast<std::int32_t>(blocks));
+                        const auto copy_loop = code_.position();
+                        code_.raw({0xc5, 0xfd, 0x10, 0x00,
+                                   0xc5, 0xfd, 0x11, 0x02,
+                                   0x48, 0x83, 0xe8, 0x20,
+                                   0x48, 0x83, 0xea, 0x20,
+                                   0xff, 0xc9,
+                                   0x0f, 0x85});
+                        const auto repeat = code_.rel32_placeholder();
+                        code_.patch_rel32(repeat, copy_loop);
+                    }
+                    code_.raw({0xc5, 0xf8, 0x77});
+                    for (unsigned index = blocks * 4u;
+                         index < instruction.result_count; ++index) {
+                        load_xmm(0, frame.displacement(
+                            frame.temp_base + stack_depth + index));
+                        store_result_to_r11(index);
+                    }
+                } else for (unsigned index = 0; index < instruction.result_count; ++index) {
                     if (entry && (module_.output_kind == vkf::machine_ir::OutputKind::MultipleF64 ||
                                   module_.output_kind == vkf::machine_ir::OutputKind::MixedSequence ||
                                   module_.output_kind == vkf::machine_ir::OutputKind::StructuredSequence)) {
@@ -9166,6 +12374,7 @@ TuningResult tune_machine_code(
         result.code = MachineX64Emitter(module, result.policy).emit();
         return result;
     }
+
     if (landscape_runs == 0 &&
         (run_budget == 0 || !(time_budget_ms > 0.0))) {
         result.policy = vkf::adaptive_optimizer::policy_from_mask(0u);

@@ -1,0 +1,338 @@
+:.symbolic
+errors: .errors
+
+test integer_domain_excludes_noninteger_polynomial_roots() -> bit:
+    x: Z
+    solutions: solve(equation(x^2, 2), [x])
+    solution_count(solutions) = 0
+
+test real_domain_materializes_both_exact_polynomial_roots() -> bit:
+    x: R
+    solutions: solve(equation(x^2, 2), [x])
+    positive: sqrt(constant(2))
+    negative: -sqrt(constant(2))
+    count_matches: solution_count(_symbolic_clone(solutions)) = 2
+    negative_matches: same(solution_value(_symbolic_clone(solutions), 0), negative)
+    positive_matches: same(solution_value(solutions, 1), positive)
+    count_matches /\ negative_matches /\ positive_matches
+
+test integer_domain_materializes_exact_integer_roots() -> bit:
+    x: Z
+    solutions: solve(equation(x^2, 4), [x])
+    count_matches: solution_count(_symbolic_clone(solutions)) = 2
+    negative_matches: same(solution_value(_symbolic_clone(solutions), 0), constant(-2))
+    positive_matches: same(solution_value(solutions, 1), constant(2))
+    count_matches /\ negative_matches /\ positive_matches
+
+test repeated_polynomial_root_is_returned_once() -> bit:
+    x: R
+    solutions: solve(equation(x^2, 0), [x])
+    count_matches: solution_count(_symbolic_clone(solutions)) = 1
+    value_matches: same(solution_value(solutions, 0), constant(0))
+    count_matches /\ value_matches
+
+test rational_domain_excludes_irrational_roots() -> bit:
+    x: Q
+    solutions: solve(equation(x^2, 2), [x])
+    solution_count(solutions) = 0
+
+test natural_domain_filters_negative_algebraic_roots() -> bit:
+    x: N
+    solutions: solve(equation(x^2, 4), [x])
+    count_matches: solution_count(_symbolic_clone(solutions)) = 1
+    value_matches: same(solution_value(solutions, 0), constant(2))
+    count_matches /\ value_matches
+
+test real_domain_excludes_nonreal_roots() -> bit:
+    x: R
+    solutions: solve(equation(x^2, -1), [x])
+    solution_count(solutions) = 0
+
+test complex_domain_preserves_formal_complex_roots() -> bit:
+    x: C
+    solutions: solve(equation(x^2, -1), [x])
+    positive: sqrt(constant(-1))
+    negative: -sqrt(constant(-1))
+    count_matches: solution_count(_symbolic_clone(solutions)) = 2
+    negative_matches: same(solution_value(_symbolic_clone(solutions), 0), negative)
+    positive_matches: same(solution_value(solutions, 1), positive)
+    count_matches /\ negative_matches /\ positive_matches
+
+test linear_polynomial_equation_uses_exact_domain_constrained_solving() -> bit:
+    x: Z
+    solutions: solve(equation(2 * x + 3, 7), [x])
+    count_matches: solution_count(_symbolic_clone(solutions)) = 1
+    value_matches: same(solution_value(solutions, 0), constant(2))
+    count_matches /\ value_matches
+
+test solved_candidates_are_residual_verified() -> bit:
+    x: Z
+    solutions: solve(equation(2 * x + 3, 7), [x])
+    solution_verified(solutions)
+
+test exact_two_variable_linear_system_is_solved_and_verified() -> bit:
+    x: Z
+    y: Z
+    solutions: solve([equation(x + y, 5), equation(x - y, 1)], [x, y])
+    count_matches: solution_count(_symbolic_clone(solutions)) = 1
+    x_matches: same(solution_value(_symbolic_clone(solutions), 0, 0), constant(3))
+    y_matches: same(solution_value(_symbolic_clone(solutions), 0, 1), constant(2))
+    count_matches /\ x_matches /\ y_matches /\ solution_verified(solutions)
+
+test exact_three_variable_linear_system_is_solved_and_verified() -> bit:
+    x: R
+    y: R
+    z: R
+    equations: [
+        equation(x + y + z, 6),
+        equation(2 * x - y + z, 3),
+        equation(x + 2 * y - z, 2)
+    ]
+    solutions: solve(equations, [x, y, z])
+    (solution_count(_symbolic_clone(solutions)) = 1 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(1)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 2), constant(3)) /\
+     solution_verified(solutions))
+
+test linear_system_respects_every_variable_domain() -> bit:
+    x: Z
+    y: Z
+    z: Z
+    equations: [equation(2 * x, 1), equation(y, 2), equation(z, 3)]
+    solutions: solve(equations, [x, y, z])
+    solution_count(_symbolic_clone(solutions)) = 0 /\ solution_verified(solutions)
+
+test exact_four_variable_linear_system_is_solved_and_verified() -> bit:
+    w: R
+    x: R
+    y: R
+    z: R
+    equations: [
+        equation(w + x + y + z, 10),
+        equation(2 * w - x + y + z, 7),
+        equation(w + 2 * x - y + z, 6),
+        equation(w - x + 2 * y - z, 1)
+    ]
+    solutions: solve(equations, [w, x, y, z])
+    (solution_count(_symbolic_clone(solutions)) = 1 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(1)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 2), constant(3)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 3), constant(4)) /\
+     solution_verified(solutions))
+
+test general_linear_system_checks_every_integer_domain() -> bit:
+    w: Z
+    x: Z
+    y: Z
+    z: Z
+    equations: [
+        equation(2 * w, 1),
+        equation(x, 2),
+        equation(y, 3),
+        equation(z, 4)
+    ]
+    solutions: solve(equations, [w, x, y, z])
+    solution_count(_symbolic_clone(solutions)) = 0 /\ solution_verified(solutions)
+
+test dependent_linear_system_returns_a_verified_affine_family() -> bit:
+    x: R
+    y: R
+    equations: [equation(x + y, 1), equation(2 * x + 2 * y, 2)]
+    solutions: solve(equations, [x, y])
+    (solution_is_family(_symbolic_clone(solutions)) /\
+     solution_family_dimension(_symbolic_clone(solutions)) = 1 /\
+     same(solution_particular_value(_symbolic_clone(solutions), 0), constant(1)) /\
+     same(solution_particular_value(_symbolic_clone(solutions), 1), constant(0)) /\
+     same(solution_direction_value(_symbolic_clone(solutions), 0, 0), constant(-1)) /\
+     same(solution_direction_value(_symbolic_clone(solutions), 0, 1), constant(1)) /\
+     solution_verified(solutions))
+
+test inconsistent_linear_system_is_verified_empty() -> bit:
+    x: R
+    y: R
+    equations: [equation(x + y, 1), equation(2 * x + 2 * y, 3)]
+    solutions: solve(equations, [x, y])
+    solution_count(_symbolic_clone(solutions)) = 0 /\ solution_verified(solutions)
+
+test overdetermined_consistent_linear_system_is_solved_and_verified() -> bit:
+    x: R
+    y: R
+    equations: [equation(x + y, 3), equation(x - y, 1), equation(2 * x, 4)]
+    solutions: solve(equations, [x, y])
+    (solution_count(_symbolic_clone(solutions)) = 1 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(2)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(1)) /\
+     solution_verified(solutions))
+
+test underdetermined_rectangular_system_returns_a_verified_affine_family() -> bit:
+    x: R
+    y: R
+    solutions: solve([equation(x + y, 3)], [x, y])
+    (solution_is_family(_symbolic_clone(solutions)) /\
+     solution_family_dimension(_symbolic_clone(solutions)) = 1 /\
+     same(solution_particular_value(_symbolic_clone(solutions), 0), constant(3)) /\
+     same(solution_particular_value(_symbolic_clone(solutions), 1), constant(0)) /\
+     same(solution_direction_value(_symbolic_clone(solutions), 0, 0), constant(-1)) /\
+     same(solution_direction_value(_symbolic_clone(solutions), 0, 1), constant(1)) /\
+     solution_verified(solutions))
+
+test two_variable_linear_diophantine_equation_returns_a_verified_integer_family() -> bit:
+    x: Z
+    y: Z
+    solutions: solve([equation(6 * x + 9 * y, 3)], [x, y])
+    (solution_is_family(_symbolic_clone(solutions)) /\
+     solution_family_dimension(_symbolic_clone(solutions)) = 1 /\
+     same(solution_particular_value(_symbolic_clone(solutions), 0), constant(-1)) /\
+     same(solution_particular_value(_symbolic_clone(solutions), 1), constant(1)) /\
+     same(solution_direction_value(_symbolic_clone(solutions), 0, 0), constant(3)) /\
+     same(solution_direction_value(_symbolic_clone(solutions), 0, 1), constant(-2)) /\
+     solution_verified(solutions))
+
+test unsatisfiable_linear_diophantine_equation_is_verified_empty() -> bit:
+    x: Z
+    y: Z
+    solutions: solve([equation(6 * x + 9 * y, 2)], [x, y])
+    solution_count(_symbolic_clone(solutions)) = 0 /\ solution_verified(solutions)
+
+test declared_symbolic_constant_is_an_exact_linear_coefficient() -> bit:
+    a: symbol("a", R, constant:true)
+    x: R
+    y: R
+    solutions: solve(
+        [equation(x + a * y, 1), equation(y, 0)],
+        [x, y]
+    )
+    (solution_count(_symbolic_clone(solutions)) = 1 /\
+     same(solution_value(_symbolic_clone(solutions), 0, 0), constant(1)) /\
+     same(solution_value(_symbolic_clone(solutions), 0, 1), constant(0)) /\
+     solution_condition_count(_symbolic_clone(solutions)) = 0 /\
+     solution_verified(solutions))
+
+test symbolic_pivot_produces_a_verified_conditional_solution() -> bit:
+    a: symbol("a", R, constant:true)
+    x: R
+    solutions: solve([equation(a * x, 1)], [x])
+    (solution_count(_symbolic_clone(solutions)) = 1 /\
+     same(solution_value(_symbolic_clone(solutions), 0), simplify(1 / a)) /\
+     solution_condition_count(_symbolic_clone(solutions)) = 1 /\
+     same(solution_condition(solutions, 0), not_equal(a, 0)) /\
+     solution_verified(solutions))
+
+test degenerate_symbolic_pivot_returns_both_complete_parameter_branches() -> bit:
+    a: symbol("a", R, constant:true)
+    x: R
+    solutions: solve([equation(a * x, 0)], [x])
+    nonzero_branch: solution_branch(_symbolic_clone(solutions), 0)
+    zero_branch: solution_branch(_symbolic_clone(solutions), 1)
+    (solution_is_branched(_symbolic_clone(solutions)) /\
+     solution_branch_count(_symbolic_clone(solutions)) = 2 /\
+     solution_count(_symbolic_clone(nonzero_branch)) = 1 /\
+     same(solution_value(_symbolic_clone(nonzero_branch), 0), constant(0)) /\
+     same(solution_condition(nonzero_branch, 0), not_equal(a, 0)) /\
+     solution_is_family(_symbolic_clone(zero_branch)) /\
+     solution_family_dimension(_symbolic_clone(zero_branch)) = 1 /\
+     same(solution_particular_value(_symbolic_clone(zero_branch), 0), constant(0)) /\
+     same(solution_direction_value(_symbolic_clone(zero_branch), 0, 0), constant(1)) /\
+     same(solution_condition(zero_branch, 0), equation(a, 0)) /\
+     solution_verified(solutions))
+
+test undeclared_symbolic_parameter_is_not_silently_dropped_from_a_system() -> bit:
+    x: R
+    a: symbol("a", R, constant:true)
+    raised: false
+    solve([equation(x + a, 1)], [x])!?
+        errors.RuntimeError => .raised: true
+    raised
+
+test removable_singularity_limit_uses_symbolic_derivatives() -> bit:
+    x: R
+    value: limit((x^2 - 1) / (x - 1), x, 1)
+    same(value, constant(2))
+
+test repeated_removable_singularity_uses_derivatives_until_decided() -> bit:
+    x: R
+    value: limit(x^3 / x^3, x, 0)
+    same(value, constant(1))
+
+test transcendental_removable_singularity_uses_exact_derivatives() -> bit:
+    x: R
+    value: limit(sin(x) / x, x, 0)
+    same(value, constant(1))
+
+test directed_pole_limits_preserve_the_approach_side() -> bit:
+    x: R
+    left: limit(1 / _symbolic_clone(x), _symbolic_clone(x), 0, "left")
+    right: limit(1 / _symbolic_clone(x), x, 0, "right")
+    same(left, -inf) /\ same(right, inf)
+
+test finite_limit_verification_rejects_a_wrong_candidate() -> bit:
+    x: R
+    expression: sin(_symbolic_clone(x)) / _symbolic_clone(x)
+    ~verify_limit(constant(2), expression, x, 0)
+
+test finite_limit_requires_a_real_variable_domain() -> bit:
+    n: N
+    raised: false
+    limit(n / n, n, 1)!?
+        errors.TypeError => .raised: true
+    raised
+
+test rational_limit_at_positive_infinity_uses_leading_orders() -> bit:
+    x: symbol("x", R)
+    expression: (3 * x^2 + 1) / (2 * x^2 - 1)
+    value: limit(_symbolic_clone(expression), _symbolic_clone(x), inf)
+    same(_symbolic_clone(value), constant(1.5)) /\ verify_limit(value, expression, x, inf)
+
+test infinite_limit_verification_rejects_the_wrong_finite_candidate() -> bit:
+    x: symbol("x", R)
+    expression: (3 * x^2 + 1) / (2 * x^2 - 1)
+    ~verify_limit(constant(2), expression, x, inf)
+
+test odd_polynomial_limits_have_opposite_infinity_signs() -> bit:
+    x: symbol("x", R)
+    positive: limit(x^3, _symbolic_clone(x), inf)
+    negative: limit(x^3, x, -inf)
+    same(positive, inf) /\ same(negative, -inf)
+
+test denominator_dominant_rational_limit_tends_to_zero() -> bit:
+    x: symbol("x", R)
+    expression: (3 * x + 1) / (x^2 + 1)
+    value: limit(_symbolic_clone(expression), _symbolic_clone(x), inf)
+    same(_symbolic_clone(value), constant(0)) /\ verify_limit(value, expression, x, inf)
+
+test integer_linear_constraint_rejects_fractional_candidate() -> bit:
+    x: Z
+    solutions: solve(equation(2 * x, 1), [x])
+    solution_count(_symbolic_clone(solutions)) = 0 /\ solution_verified(solutions)
+
+test rational_linear_solution_preserves_exact_quotient_form() -> bit:
+    x: Q
+    solutions: solve(equation(2 * x, 1), [x])
+    exact: constant(1) / constant(2)
+    solution_count(_symbolic_clone(solutions)) = 1 /\ same(solution_value(_symbolic_clone(solutions), 0), exact) /\ solution_verified(solutions)
+
+test polynomial_asymptotic_extracts_exact_leading_term() -> bit:
+    x: R
+    leading: asymptotic(3 * x^4 + 2 * x + 1, x)
+    same(leading, 3 * x^4)
+
+test rational_asymptotic_compares_numerator_and_denominator_orders() -> bit:
+    x: symbol("x", R)
+    expression: (3 * x^5 + 2 * x + 1) / (2 * x^2 + 1)
+    leading: asymptotic(_symbolic_clone(expression), _symbolic_clone(x))
+    (same(_symbolic_clone(leading), 1.5 * x^3) /\
+     verify_asymptotic(leading, expression, x))
+
+test asymptotic_verification_rejects_the_wrong_growth_order() -> bit:
+    x: symbol("x", R)
+    expression: (3 * x^5 + 2 * x + 1) / (2 * x^2 + 1)
+    ~verify_asymptotic(1.5 * x^2, expression, x)
+
+test symbolic_comparisons_construct_relations_instead_of_bits() -> bit:
+    x: R
+    equality: x^2 = 4
+    lower_bound: _symbolic_clone(x) >= 0
+    upper_bound: x < 10
+    _symbolic_dag_operation(equality) = 13 /\ _symbolic_dag_operation(lower_bound) = 23 /\ _symbolic_dag_operation(upper_bound) = 20

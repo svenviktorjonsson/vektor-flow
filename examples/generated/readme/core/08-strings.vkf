@@ -1,8 +1,14 @@
 name: "världen"
 value: 4.2345
 point: (x:2, y:false)
+multiline:
+    """
+    alpha
+      beta
+    """
 
 :: "Hej $name"
 :: "value=$value.2f"
 :: "sum=$(2 + 3) point=$point cost=\$5"
 :: chr(128512)
+:: multiline == "\nalpha\n  beta\n"

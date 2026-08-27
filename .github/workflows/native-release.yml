@@ -34,13 +34,18 @@ jobs:
         shell: pwsh
         run: choco install llvm nsis --yes --no-progress
 
-      - name: Build Python-free compiler
+      - name: Build Python-free compiler and WASM emitter
         shell: pwsh
-        run: .\scripts\build-native-compiler.ps1 -OnlyTargets @("vkf-strict")
+        run: .\scripts\build-native-compiler.ps1 -OnlyTargets @("vkf-strict", "vkf_symbolic_kernel_artifact")
 
       - name: Run full native VKF release suite
         shell: pwsh
-        run: .\build\native-compiler-clang\bin\vkf-strict.exe -t tests/vkf
+        run: |
+          .\build\native-compiler-clang\bin\vkf-strict.exe -t tests/vkf
+          .\build\native-compiler-clang\bin\vkf-strict.exe -t tests/stdlib
+
+      - name: Verify linalg, physics, and symbolic native-WASM parity
+        run: node tools/verify-stdlib-wasm.mjs
 
       - name: Verify complete optimizer policy landscape
         shell: pwsh
@@ -116,13 +121,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends build-essential cmake ninja-build
 
-      - name: Build Python-free compiler
+      - name: Build Python-free compiler and WASM emitter
         run: |
           cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/native-compiler --parallel 2 --target vkf_strict
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict vkf_symbolic_kernel_artifact
 
       - name: Run full native VKF release suite
-        run: build/native-compiler/bin/vkf-strict -t tests/vkf
+        run: |
+          build/native-compiler/bin/vkf-strict -t tests/vkf
+          build/native-compiler/bin/vkf-strict -t tests/stdlib
+
+      - name: Verify linalg, physics, and symbolic native-WASM parity
+        run: VKF_NATIVE_BIN=build/native-compiler/bin node tools/verify-stdlib-wasm.mjs
 
       - name: Verify every documented program 10 times
         run: >-
@@ -168,14 +178,19 @@ jobs:
         with:
           node-version: 22
 
-      - name: Build strict native compiler
+      - name: Build strict native compiler and WASM emitter
         run: |
           test "$(uname -m)" = "arm64"
           cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/native-compiler --parallel 2 --target vkf_strict
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict vkf_symbolic_kernel_artifact
 
       - name: Run full native VKF release suite
-        run: build/native-compiler/bin/vkf-strict -t tests/vkf
+        run: |
+          build/native-compiler/bin/vkf-strict -t tests/vkf
+          build/native-compiler/bin/vkf-strict -t tests/stdlib
+
+      - name: Verify linalg, physics, and symbolic native-WASM parity
+        run: VKF_NATIVE_BIN=build/native-compiler/bin node tools/verify-stdlib-wasm.mjs
 
       - name: Verify every documented program 10 times
         run: >-
@@ -278,7 +293,7 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-            gh release edit "$GITHUB_REF_NAME" --notes-file docs/releases/0.2.1.md
+            gh release edit "$GITHUB_REF_NAME" --notes-file "docs/releases/${VKF_RELEASE_VERSION}.md"
           else
-            gh release create "$GITHUB_REF_NAME" dist/* --notes-file docs/releases/0.2.1.md
+            gh release create "$GITHUB_REF_NAME" dist/* --notes-file "docs/releases/${VKF_RELEASE_VERSION}.md"
           fi

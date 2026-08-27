@@ -1,0 +1,273 @@
+:.physics
+errors: .errors
+la: .linalg
+
+physics_test_contact():
+    e_n: 0.4
+    e_t: 0.1
+    mu_s: 0.6
+    mu_d: 0.4
+    mu_r: 0.05
+    restitution_threshold: 0.5
+    :
+
+physics_finite_num(value:num) -> bit:
+    value = value /\ abs_num(value) < 1000000000
+
+test stationary_tangent_has_zero_friction_impulse() -> bit:
+    matrix: (pp:identity3x3(), pL:zero3x3(), Lp:zero3x3(), LL:identity3x3())
+    hit: tangential_friction_impulse3(
+        matrix, [0, 0, -1], [0, 0, 1], 1, physics_test_contact()
+    )
+    (hit.speed = 0 /\ hit.impulse.0 = 0 /\ hit.impulse.1 = 0 /\ hit.impulse.2 = 0)?!
+
+test immovable_pair_has_zero_normal_impulse() -> bit:
+    matrix: (pp:zero3x3(), pL:zero3x3(), Lp:zero3x3(), LL:zero3x3())
+    hit: normal_contact_impulse3(
+        matrix, [0, 0, -1], [0, 0, 1], physics_test_contact()
+    )
+    (hit.magnitude = 0 /\ hit.impulse.0 = 0 /\ hit.impulse.1 = 0 /\ hit.impulse.2 = 0)?!
+
+test singular_matrix_inverse_raises_value_error() -> bit:
+    raised: false
+    rb_inverse3(zero3x3())!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test dice_material_constructs() -> bit:
+    material: dice_material()
+    (material.density = 1180 /\ material.mu_s = 0.62)?!
+
+test contact_material_constructs() -> bit:
+    contact: contact_material(dice_material(), felt_table_material())
+    (abs_num(contact.e_n - 0.46) < 0.000000001 /\ contact.mu_s > 0)?!
+
+test infinite_plane_constructs() -> bit:
+    plane: infinite_plane3([0, 0, 1], 0, felt_table_material())
+    (plane.inv_mass = 0 /\ plane.normal.2 = 1)?!
+
+test dice_body_constructs() -> bit:
+    roll: dice_roll_initial_state(41)
+    die: dice_body3(0.62, 0.016, [0, -1.15, 2.35], roll.linear_velocity, roll.angular_velocity, dice_material())
+    (die.inv_mass = 62.5 /\ die.center.2 = 2.35)?!
+
+test dice_contact_outputs_are_finite() -> bit:
+    roll: dice_roll_initial_state(41)
+    die_material: dice_material()
+    table_material: felt_table_material()
+    contact: contact_material(die_material, table_material)
+    plane: infinite_plane3([0, 0, 1], 0, table_material)
+    die: dice_body3(0.62, 0.016, [0, -1.15, 2.35], roll.linear_velocity, roll.angular_velocity, die_material)
+    bounce: first_plane_bounce3(die, plane, contact)
+    (physics_finite_num(bounce.after_linear_velocity.0) /\
+     physics_finite_num(bounce.after_linear_velocity.1) /\
+     physics_finite_num(bounce.after_linear_velocity.2) /\
+     physics_finite_num(bounce.after_angular_velocity.0) /\
+     physics_finite_num(bounce.after_angular_velocity.1) /\
+     physics_finite_num(bounce.after_angular_velocity.2))?!
+
+test vector_algebra_is_exact() -> bit:
+    cross: cross3([1, 0, 0], [0, 1, 0])
+    (dot3([1, 2, 3], [4, 5, 6]) = 32 /\
+     cross.0 = 0 /\ cross.1 = 0 /\ cross.2 = 1)?!
+
+test physics_linear_algebra_matches_the_public_linalg_module() -> bit:
+    left: [1, 2, 3]
+    right: [4, 5, 6]
+    matrix: mat3(2, 0, 0, 0, 4, 0, 0, 0, 5)
+    physics_cross: cross3(left, right)
+    linalg_cross: la.cross(left, right)
+    physics_product: mat_mul3(matrix, rb_inverse3(matrix))
+    linalg_product: la.matmul(matrix, la.inverse(matrix))
+    (dot3(left, right) = la.dot(left, right) /\
+     physics_cross == linalg_cross /\
+     physics_product == linalg_product)?!
+
+test matrix_inverse_round_trips_diagonal() -> bit:
+    matrix: mat3(2, 0, 0, 0, 4, 0, 0, 0, 5)
+    product: mat_mul3(matrix, rb_inverse3(matrix))
+    row0: product.0
+    row1: product.1
+    row2: product.2
+    (row0.0 = 1 /\ row1.1 = 1 /\ row2.2 = 1)?!
+
+test tetrahedron_mass_properties_are_exact() -> bit:
+    properties: tetra_mass_properties3([0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], 6)
+    (abs_num(properties.volume - 1 / 6) < 0.000000001 /\
+     abs_num(properties.mass - 1) < 0.000000001 /\
+     properties.center_of_mass.0 = 0.25 /\
+     properties.center_of_mass.1 = 0.25 /\
+     properties.center_of_mass.2 = 0.25)?!
+
+test mass_property_combination_uses_weighted_center() -> bit:
+    first: (mass:1, center_of_mass:[0, 0, 0], inertia_tensor:identity3x3())
+    second: (mass:3, center_of_mass:[4, 0, 0], inertia_tensor:identity3x3())
+    combined: combine_mass_properties3(first, second)
+    (combined.mass = 4 /\ combined.center_of_mass.0 = 3)?!
+
+test rigid_momentum_step_updates_linear_momentum() -> bit:
+    state: rigid_state3([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+    properties: (mass:2, inertia_tensor:identity3x3())
+    stepped: step_rigid_body_momentum3(state, properties, 0.5, [4, 0, 0], [0, 0, 2])
+    (stepped.momentum.0 = 2)?!
+
+test rigid_momentum_step_updates_linear_position() -> bit:
+    state: rigid_state3([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+    properties: (mass:2, inertia_tensor:identity3x3())
+    stepped: step_rigid_body_momentum3(state, properties, 0.5, [4, 0, 0], [0, 0, 2])
+    (stepped.velocity.0 = 1 /\ stepped.position.0 = 0.5)?!
+
+test rigid_momentum_step_updates_angular_velocity() -> bit:
+    state: rigid_state3([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
+    properties: (mass:2, inertia_tensor:identity3x3())
+    stepped: step_rigid_body_momentum3(state, properties, 0.5, [4, 0, 0], [0, 0, 2])
+    (stepped.angular_momentum.2 = 1 /\ stepped.angular_velocity.2 = 1)?!
+
+test normal_restitution_impulse_is_exact() -> bit:
+    matrix: (pp:identity3x3(), pL:zero3x3(), Lp:zero3x3(), LL:identity3x3())
+    hit: normal_restitution_impulse3(matrix, [0, 0, -2], [0, 0, 1], 0.5)
+    (hit.magnitude = 3 /\ hit.impulse.2 = 3)?!
+
+test dynamic_tangential_friction_is_clamped() -> bit:
+    matrix: (pp:identity3x3(), pL:zero3x3(), Lp:zero3x3(), LL:identity3x3())
+    contact: (e_t:0, mu_s:0.1, mu_d:0.05)
+    hit: tangential_friction_impulse3(matrix, [10, 0, 0], [0, 0, 1], 1, contact)
+    (hit.mode = contact_dynamic /\ abs_num(hit.impulse.0 + 0.05) < 0.000000001)?!
+
+test rolling_and_spin_friction_remain_finite() -> bit:
+    matrix: (pp:identity3x3(), pL:zero3x3(), Lp:zero3x3(), LL:identity3x3())
+    contact: physics_test_contact()
+    rolling: rolling_resistance_impulse3(matrix, [2, 0, 0], [0, 0, 1], 1, 0.5, contact)
+    spin: spin_friction_impulse3(matrix, [0, 0, 2], [0, 0, 1], 1, 0.5, contact)
+    (physics_finite_num(rolling.impulse.0) /\ physics_finite_num(spin.impulse.2))?!
+
+test dice_roll_path_has_stable_shape() -> bit:
+    roll: dice_roll_initial_state(41)
+    die_material: dice_material()
+    table_material: felt_table_material()
+    contact: contact_material(die_material, table_material)
+    plane: infinite_plane3([0, 0, 1], 0, table_material)
+    die: dice_body3(0.62, 0.016, [0, -1.15, 2.35], roll.linear_velocity, roll.angular_velocity, die_material)
+    path: dice_roll_path3(die, plane, contact)
+    (path.frames.6.(3, 3) = 1 /\ path.duration_seconds = 2.9 /\ path.rest_linear_velocity.0 = 0)?!
+
+test invalid_collision_body_mass_raises_value_error() -> bit:
+    raised: false
+    collision_body3(0, identity3x3(), [0.0, 0.0, 0.0])!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test vector_helpers_cover_two_and_three_dimensions() -> bit:
+    a2: vec2(1, 2)
+    b2: add2(a2, [3, 4])
+    c2: sub2(b2, scale2(2, a2))
+    a3: vec3(1, 2, 3)
+    b3: add3(a3, [3, 2, 1])
+    c3: sub3(b3, scale3(2, [1, 1, 1]))
+    (b2.0 = 4 /\ b2.1 = 6 /\ c2.0 = 2 /\ c2.1 = 2 /\
+     dot2(a2, b2) = 16 /\
+     c3.0 = 2 /\ c3.1 = 2 /\ c3.2 = 2 /\ dot3(a3, b3) = 24)?!
+
+test matrix_helpers_preserve_exact_layout() -> bit:
+    small: mat2(1, 2, 3, 4)
+    diagonal: mat3(2, 0, 0, 0, 4, 0, 0, 0, 5)
+    inverse: diag_inv3([2, 4, 5])
+    combined: add_mat3(scale_mat3(2, diagonal), neg_mat3(diagonal))
+    skew: skew3([1, 2, 3])
+    small_0: small.0
+    small_1: small.1
+    inverse_0: inverse.0
+    inverse_1: inverse.1
+    inverse_2: inverse.2
+    combined_0: combined.0
+    combined_1: combined.1
+    combined_2: combined.2
+    skew_0: skew.0
+    skew_1: skew.1
+    skew_2: skew.2
+    (small_0.1 = 2 /\ small_1.0 = 3 /\
+     inverse_0.0 = 0.5 /\ inverse_1.1 = 0.25 /\ inverse_2.2 = 0.2 /\
+     combined_0.0 = 2 /\ combined_1.1 = 4 /\ combined_2.2 = 5 /\
+     skew_0.1 = -3 /\ skew_1.0 = 3 /\ skew_2.1 = 1)?!
+
+test collision_matrix_blocks_apply_linear_and_angular_impulses() -> bit:
+    first: collision_body3(2, identity3x3(), [0.0, 0.0, 0.0])
+    second: collision_body_inverse3(0.5, identity3x3(), [0.0, 0.0, 0.0])
+    matrix: collision_matrix3(first, second)
+    applied: apply_collision_matrix3(matrix, [1, 2, 3], [4, 5, 6])
+    inv_mass_matrix: body_inv_mass3(first)
+    pp: body_pp3(first)
+    pL: body_pL3(first)
+    Lp: body_Lp3(first)
+    LL: body_LL3(first)
+    inv_mass_0: inv_mass_matrix.0
+    pp_1: pp.1
+    pL_0: pL.0
+    Lp_0: Lp.0
+    LL_2: LL.2
+    (inv_mass_0.0 = 0.5 /\ pp_1.1 = 0.5 /\
+     pL_0.0 = 0 /\ Lp_0.0 = 0 /\ LL_2.2 = 1 /\
+     applied.linear_delta.0 = 1 /\ applied.linear_delta.1 = 2 /\ applied.linear_delta.2 = 3 /\
+     applied.angular_delta.0 = 8 /\ applied.angular_delta.1 = 10 /\ applied.angular_delta.2 = 12)?!
+
+test projection_normalization_and_damping_are_exact() -> bit:
+    normal: unit_or_zero3([0, 0, 2])
+    zero: unit_or_zero3([0, 0, 0])
+    projected: project_normal3([1, 2, 3], normal)
+    tangent: project_tangent3([1, 2, 3], normal)
+    damped: angular_damping3([2, 4, 6], 0.25)
+    (clamp_num(-1, 0, 2) = 0 /\ clamp_num(3, 0, 2) = 2 /\
+     max_num(-2, 5) = 5 /\ length3([0, 3, 4]) = 5 /\
+     normal.2 = 1 /\ zero.0 = 0 /\ zero.1 = 0 /\ zero.2 = 0 /\
+     projected.2 = 3 /\ tangent.0 = 1 /\ tangent.1 = 2 /\ tangent.2 = 0 /\
+     damped.0 = 1.5 /\ damped.1 = 3 /\ damped.2 = 4.5)?!
+
+test coupled_and_solid_contact_paths_remain_finite() -> bit:
+    matrix: (pp:identity3x3(), pL:zero3x3(), Lp:zero3x3(), LL:identity3x3())
+    contact: physics_test_contact()
+    coupled: coupled_contact_impulse3(
+        matrix, [1, 0, -1], [0, 0, 1], [0, 0, 1], [1, 0, 0], [0, 1, 0],
+        1, 0, 0.5, contact
+    )
+    solid: solid_contact_impulse3(
+        matrix, [1, 0, -1], [0, 0, 1], [0, 0, 1], [1, 0, 0], [0, 1, 0],
+        0.5, 0.5, contact
+    )
+    (coupled.mode = contact_dynamic /\
+     physics_finite_num(coupled.linear_impulse.0) /\
+     physics_finite_num(coupled.angular_impulse.2) /\
+     physics_finite_num(solid.linear_impulse.2) /\
+     physics_finite_num(solid.angular_impulse.2))?!
+
+test material_texture_and_cube_inertia_helpers_are_exact() -> bit:
+    material: rigid_material("custom", 6, 0.4, 0.2, 0.6, 0.3, 0.1)
+    copy: copy_rigid_material(material)
+    texture: dice_texture()
+    inertia: cube_inv_inertia3(6, 2)
+    inertia_0: inertia.0
+    inertia_1: inertia.1
+    inertia_2: inertia.2
+    (copy.density = 6 /\ copy.normal_restitution = 0.4 /\
+     texture.kind = "dice" /\ texture.graph_width_px = 3 /\
+     inertia_0.0 = 0.25 /\ inertia_1.1 = 0.25 /\ inertia_2.2 = 0.25)?!
+
+test transform_and_settled_face_helpers_cover_all_axes() -> bit:
+    frame: dice_transform_frame([2, 3, 4], [0, 0, 0])
+    frame_0: frame.0
+    frame_1: frame.1
+    frame_2: frame.2
+    frame_3: frame.3
+    (frame_0.0 = 1 /\ frame_1.1 = 1 /\ frame_2.2 = 1 /\
+     frame_0.3 = 2 /\ frame_1.3 = 3 /\ frame_2.3 = 4 /\ frame_3.3 = 1 /\
+     settled_face_from_angular_velocity([2, 0, 0]) = 3 /\
+     settled_face_from_angular_velocity([-2, 0, 0]) = 4 /\
+     settled_face_from_angular_velocity([0, 2, 0]) = 2 /\
+     settled_face_from_angular_velocity([0, -2, 0]) = 5 /\
+     settled_face_from_angular_velocity([0, 0, 2]) = 1 /\
+     settled_face_from_angular_velocity([0, 0, -2]) = 6)?!
+
+test singular_diagonal_inverse_raises_value_error() -> bit:
+    raised: false
+    diag_inv3([1, 0, 1])!?
+        errors.ValueError => .raised: true
+    raised?!

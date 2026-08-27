@@ -1,0 +1,6 @@
+# expect-compile-error: math.sin requires symbolic domain R or C, received N for n
+:.symbolic
+:.math
+
+n: N
+math.sin(n)

@@ -1,0 +1,270 @@
+:.symbolic
+
+test geometric_sequence_has_exact_unilateral_z_transform() -> bit:
+    n: N
+    z: C
+    transformed: z_transform(2^n, n, z)
+    expected: z / (z - 2)
+    same(transformed, expected)
+
+test affine_sequence_z_transform_uses_linearity_exactly() -> bit:
+    n: symbol("n", N)
+    z: symbol("z", C)
+    transformed: z_transform(4 * 2^n - 1, n, z)
+    expected: 4 * (z / (z - 2)) - (1 * z) / (z - 1)
+    equivalent(transformed, expected)
+
+test inverse_z_transform_round_trips_supported_geometric_combinations() -> bit:
+    n: symbol("n", N)
+    z: symbol("z", C)
+    source: 4 * 2^n - 1
+    restored: inverse_z_transform(z_transform(_symbolic_clone(source), _symbolic_clone(n), _symbolic_clone(z)), z, n)
+    same(restored, source)
+
+test affine_recurrence_is_solved_exactly_and_checked_against_its_constraint() -> bit:
+    n: N
+    solution: solve_recurrence(2, 1, 3, n)
+    expected: 4 * 2^n - 1
+    same(_symbolic_clone(solution), expected) /\ verify_recurrence(solution, n, 2, 1, 3)
+
+test affine_difference_equation_selects_the_exact_recurrence_strategy() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 1) = 2 * a(n) + 1
+    condition: a(0) = 3
+    solution: solve_recurrence(relation, condition, a, n)
+    expected: 4 * 2^n - 1
+    (same(_symbolic_clone(solution), expected) /\
+     verify_recurrence(solution, relation, condition, a, n))
+
+test general_solver_classifies_first_order_difference_equations() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 1) = 2 * a(n) + 1
+    condition: a(0) = 3
+    solution: solve(relation, [condition], a, n)
+    same(solution, 4 * 2^n - 1)
+
+test recurrence_verification_rejects_a_candidate_that_breaks_the_relation() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 1) = 2 * a(n) + 1
+    condition: a(0) = 3
+    wrong: 3 * 2^n
+    ~verify_recurrence(wrong, relation, condition, a, n)
+
+test recurrence_verification_rejects_a_candidate_that_only_matches_sample_points() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 1) = 2 * a(n) + 1
+    condition: a(0) = 3
+    sampled_alias: constant(1)
+    .sampled_alias: sampled_alias * n
+    .sampled_alias: sampled_alias * (n - 1)
+    .sampled_alias: sampled_alias * (n - 2)
+    .sampled_alias: sampled_alias * (n - 3)
+    .sampled_alias: sampled_alias * (n - 4)
+    .sampled_alias: sampled_alias * (n - 5)
+    .sampled_alias: sampled_alias * (n - 6)
+    .sampled_alias: sampled_alias * (n - 7)
+    .sampled_alias: sampled_alias * (n - 8)
+    .sampled_alias: sampled_alias * (n - 9)
+    .sampled_alias: sampled_alias * (n - 10)
+    .sampled_alias: sampled_alias * (n - 11)
+    .sampled_alias: sampled_alias * (n - 12)
+    .sampled_alias: sampled_alias * (n - 13)
+    .sampled_alias: sampled_alias * (n - 14)
+    .sampled_alias: sampled_alias * (n - 15)
+    .sampled_alias: sampled_alias * (n - 16)
+    wrong: 4 * 2^n - 1 + sampled_alias
+    ~verify_recurrence(wrong, relation, condition, a, n)
+
+test recurrence_verification_requires_a_discrete_domain() -> bit:
+    a: symbol("a", R->R)
+    n: symbol("n", R)
+    relation: a(n + 1) = 2 * a(n) + 1
+    condition: a(0) = 3
+    candidate: 4 * 2^n - 1
+    ~verify_recurrence(candidate, relation, condition, a, n)
+
+test second_order_difference_equation_uses_characteristic_roots() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = a(n + 1) + a(n)
+    conditions: [a(0) = 0, a(1) = 1]
+    solution: solve_recurrence(relation, conditions, a, n)
+    at_zero: evaluate(_symbolic_clone(solution), [0])
+    at_one: evaluate(_symbolic_clone(solution), [1]) - 1
+    at_ten: evaluate(_symbolic_clone(solution), [10]) - 55
+    (at_zero * at_zero < 0.000000000000000001 /\
+     at_one * at_one < 0.000000000000000001 /\
+     at_ten * at_ten < 0.000000000000000001 /\
+     verify_recurrence(solution, relation, conditions, a, n))
+
+test general_solver_classifies_second_order_difference_equations() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = a(n + 1) + a(n)
+    conditions: [a(0) = 0, a(1) = 1]
+    solution: solve(relation, conditions, a, n)
+    verify_recurrence(solution, relation, conditions, a, n)
+
+test repeated_characteristic_root_recurrence_uses_the_n_times_root_power_basis() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 2 * a(n + 1) - a(n)
+    conditions: [a(0) = 3, a(1) = 5]
+    solution: solve_recurrence(relation, conditions, a, n)
+    expected: 3 + 2 * n
+    (same(simplify(_symbolic_clone(solution)), simplify(_symbolic_clone(expected))) /\
+     evaluate(_symbolic_clone(solution), [10]) = 23 /\
+     verify_recurrence(solution, relation, conditions, a, n))
+
+test repeated_root_recurrence_verification_rejects_wrong_slope() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = 2 * a(n + 1) - a(n)
+    conditions: [a(0) = 3, a(1) = 5]
+    wrong: 3 + 3 * n
+    ~verify_recurrence(wrong, relation, conditions, a, n)
+
+test second_order_recurrence_verification_rejects_wrong_growth() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = a(n + 1) + a(n)
+    conditions: [a(0) = 0, a(1) = 1]
+    wrong: 2^n
+    ~verify_recurrence(wrong, relation, conditions, a, n)
+
+test second_order_recurrence_verification_rejects_a_sampled_alias() -> bit:
+    a: symbol("a", N->R)
+    n: symbol("n", N)
+    relation: a(n + 2) = a(n + 1) + a(n)
+    conditions: [a(0) = 0, a(1) = 1]
+    exact: solve_recurrence(relation, conditions, a, n)
+    sampled_alias: constant(1)
+    .sampled_alias: sampled_alias * n
+    .sampled_alias: sampled_alias * (n - 1)
+    .sampled_alias: sampled_alias * (n - 2)
+    .sampled_alias: sampled_alias * (n - 3)
+    .sampled_alias: sampled_alias * (n - 4)
+    .sampled_alias: sampled_alias * (n - 5)
+    .sampled_alias: sampled_alias * (n - 6)
+    .sampled_alias: sampled_alias * (n - 7)
+    .sampled_alias: sampled_alias * (n - 8)
+    .sampled_alias: sampled_alias * (n - 9)
+    .sampled_alias: sampled_alias * (n - 10)
+    .sampled_alias: sampled_alias * (n - 11)
+    .sampled_alias: sampled_alias * (n - 12)
+    .sampled_alias: sampled_alias * (n - 13)
+    .sampled_alias: sampled_alias * (n - 14)
+    .sampled_alias: sampled_alias * (n - 15)
+    .sampled_alias: sampled_alias * (n - 16)
+    .sampled_alias: sampled_alias * (n - 17)
+    wrong: exact + sampled_alias
+    ~verify_recurrence(wrong, relation, conditions, a, n)
+
+test laplace_transform_maps_constant_and_linear_basis_exactly() -> bit:
+    t: R
+    s: C
+    constant_transform: laplace(constant(1), t, s)
+    linear_transform: laplace(_symbolic_clone(t), t, _symbolic_clone(s))
+    constant_matches: same(constant_transform, 1 / _symbolic_clone(s))
+    linear_matches: same(linear_transform, 1 / s^2)
+    constant_matches /\ linear_matches
+
+test laplace_transform_maps_affine_exponential_solutions_by_linearity() -> bit:
+    t: symbol("t", R)
+    s: symbol("s", C)
+    exponential_transform: laplace(exp(2 * t), t, _symbolic_clone(s))
+    affine_transform: laplace(3.5 * exp(2 * t) - 0.5, t, _symbolic_clone(s))
+    exponential_expected: 1 / (_symbolic_clone(s) - 2)
+    affine_expected: 3.5 * (1 / (_symbolic_clone(s) - 2)) - 0.5 / s
+    (equivalent(exponential_transform, exponential_expected) /\
+     equivalent(affine_transform, affine_expected))
+
+test inverse_laplace_round_trips_supported_affine_exponentials() -> bit:
+    t: symbol("t", R)
+    s: symbol("s", C)
+    source: 3.5 * exp(2 * t) - 0.5
+    restored: inverse_laplace(laplace(_symbolic_clone(source), _symbolic_clone(t), _symbolic_clone(s)), s, t)
+    same(restored, source)
+
+test first_order_initial_value_problem_selects_exact_exponential_strategy() -> bit:
+    y: R
+    t: R
+    relation: equation(derivative(y, t), 2 * y)
+    condition: equation(at(_symbolic_clone(y), 0), 3)
+    solution: solve_ode(relation, condition, y, t)
+    expected: 3 * exp(2 * t)
+    same(_symbolic_clone(solution), expected) /\ verify_ode_solution(solution, t, 2, 3)
+
+test affine_first_order_ode_selects_the_exact_transform_strategy() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y'(t) = 2 * y(t) + 1
+    condition: y(0) = 3
+    solution: solve_ode(relation, condition, y, t)
+    expected: 3.5 * exp(2 * t) - 0.5
+    (same(_symbolic_clone(solution), expected) /\
+     verify_ode_solution(solution, relation, condition, y, t))
+
+test general_solver_classifies_first_order_differential_equations() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y'(t) = 2 * y(t) + 1
+    condition: y(0) = 3
+    solution: solve(relation, [condition], y, t)
+    same(solution, 3.5 * exp(2 * t) - 0.5)
+
+test general_solver_classifies_second_order_differential_equations() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y''(t) + 4 * y(t) = 0
+    conditions: [y(0) = 3, y'(0) = 4]
+    solution: solve(relation, conditions, y, t)
+    verify_ode_solution(solution, relation, conditions, y, t)
+
+test ode_verification_rejects_a_candidate_that_breaks_the_relation() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y'(t) = 2 * y(t) + 1
+    condition: y(0) = 3
+    wrong: 3 * exp(2 * t)
+    ~verify_ode_solution(wrong, relation, condition, y, t)
+
+test ode_verification_rejects_a_candidate_that_only_matches_sample_points() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y'(t) = 2 * y(t) + 1
+    condition: y(0) = 3
+    exact: 3.5 * exp(2 * t) - 0.5
+    sampled_alias: sin(3.141592653589793 * t)^2
+    wrong: exact + sampled_alias
+    ~verify_ode_solution(wrong, relation, condition, y, t)
+
+test discrete_fourier_transform_preserves_impulse_spectrum() -> bit:
+    spectrum: fourier([1, 0, 0, 0])
+    real_matches: fourier_real(_symbolic_clone_numeric_vector(spectrum), 0) = 1 /\ fourier_real(_symbolic_clone_numeric_vector(spectrum), 1) = 1 /\ fourier_real(_symbolic_clone_numeric_vector(spectrum), 2) = 1 /\ fourier_real(_symbolic_clone_numeric_vector(spectrum), 3) = 1
+    imag_matches: fourier_imag(_symbolic_clone_numeric_vector(spectrum), 0) = 0 /\ fourier_imag(_symbolic_clone_numeric_vector(spectrum), 1) = 0 /\ fourier_imag(_symbolic_clone_numeric_vector(spectrum), 2) = 0 /\ fourier_imag(spectrum, 3) = 0
+    real_matches /\ imag_matches
+
+test discrete_fourier_transform_round_trips_real_samples() -> bit:
+    values: [1, -2, 3.5, 4]
+    restored: inverse_fourier(fourier(values))
+    error: 0
+    ..3 >>
+        .error+: (restored.($) - values.($))^2
+    error < 0.000000000000000001
+
+test full_haar_wavelet_transform_separates_scales() -> bit:
+    transformed: haar_wavelet([1, 1, -1, -1])
+    transformed.0 = 0 /\ transformed.1 = 1 /\ transformed.2 = 0 /\ transformed.3 = 0
+
+test full_haar_wavelet_transform_round_trips_samples() -> bit:
+    values: [3, -1, 4, 2, 8, 0, -2, 6]
+    restored: inverse_haar_wavelet(haar_wavelet(values))
+    error: 0
+    ..7 >>
+        .error+: (restored.($) - values.($))^2
+    error < 0.000000000000000001

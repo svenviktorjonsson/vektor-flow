@@ -11,6 +11,14 @@ Keep a single-expression function on one row and use its implicit result:
 square(value:num) -> num: value^2
 ```
 
+Keep a function or nominal constructor whose complete body is a bare null or
+local-scope return on one row too:
+
+```vkf
+empty(): @
+Point(x:num, y:num): :
+```
+
 Use explicit `@:` to make the result of a multi-row function visible:
 
 ```vkf

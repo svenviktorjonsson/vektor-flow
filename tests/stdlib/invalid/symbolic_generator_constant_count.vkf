@@ -1,0 +1,5 @@
+# expect-compile-error: symbolic constant assumption count must match the generated name count
+
+:.symbolic
+
+: symbols("xyz", R, constant:(true, false))

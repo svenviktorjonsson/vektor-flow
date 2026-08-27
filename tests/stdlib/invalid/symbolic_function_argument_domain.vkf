@@ -1,0 +1,8 @@
+# expect-compile-error: symbolic function u argument 2 requires R, received C
+
+:.symbolic
+
+u: symbol("u", (R, R)->R)
+x: symbol("x", R)
+z: symbol("z", C)
+invalid: u(x, z)

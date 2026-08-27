@@ -1,13 +1,12 @@
 container_work(n:int) -> int:
     values: [1, 2, 3, 4]
     delta: [1, 2, 3, 4]
-    i: 0
     checksum: 0
-    i < n?>
-        .values +: delta
-        .values -: delta
-        .checksum: checksum + values.0 + values.1 + values.2 + values.3
-        .i: i + 1
+    n > 0?
+        ..n - 1 >>
+            .values +: delta
+            .values -: delta
+            .checksum+: values.0 + values.1 + values.2 + values.3
     checksum
 
 :: container_work(1000000)

@@ -1,4 +1,12 @@
 {
+  "core/06-primitives.vkf": "true\nA\n1.5\n7\nnull\n",
+  "core/07-reflection.vkf": "4\ntype\n[int:2]\nTypeScope(reflected:type)\n",
+  "core/11b-multidimensional-indexing.vkf": "11\n11\n[1, 13, 21]\n[[2, 12], [22, 32]]\n",
   "core/12b-container-stress.vkf": "10000000\n",
-  "core/36b-pipe-assignment.vkf": "[4, 3, 2, 1]\n(40, 30, 20, 10)\n"
+  "core/36b-pipe-assignment.vkf": "[4, 3, 2, 1]\n(40, 30, 20, 10)\n",
+  "core/46-member-reflection.vkf": "(x:int, y:int)\n[int:2]\n{x:1, y:1}\n",
+  "core/47-primitive-spill.vkf": "64\n",
+  "core/49-nominal-constructors.vkf": "Point\n(x:num, y:num)\n(x:num, y:num)\ntype\n[num:2]\ntrue\n[int:3]\n(x:num, y:num)\ninteger\nnumber\n",
+  "core/50-generic-types.vkf": "vkf\n4\n[int:3]\n6\n",
+  "stdlib/11-linalg.vkf": "32\n[0, 0, 1]\n[[19, 22], [43, 50]]\n-2\n[2, 1]\n"
 }

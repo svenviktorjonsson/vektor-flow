@@ -34,9 +34,10 @@ mkdir -p "$stage_root/bin" "$stage_root/compiler/self_hosted/stdlib" "$stage_roo
 test -x "$binary_root/vkf-strict" || { echo "missing release compiler: $binary_root/vkf-strict" >&2; exit 1; }
 cp "$binary_root/vkf-strict" "$stage_root/bin/vkf"
 
-for module in math stat random time io collections errors system process regex; do
+for module in math stat random time io collections errors system process regex physics symbolic; do
   cp "$repo_root/compiler/self_hosted/stdlib/$module.vkf" "$stage_root/compiler/self_hosted/stdlib/"
 done
+cp -R "$repo_root/compiler/self_hosted/stdlib/physics" "$stage_root/compiler/self_hosted/stdlib/"
 cp "$repo_root/examples/01_hello.vkf" "$stage_root/samples/"
 cp "$repo_root/examples/64_axis_tags_and_broadcast.vkf" "$stage_root/samples/"
 cp "$repo_root/README.md" "$repo_root/INSTALL.md" "$repo_root/TESTING.md" "$stage_root/"
@@ -51,8 +52,8 @@ cat > "$stage_root/vektorflow-release.json" <<EOF
   "platform": "linux-x64",
   "entrypoint": "bin/vkf",
   "test_command": "vkf -t",
-  "stdlib_modules": ["math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex"],
-  "not_included_partial_modules": ["physics", "ui", "symbolic"],
+  "stdlib_modules": ["math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex", "physics", "physics.units", "physics.units.si", "symbolic"],
+  "not_included_partial_modules": ["ui"],
   "strict_direct": true,
   "compatibility_fallback": false,
   "runtime_contract": {
@@ -151,7 +152,7 @@ caught: 0
 EOF
   test "$("$stage_root/bin/vkf" installed_collections_errors.vkf)" = "34"
   "$stage_root/bin/vkf" -t "$repo_root/tests/release_stdlibs.vkf" > stdlibs.txt
-  grep -q '^4 passed, 0 failed$' stdlibs.txt
+  grep -q '^7 passed, 0 failed$' stdlibs.txt
   cat > installed_system.vkf <<'EOF'
 system: .system
 present: system.env("PATH")
@@ -221,7 +222,7 @@ EOF
     exit 1
   fi
   grep -q 'refusing unsafe install root' unsafe-install.txt
-  if "$stage_root/bin/vkf" -e 'physics: .physics; :: physics.rigid_material("x", 1, 1, 1, 1, 1, 1)' > unsupported.txt 2>&1; then
+  if "$stage_root/bin/vkf" -e 'ui: .ui; :: 0' > unsupported.txt 2>&1; then
     echo "strict release accepted an excluded stdlib module" >&2
     exit 1
   fi

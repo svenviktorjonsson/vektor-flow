@@ -1,0 +1,114 @@
+:.symbolic
+
+test character_symbol_generator_spills_named_domain_symbols() -> bit:
+    : symbols("xyz", R)
+    (_symbolic_domain(x) = 4 /\ _symbolic_domain(y) = 4 /\ _symbolic_domain(z) = 4 /\
+     symbol_name(x) = "x" /\ symbol_name(y) = "y" /\ symbol_name(z) = "z")
+
+test named_symbol_generator_spills_full_identifiers() -> bit:
+    : symbols(["variable_name", "another_name"], R)
+    (symbol_name(variable_name) = "variable_name" /\
+     symbol_name(another_name) = "another_name" /\ _symbolic_domain(variable_name) = 4)
+
+test singular_generators_preserve_the_full_name() -> bit:
+    potential_energy: symbol("potential_energy", R)
+    response: symbol("response", C->C)
+    planck: symbol("planck_constant", R)
+    (symbol_name(potential_energy) = "potential_energy" /\
+     symbol_name(response) = "response" /\ symbol_name(planck) = "planck_constant")
+
+test plural_domains_broadcast_or_distribute_by_position() -> bit:
+    : symbols("xy", (R, C))
+    : symbols(["mass", "charge"], R)
+    (_symbolic_domain(x) = 4 /\ _symbolic_domain(y) = 5 /\
+     _symbolic_domain(mass) = 4 /\ _symbolic_domain(charge) = 4)
+
+test constant_assumption_metadata_is_preserved() -> bit:
+    : symbols("abc", R, constant:true)
+    x: symbol("x", R)
+    symbol_is_constant(a) /\ ~symbol_is_constant(x)
+
+test constant_symbols_differentiate_to_zero_even_against_themselves() -> bit:
+    a: symbol("a", R, constant:true)
+    same(differentiate(a, a), constant(0))
+
+test constant_assumptions_are_derivative_invariant_coefficients() -> bit:
+    : symbols("abc", R, constant:true)
+    x: symbol("x", R)
+    expression: a * x^2 + b * x + c
+    derived: expand(differentiate(expression, x))
+    expected: expand(2 * a * x + b)
+    same(derived, expected)
+
+test arrow_domains_make_generated_symbols_callable() -> bit:
+    : symbols("fgh", C->C)
+    (_symbolic_function_domain(f) = 5 /\ _symbolic_function_codomain(f) = 5 /\
+     _symbolic_function_domain(g) = 5 /\ _symbolic_function_codomain(h) = 5)
+
+test multivariate_arrow_domains_make_generated_symbols_callable() -> bit:
+    u: symbol("u", (R, R)->R)
+    : symbols("xy", R)
+    (same(u(x, y), at(u, [x, y])) /\ _symbolic_function_arity(u) = 2 /\
+     _symbolic_function_domain_at(u, 0) = 4 /\ _symbolic_function_domain_at(u, 1) = 4 /\
+     _symbolic_function_codomain(u) = 4)
+
+test powered_domains_represent_vector_spaces() -> bit:
+    position: symbol("position", R^3)
+    lattice_position: symbol("lattice_position", N^3)
+    field: symbol("field", R^3->R)
+    (same(field(position), at(field, position)) /\ _symbolic_domain(position) = 4 /\
+     same(field(lattice_position), at(field, lattice_position)) /\
+     _symbolic_domain_dimension(position) = 3 /\ _symbolic_function_arity(field) = 1 /\
+     _symbolic_function_domain_at(field, 0) = 4 /\
+     _symbolic_function_domain_dimension_at(field, 0) = 3 /\
+     _symbolic_function_codomain(field) = 4 /\ _symbolic_function_codomain_dimension(field) = 1)
+
+test multivariate_functions_accept_vector_space_arguments() -> bit:
+    position: symbol("position", R^3)
+    scale: symbol("scale", R)
+    weighted_field: symbol("weighted_field", (R^3, R)->R)
+    (same(weighted_field(position, scale), at(weighted_field, [position, scale])) /\
+     _symbolic_function_arity(weighted_field) = 2 /\
+     _symbolic_function_domain_dimension_at(weighted_field, 0) = 3 /\
+     _symbolic_function_domain_dimension_at(weighted_field, 1) = 1)
+
+test greek_variable_generator_spills_canonical_names_and_katex() -> bit:
+    : greek_symbols()
+    (_symbolic_domain(phi) = 0 /\ _symbolic_domain(Gamma) = 0 /\
+     katex(Alpha) = "\\mathrm{A}" /\ katex(alpha) = "\\alpha" /\
+     katex(Beta) = "\\mathrm{B}" /\ katex(beta) = "\\beta" /\
+     katex(Gamma) = "\\Gamma" /\ katex(gamma) = "\\gamma")
+
+test greek_symbol_generator_can_select_lowercase_names() -> bit:
+    lower: greek_symbols(case:"lower")
+    (katex(lower.alpha) = "\\alpha" /\ katex(lower.beta) = "\\beta" /\
+     katex(lower.omega) = "\\omega")
+
+test greek_symbol_generator_can_select_uppercase_names_and_a_domain() -> bit:
+    upper: greek_symbols(R, case:"upper")
+    (_symbolic_domain(upper.Alpha) = 4 /\ katex(upper.Gamma) = "\\Gamma" /\
+     katex(upper.Omega) = "\\Omega")
+
+test underscore_names_render_as_structured_katex_subscripts() -> bit:
+    : symbols(["E_F_c", "E_pot", "V_xy"], R)
+    (katex(E_F_c) = "E_{F_{c}}" /\ katex(E_pot) = "E_{\\mathrm{pot}}" /\
+     katex(V_xy) = "V_{\\mathrm{xy}}")
+
+test ordinary_symbol_names_preserve_case_and_use_semantic_katex_fonts() -> bit:
+    velocity: symbol("velocity", R)
+    x_r: symbol("x_r", R)
+    x_R: symbol("x_R", R)
+    x_tot: symbol("x_tot", R)
+    (katex(velocity) = "\\operatorname{velocity}" /\
+     katex(x_r) = "x_{r}" /\ katex(x_R) = "x_{R}" /\
+     katex(x_tot) = "x_{\\mathrm{tot}}")
+
+test symbolic_latex_metadata_can_be_overridden_explicitly() -> bit:
+    : symbols(["V_xy"], R)
+    V_xy.latex: "V_{xy}"
+    katex(V_xy) = "V_{xy}"
+
+test infinity_literal_is_a_real_symbolic_constant_with_canonical_katex() -> bit:
+    (_symbolic_domain(_symbolic_clone(inf)) = _symbolic_domain_real /\
+     symbol_is_constant(_symbolic_clone(inf)) /\
+     symbol_latex(inf) = "\\infty")

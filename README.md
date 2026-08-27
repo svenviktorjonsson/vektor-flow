@@ -12,9 +12,11 @@ structured data, mathematics, and eventually visual applications.
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
-> The intended visual system is not native yet. `ui`, `physics`, and `symbolic`
-> are deliberately absent from this release rather than using compatibility
-> fallbacks.
+> The published 0.2.1 bundles deliberately omit `ui`, `physics`, and
+> `symbolic` rather than using compatibility fallbacks. Current development
+> has native `physics` and `symbolic` implementations; they are not present in
+> the 0.2.1 downloads and will enter the next release only after its complete
+> three-platform proof.
 
 ## Why VKF Is Different
 
@@ -22,8 +24,7 @@ structured data, mathematics, and eventually visual applications.
 
 <!-- readme-example: core/25-structural-compatibility.vkf -->
 ```vkf
-double(value:int) -> int:
-    value * 2
+double(value:int) -> int: value * 2
 
 :: double([1, 2, 3])
 :: double([[1, 2], [3, 4]])
@@ -40,8 +41,10 @@ double(value:int) -> int:
 
 <!-- readme-evidence:end -->
 
-`double` accepts `int`, so VKF applies it to every exact `int` leaf reached
-through vector layers. The rule is recursive for nested vectors. It never
+`double` accepts `int`, so VKF applies it to every compatible leaf reached
+through vector layers. The rule is recursive for nested vectors and uses the
+same safe conversions as scalar calls, including `int` to `num`. Exact
+overloads win over converted ones. VKF never
 searches tuples or records for compatible fields: those values require an exact
 parameter type or an explicit operator overload. The [language guide](docs/language-guide.md#4-automatic-vector-function-application)
 defines the complete rule.
@@ -132,8 +135,11 @@ VKF uses indentation for blocks and keeps control flow postfix and compact.
 | `@>` / `@\|` | Continue / break the nearest loop or pipe. |
 | `:: value` | Print a value and newline. |
 
-An indented pipe body runs once for each input. Its final value becomes `$` for
-the next `>>` stage, and a dotted assignment can update an existing outer binding.
+Pipes are eager: their bodies run at the pipe statement, even when the result is
+discarded or read later. An indented body runs once for each input. Its final
+value becomes `$` for the next `>>` stage, and a dotted assignment can update an
+existing outer binding. A bare range remains a range object; a completed finite
+range pipe materializes a tuple by default.
 As the sole unparenthesized value inside `[]` or `{}`, a pipe generates that
 container: `[a >> $]` equals `[:a]`, and `{a >> $}` equals `{:a}`. Parentheses
 suppress generation, so `[(a >> $)]` contains the result tuple as one element.
@@ -262,7 +268,7 @@ Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner. Raw 
 
 ### spectral norm by power method — large, scale 500
 
-Mode: **idiomatic**. Benchmarks Game power method; NumPy and Julia use optimized matrix operations.
+Mode: **idiomatic**. Benchmarks Game power method.
 
 ```vkf
 :.math
@@ -500,25 +506,38 @@ single table above summarizes the current comparative measurements.
 
 ## Status And Native Scope
 
-The 0.2.1 native release includes `math`, `stat`, `random`, `time`, `io`,
-`collections`, `errors`, `system`, `process`, and `regex`. Only fully native,
-verified libraries ship. `physics`, `ui`, and `symbolic` remain future work.
+The published 0.2.1 native release includes `math`, `stat`, `random`, `time`,
+`io`, `collections`, `errors`, `system`, `process`, and `regex`. Only fully
+native, verified libraries ship in a release.
+
+The current development package additionally includes `linalg`, `physics`,
+`physics.units`, `physics.units.si`, and `symbolic`. `.linalg` has 28 direct
+behavioral tests over ordinary rectangular nested vectors. Its reproducible
+[linear-algebra benchmark laboratory](benchmarks/linalg-comparison/README.md)
+currently passes every numerical accuracy gate but does not yet meet the
+project's `<2×` competitor-performance objective. Physics has 28 direct
+engine tests plus 6 dimensioned-SI tests. Symbolic has 363 direct behavioral
+tests plus 14 exact compile-failure diagnostics. Nine physics/symbolic fixtures
+also run identical source through native x64 and standalone WASM, with 10/10
+identical results on each target. The exact published symbolic
+comparison kernels and complete samples are in the
+[symbolic benchmark laboratory](benchmarks/symbolic-comparison/README.md); all
+12 current VKF/competitor ratios pass the `<2×` gate. These development facts
+do not retroactively change the 0.2.1 downloads. `ui` remains future work.
 
 The main-branch verification suite includes dedicated compact-index and
-range-pipe regressions plus 60 documented-program checks. Exact output stays
+range-pipe regressions plus 64 documented-program checks. Exact output stays
 beside the examples; controlled comparative timing remains separate.
 
-## Punctuation At A Glance
+## Additional Punctuation
+
+The basic-syntax table above covers control flow, pipes, returns, and output.
+These less common forms complete the quick reference:
 
 | Syntax | Meaning |
 | --- | --- |
-| `:: value` | Print a value. |
 | `::: value` | Print a labelled value. |
-| `condition?` / `condition?>` | Conditional / loop while true. |
-| `value??` / `value??>` | Match / repeated match. |
 | `error!` / `expression!?` | Raise a typed error / catch errors. |
-| `@:` / `@` | Return a value / return `null`. |
-| `@>` / `@\|` | Continue / break. |
 | `: .module` | Spill a module into the current scope. |
 
 `!` is never factorial. Only error types and error values may be raised.
@@ -579,7 +598,7 @@ See the [0.2.0 release notes](docs/releases/0.2.0.md).
 0.1.8 makes compact indexing and looping executable language rules instead of
 documentation style alone:
 
-- a simple bound index uses `values.index`; computed and special indices use `values.(expression)`;
+- a literal index uses `values.0`; every evaluated or special index uses `values.(expression)`;
 - inline indexed assignment is valid in a pipe, including `..n - 1 >> target.($): source.($)`;
 - an indexed assignment pipes its stored value onward to a following `>>`;
 - Fannkuch and the other public VKF sources use canonical compact indexing;

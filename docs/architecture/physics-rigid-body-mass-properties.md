@@ -8,8 +8,8 @@ inertia tensor.
 
 The canonical equations live in
 `compiler/self_hosted/stdlib/physics.vkf`. Native and WASM artifacts compile
-that module. `vektorflow.physics.rigid_body` is a compatibility adapter and must
-not duplicate the equations in Python.
+that module. The former `rigid_body` compatibility import has been removed;
+physics has one VKF source of truth and no Python implementation.
 
 For closed polygonal surface meshes without authored tetra volume elements, the
 target algorithm is Mirtich-style polyhedral mass properties: reduce volume

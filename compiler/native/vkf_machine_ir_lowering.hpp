@@ -2,17 +2,20 @@
 
 #include "compiler/native/vkf_machine_ir.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
+#include "compiler/native/vkf_symbolic_value_encoding.hpp"
 #include "native/VfOverlay/vf/json.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -91,10 +94,56 @@ struct ValueSlice {
     ValueKind kind = ValueKind::Numeric;
 };
 
+// Layouts are immutable after construction in almost every lowering path, but
+// fixed nested vectors may carry thousands of selector entries.  Sharing the
+// ordered selector table avoids deep-copying that metadata for every expression
+// while preserving deterministic std::map iteration and copy-on-write mutation.
+class SelectorMap {
+public:
+    using Map = std::map<std::string, ValueSlice>;
+    using const_iterator = Map::const_iterator;
+
+    SelectorMap() : values_(std::make_shared<Map>()) {}
+
+    ValueSlice& operator[](const std::string& key) {
+        detach();
+        return (*values_)[key];
+    }
+
+    ValueSlice& operator[](std::string&& key) {
+        detach();
+        return (*values_)[std::move(key)];
+    }
+
+    const ValueSlice& at(const std::string& key) const { return values_->at(key); }
+    const ValueSlice& at(const std::string& key) { return values_->at(key); }
+    const_iterator find(const std::string& key) const { return values_->find(key); }
+    const_iterator find(const std::string& key) { return values_->find(key); }
+    const_iterator begin() const { return values_->begin(); }
+    const_iterator begin() { return values_->begin(); }
+    const_iterator end() const { return values_->end(); }
+    const_iterator end() { return values_->end(); }
+    bool empty() const { return values_->empty(); }
+    std::size_t size() const { return values_->size(); }
+    bool shares_storage(const SelectorMap& other) const { return values_ == other.values_; }
+
+    void clear() {
+        detach();
+        values_->clear();
+    }
+
+private:
+    void detach() {
+        if (values_.use_count() != 1) values_ = std::make_shared<Map>(*values_);
+    }
+
+    std::shared_ptr<Map> values_;
+};
+
 struct ValueLayout {
     std::uint32_t width = 1;
     ValueKind kind = ValueKind::Numeric;
-    std::map<std::string, ValueSlice> selectors;
+    SelectorMap selectors;
 };
 
 enum class DisplayKind : std::uint8_t {
@@ -158,7 +207,7 @@ inline DisplayShape shallow_display_shape(const vf::JsonValue::Object& expressio
         if (type->second.as_string() == "chr") return {DisplayKind::Chr, {}};
         if (type->second.as_string() == "bit") return {DisplayKind::Bit, {}};
         if (type->second.as_string() == "null") return {DisplayKind::Null, {}};
-        if (type->second.as_string() == "range<num>") return {DisplayKind::Range, {}};
+        if (type->second.as_string() == "range<int>") return {DisplayKind::Range, {}};
     }
     return {DisplayKind::F64, {}};
 }
@@ -227,6 +276,7 @@ inline void append_display_tokens(
 inline bool same_layout(const ValueLayout& left, const ValueLayout& right) {
     if (left.width != right.width || left.kind != right.kind ||
         left.selectors.size() != right.selectors.size()) return false;
+    if (left.selectors.shares_storage(right.selectors)) return true;
     auto left_field = left.selectors.begin();
     auto right_field = right.selectors.begin();
     for (; left_field != left.selectors.end(); ++left_field, ++right_field) {
@@ -1142,6 +1192,11 @@ inline std::size_t find_top_level(const std::string& text, char separator) {
     return std::string::npos;
 }
 
+inline bool symbolic_expression_surface_type(const std::string& type) {
+    return type == "symbolic" || type == "expression" || type == "symbol" ||
+        type == "constant" || type == "relation" || type == "proposition";
+}
+
 inline int type_match_score(const std::string& raw_actual, const std::string& raw_pattern) {
     const std::string actual = trim(raw_actual);
     const std::string pattern = trim(raw_pattern);
@@ -1165,7 +1220,16 @@ inline int type_match_score(const std::string& raw_actual, const std::string& ra
         return score;
     }
     if (pattern == "any") return 1;
+    if (pattern == "type" && actual.rfind("type<", 0) == 0 && actual.back() == '>') {
+        return 500;
+    }
     if (actual == "int" && pattern == "num") return 40;
+    if (symbolic_expression_surface_type(actual) && symbolic_expression_surface_type(pattern)) {
+        if (actual == pattern) return 1000;
+        if (actual == "symbolic" || pattern == "symbolic" || pattern == "expression") return 400;
+        if (actual == "constant" && pattern == "symbol") return 500;
+        return -1;
+    }
     if (actual.size() >= 3 && pattern.size() >= 3 &&
         actual.front() == '[' && actual.back() == ']' &&
         pattern.front() == '[' && pattern.back() == ']') {
@@ -1387,6 +1451,12 @@ inline ValueLayout layout_from_type(
     const FunctionSignatures* signatures = nullptr
 ) {
     const std::string type = trim(raw_type);
+    if (type.rfind("axis<", 0) == 0) {
+        const auto separator = type.find(">:");
+        if (separator != std::string::npos && separator + 2 < type.size()) {
+            return layout_from_type(type.substr(separator + 2), signatures);
+        }
+    }
     if (signatures) {
         const auto alias = signatures->type_aliases.find(type);
         if (alias != signatures->type_aliases.end() && alias->second != type) {
@@ -1399,23 +1469,32 @@ inline ValueLayout layout_from_type(
     }
     if (type == "null") return {1, ValueKind::Null, {}};
     if (type == "str") return {2, ValueKind::String, {}};
+    if (symbolic_expression_surface_type(type)) {
+        return {1, ValueKind::DynamicF64List, {}};
+    }
+    if (type == "symbolic_domain") {
+        return {2, ValueKind::String, {}};
+    }
+    if (type == "type") {
+        return {2, ValueKind::String, {}};
+    }
     if (type.rfind("type<", 0) == 0 && type.back() == '>') {
         return {2, ValueKind::String, {}};
     }
-    if (type == "range<num>") return {3, ValueKind::Range, {}};
+    if (type == "range<int>") return {3, ValueKind::Range, {}};
     if (type.rfind("multiset<", 0) == 0 && type.back() == '>') {
         const std::string element = trim(type.substr(9, type.size() - 10));
         if (element == "num" || element == "int" || element == "f32" || element == "f64") {
             return {1, ValueKind::NumericMultiset, {}};
         }
-        if (element == "str") return string_multiset_layout(0);
+        if (element == "str" || element == "type") return string_multiset_layout(0);
     }
     if (type.size() >= 3 && type.front() == '{' && type.back() == '}') {
         const std::string element = trim(type.substr(1, type.size() - 2));
         if (element == "num" || element == "int" || element == "f32" || element == "f64") {
             return {1, ValueKind::NumericMultiset, {}};
         }
-        if (element == "str") return string_multiset_layout(0);
+        if (element == "str" || element == "type") return string_multiset_layout(0);
     }
     if (type.size() >= 3 && type.front() == '[' && type.back() == ']') {
         const std::string inside = type.substr(1, type.size() - 2);
@@ -1482,10 +1561,11 @@ inline ValueLayout layout_from_type(
 inline DisplayShape display_shape_from_type(const std::string& raw_type) {
     const std::string type = trim(raw_type);
     if (type == "str") return {DisplayKind::String, {}};
+    if (symbolic_expression_surface_type(type)) return {DisplayKind::String, {}};
     if (type == "chr") return {DisplayKind::Chr, {}};
     if (type == "bit") return {DisplayKind::Bit, {}};
     if (type == "null") return {DisplayKind::Null, {}};
-    if (type == "range<num>") return {DisplayKind::Range, {}};
+    if (type == "range<int>") return {DisplayKind::Range, {}};
     if (type.rfind("multiset<", 0) == 0 && type.back() == '>') {
         return {DisplayKind::Multiset, {}};
     }
@@ -1523,6 +1603,15 @@ inline DisplayShape display_shape_from_expression(
     const FunctionDisplayShapes* function_displays = nullptr
 ) {
     const std::string kind = string_field(expression, "kind", "display expression");
+    // Numeric fixed vectors have a complete homogeneous display contract in
+    // their type. Avoid recursively materializing one DisplayShape node per
+    // scalar merely because the value is stored; full children are rebuilt
+    // from the value layout only when the aggregate itself is printed.
+    const auto declared_type = expression.find("type");
+    if (declared_type != expression.end() && declared_type->second.is_string() &&
+        fixed_numeric_vector_shape(declared_type->second.as_string())) {
+        return {DisplayKind::Vector, {}};
+    }
     if (kind == "multiset" || kind == "multiset_from_collection") {
         return {DisplayKind::Multiset, {}};
     }
@@ -1616,6 +1705,17 @@ inline DisplayShape display_shape_from_expression(
             function_displays);
     }
     if (kind == "pipe_chain") {
+        const auto declared = expression.find("type");
+        if (declared != expression.end() && declared->second.is_string()) {
+            const auto shape = display_shape_from_type(declared->second.as_string());
+            if (shape.kind != DisplayKind::F64 ||
+                declared->second.as_string() == "num" ||
+                declared->second.as_string() == "int" ||
+                declared->second.as_string() == "f32" ||
+                declared->second.as_string() == "f64") {
+                return shape;
+            }
+        }
         return display_shape_from_expression(
             object_of(field(expression, "source", "display pipe"), "display pipe source"),
             environment,
@@ -1851,8 +1951,12 @@ inline DisplayShape infer_function_display_shape(
                 &function_displays);
         }
     }
-    if (nominal_scope_result && result.kind == DisplayKind::Record) {
-        result.label = string_field(function, "name", "display function");
+    const auto nominal_type = function.find("nominal_type");
+    if ((nominal_scope_result || nominal_type != function.end()) &&
+        result.kind == DisplayKind::Record) {
+        result.label = nominal_type != function.end() && nominal_type->second.is_string()
+            ? nominal_type->second.as_string()
+            : string_field(function, "name", "display function");
     }
     return result;
 }
@@ -1939,11 +2043,14 @@ inline ValueLayout layout_from_expression_shape(
             element_type == "f32" || element_type == "f64") {
             return {1, ValueKind::NumericMultiset, {}};
         }
-        if (element_type == "str") {
+        if (element_type == "str" || element_type == "type") {
             return string_multiset_layout(
                 array_of(field(expression, "pairs", "multiset shape"), "multiset pairs").size());
         }
         return {};
+    }
+    if (kind == "symbolic_var") {
+        return {1, ValueKind::DynamicF64List, {}};
     }
     if (kind == "load") {
         // Typed IR already resolved lexical shadowing.  Prefer that type over a
@@ -2077,11 +2184,22 @@ inline ValueLayout layout_from_expression_shape(
         const auto source = layout_from_expression_shape(
             object_of(field(expression, "source", "pipe expression"), "pipe source"),
             signatures);
-        return source.kind == ValueKind::Range
-            ? ValueLayout{1, ValueKind::DynamicF64List, {}}
-            : source;
+        const auto declared = expression.find("type");
+        if (declared != expression.end() && declared->second.is_string()) {
+            const auto result = layout_from_type(declared->second.as_string(), &signatures);
+            if (result.width > 0) return result;
+        }
+        if (source.kind == ValueKind::Range) {
+            return {1, ValueKind::DynamicF64List, {}};
+        }
+        return source;
     }
     if (kind == "binary_op") {
+        const auto result_type = expression.find("type");
+        if (result_type != expression.end() && result_type->second.is_string() &&
+            symbolic_expression_surface_type(result_type->second.as_string())) {
+            return {1, ValueKind::DynamicF64List, {}};
+        }
         const auto left = layout_from_expression_shape(
             object_of(field(expression, "left", "binary expression"), "binary left"), signatures);
         const auto right = layout_from_expression_shape(
@@ -2168,25 +2286,19 @@ inline ValueLayout layout_from_expression_shape(
         const std::string callee_kind = string_field(callee, "kind", "callee");
         const auto elementwise = expression.find("elementwise_math");
         const auto structural = expression.find("structural_call");
-        if ((elementwise != expression.end() && elementwise->second.is_boolean() &&
-             elementwise->second.as_boolean()) ||
-            (structural != expression.end() && structural->second.is_boolean() &&
-             structural->second.as_boolean())) {
+        if (structural != expression.end() && structural->second.is_boolean() &&
+            structural->second.as_boolean()) {
+            return layout_from_type(
+                string_field(expression, "type", "structural call"), &signatures);
+        }
+        if (elementwise != expression.end() && elementwise->second.is_boolean() &&
+            elementwise->second.as_boolean()) {
             const auto& args = array_of(field(expression, "args", "call"), "call args");
             for (const auto& value : args) {
                 const auto layout = layout_from_expression_shape(
                     object_of(value, "elementwise math shape argument"), signatures);
                 if (layout.kind == ValueKind::Aggregate ||
                     layout.kind == ValueKind::DynamicF64List) {
-                    if (structural != expression.end() && structural->second.is_boolean() &&
-                        structural->second.as_boolean() && callee_kind == "load") {
-                        const auto target = signatures.find(string_field(callee, "name", "callee"));
-                        if (target != signatures.end() && target->second.parameters.size() == 1 &&
-                            !same_layout(target->second.parameters.front(), target->second.result)) {
-                            return layout_from_type(
-                                string_field(expression, "type", "structural call"), &signatures);
-                        }
-                    }
                     return layout;
                 }
             }
@@ -2276,25 +2388,18 @@ inline ValueLayout layout_from_environment_expression_shape(
         const auto& args = array_of(field(expression, "args", "environment call"), "environment args");
         const auto elementwise = expression.find("elementwise_math");
         const auto structural = expression.find("structural_call");
-        if ((elementwise != expression.end() && elementwise->second.is_boolean() &&
-             elementwise->second.as_boolean()) ||
-            (structural != expression.end() && structural->second.is_boolean() &&
-             structural->second.as_boolean())) {
+        if (structural != expression.end() && structural->second.is_boolean() &&
+            structural->second.as_boolean()) {
+            return layout_from_type(
+                string_field(expression, "type", "structural call"), &signatures);
+        }
+        if (elementwise != expression.end() && elementwise->second.is_boolean() &&
+            elementwise->second.as_boolean()) {
             for (const auto& value : args) {
                 const auto layout = layout_from_environment_expression_shape(
                     object_of(value, "environment elementwise argument"), environment, signatures);
                 if (layout.kind == ValueKind::Aggregate ||
                     layout.kind == ValueKind::DynamicF64List) {
-                    if (structural != expression.end() && structural->second.is_boolean() &&
-                        structural->second.as_boolean() && callee_kind == "load") {
-                        const auto target = signatures.find(
-                            string_field(callee, "name", "environment callee"));
-                        if (target != signatures.end() && target->second.parameters.size() == 1 &&
-                            !same_layout(target->second.parameters.front(), target->second.result)) {
-                            return layout_from_type(
-                                string_field(expression, "type", "structural call"), &signatures);
-                        }
-                    }
                     return layout;
                 }
             }
@@ -2342,6 +2447,40 @@ inline ValueLayout layout_from_environment_expression_shape(
         if (source.kind == ValueKind::DynamicF64List) {
             if (indices.size() <= 1) return {};
             return indexed_layout(std::vector<ValueLayout>(indices.size(), ValueLayout{}));
+        }
+        std::size_t expanded_index_count = indices.size();
+        const auto expanded_count = expression.find("expanded_index_count");
+        if (expanded_count != expression.end() && expanded_count->second.is_number()) {
+            expanded_index_count = static_cast<std::size_t>(expanded_count->second.as_number());
+        }
+        std::size_t source_rank = 0;
+        ValueLayout rank_leaf = source;
+        while (rank_leaf.kind == ValueKind::Aggregate && !is_record_layout(rank_leaf)) {
+            const auto elements = indexed_element_layouts(rank_leaf);
+            if (elements.empty() || std::any_of(
+                    elements.begin(), elements.end(), [&](const auto& candidate) {
+                        return !same_layout(candidate, elements.front());
+                    })) break;
+            ++source_rank;
+            rank_leaf = elements.front();
+        }
+        if (source_rank > 1 && expanded_index_count == source_rank &&
+            expanded_index_count == indices.size()) {
+            for (const auto& value : indices) {
+                const auto& index = object_of(value, "environment coordinate index value");
+                const auto raw_value = index.find("value");
+                if (raw_value == index.end()) return {};
+                const auto& raw = raw_value->second;
+                if (!raw.is_number() || raw.as_number() < 0 ||
+                    raw.as_number() != static_cast<double>(
+                        static_cast<std::uint32_t>(raw.as_number()))) return {};
+                const std::string name = std::to_string(
+                    static_cast<std::uint32_t>(raw.as_number()));
+                const auto found = source.selectors.find(name);
+                if (found == source.selectors.end()) return {};
+                source = record_field_layout(source, name, found->second);
+            }
+            return source;
         }
         if (indices.size() > 1) {
             std::vector<ValueLayout> elements;
@@ -2461,6 +2600,36 @@ inline ValueLayout layout_from_environment_expression_shape(
         }
         return {};
     }
+    if (kind == "pipe_chain") {
+        const auto source = layout_from_environment_expression_shape(
+            object_of(field(expression, "source", "environment pipe"),
+                      "environment pipe source"),
+            environment,
+            signatures);
+        if (source.kind != ValueKind::Aggregate || is_record_layout(source)) {
+            return layout_from_expression_shape(expression, signatures);
+        }
+        const auto elements = indexed_element_layouts(source);
+        if (elements.empty() || std::any_of(
+                elements.begin(), elements.end(), [&](const auto& element) {
+                    return !same_layout(element, elements.front());
+                })) {
+            return layout_from_expression_shape(expression, signatures);
+        }
+        auto pipe_environment = environment;
+        pipe_environment["$"] = elements.front();
+        ValueLayout result = elements.front();
+        for (const auto& segment : array_of(
+                 field(expression, "segments", "environment pipe"),
+                 "environment pipe segments")) {
+            result = layout_from_environment_expression_shape(
+                object_of(segment, "environment pipe segment"),
+                pipe_environment,
+                signatures);
+            pipe_environment["$"] = result;
+        }
+        return indexed_layout(std::vector<ValueLayout>(elements.size(), result));
+    }
     if (kind == "axis_align") {
         const auto& value = object_of(field(expression, "value", "axis align"), "axis align value");
         const std::string value_kind = string_field(value, "kind", "axis align value");
@@ -2469,6 +2638,11 @@ inline ValueLayout layout_from_environment_expression_shape(
             : layout_from_environment_expression_shape(value, environment, signatures);
     }
     if (kind == "binary_op") {
+        const auto result_type = expression.find("type");
+        if (result_type != expression.end() && result_type->second.is_string() &&
+            symbolic_expression_surface_type(result_type->second.as_string())) {
+            return {1, ValueKind::DynamicF64List, {}};
+        }
         const auto left = layout_from_environment_expression_shape(
             object_of(field(expression, "left", "environment binary"), "environment binary left"),
             environment,
@@ -2861,8 +3035,17 @@ public:
         const auto base = add_local(name, layout, false, value_class);
         for (std::uint32_t index = 0; index < layout.width; ++index) {
             function_.parameters.push_back(component_name(name, index, layout.width));
+            function_.parameter_is_numeric_scalar.push_back(
+                layout.width == 1 && layout.kind == ValueKind::Numeric);
         }
         return base;
+    }
+
+    void set_result_layout(const ValueLayout& layout) {
+        function_.result_is_numeric_scalar =
+            layout.width == 1 && layout.kind == ValueKind::Numeric;
+        function_.result_is_dynamic_f64_list =
+            layout.width == 1 && layout.kind == ValueKind::DynamicF64List;
     }
 
     std::uint32_t add_local(
@@ -2881,7 +3064,10 @@ public:
         const auto found = bindings_.find(name);
         if (found != bindings_.end()) {
             if (found->second.layout.width != layout.width) {
-                throw LoweringFailure("incompatible aggregate width for binding " + name);
+                throw LoweringFailure(
+                    "incompatible aggregate width for binding " + name + ": " +
+                    std::to_string(found->second.layout.width) + " vs " +
+                    std::to_string(layout.width));
             }
             for (std::uint32_t index = 0; index < layout.width; ++index) {
                 auto& current = function_.local_classes.at(found->second.base + index);
@@ -3242,6 +3428,9 @@ public:
         } else if (opcode == Opcode::MakeOwnedF64List) {
             require_stack(instruction.argument_count);
             stack_depth_ = stack_depth_ - instruction.argument_count + 1;
+        } else if (opcode == Opcode::MakeOwnedRepeatedF64List) {
+            require_stack(2);
+            --stack_depth_;
         } else if (opcode == Opcode::MakeOwnedF64ListLiteral) {
             ++stack_depth_;
         } else if (opcode == Opcode::LoadF64LocalsIndex) {
@@ -3316,6 +3505,9 @@ public:
     Function finish() {
         if (function_.locals.size() != function_.local_classes.size()) {
             throw LoweringFailure("machine IR local class table is not parallel to locals");
+        }
+        if (function_.parameters.size() != function_.parameter_is_numeric_scalar.size()) {
+            throw LoweringFailure("machine IR parameter kind table is not parallel to parameters");
         }
         return std::move(function_);
     }
@@ -3435,12 +3627,6 @@ inline void discover_bindings(
         auto layout = value_kind == "load"
             ? builder.layout(string_field(value, "name", "binding value"))
             : layout_from_builder_expression_shape(value, builder, signatures);
-        if (value_kind == "pipe_chain") {
-            const auto& source = object_of(field(value, "source", "binding pipe"), "binding pipe source");
-            if (string_field(source, "kind", "binding pipe source") == "load") {
-                layout = builder.layout(string_field(source, "name", "binding pipe source"));
-            }
-        }
         if (value_kind == "binary_op") {
             const auto operand_layout = [&](const vf::JsonValue::Object& operand) {
                 return string_field(operand, "kind", "binding binary operand") == "load"
@@ -3730,15 +3916,19 @@ inline Projection projection_of(const vf::JsonValue::Object& expression) {
     if (kind == "dotted_index") {
         auto projection = projection_of(object_of(field(expression, "base", "dotted index"), "dotted index base"));
         const auto& indices = array_of(field(expression, "indices", "dotted index"), "dotted indices");
-        if (indices.size() != 1) throw LoweringFailure("machine IR dotted index requires one index");
-        const auto& index_object = object_of(indices.front(), "dotted index");
-        const auto& index_value = field(index_object, "value", "dotted index");
-        if (!index_value.is_number() || index_value.as_number() < 0 ||
-            index_value.as_number() != static_cast<double>(static_cast<std::uint32_t>(index_value.as_number()))) {
-            throw LoweringFailure("machine IR dotted index must be a nonnegative integer constant");
+        if (indices.empty()) throw LoweringFailure("machine IR dotted index requires an index");
+        for (const auto& raw_index : indices) {
+            const auto& index_object = object_of(raw_index, "dotted index");
+            const auto& index_value = field(index_object, "value", "dotted index");
+            if (!index_value.is_number() || index_value.as_number() < 0 ||
+                index_value.as_number() != static_cast<double>(
+                    static_cast<std::uint32_t>(index_value.as_number()))) {
+                throw LoweringFailure(
+                    "machine IR dotted index must use nonnegative integer constants in projections");
+            }
+            projection.path += (projection.path.empty() ? "" : ".") +
+                std::to_string(static_cast<std::uint32_t>(index_value.as_number()));
         }
-        projection.path += (projection.path.empty() ? "" : ".") +
-            std::to_string(static_cast<std::uint32_t>(index_value.as_number()));
         return projection;
     }
     throw LoweringFailure("machine IR projection requires a binding base");
@@ -3943,8 +4133,12 @@ inline bool expression_produces_owned_f64_list(
             object_of(field(expression, "value", "axis align"), "axis align value"), signatures);
     }
     if (kind == "binary_op") {
-        return string_field(expression, "op", "binary expression") == "AMPERSAND";
+        const auto type = expression.find("type");
+        return string_field(expression, "op", "binary expression") == "AMPERSAND"
+            || (type != expression.end() && type->second.is_string()
+                && symbolic_expression_surface_type(type->second.as_string()));
     }
+    if (kind == "symbolic_var") return true;
     if (kind != "call") return false;
     const auto& callee = object_of(field(expression, "callee", "call"), "callee");
     const std::string callee_kind = string_field(callee, "kind", "callee");
@@ -4249,6 +4443,44 @@ inline ValueLayout lower_expression(
     StringPool& strings
 );
 
+inline bool references_current_pipe_value(
+    const vf::JsonValue& value,
+    std::uint32_t nested_pipe_depth = 0
+) {
+    if (value.is_array()) {
+        return std::any_of(
+            value.as_array().begin(), value.as_array().end(),
+            [nested_pipe_depth](const auto& element) {
+                return references_current_pipe_value(element, nested_pipe_depth);
+            });
+    }
+    if (!value.is_object()) return false;
+    const auto& object = value.as_object();
+    const auto kind = object.find("kind");
+    if (kind != object.end() && kind->second.is_string() &&
+        kind->second.as_string() == "load") {
+        const auto name = object.find("name");
+        return nested_pipe_depth == 0 && name != object.end() &&
+            name->second.is_string() && name->second.as_string() == "$";
+    }
+    if (kind != object.end() && kind->second.is_string() &&
+        kind->second.as_string() == "pipe_chain") {
+        const auto source = object.find("source");
+        if (source != object.end() &&
+            references_current_pipe_value(source->second, nested_pipe_depth)) {
+            return true;
+        }
+        const auto segments = object.find("segments");
+        return segments != object.end() &&
+            references_current_pipe_value(segments->second, nested_pipe_depth + 1u);
+    }
+    return std::any_of(
+        object.begin(), object.end(),
+        [nested_pipe_depth](const auto& field) {
+            return references_current_pipe_value(field.second, nested_pipe_depth);
+        });
+}
+
 inline bool lower_discarded_range_pipe(
     const vf::JsonValue::Object& expression,
     FunctionBuilder& builder,
@@ -4323,6 +4555,7 @@ inline std::optional<ValueLayout> lower_literal_projection_argument(
                 describe_layout(expected) +
                 ", got " + describe_layout(actual));
         }
+        ensure_independent_value(*found->second, actual, builder, signatures);
     }
     return target;
 }
@@ -6122,7 +6355,23 @@ inline ValueLayout lower_expression(
     if (kind == "pipe_chain") {
         const auto& source_expression = object_of(
             field(expression, "source", "pipe expression"), "pipe source");
-        const auto source = lower_expression(source_expression, builder, signatures, strings);
+        const auto& pipe_segments = array_of(
+            field(expression, "segments", "pipe expression"), "pipe segments");
+        const bool source_is_pure_load =
+            string_field(source_expression, "kind", "pipe source") == "load";
+        const auto* loaded_layout = source_is_pure_load
+            ? builder.find_layout(string_field(source_expression, "name", "pipe source"))
+            : nullptr;
+        const bool elide_unused_fixed_source = loaded_layout != nullptr &&
+            !pipe_segments.empty() && loaded_layout->kind == ValueKind::Aggregate &&
+            is_numeric_layout(*loaded_layout) && loaded_layout->width != 0u &&
+            std::none_of(
+                pipe_segments.begin(), pipe_segments.end(), [](const auto& segment) {
+                    return references_current_pipe_value(segment);
+                });
+        const auto source = elide_unused_fixed_source
+            ? *loaded_layout
+            : lower_expression(source_expression, builder, signatures, strings);
         if (source.kind == ValueKind::Numeric || source.kind == ValueKind::Complex ||
             source.kind == ValueKind::Null) {
             builder.begin_scope();
@@ -6328,6 +6577,22 @@ inline ValueLayout lower_expression(
             finish_label.label = finish;
             builder.emit(std::move(finish_label));
             builder.end_scope();
+            const auto declared_result = layout_from_expression_shape(
+                expression, signatures);
+            if (declared_result.kind == ValueKind::Aggregate &&
+                is_numeric_layout(declared_result) &&
+                !is_record_layout(declared_result)) {
+                for (std::uint32_t index = 0; index < declared_result.width; ++index) {
+                    emit_load_local_component(builder, result_local);
+                    Instruction item_index;
+                    item_index.opcode = Opcode::PushF64;
+                    item_index.f64 = static_cast<double>(index);
+                    builder.emit(std::move(item_index));
+                    builder.emit({Opcode::LoadF64ListIndex});
+                }
+                emit_release_layout_local(builder, result_local, list_layout);
+                return declared_result;
+            }
             emit_load_local_component(builder, result_local);
             builder.emit({Opcode::CloneF64List});
             emit_release_layout_local(builder, result_local, list_layout);
@@ -6669,25 +6934,31 @@ inline ValueLayout lower_expression(
         if (source_elements.empty()) {
             throw LoweringFailure("machine IR runtime pipe requires at least one fixed element");
         }
-        const auto source_local = builder.add_borrowed_temporary(source);
-        for (std::uint32_t component = source.width; component > 0; --component) {
-            Instruction store;
-            store.opcode = Opcode::StoreLocal;
-            store.index = source_local + component - 1;
-            builder.emit(std::move(store));
+        std::optional<std::uint32_t> source_local;
+        if (!elide_unused_fixed_source) {
+            source_local = builder.add_borrowed_temporary(source);
+            for (std::uint32_t component = source.width; component > 0; --component) {
+                Instruction store;
+                store.opcode = Opcode::StoreLocal;
+                store.index = *source_local + component - 1;
+                builder.emit(std::move(store));
+            }
         }
         const auto& segments = array_of(field(expression, "segments", "pipe expression"), "pipe segments");
         if (segments.empty()) {
             for (std::uint32_t component = 0; component < source.width; ++component) {
                 Instruction load;
                 load.opcode = Opcode::LoadLocal;
-                load.index = source_local + component;
+                load.index = *source_local + component;
                 builder.emit(std::move(load));
             }
             return source;
         }
         builder.begin_scope();
-        const auto current = builder.add_scoped_local("$", source_elements.front(), false);
+        const auto current = elide_unused_fixed_source
+            ? std::optional<std::uint32_t>{}
+            : std::optional<std::uint32_t>{
+                builder.add_scoped_local("$", source_elements.front(), false)};
         std::uint32_t source_offset = 0;
         std::vector<ValueLayout> result_elements;
         result_elements.reserve(source_elements.size());
@@ -6695,11 +6966,13 @@ inline ValueLayout lower_expression(
             if (!same_layout(element, source_elements.front())) {
                 throw LoweringFailure("machine IR pipe requires homogeneous fixed elements");
             }
-            for (std::uint32_t component = 0; component < element.width; ++component) {
-                emit_load_local_component(builder, source_local + source_offset + component);
-            }
-            for (std::uint32_t component = element.width; component > 0; --component) {
-                emit_store_local_component(builder, current + component - 1u);
+            if (!elide_unused_fixed_source) {
+                for (std::uint32_t component = 0; component < element.width; ++component) {
+                    emit_load_local_component(builder, *source_local + source_offset + component);
+                }
+                for (std::uint32_t component = element.width; component > 0; --component) {
+                    emit_store_local_component(builder, *current + component - 1u);
+                }
             }
             ValueLayout result;
             for (std::size_t segment_index = 0; segment_index < segments.size(); ++segment_index) {
@@ -6710,8 +6983,10 @@ inline ValueLayout lower_expression(
                         throw LoweringFailure(
                             "intermediate fixed pipe segment changes its element layout");
                     }
-                    for (std::uint32_t component = element.width; component > 0; --component) {
-                        emit_store_local_component(builder, current + component - 1u);
+                    if (!elide_unused_fixed_source) {
+                        for (std::uint32_t component = element.width; component > 0; --component) {
+                            emit_store_local_component(builder, *current + component - 1u);
+                        }
                     }
                 }
             }
@@ -6770,6 +7045,44 @@ inline ValueLayout lower_expression(
         } else throw LoweringFailure("machine IR supports numeric, string, and null constants only");
         builder.emit(std::move(instruction));
         return {};
+    }
+    if (kind == "symbolic_var") {
+        const std::string name = string_field(expression, "name", "symbolic variable");
+        const std::string domain = string_field(expression, "domain", "symbolic variable");
+        const auto symbol_kind_field = expression.find("symbol_kind");
+        const std::string symbol_kind = symbol_kind_field != expression.end() && symbol_kind_field->second.is_string()
+            ? symbol_kind_field->second.as_string() : "variable";
+        const double symbol_kind_tag = symbol_kind == "function" ? 2.0 : symbol_kind == "constant" ? 3.0 : 1.0;
+        const auto latex_field = expression.find("latex");
+        const std::string latex = latex_field != expression.end() && latex_field->second.is_string()
+            ? latex_field->second.as_string() : name;
+        const auto signature = vkf::symbolic_value::function_signature_tags(domain);
+        std::vector<double> encoded{
+            1.0,
+            static_cast<double>(name.size() + latex.size() + signature.inputs.size() * 2u + 7u),
+            vkf::symbolic_value::encoded_domain_tag(domain),
+            symbol_kind_tag,
+            static_cast<double>(name.size()),
+        };
+        for (const unsigned char byte : name) encoded.push_back(static_cast<double>(byte));
+        encoded.push_back(static_cast<double>(latex.size()));
+        for (const unsigned char byte : latex) encoded.push_back(static_cast<double>(byte));
+        encoded.push_back(static_cast<double>(signature.inputs.size()));
+        for (const auto& input : signature.inputs) {
+            encoded.push_back(input.tag);
+            encoded.push_back(input.dimension);
+        }
+        encoded.push_back(signature.output.tag);
+        encoded.push_back(signature.output.dimension);
+        encoded.push_back(1.0);
+        encoded.push_back(0.0);
+        encoded.push_back(static_cast<double>(encoded.size() + 1u));
+        Instruction symbol;
+        symbol.opcode = Opcode::MakeOwnedF64ListLiteral;
+        symbol.index = strings.intern_f64s(encoded);
+        symbol.argument_count = static_cast<std::uint32_t>(encoded.size());
+        builder.emit(std::move(symbol));
+        return {1, ValueKind::DynamicF64List, {}};
     }
     if (kind == "load") {
         const std::string name = string_field(expression, "name", "load");
@@ -6967,6 +7280,20 @@ inline ValueLayout lower_expression(
         builder.emit({Opcode::NormalizeF64Multiset});
         return {1, ValueKind::NumericMultiset, {}};
     }
+    if (kind == "repeat_list") {
+        const auto value = lower_expression(
+            object_of(field(expression, "value", "dynamic repeat list"),
+                      "dynamic repeat value"),
+            builder, signatures, strings);
+        require_scalar(value, "dynamic repeat value");
+        const auto count = lower_expression(
+            object_of(field(expression, "count", "dynamic repeat list"),
+                      "dynamic repeat count"),
+            builder, signatures, strings);
+        require_scalar(count, "dynamic repeat count");
+        builder.emit({Opcode::MakeOwnedRepeatedF64List});
+        return {1, ValueKind::DynamicF64List, {}};
+    }
     if (kind == "list" || kind == "tuple") {
         const auto type = expression.find("type");
         const auto& items = array_of(field(expression, "items", kind), kind + " items");
@@ -7009,7 +7336,19 @@ inline ValueLayout lower_expression(
             auto element = lower_expression(lowered_expression, builder, signatures, strings);
             if (dynamic) {
                 if (spread) {
-                    throw LoweringFailure("dynamic list literal spread is a stdlib collection operation");
+                    if (element.kind != ValueKind::Aggregate || !is_numeric_layout(element)) {
+                        throw LoweringFailure(
+                            "dynamic list literal can only spread a fixed numeric collection");
+                    }
+                    ensure_independent_value(
+                        lowered_expression, element, builder, signatures);
+                    const auto spread_elements = indexed_element_layouts(element);
+                    for (const auto& spread_element : spread_elements) {
+                        require_scalar(spread_element, "dynamic numeric list spread element");
+                    }
+                    elements.insert(
+                        elements.end(), spread_elements.begin(), spread_elements.end());
+                    continue;
                 }
                 require_scalar(element, "dynamic numeric list element");
             } else {
@@ -7256,14 +7595,18 @@ inline ValueLayout lower_expression(
             const auto& base = object_of(field(expression, "base", "dotted index"), "dotted index base");
             auto base_layout = layout_from_expression_shape(base, signatures);
             const std::string base_kind = string_field(base, "kind", "dotted index base");
+            std::optional<std::string> fixed_vector_binding;
+            std::uint32_t fixed_vector_offset = 0;
             if (base_kind == "load") {
-                base_layout = builder.layout(string_field(base, "name", "dotted index base"));
-            } else if (base_kind == "field_access" || base_kind == "dotted_attr" ||
-                       base_kind == "dotted_index") {
+                fixed_vector_binding = string_field(base, "name", "dotted index base");
+                base_layout = builder.layout(*fixed_vector_binding);
+            } else if (base_kind == "field_access") {
                 const auto base_projection = projection_of(base);
                 const auto& root_layout = builder.layout(base_projection.binding);
                 const auto selected = root_layout.selectors.find(base_projection.path);
                 if (selected != root_layout.selectors.end()) {
+                    fixed_vector_binding = base_projection.binding;
+                    fixed_vector_offset = selected->second.offset;
                     base_layout = projected_layout(
                         root_layout, base_projection.path, selected->second);
                 }
@@ -7325,10 +7668,169 @@ inline ValueLayout lower_expression(
                 return {};
             }
             const auto& indices = array_of(field(expression, "indices", "dotted index"), "dotted indices");
+            std::size_t expanded_index_count = indices.size();
+            const auto expanded_count = expression.find("expanded_index_count");
+            if (expanded_count != expression.end() && expanded_count->second.is_number()) {
+                expanded_index_count = static_cast<std::size_t>(
+                    expanded_count->second.as_number());
+            }
+            const auto nested_index = expression.find("nested_index");
+            const bool explicitly_nested =
+                nested_index != expression.end() && nested_index->second.is_boolean() &&
+                nested_index->second.as_boolean();
+            std::size_t inferred_rank = 0;
+            ValueLayout rank_leaf = base_layout;
+            while (rank_leaf.kind == ValueKind::Aggregate && !is_record_layout(rank_leaf)) {
+                const auto elements = indexed_element_layouts(rank_leaf);
+                if (elements.empty()) break;
+                ++inferred_rank;
+                rank_leaf = elements.front();
+            }
+            const bool full_rank_index = expanded_index_count > 1 &&
+                (explicitly_nested || inferred_rank == expanded_index_count);
+            if (full_rank_index &&
+                base_layout.kind == ValueKind::Aggregate && !is_record_layout(base_layout) &&
+                fixed_vector_binding.has_value()) {
+                std::vector<std::uint32_t> dimensions;
+                ValueLayout leaf = base_layout;
+                while (leaf.kind == ValueKind::Aggregate) {
+                    const auto elements = indexed_element_layouts(leaf);
+                    if (elements.empty() || std::any_of(
+                            elements.begin(), elements.end(), [&](const auto& candidate) {
+                                return !same_layout(candidate, elements.front());
+                            })) {
+                        throw LoweringFailure(
+                            "dynamic multidimensional index requires a rectangular vector");
+                    }
+                    dimensions.push_back(static_cast<std::uint32_t>(elements.size()));
+                    leaf = elements.front();
+                }
+                if (expanded_index_count != dimensions.size() || leaf.width != 1 ||
+                    leaf.kind == ValueKind::Aggregate) {
+                    throw LoweringFailure(
+                        "dynamic multidimensional index currently requires the full scalar rank");
+                }
+                std::vector<std::uint32_t> index_locals;
+                std::vector<std::uint32_t> index_widths;
+                std::optional<std::uint32_t> broadcast_width;
+                bool integral = true;
+                for (const auto& raw_index : indices) {
+                    const auto& index_expression = object_of(
+                        raw_index, "multidimensional vector index");
+                    if (string_field(
+                            index_expression, "kind", "multidimensional vector index") ==
+                        "spread_index") {
+                        const auto& spread_value = object_of(
+                            field(index_expression, "value", "multidimensional index spill"),
+                            "multidimensional index spill");
+                        const auto spread_layout = lower_expression(
+                            spread_value, builder, signatures, strings);
+                        if (spread_layout.kind != ValueKind::Aggregate ||
+                            !is_numeric_layout(spread_layout)) {
+                            throw LoweringFailure(
+                                "multidimensional index spill requires a fixed numeric vector");
+                        }
+                        const auto& count_value = field(
+                            index_expression, "count", "multidimensional index spill");
+                        if (!count_value.is_number()) {
+                            throw LoweringFailure(
+                                "multidimensional index spill requires a numeric width");
+                        }
+                        const auto count = static_cast<std::uint32_t>(
+                            count_value.as_number());
+                        if (spread_layout.width != count) {
+                            throw LoweringFailure(
+                                "multidimensional index spill width does not match its type");
+                        }
+                        const auto local = builder.add_borrowed_temporary(spread_layout);
+                        for (std::uint32_t component = spread_layout.width; component > 0; --component) {
+                            emit_store_local_component(builder, local + component - 1u);
+                        }
+                        for (std::uint32_t component = 0; component < count; ++component) {
+                            index_locals.push_back(local + component);
+                            index_widths.push_back(1u);
+                        }
+                        integral = false;
+                        continue;
+                    }
+                    auto layout = lower_expression(
+                        index_expression, builder, signatures, strings);
+                    if (layout.width > 1) {
+                        if (layout.kind != ValueKind::Aggregate || !is_numeric_layout(layout)) {
+                            throw LoweringFailure(
+                                "multidimensional vector index distribution requires a fixed numeric vector");
+                        }
+                        if (broadcast_width.has_value() && *broadcast_width != layout.width) {
+                            throw LoweringFailure(
+                                "distributed multidimensional index vectors must have matching shapes");
+                        }
+                        broadcast_width = layout.width;
+                    } else {
+                        layout = emit_require_real_complex(
+                            builder, strings, layout, "index must be int or str");
+                        require_scalar(layout, "multidimensional vector index");
+                    }
+                    const auto local = builder.add_borrowed_temporary(layout);
+                    for (std::uint32_t component = layout.width; component > 0; --component) {
+                        emit_store_local_component(builder, local + component - 1u);
+                    }
+                    index_locals.push_back(local);
+                    index_widths.push_back(layout.width);
+                    const auto type = index_expression.find("type");
+                    integral = integral &&
+                        ((type != index_expression.end() && type->second.is_string() &&
+                          type->second.as_string() == "int") || builder.local_is_integral(local));
+                }
+                const std::uint32_t result_width = broadcast_width.value_or(1u);
+                std::vector<ValueLayout> results;
+                results.reserve(result_width);
+                for (std::uint32_t lane = 0; lane < result_width; ++lane) {
+                    emit_load_local_component(
+                        builder,
+                        index_locals.front() + (index_widths.front() > 1 ? lane : 0u));
+                    for (std::size_t index = 1; index < index_locals.size(); ++index) {
+                        emit_push_f64(builder, static_cast<double>(dimensions[index]));
+                        builder.emit({Opcode::MultiplyF64});
+                        emit_load_local_component(
+                            builder,
+                            index_locals[index] + (index_widths[index] > 1 ? lane : 0u));
+                        builder.emit({Opcode::AddF64});
+                    }
+                    const auto flattened = builder.add_borrowed_temporary(
+                        {}, integral ? ValueClass::I64 : ValueClass::F64);
+                    emit_store_local_component(builder, flattened);
+                    emit_load_local_component(builder, flattened);
+                    Instruction load;
+                    load.opcode = Opcode::LoadF64LocalsIndex;
+                    load.index = builder.slot(*fixed_vector_binding, fixed_vector_offset);
+                    load.argument_count = base_layout.width;
+                    load.index_is_integral = integral;
+                    load.index_local = flattened;
+                    load.may_error = true;
+                    const std::string message = "vector index out of range";
+                    load.error_message_offset = strings.intern(message);
+                    load.byte_count = static_cast<std::uint32_t>(message.size());
+                    if (const auto handler = builder.error_handler()) {
+                        load.has_error_handler = true;
+                        load.label = *handler;
+                        load.error_value_local = *builder.error_value_local();
+                        load.error_type_local = *builder.error_type_local();
+                    }
+                    builder.emit(std::move(load));
+                    results.push_back(leaf);
+                }
+                if (result_width == 1u) return leaf;
+                const auto result_layout = layout_from_expression_shape(expression, signatures);
+                if (result_layout.width != result_width || !is_numeric_layout(result_layout)) {
+                    throw LoweringFailure(
+                        "distributed multidimensional index result does not preserve its vector shape");
+                }
+                return result_layout;
+            }
             if (indices.size() > 1 && base_layout.kind == ValueKind::Aggregate &&
-                !is_record_layout(base_layout) && string_field(base, "kind", "fixed vector base") == "load") {
+                !is_record_layout(base_layout) && fixed_vector_binding.has_value()) {
                 std::vector<ValueLayout> elements;
-                const std::string binding = string_field(base, "name", "fixed vector base");
+                const std::string& binding = *fixed_vector_binding;
                 for (const auto& raw_index : indices) {
                     const auto& index = object_of(raw_index, "fixed multi-index");
                     const auto value = index.find("value");
@@ -7337,7 +7839,11 @@ inline ValueLayout lower_expression(
                         value->second.as_number() != static_cast<double>(
                             static_cast<std::uint32_t>(value->second.as_number()))) {
                         throw LoweringFailure(
-                            "fixed multi-index requires nonnegative integer constants");
+                            "fixed multi-index requires nonnegative integer constants "
+                            "(expanded=" + std::to_string(expanded_index_count) +
+                            ", inferred rank=" + std::to_string(inferred_rank) +
+                            ", explicitly nested=" +
+                            std::string(explicitly_nested ? "true" : "false") + ")");
                     }
                     const std::string key = std::to_string(
                         static_cast<std::uint32_t>(value->second.as_number()));
@@ -7345,7 +7851,9 @@ inline ValueLayout lower_expression(
                     if (selected == base_layout.selectors.end()) {
                         throw LoweringFailure("fixed multi-index out of range");
                     }
-                    emit_load_binding(builder, binding, selected->second);
+                    auto selected_slice = selected->second;
+                    selected_slice.offset += fixed_vector_offset;
+                    emit_load_binding(builder, binding, selected_slice);
                     elements.push_back(projected_layout(base_layout, key, selected->second));
                 }
                 return indexed_layout(elements);
@@ -7355,7 +7863,7 @@ inline ValueLayout lower_expression(
                     object_of(indices.front(), "fixed index").end();
             if (base_layout.kind == ValueKind::Aggregate && !is_record_layout(base_layout) &&
                 base_layout.width > 0 && indices.size() == 1 && !constant_index &&
-                string_field(base, "kind", "fixed vector base") == "load" &&
+                fixed_vector_binding.has_value() &&
                 is_numeric_layout(base_layout)) {
                 const auto& index_expression = object_of(indices.front(), "fixed vector index");
                 auto lowered_index = lower_expression(
@@ -7395,7 +7903,7 @@ inline ValueLayout lower_expression(
                     Instruction index;
                     index.opcode = Opcode::LoadF64LocalsIndex;
                     index.index = builder.slot(
-                        string_field(base, "name", "fixed vector base"), base_offset);
+                        *fixed_vector_binding, fixed_vector_offset + base_offset);
                     index.argument_count = count;
                     index.index_is_integral = integral;
                     index.index_local = direct_index_local;
@@ -7568,6 +8076,81 @@ inline ValueLayout lower_expression(
             field(expression, "left", "binary expression"), "left expression");
         const auto& right_expression = object_of(
             field(expression, "right", "binary expression"), "right expression");
+        const std::string result_surface_type = string_field(
+            expression, "type", "binary expression");
+        if (symbolic_expression_surface_type(result_surface_type)) {
+            const auto lower_symbolic_operand = [&](const vf::JsonValue::Object& operand,
+                                                    const std::string& context) {
+                const auto layout = lower_expression(
+                    operand, builder, signatures, strings);
+                if (layout.kind == ValueKind::DynamicF64List) {
+                    if (!expression_produces_owned_f64_list(operand, signatures)) {
+                        builder.emit({Opcode::CloneF64List});
+                    }
+                    return;
+                }
+                require_scalar(layout, context);
+                const auto numeric_value = builder.add_borrowed_temporary(layout);
+                emit_store_local_component(builder, numeric_value);
+                Instruction numeric_tag;
+                numeric_tag.opcode = Opcode::PushF64;
+                numeric_tag.f64 = 2.0;
+                builder.emit(std::move(numeric_tag));
+                emit_load_local_component(builder, numeric_value);
+                Instruction numeric_size;
+                numeric_size.opcode = Opcode::PushF64;
+                numeric_size.f64 = 3.0;
+                builder.emit(std::move(numeric_size));
+                Instruction numeric;
+                numeric.opcode = Opcode::MakeOwnedF64List;
+                numeric.argument_count = 3;
+                builder.emit(std::move(numeric));
+            };
+            lower_symbolic_operand(left_expression, "symbolic left operand");
+            lower_symbolic_operand(right_expression, "symbolic right operand");
+            const ValueLayout symbolic_layout{1, ValueKind::DynamicF64List, {}};
+            const auto right_symbolic = builder.add_borrowed_temporary(symbolic_layout);
+            emit_store_local_component(builder, right_symbolic);
+            const auto left_symbolic = builder.add_borrowed_temporary(symbolic_layout);
+            emit_store_local_component(builder, left_symbolic);
+            emit_load_local_component(builder, left_symbolic);
+            builder.emit({Opcode::CountF64List});
+            emit_load_local_component(builder, right_symbolic);
+            builder.emit({Opcode::CountF64List});
+            builder.emit({Opcode::AddF64});
+            emit_push_f64(builder, 3.0);
+            builder.emit({Opcode::AddF64});
+            const auto subtree_size = builder.add_borrowed_temporary({});
+            emit_store_local_component(builder, subtree_size);
+            emit_load_local_component(builder, left_symbolic);
+            emit_load_local_component(builder, right_symbolic);
+            Instruction join_operands;
+            join_operands.opcode = Opcode::ConcatF64Lists;
+            join_operands.owns_left = true;
+            join_operands.owns_right = true;
+            builder.emit(std::move(join_operands));
+            const auto symbolic_opcode = op == "PLUS" ? 1.0
+                : op == "MINUS" ? 2.0 : op == "STAR" ? 3.0
+                : op == "SLASH" ? 4.0 : op == "CARET" ? 5.0
+                : op == "EQ" || op == "EXACT_EQ" ? 6.0
+                : op == "NE" || op == "NEQ" ? 7.0
+                : op == "LT" ? 8.0 : op == "LE" ? 9.0
+                : op == "GT" ? 10.0 : op == "GE" ? 11.0
+                : op == "AND" ? 12.0 : op == "OR" ? 13.0 : 0.0;
+            emit_push_f64(builder, 3.0);
+            emit_push_f64(builder, symbolic_opcode);
+            emit_load_local_component(builder, subtree_size);
+            Instruction operation;
+            operation.opcode = Opcode::MakeOwnedF64List;
+            operation.argument_count = 3;
+            builder.emit(std::move(operation));
+            Instruction append_operation;
+            append_operation.opcode = Opcode::ConcatF64Lists;
+            append_operation.owns_left = true;
+            append_operation.owns_right = true;
+            builder.emit(std::move(append_operation));
+            return {1, ValueKind::DynamicF64List, {}};
+        }
         const bool structural_arithmetic =
             op == "PLUS" || op == "MINUS" || op == "STAR" || op == "SLASH" ||
             op == "FLOORDIV" || op == "PERCENT" || op == "CARET";
@@ -7665,6 +8248,15 @@ inline ValueLayout lower_expression(
                 layout_from_expression_shape(left_expression, signatures);
             const auto right_shape =
                 layout_from_expression_shape(right_expression, signatures);
+            const std::string left_type = string_field(
+                left_expression, "type", "component-wise left type");
+            const std::string right_type = string_field(
+                right_expression, "type", "component-wise right type");
+            const bool distinct_named_axes =
+                left_type.rfind("axis<", 0) == 0 &&
+                right_type.rfind("axis<", 0) == 0 &&
+                left_type.substr(5, left_type.find('>') - 5) !=
+                    right_type.substr(5, right_type.find('>') - 5);
             const bool left_aggregate =
                 left_shape.kind == ValueKind::Aggregate &&
                 !is_record_layout(left_shape) && is_numeric_layout(left_shape);
@@ -7674,7 +8266,42 @@ inline ValueLayout lower_expression(
             const bool compatible_widths =
                 !left_aggregate || !right_aggregate ||
                 left_shape.width == right_shape.width;
-            if ((left_aggregate || right_aggregate) && compatible_widths &&
+            const auto is_numeric_zero = [](const vf::JsonValue::Object& value) {
+                const auto raw = value.find("value");
+                return string_field(value, "kind", "structural zero") == "const" &&
+                    raw != value.end() && raw->second.is_number() &&
+                    raw->second.as_number() == 0.0;
+            };
+            const auto is_numeric_one = [](const vf::JsonValue::Object& value) {
+                const auto raw = value.find("value");
+                return string_field(value, "kind", "structural one") == "const" &&
+                    raw != value.end() && raw->second.is_number() &&
+                    raw->second.as_number() == 1.0;
+            };
+            if (op == "STAR" && (left_aggregate || right_aggregate) &&
+                ((left_shape.width == 1u && is_numeric_zero(left_expression)) ||
+                 (right_shape.width == 1u && is_numeric_zero(right_expression)))) {
+                const auto result = left_aggregate ? left_shape : right_shape;
+                const auto result_local = builder.add_borrowed_temporary(result);
+                for (std::uint32_t component = 0; component < result.width; ++component) {
+                    emit_push_f64(builder, 0.0);
+                    emit_store_local_component(builder, result_local + component);
+                }
+                for (std::uint32_t component = 0; component < result.width; ++component) {
+                    emit_load_local_component(builder, result_local + component);
+                }
+                return result;
+            }
+            if (op == "STAR" && !distinct_named_axes && compatible_widths &&
+                ((left_aggregate && right_shape.width == 1u &&
+                  is_numeric_one(right_expression)) ||
+                 (right_aggregate && left_shape.width == 1u &&
+                  is_numeric_one(left_expression)))) {
+                return lower_expression(
+                    left_aggregate ? left_expression : right_expression,
+                    builder, signatures, strings);
+            }
+            if (!distinct_named_axes && (left_aggregate || right_aggregate) && compatible_widths &&
                 component_lowering_eligible(left_expression, signatures) &&
                 component_lowering_eligible(right_expression, signatures)) {
                 const auto result =
@@ -8521,20 +9148,6 @@ inline ValueLayout lower_expression(
             if (owns_left) emit_release_layout_local(builder, left_temporary, left);
             if (owns_right) emit_release_layout_local(builder, right_temporary, right);
             return {};
-        }
-        if ((op == "EXACT_EQ" || op == "NE" || op == "NEQ") &&
-            left.kind == ValueKind::Numeric && right.kind == ValueKind::Numeric) {
-            const std::string left_type = string_field(expression, "left_type", "exact scalar equality");
-            const std::string right_type = string_field(expression, "right_type", "exact scalar equality");
-            if (left_type != "any" && right_type != "any" && left_type != right_type) {
-                builder.emit({Opcode::Drop});
-                builder.emit({Opcode::Drop});
-                Instruction result;
-                result.opcode = Opcode::PushF64;
-                result.f64 = op == "EXACT_EQ" ? 0.0 : 1.0;
-                builder.emit(std::move(result));
-                return {};
-            }
         }
         if ((left.kind == ValueKind::Aggregate || right.kind == ValueKind::Aggregate) &&
             is_numeric_layout(left) && is_numeric_layout(right)) {
@@ -9604,6 +10217,111 @@ inline ValueLayout lower_expression(
         const auto structural = expression.find("structural_call");
         if (structural != expression.end() && structural->second.is_boolean() &&
             structural->second.as_boolean()) {
+            std::set<std::size_t> lifted_indices;
+            const auto lifted = expression.find("structural_argument_indices");
+            if (lifted != expression.end() && lifted->second.is_array()) {
+                for (const auto& value : lifted->second.as_array()) {
+                    if (!value.is_number() || value.as_number() < 0) {
+                        throw LoweringFailure("structural argument index must be non-negative");
+                    }
+                    lifted_indices.insert(static_cast<std::size_t>(value.as_number()));
+                }
+            }
+            if (lifted_indices.empty()) lifted_indices.insert(0);
+            if (args.size() > 1) {
+                if (args.size() != signature->second.parameters.size() ||
+                    !array_of(field(expression, "named_args", "structural call"), "structural named args").empty() ||
+                    !array_of(field(expression, "spread_args", "structural call"), "structural spread args").empty()) {
+                    throw LoweringFailure(
+                        "automatic structural calls require positional arguments matching the function arity");
+                }
+                struct StoredStructuralArgument {
+                    std::uint32_t temporary = 0;
+                    ValueLayout layout;
+                };
+                std::vector<StoredStructuralArgument> stored;
+                stored.reserve(args.size());
+                for (const auto& raw_argument : args) {
+                    const auto& argument_expression = object_of(raw_argument, "structural call argument");
+                    const auto layout = lower_expression(
+                        argument_expression, builder, signatures, strings);
+                    const auto temporary = builder.add_borrowed_temporary(layout);
+                    for (std::uint32_t component = layout.width; component > 0; --component) {
+                        emit_store_local_component(builder, temporary + component - 1u);
+                    }
+                    stored.push_back({temporary, layout});
+                }
+                const std::size_t carrier_index = *lifted_indices.begin();
+                if (carrier_index >= stored.size() ||
+                    stored[carrier_index].layout.kind != ValueKind::Aggregate) {
+                    throw LoweringFailure("automatic structural call requires a fixed vector carrier");
+                }
+                const auto structural_paths = structural_paths_from_call(expression);
+                const auto matches = resolve_structural_layout_matches(
+                    stored[carrier_index].layout, structural_paths);
+                if (matches.empty()) {
+                    throw LoweringFailure("automatic structural call found no compatible vector elements");
+                }
+                for (const auto index : lifted_indices) {
+                    if (index >= stored.size() ||
+                        !same_layout(stored[index].layout, stored[carrier_index].layout)) {
+                        throw LoweringFailure(
+                            "lifted structural arguments must have identical fixed vector shapes");
+                    }
+                    for (const auto& match : matches) {
+                        if (!same_layout(match.layout, signature->second.parameters[index])) {
+                            throw LoweringFailure(
+                                "structural compatibility path has the wrong machine layout for " + symbol +
+                                ": expected " + describe_layout(signature->second.parameters[index]) +
+                                ", got " + describe_layout(match.layout));
+                        }
+                    }
+                }
+                const auto result_layout = layout_from_type(
+                    string_field(expression, "type", "structural call"), &signatures);
+                const std::uint64_t produced_width =
+                    static_cast<std::uint64_t>(matches.size()) * signature->second.result.width;
+                if (produced_width != result_layout.width) {
+                    throw LoweringFailure(
+                        "structural result shape does not match compatible vector elements");
+                }
+                for (const auto& match : matches) {
+                    std::uint32_t argument_width = 0;
+                    for (std::size_t index = 0; index < stored.size(); ++index) {
+                        if (lifted_indices.count(index)) {
+                            for (std::uint32_t component = 0; component < match.layout.width; ++component) {
+                                emit_load_local_component(
+                                    builder, stored[index].temporary + match.offset + component);
+                            }
+                            argument_width += match.layout.width;
+                        } else {
+                            for (std::uint32_t component = 0; component < stored[index].layout.width; ++component) {
+                                emit_load_local_component(builder, stored[index].temporary + component);
+                            }
+                            argument_width += stored[index].layout.width;
+                        }
+                    }
+                    Instruction call;
+                    call.opcode = Opcode::Call;
+                    call.argument_count = argument_width;
+                    call.result_count = signature->second.result.width;
+                    call.provided_parameter_mask = signature->second.parameters.size() >= 32
+                        ? 0xffffffffu
+                        : (1u << static_cast<std::uint32_t>(signature->second.parameters.size())) - 1u;
+                    call.symbol = symbol;
+                    call.may_error = signature->second.may_error;
+                    if (call.may_error) {
+                        if (const auto handler = builder.error_handler()) {
+                            call.has_error_handler = true;
+                            call.label = *handler;
+                            call.error_value_local = *builder.error_value_local();
+                            call.error_type_local = *builder.error_type_local();
+                        }
+                    }
+                    builder.emit(std::move(call));
+                }
+                return result_layout;
+            }
             if (args.size() != 1 || signature->second.parameters.size() != 1 ||
                 !array_of(field(expression, "named_args", "structural call"), "structural named args").empty() ||
                 !array_of(field(expression, "spread_args", "structural call"), "structural spread args").empty()) {
@@ -11107,6 +11825,186 @@ inline void lower_statements(
             if (kind == "update_index" && binding_layout.kind == ValueKind::Aggregate &&
                 is_numeric_layout(binding_layout)) {
                 const auto& indices = array_of(field(statement, "indices", "index update"), "index update");
+                std::size_t expanded_index_count = 0;
+                for (const auto& raw_index : indices) {
+                    const auto& index_expression = object_of(
+                        raw_index, "multidimensional update index");
+                    if (string_field(
+                            index_expression, "kind", "multidimensional update index") ==
+                        "spread_index") {
+                        const auto& count = field(
+                            index_expression, "count", "multidimensional update index spill");
+                        if (!count.is_number()) {
+                            throw LoweringFailure(
+                                "multidimensional update index spill requires a numeric width");
+                        }
+                        expanded_index_count += static_cast<std::size_t>(count.as_number());
+                    } else {
+                        ++expanded_index_count;
+                    }
+                }
+                std::size_t binding_rank = 0;
+                ValueLayout rank_element = binding_layout;
+                while (rank_element.kind == ValueKind::Aggregate) {
+                    const auto rank_elements = indexed_element_layouts(rank_element);
+                    if (rank_elements.empty() || std::any_of(
+                            rank_elements.begin(), rank_elements.end(), [&](const auto& candidate) {
+                                return !same_layout(candidate, rank_elements.front());
+                            })) {
+                        break;
+                    }
+                    ++binding_rank;
+                    rank_element = rank_elements.front();
+                }
+                if (binding_rank > 1 && expanded_index_count == binding_rank) {
+                    std::vector<std::uint32_t> dimensions;
+                    ValueLayout element = binding_layout;
+                    while (element.kind == ValueKind::Aggregate) {
+                        const auto elements = indexed_element_layouts(element);
+                        if (elements.empty() || std::any_of(
+                                elements.begin(), elements.end(), [&](const auto& candidate) {
+                                    return !same_layout(candidate, elements.front());
+                                })) {
+                            throw LoweringFailure(
+                                "dynamic multidimensional update requires a rectangular vector");
+                        }
+                        dimensions.push_back(static_cast<std::uint32_t>(elements.size()));
+                        element = elements.front();
+                    }
+                    if (dimensions.size() != expanded_index_count ||
+                        element.kind != ValueKind::Numeric || element.width != 1) {
+                        throw LoweringFailure(
+                            "dynamic multidimensional update rank must match a numeric vector: rank " +
+                            std::to_string(dimensions.size()) + ", indices " +
+                            std::to_string(expanded_index_count) + ", layout " +
+                            describe_layout(binding_layout));
+                    }
+                    std::vector<std::uint32_t> index_locals;
+                    std::vector<std::uint32_t> index_widths;
+                    index_locals.reserve(indices.size());
+                    index_widths.reserve(indices.size());
+                    std::optional<ValueLayout> broadcast_layout;
+                    bool integral = true;
+                    for (const auto& raw_index : indices) {
+                        const auto& index_expression = object_of(raw_index, "multidimensional update index");
+                        if (string_field(
+                                index_expression, "kind", "multidimensional update index") ==
+                            "spread_index") {
+                            const auto& spread_value = object_of(
+                                field(index_expression, "value", "multidimensional update index spill"),
+                                "multidimensional update index spill");
+                            const auto spread_layout = lower_expression(
+                                spread_value, builder, signatures, strings);
+                            if (spread_layout.kind != ValueKind::Aggregate ||
+                                !is_numeric_layout(spread_layout)) {
+                                throw LoweringFailure(
+                                    "multidimensional update index spill requires a fixed numeric vector");
+                            }
+                            const auto& count_value = field(
+                                index_expression, "count", "multidimensional update index spill");
+                            const auto count = static_cast<std::uint32_t>(
+                                count_value.as_number());
+                            if (spread_layout.width != count) {
+                                throw LoweringFailure(
+                                    "multidimensional update index spill width does not match its type");
+                            }
+                            const auto local = builder.add_borrowed_temporary(spread_layout);
+                            for (std::uint32_t component = spread_layout.width; component > 0; --component) {
+                                emit_store_local_component(builder, local + component - 1u);
+                            }
+                            for (std::uint32_t component = 0; component < count; ++component) {
+                                index_locals.push_back(local + component);
+                                index_widths.push_back(1u);
+                            }
+                            integral = false;
+                            continue;
+                        }
+                        auto layout = lower_expression(
+                            index_expression, builder, signatures, strings);
+                        if (layout.width > 1) {
+                            if (layout.kind != ValueKind::Aggregate || !is_numeric_layout(layout)) {
+                                throw LoweringFailure(
+                                    "distributed multidimensional update requires fixed numeric index vectors");
+                            }
+                            if (broadcast_layout.has_value() &&
+                                !same_layout(*broadcast_layout, layout)) {
+                                throw LoweringFailure(
+                                    "distributed multidimensional update indices must have matching shapes");
+                            }
+                            broadcast_layout = layout;
+                        } else {
+                            layout = emit_require_real_complex(
+                                builder, strings, layout, "index must be int or str");
+                            require_scalar(layout, "multidimensional vector update index");
+                        }
+                        const auto local = builder.add_borrowed_temporary(layout);
+                        for (std::uint32_t component = layout.width; component > 0; --component) {
+                            emit_store_local_component(builder, local + component - 1u);
+                        }
+                        index_locals.push_back(local);
+                        index_widths.push_back(layout.width);
+                        const auto type = index_expression.find("type");
+                        integral = integral &&
+                            ((type != index_expression.end() && type->second.is_string() &&
+                              type->second.as_string() == "int") || builder.local_is_integral(local));
+                    }
+                    const auto& value_expression = object_of(
+                        field(statement, "value", "multidimensional vector update"),
+                        "multidimensional vector update value");
+                    const auto value_layout = lower_expression(
+                        value_expression, builder, signatures, strings);
+                    if (broadcast_layout.has_value()) {
+                        if (!same_layout(value_layout, *broadcast_layout) ||
+                            !is_numeric_layout(value_layout)) {
+                            throw LoweringFailure(
+                                "distributed multidimensional update values must match the index vector shape");
+                        }
+                    } else {
+                        require_scalar(value_layout, "multidimensional vector update value");
+                    }
+                    const auto value_local = builder.add_borrowed_temporary(value_layout);
+                    for (std::uint32_t component = value_layout.width; component > 0; --component) {
+                        emit_store_local_component(builder, value_local + component - 1u);
+                    }
+                    const std::uint32_t lanes = broadcast_layout.has_value()
+                        ? broadcast_layout->width : 1u;
+                    for (std::uint32_t lane = 0; lane < lanes; ++lane) {
+                        emit_load_local_component(
+                            builder,
+                            index_locals.front() + (index_widths.front() > 1 ? lane : 0u));
+                        for (std::size_t index = 1; index < index_locals.size(); ++index) {
+                            emit_push_f64(builder, static_cast<double>(dimensions[index]));
+                            builder.emit({Opcode::MultiplyF64});
+                            emit_load_local_component(
+                                builder,
+                                index_locals[index] + (index_widths[index] > 1 ? lane : 0u));
+                            builder.emit({Opcode::AddF64});
+                        }
+                        const auto flattened = builder.add_borrowed_temporary(
+                            {}, integral ? ValueClass::I64 : ValueClass::F64);
+                        emit_store_local_component(builder, flattened);
+                        emit_load_local_component(builder, flattened);
+                        emit_load_local_component(builder, value_local + lane);
+                        Instruction update;
+                        update.opcode = Opcode::StoreF64LocalsIndex;
+                        update.index = builder.slot(binding_name);
+                        update.argument_count = binding_layout.width;
+                        update.index_is_integral = integral;
+                        update.index_local = flattened;
+                        update.may_error = true;
+                        const std::string message = "vector index out of range";
+                        update.error_message_offset = strings.intern(message);
+                        update.byte_count = static_cast<std::uint32_t>(message.size());
+                        if (const auto handler = builder.error_handler()) {
+                            update.has_error_handler = true;
+                            update.label = *handler;
+                            update.error_value_local = *builder.error_value_local();
+                            update.error_type_local = *builder.error_type_local();
+                        }
+                        builder.emit(std::move(update));
+                    }
+                    continue;
+                }
                 const bool dynamic_index = indices.size() == 1 && indices.front().is_object() &&
                     object_of(indices.front(), "fixed update index").find("value") ==
                         object_of(indices.front(), "fixed update index").end();
@@ -11905,6 +12803,9 @@ inline Function lower_function(
     FunctionBuilder builder(
         function_name,
         signature != signatures.end() && signature->second.may_error);
+    if (signature != signatures.end()) {
+        builder.set_result_layout(signature->second.result);
+    }
     const auto& params = array_of(field(function, "params", "function"), "function params");
     bool has_defaults = false;
     for (std::size_t index = 0; index < params.size(); ++index) {
@@ -12007,7 +12908,145 @@ using detail::string_field;
 struct AnyFunctionCandidate {
     std::vector<std::size_t> parameter_indices;
     std::map<std::size_t, std::string> symbolic_dimensions;
+    std::set<std::size_t> metatype_parameters;
+    std::map<std::size_t, std::string> named_generic_patterns;
 };
+
+inline bool named_generic_type_variable(const std::string& type) {
+    const std::string value = detail::trim(type);
+    return value.size() == 1 && value.front() >= 'A' && value.front() <= 'Z';
+}
+
+inline bool type_contains_named_generic(const std::string& type) {
+    const std::string value = detail::trim(type);
+    if (named_generic_type_variable(value)) return true;
+    if (value.size() >= 3 && value.front() == '[' && value.back() == ']') {
+        const std::string inside = value.substr(1, value.size() - 2);
+        const auto separator = detail::find_top_level(inside, ':');
+        return type_contains_named_generic(separator == std::string::npos
+            ? inside : inside.substr(0, separator));
+    }
+    if (value.rfind("tuple<", 0) == 0 && value.back() == '>') {
+        for (const auto& item : detail::split_top_level(
+                 value.substr(6, value.size() - 7), ',')) {
+            if (type_contains_named_generic(item)) return true;
+        }
+    }
+    if (value.rfind("record{", 0) == 0 && value.back() == '}') {
+        for (const auto& field : detail::split_top_level(
+                 value.substr(7, value.size() - 8), ',')) {
+            const auto separator = detail::find_top_level(field, ':');
+            if (separator != std::string::npos &&
+                type_contains_named_generic(field.substr(separator + 1))) return true;
+        }
+    }
+    if (value.rfind("list<", 0) == 0 && value.back() == '>') {
+        return type_contains_named_generic(value.substr(5, value.size() - 6));
+    }
+    if (value.rfind("multiset<", 0) == 0 && value.back() == '>') {
+        return type_contains_named_generic(value.substr(9, value.size() - 10));
+    }
+    if (value.size() >= 3 && value.front() == '{' && value.back() == '}') {
+        return type_contains_named_generic(value.substr(1, value.size() - 2));
+    }
+    return false;
+}
+
+inline bool bind_named_generic_types(
+    const std::string& pattern_text,
+    const std::string& concrete_text,
+    std::map<std::string, std::string>& bindings
+) {
+    const std::string pattern = detail::trim(pattern_text);
+    const std::string concrete = detail::trim(concrete_text);
+    if (named_generic_type_variable(pattern)) {
+        const auto found = bindings.find(pattern);
+        if (found != bindings.end()) return found->second == concrete;
+        bindings[pattern] = concrete;
+        return true;
+    }
+    if (pattern.size() >= 3 && concrete.size() >= 3 &&
+        pattern.front() == '[' && pattern.back() == ']' &&
+        concrete.front() == '[' && concrete.back() == ']') {
+        const std::string pattern_inside = pattern.substr(1, pattern.size() - 2);
+        const std::string concrete_inside = concrete.substr(1, concrete.size() - 2);
+        const auto pattern_separator = detail::find_top_level(pattern_inside, ':');
+        const auto concrete_separator = detail::find_top_level(concrete_inside, ':');
+        return bind_named_generic_types(
+            pattern_separator == std::string::npos
+                ? pattern_inside : pattern_inside.substr(0, pattern_separator),
+            concrete_separator == std::string::npos
+                ? concrete_inside : concrete_inside.substr(0, concrete_separator),
+            bindings);
+    }
+    if (pattern.rfind("tuple<", 0) == 0 && pattern.back() == '>' &&
+        concrete.rfind("tuple<", 0) == 0 && concrete.back() == '>') {
+        const auto patterns = detail::split_top_level(
+            pattern.substr(6, pattern.size() - 7), ',');
+        const auto concretes = detail::split_top_level(
+            concrete.substr(6, concrete.size() - 7), ',');
+        if (patterns.size() != concretes.size()) return false;
+        for (std::size_t index = 0; index < patterns.size(); ++index) {
+            if (!bind_named_generic_types(patterns[index], concretes[index], bindings)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (pattern.rfind("record{", 0) == 0 && pattern.back() == '}' &&
+        concrete.rfind("record{", 0) == 0 && concrete.back() == '}') {
+        auto patterns = detail::split_top_level(
+            pattern.substr(7, pattern.size() - 8), ',');
+        auto concretes = detail::split_top_level(
+            concrete.substr(7, concrete.size() - 8), ',');
+        const auto remove_empty = [](std::vector<std::string>& fields) {
+            fields.erase(std::remove_if(fields.begin(), fields.end(),
+                [](const std::string& field) { return detail::trim(field).empty(); }),
+                fields.end());
+        };
+        remove_empty(patterns);
+        remove_empty(concretes);
+        if (patterns.size() != concretes.size()) return false;
+        for (std::size_t index = 0; index < patterns.size(); ++index) {
+            const auto pattern_separator = detail::find_top_level(patterns[index], ':');
+            const auto concrete_separator = detail::find_top_level(concretes[index], ':');
+            if (pattern_separator == std::string::npos ||
+                concrete_separator == std::string::npos) return false;
+            if (detail::trim(patterns[index].substr(0, pattern_separator)) !=
+                detail::trim(concretes[index].substr(0, concrete_separator))) return false;
+            if (!bind_named_generic_types(
+                    patterns[index].substr(pattern_separator + 1),
+                    concretes[index].substr(concrete_separator + 1), bindings)) return false;
+        }
+        return true;
+    }
+    const auto bind_wrapped = [&](const std::string& prefix) -> std::optional<bool> {
+        if (pattern.rfind(prefix, 0) != 0 || pattern.back() != '>' ||
+            concrete.rfind(prefix, 0) != 0 || concrete.back() != '>') {
+            return std::nullopt;
+        }
+        return bind_named_generic_types(
+            pattern.substr(prefix.size(), pattern.size() - prefix.size() - 1),
+            concrete.substr(prefix.size(), concrete.size() - prefix.size() - 1),
+            bindings);
+    };
+    if (const auto bound = bind_wrapped("list<")) return *bound;
+    if (const auto bound = bind_wrapped("multiset<")) return *bound;
+    if (pattern.size() >= 3 && concrete.rfind("multiset<", 0) == 0 &&
+        pattern.front() == '{' && pattern.back() == '}' && concrete.back() == '>') {
+        return bind_named_generic_types(
+            pattern.substr(1, pattern.size() - 2),
+            concrete.substr(9, concrete.size() - 10), bindings);
+    }
+    if (pattern.size() >= 3 && concrete.size() >= 3 &&
+        pattern.front() == '{' && pattern.back() == '}' &&
+        concrete.front() == '{' && concrete.back() == '}') {
+        return bind_named_generic_types(
+            pattern.substr(1, pattern.size() - 2),
+            concrete.substr(1, concrete.size() - 2), bindings);
+    }
+    return true;
+}
 
 inline std::optional<std::string> symbolic_vector_dimension(const std::string& type) {
     if (type.size() < 5 || type.front() != '[' || type.back() != ']') return std::nullopt;
@@ -12027,7 +13066,11 @@ inline bool concrete_vector_type(const std::string& type) {
     if (type.size() < 5 || type.front() != '[' || type.back() != ']') return false;
     const std::string inside = type.substr(1, type.size() - 2);
     const auto separator = detail::find_top_level(inside, ':');
-    if (separator == std::string::npos) return false;
+    if (separator == std::string::npos) {
+        const std::string element = detail::trim(inside);
+        return !element.empty() &&
+            (element.front() != '[' || concrete_vector_type(element));
+    }
     const std::string shape = detail::trim(inside.substr(separator + 1));
     if (shape.empty() || !std::all_of(shape.begin(), shape.end(), [](unsigned char ch) {
         return std::isdigit(ch);
@@ -12048,16 +13091,18 @@ inline bool bind_symbolic_vector_dimensions(
     const std::string concrete_inside = concrete.substr(1, concrete.size() - 2);
     const auto pattern_separator = detail::find_top_level(pattern_inside, ':');
     const auto concrete_separator = detail::find_top_level(concrete_inside, ':');
-    if (pattern_separator == std::string::npos || concrete_separator == std::string::npos) return false;
+    if (pattern_separator == std::string::npos) return false;
     const std::string pattern_shape = detail::trim(pattern_inside.substr(pattern_separator + 1));
-    const std::string concrete_shape = detail::trim(concrete_inside.substr(concrete_separator + 1));
+    const std::string concrete_shape = concrete_separator == std::string::npos
+        ? std::string{}
+        : detail::trim(concrete_inside.substr(concrete_separator + 1));
     const bool symbolic = !pattern_shape.empty() &&
         (std::isalpha(static_cast<unsigned char>(pattern_shape.front())) || pattern_shape.front() == '_') &&
         std::all_of(pattern_shape.begin() + 1, pattern_shape.end(), [](unsigned char ch) {
             return std::isalnum(ch) || ch == '_';
         });
     if (symbolic) {
-        if (concrete_shape.empty() ||
+        if (!concrete_shape.empty() &&
             !std::all_of(concrete_shape.begin(), concrete_shape.end(), [](unsigned char ch) {
                 return std::isdigit(ch);
             })) return false;
@@ -12068,10 +13113,14 @@ inline bool bind_symbolic_vector_dimensions(
         return false;
     }
     const std::string pattern_element = detail::trim(pattern_inside.substr(0, pattern_separator));
-    const std::string concrete_element = detail::trim(concrete_inside.substr(0, concrete_separator));
+    const std::string concrete_element = detail::trim(
+        concrete_separator == std::string::npos
+            ? concrete_inside
+            : concrete_inside.substr(0, concrete_separator));
     if (!pattern_element.empty() && pattern_element.front() == '[') {
         return bind_symbolic_vector_dimensions(pattern_element, concrete_element, dimensions);
     }
+    if (named_generic_type_variable(pattern_element)) return true;
     return pattern_element == concrete_element;
 }
 
@@ -12326,15 +13375,58 @@ inline std::optional<std::string> call_specialization_key(
     const auto& spread = array_of(field(call, "spread_args", "specialized call"), "specialized spread args");
     if (!named.empty() || !spread.empty()) return std::nullopt;
     const auto& args = array_of(field(call, "args", "specialized call"), "specialized args");
+    const auto specialization_types = call.find("specialization_arg_types");
     std::string key;
     for (const auto index : candidate.parameter_indices) {
         if (index >= args.size()) return std::nullopt;
-        if (candidate.symbolic_dimensions.count(index)) {
-            if (!args[index].is_object()) return std::nullopt;
-            const auto type = args[index].as_object().find("type");
-            if (type == args[index].as_object().end() || !type->second.is_string() ||
-                !concrete_vector_type(type->second.as_string())) return std::nullopt;
-            key += "type:" + type->second.as_string() + "|";
+        if (candidate.named_generic_patterns.count(index)) {
+            std::string concrete;
+            if (specialization_types != call.end() && specialization_types->second.is_array() &&
+                index < specialization_types->second.as_array().size() &&
+                specialization_types->second.as_array()[index].is_string()) {
+                concrete = specialization_types->second.as_array()[index].as_string();
+            } else {
+                if (!args[index].is_object()) return std::nullopt;
+                const auto type = args[index].as_object().find("type");
+                if (type == args[index].as_object().end() || !type->second.is_string()) {
+                    return std::nullopt;
+                }
+                concrete = type->second.as_string();
+            }
+            key += "generic:" + concrete + "|";
+        } else if (candidate.metatype_parameters.count(index)) {
+            std::string concrete;
+            if (specialization_types != call.end() && specialization_types->second.is_array() &&
+                index < specialization_types->second.as_array().size() &&
+                specialization_types->second.as_array()[index].is_string()) {
+                concrete = specialization_types->second.as_array()[index].as_string();
+            } else {
+                if (!args[index].is_object()) return std::nullopt;
+                const auto type = args[index].as_object().find("type");
+                if (type == args[index].as_object().end() || !type->second.is_string()) {
+                    return std::nullopt;
+                }
+                concrete = type->second.as_string();
+            }
+            if (concrete.rfind("type<", 0) != 0 || concrete.back() != '>') {
+                return std::nullopt;
+            }
+            key += "type:" + concrete + "|";
+        } else if (candidate.symbolic_dimensions.count(index)) {
+            std::string concrete;
+            if (specialization_types != call.end() && specialization_types->second.is_array() &&
+                index < specialization_types->second.as_array().size() &&
+                specialization_types->second.as_array()[index].is_string()) {
+                concrete = specialization_types->second.as_array()[index].as_string();
+            } else {
+                if (!args[index].is_object()) return std::nullopt;
+                const auto type = args[index].as_object().find("type");
+                if (type == args[index].as_object().end() || !type->second.is_string()) return std::nullopt;
+                concrete = type->second.as_string();
+            }
+            if (!concrete_vector_type(concrete) &&
+                !detail::is_explicit_dynamic_f64_list_type(concrete)) return std::nullopt;
+            key += "type:" + concrete + "|";
         } else {
             key += specialization_shape_key(args[index]) + "|";
         }
@@ -12368,7 +13460,11 @@ inline void collect_any_call_shapes(
                 if (candidate != candidates.end()) {
                     const auto key = call_specialization_key(object, candidate->second);
                     if (key) shapes[candidate->first].insert(*key);
-                    else if (candidate->second.symbolic_dimensions.empty()) unsafe.insert(candidate->first);
+                    else if (candidate->second.symbolic_dimensions.empty() &&
+                             candidate->second.named_generic_patterns.empty() &&
+                             candidate->second.metatype_parameters.empty()) {
+                        unsafe.insert(candidate->first);
+                    }
                 }
             }
         }
@@ -12434,14 +13530,24 @@ inline std::optional<vf::JsonValue> specialize_any_function_calls(const vf::Json
             const auto& parameter = object_of(params->second.as_array()[index], "specialized parameter");
             const std::string parameter_type = string_field(
                 parameter, "type", "specialized parameter");
+            bool specializes = false;
             if (parameter_type == "any" || parameter_type == "{str}" ||
                 parameter_type == "multiset<str>") {
-                candidate.parameter_indices.push_back(index);
+                specializes = true;
+            }
+            if (parameter_type == "type") {
+                specializes = true;
+                candidate.metatype_parameters.insert(index);
+            }
+            if (type_contains_named_generic(parameter_type)) {
+                specializes = true;
+                candidate.named_generic_patterns[index] = parameter_type;
             }
             if (const auto dimension = symbolic_vector_dimension(parameter_type)) {
-                candidate.parameter_indices.push_back(index);
+                specializes = true;
                 candidate.symbolic_dimensions[index] = *dimension;
             }
+            if (specializes) candidate.parameter_indices.push_back(index);
         }
         if (!candidate.parameter_indices.empty()) candidates[name->second.as_string()] = std::move(candidate);
     }
@@ -12453,7 +13559,11 @@ inline std::optional<vf::JsonValue> specialize_any_function_calls(const vf::Json
         const auto candidate = candidates.find(name);
         const bool symbolic = candidate != candidates.end() &&
             !candidate->second.symbolic_dimensions.empty();
-        if ((!symbolic && keys.size() < 2) || unsafe.count(name)) continue;
+        const bool metatype = candidate != candidates.end() &&
+            !candidate->second.metatype_parameters.empty();
+        const bool named_generic = candidate != candidates.end() &&
+            !candidate->second.named_generic_patterns.empty();
+        if ((!symbolic && !metatype && !named_generic && keys.size() < 2) || unsafe.count(name)) continue;
         for (const auto& key : keys) {
             variants[name][key] = name + "$vkf$" + std::to_string(specialization_key_hash(key));
         }
@@ -12498,14 +13608,34 @@ inline std::optional<vf::JsonValue> specialize_any_function_calls(const vf::Json
             if (existing_function_names.count(variant_name)) continue;
             vf::JsonValue clone = statement_value;
             std::map<std::string, std::string> dimensions;
+            std::map<std::string, std::string> named_types;
+            std::map<std::size_t, std::string> concrete_parameter_types;
             std::size_t key_start = 0;
             for (const auto parameter_index : candidate.parameter_indices) {
                 const auto key_end = key.find('|', key_start);
                 if (key_end == std::string::npos) break;
                 const std::string component = key.substr(key_start, key_end - key_start);
                 const auto symbolic = candidate.symbolic_dimensions.find(parameter_index);
-                if (symbolic != candidate.symbolic_dimensions.end() && component.rfind("type:", 0) == 0) {
+                const auto generic = candidate.named_generic_patterns.find(parameter_index);
+                if (generic != candidate.named_generic_patterns.end() &&
+                    component.rfind("generic:", 0) == 0) {
+                    const std::string concrete = component.substr(8);
+                    concrete_parameter_types[parameter_index] = concrete;
+                    if (!bind_named_generic_types(generic->second, concrete, named_types)) {
+                        throw LoweringFailure("inconsistent named generic specialization");
+                    }
+                    if (symbolic != candidate.symbolic_dimensions.end() &&
+                        !bind_symbolic_vector_dimensions(
+                            generic->second, concrete, dimensions)) {
+                        throw LoweringFailure("inconsistent generic vector dimension specialization");
+                    }
+                } else if (candidate.metatype_parameters.count(parameter_index) &&
+                    component.rfind("type:type<", 0) == 0 && component.back() == '>') {
+                    concrete_parameter_types[parameter_index] = component.substr(5);
+                } else if (symbolic != candidate.symbolic_dimensions.end() &&
+                           component.rfind("type:", 0) == 0) {
                     const std::string concrete = component.substr(5);
+                    concrete_parameter_types[parameter_index] = concrete;
                     const auto& parameters = statement_value.as_object().at("params").as_array();
                     const std::string pattern = string_field(
                         object_of(parameters[parameter_index], "specialized parameter"),
@@ -12516,26 +13646,71 @@ inline std::optional<vf::JsonValue> specialize_any_function_calls(const vf::Json
                 }
                 key_start = key_end + 1;
             }
-            const auto replace_type_dimensions = [&](std::string type) {
-                std::string result;
-                for (std::size_t index = 0; index < type.size();) {
-                    if (std::isalpha(static_cast<unsigned char>(type[index])) || type[index] == '_') {
-                        std::size_t end = index + 1;
-                        while (end < type.size() &&
-                               (std::isalnum(static_cast<unsigned char>(type[end])) || type[end] == '_')) ++end;
-                        const std::string token = type.substr(index, end - index);
-                        const auto replacement = dimensions.find(token);
-                        result += replacement == dimensions.end() ? token : replacement->second;
-                        index = end;
-                    } else {
-                        result.push_back(type[index++]);
+            const auto replace_type_dimensions = [&](const auto& self, std::string type) -> std::string {
+                type = detail::trim(type);
+                if (const auto replacement = named_types.find(type);
+                    replacement != named_types.end()) {
+                    return replacement->second;
+                }
+                if (type.size() >= 3 && type.front() == '[' && type.back() == ']') {
+                    const std::string inside = type.substr(1, type.size() - 2);
+                    const auto separator = detail::find_top_level(inside, ':');
+                    if (separator == std::string::npos) {
+                        return "[" + self(self, inside) + "]";
+                    }
+                    const std::string element = self(self, inside.substr(0, separator));
+                    std::string shape = detail::trim(inside.substr(separator + 1));
+                    if (const auto replacement = dimensions.find(shape);
+                        replacement != dimensions.end()) {
+                        shape = replacement->second;
+                    }
+                    return "[" + element + (shape.empty() ? "" : ":" + shape) + "]";
+                }
+                if (type.rfind("tuple<", 0) == 0 && type.back() == '>') {
+                    const auto items = detail::split_top_level(
+                        type.substr(6, type.size() - 7), ',');
+                    std::string result = "tuple<";
+                    for (std::size_t index = 0; index < items.size(); ++index) {
+                        if (index != 0) result += ",";
+                        result += self(self, items[index]);
+                    }
+                    return result + ">";
+                }
+                if (type.rfind("record{", 0) == 0 && type.back() == '}') {
+                    const auto fields = detail::split_top_level(
+                        type.substr(7, type.size() - 8), ',');
+                    std::string result = "record{";
+                    for (std::size_t index = 0; index < fields.size(); ++index) {
+                        const auto separator = detail::find_top_level(fields[index], ':');
+                        if (separator == std::string::npos) return type;
+                        if (index != 0) result += ",";
+                        result += detail::trim(fields[index].substr(0, separator)) + ":" +
+                            self(self, fields[index].substr(separator + 1));
+                    }
+                    return result + "}";
+                }
+                if (type.rfind("list<", 0) == 0 && type.back() == '>') {
+                    return "list<" + self(self, type.substr(5, type.size() - 6)) + ">";
+                }
+                if (type.rfind("multiset<", 0) == 0 && type.back() == '>') {
+                    return "multiset<" + self(self, type.substr(9, type.size() - 10)) + ">";
+                }
+                if (type.size() >= 3 && type.front() == '{' && type.back() == '}') {
+                    return "{" + self(self, type.substr(1, type.size() - 2)) + "}";
+                }
+                if (type.rfind("axis<", 0) == 0) {
+                    const auto separator = type.find(">:");
+                    if (separator != std::string::npos) {
+                        return type.substr(0, separator + 2) +
+                            self(self, type.substr(separator + 2));
                     }
                 }
-                return result;
+                return type;
             };
             const auto substitute_types = [&](const auto& self, vf::JsonValue& value, bool type_context) -> void {
                 if (value.is_string()) {
-                    if (type_context) value = vf::JsonValue(replace_type_dimensions(value.as_string()));
+                    if (type_context) value = vf::JsonValue(
+                        replace_type_dimensions(replace_type_dimensions, value.as_string()));
                     return;
                 }
                 if (value.is_array()) {
@@ -12547,12 +13722,63 @@ inline std::optional<vf::JsonValue> specialize_any_function_calls(const vf::Json
                     const bool child_type_context = field_name == "type" || field_name == "left_type" ||
                         field_name == "right_type" || field_name == "operand_type" ||
                         field_name == "callee_type" || field_name == "return_type" ||
+                        field_name == "representation_type" ||
                         field_name == "element_type" || field_name == "arg_types" ||
+                        field_name == "specialization_arg_types" ||
                         (type_context && field_name != "name");
                     self(self, child, child_type_context);
                 }
             };
             substitute_types(substitute_types, clone, false);
+            auto& cloned_parameters = clone.as_object().at("params").as_array();
+            for (const auto& [parameter_index, concrete] : concrete_parameter_types) {
+                if (parameter_index < cloned_parameters.size()) {
+                    cloned_parameters[parameter_index].as_object()["type"] = vf::JsonValue(concrete);
+                }
+            }
+            std::map<std::string, std::string> metatype_callees;
+            for (const auto parameter_index : candidate.metatype_parameters) {
+                const auto concrete = concrete_parameter_types.find(parameter_index);
+                if (concrete == concrete_parameter_types.end() ||
+                    concrete->second.rfind("type<", 0) != 0 ||
+                    concrete->second.back() != '>' || parameter_index >= cloned_parameters.size()) {
+                    continue;
+                }
+                const auto& parameter = object_of(
+                    cloned_parameters[parameter_index], "specialized metatype parameter");
+                metatype_callees[string_field(
+                    parameter, "name", "specialized metatype parameter")] =
+                    concrete->second.substr(5, concrete->second.size() - 6);
+            }
+            const auto rewrite_metatype_calls = [&](const auto& self, vf::JsonValue& value) -> void {
+                if (value.is_array()) {
+                    for (auto& item : value.as_array()) self(self, item);
+                    return;
+                }
+                if (!value.is_object()) return;
+                auto& object = value.as_object();
+                for (auto& [field_name, child] : object) {
+                    if (field_name != "callee") self(self, child);
+                }
+                const auto kind = object.find("kind");
+                const auto callee = object.find("callee");
+                if (kind == object.end() || !kind->second.is_string() ||
+                    kind->second.as_string() != "call" || callee == object.end() ||
+                    !callee->second.is_object()) return;
+                auto& callee_object = callee->second.as_object();
+                const auto callee_kind = callee_object.find("kind");
+                const auto callee_name = callee_object.find("name");
+                if (callee_kind == callee_object.end() || !callee_kind->second.is_string() ||
+                    callee_kind->second.as_string() != "load" ||
+                    callee_name == callee_object.end() || !callee_name->second.is_string()) return;
+                const auto target = metatype_callees.find(callee_name->second.as_string());
+                if (target == metatype_callees.end()) return;
+                callee_object["name"] = vf::JsonValue(target->second);
+                callee_object["type"] = vf::JsonValue("fn(any)->" + target->second);
+                object["callee_type"] = vf::JsonValue("fn(any)->" + target->second);
+                object["type"] = vf::JsonValue(target->second);
+            };
+            rewrite_metatype_calls(rewrite_metatype_calls, clone);
             clone.as_object()["name"] = variant_name;
             rewritten_body.push_back(std::move(clone));
             existing_function_names.insert(variant_name);
@@ -13459,6 +14685,14 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                 field(statement, "type_annotation", "type alias"), "type alias annotation");
             signatures.type_aliases[string_field(statement, "name", "type alias")] =
                 string_field(annotation, "name", "type alias annotation");
+        } else if (kind == "function") {
+            const auto nominal = statement.find("nominal_type");
+            const auto representation = statement.find("representation_type");
+            if (nominal != statement.end() && nominal->second.is_string() &&
+                representation != statement.end() && representation->second.is_string()) {
+                signatures.type_aliases[nominal->second.as_string()] =
+                    representation->second.as_string();
+            }
         } else if (kind == "store_binding") {
             const auto& value_expression = object_of(
                 field(statement, "value", "top-level binding"), "top-level binding value");
@@ -13523,9 +14757,11 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                 } else {
                     if (inferred_parameter && complex_capable_fixed_vector) {
                         auto parameter_layout = explicit_parameter_layout;
-                        merge_inferred_layout(
-                            parameter_layout,
-                            inferred_parameter_layout(statement, signature.parameter_names.back()));
+                        const auto inferred_layout = inferred_parameter_layout(
+                            statement, signature.parameter_names.back());
+                        if (!is_record_layout(inferred_layout)) {
+                            merge_inferred_layout(parameter_layout, inferred_layout);
+                        }
                         signature.parameters.push_back(std::move(parameter_layout));
                     } else {
                         signature.parameters.push_back(
@@ -13548,17 +14784,23 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                     default_value.is_null() ? nullptr : &default_value);
             }
             const std::string return_type = string_field(statement, "return_type", "function");
-            signature.result = layout_from_type(return_type, &signatures);
-            signature.result_display = display_shape_from_type(return_type);
-            signature.result_is_any = return_type == "any" ||
-                return_type == "num" ||
-                (return_type.rfind("[num:", 0) == 0 && return_type.back() == ']') ||
+            const auto representation = statement.find("representation_type");
+            const std::string representation_type =
+                representation != statement.end() && representation->second.is_string()
+                ? representation->second.as_string() : return_type;
+            signature.result = layout_from_type(representation_type, &signatures);
+            signature.result_display = display_shape_from_type(representation_type);
+            signature.result_is_any = representation_type == "any" ||
+                representation_type == "num" ||
+                (representation_type.rfind("[num:", 0) == 0 && representation_type.back() == ']') ||
                 signature.result.kind == ValueKind::StringMultiset ||
-                (return_type.size() >= 5 && return_type.front() == '[' && return_type.back() == ']' &&
-                 return_type.rfind(':') != std::string::npos &&
+                (representation_type.size() >= 5 && representation_type.front() == '[' &&
+                 representation_type.back() == ']' &&
+                 representation_type.rfind(':') != std::string::npos &&
                  !std::all_of(
-                    return_type.begin() + static_cast<std::ptrdiff_t>(return_type.rfind(':') + 1),
-                    return_type.end() - 1,
+                    representation_type.begin() + static_cast<std::ptrdiff_t>(
+                        representation_type.rfind(':') + 1),
+                    representation_type.end() - 1,
                     [](unsigned char ch) { return std::isdigit(ch); }));
             if (elementwise_math_function) signature.result_is_any = false;
             signatures[name] = std::move(signature);
@@ -14207,6 +15449,11 @@ inline bool is_small_numeric_inline_candidate(
 
 inline void coalesce_scalar_local_copies(Function& function) {
     using Opcode = vkf::machine_ir::Opcode;
+    // This pass repeatedly scans every instruction for every local. Large
+    // fixed aggregates make that cost dominate compilation while gaining only
+    // a handful of scalar copy removals. Keep it for ordinary functions and
+    // leave large aggregate storage to indexed-addressing optimization.
+    if (function.locals.size() > 4096u || function.instructions.size() > 200000u) return;
     const auto writes_local = [](const Instruction& instruction, std::uint32_t local) {
         if (instruction.opcode == Opcode::StoreLocal) return instruction.index == local;
         return instruction.opcode == Opcode::StoreF64LocalsIndex &&
@@ -14623,7 +15870,20 @@ inline void refresh_integral_fixed_indices(Function& function) {
                 origins.push_back(std::nullopt);
                 break;
             }
+            case Opcode::LoadF64ListIndex: {
+                const auto index = pop_origin();
+                (void)pop_origin();
+                if (!instruction.index_local && index) instruction.index_local = *index;
+                origins.push_back(std::nullopt);
+                break;
+            }
             case Opcode::StoreF64LocalsIndex: {
+                (void)pop_origin();
+                const auto index = pop_origin();
+                if (!instruction.index_local && index) instruction.index_local = *index;
+                break;
+            }
+            case Opcode::StoreF64ListIndex: {
                 (void)pop_origin();
                 const auto index = pop_origin();
                 if (!instruction.index_local && index) instruction.index_local = *index;
@@ -14653,7 +15913,9 @@ inline void refresh_integral_fixed_indices(Function& function) {
     }
     for (auto& instruction : function.instructions) {
         if ((instruction.opcode != Opcode::LoadF64LocalsIndex &&
-             instruction.opcode != Opcode::StoreF64LocalsIndex) ||
+             instruction.opcode != Opcode::StoreF64LocalsIndex &&
+             instruction.opcode != Opcode::LoadF64ListIndex &&
+             instruction.opcode != Opcode::StoreF64ListIndex) ||
             !instruction.index_local ||
             *instruction.index_local >= function.local_classes.size()) {
             continue;
@@ -15069,6 +16331,130 @@ inline void inline_small_numeric_calls(Module& module) {
     for (auto& function : module.functions) inline_calls(function);
 }
 
+// A dynamic-list result has value semantics, so returning a borrowed parameter
+// normally clones the complete list. When the caller immediately discards that
+// result, the clone and its matching release are pure overhead. Build a void
+// specialization of exactly those callees: borrowed returns become a Drop,
+// while genuinely owned returns are still released. Error transport and every
+// side effect in the original function remain intact.
+inline void specialize_discarded_dynamic_list_results(Module& module) {
+    const auto cleanup_opcode = [](Opcode opcode) {
+        return opcode == Opcode::ReleaseF64ListLocal ||
+            opcode == Opcode::ReleaseStringLocal;
+    };
+
+    std::map<std::string, const Function*> dynamic_results;
+    std::set<std::string> existing_names;
+    for (const auto& function : module.functions) {
+        existing_names.insert(function.name);
+        if (function.result_is_dynamic_f64_list) {
+            dynamic_results.emplace(function.name, &function);
+        }
+    }
+
+    std::set<std::string> requested;
+    const auto collect = [&](const Function& caller) {
+        for (std::size_t index = 0; index + 1u < caller.instructions.size(); ++index) {
+            const auto& call = caller.instructions[index];
+            if (call.opcode == Opcode::Call && call.result_count == 1u &&
+                caller.instructions[index + 1u].opcode == Opcode::ReleaseF64ListValue &&
+                dynamic_results.count(call.symbol)) {
+                requested.insert(call.symbol);
+            }
+        }
+    };
+    collect(module.entry);
+    for (const auto& function : module.functions) collect(function);
+    if (requested.empty()) return;
+
+    std::map<std::string, std::string> specialized_names;
+    std::vector<Function> specializations;
+    specializations.reserve(requested.size());
+    for (const auto& name : requested) {
+        std::string specialized = name + "$discard_result";
+        for (std::uint32_t suffix = 2u; existing_names.count(specialized); ++suffix) {
+            specialized = name + "$discard_result_" + std::to_string(suffix);
+        }
+        existing_names.insert(specialized);
+        specialized_names.emplace(name, specialized);
+
+        Function clone = *dynamic_results.at(name);
+        clone.name = specialized;
+        clone.result_is_numeric_scalar = false;
+        clone.result_is_dynamic_f64_list = false;
+
+        std::vector<std::size_t> returns;
+        for (std::size_t index = 0; index < clone.instructions.size(); ++index) {
+            if (clone.instructions[index].opcode == Opcode::ReturnF64) {
+                returns.push_back(index);
+            }
+        }
+        for (auto cursor = returns.rbegin(); cursor != returns.rend(); ++cursor) {
+            std::size_t return_index = *cursor;
+            std::size_t producer_end = return_index;
+            while (producer_end > 0u &&
+                   cleanup_opcode(clone.instructions[producer_end - 1u].opcode)) {
+                --producer_end;
+            }
+            if (producer_end > 0u &&
+                clone.instructions[producer_end - 1u].opcode == Opcode::CloneF64List) {
+                // CloneF64List is stack-neutral. Replacing it with Drop consumes
+                // the borrowed value without freeing the caller-owned storage.
+                clone.instructions[producer_end - 1u] = Instruction{};
+                clone.instructions[producer_end - 1u].opcode = Opcode::Drop;
+            } else {
+                Instruction release;
+                release.opcode = Opcode::ReleaseF64ListValue;
+                clone.instructions.insert(
+                    clone.instructions.begin() +
+                        static_cast<std::ptrdiff_t>(return_index),
+                    std::move(release));
+                ++return_index;
+            }
+            clone.instructions[return_index] = Instruction{};
+            clone.instructions[return_index].opcode = Opcode::ReturnValues;
+            clone.instructions[return_index].result_count = 0u;
+        }
+        specializations.push_back(std::move(clone));
+    }
+
+    module.functions.insert(
+        module.functions.end(),
+        std::make_move_iterator(specializations.begin()),
+        std::make_move_iterator(specializations.end()));
+
+    const auto rewrite = [&](Function& caller) {
+        for (std::size_t index = 0; index < caller.instructions.size();) {
+            if (caller.instructions[index].opcode != Opcode::ReleaseF64ListValue) {
+                ++index;
+                continue;
+            }
+            std::size_t call_position = index;
+            while (call_position > 0u &&
+                   cleanup_opcode(caller.instructions[call_position - 1u].opcode)) {
+                --call_position;
+            }
+            if (call_position == 0u) {
+                ++index;
+                continue;
+            }
+            auto& call = caller.instructions[call_position - 1u];
+            const auto specialized = specialized_names.find(call.symbol);
+            if (call.opcode != Opcode::Call || call.result_count != 1u ||
+                specialized == specialized_names.end()) {
+                ++index;
+                continue;
+            }
+            call.symbol = specialized->second;
+            call.result_count = 0u;
+            caller.instructions.erase(
+                caller.instructions.begin() + static_cast<std::ptrdiff_t>(index));
+        }
+    };
+    rewrite(module.entry);
+    for (auto& function : module.functions) rewrite(function);
+}
+
 inline void propagate_constant_numeric_parameters(Module& module) {
     struct ParameterConstant {
         bool seen = false;
@@ -15080,6 +16466,11 @@ inline void propagate_constant_numeric_parameters(Module& module) {
     for (std::size_t index = 0; index < module.functions.size(); ++index) {
         function_indices.emplace(module.functions[index].name, index);
         constants[index].resize(module.functions[index].parameters.size());
+        for (std::size_t parameter = 0; parameter < constants[index].size(); ++parameter) {
+            constants[index][parameter].valid =
+                parameter < module.functions[index].parameter_is_numeric_scalar.size() &&
+                module.functions[index].parameter_is_numeric_scalar[parameter];
+        }
     }
     const auto inspect_calls = [&](const Function& caller) {
         for (std::size_t position = 0; position < caller.instructions.size(); ++position) {
@@ -15093,6 +16484,19 @@ inline void propagate_constant_numeric_parameters(Module& module) {
                 continue;
             }
             const auto argument_begin = position - call.argument_count;
+            const bool arguments_are_direct_constants = std::all_of(
+                caller.instructions.begin() + static_cast<std::ptrdiff_t>(argument_begin),
+                caller.instructions.begin() + static_cast<std::ptrdiff_t>(position),
+                [](const Instruction& argument) {
+                    return argument.opcode == Opcode::PushF64;
+                });
+            if (!arguments_are_direct_constants) {
+                // Without argument-boundary metadata, a multi-instruction
+                // argument can place an unrelated PushF64 immediately before
+                // the call. Never attribute that constant to another argument.
+                for (auto& parameter : parameters) parameter.valid = false;
+                continue;
+            }
             for (std::size_t parameter = 0; parameter < parameters.size(); ++parameter) {
                 auto& state = parameters[parameter];
                 const auto& argument = caller.instructions[argument_begin + parameter];
@@ -15115,16 +16519,7 @@ inline void propagate_constant_numeric_parameters(Module& module) {
     for (std::size_t function_index = 0; function_index < module.functions.size(); ++function_index) {
         auto& function = module.functions[function_index];
         auto& parameters = constants[function_index];
-        const bool returns_numeric_scalar = std::any_of(
-            function.instructions.begin(), function.instructions.end(),
-            [](const auto& instruction) {
-                return instruction.opcode == Opcode::ReturnF64;
-            }) && std::none_of(
-            function.instructions.begin(), function.instructions.end(),
-            [](const auto& instruction) {
-                return instruction.opcode == Opcode::ReturnValues;
-            });
-        if (!returns_numeric_scalar) continue;
+        if (!function.result_is_numeric_scalar) continue;
         for (std::size_t parameter = 0; parameter < parameters.size(); ++parameter) {
             auto& state = parameters[parameter];
             if (!state.seen || !state.valid) continue;
@@ -15286,6 +16681,10 @@ inline void eliminate_unreferenced_labels(Module& module) {
 }
 
 inline void propagate_constant_numeric_locals(Function& function) {
+    // Like scalar-copy coalescing, this fixed-point scan is profitable for
+    // normal functions but pathological when a large fixed aggregate expands
+    // into thousands of storage locals.
+    if (function.locals.size() > 4096u || function.instructions.size() > 200000u) return;
     for (;;) {
         bool changed = false;
         for (std::uint32_t local = static_cast<std::uint32_t>(
@@ -15660,6 +17059,8 @@ inline Module lower(const vf::JsonValue& typed_ir) {
     refine_machine_error_effects(lowered);
     refine_integral_local_classes(lowered);
     inline_small_numeric_calls(lowered);
+    specialize_discarded_dynamic_list_results(lowered);
+    refine_machine_error_effects(lowered);
     eliminate_identity_local_shuffles(lowered);
     eliminate_discarded_index_assignment_temporaries(lowered);
     eliminate_unreferenced_labels(lowered);

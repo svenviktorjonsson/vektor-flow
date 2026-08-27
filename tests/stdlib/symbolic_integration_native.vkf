@@ -1,0 +1,51 @@
+:.symbolic
+errors: .errors
+
+test symbolic_constant_integrates_to_a_linear_expression() -> bit:
+    x: R
+    (evaluate(integrate(constant(2), x), [3]) = 6)?!
+
+test symbolic_independent_symbol_integrates_as_a_constant_factor() -> bit:
+    x: R
+    y: R
+    (evaluate(integrate(y, x), [4, 3]) = 12)?!
+
+test symbolic_integration_is_linear_over_sums_and_constant_factors() -> bit:
+    x: R
+    integrated: integrate(3 * x + 2, x)
+    (evaluate(integrated, [2]) = 10)?!
+
+test symbolic_reciprocal_integrates_to_logarithm() -> bit:
+    x: R
+    integrated: integrate(3 / x, x)
+    result: evaluate(integrated, [2])
+    (result > 2.0793 /\ result < 2.0795)?!
+
+test symbolic_logarithm_integration_uses_integration_by_parts() -> bit:
+    x: R
+    (evaluate(integrate(log(x), x), [1]) = -1)?!
+
+test symbolic_exponential_is_its_own_integral() -> bit:
+    x: R
+    result: evaluate(integrate(exp(x), x), [1])
+    (result > 2.7182 /\ result < 2.7183)?!
+
+test symbolic_integrate_requires_a_symbol_variable() -> bit:
+    x: R
+    raised: false
+    integrate(x, x + 1)!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_integrate_rejects_shifted_elementary_arguments() -> bit:
+    x: R
+    raised: false
+    integrate(sin(x + 1), x)!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_expanded_polynomial_integrates_in_a_new_variable() -> bit:
+    x: R
+    y: R
+    integrated: integrate(expand(x^2 + 1), y)
+    (evaluate(integrated, [2, 3]) = 15)?!

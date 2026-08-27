@@ -1,0 +1,62 @@
+documented_increment(value:int) -> int:
+    ##
+    Adds one to the supplied value.
+    This text is documentation, not executable VKF.
+    ##
+    value + 1
+
+multiline_comment_is_ignored_inside_function() -> bit:
+    (documented_increment(4) == 5)?!
+
+inline_documented_increment(value:int) -> int:
+    ## Adds two on one row. ##
+    # An ordinary row comment may contain ## without opening a block.
+    value + 2
+
+inline_and_single_line_comments_remain_distinct() -> bit:
+    (inline_documented_increment(4) == 6)?!
+
+compact_multiline_comment_delimiters() -> bit:
+    ### The third hash is comment text, not another delimiter. ##
+    # This complete row is a single-line comment.
+    true?!
+
+dedented_multiline_text() -> str:
+    """
+    alpha
+      beta
+    """
+
+safe_multiline_string_indentation_is_removed() -> bit:
+    (dedented_multiline_text() == "\nalpha\n  beta\n")?!
+
+preserved_multiline_text() -> str:
+    """
+    alpha
+  beta
+    """
+
+content_inside_indentation_region_preserves_all_indentation() -> bit:
+    (preserved_multiline_text() == "\n    alpha\n  beta\n    ")?!
+
+dedented_raw_multiline_text() -> str:
+    '''
+    alpha\n
+      beta
+    '''
+
+raw_multiline_string_uses_the_same_safe_dedent_rule() -> bit:
+    (dedented_raw_multiline_text() == "\nalpha\\n\n  beta\n")?!
+
+multiline_strings_after_bindings_use_the_rows_indentation() -> bit:
+    x: """this is
+    A multi line string
+    And it begins at the start of the resulting row
+    """
+    y: """
+    This also works, retaining the initial newline"""
+    z: """Or this
+    """
+    (x == "this is\nA multi line string\nAnd it begins at the start of the resulting row\n" /\
+     y == "\nThis also works, retaining the initial newline" /\
+     z == "Or this\n")?!

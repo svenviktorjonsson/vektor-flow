@@ -1,0 +1,64 @@
+:.symbolic
+errors: .errors
+
+test symbolic_constant_evaluates_without_variables() -> bit:
+    (evaluate(constant(7.5), []) = 7.5)?!
+
+test symbolic_sine_evaluates_numerically() -> bit:
+    x: R
+    result: evaluate(sin(x), [1])
+    (result > 0.8414 /\ result < 0.8415)?!
+
+test symbolic_cosine_evaluates_numerically() -> bit:
+    x: R
+    result: evaluate(cos(x), [1])
+    (result > 0.5402 /\ result < 0.5404)?!
+
+test symbolic_logarithm_evaluates_numerically() -> bit:
+    x: R
+    result: evaluate(log(x), [2])
+    (result > 0.6931 /\ result < 0.6932)?!
+
+test symbolic_square_root_evaluates_numerically() -> bit:
+    x: R
+    (evaluate(sqrt(x), [9]) = 3)?!
+
+test symbolic_exponential_evaluates_numerically() -> bit:
+    x: R
+    result: evaluate(exp(x), [1])
+    (result > 2.7182 /\ result < 2.7183)?!
+
+test symbolic_derivative_of_independent_expression_is_zero() -> bit:
+    x: R
+    y: R
+    derivative: differentiate(y + constant(4), x)
+    (evaluate(derivative, []) = 0)?!
+
+test symbolic_quotient_rule_evaluates_exactly() -> bit:
+    x: R
+    derivative: differentiate(1 / x, x)
+    (evaluate(derivative, [2]) = -0.25)?!
+
+test symbolic_general_power_rule_handles_variable_exponents() -> bit:
+    x: R
+    result: evaluate(differentiate(x^x, x), [2])
+    (result > 6.7725 /\ result < 6.7727)?!
+
+test symbolic_cosine_derivative_is_negative_sine() -> bit:
+    x: R
+    result: evaluate(differentiate(cos(x), x), [1])
+    (result > -0.8415 /\ result < -0.8414)?!
+
+test symbolic_logarithm_derivative_is_reciprocal() -> bit:
+    x: R
+    (evaluate(differentiate(log(x), x), [4]) = 0.25)?!
+
+test symbolic_square_root_derivative_uses_chain_rule() -> bit:
+    x: R
+    result: evaluate(differentiate(sqrt(x^2 + 1), x), [3])
+    (result > 0.9486 /\ result < 0.9488)?!
+
+test symbolic_exponential_derivative_uses_chain_rule() -> bit:
+    x: R
+    result: evaluate(differentiate(exp(x^2), x), [1])
+    (result > 5.4364 /\ result < 5.4367)?!

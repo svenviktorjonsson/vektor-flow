@@ -1,5 +1,4 @@
-halve(value:num) -> num:
-    value / 2
+halve(value:num) -> num: value / 2
 
-values: [8.0, 3.0, -4.0]
+values: [8, 3, -4]
 :: halve(values)

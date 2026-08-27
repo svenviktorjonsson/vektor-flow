@@ -1,0 +1,6 @@
+# Default physical-unit catalog.
+#
+# `:.physics.units` deliberately selects SI. Other unit systems can be added as
+# sibling catalogs without changing physical dimensions or the physics module.
+
+:.physics.units.si

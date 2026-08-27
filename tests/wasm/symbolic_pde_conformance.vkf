@@ -1,0 +1,18 @@
+:.symbolic
+
+symbolic_pde_wasm_conformance() -> num:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = x^2, x^2 + y^2 = 1)
+    solution: solve(relation, [boundary], f, [x, y])
+    (
+        verify_pde_solution(solution, relation, [boundary], f, [x, y]) /\
+        evaluate(_symbolic_clone(solution), [0, 0]) = 0.5 /\
+        evaluate(_symbolic_clone(solution), [1, 0]) = 1 /\
+        evaluate(solution, [0, 1]) = 0
+    )?
+        @: 1
+    0
+
+:: symbolic_pde_wasm_conformance()

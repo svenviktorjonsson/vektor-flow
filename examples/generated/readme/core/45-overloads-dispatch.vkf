@@ -1,8 +1,6 @@
-describe(value:int) -> str:
-    "integer"
+describe(value:int) -> str: "integer"
 
-describe(value:str) -> str:
-    "text"
+describe(value:str) -> str: "text"
 
 :: describe(3)
 :: describe("three")

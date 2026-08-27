@@ -2,6 +2,7 @@
 #include "compiler/native/vkf_native_frontend.hpp"
 #include "compiler/native/vkf_symbolic_lowering.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
+#include "compiler/native/vkf_physical_dimensions.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -9,6 +10,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -39,11 +41,49 @@ struct FunctionInfo {
     std::vector<bool> variadic_positional;
     std::vector<bool> variadic_named;
     std::string return_type;
+    std::string representation_type;
     std::string signature;
     vf::JsonValue body_ast;
 };
 
 bool structurally_compatible_type(const std::string& actual, const std::string& expected);
+bool named_generic_type_variable(const std::string& type);
+bool collect_named_type_bindings(
+    const std::string& actual,
+    const std::string& pattern,
+    std::map<std::string, std::string>& bindings
+);
+std::optional<std::pair<std::string, std::size_t>>
+fixed_vector_type_descriptor_expansion(
+    const std::string& descriptor_type,
+    const std::string& target_type
+);
+std::optional<std::vector<std::string>> tuple_type_descriptor_expansion(
+    const std::string& descriptor_type,
+    const std::string& target_type
+);
+
+bool is_nominal_constructor_name(const std::string& name) {
+    const auto first_public = std::find_if(
+        name.begin(), name.end(), [](unsigned char ch) { return ch != '_'; });
+    return first_public != name.end() &&
+        std::isupper(static_cast<unsigned char>(*first_public));
+}
+
+bool contains_unresolved_any_type(const std::string& type) {
+    std::size_t cursor = 0;
+    while ((cursor = type.find("any", cursor)) != std::string::npos) {
+        const bool left_boundary = cursor == 0 ||
+            (!std::isalnum(static_cast<unsigned char>(type[cursor - 1])) &&
+             type[cursor - 1] != '_');
+        const std::size_t end = cursor + 3;
+        const bool right_boundary = end == type.size() ||
+            (!std::isalnum(static_cast<unsigned char>(type[end])) && type[end] != '_');
+        if (left_boundary && right_boundary) return true;
+        cursor = end;
+    }
+    return false;
+}
 
 class TypeEnv {
 public:
@@ -180,12 +220,28 @@ public:
                 (!variadic && argument_types.size() > function.param_types.size())) continue;
             int score = 0;
             bool compatible = true;
+            std::map<std::string, std::string> generic_bindings;
             for (std::size_t index = 0;
                  index < argument_types.size() && index < function.param_types.size(); ++index) {
                 const std::string& actual = argument_types[index];
                 const std::string& expected = function.param_types[index];
+                auto candidate_bindings = generic_bindings;
+                if (!collect_named_type_bindings(actual, expected, candidate_bindings)) {
+                    compatible = false;
+                    break;
+                }
+                generic_bindings = std::move(candidate_bindings);
                 if (actual == expected) {
                     score += 100;
+                } else if (named_generic_type_variable(expected)) {
+                    score += 10;
+                } else if (expected == "type" && actual.rfind("type<", 0) == 0 &&
+                           actual.back() == '>') {
+                    score += 90;
+                } else if (fixed_vector_type_descriptor_expansion(actual, expected)) {
+                    score += 20;
+                } else if (tuple_type_descriptor_expansion(actual, expected)) {
+                    score += 20;
                 } else if (expected == "any" || actual == "any") {
                     score += 1;
                 } else if (expected == "num" &&
@@ -378,6 +434,7 @@ bool parse_axis_tagged_type(
     std::string& value_type
 );
 std::string render_surface_type(const std::string& type_name);
+std::string normalize_surface_type_annotation(const std::string& type_name);
 bool try_fold_abs_expr(const vf::JsonValue::Object& object, const TypeEnv& env, vf::JsonValue& out_value);
 bool try_fold_range_expr(const vf::JsonValue::Object& object, vf::JsonValue& out_value);
 bool try_fold_pipe_chain_expr(
@@ -398,32 +455,271 @@ std::string type_annotation_name(const vf::JsonValue& value) {
     if (kind != "type_annotation") {
         throw IRFailure("unsupported type annotation kind " + kind);
     }
-    const std::string name = string_field(object, "name", "type annotation");
-    if (name == "bool") return "bit";
-    if (name.size() >= 2 && name.front() == '(' && name.back() == ')' && name.find(':') != std::string::npos) {
-        return "record{" + name.substr(1, name.size() - 2) + "}";
-    }
-    if (name.size() >= 2 && name.front() == '(' && name.back() == ')' && name.find(',') != std::string::npos) {
-        return "tuple<" + name.substr(1, name.size() - 2) + ">";
-    }
-    return name;
+    return normalize_surface_type_annotation(
+        string_field(object, "name", "type annotation"));
+}
+
+vf::JsonValue int_const(double value) {
+    auto out = node("const");
+    out["type"] = vf::JsonValue("int");
+    out["value"] = vf::JsonValue(value);
+    return vf::JsonValue(std::move(out));
 }
 
 std::vector<std::string> split_top_level_type_parts(const std::string& text) {
     std::vector<std::string> parts;
     std::size_t start = 0;
-    int depth = 0;
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    int brace_depth = 0;
+    int angle_depth = 0;
     for (std::size_t index = 0; index < text.size(); ++index) {
         const char ch = text[index];
-        if (ch == '(' || ch == '[' || ch == '{' || ch == '<') ++depth;
-        if (ch == ')' || ch == ']' || ch == '}' || ch == '>') --depth;
-        if (ch == ',' && depth == 0) {
+        if (ch == '(') ++paren_depth;
+        else if (ch == ')') --paren_depth;
+        else if (ch == '[') ++bracket_depth;
+        else if (ch == ']') --bracket_depth;
+        else if (ch == '{') ++brace_depth;
+        else if (ch == '}') --brace_depth;
+        else if (ch == '<') ++angle_depth;
+        else if (ch == '>' && (index == 0 || text[index - 1] != '-') && angle_depth > 0) {
+            --angle_depth;
+        }
+        if (ch == ',' && paren_depth == 0 && bracket_depth == 0 &&
+            brace_depth == 0 && angle_depth == 0) {
             parts.push_back(text.substr(start, index - start));
             start = index + 1;
         }
     }
     parts.push_back(text.substr(start));
     return parts;
+}
+
+namespace {
+
+bool surface_type_is_wrapped(const std::string& text, char open, char close) {
+    if (text.size() < 2 || text.front() != open || text.back() != close) return false;
+    int depth = 0;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        if (text[index] == open) ++depth;
+        else if (text[index] == close) {
+            --depth;
+            if (depth == 0 && index + 1 != text.size()) return false;
+        }
+    }
+    return depth == 0;
+}
+
+std::size_t surface_type_top_level_arrow(const std::string& text) {
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    int brace_depth = 0;
+    int angle_depth = 0;
+    for (std::size_t index = 0; index + 1 < text.size(); ++index) {
+        const char ch = text[index];
+        if (ch == '-' && text[index + 1] == '>' && paren_depth == 0 &&
+            bracket_depth == 0 && brace_depth == 0 && angle_depth == 0) {
+            return index;
+        }
+        if (ch == '(') ++paren_depth;
+        else if (ch == ')') --paren_depth;
+        else if (ch == '[') ++bracket_depth;
+        else if (ch == ']') --bracket_depth;
+        else if (ch == '{') ++brace_depth;
+        else if (ch == '}') --brace_depth;
+        else if (ch == '<') ++angle_depth;
+        else if (ch == '>' && (index == 0 || text[index - 1] != '-') && angle_depth > 0) {
+            --angle_depth;
+        }
+    }
+    return std::string::npos;
+}
+
+std::size_t surface_type_top_level_colon(const std::string& text) {
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    int brace_depth = 0;
+    int angle_depth = 0;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        const char ch = text[index];
+        if (ch == ':' && paren_depth == 0 && bracket_depth == 0 &&
+            brace_depth == 0 && angle_depth == 0) {
+            return index;
+        }
+        if (ch == '(') ++paren_depth;
+        else if (ch == ')') --paren_depth;
+        else if (ch == '[') ++bracket_depth;
+        else if (ch == ']') --bracket_depth;
+        else if (ch == '{') ++brace_depth;
+        else if (ch == '}') --brace_depth;
+        else if (ch == '<') ++angle_depth;
+        else if (ch == '>' && (index == 0 || text[index - 1] != '-') && angle_depth > 0) {
+            --angle_depth;
+        }
+    }
+    return std::string::npos;
+}
+
+std::size_t surface_type_top_level_comma(const std::string& text) {
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    int brace_depth = 0;
+    int angle_depth = 0;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        const char ch = text[index];
+        if (ch == ',' && paren_depth == 0 && bracket_depth == 0 &&
+            brace_depth == 0 && angle_depth == 0) {
+            return index;
+        }
+        if (ch == '(') ++paren_depth;
+        else if (ch == ')') --paren_depth;
+        else if (ch == '[') ++bracket_depth;
+        else if (ch == ']') --bracket_depth;
+        else if (ch == '{') ++brace_depth;
+        else if (ch == '}') --brace_depth;
+        else if (ch == '<') ++angle_depth;
+        else if (ch == '>' && (index == 0 || text[index - 1] != '-') && angle_depth > 0) {
+            --angle_depth;
+        }
+    }
+    return std::string::npos;
+}
+
+std::string normalize_non_function_surface_type(const std::string& type_name) {
+    if (type_name == "bool") return "bit";
+    if (type_name.empty() || starts_with(type_name, "fn(")) return type_name;
+
+    if (starts_with(type_name, "tuple<") && type_name.back() == '>') {
+        const auto parts = split_top_level_type_parts(
+            type_name.substr(6, type_name.size() - 7));
+        std::string out = "tuple<";
+        bool first = true;
+        for (const auto& part : parts) {
+            if (part.empty()) continue;
+            if (!first) out += ',';
+            first = false;
+            out += normalize_surface_type_annotation(part);
+        }
+        return out + ">";
+    }
+    if (starts_with(type_name, "record{") && type_name.back() == '}') {
+        const auto parts = split_top_level_type_parts(
+            type_name.substr(7, type_name.size() - 8));
+        std::string out = "record{";
+        bool first = true;
+        for (const auto& part : parts) {
+            if (part.empty()) continue;
+            const auto colon = surface_type_top_level_colon(part);
+            if (!first) out += ',';
+            first = false;
+            out += colon == std::string::npos
+                ? part
+                : part.substr(0, colon) + ":" +
+                    normalize_surface_type_annotation(part.substr(colon + 1));
+        }
+        return out + "}";
+    }
+    if (starts_with(type_name, "list<") && type_name.back() == '>') {
+        return "list<" + normalize_surface_type_annotation(
+            type_name.substr(5, type_name.size() - 6)) + ">";
+    }
+    if (starts_with(type_name, "multiset<") && type_name.back() == '>') {
+        return "multiset<" + normalize_surface_type_annotation(
+            type_name.substr(9, type_name.size() - 10)) + ">";
+    }
+    if (surface_type_is_wrapped(type_name, '[', ']')) {
+        const std::string inner = type_name.substr(1, type_name.size() - 2);
+        const auto colon = surface_type_top_level_colon(inner);
+        return "[" + normalize_surface_type_annotation(
+            colon == std::string::npos ? inner : inner.substr(0, colon)) +
+            (colon == std::string::npos ? "" : inner.substr(colon)) + "]";
+    }
+    if (surface_type_is_wrapped(type_name, '{', '}')) {
+        return "{" + normalize_surface_type_annotation(
+            type_name.substr(1, type_name.size() - 2)) + "}";
+    }
+    if (surface_type_is_wrapped(type_name, '(', ')')) {
+        const std::string inner = type_name.substr(1, type_name.size() - 2);
+        const auto parts = split_top_level_type_parts(inner);
+        const bool has_separator = parts.size() > 1;
+        const bool has_fields = surface_type_top_level_colon(inner) != std::string::npos;
+        if (!has_separator && !has_fields) {
+            return normalize_surface_type_annotation(inner);
+        }
+        std::string out = has_fields ? "record{" : "tuple<";
+        bool first = true;
+        for (const auto& part : parts) {
+            if (part.empty()) continue;
+            if (!first) out += ',';
+            first = false;
+            if (has_fields) {
+                const auto colon = surface_type_top_level_colon(part);
+                out += colon == std::string::npos
+                    ? part
+                    : part.substr(0, colon) + ":" +
+                        normalize_surface_type_annotation(part.substr(colon + 1));
+            } else {
+                out += normalize_surface_type_annotation(part);
+            }
+        }
+        return out + (has_fields ? "}" : ">");
+    }
+    return type_name;
+}
+
+}  // namespace
+
+std::string normalize_surface_type_annotation(const std::string& type_name) {
+    if (starts_with(type_name, "fn(")) return type_name;
+    const auto arrow = surface_type_top_level_arrow(type_name);
+    const auto comma = surface_type_top_level_comma(type_name);
+    if (comma != std::string::npos &&
+        (arrow == std::string::npos || comma + 1 != arrow)) {
+        const auto parts = split_top_level_type_parts(type_name);
+        std::string out = "tuple<";
+        bool first = true;
+        for (const auto& part : parts) {
+            if (part.empty()) continue;
+            if (!first) out += ',';
+            first = false;
+            out += normalize_surface_type_annotation(part);
+        }
+        return out + ">";
+    }
+    if (arrow == std::string::npos) {
+        return normalize_non_function_surface_type(type_name);
+    }
+
+    const std::string raw_domain = type_name.substr(0, arrow);
+    const std::string raw_codomain = type_name.substr(arrow + 2);
+    std::vector<std::string> parameters;
+    if (surface_type_is_wrapped(raw_domain, '(', ')')) {
+        const std::string inner = raw_domain.substr(1, raw_domain.size() - 2);
+        const auto parts = split_top_level_type_parts(inner);
+        if (inner.empty()) {
+            parameters.clear();
+        } else if (parts.size() == 2 && parts.back().empty()) {
+            parameters.push_back("tuple<" + normalize_surface_type_annotation(parts.front()) + ">");
+        } else if (parts.size() > 1) {
+            for (const auto& part : parts) {
+                if (!part.empty()) parameters.push_back(normalize_surface_type_annotation(part));
+            }
+        } else {
+            parameters.push_back(normalize_surface_type_annotation(inner));
+        }
+    } else if (!raw_domain.empty() && raw_domain.back() == ',') {
+        parameters.push_back("tuple<" + normalize_surface_type_annotation(
+            raw_domain.substr(0, raw_domain.size() - 1)) + ">");
+    } else {
+        parameters.push_back(normalize_surface_type_annotation(raw_domain));
+    }
+
+    std::string out = "fn(";
+    for (std::size_t index = 0; index < parameters.size(); ++index) {
+        if (index != 0) out += ',';
+        out += parameters[index];
+    }
+    return out + ")->" + normalize_surface_type_annotation(raw_codomain);
 }
 
 std::map<std::string, std::string> record_type_fields(const std::string& type_name) {
@@ -529,21 +825,7 @@ bool type_name_coercible(const std::string& source, const std::string& target) {
 }
 
 std::string canonical_function_type(std::string type) {
-    if (starts_with(type, "fn(")) return type;
-    int depth = 0;
-    for (std::size_t index = 0; index + 1 < type.size(); ++index) {
-        const char ch = type[index];
-        if (ch == '(' || ch == '[' || ch == '{' || ch == '<') ++depth;
-        if (ch == ')' || ch == ']' || ch == '}' || ch == '>') --depth;
-        if (depth == 0 && ch == '-' && type[index + 1] == '>') {
-            std::string domain = type.substr(0, index);
-            if (domain.size() >= 2 && domain.front() == '(' && domain.back() == ')') {
-                domain = domain.substr(1, domain.size() - 2);
-            }
-            return "fn(" + domain + ")->" + type.substr(index + 2);
-        }
-    }
-    return type;
+    return normalize_surface_type_annotation(type);
 }
 
 struct VectorTypeParts {
@@ -577,6 +859,55 @@ bool symbolic_shape_name(const std::string& shape) {
     return std::all_of(shape.begin() + 1, shape.end(), [](unsigned char ch) {
         return std::isalnum(ch) || ch == '_';
     });
+}
+
+std::optional<std::pair<std::string, std::size_t>>
+fixed_vector_type_descriptor_expansion(
+    const std::string& descriptor_type,
+    const std::string& target_type
+) {
+    if (!starts_with(descriptor_type, "type<") || descriptor_type.back() != '>') {
+        return std::nullopt;
+    }
+    const std::string represented = descriptor_type.substr(
+        5, descriptor_type.size() - 6);
+    const auto represented_vector = vector_type_parts(represented);
+    const auto target_vector = vector_type_parts(target_type);
+    if (!represented_vector || !target_vector || target_vector->element != "type" ||
+        !decimal_shape(represented_vector->shape) ||
+        !decimal_shape(target_vector->shape) ||
+        represented_vector->shape != target_vector->shape) {
+        return std::nullopt;
+    }
+    return std::pair<std::string, std::size_t>{
+        represented_vector->element,
+        static_cast<std::size_t>(std::stoull(represented_vector->shape))
+    };
+}
+
+std::optional<std::vector<std::string>> tuple_type_descriptor_expansion(
+    const std::string& descriptor_type,
+    const std::string& target_type
+) {
+    if (!starts_with(descriptor_type, "type<") || descriptor_type.back() != '>') {
+        return std::nullopt;
+    }
+    const std::string represented = descriptor_type.substr(
+        5, descriptor_type.size() - 6);
+    if (!starts_with(represented, "tuple<") || represented.back() != '>' ||
+        !starts_with(target_type, "tuple<") || target_type.back() != '>') {
+        return std::nullopt;
+    }
+    const auto represented_items = split_top_level_type_parts(
+        represented.substr(6, represented.size() - 7));
+    const auto target_items = split_top_level_type_parts(
+        target_type.substr(6, target_type.size() - 7));
+    if (represented_items.size() != target_items.size() ||
+        !std::all_of(target_items.begin(), target_items.end(),
+            [](const std::string& item) { return item == "type"; })) {
+        return std::nullopt;
+    }
+    return represented_items;
 }
 
 std::optional<FixedNumericVectorShape> fixed_numeric_vector_shape(std::string type) {
@@ -660,8 +991,112 @@ std::optional<std::string> maybe_dynamic_list_element_type(const std::string& ty
     return type.substr(5, type.size() - 6);
 }
 
+bool symbolic_expression_type(const std::string& type) {
+    return type == "symbolic" || type == "expression" || type == "symbol" ||
+        type == "constant" || type == "relation" || type == "proposition";
+}
+
+bool symbolic_subtype(const std::string& actual, const std::string& expected) {
+    if (!symbolic_expression_type(actual) || !symbolic_expression_type(expected)) return false;
+    if (actual == expected) return true;
+    if (actual == "symbolic") return true;
+    if (expected == "symbolic" || expected == "expression") return true;
+    if (expected == "proposition" && actual == "relation") return true;
+    if (expected == "symbol" && actual == "constant") return true;
+    return false;
+}
+
+bool named_generic_type_variable(const std::string& type) {
+    return type.size() == 1 && type.front() >= 'A' && type.front() <= 'Z';
+}
+
+bool collect_named_type_bindings(
+    const std::string& actual,
+    const std::string& pattern,
+    std::map<std::string, std::string>& bindings
+) {
+    if (named_generic_type_variable(pattern)) {
+        const auto found = bindings.find(pattern);
+        if (found != bindings.end()) return found->second == actual;
+        bindings[pattern] = actual;
+        return true;
+    }
+
+    const auto actual_vector = vector_type_parts(actual);
+    const auto pattern_vector = vector_type_parts(pattern);
+    if (actual_vector || pattern_vector) {
+        if (!actual_vector || !pattern_vector) return true;
+        return collect_named_type_bindings(
+            actual_vector->element, pattern_vector->element, bindings);
+    }
+
+    const auto dynamic_element = [](const std::string& type) -> std::optional<std::string> {
+        if (!starts_with(type, "list<") || type.size() < 7 || type.back() != '>') {
+            return std::nullopt;
+        }
+        return type.substr(5, type.size() - 6);
+    };
+    const auto actual_dynamic = dynamic_element(actual);
+    const auto pattern_dynamic = dynamic_element(pattern);
+    if (actual_dynamic || pattern_dynamic) {
+        if (!actual_dynamic || !pattern_dynamic) return true;
+        return collect_named_type_bindings(*actual_dynamic, *pattern_dynamic, bindings);
+    }
+
+    const auto multiset_element = [](const std::string& type) -> std::optional<std::string> {
+        if (starts_with(type, "multiset<") && type.back() == '>') {
+            return type.substr(9, type.size() - 10);
+        }
+        if (type.size() >= 3 && type.front() == '{' && type.back() == '}' &&
+            type.find(':') == std::string::npos) {
+            return type.substr(1, type.size() - 2);
+        }
+        return std::nullopt;
+    };
+    const auto actual_multiset = multiset_element(actual);
+    const auto pattern_multiset = multiset_element(pattern);
+    if (actual_multiset || pattern_multiset) {
+        if (!actual_multiset || !pattern_multiset) return true;
+        return collect_named_type_bindings(*actual_multiset, *pattern_multiset, bindings);
+    }
+
+    if (starts_with(actual, "tuple<") && actual.back() == '>' &&
+        starts_with(pattern, "tuple<") && pattern.back() == '>') {
+        const auto actual_items = split_top_level_type_parts(actual.substr(6, actual.size() - 7));
+        const auto pattern_items = split_top_level_type_parts(pattern.substr(6, pattern.size() - 7));
+        if (actual_items.size() != pattern_items.size()) return true;
+        for (std::size_t index = 0; index < actual_items.size(); ++index) {
+            if (!collect_named_type_bindings(actual_items[index], pattern_items[index], bindings)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    const auto actual_fields = ordered_record_type_fields(actual);
+    const auto pattern_fields = ordered_record_type_fields(pattern);
+    if (!actual_fields.empty() && !pattern_fields.empty() &&
+        actual_fields.size() == pattern_fields.size()) {
+        for (std::size_t index = 0; index < actual_fields.size(); ++index) {
+            if (actual_fields[index].first != pattern_fields[index].first) return true;
+            if (!collect_named_type_bindings(
+                    actual_fields[index].second,
+                    pattern_fields[index].second,
+                    bindings)) return false;
+        }
+    }
+    return true;
+}
+
 bool structurally_compatible_type(const std::string& actual, const std::string& expected) {
-    if (expected == "any" || actual == "any" || actual == expected) return true;
+    if (expected == "any" || actual == "any" || actual == expected ||
+        named_generic_type_variable(expected)) return true;
+    if (fixed_vector_type_descriptor_expansion(actual, expected)) return true;
+    if (tuple_type_descriptor_expansion(actual, expected)) return true;
+    if (expected == "type" && starts_with(actual, "type<") && actual.back() == '>') {
+        return true;
+    }
+    if (symbolic_subtype(actual, expected)) return true;
     if (expected == "num" && (actual == "int" || actual == "f32" || actual == "f64")) {
         return true;
     }
@@ -728,7 +1163,9 @@ bool exact_broadcast_target_type(const std::string& actual, const std::string& e
     const auto expected_vector = vector_type_parts(expected);
     const auto actual_list = maybe_dynamic_list_element_type(actual);
     const auto expected_list = maybe_dynamic_list_element_type(expected);
-    if (!(actual_vector || actual_list) || !(expected_vector || expected_list)) return false;
+    if (!(actual_vector || actual_list) || !(expected_vector || expected_list)) {
+        return false;
+    }
     const std::string actual_element = actual_vector ? actual_vector->element : *actual_list;
     const std::string expected_element = expected_vector ? expected_vector->element : *expected_list;
     if (!exact_broadcast_target_type(actual_element, expected_element)) return false;
@@ -739,12 +1176,88 @@ bool exact_broadcast_target_type(const std::string& actual, const std::string& e
     return true;
 }
 
+bool compatible_broadcast_target_type(const std::string& actual, const std::string& expected) {
+    if (structurally_compatible_type(actual, expected)) return true;
+    const auto actual_vector = vector_type_parts(actual);
+    const auto expected_vector = vector_type_parts(expected);
+    const auto actual_list = maybe_dynamic_list_element_type(actual);
+    const auto expected_list = maybe_dynamic_list_element_type(expected);
+    if (!(actual_vector || actual_list) || !(expected_vector || expected_list)) return false;
+    const std::string actual_element = actual_vector ? actual_vector->element : *actual_list;
+    const std::string expected_element = expected_vector ? expected_vector->element : *expected_list;
+    if (!compatible_broadcast_target_type(actual_element, expected_element)) return false;
+    if (actual_vector && expected_vector && decimal_shape(actual_vector->shape) &&
+        decimal_shape(expected_vector->shape) && actual_vector->shape != expected_vector->shape) {
+        return false;
+    }
+    return true;
+}
+
+bool has_exact_broadcast_path(const std::string& actual, const std::string& expected) {
+    if (exact_broadcast_target_type(actual, expected)) return true;
+    if (const auto vector = vector_type_parts(actual)) {
+        return has_exact_broadcast_path(vector->element, expected);
+    }
+    if (const auto list = maybe_dynamic_list_element_type(actual)) {
+        return has_exact_broadcast_path(*list, expected);
+    }
+    return false;
+}
+
+bool collect_broadcast_dimension_bindings(
+    const std::string& actual,
+    const std::string& expected,
+    std::map<std::string, std::string>& dimensions
+) {
+    const auto actual_vector = vector_type_parts(actual);
+    const auto expected_vector = vector_type_parts(expected);
+    if (!expected_vector) {
+        if (structurally_compatible_type(actual, expected)) return true;
+        if (actual_vector) {
+            return collect_broadcast_dimension_bindings(
+                actual_vector->element, expected, dimensions);
+        }
+        if (const auto actual_list = maybe_dynamic_list_element_type(actual)) {
+            return collect_broadcast_dimension_bindings(*actual_list, expected, dimensions);
+        }
+        return false;
+    }
+    if (!actual_vector) return false;
+
+    if (structurally_compatible_type(actual_vector->element, expected_vector->element)) {
+        if (symbolic_shape_name(expected_vector->shape) &&
+            (actual_vector->shape.empty() || decimal_shape(actual_vector->shape) ||
+             symbolic_shape_name(actual_vector->shape))) {
+            const auto found = dimensions.find(expected_vector->shape);
+            if (found != dimensions.end() && found->second != actual_vector->shape) return false;
+            dimensions[expected_vector->shape] = actual_vector->shape;
+        }
+        return collect_broadcast_dimension_bindings(
+            actual_vector->element, expected_vector->element, dimensions);
+    }
+    return collect_broadcast_dimension_bindings(
+        actual_vector->element, expected, dimensions);
+}
+
 std::string structurally_lifted_result_type(
     const std::string& actual,
     const std::string& expected,
     const std::string& result
 ) {
-    if (exact_broadcast_target_type(actual, expected)) return result;
+    if (compatible_broadcast_target_type(actual, expected)) {
+        const auto actual_vector = vector_type_parts(actual);
+        const auto expected_vector = vector_type_parts(expected);
+        const auto result_vector = vector_type_parts(result);
+        if (actual_vector && expected_vector && result_vector &&
+            decimal_shape(actual_vector->shape) && expected_vector->shape.empty() &&
+            result_vector->shape.empty()) {
+            return "[" + structurally_lifted_result_type(
+                actual_vector->element,
+                expected_vector->element,
+                result_vector->element) + ":" + actual_vector->shape + "]";
+        }
+        return result;
+    }
     if (const auto vector = vector_type_parts(actual)) {
         const std::string element = structurally_lifted_result_type(
             vector->element, expected, result);
@@ -762,7 +1275,7 @@ void collect_structural_match_paths(
     const std::string& prefix,
     std::vector<std::string>& paths
 ) {
-    if (exact_broadcast_target_type(actual, expected)) {
+    if (compatible_broadcast_target_type(actual, expected)) {
         paths.push_back(prefix);
         return;
     }
@@ -785,13 +1298,52 @@ bool structural_container_type(const std::string& type) {
 
 std::string instantiate_vector_type(
     const std::string& type,
-    const std::map<std::string, std::string>& dimensions
+    const std::map<std::string, std::string>& dimensions,
+    const std::map<std::string, std::string>& named_types = {}
 ) {
-    const auto parts = vector_type_parts(type);
-    if (!parts || parts->shape.empty()) return type;
-    const auto found = dimensions.find(parts->shape);
-    if (found == dimensions.end()) return type;
-    return "[" + parts->element + ":" + found->second + "]";
+    if (const auto found = named_types.find(type); found != named_types.end()) {
+        return found->second;
+    }
+    if (const auto parts = vector_type_parts(type)) {
+        const std::string element = instantiate_vector_type(parts->element, dimensions, named_types);
+        std::string shape = parts->shape;
+        if (const auto found = dimensions.find(shape); found != dimensions.end()) {
+            shape = found->second;
+        }
+        return "[" + element + (shape.empty() ? "" : ":" + shape) + "]";
+    }
+    if (starts_with(type, "tuple<") && type.back() == '>') {
+        const auto items = split_top_level_type_parts(type.substr(6, type.size() - 7));
+        std::string result = "tuple<";
+        for (std::size_t index = 0; index < items.size(); ++index) {
+            if (index != 0) result += ",";
+            result += instantiate_vector_type(items[index], dimensions, named_types);
+        }
+        return result + ">";
+    }
+    if (starts_with(type, "record{") && type.back() == '}') {
+        const auto fields = ordered_record_type_fields(type);
+        std::string result = "record{";
+        for (std::size_t index = 0; index < fields.size(); ++index) {
+            if (index != 0) result += ",";
+            result += fields[index].first + ":" +
+                instantiate_vector_type(fields[index].second, dimensions, named_types);
+        }
+        return result + "}";
+    }
+    if (starts_with(type, "list<") && type.back() == '>') {
+        return "list<" + instantiate_vector_type(
+            type.substr(5, type.size() - 6), dimensions, named_types) + ">";
+    }
+    if (starts_with(type, "multiset<") && type.back() == '>') {
+        return "multiset<" + instantiate_vector_type(
+            type.substr(9, type.size() - 10), dimensions, named_types) + ">";
+    }
+    if (type.size() >= 3 && type.front() == '{' && type.back() == '}') {
+        return "{" + instantiate_vector_type(
+            type.substr(1, type.size() - 2), dimensions, named_types) + "}";
+    }
+    return type;
 }
 
 vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& target_type, const std::string& context) {
@@ -812,8 +1364,63 @@ vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& targe
         object["type"] = vf::JsonValue(target_type);
         return value;
     }
+    if (const auto expansion = fixed_vector_type_descriptor_expansion(
+            source_type, target_type)) {
+        vf::JsonValue::Array items;
+        items.reserve(expansion->second);
+        for (std::size_t index = 0; index < expansion->second; ++index) {
+            auto item = node("const");
+            item["type"] = vf::JsonValue("type<" + expansion->first + ">");
+            item["value"] = vf::JsonValue(render_surface_type(expansion->first));
+            items.emplace_back(std::move(item));
+        }
+        auto expanded = node("list");
+        expanded["items"] = vf::JsonValue(std::move(items));
+        expanded["element_type"] = vf::JsonValue("type");
+        expanded["type"] = vf::JsonValue(target_type);
+        return vf::JsonValue(std::move(expanded));
+    }
+    if (const auto expansion = tuple_type_descriptor_expansion(
+            source_type, target_type)) {
+        vf::JsonValue::Array items;
+        items.reserve(expansion->size());
+        for (const auto& represented_type : *expansion) {
+            auto item = node("const");
+            item["type"] = vf::JsonValue("type<" + represented_type + ">");
+            item["value"] = vf::JsonValue(render_surface_type(represented_type));
+            items.emplace_back(std::move(item));
+        }
+        auto expanded = node("tuple");
+        expanded["items"] = vf::JsonValue(std::move(items));
+        expanded["type"] = vf::JsonValue(target_type);
+        return vf::JsonValue(std::move(expanded));
+    }
     if (target_type == "num" && source_type == "int") {
         object["type"] = vf::JsonValue("num");
+        return value;
+    }
+    if (target_type == "type" && starts_with(source_type, "type<") &&
+        source_type.back() == '>') {
+        // Preserve the concrete metatype so native specialization can rewrite
+        // calls through this parameter to the exact constructor.
+        return value;
+    }
+    if (symbolic_subtype(source_type, target_type)) {
+        object["type"] = vf::JsonValue(target_type);
+        return value;
+    }
+    // Symbolic expressions use the direct runtime's owned numeric stream.
+    // The native symbolic stdlib constructs stream slices as dynamic numeric
+    // lists and seals them back to the opaque symbolic surface type.
+    if (symbolic_expression_type(target_type) &&
+        (source_type == "[num]" || source_type == "list<num>")) {
+        object["type"] = vf::JsonValue(target_type);
+        return value;
+    }
+    if (target_type.rfind("unit<", 0) == 0
+        && (source_type == "int" || source_type == "num"
+            || source_type == "f32" || source_type == "f64")) {
+        object["type"] = vf::JsonValue(target_type);
         return value;
     }
     if (target_type.size() >= 3 && target_type.front() == '[' && target_type.back() == ']'
@@ -826,9 +1433,7 @@ vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& targe
             ? target_inner : target_inner.substr(0, target_separator);
         const std::string source_element = source_separator == std::string::npos
             ? source_inner : source_inner.substr(0, source_separator);
-        const bool element_coercible = source_element == target_element
-            || source_element == "any"
-            || (source_element == "int" && target_element == "num");
+        const bool element_coercible = structurally_compatible_type(source_element, target_element);
         bool shape_coercible = true;
         if (target_separator != std::string::npos && source_separator != std::string::npos) {
             const std::string target_shape = target_inner.substr(target_separator + 1);
@@ -982,6 +1587,11 @@ std::string merge_nullable_type(const std::string& current, const std::string& i
     if (current == incoming) return current;
     if ((current == "int" && incoming == "num") ||
         (current == "num" && incoming == "int")) return "num";
+    if (symbolic_expression_type(current) && symbolic_expression_type(incoming)) {
+        if (symbolic_subtype(current, incoming)) return incoming;
+        if (symbolic_subtype(incoming, current)) return current;
+        return "expression";
+    }
     return "any";
 }
 
@@ -1046,11 +1656,52 @@ std::string symbolic_type_surface_from_value(const vf::JsonValue& value) {
     return vkf_symbolic_surface_is_scalar_domain(name) ? name : "";
 }
 
+std::string symbolic_greek_latex(const std::string& name) {
+    static const std::map<std::string, std::string> names{
+        {"alpha", "\\alpha"}, {"beta", "\\beta"}, {"gamma", "\\gamma"},
+        {"delta", "\\delta"}, {"epsilon", "\\epsilon"}, {"zeta", "\\zeta"},
+        {"eta", "\\eta"}, {"theta", "\\theta"}, {"iota", "\\iota"},
+        {"kappa", "\\kappa"}, {"lambda", "\\lambda"}, {"mu", "\\mu"},
+        {"nu", "\\nu"}, {"xi", "\\xi"}, {"omicron", "o"}, {"pi", "\\pi"},
+        {"rho", "\\rho"}, {"sigma", "\\sigma"}, {"tau", "\\tau"},
+        {"upsilon", "\\upsilon"}, {"phi", "\\phi"}, {"chi", "\\chi"},
+        {"psi", "\\psi"}, {"omega", "\\omega"},
+        {"Alpha", "\\mathrm{A}"}, {"Beta", "\\mathrm{B}"}, {"Gamma", "\\Gamma"},
+        {"Delta", "\\Delta"}, {"Epsilon", "\\mathrm{E}"}, {"Zeta", "\\mathrm{Z}"},
+        {"Eta", "\\mathrm{H}"}, {"Theta", "\\Theta"}, {"Iota", "\\mathrm{I}"},
+        {"Kappa", "\\mathrm{K}"}, {"Lambda", "\\Lambda"}, {"Mu", "\\mathrm{M}"},
+        {"Nu", "\\mathrm{N}"}, {"Xi", "\\Xi"}, {"Omicron", "\\mathrm{O}"},
+        {"Pi", "\\Pi"}, {"Rho", "\\mathrm{P}"}, {"Sigma", "\\Sigma"},
+        {"Tau", "\\mathrm{T}"}, {"Upsilon", "\\Upsilon"}, {"Phi", "\\Phi"},
+        {"Chi", "\\mathrm{X}"}, {"Psi", "\\Psi"}, {"Omega", "\\Omega"},
+    };
+    const auto found = names.find(name);
+    return found == names.end() ? name : found->second;
+}
+
+std::string default_symbolic_latex(const std::string& name, bool subscript = false) {
+    const auto separator = name.find('_');
+    if (separator == std::string::npos) {
+        const std::string greek = symbolic_greek_latex(name);
+        if (subscript && greek == name && name.size() > 1) {
+            return "\\mathrm{" + name + "}";
+        }
+        if (!subscript && greek == name && name.size() > 1) {
+            return "\\operatorname{" + name + "}";
+        }
+        return greek;
+    }
+    const std::string base = name.substr(0, separator);
+    const std::string tail = name.substr(separator + 1);
+    return default_symbolic_latex(base) + "_{" + default_symbolic_latex(tail, true) + "}";
+}
+
 vf::JsonValue symbolic_type_facts_json(const VkfSymbolicTypeFacts& facts) {
     auto out = node("symbolic_type_facts");
     out["symbolic"] = vf::JsonValue(facts.symbolic);
     std::string shape = "none";
     if (facts.shape == VkfSymbolicTypeShape::ScalarDomain) shape = "scalar_domain";
+    if (facts.shape == VkfSymbolicTypeShape::VectorSpaceDomain) shape = "vector_space_domain";
     if (facts.shape == VkfSymbolicTypeShape::FunctionDomain) shape = "function_domain";
     if (facts.shape == VkfSymbolicTypeShape::FixedVectorDomain) shape = "fixed_vector_domain";
     out["shape"] = vf::JsonValue(shape);
@@ -1112,11 +1763,21 @@ public:
             const auto& path = object_of(field(statement, "path", "spill_import"), "spill_import.path");
             if (string_field(path, "kind", "spill_import.path") != "dot_module_path") continue;
             const auto& segments = array_of(field(path, "segments", "spill_import.path"), "spill_import.path.segments");
-            if (segments.size() == 1 && segments.front().is_string()) {
+            if (!segments.empty()) {
+                std::string module_name;
+                for (const auto& segment : segments) {
+                    if (!segment.is_string()) {
+                        module_name.clear();
+                        break;
+                    }
+                    if (!module_name.empty()) module_name += '.';
+                    module_name += segment.as_string();
+                }
+                if (module_name.empty()) continue;
                 const auto& alias = field(statement, "alias", "spill_import");
-                if (alias.is_null()) spilled_modules_.push_back(segments.front().as_string());
-                imported_modules_[alias.is_string() ? alias.as_string() : segments.front().as_string()] =
-                    segments.front().as_string();
+                if (alias.is_null()) spilled_modules_.push_back(module_name);
+                imported_modules_[alias.is_string() ? alias.as_string() : module_name] =
+                    module_name;
             }
         }
         for (const auto& stmt : statements) {
@@ -1213,6 +1874,12 @@ private:
         return vf::JsonValue(std::move(out));
     }
 
+    static vf::JsonValue type_const(const std::string& represented_type) {
+        vf::JsonValue out = string_const(render_surface_type(represented_type));
+        out.as_object()["type"] = vf::JsonValue("type<" + represented_type + ">");
+        return out;
+    }
+
     vf::JsonValue lower_container_spill(
         const vf::JsonValue::Object& object,
         TypeEnv& env
@@ -1229,11 +1896,35 @@ private:
             primitive = primitive_type_name(
                 string_field(subject, "name", "container spill subject"), env);
         }
-        const bool type_spill = explicit_type || !primitive.empty();
+        bool type_spill = explicit_type || !primitive.empty();
         vf::JsonValue lowered_subject = lower_expr(subject, env);
         std::string subject_type = string_field(
             lowered_subject.as_object(), "type", "container spill subject");
+        if (primitive.empty() && starts_with(subject_type, "type<") &&
+            subject_type.back() == '>') {
+            type_spill = true;
+            subject_type = subject_type.substr(5, subject_type.size() - 6);
+        }
+        if (primitive.empty() && type_spill) {
+            const auto representation = nominal_representations_.find(subject_type);
+            if (representation != nominal_representations_.end()) {
+                subject_type = representation->second;
+            }
+        }
+        const auto nominal_representation = nominal_representations_.find(subject_type);
+        if (!type_spill && container == "record" &&
+            nominal_representation != nominal_representations_.end()) {
+            lowered_subject.as_object()["type"] = vf::JsonValue(
+                nominal_representation->second);
+            return lowered_subject;
+        }
         subject_type = resolve_type_alias(subject_type);
+
+        if (type_spill && primitive.empty() && container == "record" &&
+            (!ordered_record_type_fields(subject_type).empty() ||
+             (starts_with(subject_type, "tuple<") && subject_type.back() == '>'))) {
+            return type_const(subject_type);
+        }
 
         if (!type_spill && container == "record") return lowered_subject;
 
@@ -1256,7 +1947,11 @@ private:
                     try {
                         count = static_cast<std::size_t>(std::stoull(inner.substr(shape + 1)));
                     } catch (...) {
-                        throw IRFailure("container value spill requires a fixed numeric shape");
+                        if (symbolic_shape_name(inner.substr(shape + 1))) {
+                            dynamic_vector = true;
+                        } else {
+                            throw IRFailure("container value spill requires a fixed numeric shape");
+                        }
                     }
                 }
                 element_types.assign(count, element);
@@ -1321,11 +2016,13 @@ private:
             std::string type = "record{";
             for (std::size_t index = 0; index < members.size(); ++index) {
                 if (index != 0) type += ",";
-                type += members[index].first + ":str";
+                const std::string member_type = resolve_type_alias(members[index].second);
+                const std::string value_type = "type<" + member_type + ">";
+                type += members[index].first + ":" + value_type;
                 auto item = node("field");
                 item["name"] = vf::JsonValue(members[index].first);
-                item["type"] = vf::JsonValue("str");
-                item["value"] = string_const(render_surface_type(members[index].second));
+                item["type"] = vf::JsonValue(value_type);
+                item["value"] = type_const(member_type);
                 fields.emplace_back(std::move(item));
             }
             type += "}";
@@ -1335,14 +2032,29 @@ private:
             return vf::JsonValue(std::move(out));
         }
         if (container == "vector") {
+            if (primitive.empty()) {
+                const std::string element_type = resolve_type_alias(members.front().second);
+                if (!std::all_of(members.begin() + 1, members.end(), [&](const auto& member) {
+                        return resolve_type_alias(member.second) == element_type;
+                    })) {
+                    throw IRFailure("vector type spill requires one exact member type");
+                }
+                return type_const(
+                    "[" + element_type + ":" + std::to_string(members.size()) + "]");
+            }
             vf::JsonValue::Array items;
+            std::string element_type;
             for (const auto& member : members) {
-                items.push_back(string_const(render_surface_type(member.second)));
+                const std::string member_type = resolve_type_alias(member.second);
+                const std::string value_type = "type<" + member_type + ">";
+                if (element_type.empty()) element_type = value_type;
+                else if (element_type != value_type) element_type = "type";
+                items.push_back(type_const(member_type));
             }
             auto out = node("list");
             out["items"] = vf::JsonValue(std::move(items));
-            out["element_type"] = vf::JsonValue("str");
-            out["type"] = vf::JsonValue("list<str>");
+            out["element_type"] = vf::JsonValue(element_type);
+            out["type"] = vf::JsonValue("list<" + element_type + ">");
             return vf::JsonValue(std::move(out));
         }
         if (container == "multiset") {
@@ -1373,9 +2085,14 @@ private:
             const auto& param = object_of(param_value, "param");
             param_types.push_back(type_annotation_name(field(param, "type", "param")));
         }
-        const std::string return_type = type_annotation_name(field(object, "return_type", "function_definition"));
+        const std::string representation_type = type_annotation_name(
+            field(object, "return_type", "function_definition"));
+        const std::string return_type = is_nominal_constructor_name(name)
+            ? name : representation_type;
         const std::string signature = function_signature_type(param_types, return_type);
-        functions_.set({name, {}, param_types, {}, {}, {}, return_type, signature, vf::JsonValue(nullptr)});
+        functions_.set({
+            name, {}, param_types, {}, {}, {}, return_type, representation_type,
+            signature, vf::JsonValue(nullptr)});
         env.set(name, signature);
     }
 
@@ -1407,6 +2124,73 @@ private:
                         "; update it with ." + name + ":value");
                 }
                 const auto& raw_value = object_of(field(object, "value", "bind"), "bind value");
+                if (symbolic_imported_ && string_field(raw_value, "kind", "bind value") == "call") {
+                    const auto& compile_callee = object_of(
+                        field(raw_value, "callee", "compiled expression"), "compiled expression callee");
+                    if (string_field(compile_callee, "kind", "compiled expression callee") == "identifier" &&
+                        string_field(compile_callee, "name", "compiled expression callee") == "compile") {
+                        if (is_update) throw IRFailure("compiled function bindings cannot be updated in place");
+                        const auto& compile_args = array_of(
+                            field(raw_value, "args", "compiled expression"), "compiled expression args");
+                        if (compile_args.size() != 2) {
+                            throw IRFailure("compile(expression, [variables]) requires exactly two arguments");
+                        }
+                        const auto& variable_list = object_of(
+                            compile_args[1], "compiled expression variables");
+                        if (string_field(variable_list, "kind", "compiled expression variables") != "list_literal") {
+                            throw IRFailure("compile variables must be a vector of symbols");
+                        }
+                        vf::JsonValue::Array params;
+                        std::set<std::string> parameter_names;
+                        for (const auto& variable : array_of(
+                                 field(variable_list, "items", "compiled expression variables"),
+                                 "compiled expression variable items")) {
+                            const auto& variable_object = object_of(variable, "compiled expression variable");
+                            if (string_field(variable_object, "kind", "compiled expression variable") != "identifier") {
+                                throw IRFailure("compile variables must contain only named symbols");
+                            }
+                            const std::string parameter_name = string_field(
+                                variable_object, "name", "compiled expression variable");
+                            if (symbolic_bindings_.find(parameter_name) == symbolic_bindings_.end()) {
+                                throw IRFailure("compile variable " + parameter_name + " is not a symbolic binding");
+                            }
+                            if (!parameter_names.insert(parameter_name).second) {
+                                throw IRFailure("compile variable " + parameter_name + " is duplicated");
+                            }
+                            auto param = node("param");
+                            param["name"] = vf::JsonValue(parameter_name);
+                            auto type = node("type_annotation");
+                            type["name"] = vf::JsonValue("num");
+                            param["type"] = vf::JsonValue(std::move(type));
+                            param["default"] = vf::JsonValue(nullptr);
+                            param["variadic_positional"] = vf::JsonValue(false);
+                            param["variadic_named"] = vf::JsonValue(false);
+                            params.emplace_back(std::move(param));
+                        }
+                        if (params.empty()) throw IRFailure("compile requires at least one symbolic variable");
+                        vf::JsonValue compiled_body = compile_args[0];
+                        std::set<std::string> expanding_sources;
+                        expand_bound_symbolic_expression_sources(
+                            compiled_body,
+                            expanding_sources
+                        );
+                        const bool fully_bound = symbolic_expression_is_fully_bound(
+                            compiled_body, parameter_names);
+                        auto function = node("function_definition");
+                        function["name"] = vf::JsonValue(name);
+                        function["params"] = vf::JsonValue(std::move(params));
+                        auto return_type = node("type_annotation");
+                        return_type["name"] = vf::JsonValue(fully_bound ? "num" : "expression");
+                        function["return_type"] = vf::JsonValue(std::move(return_type));
+                        if (!fully_bound) {
+                            materialize_unbound_symbolic_bindings(compiled_body, parameter_names);
+                        }
+                        function["body"] = std::move(compiled_body);
+                        vf::JsonValue lowered = lower_function(function, env);
+                        env.mark_declared(name);
+                        return lowered;
+                    }
+                }
                 if (string_field(raw_value, "kind", "bind value") == "lambda_expr") {
                     vf::JsonValue::Array params;
                     for (const auto& raw_param : array_of(
@@ -1454,12 +2238,17 @@ private:
                     value = coerce_value_to_type(std::move(value), declared_type, "declared bind");
                     value_type = declared_type;
                 } else if (symbolic_imported_) {
-                    const std::string symbolic_surface = symbolic_type_surface_from_value(value);
+                    std::string symbolic_surface = symbolic_surface_ast(raw_value);
+                    if (symbolic_surface.empty()) {
+                        symbolic_surface = symbolic_type_surface_from_value(value);
+                    }
                     if (!symbolic_surface.empty()) {
                         auto symbolic_value = node("symbolic_var");
                         symbolic_value["name"] = vf::JsonValue(name);
                         symbolic_value["domain"] = vf::JsonValue(symbolic_surface);
-                        symbolic_value["type"] = vf::JsonValue("symbolic");
+                        symbolic_value["symbol_kind"] = vf::JsonValue("variable");
+                        symbolic_value["latex"] = vf::JsonValue(default_symbolic_latex(name));
+                        symbolic_value["type"] = vf::JsonValue("symbol");
                         attach_expression_facts(
                             symbolic_value,
                             VkfExpressionLoweringMode::SymbolicNode,
@@ -1468,7 +2257,7 @@ private:
                             {name}
                         );
                         value = vf::JsonValue(std::move(symbolic_value));
-                        value_type = "symbolic";
+                        value_type = "symbol";
                     }
                 }
                 std::string environment_type = value_type;
@@ -1493,6 +2282,12 @@ private:
                 }
                 if (is_update) env.set(name, environment_type);
                 else env.declare(name, environment_type);
+                remember_symbolic_binding(name, value);
+                if (is_update) {
+                    symbolic_expression_sources_.erase(name);
+                } else if (value_type == "expression" || value_type == "symbolic") {
+                    symbolic_expression_sources_[name] = raw_value;
+                }
 
                 auto out = node("store_binding");
                 out["name"] = vf::JsonValue(name);
@@ -1509,6 +2304,33 @@ private:
                 const std::string base_name = string_field(base, "name", "bind.target.object");
                 const std::string index_name = string_field(target, "name", "bind.target");
                 const std::string base_type = env.get(base_name);
+                if (symbolic_expression_type(base_type) && index_name == "latex") {
+                    vf::JsonValue latex_value = lower_expr(field(object, "value", "symbolic latex"), env);
+                    const auto& latex_object = object_of(latex_value, "symbolic latex");
+                    const auto raw = latex_object.find("value");
+                    if (string_field(latex_object, "kind", "symbolic latex") != "const" ||
+                        string_field(latex_object, "type", "symbolic latex") != "str" ||
+                        raw == latex_object.end() || !raw->second.is_string()) {
+                        throw IRFailure("symbolic .latex override must be a compile-time string");
+                    }
+                    const auto known = symbolic_bindings_.find(base_name);
+                    if (known == symbolic_bindings_.end()) {
+                        throw IRFailure("symbolic .latex can only update a named symbolic variable, function, or constant");
+                    }
+                    auto replacement = node("symbolic_var");
+                    replacement["name"] = vf::JsonValue(known->second.name);
+                    replacement["domain"] = vf::JsonValue(known->second.domain);
+                    replacement["symbol_kind"] = vf::JsonValue(known->second.kind);
+                    replacement["latex"] = raw->second;
+                    replacement["type"] = vf::JsonValue(base_type);
+                    known->second.latex = raw->second.as_string();
+                    auto out = node("store_binding");
+                    out["name"] = vf::JsonValue(base_name);
+                    out["type"] = vf::JsonValue(base_type);
+                    out["value"] = vf::JsonValue(std::move(replacement));
+                    out["update"] = vf::JsonValue(true);
+                    return vf::JsonValue(std::move(out));
+                }
                 const bool vector_base = starts_with(base_type, "list<") ||
                     (base_type.size() >= 2 && base_type.front() == '[' && base_type.back() == ']');
                 if (vector_base && index_name != "length") {
@@ -1524,13 +2346,54 @@ private:
                 return vf::JsonValue(std::move(out));
             }
             if (target_kind == "dotted_index") {
-                const auto& base = object_of(field(target, "base", "dotted_index"), "bind.target.base");
+                const vf::JsonValue* base_value = &field(target, "base", "dotted_index");
+                std::vector<const vf::JsonValue::Array*> nested_index_groups;
+                while (string_field(object_of(*base_value, "bind.target.base"), "kind", "bind.target.base") == "dotted_index") {
+                    const auto& nested = object_of(*base_value, "bind.target.base");
+                    nested_index_groups.push_back(&array_of(
+                        field(nested, "indices", "dotted_index"),
+                        "bind.target.indices"));
+                    base_value = &field(nested, "base", "dotted_index");
+                }
+                const auto& base = object_of(*base_value, "bind.target.base");
                 if (string_field(base, "kind", "bind.target.base") != "identifier") {
                     throw IRFailure("unsupported dotted_index bind base");
                 }
                 vf::JsonValue::Array indices;
-                for (const auto& index_ast : array_of(field(target, "indices", "dotted_index"), "bind.target.indices")) {
+                const auto append_index = [&](const vf::JsonValue& index_ast) {
+                    const auto& index_object = object_of(index_ast, "bind.target.index");
+                    const std::string index_kind = string_field(
+                        index_object, "kind", "bind.target.index");
+                    if (index_kind == "spread_arg") {
+                        vf::JsonValue spread_value = lower_expr(
+                            field(index_object, "expr", "bind target index spill"), env);
+                        const std::string spread_type = string_field(
+                            spread_value.as_object(), "type", "bind target index spill");
+                        const auto spread_shape = fixed_numeric_vector_shape(spread_type);
+                        if (!spread_shape.has_value() || spread_shape->dimensions.size() != 1) {
+                            throw IRFailure(
+                                "multidimensional index spill requires one fixed vector of numeric coordinates");
+                        }
+                        auto spread = node("spread_index");
+                        spread["value"] = std::move(spread_value);
+                        spread["count"] = vf::JsonValue(
+                            static_cast<double>(spread_shape->dimensions.front()));
+                        spread["type"] = vf::JsonValue(spread_type);
+                        indices.emplace_back(std::move(spread));
+                        return;
+                    }
+                    if (index_kind == "named_call_arg") {
+                        throw IRFailure("multidimensional indices do not accept named arguments");
+                    }
                     indices.push_back(lower_expr(index_ast, env));
+                };
+                for (auto group = nested_index_groups.rbegin(); group != nested_index_groups.rend(); ++group) {
+                    for (const auto& index_ast : **group) {
+                        append_index(index_ast);
+                    }
+                }
+                for (const auto& index_ast : array_of(field(target, "indices", "dotted_index"), "bind.target.indices")) {
+                    append_index(index_ast);
                 }
                 auto out = node("update_index");
                 out["base_name"] = vf::JsonValue(string_field(base, "name", "bind.target.base"));
@@ -1591,6 +2454,16 @@ private:
                     throw IRFailure("Cannot spill duplicate binding " + field_name);
                 }
                 env.declare(field_name, field_type);
+            }
+            if (string_field(lowered_value.as_object(), "kind", "spill value") == "record") {
+                for (const auto& raw_field : array_of(
+                         field(lowered_value.as_object(), "fields", "spill record"),
+                         "spill record fields")) {
+                    const auto& record_field = object_of(raw_field, "spill record field");
+                    remember_symbolic_binding(
+                        string_field(record_field, "name", "spill record field"),
+                        field(record_field, "value", "spill record field"));
+                }
             }
             auto out = node("spill_stmt");
             out["value"] = std::move(lowered_value);
@@ -1713,11 +2586,18 @@ private:
             params.push_back(vf::JsonValue(std::move(ir_param)));
         }
 
-        const std::string return_type = type_annotation_name(field(object, "return_type", "function_definition"));
-        const std::string signature = function_signature_type(param_types, return_type);
-        functions_.set({name, param_names, param_types, param_defaults, variadic_positional, variadic_named, return_type, signature, field(object, "body", "function_definition")});
+        const std::string declared_representation_type = type_annotation_name(
+            field(object, "return_type", "function_definition"));
+        std::string representation_type = declared_representation_type;
+        const bool nominal_constructor = is_nominal_constructor_name(name);
+        std::string return_type = nominal_constructor ? name : representation_type;
+        std::string signature = function_signature_type(param_types, return_type);
+        functions_.set({
+            name, param_names, param_types, param_defaults, variadic_positional,
+            variadic_named, return_type, representation_type, signature,
+            field(object, "body", "function_definition")});
         env.set(name, signature);
-        function_env.set("$return", return_type);
+        function_env.set("$return", representation_type);
         const FunctionInfo* registered_function = functions_.get(name, param_types);
         if (registered_function == nullptr) {
             throw IRFailure("cannot resolve registered function " + name);
@@ -1727,9 +2607,59 @@ private:
         const std::string runtime_name = functions_.runtime_name(*registered_function);
 
         auto out = node("function");
-        vf::JsonValue lowered_body = lower_body(
-            field(object, "body", "function_definition"), function_env);
-        if (return_type != "any") {
+        vf::JsonValue lowered_body;
+        try {
+            lowered_body = lower_body(
+                field(object, "body", "function_definition"), function_env);
+        } catch (const IRFailure& error) {
+            throw IRFailure("in function " + name + ": " + error.what());
+        }
+        if (representation_type == "any") {
+            const auto& statements = array_of(
+                field(lowered_body.as_object(), "body", "lowered function body"),
+                "lowered function body");
+            for (auto statement = statements.rbegin(); statement != statements.rend(); ++statement) {
+                const auto& tail = object_of(*statement, "lowered function result");
+                const std::string tail_kind = string_field(
+                    tail, "kind", "lowered function result");
+                const vf::JsonValue* result = nullptr;
+                if (tail_kind == "expr_stmt") {
+                    result = &field(tail, "expr", "lowered function result");
+                } else if (tail_kind == "return") {
+                    result = &field(tail, "value", "lowered function result");
+                }
+                if (result != nullptr && result->is_object()) {
+                    const auto type = result->as_object().find("type");
+                    if (type != result->as_object().end() && type->second.is_string() &&
+                        !contains_unresolved_any_type(type->second.as_string())) {
+                        representation_type = type->second.as_string();
+                    }
+                }
+                break;
+            }
+        }
+        if (nominal_constructor && representation_type == name) {
+            const auto known = nominal_representations_.find(name);
+            representation_type = known == nominal_representations_.end()
+                ? "any" : known->second;
+        }
+        if (nominal_constructor && representation_type != "any") {
+            const auto [known, inserted] = nominal_representations_.emplace(
+                name, representation_type);
+            if (!inserted && known->second != representation_type) {
+                throw IRFailure(
+                    "constructor overloads for " + name +
+                    " must return the same underlying representation");
+            }
+        }
+        return_type = nominal_constructor ? name : representation_type;
+        signature = function_signature_type(param_types, return_type);
+        functions_.set({
+            name, param_names, param_types, param_defaults, variadic_positional,
+            variadic_named, return_type, representation_type, signature,
+            field(object, "body", "function_definition")});
+        env.set(name, signature);
+        if (declared_representation_type != "any") {
             auto& block = lowered_body.as_object();
             auto& statements = block.at("body").as_array();
             if (!statements.empty()) {
@@ -1740,7 +2670,8 @@ private:
                         throw IRFailure("missing function tail expression");
                     }
                     expression->second = coerce_value_to_type(
-                        std::move(expression->second), return_type, "function tail");
+                        std::move(expression->second), declared_representation_type,
+                        "return value of " + name);
                 }
             }
         }
@@ -1748,6 +2679,8 @@ private:
         out["name"] = vf::JsonValue(runtime_name);
         out["params"] = vf::JsonValue(std::move(params));
         out["return_type"] = vf::JsonValue(return_type);
+        out["representation_type"] = vf::JsonValue(representation_type);
+        if (nominal_constructor) out["nominal_type"] = vf::JsonValue(name);
         auto sig = node("function_signature");
         vf::JsonValue::Array param_type_values;
         for (const auto& param_type : param_types) {
@@ -1775,6 +2708,78 @@ private:
         auto out = node("block");
         out["body"] = vf::JsonValue(std::move(statements));
         return vf::JsonValue(std::move(out));
+    }
+
+    std::optional<vf::JsonValue> lower_adjacent_symbol_product(
+        const std::string& spelling,
+        const TypeEnv& env
+    ) const {
+        if (!symbolic_imported_ || env.contains(spelling) || spelling.empty()) {
+            return std::nullopt;
+        }
+
+        std::vector<std::string> symbols;
+        for (const auto& binding : env.bindings()) {
+            if (!symbolic_expression_type(binding.type) || binding.name.empty()) continue;
+            if (std::find(symbols.begin(), symbols.end(), binding.name) == symbols.end()) {
+                symbols.push_back(binding.name);
+            }
+        }
+        std::sort(symbols.begin(), symbols.end(), [](const auto& left, const auto& right) {
+            if (left.size() != right.size()) return left.size() > right.size();
+            return left < right;
+        });
+
+        using Product = std::vector<std::string>;
+        std::vector<std::vector<Product>> products(spelling.size() + 1);
+        products[0].push_back({});
+        for (std::size_t offset = 0; offset < spelling.size(); ++offset) {
+            for (const auto& product : products[offset]) {
+                for (const auto& symbol : symbols) {
+                    if (spelling.compare(offset, symbol.size(), symbol) != 0) continue;
+                    auto candidate = product;
+                    candidate.push_back(symbol);
+                    auto& destination = products[offset + symbol.size()];
+                    if (destination.size() < 2) destination.push_back(std::move(candidate));
+                }
+            }
+        }
+
+        std::vector<Product> matches;
+        for (const auto& product : products.back()) {
+            if (product.size() >= 2) matches.push_back(product);
+        }
+        if (matches.empty()) return std::nullopt;
+        if (matches.size() > 1) {
+            throw IRFailure(
+                "ambiguous adjacent symbolic product " + spelling
+                + "; separate its factors with spaces or `*`");
+        }
+
+        const auto load_symbol = [](const std::string& name) {
+            auto load = node("load");
+            load["name"] = vf::JsonValue(name);
+            load["type"] = vf::JsonValue("symbol");
+            return vf::JsonValue(std::move(load));
+        };
+        vf::JsonValue result = load_symbol(matches.front().front());
+        for (std::size_t index = 1; index < matches.front().size(); ++index) {
+            auto product = node("binary_op");
+            product["op"] = vf::JsonValue("STAR");
+            product["left"] = std::move(result);
+            product["right"] = load_symbol(matches.front()[index]);
+            product["left_type"] = vf::JsonValue("symbol");
+            product["right_type"] = vf::JsonValue("symbol");
+            product["type"] = vf::JsonValue("expression");
+            attach_expression_facts(
+                product,
+                VkfExpressionLoweringMode::SymbolicNode,
+                "R",
+                VkfSymbolicCompilerNodeKind::Binary,
+                matches.front());
+            result = vf::JsonValue(std::move(product));
+        }
+        return result;
     }
 
     vf::JsonValue lower_expr(const vf::JsonValue& ast, TypeEnv& env) {
@@ -1927,11 +2932,48 @@ private:
         }
         if (kind == "identifier") {
             const std::string name = string_field(object, "name", "identifier");
+            if (name == "type" && !env.contains(name)) {
+                vf::JsonValue out = string_const("type");
+                out.as_object()["type"] = vf::JsonValue("type<type>");
+                return out;
+            }
+            if (name == "any" && !env.contains(name)) {
+                return type_const("any");
+            }
+            const std::string primitive = primitive_type_name(name, env);
+            if (!primitive.empty()) {
+                vf::JsonValue out = string_const(primitive);
+                out.as_object()["type"] = vf::JsonValue("type<" + primitive + ">");
+                return out;
+            }
+            if (is_nominal_constructor_name(name) && !functions_.family(name).empty()) {
+                vf::JsonValue out = string_const(name);
+                out.as_object()["type"] = vf::JsonValue("type<" + name + ">");
+                return out;
+            }
             if ((name == "i" || name == "j") && !env.contains(name)) {
                 auto out = node("complex_const");
                 out["real"] = vf::JsonValue(0.0);
                 out["imag"] = vf::JsonValue(1.0);
                 out["type"] = vf::JsonValue("num");
+                return vf::JsonValue(std::move(out));
+            }
+            const bool spilled_symbolic = std::find(
+                spilled_modules_.begin(), spilled_modules_.end(), "symbolic") != spilled_modules_.end();
+            if ((symbolic_imported_ || spilled_symbolic) && name == "inf" && !env.contains(name)) {
+                auto out = node("symbolic_var");
+                out["name"] = vf::JsonValue("inf");
+                out["domain"] = vf::JsonValue("R");
+                out["symbol_kind"] = vf::JsonValue("constant");
+                out["latex"] = vf::JsonValue("\\infty");
+                out["type"] = vf::JsonValue("constant");
+                attach_expression_facts(
+                    out,
+                    VkfExpressionLoweringMode::SymbolicNode,
+                    "R",
+                    VkfSymbolicCompilerNodeKind::Symbol,
+                    {"inf"}
+                );
                 return vf::JsonValue(std::move(out));
             }
             const bool spilled_math = std::find(
@@ -1964,6 +3006,9 @@ private:
                  name == "sleep_seconds" || name == "local_parts")) {
                 return stdlib_function("time", name);
             }
+            if (auto product = lower_adjacent_symbol_product(name, env)) {
+                return std::move(*product);
+            }
             auto out = node("load");
             out["name"] = vf::JsonValue(name);
             out["type"] = vf::JsonValue(env.get(name));
@@ -1971,6 +3016,68 @@ private:
         }
         if (kind == "call") {
             const auto& callee_ast = object_of(field(object, "callee", "call"), "call.callee");
+            if (auto generated = lower_symbolic_generator_call(object)) {
+                return std::move(*generated);
+            }
+            if (string_field(callee_ast, "kind", "call.callee") == "identifier") {
+                const std::string symbolic_name = string_field(callee_ast, "name", "symbolic call");
+                const auto known_symbol = symbolic_bindings_.find(symbolic_name);
+                if (symbolic_expression_type(env.get(symbolic_name)) && known_symbol != symbolic_bindings_.end() &&
+                    known_symbol->second.domain.find("->") != std::string::npos) {
+                    const auto& raw_args = array_of(field(object, "args", "symbolic call"), "symbolic call args");
+                    const auto expected_domains =
+                        symbolic_function_input_surfaces(known_symbol->second.domain);
+                    if (expected_domains.empty()) {
+                        throw IRFailure("invalid symbolic function signature " + known_symbol->second.domain);
+                    }
+                    if (raw_args.size() != expected_domains.size()) {
+                        throw IRFailure(
+                            "symbolic function " + symbolic_name + " expects "
+                            + std::to_string(expected_domains.size()) + " arguments, received "
+                            + std::to_string(raw_args.size()));
+                    }
+                    for (std::size_t argument_index = 0; argument_index < raw_args.size(); ++argument_index) {
+                        const auto& raw_arg = raw_args[argument_index];
+                        const auto& argument = object_of(raw_arg, "symbolic function argument");
+                        const std::string argument_kind = string_field(argument, "kind", "symbolic function argument");
+                        if (argument_kind == "named_call_arg" || argument_kind == "spread_arg") {
+                            throw IRFailure("symbolic function calls currently require positional arguments");
+                        }
+                        if (argument_kind == "identifier") {
+                            const std::string argument_name =
+                                string_field(argument, "name", "symbolic function argument");
+                            const auto known_argument = symbolic_bindings_.find(argument_name);
+                            if (known_argument != symbolic_bindings_.end() &&
+                                known_argument->second.domain.find("->") == std::string::npos &&
+                                !symbolic_domain_accepts(
+                                    expected_domains[argument_index], known_argument->second.domain)) {
+                                throw IRFailure(
+                                    "symbolic function " + symbolic_name + " argument "
+                                    + std::to_string(argument_index + 1u) + " requires "
+                                    + expected_domains[argument_index] + ", received "
+                                    + known_argument->second.domain);
+                            }
+                        }
+                    }
+                    auto at_identifier = node("identifier");
+                    at_identifier["name"] = vf::JsonValue("at");
+                    vf::JsonValue::Array at_args;
+                    auto symbol_identifier = node("identifier");
+                    symbol_identifier["name"] = vf::JsonValue(symbolic_name);
+                    at_args.emplace_back(std::move(symbol_identifier));
+                    if (raw_args.size() == 1) {
+                        at_args.push_back(raw_args.front());
+                    } else {
+                        auto arguments = node("list_literal");
+                        arguments["items"] = vf::JsonValue(raw_args);
+                        at_args.emplace_back(std::move(arguments));
+                    }
+                    auto at_call = node("call");
+                    at_call["callee"] = vf::JsonValue(std::move(at_identifier));
+                    at_call["args"] = vf::JsonValue(std::move(at_args));
+                    return lower_expr(vf::JsonValue(std::move(at_call)), env);
+                }
+            }
             std::string size_primitive;
             if (string_field(callee_ast, "kind", "call.callee") == "attribute" &&
                 string_field(callee_ast, "name", "call.callee") == "size") {
@@ -2213,8 +3320,35 @@ private:
             std::string call_type = "any";
             bool elementwise_math_call = false;
             bool structural_call = false;
+            std::vector<std::size_t> structural_argument_indices;
             bool structural_paths_present = false;
             std::vector<std::string> structural_paths;
+            std::vector<std::string> specialization_argument_types;
+            const auto& lowered_callee = object_of(callee, "lowered call callee");
+            if (string_field(lowered_callee, "kind", "lowered call callee") == "stdlib_function" &&
+                string_field(lowered_callee, "module", "lowered call callee") == "math" &&
+                std::any_of(argument_type_names.begin(), argument_type_names.end(), symbolic_expression_type)) {
+                const std::string operation = string_field(lowered_callee, "name", "symbolic math call");
+                static const std::set<std::string> analytic_operations{
+                    "sin", "cos", "ln", "log", "sqrt", "exp"
+                };
+                if (analytic_operations.count(operation)) {
+                    const auto& raw_args = array_of(field(object, "args", "symbolic math call"), "symbolic math args");
+                    for (const auto& raw_arg : raw_args) {
+                        validate_symbolic_analytic_domains(raw_arg, operation);
+                    }
+                    const FunctionInfo* symbolic_function = functions_.get(operation, argument_type_names);
+                    if (symbolic_function == nullptr) {
+                        throw IRFailure("math." + operation + " has no symbolic overload for these arguments");
+                    }
+                    auto symbolic_callee = node("load");
+                    symbolic_callee["name"] = vf::JsonValue(functions_.runtime_name(*symbolic_function));
+                    symbolic_callee["type"] = vf::JsonValue(symbolic_function->signature);
+                    callee = vf::JsonValue(std::move(symbolic_callee));
+                    callee_type = symbolic_function->signature;
+                    call_type = symbolic_function->return_type;
+                }
+            }
             if (string_field(callee_ast, "kind", "call.callee") == "identifier") {
                 const std::string callee_name = primitive_callee.empty()
                     ? string_field(callee_ast, "name", "call.callee")
@@ -2243,62 +3377,212 @@ private:
                 const FunctionInfo* function = advanced_call_shape
                     ? functions_.get(callee_name)
                     : functions_.get(callee_name, argument_type_names);
+                if (function == nullptr && !advanced_call_shape &&
+                    functions_.contains(callee_name)) {
+                    const FunctionInfo* lifted = nullptr;
+                    int lifted_score = -1;
+                    bool lifted_ambiguous = false;
+                    for (const auto* candidate : functions_.family(callee_name)) {
+                        std::size_t required = 0;
+                        bool variadic = false;
+                        for (std::size_t index = 0;
+                             index < candidate->param_types.size(); ++index) {
+                            const bool has_default = index < candidate->param_defaults.size() &&
+                                !candidate->param_defaults[index].is_null();
+                            const bool captured =
+                                (index < candidate->variadic_positional.size() &&
+                                 candidate->variadic_positional[index]) ||
+                                (index < candidate->variadic_named.size() &&
+                                 candidate->variadic_named[index]);
+                            if (!has_default && !captured) ++required;
+                            variadic = variadic || captured;
+                        }
+                        if (argument_type_names.size() < required ||
+                            (!variadic && argument_type_names.size() >
+                                candidate->param_types.size())) {
+                            continue;
+                        }
+                        bool compatible = true;
+                        bool uses_lifting = false;
+                        int score = 0;
+                        std::map<std::string, std::string> dimensions;
+                        for (std::size_t index = 0;
+                             index < argument_type_names.size() &&
+                             index < candidate->param_types.size(); ++index) {
+                            const std::string actual =
+                                resolve_type_alias(argument_type_names[index]);
+                            const std::string expected =
+                                resolve_type_alias(candidate->param_types[index]);
+                            auto candidate_dimensions = dimensions;
+                            const bool dimension_match = collect_broadcast_dimension_bindings(
+                                actual, expected, candidate_dimensions);
+                            if (!dimension_match) {
+                                compatible = false;
+                                break;
+                            }
+                            dimensions = std::move(candidate_dimensions);
+                            if (structurally_compatible_type(actual, expected)) {
+                                score += actual == expected ? 100 : 60;
+                                continue;
+                            }
+                            std::vector<std::string> paths;
+                            collect_structural_match_paths(actual, expected, "", paths);
+                            if (paths.empty()) {
+                                compatible = false;
+                                break;
+                            }
+                            uses_lifting = true;
+                            score += has_exact_broadcast_path(actual, expected) ? 30 : 20;
+                        }
+                        if (!compatible || !uses_lifting) continue;
+                        if (score > lifted_score) {
+                            lifted = candidate;
+                            lifted_score = score;
+                            lifted_ambiguous = false;
+                        } else if (score == lifted_score) {
+                            lifted_ambiguous = true;
+                        }
+                    }
+                    if (!lifted_ambiguous) function = lifted;
+                }
+                if (function == nullptr && !advanced_call_shape &&
+                    std::any_of(argument_type_names.begin(), argument_type_names.end(), symbolic_expression_type)) {
+                    const FunctionInfo* trace = functions_.get_unique_arity(callee_name, args.size());
+                    if (trace != nullptr && !trace->body_ast.is_null() &&
+                        trace->param_names.size() == args.size() && kind_of(trace->body_ast) != "block") {
+                        bool traceable = true;
+                        std::map<std::string, vf::JsonValue> replacements;
+                        const auto& raw_args = array_of(field(object, "args", "symbolic trace"), "symbolic trace args");
+                        for (std::size_t index = 0; index < args.size(); ++index) {
+                            const std::string& parameter_type = trace->param_types[index];
+                            if (parameter_type != "any" && parameter_type != "num" &&
+                                parameter_type != "int" && parameter_type != "f32" && parameter_type != "f64") {
+                                traceable = false;
+                                break;
+                            }
+                            if (parameter_type == "int") {
+                                std::optional<std::string> argument_name;
+                                if (kind_of(raw_args[index]) == "identifier") {
+                                    argument_name = string_field(
+                                        raw_args[index].as_object(), "name", "symbolic trace argument");
+                                }
+                                if (argument_name.has_value()) {
+                                    const auto binding = symbolic_bindings_.find(*argument_name);
+                                    if (binding != symbolic_bindings_.end() &&
+                                        binding->second.domain != "N" && binding->second.domain != "Z") {
+                                        throw IRFailure(
+                                            "symbolic argument " + *argument_name + " in domain " +
+                                            binding->second.domain + " does not satisfy int parameter " +
+                                            trace->param_names[index] + " of " + callee_name);
+                                    }
+                                }
+                            }
+                            replacements[trace->param_names[index]] = raw_args[index];
+                        }
+                        if (traceable) {
+                            if (!symbolic_trace_stack_.insert(callee_name).second) {
+                                throw IRFailure("recursive symbolic tracing requires an explicit symbolic definition for " + callee_name);
+                            }
+                            vf::JsonValue traced_body = trace->body_ast;
+                            substitute_symbolic_trace_arguments(traced_body, replacements);
+                            try {
+                                vf::JsonValue traced = lower_expr(traced_body, env);
+                                symbolic_trace_stack_.erase(callee_name);
+                                return traced;
+                            } catch (...) {
+                                symbolic_trace_stack_.erase(callee_name);
+                                throw;
+                            }
+                        }
+                    }
+                }
                 if (function == nullptr && elementwise_math_candidate) {
                     function = functions_.get(callee_name);
                 }
                 if (function == nullptr && !advanced_call_shape &&
                     functions_.contains(callee_name)) {
-                    // Shape-erased callables and vector lifting are considered
-                    // only after ordinary overload resolution. Ambiguous
-                    // overload families never use this fallback.
+                    // Shape-erased callables are considered only after ordinary
+                    // and vector-lifted overload resolution.
                     function = functions_.get_unique_arity(callee_name, args.size());
                 }
                 if (function != nullptr) {
                     elementwise_math_call = elementwise_math_candidate;
                     std::map<std::string, std::string> dimension_bindings;
+                    std::map<std::string, std::string> named_type_bindings;
                     for (std::size_t i = 0; i < argument_type_names.size() && i < function->param_types.size(); ++i) {
-                        const auto parameter_vector = vector_type_parts(function->param_types[i]);
-                        const auto argument_vector = vector_type_parts(argument_type_names[i]);
-                        if (!parameter_vector || !symbolic_shape_name(parameter_vector->shape)) {
+                        auto type_candidate = named_type_bindings;
+                        if (!collect_named_type_bindings(
+                                resolve_type_alias(argument_type_names[i]),
+                                resolve_type_alias(function->param_types[i]),
+                                type_candidate)) {
+                            throw IRFailure(
+                                "named generic type " + function->param_types[i] +
+                                " received inconsistent argument types");
+                        }
+                        named_type_bindings = std::move(type_candidate);
+                        auto candidate = dimension_bindings;
+                        if (!collect_broadcast_dimension_bindings(
+                                resolve_type_alias(argument_type_names[i]),
+                                resolve_type_alias(function->param_types[i]),
+                                candidate)) {
                             continue;
                         }
-                        std::string concrete_shape;
-                        if (argument_vector && decimal_shape(argument_vector->shape)) {
-                            concrete_shape = argument_vector->shape;
-                        } else if (i < args.size() && args[i].is_object()) {
-                            const auto& argument = args[i].as_object();
-                            const auto argument_kind = argument.find("kind");
-                            const auto items = argument.find("items");
-                            if (argument_kind != argument.end() && argument_kind->second.is_string() &&
-                                argument_kind->second.as_string() == "list" &&
-                                items != argument.end() && items->second.is_array()) {
-                                concrete_shape = std::to_string(items->second.as_array().size());
-                            }
-                        }
-                        if (concrete_shape.empty()) continue;
-                        const auto existing = dimension_bindings.find(parameter_vector->shape);
-                        if (existing != dimension_bindings.end() && existing->second != concrete_shape) {
-                            throw IRFailure("conflicting vector dimension " + parameter_vector->shape +
-                                " for function " + callee_name);
-                        }
-                        dimension_bindings[parameter_vector->shape] = concrete_shape;
+                        dimension_bindings = std::move(candidate);
                     }
                     std::vector<std::string> instantiated_params = function->param_types;
                     for (auto& parameter_type : instantiated_params) {
-                        parameter_type = instantiate_vector_type(parameter_type, dimension_bindings);
+                        parameter_type = instantiate_vector_type(
+                            parameter_type, dimension_bindings, named_type_bindings);
                     }
-                    const std::string instantiated_return =
-                        instantiate_vector_type(function->return_type, dimension_bindings);
+                    std::string instantiated_return =
+                        instantiate_vector_type(
+                            function->return_type, dimension_bindings, named_type_bindings);
+                    if (instantiated_return == "any") {
+                        const auto dependent = metatype_return_parameter(*function);
+                        if (dependent.has_value() && *dependent < argument_type_names.size()) {
+                            const std::string& concrete = argument_type_names[*dependent];
+                            if (starts_with(concrete, "type<") && concrete.back() == '>') {
+                                instantiated_return = concrete.substr(5, concrete.size() - 6);
+                            }
+                        }
+                    }
+                    specialization_argument_types = instantiated_params;
+                    for (std::size_t index = 0;
+                         index < specialization_argument_types.size() &&
+                         index < argument_type_names.size(); ++index) {
+                        if (instantiated_params[index] == "type" &&
+                            starts_with(argument_type_names[index], "type<") &&
+                            argument_type_names[index].back() == '>') {
+                            specialization_argument_types[index] = argument_type_names[index];
+                        }
+                    }
                     const std::string structural_parameter = instantiated_params.empty()
                         ? std::string{} : resolve_type_alias(instantiated_params.front());
                     const std::string structural_result = resolve_type_alias(instantiated_return);
-                    if (!elementwise_math_call && !advanced_call_shape && args.size() == 1 &&
-                        instantiated_params.size() == 1) {
-                        const std::string structural_argument =
-                            resolve_type_alias(argument_type_names.front());
-                        if (!structurally_compatible_type(structural_argument, structural_parameter)) {
+                    if (!elementwise_math_call && !advanced_call_shape) {
+                        for (std::size_t index = 0;
+                             index < argument_type_names.size() && index < instantiated_params.size();
+                             ++index) {
+                            const std::string structural_argument =
+                                resolve_type_alias(argument_type_names[index]);
+                            const std::string expected = resolve_type_alias(instantiated_params[index]);
+                            if (structurally_compatible_type(structural_argument, expected)) continue;
                             if (structural_container_type(structural_argument)) {
+                                std::vector<std::string> paths;
+                                collect_structural_match_paths(structural_argument, expected, "", paths);
+                                if (paths.empty()) {
+                                    throw IRFailure(
+                                        "automatic function broadcasting requires a compatible vector element type: got " +
+                                        structural_argument + " for " + expected);
+                                }
+                                if (!structural_argument_indices.empty() && paths != structural_paths) {
+                                    throw IRFailure(
+                                        "automatic function broadcasting requires lifted arguments to have the same vector depth");
+                                }
                                 structural_call = true;
+                                structural_argument_indices.push_back(index);
+                                structural_paths = std::move(paths);
+                                structural_paths_present = true;
                             } else if ((starts_with(structural_argument, "tuple<") &&
                                         structural_argument.back() == '>') ||
                                        (starts_with(structural_argument, "record{") &&
@@ -2308,9 +3592,11 @@ private:
                             }
                         }
                     }
-                    callee.as_object()["name"] = vf::JsonValue(functions_.runtime_name(*function));
+                    auto resolved_callee = node("load");
+                    resolved_callee["name"] = vf::JsonValue(functions_.runtime_name(*function));
                     callee_type = function_signature_type(instantiated_params, instantiated_return);
-                    callee.as_object()["type"] = vf::JsonValue(callee_type);
+                    resolved_callee["type"] = vf::JsonValue(callee_type);
+                    callee = vf::JsonValue(std::move(resolved_callee));
                     if (!advanced_call_shape) {
                         std::size_t required = 0;
                         bool has_variadic = false;
@@ -2333,7 +3619,10 @@ private:
                         for (std::size_t i = 0; i < args.size() && i < function->param_types.size(); ++i) {
                             const bool is_variadic = (i < function->variadic_positional.size() && function->variadic_positional[i])
                                 || (i < function->variadic_named.size() && function->variadic_named[i]);
-                            if (!is_variadic && !elementwise_math_call && !structural_call) {
+                            const bool lifted = std::find(
+                                structural_argument_indices.begin(),
+                                structural_argument_indices.end(), i) != structural_argument_indices.end();
+                            if (!is_variadic && !elementwise_math_call && !lifted) {
                                 args[i] = coerce_value_to_type(
                                     std::move(args[i]),
                                     instantiated_params[i],
@@ -2355,22 +3644,18 @@ private:
                             resolve_type_alias(*structural), "num", "", structural_paths);
                         if (structural_paths.empty()) {
                             throw IRFailure(
-                                "automatic math broadcasting requires exact num vector elements");
+                                "automatic math broadcasting requires num-compatible vector elements");
                         }
                     } else if (structural_call) {
+                        const std::size_t carrier_index = structural_argument_indices.front();
                         call_type = structurally_lifted_result_type(
-                            resolve_type_alias(argument_type_names.front()),
-                            structural_parameter,
+                            resolve_type_alias(argument_type_names[carrier_index]),
+                            resolve_type_alias(instantiated_params[carrier_index]),
                             structural_result);
-                        structural_paths_present = true;
-                        collect_structural_match_paths(
-                            resolve_type_alias(argument_type_names.front()),
-                            structural_parameter,
-                            "",
-                            structural_paths);
                         if (structural_paths.empty()) {
                             throw IRFailure(
-                                "automatic function broadcasting requires an exact vector element type match");
+                                "automatic function broadcasting requires a compatible vector element type for " +
+                                callee_name);
                         }
                     }
                 } else if (functions_.contains(callee_name)) {
@@ -2602,7 +3887,7 @@ private:
                         resolve_type_alias(argument_type), "num", "", structural_paths);
                     if (structural_paths.empty()) {
                         throw IRFailure(
-                            "automatic math broadcasting requires exact num vector elements");
+                            "automatic math broadcasting requires num-compatible vector elements");
                     }
                 } else if ((starts_with(argument_type, "tuple<") && argument_type.back() == '>') ||
                            (starts_with(argument_type, "record{") && argument_type.back() == '}')) {
@@ -2618,8 +3903,20 @@ private:
             out["callee"] = std::move(callee);
             out["callee_type"] = vf::JsonValue(callee_type);
             out["type"] = vf::JsonValue(call_type);
+            if (!specialization_argument_types.empty()) {
+                vf::JsonValue::Array types;
+                for (const auto& type : specialization_argument_types) types.emplace_back(type);
+                out["specialization_arg_types"] = vf::JsonValue(std::move(types));
+            }
             if (elementwise_math_call) out["elementwise_math"] = vf::JsonValue(true);
             if (structural_call) out["structural_call"] = vf::JsonValue(true);
+            if (!structural_argument_indices.empty()) {
+                vf::JsonValue::Array indices;
+                for (const auto index : structural_argument_indices) {
+                    indices.emplace_back(static_cast<double>(index));
+                }
+                out["structural_argument_indices"] = vf::JsonValue(std::move(indices));
+            }
             if (structural_paths_present) {
                 vf::JsonValue::Array paths;
                 for (const auto& path : structural_paths) paths.emplace_back(path);
@@ -2696,16 +3993,26 @@ private:
         }
         if (kind == "range_expr") {
             vf::JsonValue folded;
-            if (try_fold_range_expr(object, folded)) {
+            if (optional_bool_field(object, "parenthesized") &&
+                try_fold_range_expr(object, folded)) {
                 return folded;
             }
             auto out = node("range");
             const auto& raw_start = field(object, "start", "range_expr");
             const auto& raw_end = field(object, "end", "range_expr");
-            out["start"] = raw_start.is_null() ? num_const(0.0) : lower_expr(raw_start, env);
+            out["start"] = raw_start.is_null() ? int_const(0.0) : lower_expr(raw_start, env);
             out["end"] = raw_end.is_null() ? vf::JsonValue(nullptr) : lower_expr(raw_end, env);
+            const auto numeric_range_bound = [](const std::string& type) {
+                return type == "int" || type == "num" || type == "f32" || type == "f64";
+            };
+            if (!numeric_range_bound(string_field(
+                    out["start"].as_object(), "type", "range start")) ||
+                (!out["end"].is_null() && !numeric_range_bound(string_field(
+                    out["end"].as_object(), "type", "range end")))) {
+                throw IRFailure("range bounds must be numeric integers");
+            }
             out["infinite"] = vf::JsonValue(raw_end.is_null());
-            out["type"] = vf::JsonValue("range<num>");
+            out["type"] = vf::JsonValue("range<int>");
             return vf::JsonValue(std::move(out));
         }
         if (kind == "pipe_chain") {
@@ -2716,12 +4023,19 @@ private:
             const auto& raw_source = object_of(
                 field(object, "source", "pipe_chain"), "pipe source");
             std::optional<vf::JsonValue> range_source;
+            std::optional<std::size_t> fixed_range_count;
             if (string_field(raw_source, "kind", "pipe source") == "range_expr") {
+                vf::JsonValue folded_range;
+                if (try_fold_range_expr(raw_source, folded_range)) {
+                    fixed_range_count = array_of(
+                        field(folded_range.as_object(), "items", "fixed pipe range"),
+                        "fixed pipe range items").size();
+                }
                 auto range = node("range");
                 const auto& raw_start = field(raw_source, "start", "pipe range");
                 const auto& raw_end = field(raw_source, "end", "pipe range");
                 vf::JsonValue lowered_start = raw_start.is_null()
-                    ? num_const(0.0) : lower_expr(raw_start, env);
+                    ? int_const(0.0) : lower_expr(raw_start, env);
                 if (raw_start.is_null() && !raw_end.is_null()) {
                     vf::JsonValue lowered_end = lower_expr(raw_end, env);
                     if (string_field(
@@ -2733,20 +4047,25 @@ private:
                     range["end"] = raw_end.is_null()
                         ? vf::JsonValue(nullptr) : lower_expr(raw_end, env);
                 }
+                const auto numeric_range_bound = [](const std::string& type) {
+                    return type == "int" || type == "num" || type == "f32" || type == "f64";
+                };
+                if (!numeric_range_bound(string_field(
+                        lowered_start.as_object(), "type", "pipe range start")) ||
+                    (!range["end"].is_null() && !numeric_range_bound(string_field(
+                        range["end"].as_object(), "type", "pipe range end")))) {
+                    throw IRFailure("range bounds must be numeric integers");
+                }
                 range["start"] = std::move(lowered_start);
                 range["infinite"] = vf::JsonValue(raw_end.is_null());
-                range["type"] = vf::JsonValue("range<num>");
+                range["type"] = vf::JsonValue("range<int>");
                 range_source = vf::JsonValue(std::move(range));
             }
             vf::JsonValue source = lower_expr(field(object, "source", "pipe_chain"), env);
             const std::string source_type = string_field(source.as_object(), "type", "pipe source");
             std::string element_type = "any";
-            if (!source_type.empty() && source_type.front() == '[') {
-                const auto colon = source_type.find(':');
-                const auto close = source_type.rfind(']');
-                if (close != std::string::npos) {
-                    element_type = source_type.substr(1, (colon == std::string::npos ? close : colon) - 1);
-                }
+            if (const auto vector = vector_type_parts(source_type)) {
+                element_type = vector->element;
             } else if (source_type.rfind("list<", 0) == 0 && source_type.back() == '>') {
                 element_type = source_type.substr(5, source_type.size() - 6);
             } else if (source_type.rfind("tuple<", 0) == 0 && source_type.back() == '>') {
@@ -2761,8 +4080,8 @@ private:
                 element_type = "chr";
             } else if (source_type.rfind("multiset<", 0) == 0 && source_type.back() == '>') {
                 element_type = source_type.substr(9, source_type.size() - 10);
-            } else if (source_type == "range<num>") {
-                element_type = "num";
+            } else if (source_type == "range<int>") {
+                element_type = "int";
             } else if (source_type == "num" || source_type == "int" ||
                        source_type == "f32" || source_type == "f64" ||
                        source_type == "bit" || source_type == "chr" ||
@@ -2804,9 +4123,9 @@ private:
                 segments.push_back(std::move(lowered));
             }
             std::string result_type = source_type;
-            if (!source_type.empty() && source_type.front() == '[') {
-                const auto colon = source_type.find(':');
-                if (colon != std::string::npos) result_type = "[" + result_element_type + source_type.substr(colon);
+            if (const auto vector = vector_type_parts(source_type)) {
+                result_type = "[" + result_element_type +
+                    (vector->shape.empty() ? "" : ":" + vector->shape) + "]";
             } else if (source_type.rfind("list<", 0) == 0) {
                 result_type = "list<" + result_element_type + ">";
             } else if (source_type.rfind("tuple<", 0) == 0 && source_type.back() == '>') {
@@ -2823,8 +4142,17 @@ private:
             } else if (source_type == "str") {
                 result_type = result_element_type == "chr" || result_element_type == "str"
                     ? "str" : "list<" + result_element_type + ">";
-            } else if (source_type == "range<num>") {
-                result_type = "list<" + result_element_type + ">";
+            } else if (source_type == "range<int>") {
+                if (fixed_range_count) {
+                    result_type = "tuple<";
+                    for (std::size_t index = 0; index < *fixed_range_count; ++index) {
+                        if (index != 0) result_type += ",";
+                        result_type += result_element_type;
+                    }
+                    result_type += ">";
+                } else {
+                    result_type = "list<" + result_element_type + ">";
+                }
             } else if (source_type == "num" || source_type == "int" ||
                        source_type == "f32" || source_type == "f64" ||
                        source_type == "bit" || source_type == "chr" ||
@@ -2872,6 +4200,18 @@ private:
             const std::string left_type = string_field(left.as_object(), "type", "binary_op.left");
             const std::string right_type = string_field(right.as_object(), "type", "binary_op.right");
             const std::string op = string_field(object, "op", "binary_op");
+            const auto left_dimension = vkf::physical::parse_dimension_type(left_type);
+            const auto right_dimension = vkf::physical::parse_dimension_type(right_type);
+            const bool dimension_checked = op == "PLUS" || op == "MINUS"
+                || op == "EQ" || op == "EXACT_EQ" || op == "NEQ"
+                || op == "LT" || op == "LE" || op == "GT" || op == "GE";
+            if (dimension_checked && left_dimension && right_dimension
+                && *left_dimension != *right_dimension) {
+                throw IRFailure(
+                    "cannot add quantities with dimensions "
+                    + vkf::physical::dimension_name(*left_dimension) + " and "
+                    + vkf::physical::dimension_name(*right_dimension));
+            }
             const auto numeric_scalar = [](const std::string& type) {
                 return type == "int" || type == "num" || type == "f32" || type == "f64";
             };
@@ -2881,7 +4221,10 @@ private:
             const std::string overload_name = op == "PLUS" ? "+" : op == "MINUS" ? "-"
                 : op == "STAR" ? "*" : op == "SLASH" ? "/"
                 : op == "FLOORDIV" ? "//" : op == "PERCENT" ? "%"
-                : op == "CARET" ? "^" : op == "AMPERSAND" ? "&" : "";
+                : op == "CARET" ? "^" : op == "AMPERSAND" ? "&"
+                : op == "IMPLIES" ? "=>"
+                : op == "EQ" ? "=" : op == "LT" ? "<" : op == "LE" ? "<="
+                : op == "GT" ? ">" : op == "GE" ? ">=" : "";
             const FunctionInfo* function = functions_.get(
                 overload_name, {left_type, right_type});
             if (function == nullptr && !overload_name.empty()) {
@@ -2937,6 +4280,20 @@ private:
             if (arithmetic && (tuple_or_record(left_type) || tuple_or_record(right_type))) {
                 throw IRFailure("tuple and record arithmetic requires an operator overload");
             }
+            if (op == "IMPLIES" && left_type == "bit" && right_type == "bit") {
+                auto negated = node("unary_op");
+                negated["op"] = vf::JsonValue("NOT");
+                negated["operand"] = std::move(left);
+                negated["type"] = vf::JsonValue("bit");
+                auto out = node("binary_op");
+                out["op"] = vf::JsonValue("OR");
+                out["left"] = vf::JsonValue(std::move(negated));
+                out["right"] = std::move(right);
+                out["left_type"] = vf::JsonValue("bit");
+                out["right_type"] = vf::JsonValue("bit");
+                out["type"] = vf::JsonValue("bit");
+                return vf::JsonValue(std::move(out));
+            }
             auto out = node("binary_op");
             out["op"] = vf::JsonValue(op);
             out["left"] = std::move(left);
@@ -2945,7 +4302,7 @@ private:
             out["right_type"] = vf::JsonValue(right_type);
             const std::string result_type = binary_result_type(op, left_type, right_type);
             out["type"] = vf::JsonValue(result_type);
-            if (result_type == "symbolic") {
+            if (symbolic_expression_type(result_type)) {
                 attach_expression_facts(
                     out,
                     VkfExpressionLoweringMode::SymbolicNode,
@@ -2962,21 +4319,38 @@ private:
             if (string_field(raw_value, "kind", "type_of value") == "identifier") {
                 const std::string name = string_field(raw_value, "name", "type_of value");
                 const std::string primitive = primitive_type_name(name, env);
-                const std::string function_surface = primitive == "bit" ? "(any) -> bit"
-                    : primitive == "chr" ? "(any) -> chr"
-                    : primitive == "int" ? "(any) -> int"
-                    : primitive == "num" ? "(any, any = 0) -> num"
-                    : primitive == "str" ? "(any) -> str" : "";
-                if (!function_surface.empty()) {
+                if (!primitive.empty()) {
                     auto out = node("const");
-                    out["type"] = vf::JsonValue("str");
-                    out["value"] = vf::JsonValue(function_surface);
+                    out["type"] = vf::JsonValue("type<type>");
+                    out["value"] = vf::JsonValue("type");
+                    return vf::JsonValue(std::move(out));
+                }
+                const auto family = functions_.family(name);
+                if (!family.empty()) {
+                    if (is_nominal_constructor_name(name)) {
+                        auto out = node("const");
+                        out["type"] = vf::JsonValue("type<type>");
+                        out["value"] = vf::JsonValue("type");
+                        return vf::JsonValue(std::move(out));
+                    }
+                    std::string surface;
+                    for (const auto* function : family) {
+                        if (!surface.empty()) surface += " | ";
+                        surface += render_surface_type(function->signature);
+                    }
+                    auto out = node("const");
+                    const std::string represented = family.size() == 1
+                        ? family.front()->signature : surface;
+                    out["type"] = vf::JsonValue("type<" + represented + ">");
+                    out["value"] = vf::JsonValue(std::move(surface));
                     return vf::JsonValue(std::move(out));
                 }
             }
             vf::JsonValue lowered_value = lower_expr(raw_value, env);
             const std::string value_type = string_field(lowered_value.as_object(), "type", "type_of.value");
-            std::string surface_type = render_surface_type(value_type);
+            std::string surface_type = value_type == "type" ||
+                    (starts_with(value_type, "type<") && value_type.back() == '>')
+                ? "type" : render_surface_type(value_type);
             const auto& lowered_object = lowered_value.as_object();
             if (string_field(lowered_object, "kind", "type_of.value") == "list" &&
                 value_type.rfind("list<", 0) == 0 && !value_type.empty() && value_type.back() == '>') {
@@ -2985,7 +4359,10 @@ private:
                     ":" + std::to_string(items.size()) + "]";
             }
             auto out = node("const");
-            out["type"] = vf::JsonValue("str");
+            const std::string represented_type = value_type == "type" ||
+                    (starts_with(value_type, "type<") && value_type.back() == '>')
+                ? "type" : value_type;
+            out["type"] = vf::JsonValue("type<" + represented_type + ">");
             out["value"] = vf::JsonValue(surface_type);
             return vf::JsonValue(std::move(out));
         }
@@ -3065,11 +4442,42 @@ private:
             return vf::JsonValue(std::move(out));
         }
         if (kind == "list_literal" || kind == "vector_literal") {
+            const auto& source_items = array_of(field(object, "items", kind), kind + ".items");
+            if (source_items.size() == 1) {
+                const auto& item = object_of(source_items.front(), "list item AST");
+                if (string_field(item, "kind", "list item AST") == "repeat_element") {
+                    const auto& count = object_of(
+                        field(item, "count", "repeat element"), "repeat count");
+                    if (string_field(count, "kind", "repeat count") != "number_literal") {
+                        vf::JsonValue value = lower_expr(
+                            field(item, "value", "repeat element"), env);
+                        vf::JsonValue lowered_count = lower_expr(
+                            field(item, "count", "repeat element"), env);
+                        const std::string element_type = string_field(
+                            value.as_object(), "type", "repeat element");
+                        const std::string count_type = string_field(
+                            lowered_count.as_object(), "type", "repeat count");
+                        if (count_type != "num" && count_type != "int" &&
+                            count_type != "f32" && count_type != "f64") {
+                            throw IRFailure(
+                                "vector repeat count must be numeric; got " + count_type +
+                                " from " + vf::json_stringify(
+                                    field(item, "count", "repeat element"), -1));
+                        }
+                        auto out = node("repeat_list");
+                        out["value"] = std::move(value);
+                        out["count"] = std::move(lowered_count);
+                        out["element_type"] = vf::JsonValue(element_type);
+                        out["type"] = vf::JsonValue("list<" + element_type + ">");
+                        return vf::JsonValue(std::move(out));
+                    }
+                }
+            }
             vf::JsonValue::Array items;
             std::string element_type = "any";
             bool first = true;
             bool has_spread = false;
-            for (const auto& item : array_of(field(object, "items", kind), kind + ".items")) {
+            for (const auto& item : source_items) {
                 const auto& item_object = object_of(item, "list item AST");
                 if (string_field(item_object, "kind", "list item AST") == "repeat_element") {
                     const auto& count = object_of(
@@ -3085,6 +4493,11 @@ private:
                         field(item_object, "value", "repeat element"), env);
                     const std::string item_type = string_field(
                         lowered_item.as_object(), "type", "repeat element");
+                    if (starts_with(item_type, "type<") && item_type.back() == '>') {
+                        return type_const(
+                            "[" + item_type.substr(5, item_type.size() - 6) + ":" +
+                            std::to_string(static_cast<std::uint64_t>(raw_count)) + "]");
+                    }
                     for (std::uint64_t repeat = 0;
                          repeat < static_cast<std::uint64_t>(raw_count); ++repeat) {
                         if (first) {
@@ -3110,7 +4523,11 @@ private:
                     continue;
                 }
                 if (string_field(item_object, "kind", "list item AST") == "range_expr") {
-                    vf::JsonValue range_value = lower_expr(item, env);
+                    vf::JsonValue range_value;
+                    if (!try_fold_range_expr(item_object, range_value)) {
+                        throw IRFailure(
+                            "runtime range materialization in vectors is not yet supported");
+                    }
                     const auto& range_object = range_value.as_object();
                     const auto& range_items = array_of(field(range_object, "items", "range list"), "range list.items");
                     const std::string range_type = string_field(range_object, "element_type", "range list");
@@ -3134,6 +4551,29 @@ private:
                     element_type = merge_nullable_type(element_type, item_type);
                 }
                 items.push_back(std::move(lowered_item));
+            }
+            if (!items.empty() && !has_spread) {
+                std::string represented_type;
+                bool all_type_values = true;
+                bool all_same_type_values = true;
+                for (const auto& item : items) {
+                    const std::string item_type = string_field(
+                        item.as_object(), "type", "type vector item");
+                    if (!starts_with(item_type, "type<") || item_type.back() != '>') {
+                        all_type_values = false;
+                        all_same_type_values = false;
+                        break;
+                    }
+                    const std::string represented = item_type.substr(5, item_type.size() - 6);
+                    if (represented_type.empty()) represented_type = represented;
+                    else if (represented_type != represented) all_same_type_values = false;
+                }
+                if (all_same_type_values) {
+                    return type_const(items.size() == 1
+                        ? "[" + represented_type + "]"
+                        : "[" + represented_type + ":" + std::to_string(items.size()) + "]");
+                }
+                if (all_type_values) element_type = "type";
             }
             const std::string container_type = items.empty() || has_spread
                 ? "list<" + element_type + ">"
@@ -3169,6 +4609,21 @@ private:
                 }
             }
             tuple_type += ">";
+            if (!items.empty()) {
+                std::string represented = "tuple<";
+                bool all_type_values = true;
+                for (std::size_t index = 0; index < items.size(); ++index) {
+                    const std::string item_type = string_field(
+                        items[index].as_object(), "type", "tuple type item");
+                    if (!starts_with(item_type, "type<") || item_type.back() != '>') {
+                        all_type_values = false;
+                        break;
+                    }
+                    if (index != 0) represented += ",";
+                    represented += item_type.substr(5, item_type.size() - 6);
+                }
+                if (all_type_values) return type_const(represented + ">");
+            }
             auto out = node("tuple");
             out["items"] = vf::JsonValue(std::move(items));
             out["type"] = vf::JsonValue(tuple_type);
@@ -3179,25 +4634,72 @@ private:
             vf::JsonValue::Array lowered_pairs;
             std::string element_type = "any";
             bool first = true;
+            bool implicit_type_key = false;
             for (const auto& pair_value : pairs) {
                 const auto& pair_object = object_of(pair_value, "multiset_pair");
-                vf::JsonValue lowered_key = lower_expr(field(pair_object, "key", "multiset_pair"), env);
                 vf::JsonValue lowered_count = lower_expr(field(pair_object, "count", "multiset_pair"), env);
-                const std::string key_type = string_field(lowered_key.as_object(), "type", "multiset key");
+                const auto& raw_key = field(pair_object, "key", "multiset_pair");
+                const auto& raw_key_object = object_of(raw_key, "multiset key");
+                if (string_field(raw_key_object, "kind", "multiset key") == "range_expr") {
+                    vf::JsonValue materialized;
+                    if (!try_fold_range_expr(raw_key_object, materialized)) {
+                        throw IRFailure(
+                            "runtime range materialization in multisets is not yet supported");
+                    }
+                    for (const auto& range_key : array_of(
+                            field(materialized.as_object(), "items", "range multiset"),
+                            "range multiset.items")) {
+                        const std::string range_key_type = string_field(
+                            range_key.as_object(), "type", "range multiset key");
+                        if (first) {
+                            element_type = range_key_type;
+                            first = false;
+                        } else if (element_type != range_key_type) {
+                            throw IRFailure("multiset values require one exact element type");
+                        }
+                        auto lowered_pair = node("multiset_pair");
+                        lowered_pair["key"] = range_key;
+                        lowered_pair["count"] = lowered_count;
+                        lowered_pairs.push_back(vf::JsonValue(std::move(lowered_pair)));
+                    }
+                    continue;
+                }
+                vf::JsonValue lowered_key = lower_expr(raw_key, env);
+                const std::string raw_key_type = string_field(
+                    lowered_key.as_object(), "type", "multiset key");
+                const bool key_is_type = starts_with(raw_key_type, "type<") &&
+                    raw_key_type.back() == '>';
+                const auto explicit_count = pair_object.find("explicit_count");
+                const bool counted = explicit_count != pair_object.end() &&
+                    explicit_count->second.is_boolean() &&
+                    explicit_count->second.as_boolean();
+                if (key_is_type && !counted) implicit_type_key = true;
+                const std::string key_type = key_is_type ? "type" : raw_key_type;
                 if (first) {
                     element_type = key_type;
                     first = false;
-                } else {
-                    element_type = merge_nullable_type(element_type, key_type);
+                } else if (element_type != key_type) {
+                    throw IRFailure("multiset values require one exact element type");
                 }
                 auto lowered_pair = node("multiset_pair");
                 lowered_pair["key"] = std::move(lowered_key);
                 lowered_pair["count"] = std::move(lowered_count);
                 lowered_pairs.push_back(vf::JsonValue(std::move(lowered_pair)));
             }
+            if (implicit_type_key) {
+                if (pairs.size() != 1) {
+                    throw IRFailure("multiset type literal requires exactly one element type");
+                }
+                const auto& key = object_of(
+                    field(lowered_pairs.front().as_object(), "key", "multiset type key"),
+                    "multiset type key");
+                const std::string key_type = string_field(key, "type", "multiset type key");
+                return type_const(
+                    "multiset<" + key_type.substr(5, key_type.size() - 6) + ">");
+            }
             auto out = node("multiset");
             out["pairs"] = vf::JsonValue(std::move(lowered_pairs));
-            out["element_type"] = vf::JsonValue(element_type);
+            out["element_type"] = vf::JsonValue(element_type == "type" ? "str" : element_type);
             out["type"] = vf::JsonValue("multiset<" + element_type + ">");
             return vf::JsonValue(std::move(out));
         }
@@ -3321,6 +4823,7 @@ private:
             const std::string field_name = string_field(object, "name", "attribute");
             const bool vector_object = starts_with(object_type, "list<") ||
                 (object_type.size() >= 2 && object_type.front() == '[' && object_type.back() == ']');
+            const bool length_object = vector_object || symbolic_expression_type(object_type);
             if (vector_object && field_name != "length") {
                 throw IRFailure(
                     "vector member " + field_name + " is not an index; use .(" +
@@ -3330,16 +4833,24 @@ private:
             out["field"] = vf::JsonValue(field_name);
             out["object"] = std::move(object_ir);
             out["object_type"] = vf::JsonValue(object_type);
-            out["type"] = vf::JsonValue(field_type_from_record(object_type, field_name));
+            out["type"] = vf::JsonValue(
+                length_object && field_name == "length"
+                ? "fn()->int"
+                : field_type_from_record(object_type, field_name));
             return vf::JsonValue(std::move(out));
         }
         if (kind == "dotted_index") {
             vf::JsonValue base = lower_expr(field(object, "base", "dotted_index"), env);
             std::string result_type = string_field(base.as_object(), "type", "dotted_index.base");
-            vf::JsonValue::Array indices;
-            for (const auto& index_ast : array_of(field(object, "indices", "dotted_index"), "dotted_index.indices")) {
-                indices.push_back(lower_expr(index_ast, env));
-                if (starts_with(result_type, "list<") && result_type.back() == '>') {
+            const auto base_shape = fixed_numeric_vector_shape(result_type);
+            vf::JsonValue::Array current_indices;
+            std::optional<FixedNumericVectorShape> broadcast_index_shape;
+            std::optional<std::string> broadcast_index_type;
+            std::size_t expanded_index_count = 0;
+            const auto descend_result_type = [&]() {
+                if (symbolic_expression_type(result_type)) {
+                    result_type = "num";
+                } else if (starts_with(result_type, "list<") && result_type.back() == '>') {
                     result_type = result_type.substr(5, result_type.size() - 6);
                 } else if (result_type.size() >= 2 && result_type.front() == '[' && result_type.back() == ']') {
                     const std::string inner = result_type.substr(1, result_type.size() - 2);
@@ -3348,11 +4859,95 @@ private:
                 } else {
                     result_type = "any";
                 }
+            };
+            for (const auto& index_ast : array_of(field(object, "indices", "dotted_index"), "dotted_index.indices")) {
+                const auto& index_object = object_of(index_ast, "dotted_index.index");
+                const std::string index_kind = string_field(
+                    index_object, "kind", "dotted_index.index");
+                if (index_kind == "spread_arg") {
+                    vf::JsonValue spread_value = lower_expr(
+                        field(index_object, "expr", "dotted_index spread"), env);
+                    const std::string spread_type = string_field(
+                        spread_value.as_object(), "type", "dotted_index spread");
+                    const auto spread_shape = fixed_numeric_vector_shape(spread_type);
+                    if (!spread_shape.has_value() || spread_shape->dimensions.size() != 1) {
+                        throw IRFailure(
+                            "multidimensional index spill requires one fixed vector of numeric coordinates");
+                    }
+                    auto spread = node("spread_index");
+                    spread["value"] = std::move(spread_value);
+                    spread["count"] = vf::JsonValue(
+                        static_cast<double>(spread_shape->dimensions.front()));
+                    spread["type"] = vf::JsonValue(spread_type);
+                    current_indices.emplace_back(std::move(spread));
+                    expanded_index_count += spread_shape->dimensions.front();
+                    for (std::size_t index = 0; index < spread_shape->dimensions.front(); ++index) {
+                        descend_result_type();
+                    }
+                    continue;
+                }
+                if (index_kind == "named_call_arg") {
+                    throw IRFailure("multidimensional indices do not accept named arguments");
+                }
+                vf::JsonValue lowered_index = lower_expr(index_ast, env);
+                const std::string index_type = string_field(
+                    lowered_index.as_object(), "type", "dotted_index.index");
+                if (const auto index_shape = fixed_numeric_vector_shape(index_type)) {
+                    if (broadcast_index_shape.has_value() &&
+                        broadcast_index_shape->dimensions != index_shape->dimensions) {
+                        throw IRFailure(
+                            "distributed multidimensional index vectors must have matching shapes");
+                    }
+                    if (!broadcast_index_shape.has_value()) {
+                        broadcast_index_type = index_type;
+                    }
+                    broadcast_index_shape = *index_shape;
+                } else if (vector_type_parts(index_type).has_value()) {
+                    throw IRFailure(
+                        "multidimensional vector index must contain a fixed multivec of numeric indices");
+                }
+                current_indices.push_back(std::move(lowered_index));
+                ++expanded_index_count;
+                descend_result_type();
             }
+            if (broadcast_index_shape.has_value()) {
+                result_type = structurally_lifted_result_type(
+                    *broadcast_index_type,
+                    broadcast_index_shape->leaf_type,
+                    result_type);
+            }
+            vf::JsonValue::Array indices;
+            bool nested_index = base_shape.has_value() &&
+                base_shape->dimensions.size() > 1 &&
+                base_shape->dimensions.size() == expanded_index_count;
+            if (string_field(base.as_object(), "kind", "dotted_index.base") == "dotted_index") {
+                const auto dynamic_index = [](const vf::JsonValue& value) {
+                    return !value.is_object() || value.as_object().find("value") == value.as_object().end();
+                };
+                const auto& nested = base.as_object().at("indices").as_array();
+                nested_index = nested_index ||
+                    std::any_of(nested.begin(), nested.end(), dynamic_index) ||
+                    std::any_of(current_indices.begin(), current_indices.end(), dynamic_index);
+                if (nested_index) {
+                    const auto nested_expanded = base.as_object().find("expanded_index_count");
+                    expanded_index_count += nested_expanded != base.as_object().end() &&
+                            nested_expanded->second.is_number()
+                        ? static_cast<std::size_t>(nested_expanded->second.as_number())
+                        : nested.size();
+                    auto nested_indices = std::move(base.as_object().at("indices").as_array());
+                    for (auto& index : nested_indices) indices.push_back(std::move(index));
+                    vf::JsonValue nested_base = std::move(base.as_object().at("base"));
+                    base = std::move(nested_base);
+                }
+            }
+            for (auto& index : current_indices) indices.push_back(std::move(index));
             auto out = node("dotted_index");
             out["base"] = std::move(base);
             out["indices"] = vf::JsonValue(std::move(indices));
             out["type"] = vf::JsonValue(result_type);
+            out["expanded_index_count"] = vf::JsonValue(
+                static_cast<double>(expanded_index_count));
+            if (nested_index) out["nested_index"] = vf::JsonValue(true);
             return vf::JsonValue(std::move(out));
         }
         if (kind == "match_stmt") {
@@ -3435,8 +5030,53 @@ private:
         std::string right_value_type;
         const bool left_is_axis = parse_axis_tagged_type(left_type, left_axis, left_value_type);
         const bool right_is_axis = parse_axis_tagged_type(right_type, right_axis, right_value_type);
-        if (left_type == "symbolic" || right_type == "symbolic") {
-            return "symbolic";
+        const auto left_dimension = vkf::physical::parse_dimension_type(left_type);
+        const auto right_dimension = vkf::physical::parse_dimension_type(right_type);
+        const auto numeric_scalar = [](const std::string& type) {
+            return type == "int" || type == "num" || type == "f32" || type == "f64";
+        };
+        if (left_dimension || right_dimension) {
+            if (op == "EQ" || op == "EXACT_EQ" || op == "NEQ"
+                || op == "LT" || op == "LE" || op == "GT" || op == "GE") {
+                return "bit";
+            }
+            if ((op == "PLUS" || op == "MINUS")
+                && left_dimension && right_dimension && *left_dimension == *right_dimension) {
+                return vkf::physical::quantity_type(*left_dimension);
+            }
+            if (op == "STAR") {
+                if (left_dimension && right_dimension) {
+                    return vkf::physical::quantity_type(
+                        vkf::physical::add(*left_dimension, *right_dimension));
+                }
+                if (left_dimension && numeric_scalar(right_type)) {
+                    return vkf::physical::quantity_type(*left_dimension);
+                }
+                if (right_dimension && numeric_scalar(left_type)) {
+                    return vkf::physical::quantity_type(*right_dimension);
+                }
+            }
+            if (op == "SLASH") {
+                if (left_dimension && right_dimension) {
+                    return vkf::physical::quantity_type(
+                        vkf::physical::subtract(*left_dimension, *right_dimension));
+                }
+                if (left_dimension && numeric_scalar(right_type)) {
+                    return vkf::physical::quantity_type(*left_dimension);
+                }
+                if (right_dimension && numeric_scalar(left_type)) {
+                    return vkf::physical::quantity_type(
+                        vkf::physical::subtract(vkf::physical::Dimension{}, *right_dimension));
+                }
+            }
+            return "any";
+        }
+        if (symbolic_expression_type(left_type) || symbolic_expression_type(right_type)) {
+            if (op == "IMPLIES") return "proposition";
+            if (op == "EQ" || op == "LT" || op == "LE" || op == "GT" || op == "GE") {
+                return "relation";
+            }
+            return "expression";
         }
         if (left_is_axis && right_is_axis) {
             if (left_axis == right_axis) {
@@ -3481,7 +5121,7 @@ private:
         }
         if (op == "EQ" || op == "EXACT_EQ" || op == "NEQ" || op == "STRUCT_NEQ"
             || op == "LT" || op == "LE" || op == "GT" || op == "GE"
-            || op == "AND" || op == "OR" || op == "XOR") {
+            || op == "AND" || op == "OR" || op == "XOR" || op == "IMPLIES") {
             return "bit";
         }
         const auto multiset_element = [](const std::string& type) -> std::string {
@@ -3500,14 +5140,14 @@ private:
             }
             return "multiset<" + element + ">";
         }
-        const auto numeric_scalar = [](const std::string& type) {
+        const auto plain_numeric_scalar = [](const std::string& type) {
             return type == "int" || type == "num" || type == "f32" || type == "f64";
         };
-        if (!left_multiset.empty() && numeric_scalar(right_type) &&
+        if (!left_multiset.empty() && plain_numeric_scalar(right_type) &&
             (op == "PLUS" || op == "MINUS" || op == "FLOORDIV")) {
             return left_type;
         }
-        if (!right_multiset.empty() && numeric_scalar(left_type) && op == "PLUS") {
+        if (!right_multiset.empty() && plain_numeric_scalar(left_type) && op == "PLUS") {
             return right_type;
         }
         if (op == "AMPERSAND") {
@@ -3567,11 +5207,38 @@ private:
         }
         if (op == "PLUS" || op == "MINUS" || op == "STAR" || op == "SLASH"
             || op == "FLOORDIV" || op == "PERCENT" || op == "CARET") {
+            const auto left_vector = vector_type_parts(left_type);
+            const auto right_vector = vector_type_parts(right_type);
+            if (left_vector && right_vector) {
+                if (left_vector->shape != right_vector->shape) return "any";
+                return "[" + binary_result_type(
+                    op, left_vector->element, right_vector->element) +
+                    (left_vector->shape.empty() ? "" : ":" + left_vector->shape) + "]";
+            }
+            if (left_vector && plain_numeric_scalar(right_type)) {
+                return "[" + binary_result_type(op, left_vector->element, right_type) +
+                    (left_vector->shape.empty() ? "" : ":" + left_vector->shape) + "]";
+            }
+            if (right_vector && plain_numeric_scalar(left_type)) {
+                return "[" + binary_result_type(op, left_type, right_vector->element) +
+                    (right_vector->shape.empty() ? "" : ":" + right_vector->shape) + "]";
+            }
+            const std::string left_list = dynamic_list_element_type(left_type);
+            const std::string right_list = dynamic_list_element_type(right_type);
+            if (!left_list.empty() && !right_list.empty()) {
+                return "list<" + binary_result_type(op, left_list, right_list) + ">";
+            }
+            if (!left_list.empty() && plain_numeric_scalar(right_type)) {
+                return "list<" + binary_result_type(op, left_list, right_type) + ">";
+            }
+            if (!right_list.empty() && plain_numeric_scalar(left_type)) {
+                return "list<" + binary_result_type(op, left_type, right_list) + ">";
+            }
             if ((op == "PLUS" || op == "MINUS" || op == "STAR" || op == "FLOORDIV" || op == "PERCENT")
                 && left_type == "int" && right_type == "int") {
                 return "int";
             }
-            if (numeric_scalar(left_type) && numeric_scalar(right_type)) {
+            if (plain_numeric_scalar(left_type) && plain_numeric_scalar(right_type)) {
                 if (left_type == "f64" || right_type == "f64") return "f64";
                 if (left_type == "f32" || right_type == "f32") return "f32";
                 return "num";
@@ -3592,6 +5259,620 @@ private:
         out += ")->";
         out += ret;
         return out;
+    }
+
+    static std::optional<std::size_t> metatype_return_parameter(
+        const FunctionInfo& function
+    ) {
+        const vf::JsonValue* result = &function.body_ast;
+        if (result->is_null()) return std::nullopt;
+        if (kind_of(*result) == "block") {
+            const auto& statements = array_of(
+                field(result->as_object(), "statements", "metatype return block"),
+                "metatype return block");
+            if (statements.empty()) return std::nullopt;
+            result = &statements.back();
+        }
+        if (kind_of(*result) == "return") {
+            result = &field(result->as_object(), "value", "metatype return");
+        }
+        if (kind_of(*result) != "call") return std::nullopt;
+        const auto& callee = object_of(
+            field(result->as_object(), "callee", "metatype return call"),
+            "metatype return callee");
+        if (string_field(callee, "kind", "metatype return callee") != "identifier") {
+            return std::nullopt;
+        }
+        const std::string name = string_field(callee, "name", "metatype return callee");
+        for (std::size_t index = 0; index < function.param_names.size() &&
+             index < function.param_types.size(); ++index) {
+            if (function.param_types[index] == "type" && function.param_names[index] == name) {
+                return index;
+            }
+        }
+        return std::nullopt;
+    }
+
+    static void substitute_symbolic_trace_arguments(
+        vf::JsonValue& value,
+        const std::map<std::string, vf::JsonValue>& replacements
+    ) {
+        if (value.is_array()) {
+            for (auto& item : value.as_array()) substitute_symbolic_trace_arguments(item, replacements);
+            return;
+        }
+        if (!value.is_object()) return;
+        auto& object = value.as_object();
+        const auto kind = object.find("kind");
+        const auto name = object.find("name");
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "identifier" && name != object.end() && name->second.is_string()) {
+            const auto replacement = replacements.find(name->second.as_string());
+            if (replacement != replacements.end()) {
+                value = replacement->second;
+                return;
+            }
+        }
+        for (auto& [field_name, child] : object) {
+            (void)field_name;
+            substitute_symbolic_trace_arguments(child, replacements);
+        }
+    }
+
+    void expand_bound_symbolic_expression_sources(
+        vf::JsonValue& value,
+        std::set<std::string>& expanding
+    ) const {
+        if (value.is_array()) {
+            for (auto& item : value.as_array()) {
+                expand_bound_symbolic_expression_sources(item, expanding);
+            }
+            return;
+        }
+        if (!value.is_object()) return;
+        auto& object = value.as_object();
+        const auto kind = object.find("kind");
+        const auto name = object.find("name");
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "identifier" && name != object.end() &&
+            name->second.is_string()) {
+            const std::string identifier = name->second.as_string();
+            const auto source = symbolic_expression_sources_.find(identifier);
+            if (source != symbolic_expression_sources_.end()) {
+                if (!expanding.insert(identifier).second) {
+                    throw IRFailure(
+                        "cyclic symbolic expression source " + identifier
+                    );
+                }
+                value = source->second;
+                expand_bound_symbolic_expression_sources(value, expanding);
+                expanding.erase(identifier);
+                return;
+            }
+        }
+        for (auto& [field_name, child] : object) {
+            (void)field_name;
+            expand_bound_symbolic_expression_sources(child, expanding);
+        }
+    }
+
+    void validate_symbolic_analytic_domains(
+        const vf::JsonValue& value,
+        const std::string& operation
+    ) const {
+        if (value.is_array()) {
+            for (const auto& item : value.as_array()) validate_symbolic_analytic_domains(item, operation);
+            return;
+        }
+        if (!value.is_object()) return;
+        const auto& object = value.as_object();
+        const auto kind = object.find("kind");
+        const auto name = object.find("name");
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "identifier" && name != object.end() && name->second.is_string()) {
+            const auto binding = symbolic_bindings_.find(name->second.as_string());
+            if (binding != symbolic_bindings_.end() && binding->second.domain != "R" &&
+                binding->second.domain != "C") {
+                throw IRFailure(
+                    "math." + operation + " requires symbolic domain R or C, received " +
+                    binding->second.domain + " for " + name->second.as_string());
+            }
+        }
+        for (const auto& [field_name, child] : object) {
+            (void)field_name;
+            validate_symbolic_analytic_domains(child, operation);
+        }
+    }
+
+    bool symbolic_expression_is_fully_bound(
+        const vf::JsonValue& value,
+        const std::set<std::string>& parameters
+    ) const {
+        if (value.is_array()) {
+            return std::all_of(value.as_array().begin(), value.as_array().end(), [&](const auto& item) {
+                return symbolic_expression_is_fully_bound(item, parameters);
+            });
+        }
+        if (!value.is_object()) return true;
+        const auto& object = value.as_object();
+        const auto kind = object.find("kind");
+        const auto name = object.find("name");
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "identifier" && name != object.end() && name->second.is_string()) {
+            const std::string identifier = name->second.as_string();
+            if (symbolic_bindings_.find(identifier) != symbolic_bindings_.end() &&
+                parameters.find(identifier) == parameters.end()) {
+                return false;
+            }
+        }
+        for (const auto& [field_name, child] : object) {
+            (void)field_name;
+            if (!symbolic_expression_is_fully_bound(child, parameters)) return false;
+        }
+        return true;
+    }
+
+    void materialize_unbound_symbolic_bindings(
+        vf::JsonValue& value,
+        const std::set<std::string>& parameters
+    ) const {
+        if (value.is_array()) {
+            for (auto& item : value.as_array()) {
+                materialize_unbound_symbolic_bindings(item, parameters);
+            }
+            return;
+        }
+        if (!value.is_object()) return;
+        auto& object = value.as_object();
+        const auto kind = object.find("kind");
+        const auto name = object.find("name");
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "identifier" && name != object.end() && name->second.is_string()) {
+            const std::string identifier = name->second.as_string();
+            const auto binding = symbolic_bindings_.find(identifier);
+            if (binding != symbolic_bindings_.end() && parameters.find(identifier) == parameters.end()) {
+                auto callee = node("identifier");
+                callee["name"] = vf::JsonValue("symbol");
+                auto symbol_name = node("string_literal");
+                symbol_name["value"] = vf::JsonValue(binding->second.name);
+                auto domain = node("identifier");
+                domain["name"] = vf::JsonValue(binding->second.domain);
+                auto constant_value = node("bool_literal");
+                constant_value["value"] = vf::JsonValue(binding->second.kind == "constant");
+                auto constant_arg = node("named_call_arg");
+                constant_arg["name"] = vf::JsonValue("constant");
+                constant_arg["value"] = vf::JsonValue(std::move(constant_value));
+                auto symbol_call = node("call");
+                symbol_call["callee"] = vf::JsonValue(std::move(callee));
+                symbol_call["args"] = vf::JsonValue(vf::JsonValue::Array{
+                    vf::JsonValue(std::move(symbol_name)),
+                    vf::JsonValue(std::move(domain)),
+                    vf::JsonValue(std::move(constant_arg)),
+                });
+                value = vf::JsonValue(std::move(symbol_call));
+                return;
+            }
+        }
+        for (auto& [field_name, child] : object) {
+            (void)field_name;
+            materialize_unbound_symbolic_bindings(child, parameters);
+        }
+    }
+
+    struct SymbolicBindingSpec {
+        std::string name;
+        std::string domain;
+        std::string kind;
+        std::string latex;
+    };
+
+    void remember_symbolic_binding(const std::string& binding, const vf::JsonValue& value) {
+        if (!value.is_object()) return;
+        const auto& object = value.as_object();
+        const auto kind_field = object.find("kind");
+        if (kind_field == object.end() || !kind_field->second.is_string() ||
+            kind_field->second.as_string() != "symbolic_var") {
+            return;
+        }
+        const auto symbol_kind = object.find("symbol_kind");
+        const auto latex = object.find("latex");
+        symbolic_bindings_[binding] = {
+            string_field(object, "name", "symbolic binding"),
+            string_field(object, "domain", "symbolic binding"),
+            symbol_kind != object.end() && symbol_kind->second.is_string()
+                ? symbol_kind->second.as_string() : "variable",
+            latex != object.end() && latex->second.is_string()
+                ? latex->second.as_string() : string_field(object, "name", "symbolic binding"),
+        };
+    }
+
+    static bool valid_generated_symbol_name(const std::string& name) {
+        if (name.empty() || !(std::isalpha(static_cast<unsigned char>(name.front())) ||
+            name.front() == '_')) {
+            return false;
+        }
+        return std::all_of(name.begin() + 1, name.end(), [](unsigned char ch) {
+            return std::isalnum(ch) || ch == '_';
+        });
+    }
+
+    static std::string symbolic_surface_ast(const vf::JsonValue& raw) {
+        const auto& object = object_of(raw, "symbolic generator domain");
+        const std::string kind = string_field(object, "kind", "symbolic generator domain");
+        if (kind == "identifier") {
+            const std::string name = string_field(object, "name", "symbolic generator domain");
+            if (vkf_symbolic_surface_is_scalar_domain(name)) return name;
+            return "";
+        }
+        if (kind == "binary_op" &&
+            string_field(object, "op", "symbolic vector-space domain") == "CARET") {
+            const std::string base = symbolic_surface_ast(
+                field(object, "left", "symbolic vector-space base"));
+            if (!vkf_symbolic_surface_is_scalar_domain(base)) return "";
+            const auto& raw_right = field(object, "right", "symbolic vector-space dimension");
+            const auto& right = object_of(raw_right, "symbolic vector-space dimension");
+            const vf::JsonValue* raw_exponent = &raw_right;
+            std::string codomain;
+            if (string_field(right, "kind", "symbolic vector-space dimension") == "axis_align") {
+                raw_exponent = &field(right, "value", "symbolic vector-space dimension");
+                const auto& label = field(right, "label", "symbolic vector-space codomain");
+                if (!label.is_string() || !vkf_symbolic_surface_is_scalar_domain(label.as_string())) {
+                    return "";
+                }
+                codomain = label.as_string();
+            }
+            const auto& exponent = object_of(*raw_exponent, "symbolic vector-space dimension");
+            if (string_field(exponent, "kind", "symbolic vector-space dimension") != "number_literal") {
+                throw IRFailure("symbolic vector-space dimension must be a positive compile-time integer");
+            }
+            const auto& raw_dimension = field(exponent, "value", "symbolic vector-space dimension");
+            const auto integer_surface = exponent.find("is_integer_surface");
+            if (!raw_dimension.is_number() || raw_dimension.as_number() < 1.0 ||
+                std::floor(raw_dimension.as_number()) != raw_dimension.as_number() ||
+                integer_surface == exponent.end() || !integer_surface->second.is_boolean() ||
+                !integer_surface->second.as_boolean()) {
+                throw IRFailure("symbolic vector-space dimension must be a positive compile-time integer");
+            }
+            const std::string vector_space = base + "^" + std::to_string(
+                static_cast<std::uint64_t>(raw_dimension.as_number()));
+            return codomain.empty() ? vector_space : vector_space + "->" + codomain;
+        }
+        if (kind == "tuple_literal") {
+            const auto& elements = array_of(
+                field(object, "elements", "symbolic function input domains"),
+                "symbolic function input domains");
+            if (elements.empty()) return "";
+            std::string result = "(";
+            for (std::size_t index = 0; index < elements.size(); ++index) {
+                const std::string element = symbolic_surface_ast(elements[index]);
+                if (symbolic_domain_surface_parts(element).first.empty()) return "";
+                if (index != 0) result += ",";
+                result += element;
+            }
+            return result + ")";
+        }
+        if (kind == "axis_align") {
+            const auto& value = object_of(
+                field(object, "value", "symbolic function domain"), "symbolic function domain value");
+            const auto& label = field(object, "label", "symbolic function codomain");
+            if (!label.is_string()) return "";
+            const std::string input = symbolic_surface_ast(vf::JsonValue(value));
+            const std::string output = label.as_string();
+            if (input.empty() ||
+                !vkf_symbolic_surface_is_scalar_domain(output)) {
+                return "";
+            }
+            return input + "->" + output;
+        }
+        return "";
+    }
+
+    static std::pair<std::string, std::uint64_t> symbolic_domain_surface_parts(
+        const std::string& surface
+    ) {
+        if (vkf_symbolic_surface_is_scalar_domain(surface)) return {surface, 1u};
+        const auto power = surface.find('^');
+        if (power == std::string::npos) return {"", 0u};
+        const std::string base = surface.substr(0, power);
+        const std::string dimension = surface.substr(power + 1u);
+        if (!vkf_symbolic_surface_is_scalar_domain(base) || dimension.empty()) return {"", 0u};
+        std::uint64_t parsed = 0u;
+        for (const unsigned char ch : dimension) {
+            if (!std::isdigit(ch)) return {"", 0u};
+            parsed = parsed * 10u + static_cast<std::uint64_t>(ch - '0');
+        }
+        return parsed == 0u ? std::pair<std::string, std::uint64_t>{"", 0u}
+                            : std::pair<std::string, std::uint64_t>{base, parsed};
+    }
+
+    static std::vector<std::string> symbolic_function_input_surfaces(
+        const std::string& signature
+    ) {
+        const auto arrow = signature.find("->");
+        if (arrow == std::string::npos) return {};
+        const std::string input = signature.substr(0, arrow);
+        if (!symbolic_domain_surface_parts(input).first.empty()) return {input};
+        if (input.size() < 3u || input.front() != '(' || input.back() != ')') return {};
+        std::vector<std::string> result;
+        std::size_t start = 1u;
+        while (start < input.size() - 1u) {
+            const std::size_t separator = input.find(',', start);
+            const std::size_t end = separator == std::string::npos ? input.size() - 1u : separator;
+            const std::string domain = input.substr(start, end - start);
+            if (symbolic_domain_surface_parts(domain).first.empty()) return {};
+            result.push_back(domain);
+            if (separator == std::string::npos) break;
+            start = separator + 1u;
+        }
+        return result;
+    }
+
+    static unsigned symbolic_scalar_domain_rank(const std::string& domain) {
+        if (domain == "N") return 1u;
+        if (domain == "Z") return 2u;
+        if (domain == "Q") return 3u;
+        if (domain == "R") return 4u;
+        if (domain == "C") return 5u;
+        return 0u;
+    }
+
+    static bool symbolic_domain_accepts(
+        const std::string& expected,
+        const std::string& actual
+    ) {
+        const auto expected_parts = symbolic_domain_surface_parts(expected);
+        const auto actual_parts = symbolic_domain_surface_parts(actual);
+        const unsigned expected_rank = symbolic_scalar_domain_rank(expected_parts.first);
+        const unsigned actual_rank = symbolic_scalar_domain_rank(actual_parts.first);
+        return expected_rank != 0u && actual_rank != 0u &&
+            expected_parts.second == actual_parts.second && actual_rank <= expected_rank;
+    }
+
+    static std::optional<std::string> greek_symbol_case(
+        const vf::JsonValue::Array& args
+    ) {
+        std::optional<std::string> selected;
+        for (const auto& argument : args) {
+            const auto& object = object_of(argument, "Greek symbol generator argument");
+            if (string_field(object, "kind", "Greek symbol generator argument") != "named_call_arg") {
+                continue;
+            }
+            if (string_field(object, "name", "Greek symbol generator option") != "case") {
+                throw IRFailure("greek_symbols accepts only the named option case:");
+            }
+            if (selected.has_value()) {
+                throw IRFailure("greek_symbols case: may be supplied only once");
+            }
+            const auto& value = object_of(
+                field(object, "value", "Greek symbol case"), "Greek symbol case");
+            if (string_field(value, "kind", "Greek symbol case") != "string_literal") {
+                throw IRFailure("greek_symbols case: must be the compile-time string \"lower\" or \"upper\"");
+            }
+            const auto& raw = field(value, "value", "Greek symbol case");
+            if (!raw.is_string() || (raw.as_string() != "lower" && raw.as_string() != "upper")) {
+                throw IRFailure("greek_symbols case: must be \"lower\" or \"upper\"");
+            }
+            selected = raw.as_string();
+        }
+        return selected;
+    }
+
+    static const vf::JsonValue* greek_symbol_domain(
+        const vf::JsonValue::Array& args
+    ) {
+        const vf::JsonValue* domain = nullptr;
+        for (const auto& argument : args) {
+            const auto& object = object_of(argument, "Greek symbol generator argument");
+            if (string_field(object, "kind", "Greek symbol generator argument") == "named_call_arg") {
+                continue;
+            }
+            if (domain != nullptr) {
+                throw IRFailure("greek_symbols accepts at most one domain/signature");
+            }
+            domain = &argument;
+        }
+        return domain;
+    }
+
+    static std::vector<std::string> symbolic_generator_names(
+        const std::string& generator,
+        const vf::JsonValue::Array& args
+    ) {
+        if (generator == "greek_symbols") {
+            const std::vector<std::string> all = {
+                "Alpha", "alpha", "Beta", "beta", "Gamma", "gamma", "Delta", "delta",
+                "Epsilon", "epsilon", "Zeta", "zeta", "Eta", "eta", "Theta", "theta",
+                "Iota", "iota", "Kappa", "kappa", "Lambda", "lambda", "Mu", "mu",
+                "Nu", "nu", "Xi", "xi", "Omicron", "omicron", "Pi", "pi", "Rho", "rho",
+                "Sigma", "sigma", "Tau", "tau", "Upsilon", "upsilon", "Phi", "phi",
+                "Chi", "chi", "Psi", "psi", "Omega", "omega"
+            };
+            const auto selected = greek_symbol_case(args);
+            if (!selected.has_value()) return all;
+            std::vector<std::string> result;
+            const std::size_t parity = *selected == "upper" ? 0u : 1u;
+            for (std::size_t index = parity; index < all.size(); index += 2u) {
+                result.push_back(all[index]);
+            }
+            return result;
+        }
+        if (args.empty()) return {};
+        const auto& names = object_of(args.front(), "symbolic generator names");
+        const std::string kind = string_field(names, "kind", "symbolic generator names");
+        std::vector<std::string> result;
+        if (generator == "symbols") {
+            if (kind == "string_literal") {
+                const auto& value = field(names, "value", "symbolic character names");
+                if (!value.is_string()) return {};
+                for (const unsigned char ch : value.as_string()) {
+                    if (ch >= 128) {
+                        throw IRFailure("symbolic plural string generators currently require ASCII identifiers");
+                    }
+                    result.emplace_back(1, static_cast<char>(ch));
+                }
+                return result;
+            }
+        }
+        if (generator == "symbol") {
+            if (kind != "string_literal") return {};
+            const auto& value = field(names, "value", "symbolic character names");
+            if (!value.is_string()) return {};
+            result.push_back(value.as_string());
+            return result;
+        }
+        if (generator == "symbols") {
+            if (kind != "list_literal") return {};
+            for (const auto& item : array_of(field(names, "items", "symbolic names"), "symbolic names")) {
+                const auto& item_object = object_of(item, "symbolic name");
+                if (string_field(item_object, "kind", "symbolic name") != "string_literal") {
+                    throw IRFailure("symbolic generator names must be compile-time strings");
+                }
+                const auto& name = field(item_object, "value", "symbolic name");
+                if (!name.is_string()) throw IRFailure("symbolic generator name must be string");
+                result.push_back(name.as_string());
+            }
+        }
+        return result;
+    }
+
+    static std::vector<std::string> symbolic_generator_surfaces(const vf::JsonValue& raw) {
+        const auto& object = object_of(raw, "symbolic generator domains");
+        if (string_field(object, "kind", "symbolic generator domains") != "tuple_literal") {
+            const std::string surface = symbolic_surface_ast(raw);
+            return surface.empty() ? std::vector<std::string>{} : std::vector<std::string>{surface};
+        }
+        std::vector<std::string> result;
+        for (const auto& element : array_of(
+                 field(object, "elements", "symbolic generator domains"),
+                 "symbolic generator domains")) {
+            const std::string surface = symbolic_surface_ast(element);
+            if (surface.empty()) return {};
+            result.push_back(surface);
+        }
+        return result;
+    }
+
+    static std::vector<bool> symbolic_generator_constant_flags(
+        const vf::JsonValue::Array& args,
+        std::size_t count
+    ) {
+        if (args.size() == 2) return std::vector<bool>(count, false);
+        if (args.size() != 3) return {};
+        const auto& named = object_of(args[2], "symbolic constant assumption");
+        if (string_field(named, "kind", "symbolic constant assumption") != "named_call_arg" ||
+            string_field(named, "name", "symbolic constant assumption") != "constant") {
+            throw IRFailure("symbol and symbols accept only the named option constant:");
+        }
+        const auto& value = object_of(
+            field(named, "value", "symbolic constant assumption"),
+            "symbolic constant assumption value");
+        const std::string kind = string_field(value, "kind", "symbolic constant assumption value");
+        if (kind == "bool_literal") {
+            const auto& raw = field(value, "value", "symbolic constant assumption value");
+            if (!raw.is_boolean()) throw IRFailure("symbolic constant assumption must be bit");
+            return std::vector<bool>(count, raw.as_boolean());
+        }
+        if (kind != "tuple_literal") {
+            throw IRFailure("symbolic constant assumption must be one bit or a matching tuple of bits");
+        }
+        std::vector<bool> result;
+        for (const auto& element : array_of(
+                 field(value, "elements", "symbolic constant assumptions"),
+                 "symbolic constant assumptions")) {
+            const auto& item = object_of(element, "symbolic constant assumption");
+            const auto& raw = field(item, "value", "symbolic constant assumption");
+            if (string_field(item, "kind", "symbolic constant assumption") != "bool_literal" ||
+                !raw.is_boolean()) {
+                throw IRFailure("symbolic constant assumption tuple must contain only bits");
+            }
+            result.push_back(raw.as_boolean());
+        }
+        if (result.size() != count) {
+            throw IRFailure("symbolic constant assumption count must match the generated name count");
+        }
+        return result;
+    }
+
+    std::optional<vf::JsonValue> lower_symbolic_generator_call(
+        const vf::JsonValue::Object& call
+    ) const {
+        if (!symbolic_imported_) return std::nullopt;
+        const auto& callee = object_of(field(call, "callee", "symbolic generator"), "symbolic generator");
+        if (string_field(callee, "kind", "symbolic generator") != "identifier") {
+            return std::nullopt;
+        }
+        const std::string generator = string_field(callee, "name", "symbolic generator");
+        if (generator != "symbol" && generator != "symbols" && generator != "greek_symbols") {
+            return std::nullopt;
+        }
+        const auto& args = array_of(field(call, "args", "symbolic generator"), "symbolic generator args");
+        const bool greek = generator == "greek_symbols";
+        if (!greek && (args.size() < 2u || args.size() > 3u)) {
+            throw IRFailure(generator + " requires names and a domain/signature");
+        }
+        const vf::JsonValue* greek_domain = nullptr;
+        if (greek) {
+            greek_symbol_case(args);
+            greek_domain = greek_symbol_domain(args);
+            if (args.size() > (greek_domain == nullptr ? 1u : 2u)) {
+                throw IRFailure("greek_symbols accepts one optional domain/signature and case:");
+            }
+        }
+        const std::vector<std::string> names = symbolic_generator_names(generator, args);
+        if (names.empty()) throw IRFailure(generator + " requires at least one valid name");
+        std::vector<std::string> surfaces = greek
+            ? (greek_domain == nullptr ? std::vector<std::string>{"Unknown"}
+                                       : symbolic_generator_surfaces(*greek_domain))
+            : symbolic_generator_surfaces(args[1]);
+        if (surfaces.empty()) {
+            throw IRFailure(generator + " requires symbolic domains such as R or R->R");
+        }
+        if (surfaces.size() == 1 && names.size() > 1) surfaces.resize(names.size(), surfaces.front());
+        if (surfaces.size() != names.size()) {
+            throw IRFailure(generator + " domain count must be one or match the generated name count");
+        }
+        const std::vector<bool> constant_flags = greek
+            ? std::vector<bool>(names.size(), false)
+            : symbolic_generator_constant_flags(args, names.size());
+        if (constant_flags.size() != names.size()) {
+            throw IRFailure(generator + " constant assumption count must be one or match the generated name count");
+        }
+        const bool singular = generator == "symbol";
+        std::set<std::string> unique;
+        vf::JsonValue::Array fields;
+        std::string record_type = "record{";
+        for (std::size_t index = 0; index < names.size(); ++index) {
+            const std::string& name = names[index];
+            if (!valid_generated_symbol_name(name)) {
+                throw IRFailure("invalid generated symbolic identifier " + name);
+            }
+            if (!unique.insert(name).second) {
+                throw IRFailure("duplicate generated symbolic identifier " + name);
+            }
+            auto symbol = node("symbolic_var");
+            symbol["name"] = vf::JsonValue(name);
+            symbol["domain"] = vf::JsonValue(surfaces[index]);
+            symbol["symbol_kind"] = vf::JsonValue(constant_flags[index] ? "constant" : "variable");
+            symbol["latex"] = vf::JsonValue(default_symbolic_latex(name));
+            const std::string public_type = constant_flags[index] ? "constant" : "symbol";
+            symbol["type"] = vf::JsonValue(public_type);
+            attach_expression_facts(
+                symbol, VkfExpressionLoweringMode::SymbolicNode, surfaces[index],
+                VkfSymbolicCompilerNodeKind::Symbol, {name});
+            if (singular) return vf::JsonValue(std::move(symbol));
+            auto record_field = node("record_field");
+            record_field["name"] = vf::JsonValue(name);
+            record_field["value"] = vf::JsonValue(std::move(symbol));
+            record_field["type"] = vf::JsonValue(public_type);
+            fields.emplace_back(std::move(record_field));
+            if (index != 0) record_type += ",";
+            record_type += name + ":" + public_type;
+        }
+        record_type += "}";
+        auto record = node("record");
+        record["fields"] = vf::JsonValue(std::move(fields));
+        record["type"] = vf::JsonValue(record_type);
+        return vf::JsonValue(std::move(record));
     }
 
     static std::string field_type_from_record(const std::string& record_type, const std::string& field_name) {
@@ -3619,8 +5900,12 @@ private:
     FunctionTable functions_;
     TypeEnv module_env_;
     std::map<std::string, std::string> type_aliases_;
+    std::map<std::string, std::string> nominal_representations_;
     std::map<std::string, std::string> imported_modules_;
     std::vector<std::string> spilled_modules_;
+    std::map<std::string, SymbolicBindingSpec> symbolic_bindings_;
+    std::map<std::string, vf::JsonValue> symbolic_expression_sources_;
+    std::set<std::string> symbolic_trace_stack_;
     bool symbolic_imported_ = false;
     std::uint64_t next_lambda_local_ = 0;
 };
@@ -3649,18 +5934,18 @@ vf::JsonValue list_of_numbers(const std::vector<double>& values) {
     return vf::JsonValue(std::move(out));
 }
 
-vf::JsonValue tuple_of_numbers(const std::vector<double>& values) {
+vf::JsonValue tuple_of_range_integers(const std::vector<double>& values) {
     vf::JsonValue::Array items;
     std::string type = "tuple<";
     for (std::size_t index = 0; index < values.size(); ++index) {
         if (index != 0) type += ",";
-        type += "num";
-        items.push_back(num_const(values[index]));
+        type += "int";
+        items.push_back(int_const(values[index]));
     }
     type += ">";
     auto out = node("tuple");
     out["items"] = vf::JsonValue(std::move(items));
-    out["element_type"] = vf::JsonValue("num");
+    out["element_type"] = vf::JsonValue("int");
     out["type"] = vf::JsonValue(std::move(type));
     return vf::JsonValue(std::move(out));
 }
@@ -3698,7 +5983,7 @@ bool try_fold_range_expr(const vf::JsonValue::Object& object, vf::JsonValue& out
             throw IRFailure("range_expr too large for native typed IR subset");
         }
     }
-    out_value = tuple_of_numbers(values);
+    out_value = tuple_of_range_integers(values);
     return true;
 }
 
@@ -3861,6 +6146,51 @@ bool parse_axis_tagged_type(
 }
 
 std::string render_surface_type(const std::string& type_name) {
+    if (starts_with(type_name, "fn(")) {
+        std::size_t close = std::string::npos;
+        std::size_t depth = 1;
+        for (std::size_t index = 3; index < type_name.size(); ++index) {
+            if (type_name[index] == '(') {
+                ++depth;
+            } else if (type_name[index] == ')' && --depth == 0) {
+                close = index;
+                break;
+            }
+        }
+        if (close != std::string::npos && close + 2 < type_name.size() &&
+            type_name.substr(close + 1, 2) == "->") {
+            const std::string parameter_text = type_name.substr(3, close - 3);
+            const auto parameters = parameter_text.empty()
+                ? std::vector<std::string>{}
+                : split_top_level_type_parts(parameter_text);
+            if (parameters.size() == 1 && starts_with(parameters.front(), "tuple<") &&
+                parameters.front().back() == '>') {
+                const auto tuple_items = split_top_level_type_parts(
+                    parameters.front().substr(6, parameters.front().size() - 7));
+                if (tuple_items.size() == 1) {
+                    return render_surface_type(parameters.front()) + " -> " +
+                        render_surface_type(type_name.substr(close + 3));
+                }
+            }
+            std::string out = "(";
+            for (std::size_t index = 0; index < parameters.size(); ++index) {
+                if (index != 0) out += ", ";
+                out += render_surface_type(parameters[index]);
+            }
+            return out + ") -> " + render_surface_type(type_name.substr(close + 3));
+        }
+    }
+    if (starts_with(type_name, "tuple<") && !type_name.empty() && type_name.back() == '>') {
+        const auto items = split_top_level_type_parts(
+            type_name.substr(6, type_name.size() - 7));
+        std::string out = "(";
+        for (std::size_t index = 0; index < items.size(); ++index) {
+            if (index != 0) out += ", ";
+            out += render_surface_type(items[index]);
+        }
+        if (items.size() == 1) out += ',';
+        return out + ")";
+    }
     if (starts_with(type_name, "record{") && !type_name.empty() && type_name.back() == '}') {
         const std::string inner = type_name.substr(7, type_name.size() - 8);
         std::string out = "(";
@@ -3889,6 +6219,9 @@ std::string render_surface_type(const std::string& type_name) {
     }
     if (starts_with(type_name, "list<") && !type_name.empty() && type_name.back() == '>') {
         return "[" + render_surface_type(type_name.substr(5, type_name.size() - 6)) + "]";
+    }
+    if (starts_with(type_name, "multiset<") && !type_name.empty() && type_name.back() == '>') {
+        return "{" + render_surface_type(type_name.substr(9, type_name.size() - 10)) + "}";
     }
     return type_name;
 }

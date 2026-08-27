@@ -1,0 +1,8 @@
+:.symbolic
+
+symbolic_adjacency_wasm_conformance() -> num:
+    x: R
+    y: R
+    evaluate(1/xy, [2, 4]) * 8 + evaluate(1/x y, [2, 4])
+
+:: symbolic_adjacency_wasm_conformance()

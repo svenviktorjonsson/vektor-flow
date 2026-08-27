@@ -1,0 +1,35 @@
+:.symbolic
+
+transform_check(value:bit) -> num:
+    value?
+        @: 1
+    0
+
+symbolic_laplace_wasm_conformance() -> num:
+    a: symbol("a", R, constant:true)
+    b: symbol("b", C, constant:true)
+    t: symbol("t", R)
+    s: symbol("s", C)
+    transformed: laplace(3 * exp(2 * t) - 1, t, s)
+    expected: 3 * (1 / (s - 2)) - 1 / s
+    conditions: laplace_conditions(3 * exp(2 * t) - 1, t, s)
+    exponential_condition: real_part(s) > real_part(constant(2))
+    constant_condition: real_part(s) > real_part(constant(0))
+    symbolic_source: a * exp(b * t)
+    symbolic_transformed: laplace(_symbolic_clone(symbolic_source), t, s)
+    symbolic_restored: inverse_laplace(
+        _symbolic_clone(symbolic_transformed),
+        s,
+        t
+    )
+    transform_check(
+        equivalent(transformed, expected) /\
+        transform_condition_count(conditions) = 2 /\
+        same(transform_condition(conditions, 0), exponential_condition) /\
+        same(transform_condition(conditions, 1), constant_condition) /\
+        verify_laplace_conditions(conditions, 3 * exp(2 * t) - 1, t, s) /\
+        verify_inverse_laplace(_symbolic_clone(symbolic_restored), symbolic_transformed, s, t) /\
+        same(symbolic_restored, symbolic_source)
+    )
+
+:: symbolic_laplace_wasm_conformance()

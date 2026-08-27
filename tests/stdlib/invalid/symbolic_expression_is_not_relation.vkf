@@ -1,0 +1,8 @@
+# expect-compile-error: cannot coerce expression to relation
+:.symbolic
+
+accept_relation(value:relation) -> bit: true
+
+x: R
+expression_value: x + 1
+accept_relation(expression_value)

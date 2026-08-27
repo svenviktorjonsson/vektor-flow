@@ -16,7 +16,23 @@ update_expression_stores_and_returns_value() -> bit:
     (a = 6 /\ b = 6)?!
 
 primitive_types_reflect_function_shapes() -> bit:
-    (bit. == "(any) -> bit" /\ chr. == "(any) -> chr" /\ int. == "(any) -> int" /\ num. == "(any, any = 0) -> num" /\ str. == "(any) -> str")?!
+    (bit. == type /\ chr. == type /\ int. == type /\ num. == type /\ str. == type)?!
+
+identity_num(value:num) -> num:
+    value
+
+same_num_shape(value:num) -> num:
+    value
+
+ordinary_values_and_functions_reflect_their_types() -> bit:
+    value: 4
+    (value. == int /\ identity_num. == same_num_shape.)?!
+
+apply_type(converter:type, value:num):
+    converter(value)
+
+type_values_are_first_class_and_callable() -> bit:
+    (apply_type(int, 3.0) = 3 /\ apply_type(num, 4) = 4)?!
 
 primitive_sizes_are_bits() -> bit:
     (bit.size(true) = 1 /\ chr.size(chr(65)) = 8 /\ int.size(1) = 64 /\ num.size(num(1)) = 128)?!
@@ -146,7 +162,7 @@ _nested_shape_identity(value:[[num:n]:m]) -> [[num:n]:m]:
 nested_compile_time_shapes_survive_call() -> bit:
     [[num:2]:2] grid: [[1, 2], [3, 4]]
     result: _nested_shape_identity(grid)
-    (result.(0).(1) = 2 /\ result.(1).(0) = 3)?!
+    (result.(0, 1) = 2 /\ result.(1, 0) = 3)?!
 
 OverloadPoint: (x:num,)
 
@@ -161,18 +177,19 @@ operator_overload_family_selects_by_parameter_type() -> bit:
     OverloadPoint right: (x:5,)
     (+(left, 4) = 7 /\ (left + 4) = 7 /\ (left + right) = 8)?!
 
-type_member_spills_preserve_names_types_and_order() -> bit:
+type_container_spills_preserve_structure_and_exact_element_type() -> bit:
     point: (x:3, y:4)
-    record_members: (:point.)
-    vector_members: [:point.]
+    record_type: (:point.)
+    vector_type: [:point.]
     member_names: {:point.}
-    (record_members.x == "int" /\ record_members.y == "int" /\
-     vector_members == ["int", "int"] /\ member_names == {"x":1, "y":1})?!
+    (record_type == (x:0, y:0). /\ vector_type == [int:2] /\
+     record_type. == type /\ vector_type. == type /\
+     member_names == {"x":1, "y":1})?!
 
 primitive_type_values_can_be_aliased_called_and_reflected() -> bit:
     integer_type: int
     (integer_type(7.0) == 7 /\ integer_type.size(1) = 64 /\
-     integer_type. == "(any) -> int")?!
+     integer_type. == type)?!
 
 primitive_type_spill_exposes_core_members() -> bit:
     integer_members: (:int)
@@ -187,3 +204,62 @@ primitive_type_spill_exposes_core_members() -> bit:
 primitive_statement_spill_exposes_callable_size() -> bit:
     :int
     (size(1) = 64)?!
+
+Meters(value:num): value
+
+uppercase_constructor_defines_nominal_type() -> bit:
+    (Meters(3). == Meters)?!
+
+Point(x:num, y:num): (x:x, y:y)
+
+Point(values:[num:2]): Point(:values)
+
+uppercase_constructor_preserves_returned_representation() -> bit:
+    point: Point(3, 4)
+    (point. == Point /\ point.x == 3 /\ point.y == 4)?!
+
+constructor_overload_chooses_best_signature() -> bit:
+    point: Point([5, 6])
+    (point. == Point /\ point.x == 5 /\ point.y == 6)?!
+
+make_point(x:num, y:num): (x:x, y:y)
+
+lowercase_function_return_stays_structural() -> bit:
+    point: make_point(7, 8)
+    (point. == (x:0.0, y:0.0). /\ point.x == 7 /\ point.y == 8)?!
+
+ranked_overload(value:int) -> int: 1
+
+ranked_overload(value:num) -> int: 2
+
+ordinary_overload_chooses_best_signature() -> bit:
+    (ranked_overload(2) == 1 /\ ranked_overload(2.5) == 2)?!
+
+nominal_spill_reveals_structural_type() -> bit:
+    point: Point(9, 10)
+    ((:point). == (x:0.0, y:0.0).)?!
+
+nominal_type_spill_reveals_backing_type_value() -> bit:
+    representation: (:Point)
+    (representation. == type /\ representation == (x:0.0, y:0.0).)?!
+
+tuple_type_spill_produces_component_type_values() -> bit:
+    expanded: [int, int, int]
+    repeated: [int:3]
+    spilled: [:(1, 2, 3).]
+    (expanded == repeated /\ repeated == spilled /\
+     expanded. == type /\ repeated. == type /\ spilled. == type)?!
+
+nominal_type_vector_spill_preserves_homogeneous_backing_shape() -> bit:
+    vector_type: [:Point]
+    (vector_type == [num:2] /\ vector_type. == type)?!
+
+multiset_type_literal_is_distinct_from_counted_type_values() -> bit:
+    multiset_type: {int}
+    counted_types: {int:3, num:2}
+    (multiset_type. == type /\
+     counted_types == {int:3, num:2} /\
+     counted_types. == {type})?!
+
+nominal_type_value_is_callable_through_type_parameter() -> bit:
+    (apply_type(Meters, 3). == Meters)?!

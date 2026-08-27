@@ -2,12 +2,9 @@ make_message():
     first: "hello"
     first & " world"
 
-make_base(x:int, y:int):
-    :
+make_base(x:int, y:int): :
 
-make_colored(x:int, y:int, color:str):
-    : make_base(x, y)
-    :
+make_colored(x:int, y:int, color:str): (x:x, y:y, color:color)
 
 message: make_message()
 base: make_base(3, 4)

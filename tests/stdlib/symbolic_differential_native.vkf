@@ -1,0 +1,292 @@
+:.symbolic
+
+test heat_equation_mode_respects_initial_and_boundary_constraints() -> bit:
+    u: R
+    x: R
+    t: R
+    relation: equation(partial(u, t), partial(_symbolic_clone(u), x, 2))
+    initial: equation(at(_symbolic_clone(u), _symbolic_clone(t), 0), sin(_symbolic_clone(x)))
+    boundaries: [
+        equation(at(_symbolic_clone(u), _symbolic_clone(x), 0), 0),
+        equation(at(_symbolic_clone(u), _symbolic_clone(x), 3.141592653589793), 0)
+    ]
+    expected: sin(_symbolic_clone(x)) * exp(0 - _symbolic_clone(t))
+    solution: solve_pde(relation, initial, boundaries, _symbolic_clone(u), _symbolic_clone(x), _symbolic_clone(t))
+    (same(_symbolic_clone(solution), expected) /\
+     verify_pde_solution(solution, relation, initial, boundaries, u, x, t))
+
+test heat_verifier_rejects_a_candidate_that_matches_conditions_but_not_the_pde() -> bit:
+    u: R
+    x: R
+    t: R
+    relation: equation(partial(u, t), partial(_symbolic_clone(u), x, 2))
+    initial: equation(at(_symbolic_clone(u), _symbolic_clone(t), 0), sin(_symbolic_clone(x)))
+    boundaries: [
+        equation(at(_symbolic_clone(u), _symbolic_clone(x), 0), 0),
+        equation(at(_symbolic_clone(u), _symbolic_clone(x), 3.141592653589793), 0)
+    ]
+    wrong: sin(_symbolic_clone(x)) * exp(-2 * _symbolic_clone(t))
+    ~verify_pde_solution(wrong, relation, initial, boundaries, u, x, t)
+
+test heat_verifier_accepts_an_equivalent_noncanonical_factor_order() -> bit:
+    u: R
+    x: R
+    t: R
+    relation: equation(partial(u, t), partial(_symbolic_clone(u), x, 2))
+    initial: equation(at(_symbolic_clone(u), _symbolic_clone(t), 0), sin(_symbolic_clone(x)))
+    boundaries: [
+        equation(at(_symbolic_clone(u), _symbolic_clone(x), 0), 0),
+        equation(at(_symbolic_clone(u), _symbolic_clone(x), 3.141592653589793), 0)
+    ]
+    candidate: exp(0 - _symbolic_clone(t)) * sin(_symbolic_clone(x))
+    verify_pde_solution(candidate, relation, initial, boundaries, u, x, t)
+
+test equivalence_never_erases_different_function_rates() -> bit:
+    x: R
+    t: R
+    left: sin(_symbolic_clone(x)) * exp(-2 * _symbolic_clone(t))
+    right: sin(_symbolic_clone(x)) * exp(0 - _symbolic_clone(t))
+    ~equivalent(left, right)
+
+test structural_identity_distinguishes_different_function_rates() -> bit:
+    x: R
+    t: R
+    left: sin(_symbolic_clone(x)) * exp(-2 * _symbolic_clone(t))
+    right: sin(_symbolic_clone(x)) * exp(0 - _symbolic_clone(t))
+    ~same(left, right)
+
+test second_order_ode_accepts_derivative_and_point_conditions() -> bit:
+    f: R
+    x: R
+    relation: equation(partial(_symbolic_clone(f), _symbolic_clone(x), 2), 0)
+    conditions: [
+        equation(at(_symbolic_clone(f), _symbolic_clone(x), 0), 0),
+        equation(at(derivative(_symbolic_clone(f), _symbolic_clone(x)), _symbolic_clone(x), 0), 2)
+    ]
+    solution: solve_ode(relation, conditions, f, x)
+    same(solution, 2 * x)
+
+test prime_call_sugar_carries_univariate_conditions_into_the_ode_domain() -> bit:
+    f: R->R
+    x: R
+    relation: f''xx = 0
+    conditions: [f(0) = 0, f'(0) = 2]
+    solution: solve_ode(relation, conditions, f, x)
+    same(solution, 2 * x)
+
+test second_order_ode_accepts_two_point_boundary_conditions() -> bit:
+    f: R
+    x: R
+    relation: equation(partial(_symbolic_clone(f), _symbolic_clone(x), 2), 0)
+    conditions: [
+        equation(at(_symbolic_clone(f), _symbolic_clone(x), 0), 0),
+        equation(at(_symbolic_clone(f), _symbolic_clone(x), 1), 2)
+    ]
+    solution: solve_ode(relation, conditions, f, x)
+    same(solution, 2 * x)
+
+test harmonic_oscillator_uses_two_initial_conditions() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y''(t) + 4 * y(t) = 0
+    conditions: [y(0) = 3, y'(0) = 4]
+    solution: solve_ode(relation, conditions, y, t)
+    expected: 3 * cos(2 * t) + 2 * sin(2 * t)
+    (same(_symbolic_clone(solution), expected) /\
+     verify_ode_solution(solution, relation, conditions, y, t))
+
+test oscillator_verification_rejects_a_candidate_that_only_matches_the_conditions() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y''(t) + 4 * y(t) = 0
+    conditions: [y(0) = 3, y'(0) = 4]
+    wrong: 3 + 4 * t
+    ~verify_ode_solution(wrong, relation, conditions, y, t)
+
+test oscillator_verification_rejects_a_candidate_that_only_matches_sample_points() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y''(t) + 4 * y(t) = 0
+    conditions: [y(0) = 3, y'(0) = 4]
+    exact: 3 * cos(2 * t) + 2 * sin(2 * t)
+    sampled_alias: sin(3.141592653589793 * t)^4
+    ~verify_ode_solution(exact + sampled_alias, relation, conditions, y, t)
+
+test real_characteristic_roots_produce_a_verified_two_exponential_solution() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y''(t) - 4 * y(t) = 0
+    conditions: [y(0) = 3, y'(0) = 4]
+    solution: solve_ode(relation, conditions, y, t)
+    expected: 2.5 * exp(2 * t) + 0.5 * exp(0 - 2 * t)
+    (same(_symbolic_clone(solution), expected) /\
+     verify_ode_solution(solution, relation, conditions, y, t))
+
+test damped_distinct_characteristic_roots_use_the_complete_polynomial() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y''(t) + 3 * y'(t) + 2 * y(t) = 0
+    conditions: [y(0) = 3, y'(0) = -4]
+    solution: solve_ode(relation, conditions, y, t)
+    (evaluate(_symbolic_clone(solution), [0]) = 3 /\
+     evaluate(differentiate(_symbolic_clone(solution), _symbolic_clone(t)), [0]) = -4 /\
+     verify_ode_solution(solution, relation, conditions, y, t))
+
+test repeated_damped_characteristic_root_uses_the_t_times_exponential_basis() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y''(t) + 4 * y'(t) + 4 * y(t) = 0
+    conditions: [y(0) = 3, y'(0) = -4]
+    solution: solve_ode(relation, conditions, y, t)
+    (evaluate(_symbolic_clone(solution), [0]) = 3 /\
+     evaluate(differentiate(_symbolic_clone(solution), _symbolic_clone(t)), [0]) = -4 /\
+     verify_ode_solution(solution, relation, conditions, y, t))
+
+test damped_complex_roots_use_an_exponential_trigonometric_basis() -> bit:
+    y: symbol("y", R->R)
+    t: symbol("t", R)
+    relation: y''(t) + 2 * y'(t) + 5 * y(t) = 0
+    conditions: [y(0) = 3, y'(0) = 4]
+    solution: solve_ode(relation, conditions, y, t)
+    (evaluate(_symbolic_clone(solution), [0]) = 3 /\
+     evaluate(differentiate(_symbolic_clone(solution), _symbolic_clone(t)), [0]) = 4 /\
+     verify_ode_solution(solution, relation, conditions, y, t))
+
+test oscillator_classification_rejects_a_mismatched_function_argument() -> bit:
+    y: symbol("y", R->R)
+    : symbols("tx", R)
+    relation: y''(t) + 4 * y(x) = 0
+    conditions: [y(0) = 3, y'(0) = 4]
+    candidate: 3 * cos(2 * t) + 2 * sin(2 * t)
+    ~verify_ode_solution(candidate, relation, conditions, y, t)
+
+test ode_verification_requires_a_continuous_domain() -> bit:
+    y: symbol("y", N->R)
+    t: symbol("t", N)
+    relation: y''(t) = 0
+    conditions: [y(0) = 0, y'(0) = 2]
+    candidate: 2 * t
+    ~verify_ode_solution(candidate, relation, conditions, y, t)
+
+test separable_first_order_ode_integrates_a_variable_rate_exactly() -> bit:
+    y: symbol("y", R->R)
+    x: symbol("x", R)
+    relation: y'(x) = 2 * x * y(x)
+    condition: y(0) = 3
+    solution: solve_ode(relation, condition, y, x)
+    expected: 3 * exp(x^2)
+    (same(_symbolic_clone(solution), expected) /\
+     verify_ode_solution(solution, relation, condition, y, x))
+
+test separable_first_order_ode_respects_a_nonzero_initial_point() -> bit:
+    y: symbol("y", R->R)
+    x: symbol("x", R)
+    relation: y'(x) = 2 * x * y(x)
+    condition: y(1) = 3
+    solution: solve_ode(relation, condition, y, x)
+    expected: 3 * exp(x^2 - 1)
+    (same(_symbolic_clone(solution), expected) /\
+     verify_ode_solution(solution, relation, condition, y, x))
+
+test general_solver_selects_the_separable_variable_rate_strategy() -> bit:
+    y: symbol("y", R->R)
+    x: symbol("x", R)
+    relation: y'(x) = 2 * x * y(x)
+    condition: y(1) = 3
+    solution: solve(relation, [condition], y, x)
+    same(solution, 3 * exp(x^2 - 1))
+
+test variable_rate_ode_verifier_rejects_a_wrong_rate_that_matches_the_condition() -> bit:
+    y: symbol("y", R->R)
+    x: symbol("x", R)
+    relation: y'(x) = 2 * x * y(x)
+    condition: y(1) = 3
+    wrong: 3 * exp(2 * (x^2 - 1))
+    ~verify_ode_solution(wrong, relation, condition, y, x)
+
+test geometric_pde_boundary_keeps_value_and_domain_constraints_together() -> bit:
+    f: R
+    x: R
+    y: R
+    value_constraint: equation(at(_symbolic_clone(f), [_symbolic_clone(x), _symbolic_clone(y)]), 1)
+    domain_constraint: equation(x^2 + y^2, 1)
+    boundary: where(_symbolic_clone(value_constraint), _symbolic_clone(domain_constraint))
+    relation: equation(partial(_symbolic_clone(f), _symbolic_clone(x), 2) + partial(_symbolic_clone(f), _symbolic_clone(y), 2), 0)
+    solution: solve_pde(relation, [_symbolic_clone(boundary)], f, [_symbolic_clone(x), _symbolic_clone(y)])
+    value_preserved: same(boundary_value(_symbolic_clone(boundary)), value_constraint)
+    domain_preserved: same(boundary_domain(boundary), domain_constraint)
+    value_preserved /\ domain_preserved /\ same(solution, constant(1))
+
+test geometric_pde_uses_multivariate_function_and_prime_surface_syntax() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = 1, x^2 + y^2 = 1)
+    solution: solve_pde(relation, [boundary], f, [x, y])
+    (same(_symbolic_clone(solution), constant(1)) /\
+     verify_pde_solution(solution, relation, [boundary], f, [x, y]))
+
+test general_solver_classifies_geometric_pde_constraints() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = 1, x^2 + y^2 = 1)
+    solution: solve(relation, [boundary], f, [x, y])
+    same(solution, constant(1))
+
+test multivariate_prime_surface_preserves_partial_derivative_meaning() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    surface: f''xx(x, y) + f''yy(x, y) = 0
+    applied: f(x, y)
+    expected: (derivative(derivative(_symbolic_clone(applied), x), x) +
+        derivative(derivative(applied, y), y) = 0)
+    same(surface, expected)
+
+test pde_verification_rejects_a_candidate_that_violates_the_boundary() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = 1, x^2 + y^2 = 1)
+    ~verify_pde_solution(constant(2), relation, [boundary], f, [x, y])
+
+test pde_verification_rejects_an_unrelated_zero_right_hand_side() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    unrelated: f(x, y) = 0
+    boundary: where(f(x, y) = 1, x^2 + y^2 = 1)
+    ~verify_pde_solution(constant(1), unrelated, [boundary], f, [x, y])
+
+test geometric_pde_solves_an_affine_harmonic_circle_boundary() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = x, x^2 + y^2 = 1)
+    solution: solve_pde(relation, [boundary], f, [x, y])
+    (same(_symbolic_clone(solution), x) /\
+     verify_pde_solution(solution, relation, [boundary], f, [x, y]))
+
+test pde_verification_rejects_a_boundary_matching_nonharmonic_candidate() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = x^2 + y^2, x^2 + y^2 = 1)
+    ~verify_pde_solution(x^2 + y^2, relation, [boundary], f, [x, y])
+
+test geometric_pde_reduces_boundary_data_under_its_domain_constraint() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = x^2 + y^2, x^2 + y^2 = 1)
+    solution: solve_pde(relation, [boundary], f, [x, y])
+    (same(_symbolic_clone(solution), constant(1)) /\
+     verify_pde_solution(solution, relation, [boundary], f, [x, y]))
+
+test geometric_pde_reduces_a_constrained_invariant_inside_boundary_data() -> bit:
+    f: symbol("f", (R, R)->R)
+    : symbols("xy", R)
+    relation: f''xx(x, y) + f''yy(x, y) = 0
+    boundary: where(f(x, y) = 2 * (x^2 + y^2) + 3, x^2 + y^2 = 1)
+    solution: solve_pde(relation, [boundary], f, [x, y])
+    (same(_symbolic_clone(solution), constant(5)) /\
+     verify_pde_solution(solution, relation, [boundary], f, [x, y]))

@@ -16,6 +16,15 @@ _sum_dynamic_row(row:[int]) -> int:
 _rotate_whole(values:[int:3]) -> [int:3]:
     [values.2, values.0, values.1]
 
+_halve(value:num) -> num:
+    value / 2
+
+_lift_rank(value:int) -> int:
+    1
+
+_lift_rank(value:num) -> int:
+    2
+
 NamedPoint: (x:int,y:int)
 
 _translate_named(point:NamedPoint) -> NamedPoint:
@@ -25,6 +34,12 @@ scalar_function_maps_over_a_fixed_vector() -> bit:
     [int:3] values: [1, 2, 3]
     result: _double(values)
     [int:3] expected: [2, 4, 6]
+    (result == expected)?!
+
+scalar_function_recursively_maps_over_a_multivec() -> bit:
+    values: [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+    result: _double(values)
+    expected: [[[2, 4], [6, 8]], [[10, 12], [14, 16]]]
     (result == expected)?!
 
 scalar_function_maps_over_a_dynamic_vector() -> bit:
@@ -65,4 +80,15 @@ exact_container_match_is_not_elementwise() -> bit:
     [int:3] values: [1, 2, 3]
     result: _rotate_whole(values)
     [int:3] expected: [3, 1, 2]
+    (result == expected)?!
+
+scalar_widening_conversion_maps_over_every_vector_dimension() -> bit:
+    result: _halve([[2, 4], [6, 8]])
+    [num:2] first: result.0
+    [num:2] second: result.1
+    (first.0 = 1 /\ first.1 = 2 /\ second.0 = 3 /\ second.1 = 4)?!
+
+exact_leaf_overload_beats_widening_conversion() -> bit:
+    result: _lift_rank([1, 2, 3])
+    [int:3] expected: [1, 1, 1]
     (result == expected)?!

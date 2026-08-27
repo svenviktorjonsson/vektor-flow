@@ -33,7 +33,8 @@ indexed_assignment_pipes_its_assigned_value_onward() -> bit:
     source: [4, 3, 2, 1]
     working: [0:4]
     values: ..3 >> working.($): source.($) >> $ * 10
-    (working == source /\ values == (40, 30, 20, 10))?!
+    (working == source /\ values == (40, 30, 20, 10) /\
+     values. == (int,int,int,int))?!
 
 indented_range_pipe_updates_outer_scalar() -> bit:
     total: 0
@@ -57,6 +58,11 @@ indented_pipe_updates_outer_fixed_vector() -> bit:
         .values: _increment_pipe_vector(values)
     (values == [3, 4])?!
 
+fixed_pipe_body_may_ignore_current_without_copying_its_elements() -> bit:
+    source: [[1, 2], [3, 4], [5, 6]]
+    result: [source.0 >> [source >> 0]]
+    (result == [[0, 0, 0], [0, 0, 0]])?!
+
 pipe_results_generate_requested_container() -> bit:
     a: (1, 2, 2)
     value: a >> $
@@ -69,6 +75,19 @@ pipe_results_generate_requested_container() -> bit:
      vector_from_pipe == [1, 2, 2] /\ vector_from_spill == [1, 2, 2] /\
      nested_vector.0 == (1, 2, 2) /\
      multiset_from_pipe == {1:1, 2:2} /\ multiset_from_spill == {1:1, 2:2})?!
+
+finite_range_pipe_materializes_by_container_context() -> bit:
+    default_value: ..3 >> $
+    tuple_value: (..3 >> $)
+    vector_value: [..3 >> $]
+    multiset_value: {..3 >> $}
+    (default_value == (0, 1, 2, 3) /\
+     default_value. == (int,int,int,int) /\
+     tuple_value == (0, 1, 2, 3) /\
+     tuple_value. == (int,int,int,int) /\
+     vector_value == [0, 1, 2, 3] /\
+     vector_value. == [int:4] /\
+     multiset_value == {0:1, 1:1, 2:1, 3:1})?!
 
 runtime_pipe_results_generate_requested_container() -> bit:
     [num] a: _dynamic_pipe(1, 2, 2)

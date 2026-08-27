@@ -19,6 +19,22 @@
   quantities, unit constants, prefixes, and unit-checked quantity arithmetic.
   Geometry-derived properties such as `L`, `A`, and `V` are owned by the
   geometry/UI model that creates the topology.
+- **Physical dimension**: The target-independent compile-time fact that records
+  exact exponents over the seven bases `L`, `M`, `T`, `Theta`, `I`, `N`, and
+  `J`, independent of any unit system.
+- **Unit**: An immutable compile-time descriptor that reveals one physical
+  dimension and owns its exact scale, optional affine offset, quantity kind,
+  prefix policy, aliases, and display symbol.
+- **Quantity**: A numeric or symbolic magnitude carrying one physical dimension
+  inferred from its unit or surrounding typed expression.
+- **Unit catalog**: A `physics.units` module whose atomic units and aliases share
+  one conversion and prefix-resolution interface.
+- **Unit system**: A unit-catalog adapter such as `si`, `cgs`, `imperial`,
+  `us_customary`, or `astronomical` that changes unit names, scales, and display
+  preferences without changing physical dimensions.
+- **Quantity literal**: Source such as `2km` or `2 km` that resolves through a
+  spilled or qualified unit catalog into a typed quantity without general
+  implicit multiplication.
 - **Physics property core**: The physics module that resolves canonical geometry
   and material symbols such as `L`, `A`, `V`, `m`, `q`, `T`, `v`, `w`, and `I`.
 - **Rigid body core**: The physics module that owns mass, center of mass,
@@ -49,3 +65,37 @@
 - **Static named map**: a `collections.map` whose keys are named arguments known
   at compile time. It uses the core typed-record layout and preserves each
   value's exact type; runtime-key maps remain a distinct dynamic collection.
+- **Symbolic relation**: an unevaluated equality or ordered comparison between
+  symbolic expressions. Relations are solver input. `=` is type-directed:
+  ordinary values compare to a `bit`, while any symbolic operand constructs a
+  `Relation`.
+- **Symbolic proposition**: an expression with mathematical truth semantics.
+  `Relation IS Proposition IS Expression`; infix `=>` combines propositions
+  after relational precedence and preserves its premise and conclusion.
+- **Symbolic condition**: a relation restricted to an evaluation point or a
+  derivative at an evaluation point, such as `f(0) = 0` or `f'(0) = 2`.
+- **Geometric boundary**: a symbolic value constraint paired with a domain
+  relation through `where`, such as `f(x,y) = 1` on `x^2 + y^2 = 1`.
+- **Symbolic problem**: governing relations plus ordered unknowns and conditions.
+  ODE, PDE, recurrence, algebraic, and transform strategies consume this model.
+- **Symbolic strategy planner**: the native VKF stdlib dispatch that classifies
+  a symbolic problem and chooses an exact algebraic, transform, or differential
+  strategy without a host-language solver.
+- **Verified solution set**: an opaque native symbolic result whose candidates
+  satisfy their declared domains and whose original residuals and conditions
+  have been checked. It may be finite or an affine family represented by one
+  particular point plus verified null-space directions. Construction alone
+  never marks a solution as verified.
+- **Linear algebra module**: the VKF `.linalg` stdlib module that owns numeric
+  and exact-symbolic vector, matrix, tensor, factorization, and solve algorithms
+  over ordinary rectangular nested vectors.
+- **Scalar algebra seam**: the internal `.linalg` interface through which the
+  numeric scalar adapter supplies tolerance-aware arithmetic and the symbolic
+  scalar adapter supplies exact zero proofs, assumptions, and simplification.
+- **Transform module**: the VKF `.transforms` stdlib module that owns Fourier,
+  Laplace, Z, and wavelet transforms. The same operation names dispatch on
+  exact input type: numeric vectors use numerical algorithms while symbolic
+  expressions use analytic rules and return verified symbolic expressions.
+- **Physics state buffer**: a dense, deterministic typed-buffer representation
+  of authored and simulated state shared by native, WASM, and future GPU
+  adapters without per-particle JavaScript objects.

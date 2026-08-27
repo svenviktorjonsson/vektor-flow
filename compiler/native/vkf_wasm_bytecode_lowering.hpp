@@ -2,7 +2,9 @@
 
 #include "compiler/native/vkf_wasm_bytecode.hpp"
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
+#include "compiler/native/vkf_symbolic_value_encoding.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -23,6 +25,11 @@ public:
 };
 
 namespace lowering_detail {
+
+inline bool symbolic_expression_surface_type(const std::string& type) {
+    return type == "symbolic" || type == "expression" || type == "symbol" ||
+        type == "constant" || type == "relation" || type == "proposition";
+}
 
 inline const vf::JsonValue::Object& object_of(
     const vf::JsonValue& value,
@@ -104,6 +111,9 @@ inline ValueType lower_type(
     if (type == "str" || type == "string") {
         return ValueType::String;
     }
+    if (symbolic_expression_surface_type(type)) {
+        return ValueType::Array;
+    }
     if (type == "any" || type == "dynamic" || type == "null") {
         return ValueType::Dynamic;
     }
@@ -131,6 +141,7 @@ inline Opcode lower_binary_opcode(
     if (op == "MINUS" || op == "-") return Opcode::Subtract;
     if (op == "STAR" || op == "*") return Opcode::Multiply;
     if (op == "SLASH" || op == "/") return Opcode::Divide;
+    if (op == "FLOORDIV" || op == "//") return Opcode::FloorDivide;
     if (op == "PERCENT" || op == "%") return Opcode::Remainder;
     if (op == "CARET" || op == "^") return Opcode::Power;
     if (op == "AMPERSAND" || op == "&") return Opcode::StringConcat;
@@ -172,7 +183,9 @@ struct ConstantBinding {
 struct FunctionBinding {
     std::uint32_t function_index = 0;
     std::uint32_t arity = 0;
+    std::uint32_t minimum_arity = 0;
     ValueType return_type = ValueType::Dynamic;
+    std::vector<const vf::JsonValue*> default_arguments;
 };
 
 class Lowerer {
@@ -195,6 +208,7 @@ private:
         std::map<std::string, std::uint32_t> locals;
         std::string context;
         bool returned = false;
+        std::uint32_t next_temporary = 0;
     };
 
     std::uint32_t intern_constant(Constant constant) {
@@ -310,12 +324,33 @@ private:
                 module_.functions.size(),
                 "function table"
             );
+            std::vector<const vf::JsonValue*> default_arguments(
+                params.size(),
+                nullptr
+            );
+            std::size_t minimum_arity = params.size();
+            for (std::size_t param_index = 0;
+                 param_index < params.size();
+                 ++param_index) {
+                const auto& param = object_of(
+                    params[param_index],
+                    "function " + declaration.name + ".params["
+                        + std::to_string(param_index) + "]"
+                );
+                const auto* default_value = optional_field(param, "default");
+                if (default_value != nullptr && !default_value->is_null()) {
+                    default_arguments[param_index] = default_value;
+                    minimum_arity = std::min(minimum_arity, param_index);
+                }
+            }
             function_bindings_.emplace(
                 declaration.name,
                 FunctionBinding{
                     function_index,
                     function.parameter_count,
+                    checked_index(minimum_arity, "minimum function arity"),
                     function.return_type,
+                    std::move(default_arguments),
                 }
             );
             module_.functions.push_back(std::move(function));
@@ -383,9 +418,10 @@ private:
         ValueType type,
         const std::string& context
     ) {
-        if (state.locals.find(name) != state.locals.end()
-            || constant_bindings_.find(name) != constant_bindings_.end()
-            || function_bindings_.find(name) != function_bindings_.end()) {
+        // VKF uses lexical scope: a function-local declaration may shadow a
+        // module binding or function. Loads already resolve locals first, so
+        // only a second declaration in the same local scope is a duplicate.
+        if (state.locals.find(name) != state.locals.end()) {
             throw BytecodeLoweringError(
                 "duplicate local name " + name + " in " + context
             );
@@ -408,7 +444,7 @@ private:
             field(object, "params", context),
             context + ".params"
         );
-        FunctionState state{&function, {}, context, false};
+        FunctionState state{&function, {}, context, false, 0};
         for (std::size_t index = 0; index < params.size(); ++index) {
             const std::string param_context =
                 context + ".params[" + std::to_string(index) + "]";
@@ -430,19 +466,25 @@ private:
         }
         lower_function_body(field(object, "body", context), state);
         if (!state.returned) {
-            if (function.return_type != ValueType::Void) {
+            if (function.return_type == ValueType::Dynamic) {
+                emit(state, Opcode::PushNull, ValueType::Dynamic);
+                emit(state, Opcode::Return, ValueType::Void);
+            } else if (function.return_type != ValueType::Void) {
                 throw BytecodeLoweringError(
                     "function " + declaration.name
                     + " has no explicit or implicit return"
                 );
+            } else {
+                emit(state, Opcode::PushNull, ValueType::Dynamic);
+                emit(state, Opcode::Return, ValueType::Void);
             }
-            emit(state, Opcode::Return, ValueType::Void);
         }
     }
 
     void lower_function_body(
         const vf::JsonValue& body,
-        FunctionState& state
+        FunctionState& state,
+        bool implicit_return = true
     ) {
         const auto& object = object_of(body, state.context + ".body");
         const std::string kind = string_field(
@@ -456,8 +498,14 @@ private:
                 state,
                 state.context + ".body"
             );
-            emit(state, Opcode::Return, type);
-            state.returned = true;
+            if (!state.returned) {
+                if (implicit_return) {
+                    emit(state, Opcode::Return, type);
+                    state.returned = true;
+                } else {
+                    emit(state, Opcode::Pop, ValueType::Void);
+                }
+            }
             return;
         }
 
@@ -475,7 +523,7 @@ private:
             lower_statement(
                 statements[index],
                 state,
-                index + 1 == statements.size(),
+                implicit_return && index + 1 == statements.size(),
                 state.context + ".body.body[" + std::to_string(index) + "]"
             );
         }
@@ -491,11 +539,28 @@ private:
         const std::string kind = string_field(object, "kind", context);
         if (kind == "store_binding") {
             const std::string name = string_field(object, "name", context);
-            const ValueType type = lower_type(
-                string_field(object, "type", context),
-                context
-            );
-            add_local(state, name, type, context);
+            const auto* update_field = optional_field(object, "update");
+            const bool update = update_field != nullptr
+                && update_field->is_boolean()
+                && update_field->as_boolean();
+            std::uint32_t local_index = 0;
+            if (update) {
+                const auto local = state.locals.find(name);
+                if (local == state.locals.end()) {
+                    throw BytecodeLoweringError(
+                        "update requires existing local " + name
+                        + " in " + context
+                    );
+                }
+                local_index = local->second;
+            } else {
+                const ValueType type = lower_type(
+                    string_field(object, "type", context),
+                    context
+                );
+                add_local(state, name, type, context);
+                local_index = state.locals.at(name);
+            }
             const ValueType value_type = lower_expression(
                 field(object, "value", context),
                 state,
@@ -505,8 +570,61 @@ private:
                 state,
                 Opcode::StoreLocal,
                 value_type,
-                state.locals.at(name)
+                local_index
             );
+            return;
+        }
+        if (kind == "spill_stmt") {
+            const auto& value = object_of(
+                field(object, "value", context),
+                context + ".value"
+            );
+            if (string_field(value, "kind", context + ".value")
+                != "record") {
+                throw BytecodeLoweringError(
+                    "WASM spill currently requires a statically known "
+                    "record in " + context
+                );
+            }
+            const auto& fields = array_of(
+                field(value, "fields", context + ".value"),
+                context + ".value.fields"
+            );
+            for (std::size_t index = 0; index < fields.size(); ++index) {
+                const std::string field_context = context + ".value.fields["
+                    + std::to_string(index) + "]";
+                const auto& record_field = object_of(
+                    fields[index],
+                    field_context
+                );
+                if (string_field(record_field, "kind", field_context)
+                    != "record_field") {
+                    throw BytecodeLoweringError(
+                        "WASM spill requires record fields in " + field_context
+                    );
+                }
+                const std::string name = string_field(
+                    record_field,
+                    "name",
+                    field_context
+                );
+                const ValueType type = lower_type(
+                    string_field(record_field, "type", field_context),
+                    field_context
+                );
+                add_local(state, name, type, field_context);
+                const ValueType value_type = lower_expression(
+                    field(record_field, "value", field_context),
+                    state,
+                    field_context + ".value"
+                );
+                emit(
+                    state,
+                    Opcode::StoreLocal,
+                    value_type,
+                    state.locals.at(name)
+                );
+            }
             return;
         }
         if (kind == "expr_stmt") {
@@ -515,6 +633,9 @@ private:
                 state,
                 context + ".expr"
             );
+            if (state.returned) {
+                return;
+            }
             if (is_final) {
                 emit(state, Opcode::Return, type);
                 state.returned = true;
@@ -537,6 +658,14 @@ private:
             return;
         }
         if (kind == "if_stmt") {
+            const auto* loop_field = optional_field(object, "loop");
+            const bool loop = loop_field != nullptr
+                && loop_field->is_boolean()
+                && loop_field->as_boolean();
+            const auto loop_start = checked_index(
+                state.function->instructions.size(),
+                "loop condition"
+            );
             lower_expression(
                 field(object, "condition", context),
                 state,
@@ -547,18 +676,77 @@ private:
             emit(state, Opcode::JumpIfFalse, ValueType::Void);
 
             const bool outer_returned = state.returned;
+            const auto outer_locals = state.locals;
             state.returned = false;
             lower_function_body(
                 field(object, "body", context),
-                state
+                state,
+                false
             );
+            state.locals = outer_locals;
             state.returned = outer_returned;
+            if (loop) {
+                emit(state, Opcode::Jump, ValueType::Void, loop_start);
+            }
             const auto target = checked_index(
                 state.function->instructions.size(),
                 "conditional continuation"
             );
             emit(state, Opcode::Nop, ValueType::Void);
             patch_jump(state, jump_index, target);
+            return;
+        }
+        if (kind == "update_index") {
+            const std::string base_name = string_field(
+                object,
+                "base_name",
+                context
+            );
+            const auto local = state.locals.find(base_name);
+            if (local == state.locals.end()) {
+                throw BytecodeLoweringError(
+                    "indexed update requires existing local " + base_name
+                    + " in " + context
+                );
+            }
+            const auto& indices = array_of(
+                field(object, "indices", context),
+                context + ".indices"
+            );
+            if (indices.empty()) {
+                throw BytecodeLoweringError(
+                    "WASM indexed update requires at least one index in "
+                    + context
+                );
+            }
+            emit(state, Opcode::LoadLocal, ValueType::Array, local->second);
+            for (std::size_t index = 0; index + 1 < indices.size(); ++index) {
+                lower_expression(
+                    indices[index],
+                    state,
+                    context + ".indices[" + std::to_string(index) + "]"
+                );
+                emit(state, Opcode::ArrayGet, ValueType::Array);
+            }
+            lower_expression(
+                indices.back(),
+                state,
+                context + ".indices["
+                    + std::to_string(indices.size() - 1) + "]"
+            );
+            lower_expression(
+                field(object, "value", context),
+                state,
+                context + ".value"
+            );
+            emit(state, Opcode::ArraySet, ValueType::Array);
+            if (indices.size() == 1) {
+                emit(state, Opcode::StoreLocal, ValueType::Array, local->second);
+            } else {
+                // Nested arrays are mutable VM objects. ArraySet updates the
+                // selected child in place, so the root local remains valid.
+                emit(state, Opcode::Pop, ValueType::Void);
+            }
             return;
         }
         throw BytecodeLoweringError(
@@ -618,6 +806,57 @@ private:
             );
             return literal_type;
         }
+        if (kind == "symbolic_var") {
+            const std::string name = string_field(object, "name", context);
+            const std::string domain = string_field(object, "domain", context);
+            const auto symbol_kind_field = object.find("symbol_kind");
+            const std::string symbol_kind = symbol_kind_field != object.end() && symbol_kind_field->second.is_string()
+                ? symbol_kind_field->second.as_string() : "variable";
+            const double symbol_kind_tag = symbol_kind == "function" ? 2.0 : symbol_kind == "constant" ? 3.0 : 1.0;
+            const auto latex_field = object.find("latex");
+            const std::string latex = latex_field != object.end() && latex_field->second.is_string()
+                ? latex_field->second.as_string() : name;
+            const auto signature = vkf::symbolic_value::function_signature_tags(domain);
+            std::vector<double> encoded{
+                1.0,
+                static_cast<double>(name.size() + latex.size() + signature.inputs.size() * 2u + 7u),
+                vkf::symbolic_value::encoded_domain_tag(domain),
+                symbol_kind_tag,
+                static_cast<double>(name.size()),
+            };
+            for (const unsigned char byte : name) {
+                encoded.push_back(static_cast<double>(byte));
+            }
+            encoded.push_back(static_cast<double>(latex.size()));
+            for (const unsigned char byte : latex) {
+                encoded.push_back(static_cast<double>(byte));
+            }
+            encoded.push_back(static_cast<double>(signature.inputs.size()));
+            for (const auto& input : signature.inputs) {
+                encoded.push_back(input.tag);
+                encoded.push_back(input.dimension);
+            }
+            encoded.push_back(signature.output.tag);
+            encoded.push_back(signature.output.dimension);
+            encoded.push_back(1.0);
+            encoded.push_back(0.0);
+            encoded.push_back(static_cast<double>(encoded.size() + 1u));
+            for (const double value : encoded) {
+                emit(
+                    state,
+                    Opcode::PushConstant,
+                    ValueType::Number,
+                    intern_constant(Constant::number_value(value))
+                );
+            }
+            emit(
+                state,
+                Opcode::MakeArray,
+                ValueType::Array,
+                checked_index(encoded.size(), "symbolic variable width")
+            );
+            return ValueType::Array;
+        }
         if (kind == "load") {
             const std::string name = string_field(object, "name", context);
             const auto local = state.locals.find(name);
@@ -640,6 +879,42 @@ private:
             throw BytecodeLoweringError(
                 "unknown scalar binding " + name + " in " + context
             );
+        }
+        if (kind == "bind_expr") {
+            const std::string name = string_field(object, "name", context);
+            const auto* update_only_field = optional_field(
+                object,
+                "update_only"
+            );
+            const bool update_only = update_only_field != nullptr
+                && update_only_field->is_boolean()
+                && update_only_field->as_boolean();
+            std::uint32_t local_index = 0;
+            if (update_only) {
+                const auto local = state.locals.find(name);
+                if (local == state.locals.end()) {
+                    throw BytecodeLoweringError(
+                        "binding expression update requires existing local "
+                        + name + " in " + context
+                    );
+                }
+                local_index = local->second;
+            } else {
+                const ValueType declared_type = lower_type(
+                    string_field(object, "type", context),
+                    context
+                );
+                add_local(state, name, declared_type, context);
+                local_index = state.locals.at(name);
+            }
+            const ValueType value_type = lower_expression(
+                field(object, "value", context),
+                state,
+                context + ".value"
+            );
+            emit(state, Opcode::Duplicate, value_type);
+            emit(state, Opcode::StoreLocal, value_type, local_index);
+            return value_type;
         }
         if (kind == "list") {
             const auto& items = array_of(
@@ -740,6 +1015,7 @@ private:
             return result_type;
         }
         if (kind == "block_expr" || kind == "block") {
+            const auto outer_locals = state.locals;
             const auto& statements = array_of(
                 field(object, "body", context),
                 context + ".body"
@@ -762,11 +1038,13 @@ private:
                 }
                 if (statement_kind == "expr_stmt"
                     && index + 1 == statements.size()) {
-                    return lower_expression(
+                    const ValueType result_type = lower_expression(
                         field(statement, "expr", statement_context),
                         state,
                         statement_context + ".expr"
                     );
+                    state.locals = outer_locals;
+                    return result_type;
                 }
                 lower_statement(
                     statements[index],
@@ -776,10 +1054,22 @@ private:
                 );
             }
             emit(state, Opcode::PushNull, ValueType::Dynamic);
+            state.locals = outer_locals;
             return ValueType::Dynamic;
         }
         if (kind == "match_stmt") {
             return lower_match_expression(object, state, context);
+        }
+        if (kind == "pipe_chain") {
+            return lower_pipe_chain(object, state, context);
+        }
+        if (kind == "repeat_list") {
+            return lower_repeat_list(object, state, context);
+        }
+        if (kind == "raise_expr") {
+            emit(state, Opcode::Trap, ValueType::Void);
+            state.returned = true;
+            return ValueType::Void;
         }
         if (kind == "binary_op") {
             const std::string op = string_field(object, "op", context);
@@ -791,21 +1081,174 @@ private:
                     op == "AND"
                 );
             }
+            const auto* surface_type = optional_field(object, "type");
+            if (surface_type != nullptr
+                && surface_type->is_string()
+                && symbolic_expression_surface_type(surface_type->as_string())) {
+                const auto& left = field(object, "left", context);
+                const auto& right = field(object, "right", context);
+                const auto lower_symbolic_operand = [this, &state](
+                    const vf::JsonValue& operand,
+                    const std::string& operand_context
+                ) {
+                    const auto& operand_object = object_of(
+                        operand,
+                        operand_context
+                    );
+                    const ValueType operand_type = lower_expression(
+                        operand,
+                        state,
+                        operand_context
+                    );
+                    const auto* operand_surface = optional_field(
+                        operand_object,
+                        "type"
+                    );
+                    const bool symbolic_operand =
+                        operand_type == ValueType::Array
+                        || (operand_surface != nullptr
+                            && operand_surface->is_string()
+                            && symbolic_expression_surface_type(operand_surface->as_string()));
+                    if (symbolic_operand) return;
+                    if (operand_type != ValueType::Number
+                        && operand_type != ValueType::Boolean) {
+                        throw BytecodeLoweringError(
+                            "symbolic binary operand must be numeric or "
+                            "symbolic in " + operand_context
+                        );
+                    }
+                    const auto numeric = add_temporary_local(
+                        state,
+                        operand_type
+                    );
+                    emit(
+                        state,
+                        Opcode::StoreLocal,
+                        operand_type,
+                        numeric
+                    );
+                    emit_number(state, 2.0);
+                    emit(
+                        state,
+                        Opcode::LoadLocal,
+                        operand_type,
+                        numeric
+                    );
+                    emit_number(state, 3.0);
+                    emit(state, Opcode::MakeArray, ValueType::Array, 3);
+                };
+
+                const auto left_local = add_temporary_local(
+                    state,
+                    ValueType::Array
+                );
+                lower_symbolic_operand(left, context + ".left");
+                emit(
+                    state,
+                    Opcode::StoreLocal,
+                    ValueType::Array,
+                    left_local
+                );
+                const auto right_local = add_temporary_local(
+                    state,
+                    ValueType::Array
+                );
+                lower_symbolic_operand(right, context + ".right");
+                emit(
+                    state,
+                    Opcode::StoreLocal,
+                    ValueType::Array,
+                    right_local
+                );
+
+                const auto subtree_size = add_temporary_local(
+                    state,
+                    ValueType::Number
+                );
+                emit(
+                    state,
+                    Opcode::LoadLocal,
+                    ValueType::Array,
+                    left_local
+                );
+                emit(state, Opcode::ArrayLength, ValueType::Number);
+                emit(
+                    state,
+                    Opcode::LoadLocal,
+                    ValueType::Array,
+                    right_local
+                );
+                emit(state, Opcode::ArrayLength, ValueType::Number);
+                emit(state, Opcode::Add, ValueType::Number);
+                emit_number(state, 3.0);
+                emit(state, Opcode::Add, ValueType::Number);
+                emit(
+                    state,
+                    Opcode::StoreLocal,
+                    ValueType::Number,
+                    subtree_size
+                );
+
+                emit(
+                    state,
+                    Opcode::LoadLocal,
+                    ValueType::Array,
+                    left_local
+                );
+                emit(
+                    state,
+                    Opcode::LoadLocal,
+                    ValueType::Array,
+                    right_local
+                );
+                emit(state, Opcode::ArrayConcat, ValueType::Array);
+
+                const double symbolic_opcode = op == "PLUS" ? 1.0
+                    : op == "MINUS" ? 2.0
+                    : op == "STAR" ? 3.0
+                    : op == "SLASH" ? 4.0
+                    : op == "CARET" ? 5.0
+                    : op == "EQ" || op == "EXACT_EQ" ? 6.0
+                    : op == "NE" || op == "NEQ" ? 7.0
+                    : op == "LT" ? 8.0
+                    : op == "LE" ? 9.0
+                    : op == "GT" ? 10.0
+                    : op == "GE" ? 11.0
+                    : 0.0;
+                if (symbolic_opcode == 0.0) {
+                    throw BytecodeLoweringError(
+                        "unsupported symbolic binary operator " + op
+                        + " in " + context
+                    );
+                }
+                emit_number(state, 3.0);
+                emit_number(state, symbolic_opcode);
+                emit(
+                    state,
+                    Opcode::LoadLocal,
+                    ValueType::Number,
+                    subtree_size
+                );
+                emit(state, Opcode::MakeArray, ValueType::Array, 3);
+                emit(state, Opcode::ArrayConcat, ValueType::Array);
+                return ValueType::Array;
+            }
             const ValueType type = expression_type(object, context);
-            lower_expression(
+            const ValueType left_type = lower_expression(
                 field(object, "left", context),
                 state,
                 context + ".left"
             );
-            lower_expression(
+            const ValueType right_type = lower_expression(
                 field(object, "right", context),
                 state,
                 context + ".right"
             );
-            const Opcode opcode = lower_binary_opcode(
-                op,
-                context
-            );
+            const Opcode opcode = (op == "AMPERSAND" || op == "&")
+                && left_type == ValueType::Array
+                && right_type == ValueType::Array
+                ? Opcode::ArrayConcat
+                : lower_binary_opcode(op, context);
             const ValueType result_type =
                 comparison_opcode(opcode) ? ValueType::Boolean : type;
             emit(state, opcode, result_type);
@@ -836,7 +1279,75 @@ private:
                 field(object, "callee", context),
                 context + ".callee"
             );
-            if (string_field(callee, "kind", context + ".callee") != "load") {
+            const std::string callee_kind = string_field(
+                callee,
+                "kind",
+                context + ".callee"
+            );
+            if (callee_kind == "field_access") {
+                const auto& args = array_of(
+                    field(object, "args", context),
+                    context + ".args"
+                );
+                const std::string method = string_field(
+                    callee,
+                    "field",
+                    context + ".callee"
+                );
+                if (method == "length" && args.empty()) {
+                    lower_expression(
+                        field(callee, "object", context + ".callee"),
+                        state,
+                        context + ".callee.object"
+                    );
+                    emit(state, Opcode::ArrayLength, ValueType::Number);
+                    return ValueType::Number;
+                }
+                throw BytecodeLoweringError(
+                    "unsupported method call " + method + " in " + context
+                );
+            }
+            if (callee_kind == "stdlib_function") {
+                const auto& args = array_of(
+                    field(object, "args", context),
+                    context + ".args"
+                );
+                if (args.size() != 1) {
+                    throw BytecodeLoweringError(
+                        "WASM math intrinsic requires one argument in "
+                        + context
+                    );
+                }
+                const std::string full_name = string_field(
+                    callee,
+                    "full_name",
+                    context + ".callee"
+                );
+                Opcode opcode = Opcode::Nop;
+                if (full_name == "math.sin") opcode = Opcode::Sine;
+                else if (full_name == "math.cos") opcode = Opcode::Cosine;
+                else if (full_name == "math.tan") opcode = Opcode::Tangent;
+                else if (full_name == "math.sqrt") opcode = Opcode::SquareRoot;
+                else if (full_name == "math.abs") opcode = Opcode::Absolute;
+                else if (full_name == "math.ln" || full_name == "math.log") {
+                    opcode = Opcode::NaturalLog;
+                } else if (full_name == "math.exp") {
+                    opcode = Opcode::Exponential;
+                } else {
+                    throw BytecodeLoweringError(
+                        "unsupported standard-library call " + full_name
+                        + " in " + context
+                    );
+                }
+                lower_expression(
+                    args.front(),
+                    state,
+                    context + ".args[0]"
+                );
+                emit(state, opcode, ValueType::Number);
+                return ValueType::Number;
+            }
+            if (callee_kind != "load") {
                 throw BytecodeLoweringError(
                     "direct calls require load callee in " + context
                 );
@@ -883,10 +1394,13 @@ private:
                 field(object, "args", context),
                 context + ".args"
             );
-            if (args.size() != function->second.arity) {
+            if (args.size() < function->second.minimum_arity
+                || args.size() > function->second.arity) {
                 throw BytecodeLoweringError(
                     "wrong arity for function " + name + " in " + context
-                    + ": expected " + std::to_string(function->second.arity)
+                    + ": expected "
+                    + std::to_string(function->second.minimum_arity)
+                    + ".." + std::to_string(function->second.arity)
                     + ", got " + std::to_string(args.size())
                 );
             }
@@ -895,6 +1409,23 @@ private:
                     args[index],
                     state,
                     context + ".args[" + std::to_string(index) + "]"
+                );
+            }
+            for (std::size_t index = args.size();
+                 index < function->second.arity;
+                 ++index) {
+                const auto* default_argument =
+                    function->second.default_arguments[index];
+                if (default_argument == nullptr) {
+                    throw BytecodeLoweringError(
+                        "missing required argument " + std::to_string(index)
+                        + " for function " + name + " in " + context
+                    );
+                }
+                lower_expression(
+                    *default_argument,
+                    state,
+                    context + ".defaults[" + std::to_string(index) + "]"
                 );
             }
             emit(
@@ -941,6 +1472,313 @@ private:
         emit(state, Opcode::Nop, ValueType::Void);
         patch_jump(state, jump_index, target);
         return ValueType::Boolean;
+    }
+
+    std::uint32_t add_temporary_local(
+        FunctionState& state,
+        ValueType type
+    ) {
+        const auto index = checked_index(
+            state.function->local_types.size(),
+            "temporary local table"
+        );
+        state.function->local_types.push_back(type);
+        ++state.next_temporary;
+        return index;
+    }
+
+    void emit_number(
+        FunctionState& state,
+        double value
+    ) {
+        emit(
+            state,
+            Opcode::PushConstant,
+            ValueType::Number,
+            intern_constant(Constant::number_value(value))
+        );
+    }
+
+    ValueType lower_pipe_chain(
+        const vf::JsonValue::Object& object,
+        FunctionState& state,
+        const std::string& context
+    ) {
+        const auto& segments = array_of(
+            field(object, "segments", context),
+            context + ".segments"
+        );
+        if (segments.empty()) {
+            throw BytecodeLoweringError(
+                "pipe chain requires at least one segment in " + context
+            );
+        }
+
+        const auto& source = object_of(
+            field(object, "source", context),
+            context + ".source"
+        );
+        const std::string source_kind = string_field(
+            source,
+            "kind",
+            context + ".source"
+        );
+        std::uint32_t current_array = 0;
+        std::size_t first_segment = 0;
+
+        if (source_kind == "range") {
+            const auto cursor = add_temporary_local(state, ValueType::Number);
+            const auto end = add_temporary_local(state, ValueType::Number);
+            const auto direction = add_temporary_local(state, ValueType::Number);
+            const auto output_index = add_temporary_local(state, ValueType::Number);
+            current_array = add_temporary_local(state, ValueType::Array);
+
+            lower_expression(
+                field(source, "start", context + ".source"),
+                state,
+                context + ".source.start"
+            );
+            emit(state, Opcode::StoreLocal, ValueType::Number, cursor);
+            lower_expression(
+                field(source, "end", context + ".source"),
+                state,
+                context + ".source.end"
+            );
+            emit(state, Opcode::StoreLocal, ValueType::Number, end);
+
+            emit(state, Opcode::LoadLocal, ValueType::Number, end);
+            emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
+            emit(state, Opcode::GreaterEqual, ValueType::Boolean);
+            const std::size_t descending_jump =
+                state.function->instructions.size();
+            emit(state, Opcode::JumpIfFalse, ValueType::Void);
+            emit_number(state, 1.0);
+            emit(state, Opcode::StoreLocal, ValueType::Number, direction);
+            const std::size_t direction_end_jump =
+                state.function->instructions.size();
+            emit(state, Opcode::Jump, ValueType::Void);
+            const auto descending_target = checked_index(
+                state.function->instructions.size(),
+                "descending range direction"
+            );
+            emit_number(state, -1.0);
+            emit(state, Opcode::StoreLocal, ValueType::Number, direction);
+            const auto direction_end = checked_index(
+                state.function->instructions.size(),
+                "range direction continuation"
+            );
+            emit(state, Opcode::Nop, ValueType::Void);
+            patch_jump(state, descending_jump, descending_target);
+            patch_jump(state, direction_end_jump, direction_end);
+
+            emit(state, Opcode::LoadLocal, ValueType::Number, end);
+            emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
+            emit(state, Opcode::Subtract, ValueType::Number);
+            emit(state, Opcode::LoadLocal, ValueType::Number, direction);
+            emit(state, Opcode::Multiply, ValueType::Number);
+            emit_number(state, 1.0);
+            emit(state, Opcode::Add, ValueType::Number);
+            emit(state, Opcode::AllocateArray, ValueType::Array);
+            emit(state, Opcode::StoreLocal, ValueType::Array, current_array);
+            emit_number(state, 0.0);
+            emit(state, Opcode::StoreLocal, ValueType::Number, output_index);
+
+            const auto loop_start = checked_index(
+                state.function->instructions.size(),
+                "range pipe loop"
+            );
+            emit(state, Opcode::LoadLocal, ValueType::Number, end);
+            emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
+            emit(state, Opcode::Subtract, ValueType::Number);
+            emit(state, Opcode::LoadLocal, ValueType::Number, direction);
+            emit(state, Opcode::Multiply, ValueType::Number);
+            emit_number(state, 0.0);
+            emit(state, Opcode::GreaterEqual, ValueType::Boolean);
+            const std::size_t loop_end_jump =
+                state.function->instructions.size();
+            emit(state, Opcode::JumpIfFalse, ValueType::Void);
+
+            const auto previous_dollar = state.locals.find("$");
+            const bool had_previous_dollar = previous_dollar != state.locals.end();
+            const std::uint32_t previous_dollar_index = had_previous_dollar
+                ? previous_dollar->second
+                : 0;
+            state.locals["$"] = cursor;
+            const ValueType segment_type = lower_expression(
+                segments.front(),
+                state,
+                context + ".segments[0]"
+            );
+            const auto segment_value = add_temporary_local(state, segment_type);
+            emit(state, Opcode::StoreLocal, segment_type, segment_value);
+            emit(state, Opcode::LoadLocal, ValueType::Array, current_array);
+            emit(state, Opcode::LoadLocal, ValueType::Number, output_index);
+            emit(state, Opcode::LoadLocal, segment_type, segment_value);
+            emit(state, Opcode::ArraySet, ValueType::Array);
+            emit(state, Opcode::StoreLocal, ValueType::Array, current_array);
+            if (had_previous_dollar) {
+                state.locals["$"] = previous_dollar_index;
+            } else {
+                state.locals.erase("$");
+            }
+
+            emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
+            emit(state, Opcode::LoadLocal, ValueType::Number, direction);
+            emit(state, Opcode::Add, ValueType::Number);
+            emit(state, Opcode::StoreLocal, ValueType::Number, cursor);
+            emit(state, Opcode::LoadLocal, ValueType::Number, output_index);
+            emit_number(state, 1.0);
+            emit(state, Opcode::Add, ValueType::Number);
+            emit(state, Opcode::StoreLocal, ValueType::Number, output_index);
+            emit(state, Opcode::Jump, ValueType::Void, loop_start);
+            const auto loop_end = checked_index(
+                state.function->instructions.size(),
+                "range pipe continuation"
+            );
+            emit(state, Opcode::Nop, ValueType::Void);
+            patch_jump(state, loop_end_jump, loop_end);
+            (void)segment_type;
+            first_segment = 1;
+        } else {
+            current_array = add_temporary_local(state, ValueType::Array);
+            lower_expression(
+                field(object, "source", context),
+                state,
+                context + ".source"
+            );
+            emit(state, Opcode::StoreLocal, ValueType::Array, current_array);
+        }
+
+        for (std::size_t segment_index = first_segment;
+             segment_index < segments.size();
+             ++segment_index) {
+            const auto source_array = current_array;
+            const auto output_array = add_temporary_local(state, ValueType::Array);
+            const auto index = add_temporary_local(state, ValueType::Number);
+            const auto length = add_temporary_local(state, ValueType::Number);
+            const auto current_value = add_temporary_local(state, ValueType::Dynamic);
+
+            emit(state, Opcode::LoadLocal, ValueType::Array, source_array);
+            emit(state, Opcode::ArrayLength, ValueType::Number);
+            emit(state, Opcode::StoreLocal, ValueType::Number, length);
+            emit(state, Opcode::LoadLocal, ValueType::Number, length);
+            emit(state, Opcode::AllocateArray, ValueType::Array);
+            emit(state, Opcode::StoreLocal, ValueType::Array, output_array);
+            emit_number(state, 0.0);
+            emit(state, Opcode::StoreLocal, ValueType::Number, index);
+
+            const auto loop_start = checked_index(
+                state.function->instructions.size(),
+                "array pipe loop"
+            );
+            emit(state, Opcode::LoadLocal, ValueType::Number, index);
+            emit(state, Opcode::LoadLocal, ValueType::Number, length);
+            emit(state, Opcode::Less, ValueType::Boolean);
+            const std::size_t loop_end_jump =
+                state.function->instructions.size();
+            emit(state, Opcode::JumpIfFalse, ValueType::Void);
+            emit(state, Opcode::LoadLocal, ValueType::Array, source_array);
+            emit(state, Opcode::LoadLocal, ValueType::Number, index);
+            emit(state, Opcode::ArrayGet, ValueType::Dynamic);
+            emit(state, Opcode::StoreLocal, ValueType::Dynamic, current_value);
+
+            const auto previous_dollar = state.locals.find("$");
+            const bool had_previous_dollar = previous_dollar != state.locals.end();
+            const std::uint32_t previous_dollar_index = had_previous_dollar
+                ? previous_dollar->second
+                : 0;
+            state.locals["$"] = current_value;
+            const ValueType segment_type = lower_expression(
+                segments[segment_index],
+                state,
+                context + ".segments[" + std::to_string(segment_index) + "]"
+            );
+            const auto segment_value = add_temporary_local(state, segment_type);
+            emit(state, Opcode::StoreLocal, segment_type, segment_value);
+            emit(state, Opcode::LoadLocal, ValueType::Array, output_array);
+            emit(state, Opcode::LoadLocal, ValueType::Number, index);
+            emit(state, Opcode::LoadLocal, segment_type, segment_value);
+            emit(state, Opcode::ArraySet, ValueType::Array);
+            emit(state, Opcode::StoreLocal, ValueType::Array, output_array);
+            if (had_previous_dollar) {
+                state.locals["$"] = previous_dollar_index;
+            } else {
+                state.locals.erase("$");
+            }
+
+            emit(state, Opcode::LoadLocal, ValueType::Number, index);
+            emit_number(state, 1.0);
+            emit(state, Opcode::Add, ValueType::Number);
+            emit(state, Opcode::StoreLocal, ValueType::Number, index);
+            emit(state, Opcode::Jump, ValueType::Void, loop_start);
+            const auto loop_end = checked_index(
+                state.function->instructions.size(),
+                "array pipe continuation"
+            );
+            emit(state, Opcode::Nop, ValueType::Void);
+            patch_jump(state, loop_end_jump, loop_end);
+            current_array = output_array;
+        }
+
+        emit(state, Opcode::LoadLocal, ValueType::Array, current_array);
+        return ValueType::Array;
+    }
+
+    ValueType lower_repeat_list(
+        const vf::JsonValue::Object& object,
+        FunctionState& state,
+        const std::string& context
+    ) {
+        const auto count = add_temporary_local(state, ValueType::Number);
+        const auto index = add_temporary_local(state, ValueType::Number);
+        const auto result = add_temporary_local(state, ValueType::Array);
+        lower_expression(
+            field(object, "count", context),
+            state,
+            context + ".count"
+        );
+        emit(state, Opcode::StoreLocal, ValueType::Number, count);
+        const ValueType item_type = lower_expression(
+            field(object, "value", context),
+            state,
+            context + ".value"
+        );
+        const auto item = add_temporary_local(state, item_type);
+        emit(state, Opcode::StoreLocal, item_type, item);
+        emit(state, Opcode::LoadLocal, ValueType::Number, count);
+        emit(state, Opcode::AllocateArray, ValueType::Array);
+        emit(state, Opcode::StoreLocal, ValueType::Array, result);
+        emit_number(state, 0.0);
+        emit(state, Opcode::StoreLocal, ValueType::Number, index);
+
+        const auto loop_start = checked_index(
+            state.function->instructions.size(),
+            "repeated-list loop"
+        );
+        emit(state, Opcode::LoadLocal, ValueType::Number, index);
+        emit(state, Opcode::LoadLocal, ValueType::Number, count);
+        emit(state, Opcode::Less, ValueType::Boolean);
+        const std::size_t loop_end_jump =
+            state.function->instructions.size();
+        emit(state, Opcode::JumpIfFalse, ValueType::Void);
+        emit(state, Opcode::LoadLocal, ValueType::Array, result);
+        emit(state, Opcode::LoadLocal, ValueType::Number, index);
+        emit(state, Opcode::LoadLocal, item_type, item);
+        emit(state, Opcode::ArraySet, ValueType::Array);
+        emit(state, Opcode::StoreLocal, ValueType::Array, result);
+        emit(state, Opcode::LoadLocal, ValueType::Number, index);
+        emit_number(state, 1.0);
+        emit(state, Opcode::Add, ValueType::Number);
+        emit(state, Opcode::StoreLocal, ValueType::Number, index);
+        emit(state, Opcode::Jump, ValueType::Void, loop_start);
+        const auto loop_end = checked_index(
+            state.function->instructions.size(),
+            "repeated-list continuation"
+        );
+        emit(state, Opcode::Nop, ValueType::Void);
+        patch_jump(state, loop_end_jump, loop_end);
+        emit(state, Opcode::LoadLocal, ValueType::Array, result);
+        return ValueType::Array;
     }
 
     ValueType lower_match_expression(

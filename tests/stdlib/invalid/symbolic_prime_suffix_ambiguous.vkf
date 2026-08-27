@@ -1,0 +1,8 @@
+# expect-compile-error: ambiguous derivative suffix; separate derivative variables with spaces
+
+:.symbolic
+
+f: R->R
+a: R
+aa: R
+invalid: f''aaa(a, aa)

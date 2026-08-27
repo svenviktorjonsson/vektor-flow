@@ -15,5 +15,5 @@ body_b: collision_body3(
 matrix: collision_matrix3(body_a, body_b)
 normal_hit: normal_restitution_impulse3(matrix, [-6, 0, 0], [1, 0, 0], 0.5)
 
-:: matrix.pp.(0).(0)
+:: matrix.pp.(0, 0)
 :: normal_hit.magnitude

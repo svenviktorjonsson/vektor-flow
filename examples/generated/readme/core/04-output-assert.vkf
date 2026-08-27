@@ -1,4 +1,8 @@
 # Comments continue to the end of the row.
+##
+Paired double hashes delimit a multiline comment.
+Editors may use a first-body block as documentation.
+##
 answer: 6 * 7
 (answer == 42)?! "the answer changed"
 :: answer

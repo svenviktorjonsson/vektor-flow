@@ -32,8 +32,13 @@
     "comments": {
       "patterns": [
         {
+          "name": "comment.block.number-sign.vektorflow",
+          "begin": "##",
+          "end": "##"
+        },
+        {
           "name": "comment.line.number-sign.vektorflow",
-          "match": "#.*$"
+          "match": "#(?!#).*$"
         }
       ]
     },

@@ -91,6 +91,12 @@ enum class Opcode : std::uint16_t {
     PlotBuilderCreate = 57,
     PlotBuilderPush = 58,
     PlotBuilderFinish = 59,
+    AllocateArray = 60,
+    NaturalLog = 61,
+    Exponential = 62,
+    Trap = 63,
+    ArrayConcat = 64,
+    FloorDivide = 65,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -181,7 +187,7 @@ namespace detail {
 inline constexpr std::array<std::uint8_t, 8> magic = {
     'V', 'K', 'F', 'B', 'C', 0x0d, 0x0a, 0x00,
 };
-inline constexpr std::uint16_t format_version = 1;
+inline constexpr std::uint16_t format_version = 2;
 inline constexpr std::uint32_t maximum_collection_size = 16U * 1024U * 1024U;
 
 inline bool is_value_type(ValueType type) {
@@ -191,7 +197,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::PlotBuilderFinish);
+        <= static_cast<std::uint16_t>(Opcode::FloorDivide);
 }
 
 inline bool is_valid_utf8(const std::string& value) {

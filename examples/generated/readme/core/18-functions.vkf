@@ -3,8 +3,7 @@ choose(value:int) -> int:
         @: 7
     3
 
-do_nothing():
-    @
+do_nothing(): @
 
 :: choose(1)
 :: choose(0)

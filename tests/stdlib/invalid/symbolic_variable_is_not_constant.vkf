@@ -1,0 +1,7 @@
+# expect-compile-error: cannot coerce symbol to constant
+:.symbolic
+
+accept_constant(value:constant) -> bit: true
+
+x: R
+accept_constant(x)

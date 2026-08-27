@@ -1,5 +1,4 @@
-double(value:int) -> int:
-    value * 2
+double(value:int) -> int: value * 2
 
 :: double([1, 2, 3])
 :: double([[1, 2], [3, 4]])

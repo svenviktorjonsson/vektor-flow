@@ -1,0 +1,12 @@
+:.symbolic
+
+x: R
+y: R
+expanded: expand((x + 1)^3)
+derivative: diff(expanded, x)
+
+:: term_count(expanded)
+:: evaluate(expanded, [2])
+:: evaluate(derivative, [2])
+:: evaluate(1/xy, [2, 4])
+:: evaluate(1/x y, [2, 4])

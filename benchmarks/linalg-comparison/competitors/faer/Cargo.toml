@@ -1,0 +1,15 @@
+[package]
+name = "vkf-linalg-faer-runner"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+faer = { version = "=0.24.4", default-features = false, features = ["std", "linalg"] }
+sha2 = "=0.10.9"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+

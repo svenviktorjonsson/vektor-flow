@@ -1,0 +1,80 @@
+:.symbolic
+errors: .errors
+
+test symbolic_coefficient_returns_zero_for_absent_terms() -> bit:
+    x: R
+    (coefficient(expand(x^2 + 1), [5]) = 0)?!
+
+test symbolic_coefficient_rejects_negative_exponents() -> bit:
+    x: R
+    raised: false
+    coefficient(expand(x^2 + 1), [-1])!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_coefficient_rejects_fractional_exponents() -> bit:
+    x: R
+    raised: false
+    coefficient(expand(x^2 + 1), [1.5])!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_coefficient_requires_polynomial_storage() -> bit:
+    x: R
+    raised: false
+    coefficient(x^2 + 1, [2])!?
+        errors.TypeError => .raised: true
+    raised?!
+
+test symbolic_polynomial_rejects_negative_capacity() -> bit:
+    x: R
+    raised: false
+    polynomial(x, -1)!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_polynomial_zero_capacity_uses_the_safe_minimum() -> bit:
+    x: R
+    value: polynomial(x, 0)
+    (term_count(value) = 1 /\ evaluate(value, [3]) = 3)?!
+
+test symbolic_series_multiply_accepts_zero_order() -> bit:
+    product: series_multiply([1, 2], [3, 4], 0)
+    (product.length() = 0)?!
+
+test symbolic_series_multiply_rejects_fractional_order() -> bit:
+    raised: false
+    series_multiply([1, 2], [3, 4], 1.5)!?
+        errors.ValueError => .raised: true
+    raised?!
+
+test symbolic_series_multiply_handles_unequal_lengths_and_padding() -> bit:
+    product: series_multiply([1, 2, 3], [4, 5], 5)
+    (product.length() = 5)?!
+    (product.0 = 4 /\ product.1 = 13 /\ product.2 = 22)?!
+    (product.3 = 15 /\ product.4 = 0)?!
+
+test symbolic_expand_canonicalizes_subtraction() -> bit:
+    x: R
+    y: R
+    expanded: expand((x + y)^2 - 2 * x * y)
+    (term_count(expanded) = 2)?!
+    (coefficient(expanded, [2, 0]) = 1 /\ coefficient(expanded, [0, 2]) = 1)?!
+
+test symbolic_expand_handles_a_zero_degree() -> bit:
+    x: R
+    y: R
+    expanded: expand((x + y)^0)
+    (term_count(expanded) = 1)?!
+    (coefficient(expanded, [0, 0]) = 1)?!
+
+test symbolic_expand_preserves_negative_powers() -> bit:
+    x: R
+    expression: (x + 1)^-1
+    same(expand(expression), expression)?!
+
+test symbolic_univariate_derivative_is_zero_for_an_independent_variable() -> bit:
+    x: R
+    y: R
+    derivative: differentiate(polynomial(x), y)
+    (term_count(derivative) = 0 /\ evaluate(derivative, [9]) = 0)?!

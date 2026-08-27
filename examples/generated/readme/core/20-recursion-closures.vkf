@@ -4,8 +4,7 @@ factorial(n:int) -> int:
     n * factorial(n - 1)
 
 make_offset(offset:num) -> num->num:
-    add(value:num) -> num:
-        value + offset
+    add(value:num) -> num: value + offset
     add
 
 add_two: make_offset(2)

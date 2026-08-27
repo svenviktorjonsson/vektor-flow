@@ -1,0 +1,2 @@
+# expect-compile-error: multiset values require one exact element type
+invalid: {1:2, 2.5:1}

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "compiler/native/vkf_symbolic.hpp"
+#include "compiler/native/vkf_symbolic_domain.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -15,6 +15,7 @@ enum class VkfExpressionLoweringMode {
 enum class VkfSymbolicTypeShape {
     None,
     ScalarDomain,
+    VectorSpaceDomain,
     FunctionDomain,
     FixedVectorDomain,
 };
@@ -68,6 +69,45 @@ inline bool vkf_symbolic_surface_is_scalar_domain(const std::string& surface) {
     return surface == "N" || surface == "Z" || surface == "Q" || surface == "R" || surface == "C";
 }
 
+inline bool vkf_symbolic_surface_is_vector_space_domain(const std::string& surface) {
+    const auto power = surface.find('^');
+    if (power == std::string::npos ||
+        !vkf_symbolic_surface_is_scalar_domain(surface.substr(0, power))) {
+        return false;
+    }
+    const std::string exponent = surface.substr(power + 1u);
+    if (exponent.empty() || exponent == "0") return false;
+    return std::all_of(exponent.begin(), exponent.end(), [](unsigned char ch) {
+        return std::isdigit(ch) != 0;
+    });
+}
+
+inline bool vkf_symbolic_surface_is_value_domain(const std::string& surface) {
+    return vkf_symbolic_surface_is_scalar_domain(surface) ||
+        vkf_symbolic_surface_is_vector_space_domain(surface);
+}
+
+inline bool vkf_symbolic_surface_is_function_input_domain(const std::string& surface) {
+    if (vkf_symbolic_surface_is_value_domain(surface)) return true;
+    if (surface.size() < 3u || surface.front() != '(' || surface.back() != ')') return false;
+    std::size_t start = 1u;
+    bool found = false;
+    while (start < surface.size() - 1u) {
+        const std::size_t separator = surface.find(',', start);
+        const std::size_t end = separator == std::string::npos ? surface.size() - 1u : separator;
+        if (!vkf_symbolic_surface_is_value_domain(surface.substr(start, end - start))) return false;
+        found = true;
+        if (separator == std::string::npos) break;
+        start = separator + 1u;
+    }
+    return found;
+}
+
+inline std::string vkf_symbolic_surface_base_domain(const std::string& surface) {
+    const auto power = surface.find('^');
+    return power == std::string::npos ? surface : surface.substr(0, power);
+}
+
 inline VkfSymbolicDomain vkf_symbolic_domain_from_surface(const std::string& surface) {
     if (surface == "N") return vkf_sym_domain_natural();
     if (surface == "Z") return vkf_sym_domain_integer();
@@ -93,12 +133,14 @@ inline VkfSymbolicTypeFacts vkf_symbolic_type_facts(std::string surface) {
     if (arrow != std::string::npos) {
         const std::string domain = vkf_trim_ascii(surface.substr(0, arrow));
         const std::string codomain = vkf_trim_ascii(surface.substr(arrow + 2));
-        if (vkf_symbolic_surface_is_scalar_domain(domain) && vkf_symbolic_surface_is_scalar_domain(codomain)) {
+        if (vkf_symbolic_surface_is_function_input_domain(domain) &&
+            vkf_symbolic_surface_is_value_domain(codomain)) {
             facts.symbolic = true;
             facts.shape = VkfSymbolicTypeShape::FunctionDomain;
             facts.domain_surface = domain;
             facts.codomain_surface = codomain;
-            facts.scalar_domain = vkf_symbolic_domain_from_surface(codomain);
+            facts.scalar_domain = vkf_symbolic_domain_from_surface(
+                vkf_symbolic_surface_base_domain(codomain));
         }
         return facts;
     }
@@ -123,7 +165,7 @@ inline VkfSymbolicTypeFacts vkf_symbolic_type_facts(std::string surface) {
             const std::string exponent = vkf_trim_ascii(surface.substr(power + 1));
             if (vkf_symbolic_surface_is_scalar_domain(base) && !exponent.empty()) {
                 facts.symbolic = true;
-                facts.shape = VkfSymbolicTypeShape::ScalarDomain;
+                facts.shape = VkfSymbolicTypeShape::VectorSpaceDomain;
                 facts.base_surface = base;
                 facts.exponent_surface = exponent;
                 facts.scalar_domain = vkf_symbolic_domain_from_surface(base);

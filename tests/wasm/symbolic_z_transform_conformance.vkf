@@ -1,0 +1,28 @@
+:.symbolic
+
+transform_check(value:bit) -> num:
+    value?
+        @: 1
+    0
+
+symbolic_z_transform_wasm_conformance() -> num:
+    a: symbol("a", C, constant:true)
+    r: symbol("r", C, constant:true)
+    n: symbol("n", N)
+    z: symbol("z", C)
+    transformed: z_transform(2^n, n, z)
+    expected: z / (z - 2)
+    symbolic_source: a * r^n
+    symbolic_transformed: z_transform(_symbolic_clone(symbolic_source), n, z)
+    symbolic_restored: inverse_z_transform(
+        _symbolic_clone(symbolic_transformed),
+        z,
+        n
+    )
+    transform_check(
+        same(transformed, expected) /\
+        verify_inverse_z_transform(_symbolic_clone(symbolic_restored), symbolic_transformed, z, n) /\
+        same(symbolic_restored, symbolic_source)
+    )
+
+:: symbolic_z_transform_wasm_conformance()
