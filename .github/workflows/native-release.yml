@@ -6,12 +6,6 @@ on:
       - "v*"
   pull_request:
   workflow_dispatch:
-    inputs:
-      macos_symbolic_diagnostic:
-        description: Run only the short macOS symbolic diagnostic
-        required: false
-        type: boolean
-        default: false
 
 concurrency:
   group: native-release-${{ github.ref }}
@@ -28,7 +22,6 @@ env:
 
 jobs:
   windows-x64:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.macos_symbolic_diagnostic }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,7 +70,6 @@ jobs:
           if-no-files-found: error
 
   linux-x64:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.macos_symbolic_diagnostic }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -121,7 +113,6 @@ jobs:
           if-no-files-found: error
 
   macos-arm64:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.macos_symbolic_diagnostic }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -159,30 +150,6 @@ jobs:
             dist/releases/vektor-flow-macos-arm64.pkg
             dist/releases/vektor-flow-macos-arm64.pkg.sha256
           if-no-files-found: error
-
-  macos-symbolic-diagnostic:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.macos_symbolic_diagnostic }}
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build strict native compiler
-        run: |
-          test "$(uname -m)" = "arm64"
-          cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/native-compiler --parallel 2 --target vkf_strict
-
-      - name: Inspect symbolic constant path
-        shell: bash
-        run: |
-          set +e
-          compiler=build/native-compiler/bin/vkf-strict
-          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: _symbolic_raw_catalog(_symbolic_clone(a))'
-          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: _symbolic_raw_catalog(_symbolic_clone(a)).2'
-          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: _symbolic_root_kind(_symbolic_clone(a))'
-          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: symbol_is_constant(a)'
-          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: same(differentiate(a, a), constant(0))'
-          exit 0
 
   benchmarks-windows-x64:
     needs: [windows-x64, linux-x64, macos-arm64]
