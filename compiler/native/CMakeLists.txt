@@ -59,6 +59,11 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|
     endif()
     if(WIN32)
         vkf_native_target(vkf_cpp_aot_artifact vkf_cpp_aot_artifact.cpp TRUE)
+        vkf_native_target(
+            vkf_linalg_factor_x64_test
+            kernels/vkf_linalg_factor_x64_test.cpp
+            FALSE
+        )
         target_link_options(vkf_x64_runner_template PRIVATE "/NODEFAULTLIB")
         target_link_libraries(vkf_x64_runner_template PRIVATE
             legacy_stdio_definitions.lib

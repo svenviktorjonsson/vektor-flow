@@ -20,6 +20,7 @@ if ($LASTEXITCODE -ne 0) { throw "Clang failed to compile the linalg kernel" }
 
 & $Linker /entry:vkf_cholesky_x64 /subsystem:console /nodefaultlib /fixed `
     /opt:noref /merge:.rdata=.text /section:.text,ER `
+    /export:vkf_solve_x64 /export:vkf_solve_96_x64 `
     /export:vkf_cholesky_x64 /export:vkf_cholesky_96_x64 `
     /export:vkf_lu_x64 /export:vkf_lu_96_x64 `
     /export:vkf_least_squares_x64 /out:$image $object
@@ -37,13 +38,15 @@ foreach ($line in $exports) {
     }
 }
 $required = @(
+    "vkf_solve_x64", "vkf_solve_96_x64",
     "vkf_cholesky_x64", "vkf_cholesky_96_x64", "vkf_lu_x64",
     "vkf_lu_96_x64", "vkf_least_squares_x64"
 )
 foreach ($name in $required) {
     if (-not $entries.ContainsKey($name)) { throw "Missing kernel export $name" }
 }
-$textRva = $entries["vkf_cholesky_x64"]
+$textRva = ($required | ForEach-Object { $entries[$_] } |
+    Measure-Object -Minimum).Minimum
 
 $sections = & $ReadObject --sections $image
 if ($LASTEXITCODE -ne 0) { throw "llvm-readobj failed to inspect sections" }
@@ -82,6 +85,8 @@ namespace vkf::native_kernels {
 
 inline constexpr std::size_t linalg_factor_cholesky_entry = $($entries["vkf_cholesky_x64"] - $textRva)u;
 inline constexpr std::size_t linalg_factor_cholesky_96_entry = $($entries["vkf_cholesky_96_x64"] - $textRva)u;
+inline constexpr std::size_t linalg_factor_solve_entry = $($entries["vkf_solve_x64"] - $textRva)u;
+inline constexpr std::size_t linalg_factor_solve_96_entry = $($entries["vkf_solve_96_x64"] - $textRva)u;
 inline constexpr std::size_t linalg_factor_lu_entry = $($entries["vkf_lu_x64"] - $textRva)u;
 inline constexpr std::size_t linalg_factor_lu_96_entry = $($entries["vkf_lu_96_x64"] - $textRva)u;
 inline constexpr std::size_t linalg_factor_least_squares_entry = $($entries["vkf_least_squares_x64"] - $textRva)u;

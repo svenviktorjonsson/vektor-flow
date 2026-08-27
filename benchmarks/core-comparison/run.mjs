@@ -121,7 +121,8 @@ export function parseOptions(argv) {
     warmups: 5,
     processRuns: 10,
     processWarmups: 1,
-    enforceRelativeGate: false
+    enforceRelativeGate: false,
+    relativeLimit: 1.5
   };
   const names = new Map([
     ['compile-runs', 'compileRuns'],
@@ -154,6 +155,14 @@ export function parseOptions(argv) {
         throw new Error(`${arg} must be true or false`);
       }
       options.enforceRelativeGate = match[2] === 'true';
+      continue;
+    }
+    if (match[1] === 'relative-limit') {
+      const value = Number(match[2]);
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error(`${arg} must be positive`);
+      }
+      options.relativeLimit = value;
       continue;
     }
     if (!names.has(match[1])) throw new Error(`unknown option: ${arg}`);
@@ -441,7 +450,8 @@ function interleavedNativeRuntimeSamples(entries, benchmarkCase, warmups, runs) 
     compiled.nativeRuntimeArtifact && language.nativeRuntimeBatch);
   const states = new Map(eligible.map(({ language }) => [language.id, {
     samples: [],
-    value: null
+    value: null,
+    affinityCpu: null
   }]));
   const executeRound = (round, measured) => {
     for (let offset = 0; offset < eligible.length; offset += 1) {
@@ -457,6 +467,16 @@ function interleavedNativeRuntimeSamples(entries, benchmarkCase, warmups, runs) 
         );
       }
       const state = states.get(entry.language.id);
+      if (!Number.isInteger(result.affinityCpu)) {
+        throw new Error(`${entry.language.id}/${benchmarkCase.id} raw timer did not report CPU affinity`);
+      }
+      if (state.affinityCpu !== null && state.affinityCpu !== result.affinityCpu) {
+        throw new Error(
+          `${entry.language.id}/${benchmarkCase.id} raw timer moved from CPU ` +
+          `${state.affinityCpu} to CPU ${result.affinityCpu}`
+        );
+      }
+      state.affinityCpu = result.affinityCpu;
       if (state.value !== null && !valuesAgree(
         state.value,
         result.value,
@@ -480,7 +500,27 @@ function interleavedNativeRuntimeSamples(entries, benchmarkCase, warmups, runs) 
   for (let iteration = 0; iteration < Math.ceil(runs / batchRuns); iteration += 1) {
     executeRound(Math.ceil(warmups / batchRuns) + iteration, true);
   }
+  assertSameNativeRuntimeAffinity(
+    [...states].map(([language, state]) => ({ language, affinityCpu: state.affinityCpu })),
+    benchmarkCase.id
+  );
   return states;
+}
+
+export function assertSameNativeRuntimeAffinity(entries, context = 'native runtime') {
+  if (entries.length < 2) return;
+  const expected = entries[0].affinityCpu;
+  for (const entry of entries) {
+    if (!Number.isInteger(entry.affinityCpu) || entry.affinityCpu < 0) {
+      throw new Error(`${entry.language}/${context} is not pinned to a logical CPU`);
+    }
+    if (entry.affinityCpu !== expected) {
+      throw new Error(
+        `${context} raw timers must share one logical CPU: ` +
+        `${entries[0].language}=CPU${expected}, ${entry.language}=CPU${entry.affinityCpu}`
+      );
+    }
+  }
 }
 
 function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
@@ -503,7 +543,8 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
     }
     return {
       samples: payload.samples_ms.map(Number),
-      value: Number(payload.result)
+      value: Number(payload.result),
+      affinityCpu: Number(payload.affinity_cpu)
     };
   };
   const nativeLibraryRuntimeBatch = (library, warmups, runs) => {
@@ -516,7 +557,8 @@ function languageDefinitions(tools, nativeCompiler, requestedLanguages = null) {
     }
     return {
       samples: payload.samples_ms.map(Number),
-      value: Number(payload.result)
+      value: Number(payload.result),
+      affinityCpu: Number(payload.affinity_cpu)
     };
   };
   const enabled = (language) => requestedLanguages === null || requestedLanguages.has(language);
@@ -1031,7 +1073,7 @@ export function assertVkfAcceptanceBudgets(results) {
 
 export function assertVkfRelativeKernelGate(
   results,
-  { maxRatio = 2, minimumSamples = 100,
+  { maxRatio = 1.5, minimumSamples = 100,
     cases = ['spectral-norm-large', 'fannkuch-redux-large', 'n-body-large'],
     competitors = ['c', 'rust', 'zig'] } = {}
 ) {
@@ -1202,6 +1244,7 @@ export function main(argv = process.argv.slice(2)) {
         optimizer: compiled.optimizerSamples ? seriesStats(compiled.optimizerSamples) : null,
         runtime: seriesStats(runtime.samples),
         nativeRuntime: nativeRuntime ? seriesStats(nativeRuntime.samples) : null,
+        nativeRuntimeAffinityCpu: nativeRuntime?.affinityCpu ?? null,
         nativeCodeSha256: compiled.nativeCodeSha256,
         optimizerPolicy: compiled.optimizerPolicy,
         machineCodeFingerprint: compiled.machineCodeFingerprint,
@@ -1248,7 +1291,9 @@ export function main(argv = process.argv.slice(2)) {
   writeFileSync(reportPath, report, 'utf8');
   printReport(payload, report, resultsPath, reportPath);
   assertVkfAcceptanceBudgets(normalizedResults);
-  if (options.enforceRelativeGate) assertVkfRelativeKernelGate(normalizedResults);
+  if (options.enforceRelativeGate) {
+    assertVkfRelativeKernelGate(normalizedResults, { maxRatio: options.relativeLimit });
+  }
   return payload;
 }
 

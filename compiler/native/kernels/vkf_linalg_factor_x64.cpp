@@ -68,6 +68,93 @@ inline double row_prefix_dot(
     return total;
 }
 
+struct FourDots {
+    double values[4];
+};
+
+inline double horizontal_sum(__m256d value) {
+    const auto halves = _mm_add_pd(
+        _mm256_castpd256_pd128(value),
+        _mm256_extractf128_pd(value, 1));
+    return _mm_cvtsd_f64(_mm_hadd_pd(halves, halves));
+}
+
+inline FourDots four_row_prefix_dots(
+    double* matrix, std::uint64_t columns,
+    std::uint64_t first_row, std::uint64_t right_row,
+    std::uint64_t count
+) {
+    __m256d packed00 = _mm256_setzero_pd();
+    __m256d packed01 = _mm256_setzero_pd();
+    __m256d packed10 = _mm256_setzero_pd();
+    __m256d packed11 = _mm256_setzero_pd();
+    __m256d packed20 = _mm256_setzero_pd();
+    __m256d packed21 = _mm256_setzero_pd();
+    __m256d packed30 = _mm256_setzero_pd();
+    __m256d packed31 = _mm256_setzero_pd();
+    std::uint64_t column = 0;
+    for (; column + 7 < count; column += 8) {
+        const auto right0 = _mm256_loadu_pd(
+            &at(matrix, columns, right_row, column + 3));
+        const auto right1 = _mm256_loadu_pd(
+            &at(matrix, columns, right_row, column + 7));
+        packed00 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row, column + 3)),
+            right0, packed00);
+        packed01 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row, column + 7)),
+            right1, packed01);
+        packed10 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row + 1, column + 3)),
+            right0, packed10);
+        packed11 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row + 1, column + 7)),
+            right1, packed11);
+        packed20 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row + 2, column + 3)),
+            right0, packed20);
+        packed21 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row + 2, column + 7)),
+            right1, packed21);
+        packed30 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row + 3, column + 3)),
+            right0, packed30);
+        packed31 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row + 3, column + 7)),
+            right1, packed31);
+    }
+    for (; column + 3 < count; column += 4) {
+        const auto right = _mm256_loadu_pd(
+            &at(matrix, columns, right_row, column + 3));
+        packed00 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row, column + 3)),
+            right, packed00);
+        packed10 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row + 1, column + 3)),
+            right, packed10);
+        packed20 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row + 2, column + 3)),
+            right, packed20);
+        packed30 = _mm256_fmadd_pd(
+            _mm256_loadu_pd(&at(matrix, columns, first_row + 3, column + 3)),
+            right, packed30);
+    }
+    FourDots totals{{
+        horizontal_sum(_mm256_add_pd(packed00, packed01)),
+        horizontal_sum(_mm256_add_pd(packed10, packed11)),
+        horizontal_sum(_mm256_add_pd(packed20, packed21)),
+        horizontal_sum(_mm256_add_pd(packed30, packed31)),
+    }};
+    for (; column < count; ++column) {
+        const double right = at(matrix, columns, right_row, column);
+        totals.values[0] += at(matrix, columns, first_row, column) * right;
+        totals.values[1] += at(matrix, columns, first_row + 1, column) * right;
+        totals.values[2] += at(matrix, columns, first_row + 2, column) * right;
+        totals.values[3] += at(matrix, columns, first_row + 3, column) * right;
+    }
+    return totals;
+}
+
 inline void subtract_scaled_row(
     double* matrix, std::uint64_t columns,
     std::uint64_t target_row, std::uint64_t pivot_row,
@@ -90,6 +177,74 @@ inline void subtract_scaled_row(
     }
 }
 
+inline std::uint64_t solve(
+    double* matrix, double* values, double* working, double* result,
+    std::uint64_t size, double tolerance
+) {
+    for (std::uint64_t row = 0; row < size; ++row) {
+        result[-static_cast<std::ptrdiff_t>(row)] =
+            values[-static_cast<std::ptrdiff_t>(row)];
+        for (std::uint64_t column = 0; column < size; ++column) {
+            at(working, size, row, column) = at(matrix, size, row, column);
+        }
+    }
+    for (std::uint64_t column = 0; column < size; ++column) {
+        std::uint64_t pivot = column;
+        double pivot_magnitude = magnitude(at(working, size, column, column));
+        for (std::uint64_t row = column + 1; row < size; ++row) {
+            const double candidate = magnitude(at(working, size, row, column));
+            if (candidate > pivot_magnitude) {
+                pivot = row;
+                pivot_magnitude = candidate;
+            }
+        }
+        if (pivot_magnitude <= tolerance) return 0;
+        if (pivot != column) {
+            for (std::uint64_t target = column; target < size; ++target) {
+                const double temporary = at(working, size, pivot, target);
+                at(working, size, pivot, target) = at(working, size, column, target);
+                at(working, size, column, target) = temporary;
+            }
+            const double temporary = result[-static_cast<std::ptrdiff_t>(pivot)];
+            result[-static_cast<std::ptrdiff_t>(pivot)] =
+                result[-static_cast<std::ptrdiff_t>(column)];
+            result[-static_cast<std::ptrdiff_t>(column)] = temporary;
+        }
+        const double inverse_pivot = 1.0 / at(working, size, column, column);
+        for (std::uint64_t row = column + 1; row < size; ++row) {
+            const double factor = at(working, size, row, column) * inverse_pivot;
+            at(working, size, row, column) = 0.0;
+            subtract_scaled_row(working, size, row, column, column + 1, factor);
+            result[-static_cast<std::ptrdiff_t>(row)] -=
+                factor * result[-static_cast<std::ptrdiff_t>(column)];
+        }
+    }
+    for (std::uint64_t row = size; row-- > 0;) {
+        double total = result[-static_cast<std::ptrdiff_t>(row)];
+        for (std::uint64_t column = row + 1; column < size; ++column) {
+            total -= at(working, size, row, column) *
+                result[-static_cast<std::ptrdiff_t>(column)];
+        }
+        result[-static_cast<std::ptrdiff_t>(row)] =
+            total / at(working, size, row, row);
+    }
+    return 1;
+}
+
+}
+
+extern "C" std::uint64_t vkf_solve_x64(
+    double* matrix, double* values, double* working, double* result,
+    std::uint64_t size, double tolerance
+) {
+    return solve(matrix, values, working, result, size, tolerance);
+}
+
+extern "C" std::uint64_t vkf_solve_96_x64(
+    double* matrix, double* values, double* working, double* result,
+    std::uint64_t, double tolerance
+) {
+    return solve(matrix, values, working, result, 96u, tolerance);
 }
 
 extern "C" std::uint64_t vkf_cholesky_x64(
@@ -102,7 +257,17 @@ extern "C" std::uint64_t vkf_cholesky_x64(
         const double diagonal = square_root(diagonal_total);
         at(lower, size, column, column) = diagonal;
         const double inverse_diagonal = 1.0 / diagonal;
-        for (std::uint64_t row = column + 1; row < size; ++row) {
+        std::uint64_t row = column + 1;
+        for (; row + 3 < size; row += 4) {
+            const auto totals = four_row_prefix_dots(
+                lower, size, row, column, column);
+            for (std::uint64_t offset = 0; offset < 4; ++offset) {
+                at(lower, size, row + offset, column) =
+                    (at(matrix, size, row + offset, column) -
+                     totals.values[offset]) * inverse_diagonal;
+            }
+        }
+        for (; row < size; ++row) {
             const double total = at(matrix, size, row, column) -
                 row_prefix_dot(lower, size, row, column, column);
             at(lower, size, row, column) = total * inverse_diagonal;
@@ -122,7 +287,17 @@ extern "C" std::uint64_t vkf_cholesky_96_x64(
         const double diagonal = square_root(diagonal_total);
         at(lower, size, column, column) = diagonal;
         const double inverse_diagonal = 1.0 / diagonal;
-        for (std::uint64_t row = column + 1; row < size; ++row) {
+        std::uint64_t row = column + 1;
+        for (; row + 3 < size; row += 4) {
+            const auto totals = four_row_prefix_dots(
+                lower, size, row, column, column);
+            for (std::uint64_t offset = 0; offset < 4; ++offset) {
+                at(lower, size, row + offset, column) =
+                    (at(matrix, size, row + offset, column) -
+                     totals.values[offset]) * inverse_diagonal;
+            }
+        }
+        for (; row < size; ++row) {
             const double total = at(matrix, size, row, column) -
                 row_prefix_dot(lower, size, row, column, column);
             at(lower, size, row, column) = total * inverse_diagonal;

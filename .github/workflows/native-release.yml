@@ -36,7 +36,11 @@ jobs:
 
       - name: Build Python-free compiler and WASM emitter
         shell: pwsh
-        run: .\scripts\build-native-compiler.ps1 -OnlyTargets @("vkf-strict", "vkf_symbolic_kernel_artifact")
+        run: .\scripts\build-native-compiler.ps1 -OnlyTargets @("vkf-strict", "vkf_symbolic_kernel_artifact", "vkf_linalg_factor_x64_test")
+
+      - name: Verify embedded x64 linalg kernels
+        shell: pwsh
+        run: .\build\native-compiler-clang\bin\vkf_linalg_factor_x64_test.exe
 
       - name: Run full native VKF release suite
         shell: pwsh
@@ -151,7 +155,7 @@ jobs:
             dist/releases/vektor-flow-macos-arm64.pkg.sha256
           if-no-files-found: error
 
-  benchmarks-windows-x64:
+  linalg-windows-x64:
     needs: [windows-x64, linux-x64, macos-arm64]
     runs-on: windows-latest
     steps:
@@ -190,16 +194,34 @@ jobs:
           --faer=benchmarks/linalg-comparison/competitors/faer/target/release/vkf-linalg-faer-runner.exe
           --python=python
           --relative-limit=1.5
-          --output=benchmarks/linalg-comparison/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}.json
+          --output=benchmarks/linalg-comparison/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.json
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-x64-linalg-comparison-proof
           path: |
-            benchmarks/linalg-comparison/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}.json
-            benchmarks/linalg-comparison/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}.md
+            benchmarks/linalg-comparison/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.json
+            benchmarks/linalg-comparison/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.md
           if-no-files-found: error
+
+  policy-windows-x64:
+    needs: [windows-x64, linux-x64, macos-arm64]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install native compiler tools
+        shell: pwsh
+        run: choco install llvm --yes --no-progress
+
+      - name: Build verified compiler revision
+        shell: pwsh
+        run: .\scripts\build-native-compiler.ps1 -OnlyTargets @("vkf-strict")
 
       - name: Verify complete optimizer policy landscape
         shell: pwsh
@@ -207,17 +229,35 @@ jobs:
           node benchmarks/policy-landscape/run.mjs
           --compiler=build/native-compiler-clang/bin/vkf-strict.exe
           --runs=200
-          --output=benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci
+          --output=benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-x64-policy-landscape-proof
           path: |
-            benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci.json
-            benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci.md
-            benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci.svg
+            benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci-${{ github.run_id }}.json
+            benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci-${{ github.run_id }}.md
+            benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci-${{ github.run_id }}.svg
           if-no-files-found: error
+
+  examples-windows-x64:
+    needs: [windows-x64, linux-x64, macos-arm64]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install native compiler tools
+        shell: pwsh
+        run: choco install llvm --yes --no-progress
+
+      - name: Build verified compiler revision
+        shell: pwsh
+        run: .\scripts\build-native-compiler.ps1 -OnlyTargets @("vkf-strict")
 
       - name: Verify every documented program 10 times
         shell: pwsh
@@ -228,18 +268,18 @@ jobs:
           --compile-warmups=0
           --runs=10
           --warmups=0
-          --output=windows-x64-${{ env.VKF_PROOF_SUFFIX }}
+          --output=windows-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-x64-readme-proof
           path: |
-            benchmarks/readme-examples/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}.json
-            benchmarks/readme-examples/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}.md
+            benchmarks/readme-examples/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.json
+            benchmarks/readme-examples/results/windows-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.md
           if-no-files-found: error
 
-  benchmarks-macos-arm64:
+  examples-macos-arm64:
     needs: [windows-x64, linux-x64, macos-arm64]
     runs-on: macos-15
     steps:
@@ -263,18 +303,57 @@ jobs:
           --compile-warmups=0
           --runs=10
           --warmups=0
-          --output=macos-arm64-${{ env.VKF_PROOF_SUFFIX }}
+          --output=macos-arm64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: macos-arm64-readme-proof
           path: |
-            benchmarks/readme-examples/results/macos-arm64-${{ env.VKF_PROOF_SUFFIX }}.json
-            benchmarks/readme-examples/results/macos-arm64-${{ env.VKF_PROOF_SUFFIX }}.md
+            benchmarks/readme-examples/results/macos-arm64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.json
+            benchmarks/readme-examples/results/macos-arm64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.md
           if-no-files-found: error
 
-  comparison-linux-x64:
+  examples-linux-x64:
+    needs: [windows-x64, linux-x64, macos-arm64]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install native compiler tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake ninja-build
+
+      - name: Build verified compiler revision
+        run: |
+          cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict
+
+      - name: Verify every documented program 10 times
+        run: >-
+          node benchmarks/readme-examples/run.mjs
+          --compiler=build/native-compiler/bin/vkf-strict
+          --compile-runs=10
+          --compile-warmups=0
+          --runs=10
+          --warmups=0
+          --output=linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-x64-readme-proof
+          path: |
+            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.json
+            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.md
+          if-no-files-found: error
+
+  core-linux-x64:
     needs: [windows-x64, linux-x64, macos-arm64]
     runs-on: ubuntu-24.04
     steps:
@@ -303,25 +382,6 @@ jobs:
           cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-compiler --parallel 2 --target vkf_strict
 
-      - name: Verify every documented program 10 times
-        run: >-
-          node benchmarks/readme-examples/run.mjs
-          --compiler=build/native-compiler/bin/vkf-strict
-          --compile-runs=10
-          --compile-warmups=0
-          --runs=10
-          --warmups=0
-          --output=linux-x64-${{ env.VKF_PROOF_SUFFIX }}
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: linux-x64-readme-proof
-          path: |
-            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.json
-            benchmarks/readme-examples/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.md
-          if-no-files-found: error
-
       - name: Run controlled large-kernel comparison
         run: >-
           node benchmarks/core-comparison/run.mjs
@@ -334,15 +394,98 @@ jobs:
           --process-runs=10
           --process-warmups=1
           --enforce-relative-gate=true
-          --output=linux-x64-${{ env.VKF_PROOF_SUFFIX }}
+          --relative-limit=1.5
+          --output=linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: linux-x64-language-comparison-proof
           path: |
-            benchmarks/core-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.json
-            benchmarks/core-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}.md
+            benchmarks/core-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.json
+            benchmarks/core-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.md
+          if-no-files-found: error
+
+  symbolic-comparison-linux-x64:
+    needs: [windows-x64, linux-x64, macos-arm64]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.12.6"
+
+      - name: Install pinned symbolic comparison tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake ninja-build curl git
+          python -m pip install --disable-pip-version-check -r benchmarks/symbolic-comparison/requirements.txt
+          julia --project=benchmarks/symbolic-comparison/julia --startup-file=no \
+            -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+
+          boost_archive=/tmp/boost_1_86_0.tar.bz2
+          curl --fail --location --silent --show-error \
+            https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.bz2 \
+            --output "$boost_archive"
+          echo "1bed88e40401b2cb7a1f76d4bab499e352fa4d0c5f31c0dbae64e24d34d7513b  $boost_archive" \
+            | sha256sum --check --strict
+          tar --extract --bzip2 --file "$boost_archive" --directory /tmp
+
+          mkdir -p .work
+          git init .work/symengine
+          git -C .work/symengine remote add origin https://github.com/symengine/symengine.git
+          git -C .work/symengine fetch --depth 1 origin 0c183629a35dd9d8123fafcc47b0e0283bbae80d
+          git -C .work/symengine checkout --detach FETCH_HEAD
+          cmake -S .work/symengine -B .work/symengine-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DINTEGER_CLASS=boostmp \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_BENCHMARKS=OFF \
+            -DBoost_DIR="$GITHUB_WORKSPACE/benchmarks/symbolic-comparison/cmake" \
+            -DBOOST_ROOT=/tmp/boost_1_86_0
+          cmake --build .work/symengine-build --parallel 2
+          cmake -S benchmarks/symbolic-comparison/competitors -B .work/symengine-runner -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSymEngine_DIR="$GITHUB_WORKSPACE/.work/symengine-build" \
+            -DBoost_DIR="$GITHUB_WORKSPACE/benchmarks/symbolic-comparison/cmake" \
+            -DBOOST_ROOT=/tmp/boost_1_86_0
+          cmake --build .work/symengine-runner --parallel 2
+
+      - name: Build verified compiler revision
+        run: |
+          cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict
+
+      - name: Enforce symbolic comparison gate
+        run: >-
+          node benchmarks/symbolic-comparison/run.mjs
+          --compiler=build/native-compiler/bin/vkf-strict
+          --languages=vkf,symengine,sympy,symbolics
+          --symengine=.work/symengine-runner/symengine_runner
+          --python=python
+          --julia=julia
+          --julia-project=benchmarks/symbolic-comparison/julia
+          --runs=10
+          --timeout-ms=30000
+          --relative-limit=1.5
+          --output=benchmarks/symbolic-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-x64-symbolic-comparison-proof
+          path: |
+            benchmarks/symbolic-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.json
+            benchmarks/symbolic-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.md
           if-no-files-found: error
 
   publish:
@@ -351,9 +494,13 @@ jobs:
       - windows-x64
       - linux-x64
       - macos-arm64
-      - benchmarks-windows-x64
-      - benchmarks-macos-arm64
-      - comparison-linux-x64
+      - linalg-windows-x64
+      - policy-windows-x64
+      - examples-windows-x64
+      - examples-macos-arm64
+      - examples-linux-x64
+      - core-linux-x64
+      - symbolic-comparison-linux-x64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

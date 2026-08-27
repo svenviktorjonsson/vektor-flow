@@ -29,8 +29,9 @@ first or last CPU state.
 
 The report stores every sample, source and executable hashes, exact tool
 versions, host CPU and OS, timeout counts, means, sample standard deviations,
-and `VKF / competitor` ratios. A ratio below `1` means VKF was faster. The gate
-requires every ratio to be below `2`.
+and `VKF / competitor` ratios. A ratio below `1` means VKF was faster. The
+release gate passes `--relative-limit=1.5` and requires every ratio to be
+strictly below that limit.
 
 A timeout is censored evidence, not a measurement. If an operation exceeds the
 configured timeout, the report uses that timeout only as a conservative lower
@@ -87,6 +88,7 @@ node benchmarks/symbolic-comparison/run.mjs \
   --symengine=.work/symengine-runner/symengine_runner \
   --runs=3 \
   --timeout-ms=30000 \
+  --relative-limit=1.5 \
   --output=benchmarks/symbolic-comparison/results/local.json
 ```
 
@@ -97,4 +99,15 @@ compiler's `auto` policy by default; override it explicitly with
 `--optimizer-policy=mask-ff` when studying a fixed policy.
 
 The command exits nonzero if any completed or conservatively bounded
-`VKF / competitor` ratio is `>=2`, any output differs, or any tool fails.
+`VKF / competitor` ratio reaches `--relative-limit`, any output differs, or any
+tool fails. The default and release limit is `1.5`; release verification also
+passes it explicitly, and the value is recorded in the JSON and Markdown
+evidence.
+
+## Release verification
+
+The native release workflow runs ten samples of the full four-kernel comparison on Linux only
+after the Windows x64, Linux x64, and macOS arm64 compiler verification jobs
+succeed. It installs the pinned SymPy and Symbolics.jl environments and builds
+the pinned SymEngine revision with Boost 1.86.0, then uploads both evidence
+files even when the relative gate fails. Publishing depends on this job.

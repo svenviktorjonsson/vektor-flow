@@ -54,6 +54,9 @@ reported but is not substituted for the raw-entry metric.
 All native languages compile before process-runtime measurement. Runtime samples
 then run in rotating two-sample language batches, preventing the language measured
 second from inheriting a systematically different OS/cache/Defender state.
+Raw VKF, C, Rust, and Zig timers also pin their measurement thread to the same
+first logical CPU permitted by the operating system. The report records that CPU
+ID and rejects a comparison if any language used a different CPU.
 
 It also keeps the user-visible latency gate separate: `vkf --aot -e "code"`
 must compile to a native executable, run it, and print its output in under

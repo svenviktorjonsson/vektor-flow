@@ -31,6 +31,7 @@ $targetDefinitions = @(
     @{ Name = "vkf_x64_runner_template"; Source = "compiler/native/vkf_x64_runner_template.cpp"; Json = $false },
     @{ Name = "vkf_wasm_artifact_smoke"; Source = "compiler/native/vkf_wasm_artifact_smoke.cpp"; Json = $true },
     @{ Name = "vkf_symbolic_kernel_artifact"; Source = "compiler/native/vkf_symbolic_kernel_artifact.cpp"; Json = $true },
+    @{ Name = "vkf_linalg_factor_x64_test"; Source = "compiler/native/kernels/vkf_linalg_factor_x64_test.cpp"; Json = $false },
     @{ Name = "vkf_webgpu_artifact_smoke"; Source = "compiler/native/vkf_webgpu_artifact_smoke.cpp"; Json = $true }
 )
 

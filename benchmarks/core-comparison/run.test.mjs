@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assertSameNativeRuntimeAffinity,
   assertCrossLanguageParity,
   assertVkfAcceptanceBudgets,
   assertVkfRelativeKernelGate,
@@ -14,6 +15,22 @@ import {
   vkfRuntimePreparationArguments,
   valuesAgree
 } from './run.mjs';
+
+test('raw comparison requires every language on the same logical CPU', () => {
+  assert.doesNotThrow(() => assertSameNativeRuntimeAffinity([
+    { language: 'vkf', affinityCpu: 2 },
+    { language: 'c', affinityCpu: 2 },
+    { language: 'rust', affinityCpu: 2 }
+  ], 'n-body-large'));
+  assert.throws(() => assertSameNativeRuntimeAffinity([
+    { language: 'vkf', affinityCpu: 2 },
+    { language: 'c', affinityCpu: 3 }
+  ], 'n-body-large'), /vkf=CPU2, c=CPU3/);
+  assert.throws(() => assertSameNativeRuntimeAffinity([
+    { language: 'vkf', affinityCpu: -1 },
+    { language: 'c', affinityCpu: -1 }
+  ], 'n-body-large'), /not pinned/);
+});
 
 test('parity failures name the actual reference language', () => {
   assert.throws(
@@ -54,7 +71,7 @@ test('relative kernel gate evaluates each same-host language pair independently'
     nativeRuntime: { count, meanMs }
   });
   const passing = [
-    row('spectral-norm-large', 'vkf', 1.99),
+    row('spectral-norm-large', 'vkf', 1.49),
     row('spectral-norm-large', 'c', 1),
     row('spectral-norm-large', 'rust', 1.01),
     row('spectral-norm-large', 'zig', 1.02)
@@ -63,9 +80,9 @@ test('relative kernel gate evaluates each same-host language pair independently'
   assert.throws(
     () => assertVkfRelativeKernelGate([
       ...passing.filter((result) => result.language !== 'rust'),
-      row('spectral-norm-large', 'rust', 0.995)
+      row('spectral-norm-large', 'rust', 0.9933333333333333)
     ]),
-    /spectral-norm-large vs rust: 2\.0000x must be under 2\.0x/
+    /spectral-norm-large vs rust: 1\.5000x must be under 1\.5x/
   );
   assert.doesNotThrow(() => assertVkfRelativeKernelGate([
     row('fannkuch-redux-large', 'vkf', 10, 50),
@@ -175,7 +192,8 @@ test('parseOptions accepts positive integer sample controls', () => {
     warmups: 4,
     processRuns: 3,
     processWarmups: 1,
-    enforceRelativeGate: false
+    enforceRelativeGate: false,
+    relativeLimit: 1.5
   });
   assert.throws(() => parseOptions(['--runs=0']), /positive integer/);
   assert.throws(() => parseOptions(['--output=../escape']), /safe result name/);
@@ -193,15 +211,18 @@ test('parseOptions defaults to 100 measured compile and runtime runs', () => {
     warmups: 5,
     processRuns: 10,
     processWarmups: 1,
-    enforceRelativeGate: false
+    enforceRelativeGate: false,
+    relativeLimit: 1.5
   });
 });
 
 test('relative performance gate is explicit rather than a release prerequisite', () => {
   assert.equal(parseOptions(['--enforce-relative-gate=true']).enforceRelativeGate, true);
   assert.equal(parseOptions(['--enforce-relative-gate=false']).enforceRelativeGate, false);
+  assert.equal(parseOptions(['--relative-limit=1.25']).relativeLimit, 1.25);
   assert.throws(
     () => parseOptions(['--enforce-relative-gate=sometimes']),
     /must be true or false/
   );
+  assert.throws(() => parseOptions(['--relative-limit=0']), /must be positive/);
 });

@@ -880,7 +880,7 @@ private:
     };
 
     struct PackedFactorFunctionPlan {
-        enum class Kind { Cholesky, Lu, LeastSquares } kind = Kind::Cholesky;
+        enum class Kind { Solve, Cholesky, Lu, LeastSquares } kind = Kind::Cholesky;
         std::uint32_t matrix_base = 0;
         std::uint32_t values_base = 0;
         std::uint32_t first_output_base = 0;
@@ -890,6 +890,10 @@ private:
         std::uint32_t first_work_base = 0;
         std::uint32_t second_work_base = 0;
         std::uint32_t tolerance_local = 0;
+        std::uint32_t error_message_offset = 0;
+        std::uint32_t error_message_bytes = 0;
+        std::uint32_t tolerance_parameter_index = 0;
+        double default_tolerance = 0.0;
         std::uint32_t rows = 0;
         std::uint32_t columns = 0;
     };
@@ -1931,10 +1935,88 @@ private:
                     return name.rfind(prefix, 0) == 0;
                 }));
         };
+        const auto f64_range = [&](std::uint32_t base, std::uint32_t width) {
+            if (base > function.local_classes.size() ||
+                width > function.local_classes.size() - base) {
+                return false;
+            }
+            return std::all_of(
+                function.local_classes.begin() + base,
+                function.local_classes.begin() + base + width,
+                [](vkf::machine_ir::ValueClass value_class) {
+                    return value_class == vkf::machine_ir::ValueClass::F64;
+                });
+        };
         const auto matrix = find_local("matrix.0");
         const auto tolerance = find_local("tolerance");
         if (!matrix || !tolerance) return std::nullopt;
         const auto matrix_width = count_prefix("matrix.");
+        if (function.name.rfind("solve$vkf$", 0) == 0) {
+            const auto values = find_local("values.0");
+            const auto working = find_local("working.0");
+            const auto right = find_local("right.0");
+            const auto result = find_local("result.0");
+            const auto size = count_prefix("values.");
+            std::optional<std::pair<std::uint32_t, std::uint32_t>> singular_error;
+            using vkf::machine_ir::Opcode;
+            for (std::size_t index = 0; index + 3u < function.instructions.size(); ++index) {
+                const auto& message = function.instructions[index];
+                const auto& type_name = function.instructions[index + 1u];
+                const auto& type_mask = function.instructions[index + 2u];
+                const auto& raise = function.instructions[index + 3u];
+                if (message.opcode != Opcode::PushString ||
+                    type_name.opcode != Opcode::PushString ||
+                    type_mask.opcode != Opcode::PushF64 ||
+                    type_mask.f64 != static_cast<double>(vkf::machine_ir::value_error_mask) ||
+                    raise.opcode != Opcode::RaiseErrorValue) {
+                    continue;
+                }
+                const auto candidate = std::pair{message.index, message.byte_count};
+                if (singular_error && *singular_error != candidate) return std::nullopt;
+                singular_error = candidate;
+            }
+            if (!function.may_error || !function.parameter_mask_local ||
+                function.instructions.size() < 4u ||
+                function.instructions[0].opcode != Opcode::JumpIfParameterProvided ||
+                function.instructions[1].opcode != Opcode::PushF64 ||
+                function.instructions[2].opcode != Opcode::StoreLocal ||
+                function.instructions[2].index != *tolerance ||
+                function.instructions[3].opcode != Opcode::Label ||
+                function.instructions[0].label != function.instructions[3].label ||
+                !values || !working || !right || !result || !singular_error || size < 64u ||
+                matrix_width != size * size ||
+                count_prefix("working.") != matrix_width ||
+                count_prefix("right.") != size ||
+                count_prefix("result.") != size || (size & 3u) != 0u ||
+                !f64_range(*matrix, matrix_width) || !f64_range(*values, size) ||
+                !f64_range(*working, matrix_width) || !f64_range(*right, size) ||
+                !f64_range(*result, size) ||
+                !function.owned_f64_list_locals.empty() ||
+                !function.owned_string_locals.empty() ||
+                function.instructions.size() < size + 1u) {
+                return std::nullopt;
+            }
+            const auto return_start = function.instructions.size() - size - 1u;
+            for (std::uint32_t index = 0; index < size; ++index) {
+                const auto& load = function.instructions[return_start + index];
+                if (load.opcode != Opcode::LoadLocal || load.index != *result + index) {
+                    return std::nullopt;
+                }
+            }
+            const auto& result_return = function.instructions.back();
+            if (result_return.opcode != Opcode::ReturnValues ||
+                result_return.result_count != size) {
+                return std::nullopt;
+            }
+            return PackedFactorFunctionPlan{
+                PackedFactorFunctionPlan::Kind::Solve,
+                *matrix, *values, *result, 0u, 0u, 0u,
+                *working, 0u, *tolerance,
+                singular_error->first, singular_error->second,
+                function.instructions[0].index, function.instructions[1].f64,
+                size, size,
+            };
+        }
         if (function.name.rfind("cholesky$vkf$", 0) == 0) {
             const auto lower = find_local("lower.0");
             const auto size = static_cast<std::uint32_t>(
@@ -1946,7 +2028,7 @@ private:
             return PackedFactorFunctionPlan{
                 PackedFactorFunctionPlan::Kind::Cholesky,
                 *matrix, 0u, *lower, 0u, 0u, 0u, 0u, 0u,
-                *tolerance, size, size,
+                *tolerance, 0u, 0u, 0u, 0.0, size, size,
             };
         }
         if (function.name.rfind("lu$vkf$", 0) == 0) {
@@ -1967,7 +2049,7 @@ private:
             return PackedFactorFunctionPlan{
                 PackedFactorFunctionPlan::Kind::Lu,
                 *matrix, 0u, *lower, *upper, *permutation, *sign, 0u, 0u,
-                *tolerance, size, size,
+                *tolerance, 0u, 0u, 0u, 0.0, size, size,
             };
         }
         if (function.name.rfind("least_squares$vkf$", 0) == 0) {
@@ -1988,7 +2070,7 @@ private:
                 PackedFactorFunctionPlan::Kind::LeastSquares,
                 *matrix, *values, *projected, 0u, 0u, 0u,
                 *factors, *factors + matrix_width,
-                *tolerance, rows, columns,
+                *tolerance, 0u, 0u, 0u, 0.0, rows, columns,
             };
         }
         return std::nullopt;
@@ -4993,27 +5075,30 @@ private:
                     load_local_integer(at(1u).index, 0u);
                     load_local_integer(at(2u).index, 1u);
                     load_local_integer(at(7u).index, 10u);
+                    // Frame vectors descend from their base local. Keep both
+                    // reversal indices negated for the whole loop instead of
+                    // negating and restoring each index around every access.
+                    code_.raw({0x48, 0xf7, 0xd8,
+                               0x48, 0xf7, 0xd9});
                     align_loop_header(instruction.label);
                     if (!labels.emplace(instruction.label, code_.position()).second) {
                         throw BackendFailure("duplicate integer x64 label");
                     }
                     code_.raw({0x48, 0x3b, 0xc1});
-                    const auto finished = emit_jump(0x8d);
+                    const auto finished = emit_jump(0x8e);
                     code_.raw({
-                        0x48, 0xf7, 0xd8,
-                        0x48, 0xf7, 0xd9,
                         0x4c, 0x8b, 0x14, 0xc2,
                         0x4c, 0x8b, 0x1c, 0xca,
                         0x4c, 0x89, 0x1c, 0xc2,
                         0x4c, 0x89, 0x14, 0xca,
-                        0x48, 0xf7, 0xd8,
-                        0x48, 0xf7, 0xd9,
-                        0x48, 0xff, 0xc0,
-                        0x48, 0xff, 0xc9
+                        0x48, 0xff, 0xc8,
+                        0x48, 0xff, 0xc1
                     });
                     code_.byte(0xe9);
                     branches.push_back({code_.rel32_placeholder(), instruction.label});
                     code_.patch_rel32(finished, code_.position());
+                    code_.raw({0x48, 0xf7, 0xd8,
+                               0x48, 0xf7, 0xd9});
                     store_local_integer(at(7u).index, 10u);
                     store_local_integer(at(1u).index, 0u);
                     store_local_integer(at(2u).index, 1u);
@@ -5145,6 +5230,8 @@ private:
                     code_.raw({0x49, 0xba});
                     code_.u64(static_cast<std::uint64_t>(bound.f64));
                     store_local_integer(guard_index.index, 10);
+                    code_.byte(0xe9);
+                    branches.push_back({code_.rel32_placeholder(), exit.label});
                     instruction_index += 13;
                     continue;
                 }
@@ -5218,7 +5305,85 @@ private:
                     continue;
                 }
             }
-            if (policy_.parity_specialization && stack_depth == 0 &&
+            if (stack_depth == 0 &&
+                instruction_index + 21u < function.instructions.size()) {
+                const auto at = [&](std::size_t offset) -> const auto& {
+                    return function.instructions[instruction_index + offset];
+                };
+                const auto is_branch_to = [&](std::uint32_t label,
+                                              std::size_t expected) {
+                    std::size_t count = 0;
+                    std::size_t position = 0;
+                    for (std::size_t index = 0;
+                         index < function.instructions.size(); ++index) {
+                        const auto& candidate = function.instructions[index];
+                        if ((candidate.opcode == Opcode::Jump ||
+                             candidate.opcode == Opcode::JumpIfFalse ||
+                             candidate.opcode == Opcode::JumpIfTrue) &&
+                            candidate.label == label) {
+                            ++count;
+                            position = index;
+                        }
+                    }
+                    return count == 1u && position == expected;
+                };
+                const bool complementary_parity_update =
+                    at(0u).opcode == Opcode::LoadLocal &&
+                    at(1u).opcode == Opcode::PushF64 && at(1u).f64 == 2.0 &&
+                    at(2u).opcode == Opcode::RemainderF64 &&
+                    at(3u).opcode == Opcode::PushF64 && at(3u).f64 == 0.0 &&
+                    at(4u).opcode == Opcode::OrderedEqualF64 &&
+                    at(5u).opcode == Opcode::JumpIfFalse &&
+                    at(6u).opcode == Opcode::LoadLocal &&
+                    at(7u).opcode == Opcode::LoadLocal &&
+                    at(8u).opcode == Opcode::AddF64 &&
+                    at(9u).opcode == Opcode::StoreLocal &&
+                    at(10u).opcode == Opcode::Label &&
+                    at(10u).label == at(5u).label &&
+                    at(11u).opcode == Opcode::LoadLocal &&
+                    at(11u).index == at(0u).index &&
+                    at(12u).opcode == Opcode::PushF64 && at(12u).f64 == 2.0 &&
+                    at(13u).opcode == Opcode::RemainderF64 &&
+                    at(14u).opcode == Opcode::PushF64 && at(14u).f64 == 0.0 &&
+                    at(15u).opcode == Opcode::UnorderedNotEqualF64 &&
+                    at(16u).opcode == Opcode::JumpIfFalse &&
+                    at(17u).opcode == Opcode::LoadLocal &&
+                    at(17u).index == at(6u).index &&
+                    at(18u).opcode == Opcode::LoadLocal &&
+                    at(18u).index == at(7u).index &&
+                    at(19u).opcode == Opcode::SubtractF64 &&
+                    at(20u).opcode == Opcode::StoreLocal &&
+                    at(20u).index == at(9u).index &&
+                    at(21u).opcode == Opcode::Label &&
+                    at(21u).label == at(16u).label &&
+                    at(6u).index == at(9u).index &&
+                    at(0u).index != at(6u).index &&
+                    at(0u).index < function.local_classes.size() &&
+                    at(6u).index < function.local_classes.size() &&
+                    at(7u).index < function.local_classes.size() &&
+                    function.local_classes[at(0u).index] ==
+                        vkf::machine_ir::ValueClass::I64 &&
+                    function.local_classes[at(6u).index] ==
+                        vkf::machine_ir::ValueClass::I64 &&
+                    function.local_classes[at(7u).index] ==
+                        vkf::machine_ir::ValueClass::I64 &&
+                    is_branch_to(at(5u).label, instruction_index + 5u) &&
+                    is_branch_to(at(16u).label, instruction_index + 16u);
+                if (complementary_parity_update) {
+                    load_local_integer(at(0u).index, 10u);
+                    load_local_integer(at(7u).index, 11u);
+                    move_register(0u, 11u);
+                    code_.raw({0x48, 0xf7, 0xd8,
+                               0x41, 0xf6, 0xc2, 0x01,
+                               0x4c, 0x0f, 0x45, 0xd8});
+                    load_local_integer(at(6u).index, 10u);
+                    code_.raw({0x4d, 0x01, 0xda});
+                    store_local_integer(at(9u).index, 10u);
+                    instruction_index += 21u;
+                    continue;
+                }
+            }
+            if (stack_depth == 0 &&
                 instruction_index + 5 < function.instructions.size()) {
                 const auto& dividend = function.instructions[instruction_index];
                 const auto& divisor = function.instructions[instruction_index + 1];
@@ -7261,7 +7426,49 @@ private:
                     }
                     code_.patch_rel32(skip, code_.position());
                 };
-                if (plan.kind == PackedFactorFunctionPlan::Kind::Cholesky) {
+                if (plan.kind == PackedFactorFunctionPlan::Kind::Solve) {
+                    restore_result_context(frame);
+                    emit_fixed_base_address(plan.matrix_base, matrix_width);
+                    code_.raw({0x48, 0x89, 0xc1});
+                    emit_fixed_base_address(plan.values_base, plan.rows);
+                    code_.raw({0x48, 0x89, 0xc2});
+                    emit_fixed_base_address(plan.first_work_base, matrix_width);
+                    code_.raw({0x49, 0x89, 0xc0,
+                               0x4d, 0x89, 0xd9,
+                               0x48, 0x83, 0xec, 0x40,
+                               0x4c, 0x89, 0x54, 0x24, 0x38,
+                               0x48, 0xc7, 0x44, 0x24, 0x20});
+                    code_.i32(static_cast<std::int32_t>(plan.rows));
+                    code_.raw({0x8b, 0x85});
+                    code_.i32(frame.displacement(*function.parameter_mask_local));
+                    code_.byte(0xa9);
+                    code_.i32(static_cast<std::int32_t>(
+                        1u << plan.tolerance_parameter_index));
+                    const auto use_default_tolerance = emit_jump(0x84);
+                    load_local(plan.tolerance_local, 0);
+                    code_.byte(0xe9);
+                    const auto tolerance_ready = code_.rel32_placeholder();
+                    code_.patch_rel32(use_default_tolerance, code_.position());
+                    emit_number(plan.default_tolerance, 0);
+                    code_.patch_rel32(tolerance_ready, code_.position());
+                    code_.raw({0xf2, 0x0f, 0x11, 0x44, 0x24, 0x28});
+                    call_embedded(
+                        plan.rows == 96u
+                            ? vkf::native_kernels::linalg_factor_solve_96_entry
+                            : vkf::native_kernels::linalg_factor_solve_entry);
+                    code_.raw({0x4c, 0x8b, 0x54, 0x24, 0x38,
+                               0x48, 0x83, 0xc4, 0x40,
+                               0x48, 0x85, 0xc0});
+                    const auto solved = emit_jump(0x85);
+                    emit_error_cleanup(function, frame);
+                    emit_error_message_registers(
+                        plan.error_message_offset, plan.error_message_bytes);
+                    code_.raw({0x41, 0xb9});
+                    code_.i32(static_cast<std::int32_t>(
+                        vkf::machine_ir::value_error_mask));
+                    epilogue();
+                    code_.patch_rel32(solved, code_.position());
+                } else if (plan.kind == PackedFactorFunctionPlan::Kind::Cholesky) {
                     restore_result_context(frame);
                     emit_fixed_base_address(plan.matrix_base, matrix_width);
                     code_.raw({0x48, 0x89, 0xc1});
@@ -8309,9 +8516,9 @@ private:
                     operand.index->index, operand.index->argument_count)) {
                 emit_fixed_base_address(
                     operand.index->index, operand.index->argument_count);
-                code_.raw({0x48, 0x8b, 0x14, 0xc8,
+                code_.raw({0x48, 0x8b, 0x04, 0xc8,
                            0xf2, 0x48, 0x0f, 0x2a,
-                           static_cast<unsigned>(0xc2 + destination * 8)});
+                           static_cast<unsigned>(0xc0 + destination * 8)});
             } else {
                 emit_fixed_indexed_f64_load(
                     operand.index->index, operand.index->argument_count,
@@ -8554,9 +8761,9 @@ private:
                                 node.index->index, node.index->argument_count)) {
                             emit_fixed_base_address(
                                 node.index->index, node.index->argument_count);
-                            code_.raw({0x48, 0x8b, 0x14, sib,
+                            code_.raw({0x48, 0x8b, 0x04, sib,
                                        0xf2, 0x48, 0x0f, 0x2a,
-                                       static_cast<unsigned>(0xc2 + destination * 8)});
+                                       static_cast<unsigned>(0xc0 + destination * 8)});
                         } else {
                             emit_fixed_indexed_f64_load(
                                 node.index->index, node.index->argument_count,
@@ -8643,8 +8850,8 @@ private:
                     plan.indexed_store->index, plan.indexed_store->argument_count)) {
                 emit_fixed_base_address(
                     plan.indexed_store->index, plan.indexed_store->argument_count);
-                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xd0,
-                           0x48, 0x89, 0x14, sib});
+                code_.raw({0xf2, 0x4c, 0x0f, 0x2c, 0xd8,
+                           0x4c, 0x89, 0x1c, sib});
             } else {
                 emit_fixed_indexed_f64_store(
                     plan.indexed_store->index,
@@ -8659,6 +8866,21 @@ private:
                     return std::nullopt;
                 }
                 const auto& at = function.instructions;
+                const auto invariant_scale = [&](const auto& operand) {
+                    return operand.opcode == Opcode::PushF64 ||
+                        (operand.opcode == Opcode::LoadLocal &&
+                         operand.index < function.local_classes.size() &&
+                         function.local_classes[operand.index] ==
+                             vkf::machine_ir::ValueClass::F64);
+                };
+                const auto emit_invariant_scale = [&](const auto& operand,
+                                                      unsigned destination) {
+                    if (operand.opcode == Opcode::PushF64) {
+                        emit_number(operand.f64, destination);
+                    } else {
+                        load_local(operand.index, destination);
+                    }
+                };
                 const auto difference_lane = [&](std::size_t position,
                                                  std::uint32_t base) {
                     return at[position].opcode == Opcode::LoadLocal &&
@@ -8728,7 +8950,7 @@ private:
                     at[start + 27u].opcode != Opcode::MultiplyF64 ||
                     at[start + 28u].opcode != Opcode::AddF64 ||
                     at[start + 29u].opcode != Opcode::StoreLocal ||
-                    at[start + 30u].opcode != Opcode::PushF64 ||
+                    !invariant_scale(at[start + 30u]) ||
                     at[start + 31u].opcode != Opcode::LoadLocal ||
                     at[start + 31u].index != squared ||
                     at[start + 32u].opcode != Opcode::LoadLocal ||
@@ -8890,7 +9112,7 @@ private:
                     code_.raw({0x66, 0x0f, 0x28, 0xe3,
                                0xf2, 0x0f, 0x51, 0xe4,
                                0xf2, 0x0f, 0x59, 0xdc});
-                    emit_number(at[start + 30u].f64, 4u);
+                    emit_invariant_scale(at[start + 30u], 4u);
                     code_.raw({0xf2, 0x0f, 0x5e, 0xe3});
 
                     const auto emit_static_update = [&]
@@ -8904,17 +9126,14 @@ private:
                         const auto velocity = at[affine_position + 2u].index;
                         load_pair(velocity, vector_index, 3u);
                         code_.raw({0x66, 0x0f, 0x28, 0xe8,
-                                   0x66, 0x0f, 0x28, 0xfe,
-                                   0x66, 0x0f, 0x14, 0xff,
-                                   0x66, 0x0f, 0x59, 0xef,
-                                   0x66, 0x0f, 0x28, 0xfc,
-                                   0x66, 0x0f, 0x14, 0xff});
+                                   0xf2, 0x0f, 0x59, 0xf4,
+                                   0x66, 0x0f, 0x14, 0xf6});
                         if (policy_.fused_multiply_add &&
                             vkf::target::host_x64_supports_fma()) {
                             code_.raw({0xc4, 0xe2, 0xd1,
-                                       add ? 0xb8u : 0xbcu, 0xdf});
+                                       add ? 0xb8u : 0xbcu, 0xde});
                         } else {
-                            code_.raw({0x66, 0x0f, 0x59, 0xef,
+                            code_.raw({0x66, 0x0f, 0x59, 0xee,
                                        0x66, 0x0f,
                                        add ? 0x58u : 0x5cu, 0xdd});
                         }
@@ -8922,14 +9141,13 @@ private:
                         const auto velocity_z =
                             at[affine_position + 22u].index + vector_index;
                         load_local(velocity_z, 3u);
-                        code_.raw({0x66, 0x0f, 0x28, 0xfa,
-                                   0xf2, 0x0f, 0x59, 0xfe});
                         if (policy_.fused_multiply_add &&
                             vkf::target::host_x64_supports_fma()) {
-                            code_.raw({0xc4, 0xe2, 0xc1,
-                                       add ? 0xb9u : 0xbdu, 0xdc});
+                            code_.raw({0xc4, 0xe2, 0xe9,
+                                       add ? 0xb9u : 0xbdu, 0xde});
                         } else {
-                            code_.raw({0xf2, 0x0f, 0x59, 0xfc,
+                            code_.raw({0x66, 0x0f, 0x28, 0xfa,
+                                       0xf2, 0x0f, 0x59, 0xfe,
                                        0xf2, 0x0f,
                                        add ? 0x58u : 0x5cu, 0xdf});
                         }
@@ -9000,7 +9218,7 @@ private:
                 code_.raw({0x66, 0x0f, 0x28, 0xe3,
                            0xf2, 0x0f, 0x51, 0xe4,
                            0xf2, 0x0f, 0x59, 0xdc});
-                emit_number(at[start + 30u].f64, 4u);
+                emit_invariant_scale(at[start + 30u], 4u);
                 code_.raw({0xf2, 0x0f, 0x5e, 0xe3});
 
                 const auto emit_update =
@@ -9046,17 +9264,14 @@ private:
                         code_.raw({0x66, 0x0f, 0x14, 0xdd,
                                    0x66, 0x0f, 0x28, 0xe8,
                                    0x66, 0x0f, 0x14, 0xe9,
-                                   0x66, 0x0f, 0x28, 0xfe,
-                                   0x66, 0x0f, 0x14, 0xff,
-                                   0x66, 0x0f, 0x59, 0xef,
-                                   0x66, 0x0f, 0x28, 0xfc,
-                                   0x66, 0x0f, 0x14, 0xff});
+                                   0xf2, 0x0f, 0x59, 0xf4,
+                                   0x66, 0x0f, 0x14, 0xf6});
                         if (policy_.fused_multiply_add &&
                             vkf::target::host_x64_supports_fma()) {
                             code_.raw({0xc4, 0xe2, 0xd1,
-                                       add ? 0xb8u : 0xbcu, 0xdf});
+                                       add ? 0xb8u : 0xbcu, 0xde});
                         } else {
-                            code_.raw({0x66, 0x0f, 0x59, 0xef,
+                            code_.raw({0x66, 0x0f, 0x59, 0xee,
                                        0x66, 0x0f,
                                        add ? 0x58u : 0x5cu, 0xdd});
                         }
@@ -9087,14 +9302,13 @@ private:
                         emit_vector_store(affine_position + 2u, 3u);
                         emit_vector_store(affine_position + 12u, 3u, true);
                         emit_vector_load(affine_position + 22u, 3u);
-                        code_.raw({0x66, 0x0f, 0x28, 0xfa,
-                                   0xf2, 0x0f, 0x59, 0xfe});
                         if (policy_.fused_multiply_add &&
                             vkf::target::host_x64_supports_fma()) {
-                            code_.raw({0xc4, 0xe2, 0xc1,
-                                       add ? 0xb9u : 0xbdu, 0xdc});
+                            code_.raw({0xc4, 0xe2, 0xe9,
+                                       add ? 0xb9u : 0xbdu, 0xde});
                         } else {
-                            code_.raw({0xf2, 0x0f, 0x59, 0xfc,
+                            code_.raw({0x66, 0x0f, 0x28, 0xfa,
+                                       0xf2, 0x0f, 0x59, 0xfe,
                                        0xf2, 0x0f,
                                        add ? 0x58u : 0x5cu, 0xdf});
                         }
@@ -9115,6 +9329,30 @@ private:
                     return std::nullopt;
                 }
                 const auto& at = function.instructions;
+                const auto invariant_scale = [&](const auto& operand) {
+                    return operand.opcode == Opcode::PushF64 ||
+                        (operand.opcode == Opcode::LoadLocal &&
+                         operand.index < function.local_classes.size() &&
+                         function.local_classes[operand.index] ==
+                             vkf::machine_ir::ValueClass::F64);
+                };
+                const auto same_invariant_scale = [&](const auto& left,
+                                                      const auto& right) {
+                    if (left.opcode != right.opcode) return false;
+                    if (left.opcode == Opcode::PushF64) {
+                        return left.f64 == right.f64;
+                    }
+                    return left.opcode == Opcode::LoadLocal &&
+                        left.index == right.index;
+                };
+                const auto emit_invariant_scale = [&](const auto& operand,
+                                                      unsigned destination) {
+                    if (operand.opcode == Opcode::PushF64) {
+                        emit_number(operand.f64, destination);
+                    } else {
+                        load_local(operand.index, destination);
+                    }
+                };
                 const auto lane_matches = [&](std::size_t position) {
                     return at[position].opcode == Opcode::LoadLocal &&
                         (local_is_i64(at[position].index) ||
@@ -9134,7 +9372,7 @@ private:
                         !at[position + 4u].may_error &&
                         at[position + 4u].index_local &&
                         *at[position + 4u].index_local == at[position].index &&
-                        at[position + 5u].opcode == Opcode::PushF64 &&
+                        invariant_scale(at[position + 5u]) &&
                         at[position + 6u].opcode == Opcode::MultiplyF64 &&
                         (at[position + 7u].opcode == Opcode::AddF64 ||
                          at[position + 7u].opcode == Opcode::SubtractF64) &&
@@ -9158,8 +9396,8 @@ private:
                     at[start + 20u].index != first_current.index + 2u ||
                     at[start + 13u].index != first_component.index + 1u ||
                     at[start + 22u].index != first_component.index + 2u ||
-                    at[start + 14u].f64 != at[start + 5u].f64 ||
-                    at[start + 23u].f64 != at[start + 5u].f64 ||
+                    !same_invariant_scale(at[start + 14u], at[start + 5u]) ||
+                    !same_invariant_scale(at[start + 23u], at[start + 5u]) ||
                     at[start + 16u].opcode != arithmetic ||
                     at[start + 25u].opcode != arithmetic ||
                     at[start + 17u].index != first_store.index + 1u ||
@@ -9215,7 +9453,7 @@ private:
                 emit_lane_load(first_component, 1u);
                 emit_lane_load(at[start + 13u], 2u);
                 code_.raw({0x66, 0x0f, 0x14, 0xca});
-                emit_number(at[start + 5u].f64, 2u);
+                emit_invariant_scale(at[start + 5u], 2u);
                 code_.raw({0x66, 0x0f, 0x14, 0xd2,
                            0x66, 0x0f, 0x59, 0xca,
                            0x66, 0x0f,
@@ -9224,7 +9462,7 @@ private:
 
                 emit_lane_load(at[start + 20u], 3u);
                 emit_lane_load(at[start + 22u], 4u);
-                emit_number(at[start + 5u].f64, 5u);
+                emit_invariant_scale(at[start + 5u], 5u);
                 if (policy_.fused_multiply_add &&
                     vkf::target::host_x64_supports_fma()) {
                     code_.raw({0xc4, 0xe2, 0xd9,
@@ -9835,6 +10073,9 @@ private:
                         code_.u64(static_cast<std::uint64_t>(
                             static_cast<std::int64_t>(value.f64)));
                         store_rax_to_i64(store.index);
+                        for (auto& cached : expression_index_cache) {
+                            if (cached == store.index) cached.reset();
+                        }
                         ++instruction_index;
                         continue;
                     }
@@ -9898,6 +10139,9 @@ private:
                             code_.i32(static_cast<std::int32_t>(right.f64));
                         }
                         store_rax_to_i64(store.index);
+                        for (auto& cached : expression_index_cache) {
+                            if (cached == store.index) cached.reset();
+                        }
                         instruction_index += 3;
                         continue;
                     }
@@ -11321,8 +11565,8 @@ private:
                 if (fixed_range_is_i64(instruction.index, instruction.argument_count)) {
                     emit_fixed_base_address(
                         instruction.index, instruction.argument_count);
-                    code_.raw({0x48, 0x8b, 0x14, 0xc8,
-                               0xf2, 0x48, 0x0f, 0x2a, 0xc2});
+                    code_.raw({0x48, 0x8b, 0x04, 0xc8,
+                               0xf2, 0x48, 0x0f, 0x2a, 0xc0});
                 } else {
                     emit_fixed_indexed_f64_load(
                         instruction.index, instruction.argument_count,
@@ -11394,8 +11638,8 @@ private:
                 if (fixed_range_is_i64(instruction.index, instruction.argument_count)) {
                     emit_fixed_base_address(
                         instruction.index, instruction.argument_count);
-                    code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xd0,
-                               0x48, 0x89, 0x14, 0xc8});
+                    code_.raw({0xf2, 0x4c, 0x0f, 0x2c, 0xd8,
+                               0x4c, 0x89, 0x1c, 0xc8});
                 } else {
                     emit_fixed_indexed_f64_store(
                         instruction.index, instruction.argument_count,
@@ -12422,17 +12666,11 @@ TuningResult tune_machine_code(
     }
     const bool interaction_heavy_small_vectors =
         small_vector_sqrt_count >= 4u && small_vector_store_count >= 20u;
-    const std::uint32_t guided_primary = interaction_heavy_small_vectors
-        ? vkf::adaptive_optimizer::policy_mask ^
-            vkf::adaptive_optimizer::native_integer_local_bit
-        : vkf::adaptive_optimizer::policy_mask;
+    const std::uint32_t guided_primary = vkf::adaptive_optimizer::policy_mask;
     std::vector<std::uint32_t> policy_order{
         guided_primary,
         0u,
     };
-    if (guided_primary != vkf::adaptive_optimizer::policy_mask) {
-        policy_order.push_back(vkf::adaptive_optimizer::policy_mask);
-    }
     for (std::uint32_t bit = 1;
          bit <= vkf::adaptive_optimizer::packed_dot_reduction_bit; bit <<= 1u) {
         policy_order.push_back(vkf::adaptive_optimizer::policy_mask ^ bit);

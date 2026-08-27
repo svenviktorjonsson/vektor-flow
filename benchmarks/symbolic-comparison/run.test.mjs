@@ -30,18 +30,27 @@ test('uses sample standard deviation', () => {
 });
 
 test('gate treats censored competitor mean as a conservative lower bound', () => {
-  assert.deepEqual(comparisonGate(10, {
+  assert.deepEqual(comparisonGate(8, {
     censored: true,
     meanLowerBoundMs: 6,
   }), {
     ratio: undefined,
-    ratioUpperBound: 10 / 6,
+    ratioUpperBound: 8 / 6,
     pass: true,
   });
-  assert.equal(comparisonGate(13, {
+  assert.equal(comparisonGate(10, {
     censored: true,
     meanLowerBoundMs: 6,
   }).pass, false);
+});
+
+test('gate enforces an explicit release-relative limit', () => {
+  const competitor = {
+    censored: false,
+    stats: { meanMs: 10 },
+  };
+  assert.equal(comparisonGate(14.99, competitor, 1.5).pass, true);
+  assert.equal(comparisonGate(15, competitor, 1.5).pass, false);
 });
 
 test('very small ratios remain visibly nonzero', () => {

@@ -51,6 +51,13 @@ function parseArguments(argv) {
     }
     return value;
   };
+  const positiveNumber = (name, fallback) => {
+    const value = Number(values.get(name) ?? fallback);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`--${name} must be a positive number`);
+    }
+    return value;
+  };
   const kernels = list('kernels', allKernels.join(','));
   const languages = list('languages', allLanguages.join(','));
   for (const kernel of kernels) {
@@ -75,6 +82,7 @@ function parseArguments(argv) {
     symengine: values.get('symengine') ? resolve(values.get('symengine')) : undefined,
     runs: integer('runs', 3),
     timeoutMs: integer('timeout-ms', 30000),
+    relativeLimit: positiveNumber('relative-limit', 1.5),
     optimizerPolicy: values.get('optimizer-policy') ?? 'auto',
     kernels,
     languages,
@@ -120,13 +128,13 @@ export function seriesStats(samples) {
   return { count: samples.length, meanMs, stddevMs: Math.sqrt(variance) };
 }
 
-export function comparisonGate(vkfMeanMs, competitor) {
+export function comparisonGate(vkfMeanMs, competitor, relativeLimit = 1.5) {
   const denominatorMs = competitor.meanLowerBoundMs ?? competitor.stats.meanMs;
   const ratioUpperBound = vkfMeanMs / denominatorMs;
   return {
     ratio: competitor.censored ? undefined : ratioUpperBound,
     ratioUpperBound: competitor.censored ? ratioUpperBound : undefined,
-    pass: ratioUpperBound < 2,
+    pass: ratioUpperBound < relativeLimit,
   };
 }
 
@@ -259,7 +267,11 @@ function runKernel(kernel, entries, options, kernelIndex) {
   const comparisons = {};
   for (const entry of entries) {
     if (entry.id === 'vkf') continue;
-    comparisons[entry.id] = comparisonGate(vkfMeanMs, languages[entry.id]);
+    comparisons[entry.id] = comparisonGate(
+      vkfMeanMs,
+      languages[entry.id],
+      options.relativeLimit,
+    );
   }
   return {
     id: kernel,
@@ -288,7 +300,7 @@ function markdown(report) {
     `Host: \`${report.machine.cpu}\`, ${report.machine.platform}-${report.machine.architecture}`,
     `Samples: ${report.conditions.runs} per kernel/language; timeout: ${report.conditions.timeoutMs} ms`,
     '',
-    `| Kernel | VKF mean ± std | ${headings.join(' | ')} | <2× each |`,
+    `| Kernel | VKF mean ± std | ${headings.join(' | ')} | <${report.conditions.relativeLimit}× each |`,
     `| --- | ---: | ${headings.map(() => '---:').join(' | ')} | --- |`,
     ...rows,
     '',
@@ -358,6 +370,7 @@ function main() {
       conditions: {
         runs: options.runs,
         timeoutMs: options.timeoutMs,
+        relativeLimit: options.relativeLimit,
         kernels: options.kernels,
         languages: options.languages,
         scheduling: 'rotating same-host process order within every kernel round',

@@ -10,6 +10,9 @@
 #else
 #include <dlfcn.h>
 #include <time.h>
+#ifdef __linux__
+#include <sched.h>
+#endif
 #endif
 
 typedef double (*BenchmarkEntry)(void);
@@ -33,11 +36,46 @@ static double monotonic_ms(void) {
 #endif
 }
 
+static int pin_to_first_allowed_cpu(void) {
+#ifdef _WIN32
+    DWORD_PTR process_mask = 0;
+    DWORD_PTR system_mask = 0;
+    if (!GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask) ||
+        process_mask == 0) return -1;
+    for (int cpu = 0; cpu < (int)(sizeof(DWORD_PTR) * 8); ++cpu) {
+        const DWORD_PTR bit = ((DWORD_PTR)1) << cpu;
+        if ((process_mask & bit) != 0) {
+            return SetThreadAffinityMask(GetCurrentThread(), bit) != 0 ? cpu : -1;
+        }
+    }
+    return -1;
+#elif defined(__linux__)
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0) return -1;
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+        if (CPU_ISSET(cpu, &allowed)) {
+            cpu_set_t selected;
+            CPU_ZERO(&selected);
+            CPU_SET(cpu, &selected);
+            return sched_setaffinity(0, sizeof(selected), &selected) == 0 ? cpu : -1;
+        }
+    }
+    return -1;
+#else
+    return -1;
+#endif
+}
+
 int main(int argc, char **argv) {
     if (argc != 4) return 1;
     const int warmups = atoi(argv[2]);
     const int runs = atoi(argv[3]);
     if (warmups < 0 || runs < 2) return 1;
+    const int affinity_cpu = pin_to_first_allowed_cpu();
+#if defined(_WIN32) || defined(__linux__)
+    if (affinity_cpu < 0) return 2;
+#endif
 #ifdef _WIN32
     HMODULE library = LoadLibraryA(argv[1]);
     if (library == NULL) return 2;
@@ -71,10 +109,10 @@ int main(int argc, char **argv) {
     const double median = runs % 2 == 0 ?
         (samples[runs / 2 - 1] + samples[runs / 2]) * 0.5 : samples[runs / 2];
     const int p95_index = (int)ceil(runs * 0.95) - 1;
-    printf("{\"runs\":%d,\"mean_ms\":%.6f,\"stddev_ms\":%.6f,"
+    printf("{\"runs\":%d,\"affinity_cpu\":%d,\"mean_ms\":%.6f,\"stddev_ms\":%.6f,"
            "\"median_ms\":%.6f,\"p95_ms\":%.6f,\"min_ms\":%.6f,\"max_ms\":%.6f,"
            "\"result\":%.17g,\"samples_ms\":[",
-           runs, mean, stddev, median, samples[p95_index], samples[0], samples[runs-1], result);
+           runs, affinity_cpu, mean, stddev, median, samples[p95_index], samples[0], samples[runs-1], result);
     for (int index = 0; index < runs; ++index) {
         if (index) putchar(',');
         printf("%.6f", samples[index]);
