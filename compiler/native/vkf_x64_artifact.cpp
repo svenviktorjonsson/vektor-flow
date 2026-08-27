@@ -5831,7 +5831,14 @@ private:
             std::vector<std::pair<unsigned, unsigned>> frequency;
             frequency.reserve(frame.local_count);
             const auto local_crosses_call = [&](unsigned local) {
+                // Parameters are initialized by the private ABI before the
+                // first IR instruction.  Their live range therefore starts at
+                // function entry even when the first explicit read follows a
+                // call.  This matters on SysV, where xmm8..xmm15 are volatile.
                 std::size_t first = function.instructions.size();
+#ifndef _WIN32
+                if (local < parameter_count) first = 0u;
+#endif
                 std::size_t last = 0;
                 for (std::size_t position = 0;
                      position < function.instructions.size(); ++position) {

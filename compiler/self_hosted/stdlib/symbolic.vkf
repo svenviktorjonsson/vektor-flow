@@ -109,7 +109,7 @@ symbol_name(value:symbol) -> str:
     result
 
 symbol_is_constant(value:symbol) -> bit:
-    _symbolic_root_kind(value) = 1 /\ _symbolic_raw_catalog(value).2 = 3
+    _symbolic_root_kind(_symbolic_clone(value)) = 1 /\ _symbolic_raw_catalog(value).2 = 3
 
 _symbolic_symbol_latex(value:symbolic) -> str:
     entry: _symbolic_raw_catalog(value)
@@ -6535,7 +6535,7 @@ _symbolic_differentiate_raw(value:symbolic, variable:symbolic, cache:bit) -> sym
 differentiate(value:symbolic, variable:symbolic, cache:bit = true) -> symbolic:
     ~(_symbolic_root_kind(variable) = 1)?
         errors.TypeError("symbolic.differentiate variable must be a symbol")!
-    symbol_is_constant(variable)?
+    symbol_is_constant(_symbolic_clone(variable))?
         @: _symbolic_raw_number(0)
     _symbolic_storage_kind(value) = 10?
         operation: _symbolic_dag_operation(value)

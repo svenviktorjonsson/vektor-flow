@@ -78,6 +78,19 @@ structural_general_numeric_map_preserves_every_element() -> bit:
     mapped: _optimizer_structural_curve(values)
     (mapped.0 = 1 /\ mapped.5 > 1.8 /\ mapped.5 < 1.81 /\ mapped.9 > 1.8 /\ mapped.9 < 1.81)?!
 
+_optimizer_clamp(value:num, lower:num, upper:num) -> num:
+    value < lower? @: lower
+    value > upper? @: upper
+    value
+
+_optimizer_parameters_after_call(values:[num:3], damping:num) -> [num:3]:
+    factor: _optimizer_clamp(1 - damping, 0, 1)
+    [factor * values.0, factor * values.1, factor * values.2]
+
+parameter_components_live_from_entry_survive_a_prior_call() -> bit:
+    result: _optimizer_parameters_after_call([2, 4, 6], 0.25)
+    (result.0 = 1.5 /\ result.1 = 3 /\ result.2 = 4.5)?!
+
 _optimizer_integer_induction(count:int) -> int:
     index: 0
     total: 0
