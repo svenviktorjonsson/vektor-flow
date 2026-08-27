@@ -1,0 +1,14 @@
+:.linalg
+errors: .errors
+
+test large_numeric_solve_uses_default_tolerance_and_preserves_error() -> bit:
+    matrix: [[0.0:96]:96]
+    ..95 >> matrix.($, $): 1
+    matrix.(0, 0): 0.0000000000005
+    raised: false
+    message: ""
+    solve(matrix, [0.0:96])!?
+        errors.ValueError =>
+            .raised: true
+            .message: $.message
+    (raised /\ message = "linalg.solve matrix is singular")?!

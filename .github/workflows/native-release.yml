@@ -40,7 +40,9 @@ jobs:
 
       - name: Verify embedded x64 linalg kernels
         shell: pwsh
-        run: .\build\native-compiler-clang\bin\vkf_linalg_factor_x64_test.exe
+        run: |
+          .\build\native-compiler-clang\bin\vkf_linalg_factor_x64_test.exe
+          .\build\native-compiler-clang\bin\vkf-strict.exe -t tests/platform/windows
 
       - name: Run full native VKF release suite
         shell: pwsh
