@@ -1,0 +1,29 @@
+name: macOS Symbolic Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  symbolic-constant:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build strict native compiler
+        run: |
+          test "$(uname -m)" = "arm64"
+          cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict
+      - name: Inspect symbolic constant path
+        shell: bash
+        run: |
+          set +e
+          compiler=build/native-compiler/bin/vkf-strict
+          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: _symbolic_raw_catalog(_symbolic_clone(a))'
+          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: _symbolic_raw_catalog(_symbolic_clone(a)).2'
+          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: _symbolic_root_kind(_symbolic_clone(a))'
+          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: symbol_is_constant(a)'
+          "$compiler" -e ':.symbolic; a: symbol("a", R, constant:true); :: same(differentiate(a, a), constant(0))'
+          exit 0
