@@ -404,65 +404,148 @@ extern "C" std::uint64_t vkf_lu_96_x64(
     std::uint64_t, double tolerance, double* sign
 ) {
     constexpr std::uint64_t size = 96;
+    constexpr std::uint64_t block_size = 16;
     for (std::uint64_t row = 0; row < size; ++row) {
         permutation[-static_cast<std::ptrdiff_t>(row)] = static_cast<double>(row);
         for (std::uint64_t column = 0; column < size; ++column) {
             at(upper, size, row, column) = at(matrix, size, row, column);
         }
+    }
+    double parity = 1.0;
+    for (std::uint64_t block = 0; block < size; block += block_size) {
+        const std::uint64_t panel_end = block + block_size;
+
+        // Partial-pivot factorization of the narrow panel. Updates remain in
+        // the panel; the trailing matrix is handled as one blocked product.
+        for (std::uint64_t column = block; column < panel_end; ++column) {
+            std::uint64_t pivot = column;
+            double pivot_magnitude = magnitude(at(upper, size, column, column));
+            for (std::uint64_t row = column + 1; row < size; ++row) {
+                const double candidate = magnitude(at(upper, size, row, column));
+                if (candidate > pivot_magnitude) {
+                    pivot = row;
+                    pivot_magnitude = candidate;
+                }
+            }
+            if (pivot_magnitude <= tolerance) return 0;
+            if (pivot != column) {
+                for (std::uint64_t target = 0; target < size; ++target) {
+                    const double temporary = at(upper, size, pivot, target);
+                    at(upper, size, pivot, target) = at(upper, size, column, target);
+                    at(upper, size, column, target) = temporary;
+                }
+                const double temporary =
+                    permutation[-static_cast<std::ptrdiff_t>(pivot)];
+                permutation[-static_cast<std::ptrdiff_t>(pivot)] =
+                    permutation[-static_cast<std::ptrdiff_t>(column)];
+                permutation[-static_cast<std::ptrdiff_t>(column)] = temporary;
+                parity = -parity;
+            }
+            const double inverse_pivot =
+                1.0 / at(upper, size, column, column);
+            for (std::uint64_t row = column + 1; row < size; ++row) {
+                const double factor =
+                    at(upper, size, row, column) * inverse_pivot;
+                at(upper, size, row, column) = factor;
+                for (std::uint64_t target = column + 1;
+                     target < panel_end; ++target) {
+                    at(upper, size, row, target) -=
+                        factor * at(upper, size, column, target);
+                }
+            }
+        }
+
+        if (panel_end == size) break;
+
+        // U12 = inv(L11) * A12. Each target vector is loaded once for the
+        // whole panel instead of once per panel column.
+        for (std::uint64_t row = block; row < panel_end; ++row) {
+            std::uint64_t column = panel_end;
+            for (; column + 3 < size; column += 4) {
+                auto* target = &at(upper, size, row, column + 3);
+                auto values = _mm256_loadu_pd(target);
+                for (std::uint64_t prior = block; prior < row; ++prior) {
+                    const auto factor = _mm256_set1_pd(
+                        at(upper, size, row, prior));
+                    const auto pivot = _mm256_loadu_pd(
+                        &at(upper, size, prior, column + 3));
+                    values = _mm256_fnmadd_pd(factor, pivot, values);
+                }
+                _mm256_storeu_pd(target, values);
+            }
+            for (; column < size; ++column) {
+                for (std::uint64_t prior = block; prior < row; ++prior) {
+                    at(upper, size, row, column) -=
+                        at(upper, size, row, prior) *
+                        at(upper, size, prior, column);
+                }
+            }
+        }
+
+        // A22 -= L21 * U12, four target rows at a time. Target vectors stay
+        // resident across all 16 rank-one contributions.
+        std::uint64_t row = panel_end;
+        for (; row + 3 < size; row += 4) {
+            std::uint64_t column = panel_end;
+            for (; column + 3 < size; column += 4) {
+                auto* target0 = &at(upper, size, row, column + 3);
+                auto* target1 = &at(upper, size, row + 1, column + 3);
+                auto* target2 = &at(upper, size, row + 2, column + 3);
+                auto* target3 = &at(upper, size, row + 3, column + 3);
+                auto values0 = _mm256_loadu_pd(target0);
+                auto values1 = _mm256_loadu_pd(target1);
+                auto values2 = _mm256_loadu_pd(target2);
+                auto values3 = _mm256_loadu_pd(target3);
+                for (std::uint64_t prior = block;
+                     prior < panel_end; ++prior) {
+                    const auto pivot = _mm256_loadu_pd(
+                        &at(upper, size, prior, column + 3));
+                    values0 = _mm256_fnmadd_pd(_mm256_set1_pd(
+                        at(upper, size, row, prior)), pivot, values0);
+                    values1 = _mm256_fnmadd_pd(_mm256_set1_pd(
+                        at(upper, size, row + 1, prior)), pivot, values1);
+                    values2 = _mm256_fnmadd_pd(_mm256_set1_pd(
+                        at(upper, size, row + 2, prior)), pivot, values2);
+                    values3 = _mm256_fnmadd_pd(_mm256_set1_pd(
+                        at(upper, size, row + 3, prior)), pivot, values3);
+                }
+                _mm256_storeu_pd(target0, values0);
+                _mm256_storeu_pd(target1, values1);
+                _mm256_storeu_pd(target2, values2);
+                _mm256_storeu_pd(target3, values3);
+            }
+            for (; column < size; ++column) {
+                for (std::uint64_t offset = 0; offset < 4; ++offset) {
+                    for (std::uint64_t prior = block;
+                         prior < panel_end; ++prior) {
+                        at(upper, size, row + offset, column) -=
+                            at(upper, size, row + offset, prior) *
+                            at(upper, size, prior, column);
+                    }
+                }
+            }
+        }
+        for (; row < size; ++row) {
+            for (std::uint64_t column = panel_end; column < size; ++column) {
+                for (std::uint64_t prior = block;
+                     prior < panel_end; ++prior) {
+                    at(upper, size, row, column) -=
+                        at(upper, size, row, prior) *
+                        at(upper, size, prior, column);
+                }
+            }
+        }
+    }
+
+    // Materialize the public unit-lower and upper matrices from packed LU.
+    for (std::uint64_t row = 0; row < size; ++row) {
+        for (std::uint64_t column = 0; column < row; ++column) {
+            at(lower, size, row, column) = at(upper, size, row, column);
+            at(upper, size, row, column) = 0.0;
+        }
         at(lower, size, row, row) = 1.0;
         for (std::uint64_t column = row + 1; column < size; ++column) {
             at(lower, size, row, column) = 0.0;
-        }
-    }
-    double parity = 1.0;
-    for (std::uint64_t column = 0; column < size; ++column) {
-        std::uint64_t pivot = column;
-        double pivot_magnitude = magnitude(at(upper, size, column, column));
-        for (std::uint64_t row = column + 1; row < size; ++row) {
-            const double candidate = magnitude(at(upper, size, row, column));
-            if (candidate > pivot_magnitude) {
-                pivot = row;
-                pivot_magnitude = candidate;
-            }
-        }
-        if (pivot_magnitude <= tolerance) return 0;
-        if (pivot != column) {
-            for (std::uint64_t target = column; target < size; ++target) {
-                const double temporary = at(upper, size, pivot, target);
-                at(upper, size, pivot, target) = at(upper, size, column, target);
-                at(upper, size, column, target) = temporary;
-            }
-            for (std::uint64_t prior = 0; prior < column; ++prior) {
-                const double temporary = at(lower, size, pivot, prior);
-                at(lower, size, pivot, prior) = at(lower, size, column, prior);
-                at(lower, size, column, prior) = temporary;
-            }
-            const double temporary =
-                permutation[-static_cast<std::ptrdiff_t>(pivot)];
-            permutation[-static_cast<std::ptrdiff_t>(pivot)] =
-                permutation[-static_cast<std::ptrdiff_t>(column)];
-            permutation[-static_cast<std::ptrdiff_t>(column)] = temporary;
-            parity = -parity;
-        }
-        const double inverse_pivot =
-            1.0 / at(upper, size, column, column);
-        std::uint64_t row = column + 1;
-        for (; row + 3 < size; row += 4) {
-            double factors[4];
-            for (std::uint64_t offset = 0; offset < 4; ++offset) {
-                factors[offset] =
-                    at(upper, size, row + offset, column) * inverse_pivot;
-                at(lower, size, row + offset, column) = factors[offset];
-                at(upper, size, row + offset, column) = 0.0;
-            }
-            subtract_scaled_four_rows(
-                upper, size, row, column, column + 1, factors);
-        }
-        for (; row < size; ++row) {
-            const double factor = at(upper, size, row, column) * inverse_pivot;
-            at(lower, size, row, column) = factor;
-            at(upper, size, row, column) = 0.0;
-            subtract_scaled_row(upper, size, row, column, column + 1, factor);
         }
     }
     *sign = parity;

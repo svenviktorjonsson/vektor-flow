@@ -9253,6 +9253,71 @@ private:
                 code_.raw({0x66, 0x0f, 0x14, 0xed,
                            0x66, 0x0f, 0x5e, 0xec});
 
+                const auto load_mass_pair = [&](std::size_t first_position,
+                                                 std::uint32_t first_index,
+                                                 std::size_t second_position,
+                                                 std::uint32_t second_index,
+                                                 unsigned destination) {
+                    const auto& first_mass = at[first_position + 1u];
+                    const auto& second_mass = at[second_position + 1u];
+                    code_.raw({0xf2, 0x0f, 0x10,
+                               static_cast<unsigned>(0x85u + destination * 8u)});
+                    code_.i32(frame.displacement(first_mass.index + first_index));
+                    code_.raw({0x66, 0x0f, 0x16,
+                               static_cast<unsigned>(0x85u + destination * 8u)});
+                    code_.i32(frame.displacement(second_mass.index + second_index));
+                };
+                load_mass_pair(
+                    first->start + 40u, first->first_mass_index,
+                    second->start + 40u, second->first_mass_index, 3u);
+                code_.raw({0x66, 0x0f, 0x59, 0xdd});
+                load_mass_pair(
+                    first->start + 78u, first->second_mass_index,
+                    second->start + 78u, second->second_mass_index, 4u);
+                code_.raw({0x66, 0x0f, 0x59, 0xe5,
+                           0xc4, 0xe3, 0x65, 0x18, 0xdc, 0x01});
+
+                // Once ymm3 carries both packed factor pairs, every SIMD move
+                // stays VEX encoded until vzeroupper. Mixing legacy SSE here
+                // would otherwise trigger an AVX transition on every update.
+                const auto vex_load_pair = [&](std::uint32_t base,
+                                               std::uint32_t index,
+                                               unsigned destination) {
+                    code_.raw({0xc5, 0xf9, 0x10,
+                               static_cast<unsigned>(0x85u + destination * 8u)});
+                    code_.i32(frame.displacement(base + index + 1u));
+                };
+                const auto vex_store_pair = [&](std::uint32_t base,
+                                                std::uint32_t index,
+                                                unsigned source) {
+                    code_.raw({0xc5, 0xf9, 0x11,
+                               static_cast<unsigned>(0x85u + source * 8u)});
+                    code_.i32(frame.displacement(base + index + 1u));
+                };
+                const auto vex_load_scalar = [&](std::uint32_t local,
+                                                 unsigned destination) {
+                    code_.raw({0xc5, 0xfb, 0x10,
+                               static_cast<unsigned>(0x85u + destination * 8u)});
+                    code_.i32(frame.displacement(local));
+                };
+                const auto vex_store_scalar = [&](std::uint32_t local,
+                                                  unsigned source) {
+                    code_.raw({0xc5, 0xfb, 0x11,
+                               static_cast<unsigned>(0x85u + source * 8u)});
+                    code_.i32(frame.displacement(local));
+                };
+                const auto load_factor = [&](bool second_body,
+                                             unsigned difference) {
+                    if (second_body) {
+                        code_.raw({0xc4, 0xe3, 0x7d, 0x19, 0xdd, 0x01});
+                    } else {
+                        code_.raw({0xc5, 0xf9, 0x28, 0xeb});
+                    }
+                    code_.raw(difference == 0u
+                        ? std::initializer_list<unsigned>{0xc5, 0xfb, 0x12, 0xed}
+                        : std::initializer_list<unsigned>{0xc5, 0xd1, 0x15, 0xed});
+                };
+
                 const auto emit_update = [&](const auto& plan,
                                              std::size_t mass_position,
                                              std::size_t affine_position,
@@ -9260,23 +9325,21 @@ private:
                                              std::uint32_t mass_index,
                                              unsigned difference,
                                              bool add) {
-                    const auto& mass = at[mass_position + 1u];
-                    load_local(mass.index + mass_index, 6u);
-                    code_.raw({0xf2, 0x0f, 0x59, 0xf5,
-                               0x66, 0x0f, 0x14, 0xf6});
+                    static_cast<void>(mass_index);
+                    load_factor(mass_position == plan.start + 78u, difference);
                     const auto velocity = at[affine_position + 2u].index;
-                    load_pair(velocity, vector_index, 3u);
+                    vex_load_pair(velocity, vector_index, 6u);
                     const unsigned vex = 0x81u |
                         (((~difference) & 0x0fu) << 3u);
                     code_.raw({0xc4, 0xe2, vex,
-                               add ? 0xb8u : 0xbcu, 0xde});
-                    store_pair(velocity, vector_index, 3u);
+                               add ? 0xb8u : 0xbcu, 0xf5});
+                    vex_store_pair(velocity, vector_index, 6u);
                     const auto velocity_z =
                         at[affine_position + 22u].index + vector_index;
-                    load_local(velocity_z, 3u);
+                    vex_load_scalar(velocity_z, 6u);
                     code_.raw({0xc4, 0xe2, 0xe9,
-                               add ? 0xb9u : 0xbdu, 0xde});
-                    store_local(velocity_z, 3u);
+                               add ? 0xb9u : 0xbdu, 0xf5});
+                    vex_store_scalar(velocity_z, 6u);
                 };
                 const auto begin_shared_update = [&](const auto& plan,
                                                       std::size_t mass_position,
@@ -9285,23 +9348,21 @@ private:
                                                       std::uint32_t mass_index,
                                                       unsigned difference,
                                                       bool add) {
-                    const auto& mass = at[mass_position + 1u];
-                    load_local(mass.index + mass_index, 6u);
-                    code_.raw({0xf2, 0x0f, 0x59, 0xf5,
-                               0x66, 0x0f, 0x14, 0xf6});
+                    static_cast<void>(mass_index);
+                    load_factor(mass_position == plan.start + 78u, difference);
                     const auto velocity = at[affine_position + 2u].index;
-                    load_pair(velocity, vector_index, 3u);
+                    vex_load_pair(velocity, vector_index, 6u);
                     const unsigned vex = 0x81u |
                         (((~difference) & 0x0fu) << 3u);
                     code_.raw({0xc4, 0xe2, vex,
-                               add ? 0xb8u : 0xbcu, 0xde,
-                               0x66, 0x0f, 0x28, 0xe3});
+                               add ? 0xb8u : 0xbcu, 0xf5,
+                               0xc5, 0xf9, 0x28, 0xe6});
                     const auto velocity_z =
                         at[affine_position + 22u].index + vector_index;
-                    load_local(velocity_z, 3u);
+                    vex_load_scalar(velocity_z, 6u);
                     code_.raw({0xc4, 0xe2, 0xe9,
-                               add ? 0xb9u : 0xbdu, 0xde,
-                               0x66, 0x0f, 0x28, 0xfb});
+                               add ? 0xb9u : 0xbdu, 0xf5,
+                               0xc5, 0xf9, 0x28, 0xfe});
                 };
                 const auto finish_shared_update = [&](const auto& plan,
                                                        std::size_t mass_position,
@@ -9310,27 +9371,24 @@ private:
                                                        std::uint32_t mass_index,
                                                        unsigned difference,
                                                        bool add) {
-                    const auto& mass = at[mass_position + 1u];
-                    load_local(mass.index + mass_index, 6u);
-                    code_.raw({0xf2, 0x0f, 0x59, 0xf5,
-                               0x66, 0x0f, 0x14, 0xf6,
-                               0x66, 0x0f, 0x28, 0xdc});
+                    static_cast<void>(mass_index);
+                    load_factor(mass_position == plan.start + 78u, difference);
+                    code_.raw({0xc5, 0xf9, 0x28, 0xf4});
                     const unsigned vex = 0x81u |
                         (((~difference) & 0x0fu) << 3u);
                     code_.raw({0xc4, 0xe2, vex,
-                               add ? 0xb8u : 0xbcu, 0xde});
+                               add ? 0xb8u : 0xbcu, 0xf5});
                     const auto velocity = at[affine_position + 2u].index;
-                    store_pair(velocity, vector_index, 3u);
-                    code_.raw({0x66, 0x0f, 0x28, 0xdf,
+                    vex_store_pair(velocity, vector_index, 6u);
+                    code_.raw({0xc5, 0xf9, 0x28, 0xf7,
                                0xc4, 0xe2, 0xe9,
-                               add ? 0xb9u : 0xbdu, 0xde});
+                               add ? 0xb9u : 0xbdu, 0xf5});
                     const auto velocity_z =
                         at[affine_position + 22u].index + vector_index;
-                    store_local(velocity_z, 3u);
+                    vex_store_scalar(velocity_z, 6u);
                 };
                 const auto select_second_lane = [&] {
-                    code_.raw({0x66, 0x0f, 0x15, 0xed,
-                               0x66, 0x0f, 0x15, 0xd2});
+                    code_.raw({0xc5, 0xe9, 0x15, 0xd2});
                 };
                 if (first->first_vector_index == second->first_vector_index) {
                     begin_shared_update(
@@ -9388,6 +9446,7 @@ private:
                         second->second_vector_index, second->second_mass_index,
                         1u, true);
                 }
+                code_.raw({0xc5, 0xf8, 0x77});
                 expression_index_cache = {};
                 return second->end;
             };
