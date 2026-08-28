@@ -9278,20 +9278,116 @@ private:
                                add ? 0xb9u : 0xbdu, 0xde});
                     store_local(velocity_z, 3u);
                 };
-                emit_update(*first, first->start + 40u, first->start + 45u,
-                            first->first_vector_index, first->first_mass_index,
-                            0u, false);
-                emit_update(*first, first->start + 78u, first->start + 83u,
-                            first->second_vector_index, first->second_mass_index,
-                            0u, true);
-                code_.raw({0x66, 0x0f, 0x15, 0xed,
-                           0x66, 0x0f, 0x15, 0xd2});
-                emit_update(*second, second->start + 40u, second->start + 45u,
-                            second->first_vector_index, second->first_mass_index,
-                            1u, false);
-                emit_update(*second, second->start + 78u, second->start + 83u,
-                            second->second_vector_index, second->second_mass_index,
-                            1u, true);
+                const auto begin_shared_update = [&](const auto& plan,
+                                                      std::size_t mass_position,
+                                                      std::size_t affine_position,
+                                                      std::uint32_t vector_index,
+                                                      std::uint32_t mass_index,
+                                                      unsigned difference,
+                                                      bool add) {
+                    const auto& mass = at[mass_position + 1u];
+                    load_local(mass.index + mass_index, 6u);
+                    code_.raw({0xf2, 0x0f, 0x59, 0xf5,
+                               0x66, 0x0f, 0x14, 0xf6});
+                    const auto velocity = at[affine_position + 2u].index;
+                    load_pair(velocity, vector_index, 3u);
+                    const unsigned vex = 0x81u |
+                        (((~difference) & 0x0fu) << 3u);
+                    code_.raw({0xc4, 0xe2, vex,
+                               add ? 0xb8u : 0xbcu, 0xde,
+                               0x66, 0x0f, 0x28, 0xe3});
+                    const auto velocity_z =
+                        at[affine_position + 22u].index + vector_index;
+                    load_local(velocity_z, 3u);
+                    code_.raw({0xc4, 0xe2, 0xe9,
+                               add ? 0xb9u : 0xbdu, 0xde,
+                               0x66, 0x0f, 0x28, 0xfb});
+                };
+                const auto finish_shared_update = [&](const auto& plan,
+                                                       std::size_t mass_position,
+                                                       std::size_t affine_position,
+                                                       std::uint32_t vector_index,
+                                                       std::uint32_t mass_index,
+                                                       unsigned difference,
+                                                       bool add) {
+                    const auto& mass = at[mass_position + 1u];
+                    load_local(mass.index + mass_index, 6u);
+                    code_.raw({0xf2, 0x0f, 0x59, 0xf5,
+                               0x66, 0x0f, 0x14, 0xf6,
+                               0x66, 0x0f, 0x28, 0xdc});
+                    const unsigned vex = 0x81u |
+                        (((~difference) & 0x0fu) << 3u);
+                    code_.raw({0xc4, 0xe2, vex,
+                               add ? 0xb8u : 0xbcu, 0xde});
+                    const auto velocity = at[affine_position + 2u].index;
+                    store_pair(velocity, vector_index, 3u);
+                    code_.raw({0x66, 0x0f, 0x28, 0xdf,
+                               0xc4, 0xe2, 0xe9,
+                               add ? 0xb9u : 0xbdu, 0xde});
+                    const auto velocity_z =
+                        at[affine_position + 22u].index + vector_index;
+                    store_local(velocity_z, 3u);
+                };
+                const auto select_second_lane = [&] {
+                    code_.raw({0x66, 0x0f, 0x15, 0xed,
+                               0x66, 0x0f, 0x15, 0xd2});
+                };
+                if (first->first_vector_index == second->first_vector_index) {
+                    begin_shared_update(
+                        *first, first->start + 40u, first->start + 45u,
+                        first->first_vector_index, first->first_mass_index,
+                        0u, false);
+                    emit_update(
+                        *first, first->start + 78u, first->start + 83u,
+                        first->second_vector_index, first->second_mass_index,
+                        0u, true);
+                    select_second_lane();
+                    finish_shared_update(
+                        *second, second->start + 40u, second->start + 45u,
+                        second->first_vector_index, second->first_mass_index,
+                        1u, false);
+                    emit_update(
+                        *second, second->start + 78u, second->start + 83u,
+                        second->second_vector_index, second->second_mass_index,
+                        1u, true);
+                } else if (first->second_vector_index ==
+                           second->second_vector_index) {
+                    emit_update(
+                        *first, first->start + 40u, first->start + 45u,
+                        first->first_vector_index, first->first_mass_index,
+                        0u, false);
+                    begin_shared_update(
+                        *first, first->start + 78u, first->start + 83u,
+                        first->second_vector_index, first->second_mass_index,
+                        0u, true);
+                    select_second_lane();
+                    emit_update(
+                        *second, second->start + 40u, second->start + 45u,
+                        second->first_vector_index, second->first_mass_index,
+                        1u, false);
+                    finish_shared_update(
+                        *second, second->start + 78u, second->start + 83u,
+                        second->second_vector_index, second->second_mass_index,
+                        1u, true);
+                } else {
+                    emit_update(
+                        *first, first->start + 40u, first->start + 45u,
+                        first->first_vector_index, first->first_mass_index,
+                        0u, false);
+                    emit_update(
+                        *first, first->start + 78u, first->start + 83u,
+                        first->second_vector_index, first->second_mass_index,
+                        0u, true);
+                    select_second_lane();
+                    emit_update(
+                        *second, second->start + 40u, second->start + 45u,
+                        second->first_vector_index, second->first_mass_index,
+                        1u, false);
+                    emit_update(
+                        *second, second->start + 78u, second->start + 83u,
+                        second->second_vector_index, second->second_mass_index,
+                        1u, true);
+                }
                 expression_index_cache = {};
                 return second->end;
             };
