@@ -169,11 +169,46 @@ inline void subtract_scaled_row(
         const auto values = _mm256_loadu_pd(target);
         _mm256_storeu_pd(
             target,
-            _mm256_sub_pd(values, _mm256_mul_pd(packed_factor, pivot)));
+            _mm256_fnmadd_pd(packed_factor, pivot, values));
     }
     for (; column < columns; ++column) {
         at(matrix, columns, target_row, column) -=
             factor * at(matrix, columns, pivot_row, column);
+    }
+}
+
+inline void subtract_scaled_four_rows(
+    double* matrix, std::uint64_t columns,
+    std::uint64_t first_target_row, std::uint64_t pivot_row,
+    std::uint64_t first_column, const double* factors
+) {
+    const auto factor0 = _mm256_set1_pd(factors[0]);
+    const auto factor1 = _mm256_set1_pd(factors[1]);
+    const auto factor2 = _mm256_set1_pd(factors[2]);
+    const auto factor3 = _mm256_set1_pd(factors[3]);
+    std::uint64_t column = first_column;
+    for (; column + 3 < columns; column += 4) {
+        const auto pivot = _mm256_loadu_pd(
+            &at(matrix, columns, pivot_row, column + 3));
+        auto* target0 = &at(matrix, columns, first_target_row, column + 3);
+        auto* target1 = &at(matrix, columns, first_target_row + 1, column + 3);
+        auto* target2 = &at(matrix, columns, first_target_row + 2, column + 3);
+        auto* target3 = &at(matrix, columns, first_target_row + 3, column + 3);
+        _mm256_storeu_pd(target0, _mm256_fnmadd_pd(
+            factor0, pivot, _mm256_loadu_pd(target0)));
+        _mm256_storeu_pd(target1, _mm256_fnmadd_pd(
+            factor1, pivot, _mm256_loadu_pd(target1)));
+        _mm256_storeu_pd(target2, _mm256_fnmadd_pd(
+            factor2, pivot, _mm256_loadu_pd(target2)));
+        _mm256_storeu_pd(target3, _mm256_fnmadd_pd(
+            factor3, pivot, _mm256_loadu_pd(target3)));
+    }
+    for (; column < columns; ++column) {
+        const double pivot = at(matrix, columns, pivot_row, column);
+        at(matrix, columns, first_target_row, column) -= factors[0] * pivot;
+        at(matrix, columns, first_target_row + 1, column) -= factors[1] * pivot;
+        at(matrix, columns, first_target_row + 2, column) -= factors[2] * pivot;
+        at(matrix, columns, first_target_row + 3, column) -= factors[3] * pivot;
     }
 }
 
@@ -411,7 +446,19 @@ extern "C" std::uint64_t vkf_lu_96_x64(
         }
         const double inverse_pivot =
             1.0 / at(upper, size, column, column);
-        for (std::uint64_t row = column + 1; row < size; ++row) {
+        std::uint64_t row = column + 1;
+        for (; row + 3 < size; row += 4) {
+            double factors[4];
+            for (std::uint64_t offset = 0; offset < 4; ++offset) {
+                factors[offset] =
+                    at(upper, size, row + offset, column) * inverse_pivot;
+                at(lower, size, row + offset, column) = factors[offset];
+                at(upper, size, row + offset, column) = 0.0;
+            }
+            subtract_scaled_four_rows(
+                upper, size, row, column, column + 1, factors);
+        }
+        for (; row < size; ++row) {
             const double factor = at(upper, size, row, column) * inverse_pivot;
             at(lower, size, row, column) = factor;
             at(upper, size, row, column) = 0.0;

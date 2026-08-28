@@ -8858,6 +8858,393 @@ private:
                     plan.indexed_store->argument_count, 0u, sib, false);
             }
         };
+        struct StaticVector3InteractionPlan {
+            std::size_t start = 0;
+            std::size_t end = 0;
+            std::uint32_t position_x = 0;
+            std::uint32_t velocity_x = 0;
+            std::uint32_t first_vector_index = 0;
+            std::uint32_t second_vector_index = 0;
+            std::uint32_t first_mass_index = 0;
+            std::uint32_t second_mass_index = 0;
+        };
+        const auto match_static_vector3_interaction =
+            [&](std::size_t start) -> std::optional<StaticVector3InteractionPlan> {
+                using vkf::machine_ir::Opcode;
+                if (!policy_.packed_dot_reductions ||
+                    start + 112u >= function.instructions.size()) {
+                    return std::nullopt;
+                }
+                const auto& at = function.instructions;
+                const auto static_index = [&](std::size_t position) {
+                    if (at[position].opcode != Opcode::LoadLocal) {
+                        return std::optional<std::uint32_t>{};
+                    }
+                    return static_integral_local_before(position, at[position].index);
+                };
+                const auto difference_lane = [&](std::size_t position,
+                                                 std::uint32_t base) {
+                    return static_index(position).has_value() &&
+                        at[position + 1u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 1u].index == base &&
+                        at[position + 1u].index_is_integral &&
+                        !at[position + 1u].may_error &&
+                        at[position + 1u].index_local &&
+                        *at[position + 1u].index_local == at[position].index &&
+                        static_index(position + 2u).has_value() &&
+                        at[position + 3u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 3u].index == base &&
+                        at[position + 3u].argument_count ==
+                            at[position + 1u].argument_count &&
+                        at[position + 3u].index_is_integral &&
+                        !at[position + 3u].may_error &&
+                        at[position + 3u].index_local &&
+                        *at[position + 3u].index_local == at[position + 2u].index &&
+                        at[position + 4u].opcode == Opcode::SubtractF64 &&
+                        at[position + 5u].opcode == Opcode::StoreLocal;
+                };
+                const auto invariant_scale = [&](const auto& operand) {
+                    return operand.opcode == Opcode::PushF64 ||
+                        (operand.opcode == Opcode::LoadLocal &&
+                         operand.index < function.local_classes.size() &&
+                         function.local_classes[operand.index] ==
+                             vkf::machine_ir::ValueClass::F64);
+                };
+                const auto mass_load = [&](std::size_t position) {
+                    return at[position].opcode == Opcode::PushF64 &&
+                        at[position + 1u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 1u].index_is_integral &&
+                        !at[position + 1u].may_error &&
+                        at[position + 1u].index_local &&
+                        static_fixed_index(at[position], at[position + 1u]).has_value() &&
+                        at[position + 2u].opcode == Opcode::StoreLocal &&
+                        at[position + 3u].opcode == Opcode::LoadLocal &&
+                        at[position + 3u].index == at[position + 2u].index &&
+                        at[position + 4u].opcode == Opcode::Drop;
+                };
+                const auto affine_lane = [&](std::size_t position,
+                                             Opcode arithmetic) {
+                    return at[position].opcode == Opcode::LoadLocal &&
+                        static_index(position).has_value() &&
+                        at[position + 1u].opcode == Opcode::LoadLocal &&
+                        at[position + 1u].index == at[position].index &&
+                        at[position + 2u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 2u].index_is_integral &&
+                        !at[position + 2u].may_error &&
+                        at[position + 2u].index_local &&
+                        *at[position + 2u].index_local == at[position].index &&
+                        at[position + 3u].opcode == Opcode::LoadLocal &&
+                        at[position + 4u].opcode == Opcode::LoadLocal &&
+                        at[position + 5u].opcode == Opcode::MultiplyF64 &&
+                        at[position + 6u].opcode == Opcode::LoadLocal &&
+                        at[position + 7u].opcode == Opcode::MultiplyF64 &&
+                        at[position + 8u].opcode == arithmetic &&
+                        at[position + 9u].opcode == Opcode::StoreF64LocalsIndex &&
+                        at[position + 9u].index_is_integral &&
+                        !at[position + 9u].may_error &&
+                        at[position + 9u].index_local &&
+                        *at[position + 9u].index_local == at[position].index;
+                };
+                const auto first = static_index(start);
+                const auto second = static_index(start + 2u);
+                const auto position_x = at[start + 1u].index;
+                const auto displacement_x = at[start + 5u].index;
+                const auto displacement_y = at[start + 11u].index;
+                const auto displacement_z = at[start + 17u].index;
+                if (!first || !second ||
+                    !difference_lane(start, position_x) ||
+                    !difference_lane(start + 6u, position_x + 1u) ||
+                    !difference_lane(start + 12u, position_x + 2u) ||
+                    at[start + 6u].index != at[start].index ||
+                    at[start + 8u].index != at[start + 2u].index ||
+                    at[start + 12u].index != at[start].index ||
+                    at[start + 14u].index != at[start + 2u].index ||
+                    displacement_y != displacement_x + 1u ||
+                    displacement_z != displacement_y + 1u) {
+                    return std::nullopt;
+                }
+                const auto squared = at[start + 29u].index;
+                const auto magnitude = at[start + 36u].index;
+                if (at[start + 18u].opcode != Opcode::LoadLocal ||
+                    at[start + 18u].index != displacement_x ||
+                    at[start + 19u].opcode != Opcode::LoadLocal ||
+                    at[start + 19u].index != displacement_x ||
+                    at[start + 20u].opcode != Opcode::MultiplyF64 ||
+                    at[start + 21u].opcode != Opcode::LoadLocal ||
+                    at[start + 21u].index != displacement_y ||
+                    at[start + 22u].opcode != Opcode::LoadLocal ||
+                    at[start + 22u].index != displacement_y ||
+                    at[start + 23u].opcode != Opcode::MultiplyF64 ||
+                    at[start + 24u].opcode != Opcode::AddF64 ||
+                    at[start + 25u].opcode != Opcode::LoadLocal ||
+                    at[start + 25u].index != displacement_z ||
+                    at[start + 26u].opcode != Opcode::LoadLocal ||
+                    at[start + 26u].index != displacement_z ||
+                    at[start + 27u].opcode != Opcode::MultiplyF64 ||
+                    at[start + 28u].opcode != Opcode::AddF64 ||
+                    at[start + 29u].opcode != Opcode::StoreLocal ||
+                    !invariant_scale(at[start + 30u]) ||
+                    at[start + 31u].opcode != Opcode::LoadLocal ||
+                    at[start + 31u].index != squared ||
+                    at[start + 32u].opcode != Opcode::LoadLocal ||
+                    at[start + 32u].index != squared ||
+                    at[start + 33u].opcode != Opcode::SqrtF64 ||
+                    at[start + 34u].opcode != Opcode::MultiplyF64 ||
+                    at[start + 35u].opcode != Opcode::DivideF64 ||
+                    at[start + 36u].opcode != Opcode::StoreLocal ||
+                    at[start + 37u].opcode != Opcode::LoadLocal ||
+                    at[start + 37u].index != at[start].index ||
+                    at[start + 38u].opcode != Opcode::LoadF64LocalsIndex ||
+                    at[start + 39u].opcode != Opcode::Drop ||
+                    !mass_load(start + 40u) ||
+                    !affine_lane(start + 45u, Opcode::SubtractF64) ||
+                    !affine_lane(start + 55u, Opcode::SubtractF64) ||
+                    !affine_lane(start + 65u, Opcode::SubtractF64) ||
+                    at[start + 75u].opcode != Opcode::LoadLocal ||
+                    at[start + 75u].index != at[start + 2u].index ||
+                    at[start + 76u].opcode != Opcode::LoadF64LocalsIndex ||
+                    at[start + 77u].opcode != Opcode::Drop ||
+                    !mass_load(start + 78u) ||
+                    !affine_lane(start + 83u, Opcode::AddF64) ||
+                    !affine_lane(start + 93u, Opcode::AddF64) ||
+                    !affine_lane(start + 103u, Opcode::AddF64)) {
+                    return std::nullopt;
+                }
+                const auto first_mass = static_fixed_index(
+                    at[start + 40u], at[start + 41u]);
+                const auto second_mass = static_fixed_index(
+                    at[start + 78u], at[start + 79u]);
+                const auto velocity_x = at[start + 47u].index;
+                if (!first_mass || !second_mass ||
+                    at[start + 45u].index != at[start].index ||
+                    at[start + 55u].index != at[start].index ||
+                    at[start + 65u].index != at[start].index ||
+                    at[start + 48u].index != displacement_x ||
+                    at[start + 58u].index != displacement_y ||
+                    at[start + 68u].index != displacement_z ||
+                    at[start + 49u].index != at[start + 42u].index ||
+                    at[start + 59u].index != at[start + 42u].index ||
+                    at[start + 69u].index != at[start + 42u].index ||
+                    at[start + 51u].index != magnitude ||
+                    at[start + 61u].index != magnitude ||
+                    at[start + 71u].index != magnitude ||
+                    at[start + 57u].index != velocity_x + 1u ||
+                    at[start + 67u].index != velocity_x + 2u ||
+                    at[start + 83u].index != at[start + 2u].index ||
+                    at[start + 93u].index != at[start + 2u].index ||
+                    at[start + 103u].index != at[start + 2u].index ||
+                    at[start + 85u].index != velocity_x ||
+                    at[start + 95u].index != velocity_x + 1u ||
+                    at[start + 105u].index != velocity_x + 2u ||
+                    at[start + 87u].index != at[start + 80u].index ||
+                    at[start + 97u].index != at[start + 80u].index ||
+                    at[start + 107u].index != at[start + 80u].index ||
+                    at[start + 89u].index != magnitude ||
+                    at[start + 99u].index != magnitude ||
+                    at[start + 109u].index != magnitude) {
+                    return std::nullopt;
+                }
+                return StaticVector3InteractionPlan{
+                    start, start + 112u, position_x, velocity_x,
+                    *first, *second, *first_mass, *second_mass};
+            };
+        const auto emit_two_static_vector3_interactions =
+            [&](std::size_t start) -> std::optional<std::size_t> {
+                using vkf::machine_ir::Opcode;
+                if (!policy_.fused_multiply_add ||
+                    !vkf::target::host_x64_supports_fma()) {
+                    return std::nullopt;
+                }
+                const auto first = match_static_vector3_interaction(start);
+                if (!first) return std::nullopt;
+                const auto& at = function.instructions;
+                std::optional<StaticVector3InteractionPlan> second;
+                for (std::size_t candidate = first->end + 1u;
+                     candidate <= first->end + 20u &&
+                     candidate < function.instructions.size(); ++candidate) {
+                    const auto matched = match_static_vector3_interaction(candidate);
+                    if (matched) {
+                        second = matched;
+                        break;
+                    }
+                    const auto opcode = at[candidate].opcode;
+                    if (opcode != Opcode::PushF64 && opcode != Opcode::StoreLocal &&
+                        opcode != Opcode::LoadLocal &&
+                        opcode != Opcode::LoadF64LocalsIndex &&
+                        opcode != Opcode::Drop) {
+                        return std::nullopt;
+                    }
+                }
+                if (!second || first->position_x != second->position_x ||
+                    first->velocity_x != second->velocity_x) {
+                    return std::nullopt;
+                }
+                const auto validate_separator = [&] {
+                    for (std::size_t position = first->end + 1u;
+                         position < second->start;) {
+                        if (position + 1u < second->start &&
+                            at[position].opcode == Opcode::PushF64 &&
+                            at[position + 1u].opcode == Opcode::StoreLocal) {
+                            position += 2u;
+                            continue;
+                        }
+                        if (position + 2u < second->start &&
+                            at[position].opcode == Opcode::LoadLocal &&
+                            at[position + 1u].opcode == Opcode::LoadF64LocalsIndex &&
+                            at[position + 1u].index_local &&
+                            *at[position + 1u].index_local == at[position].index &&
+                            !at[position + 1u].may_error &&
+                            at[position + 2u].opcode == Opcode::Drop) {
+                            position += 3u;
+                            continue;
+                        }
+                        return false;
+                    }
+                    return true;
+                };
+                if (!validate_separator()) return std::nullopt;
+                const auto same_scale = [&] {
+                    const auto& left = at[first->start + 30u];
+                    const auto& right = at[second->start + 30u];
+                    if (left.opcode != right.opcode) return false;
+                    return left.opcode == Opcode::PushF64
+                        ? left.f64 == right.f64
+                        : left.index == right.index;
+                };
+                if (!same_scale()) return std::nullopt;
+                const auto require_index = [](std::uint32_t index,
+                                              std::uint32_t width,
+                                              const char* message) {
+                    if (index >= width) throw BackendFailure(message);
+                };
+                const std::array<const StaticVector3InteractionPlan*, 2>
+                    plans{&*first, &*second};
+                for (const auto* plan : plans) {
+                    require_index(plan->first_vector_index,
+                                  at[plan->start + 13u].argument_count,
+                                  "invalid packed first vector3 index");
+                    require_index(plan->second_vector_index,
+                                  at[plan->start + 15u].argument_count,
+                                  "invalid packed second vector3 index");
+                    require_index(plan->first_mass_index,
+                                  at[plan->start + 41u].argument_count,
+                                  "invalid packed first mass index");
+                    require_index(plan->second_mass_index,
+                                  at[plan->start + 79u].argument_count,
+                                  "invalid packed second mass index");
+                }
+                const auto emit_separator = [&] {
+                    for (std::size_t position = first->end + 1u;
+                         position < second->start;) {
+                        if (at[position].opcode == Opcode::PushF64) {
+                            const auto& store = at[position + 1u];
+                            if (local_is_i64(store.index)) {
+                                code_.raw({0x48, 0xb8});
+                                code_.u64(static_cast<std::uint64_t>(
+                                    static_cast<std::int64_t>(at[position].f64)));
+                                store_rax_to_i64(store.index);
+                            } else {
+                                emit_number(at[position].f64, 0u);
+                                store_local(store.index, 0u);
+                            }
+                            position += 2u;
+                        } else {
+                            position += 3u;
+                        }
+                    }
+                };
+                emit_separator();
+                const auto load_pair = [&](std::uint32_t base,
+                                           std::uint32_t index,
+                                           unsigned destination) {
+                    code_.raw({0x66, 0x0f, 0x10,
+                               static_cast<unsigned>(0x85u + destination * 8u)});
+                    code_.i32(frame.displacement(base + index + 1u));
+                };
+                const auto store_pair = [&](std::uint32_t base,
+                                            std::uint32_t index,
+                                            unsigned source) {
+                    code_.raw({0x66, 0x0f, 0x11,
+                               static_cast<unsigned>(0x85u + source * 8u)});
+                    code_.i32(frame.displacement(base + index + 1u));
+                };
+                const auto emit_difference = [&](const auto& plan,
+                                                 unsigned packed,
+                                                 unsigned scalar,
+                                                 unsigned scratch) {
+                    load_pair(plan.position_x, plan.first_vector_index, packed);
+                    load_pair(plan.position_x, plan.second_vector_index, scratch);
+                    code_.raw({0x66, 0x0f, 0x5c,
+                               static_cast<unsigned>(0xc0u + packed * 8u + scratch)});
+                    load_local(
+                        plan.position_x + plan.first_vector_index + 2u, scalar);
+                    load_local(
+                        plan.position_x + plan.second_vector_index + 2u, scratch);
+                    code_.raw({0xf2, 0x0f, 0x5c,
+                               static_cast<unsigned>(0xc0u + scalar * 8u + scratch)});
+                };
+                // Two independent pair distances share packed sqrt/div lanes.
+                // Velocity updates remain in source order below.
+                emit_difference(*first, 0u, 2u, 3u);
+                emit_difference(*second, 1u, 4u, 3u);
+                code_.raw({0x66, 0x0f, 0x14, 0xd4,
+                           0x66, 0x0f, 0x28, 0xd8,
+                           0x66, 0x0f, 0x59, 0xdb,
+                           0x66, 0x0f, 0x28, 0xe1,
+                           0x66, 0x0f, 0x59, 0xe4,
+                           0x66, 0x0f, 0x7c, 0xdc,
+                           0xc4, 0xe2, 0xe9, 0xb8, 0xda,
+                           0x66, 0x0f, 0x28, 0xe3,
+                           0x66, 0x0f, 0x51, 0xe4,
+                           0x66, 0x0f, 0x59, 0xe3});
+                const auto& scale = at[first->start + 30u];
+                if (scale.opcode == Opcode::PushF64) emit_number(scale.f64, 5u);
+                else load_local(scale.index, 5u);
+                code_.raw({0x66, 0x0f, 0x14, 0xed,
+                           0x66, 0x0f, 0x5e, 0xec});
+
+                const auto emit_update = [&](const auto& plan,
+                                             std::size_t mass_position,
+                                             std::size_t affine_position,
+                                             std::uint32_t vector_index,
+                                             std::uint32_t mass_index,
+                                             unsigned difference,
+                                             bool add) {
+                    const auto& mass = at[mass_position + 1u];
+                    load_local(mass.index + mass_index, 6u);
+                    code_.raw({0xf2, 0x0f, 0x59, 0xf5,
+                               0x66, 0x0f, 0x14, 0xf6});
+                    const auto velocity = at[affine_position + 2u].index;
+                    load_pair(velocity, vector_index, 3u);
+                    const unsigned vex = 0x81u |
+                        (((~difference) & 0x0fu) << 3u);
+                    code_.raw({0xc4, 0xe2, vex,
+                               add ? 0xb8u : 0xbcu, 0xde});
+                    store_pair(velocity, vector_index, 3u);
+                    const auto velocity_z =
+                        at[affine_position + 22u].index + vector_index;
+                    load_local(velocity_z, 3u);
+                    code_.raw({0xc4, 0xe2, 0xe9,
+                               add ? 0xb9u : 0xbdu, 0xde});
+                    store_local(velocity_z, 3u);
+                };
+                emit_update(*first, first->start + 40u, first->start + 45u,
+                            first->first_vector_index, first->first_mass_index,
+                            0u, false);
+                emit_update(*first, first->start + 78u, first->start + 83u,
+                            first->second_vector_index, first->second_mass_index,
+                            0u, true);
+                code_.raw({0x66, 0x0f, 0x15, 0xed,
+                           0x66, 0x0f, 0x15, 0xd2});
+                emit_update(*second, second->start + 40u, second->start + 45u,
+                            second->first_vector_index, second->first_mass_index,
+                            1u, false);
+                emit_update(*second, second->start + 78u, second->start + 83u,
+                            second->second_vector_index, second->second_mass_index,
+                            1u, true);
+                expression_index_cache = {};
+                return second->end;
+            };
         const auto emit_vector3_pair_interaction =
             [&](std::size_t start) -> std::optional<std::size_t> {
                 using vkf::machine_ir::Opcode;
@@ -9762,6 +10149,12 @@ private:
                 }
             }
             if (stack_depth == 0) {
+                const auto paired_interactions =
+                    emit_two_static_vector3_interactions(instruction_index);
+                if (paired_interactions) {
+                    instruction_index = *paired_interactions;
+                    continue;
+                }
                 const auto pair_interaction =
                     emit_vector3_pair_interaction(instruction_index);
                 if (pair_interaction) {
