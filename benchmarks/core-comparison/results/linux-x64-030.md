@@ -8,38 +8,38 @@ Matched rows keep the same algorithm. Idiomatic rows allow each ecosystem's norm
 
 | operation | mode | data | size | count | VKF | C | Rust | Zig |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| spectral norm by power method | idiomatic | dense f64 vectors and implicit matrix | large | 500 | 301.070 ± 3.335 | 193.369 ± 2.743 | 95.985 ± 2.153 | 180.622 ± 2.594 |
-| fannkuch-redux permutations | matched | fixed integer sequence and indexed mutation | large | 9 | 110.235 ± 1.833 | 90.579 ± 2.473 | 91.539 ± 3.058 | 170.956 ± 4.602 |
-| five-body symplectic integration | matched | five bodies with f64 position, velocity, and mass | large | 50000 | 123.769 ± 1.715 | 115.151 ± 4.200 | 106.018 ± 4.570 | 178.285 ± 3.703 |
+| spectral norm by power method | idiomatic | dense f64 vectors and implicit matrix | large | 500 | 299.616 ± 1.467 | 188.107 ± 0.748 | 92.633 ± 0.392 | 178.601 ± 2.802 |
+| fannkuch-redux permutations | matched | fixed integer sequence and indexed mutation | large | 9 | 109.532 ± 0.210 | 86.274 ± 0.536 | 88.085 ± 0.725 | 166.242 ± 1.770 |
+| five-body symplectic integration | matched | five bodies with f64 position, velocity, and mass | large | 50000 | 122.085 ± 0.394 | 109.389 ± 0.519 | 101.279 ± 0.940 | 174.892 ± 1.907 |
 
 ## Runtime (ms)
 
 | operation | mode | data | size | count | VKF | C | Rust | Zig |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| spectral norm by power method | idiomatic | dense f64 vectors and implicit matrix | large | 500 | 6.401 ± 0.065 | 17.858 ± 0.089 | 18.788 ± 0.150 | 18.544 ± 0.171 |
-| fannkuch-redux permutations | matched | fixed integer sequence and indexed mutation | large | 9 | 24.591 ± 0.151 | 25.953 ± 0.221 | 22.443 ± 0.412 | 25.233 ± 0.133 |
-| five-body symplectic integration | matched | five bodies with f64 position, velocity, and mass | large | 50000 | 5.265 ± 0.120 | 5.207 ± 0.093 | 4.320 ± 0.110 | 6.470 ± 0.125 |
+| spectral norm by power method | idiomatic | dense f64 vectors and implicit matrix | large | 500 | 6.379 ± 0.078 | 17.766 ± 0.075 | 18.644 ± 0.088 | 18.481 ± 0.222 |
+| fannkuch-redux permutations | matched | fixed integer sequence and indexed mutation | large | 9 | 24.347 ± 0.048 | 25.765 ± 0.132 | 22.202 ± 0.157 | 24.929 ± 0.105 |
+| five-body symplectic integration | matched | five bodies with f64 position, velocity, and mass | large | 50000 | 5.289 ± 0.110 | 5.161 ± 0.135 | 4.266 ± 0.111 | 6.372 ± 0.048 |
 
 ## VKF internal compiler-core time, including optimizer (ms)
 
 | operation | data | size | count | VKF |
 | --- | --- | --- | ---: | ---: |
-| spectral norm by power method | dense f64 vectors and implicit matrix | large | 500 | 295.706 ± 3.296 |
-| fannkuch-redux permutations | fixed integer sequence and indexed mutation | large | 9 | 106.302 ± 1.825 |
-| five-body symplectic integration | five bodies with f64 position, velocity, and mass | large | 50000 | 118.883 ± 0.943 |
+| spectral norm by power method | dense f64 vectors and implicit matrix | large | 500 | 294.495 ± 1.448 |
+| fannkuch-redux permutations | fixed integer sequence and indexed mutation | large | 9 | 105.750 ± 0.193 |
+| five-body symplectic integration | five bodies with f64 position, velocity, and mass | large | 50000 | 117.505 ± 0.320 |
 
 ## VKF empirical optimizer time within compilation (ms)
 
 | operation | data | size | count | VKF |
 | --- | --- | --- | ---: | ---: |
-| spectral norm by power method | dense f64 vectors and implicit matrix | large | 500 | 144.125 ± 0.953 |
-| fannkuch-redux permutations | fixed integer sequence and indexed mutation | large | 9 | 99.471 ± 1.816 |
-| five-body symplectic integration | five bodies with f64 position, velocity, and mass | large | 50000 | 94.624 ± 0.488 |
+| spectral norm by power method | dense f64 vectors and implicit matrix | large | 500 | 144.216 ± 0.423 |
+| fannkuch-redux permutations | fixed integer sequence and indexed mutation | large | 9 | 99.142 ± 0.182 |
+| five-body symplectic integration | five bodies with f64 position, velocity, and mass | large | 50000 | 93.901 ± 0.295 |
 
 ## Raw kernel runtime (ms)
 
 | operation | mode | data | size | count | VKF | C | Rust | Zig |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| spectral norm by power method | idiomatic | dense f64 vectors and implicit matrix | large | 500 | 4.773 ± 0.149 | 16.008 ± 0.167 | 16.798 ± 0.143 | 16.564 ± 0.163 |
-| fannkuch-redux permutations | matched | fixed integer sequence and indexed mutation | large | 9 | 22.588 ± 0.174 | 23.339 ± 0.561 | 19.862 ± 0.262 | 22.712 ± 0.232 |
-| five-body symplectic integration | matched | five bodies with f64 position, velocity, and mass | large | 50000 | 3.448 ± 0.182 | 3.356 ± 0.171 | 2.359 ± 0.016 | 4.584 ± 0.147 |
+| spectral norm by power method | idiomatic | dense f64 vectors and implicit matrix | large | 500 | 4.756 ± 0.126 | 15.995 ± 0.018 | 16.814 ± 0.130 | 16.643 ± 0.173 |
+| fannkuch-redux permutations | matched | fixed integer sequence and indexed mutation | large | 9 | 22.580 ± 0.122 | 23.360 ± 0.575 | 19.907 ± 0.533 | 22.703 ± 0.145 |
+| five-body symplectic integration | matched | five bodies with f64 position, velocity, and mass | large | 50000 | 3.507 ± 0.114 | 3.354 ± 0.172 | 2.356 ± 0.020 | 4.559 ± 0.066 |
