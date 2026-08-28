@@ -9,13 +9,13 @@ This experiment compiles the exact [spectral-norm medium VKF program](../../core
 | Correct policies | 256 / 256 |
 | Distinct machine-code binaries | 36 |
 | Actual executions | 7272 |
-| Search time | 60409.7 ms |
-| Slowest policy mean | 11.062 ms |
-| Fastest measured policy | `mask-4c` |
-| Fastest measured mean | 3.953 ± 2.715 ms |
-| Default `mask-ff` mean | 4.179 ± 2.726 ms |
-| Fastest/slowest spread | 2.80× |
-| Selected/default difference | 5.4% |
+| Search time | 87064.0 ms |
+| Slowest policy mean | 9.398 ms |
+| Fastest measured policy | `mask-4e` |
+| Fastest measured mean | 3.292 ± 0.081 ms |
+| Default `mask-ff` mean | 3.303 ± 0.106 ms |
+| Fastest/slowest spread | 2.85× |
+| Selected/default difference | 0.4% |
 
 The complete machine-readable evidence, including all 256 policy records, hashes, output, compiler identity, and host conditions, is [windows-x64-v0.3.0-ci.json](./windows-x64-v0.3.0-ci.json).
 
@@ -40,7 +40,7 @@ Code-identical policies are timed once. Here, 256 logical policies collapse to 3
 
 ## Honest Interpretation
 
-The robust result is the large policy landscape: the best basin is about 2.80× faster than the slowest legal policy. The exact 5.4% lead of `mask-4c` over `mask-ff` is smaller than run-to-run variance and was not stable in a separate order-reversed check. It is a measured winner, not proof that it is universally faster. Release defaults therefore remain conservative, while profiles and future selectors can learn from the larger, repeatable policy effects.
+The robust result is the large policy landscape: the best basin is about 2.85× faster than the slowest legal policy. The exact 0.4% lead of `mask-4e` over `mask-ff` is smaller than run-to-run variance and was not stable in a separate order-reversed check. It is a measured winner, not proof that it is universally faster. Release defaults therefore remain conservative, while profiles and future selectors can learn from the larger, repeatable policy effects.
 
 ## Reproduce
 

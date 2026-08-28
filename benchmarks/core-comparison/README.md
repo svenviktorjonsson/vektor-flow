@@ -22,6 +22,14 @@ The published kernel set is deliberately recognizable:
 - fannkuch-redux permutation flipping;
 - five-body symplectic integration.
 
+## Latest verified result
+
+The 0.3.0 Linux x64 evidence is the
+[`readable report`](results/linux-x64-030.md) plus its
+[`raw JSON`](results/linux-x64-030.json). It contains the complete measured
+sample set, hashes, tool versions, and machine conditions from the release
+workflow.
+
 These are adapted from the Computer Language Benchmarks Game. Exact provenance,
 adaptation rules, exclusions, and links to primary sources are in
 [`docs/performance-benchmarks.md`](../../docs/performance-benchmarks.md). Python
@@ -100,11 +108,11 @@ docker run --rm --entrypoint /bin/sh vkf-x64-linux-bench -c 'code="$(cat /bench/
 ```
 
 GitHub Actions release job `comparison-linux-x64` installs pinned comparison
-tools, verifies Zig's official SHA-256, then runs this exact command on
-Linux-local storage:
+tools, verifies Zig's official SHA-256, then runs the three large kernels on
+Linux-local storage with this measurement contract:
 
 ```bash
-node benchmarks/core-comparison/run.mjs --case=startup,scalar-control-small,spectral-norm-medium,fannkuch-redux-medium,n-body-medium --language=vkf,c,rust,zig,go,julia,python-efficient --compile-runs=100 --compile-warmups=1 --runs=100 --warmups=5 --output=linux-x64-017
+node benchmarks/core-comparison/run.mjs --case=spectral-norm-large,fannkuch-redux-large,n-body-large --language=vkf,c,rust,zig --compile-runs=100 --compile-warmups=1 --runs=1000 --warmups=50 --process-runs=10 --process-warmups=1 --enforce-relative-gate=true --relative-limit=1.5 --output=linux-x64-030
 ```
 
 Run the current strict three-kernel goal locally in one pinned Ubuntu 24.04

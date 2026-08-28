@@ -34,8 +34,8 @@ and repeated eigenspaces are not unique.
 
 The 0.3.0 Windows x64 evidence is the
 [`readable report`](results/windows-x64-030.md) plus its
-[`raw JSON`](results/windows-x64-030.json). The checked-in pre-release report
-contains 30 rotating, single-thread samples per implementation; the JSON stores
+[`raw JSON`](results/windows-x64-030.json). The checked-in release report
+contains 100 rotating, single-thread samples per implementation; the JSON stores
 every raw sample and validation maximum. All numerical gates pass, and every
 VKF/competitor ratio is strictly below `1.5×`. Release automation repeats the
 same combined gate with 100 samples per implementation.

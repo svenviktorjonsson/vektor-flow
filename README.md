@@ -244,7 +244,7 @@ linked. Tool versions, source hashes, work counts, output parity, compile
 models, and all 1,000 raw timing samples are retained in the evidence report.
 
 <!-- readme-comparison-evidence:start -->
-Measured on `linux 6.6.87.2-microsoft-standard-WSL2`, `x64`, Intel(R) Core(TM) Ultra 7 255U, 14 logical CPUs, at `2026-08-27T17:35:15.213Z`.
+Measured on `linux 6.17.0-1022-azure`, `x64`, AMD EPYC 9V74, 4 logical CPUs, at `2026-08-28T03:55:38.053Z`.
 
 Only the three substantial optimization kernels are timed. VKF provides the absolute reference; C, Rust, and Zig are represented by same-host VKF/competitor ratios. Absolute times are never compared across machines. Each raw lane contains 1000 measured runs after 50 warmups and excludes process launch.
 
@@ -256,12 +256,12 @@ Every ratio is `VKF mean / competitor mean` from the same Linux x64 runner. Raw 
 
 | Kernel | Measurement | VKF mean ± std | VKF / C | VKF / Rust | VKF / Zig |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Spectral norm | Raw runtime | 8.19 ± 2.64 ms | 0.75× | 0.67× | 0.75× |
-| Spectral norm | Compile | 251.44 ± 53.70 ms | 2.73× | 1.12× | 1.07× |
-| Fannkuch | Raw runtime | 21.95 ± 6.31 ms | 1.23× | 1.15× | 1.25× |
-| Fannkuch | Compile | 105.61 ± 24.37 ms | 1.31× | 0.46× | 0.46× |
-| N-body | Raw runtime | 3.26 ± 1.54 ms | 1.30× | 1.20× | 0.97× |
-| N-body | Compile | 119.32 ± 17.18 ms | 1.14× | 0.40× | 0.32× |
+| Spectral norm | Raw runtime | 4.77 ± 0.15 ms | 0.30× | 0.28× | 0.29× |
+| Spectral norm | Compile | 301.07 ± 3.34 ms | 1.56× | 3.14× | 1.67× |
+| Fannkuch | Raw runtime | 22.59 ± 0.17 ms | 0.97× | 1.14× | 0.99× |
+| Fannkuch | Compile | 110.24 ± 1.83 ms | 1.22× | 1.20× | 0.64× |
+| N-body | Raw runtime | 3.45 ± 0.18 ms | 1.03× | 1.46× | 0.75× |
+| N-body | Compile | 123.77 ± 1.71 ms | 1.07× | 1.17× | 0.69× |
 
 ### spectral norm by power method — large, scale 500
 
@@ -513,7 +513,7 @@ vectors. Its reproducible [linear-algebra benchmark laboratory](benchmarks/linal
 compares seven validated kernels with Eigen, faer, and SciPy. The committed
 [100-run Windows x64 release evidence](benchmarks/linalg-comparison/results/windows-x64-030.md)
 keeps every VKF/competitor ratio strictly below `1.5×`; the worst measured
-ratio is `1.377×` for LU versus SciPy. Every accepted sample first passes its
+ratio is `1.179×` for Cholesky versus faer. Every accepted sample first passes its
 operation-specific numerical accuracy gates.
 
 Physics covers rigid dynamics, contacts, materials, and dimensioned SI units.
@@ -523,8 +523,10 @@ Eleven scientific fixtures run identical source through native x64 and
 standalone WASM, with 10/10 identical results on each target. The
 [symbolic benchmark laboratory](benchmarks/symbolic-comparison/README.md)
 retains its exact kernels, samples, and competitor ratios. The current
-[0.3.0 Windows evidence](benchmarks/symbolic-comparison/results/windows-x64-030.md)
-keeps all 12 VKF/SymEngine, VKF/SymPy, and VKF/Symbolics.jl ratios below `2×`.
+[0.3.0 Linux x64 evidence](benchmarks/symbolic-comparison/results/linux-x64-030.md)
+keeps all 12 VKF/SymEngine, VKF/SymPy, and VKF/Symbolics.jl ratios strictly
+below `1.5×`; the worst measured ratio is `0.295×` for the larger expansion
+against SymEngine.
 
 The main-branch verification suite includes dedicated compact-index and
 range-pipe regressions plus 67 documented-program checks. Exact output stays
@@ -561,8 +563,11 @@ vector; `process.shell` invokes a platform shell and must be treated as unsafe.
 - ordinary rectangular nested vectors remain the matrix and tensor representation, with numeric and symbolic solvers sharing the same public operations;
 - native/WASM parity covers eleven scientific fixtures with repeated identical output;
 - the linalg comparison validates solve, least-squares, LU, QR, Cholesky, SVD, and symmetric eigen results against exact numerical gates;
-- x64 LU uses contiguous AVX2 row updates, while Cholesky uses AVX2 prefix-dot reductions;
-- the 100-run Windows comparison keeps all 21 VKF/competitor ratios below `1.5×` against Eigen, faer, and SciPy;
+- x64 LU reuses each pivot across four AVX2/FMA row updates, while Cholesky uses AVX2 prefix-dot reductions;
+- paired N-body interactions share packed distance chains, coordinates, and retained velocity state without changing source-order arithmetic;
+- the 100-run Windows comparison keeps all 21 VKF/competitor ratios below `1.5×` against Eigen, faer, and SciPy; its worst ratio is `1.179×`;
+- the 1,000-run core comparison keeps all nine VKF/C, VKF/Rust, and VKF/Zig raw-runtime ratios below `1.5×`; its worst ratio is `1.462×`;
+- the symbolic comparison keeps all 12 ratios below `1.5×` against SymEngine, SymPy, and Symbolics.jl;
 - the embedded linalg machine-code kernel is reproducibly generated from its reviewed source;
 - aliased standard-library dependencies now lower before their importers, preserving default arguments across nested native modules;
 - all portable packages include the complete native `linalg` source dependency;

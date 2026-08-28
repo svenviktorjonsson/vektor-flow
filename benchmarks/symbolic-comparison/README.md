@@ -17,6 +17,13 @@ suite, not kernels invented for VKF:
 | `add1` | accumulate 3,000 alternating powers of `x` | 2,998 nonconstant terms |
 | `series` | multiply `[0, 1, ..., 999]` by itself, truncated to order 1,000 | coefficient 999 = 166,167,000 |
 
+## Latest verified result
+
+The 0.3.0 Linux x64 evidence is the
+[`readable report`](results/linux-x64-030.md) plus its
+[`raw JSON`](results/linux-x64-030.json). It contains all ten measured samples
+per kernel and competitor from the same release workflow run.
+
 Upstream sources: [expand1.cpp](https://github.com/symengine/symengine/blob/0c183629a35dd9d8123fafcc47b0e0283bbae80d/benchmarks/expand1.cpp), [expand2.cpp](https://github.com/symengine/symengine/blob/0c183629a35dd9d8123fafcc47b0e0283bbae80d/benchmarks/expand2.cpp), [add1.cpp](https://github.com/symengine/symengine/blob/0c183629a35dd9d8123fafcc47b0e0283bbae80d/benchmarks/add1.cpp), and [series.cpp](https://github.com/symengine/symengine/blob/0c183629a35dd9d8123fafcc47b0e0283bbae80d/benchmarks/series.cpp).
 
 ## Measurement contract
