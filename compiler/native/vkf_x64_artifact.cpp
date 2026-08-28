@@ -9185,8 +9185,58 @@ private:
                 };
                 // Two independent pair distances share packed sqrt/div lanes.
                 // Velocity updates remain in source order below.
-                emit_difference(*first, 0u, 2u, 3u);
-                emit_difference(*second, 1u, 4u, 3u);
+                if (first->first_vector_index == second->first_vector_index) {
+                    // Adjacent interactions commonly share their outer body.
+                    // Load that position once and keep both independent
+                    // subtraction chains in registers.
+                    load_pair(first->position_x,
+                              first->first_vector_index, 0u);
+                    code_.raw({0x66, 0x0f, 0x28, 0xc8});
+                    load_pair(first->position_x,
+                              first->second_vector_index, 3u);
+                    code_.raw({0x66, 0x0f, 0x5c, 0xc3});
+                    load_pair(second->position_x,
+                              second->second_vector_index, 3u);
+                    code_.raw({0x66, 0x0f, 0x5c, 0xcb});
+                    load_local(first->position_x +
+                                   first->first_vector_index + 2u,
+                               2u);
+                    code_.raw({0x66, 0x0f, 0x28, 0xe2});
+                    load_local(first->position_x +
+                                   first->second_vector_index + 2u,
+                               3u);
+                    code_.raw({0xf2, 0x0f, 0x5c, 0xd3});
+                    load_local(second->position_x +
+                                   second->second_vector_index + 2u,
+                               3u);
+                    code_.raw({0xf2, 0x0f, 0x5c, 0xe3});
+                } else if (first->second_vector_index ==
+                           second->second_vector_index) {
+                    // The final interactions in a triangular traversal often
+                    // share their inner body instead.
+                    load_pair(first->position_x,
+                              first->second_vector_index, 3u);
+                    load_pair(first->position_x,
+                              first->first_vector_index, 0u);
+                    code_.raw({0x66, 0x0f, 0x5c, 0xc3});
+                    load_pair(second->position_x,
+                              second->first_vector_index, 1u);
+                    code_.raw({0x66, 0x0f, 0x5c, 0xcb});
+                    load_local(first->position_x +
+                                   first->second_vector_index + 2u,
+                               3u);
+                    load_local(first->position_x +
+                                   first->first_vector_index + 2u,
+                               2u);
+                    code_.raw({0xf2, 0x0f, 0x5c, 0xd3});
+                    load_local(second->position_x +
+                                   second->first_vector_index + 2u,
+                               4u);
+                    code_.raw({0xf2, 0x0f, 0x5c, 0xe3});
+                } else {
+                    emit_difference(*first, 0u, 2u, 3u);
+                    emit_difference(*second, 1u, 4u, 3u);
+                }
                 code_.raw({0x66, 0x0f, 0x14, 0xd4,
                            0x66, 0x0f, 0x28, 0xd8,
                            0x66, 0x0f, 0x59, 0xdb,
