@@ -182,6 +182,117 @@ typed_numeric_parameter_multiply_application(
         kind: "typed_module"
     )
 
+typed_numeric_positive_conditional_function(
+    function_name:str,
+    parameter_name:str
+):
+    (
+        body: (
+            body: [
+                (
+                    body: (
+                        body: [(
+                            kind: "return",
+                            type: "num",
+                            value: (kind: "const", type: "num", value: 1)
+                        )],
+                        kind: "block"
+                    ),
+                    condition: (
+                        kind: "binary_op",
+                        left: typed_load(parameter_name, "num"),
+                        left_type: "num",
+                        op: "GT",
+                        right: (kind: "const", type: "int", value: 0),
+                        right_type: "int",
+                        type: "bit"
+                    ),
+                    kind: "if_stmt",
+                    loop: false
+                ),
+                (
+                    kind: "return",
+                    type: "num",
+                    value: (kind: "const", type: "num", value: 0)
+                )
+            ],
+            kind: "block"
+        ),
+        kind: "function",
+        name: function_name,
+        params: [(
+            default: null,
+            kind: "param",
+            name: parameter_name,
+            type: "num",
+            variadic_named: false,
+            variadic_positional: false
+        )],
+        representation_type: "num",
+        return_type: "num",
+        signature: (
+            kind: "function_signature",
+            params: ["num"],
+            return_type: "num",
+            type: "fn(num)->num"
+        ),
+        type: "fn(num)->num"
+    )
+
+typed_numeric_positive_conditional_application(
+    function_name:str,
+    parameter_name:str
+):
+    function: typed_numeric_positive_conditional_function(
+        function_name,
+        parameter_name
+    )
+    host_call: (
+        arg_types: [],
+        args: [],
+        callee: (
+            kind: "load",
+            name: "__vkf_module_system__cpu_count",
+            type: "fn()->int"
+        ),
+        callee_type: "fn()->int",
+        kind: "call",
+        named_args: [],
+        spread_args: [],
+        type: "num"
+    )
+    function_call: (
+        arg_types: ["num"],
+        args: [host_call],
+        callee: (kind: "load", name: function_name, type: "fn(num)->num"),
+        callee_type: "fn(num)->num",
+        kind: "call",
+        named_args: [],
+        specialization_arg_types: ["num"],
+        spread_args: [],
+        type: "num"
+    )
+    print_call: (
+        arg_types: ["num"],
+        args: [function_call],
+        callee: (
+            full_name: "io.print",
+            kind: "stdlib_function",
+            module: "io",
+            name: "print",
+            type: "fn(any)->any"
+        ),
+        callee_type: "fn(any)->any",
+        kind: "call",
+        named_args: [],
+        spread_args: [],
+        type: "any"
+    )
+    (
+        body: [function, (expr: print_call, kind: "expr_stmt")],
+        kind: "typed_module"
+    )
+
 infer_literal_type(kind:str):
     kind??
         "number_literal" => "int"

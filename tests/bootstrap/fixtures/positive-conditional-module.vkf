@@ -1,0 +1,8 @@
+system: .system
+
+positive(x:num) -> num:
+    x > 0?
+        @: 1
+    @: 0
+
+:: positive(system.cpu_count())
