@@ -486,6 +486,231 @@ mir_lower_numeric_positive_conditional_typed_module(application:any):
         version: 23
     )
 
+_mir_numeric_count_to_loop_cardinalities_match(application:any) -> bit:
+    (application.body.length() = 2 /\
+        application.body.0.body.body.length() = 3 /\
+        application.body.0.body.body.1.body.body.length() = 1)
+
+mir_numeric_count_to_loop_function_matches(function:any) -> bit:
+    initial_store: function.body.body.0
+    loop_statement: function.body.body.1
+    increment_store: function.body.body.1.body.body.0
+    final_return: function.body.body.2
+    condition: function.body.body.1.condition
+    increment: function.body.body.1.body.body.0.value
+    function_header_matches: (function.kind = "function" /\
+        function.representation_type = "num" /\
+        function.return_type = "num" /\
+        function.type = "fn(num)->num" /\
+        function.signature.kind = "function_signature" /\
+        function.signature.params.0 = "num" /\
+        function.signature.return_type = "num" /\
+        function.signature.type = "fn(num)->num" /\
+        function.params.0.default = null /\
+        function.params.0.kind = "param" /\
+        function.params.0.type = "num" /\
+        function.params.0.variadic_named = false /\
+        function.params.0.variadic_positional = false /\
+        function.body.kind = "block")
+    initial_store_matches: (initial_store.kind = "store_binding" /\
+        initial_store.type = "int" /\
+        initial_store.update = false /\
+        initial_store.value.kind = "const" /\
+        initial_store.value.type = "int" /\
+        initial_store.value.value = 0)
+    loop_header_matches: (loop_statement.kind = "if_stmt" /\
+        loop_statement.loop = true /\
+        loop_statement.body.kind = "block")
+    condition_matches: (condition.kind = "binary_op" /\
+        condition.left.kind = "load" /\
+        condition.left.name = initial_store.name /\
+        condition.left.type = "int" /\
+        condition.left_type = "int" /\
+        condition.op = "LT" /\
+        condition.right.kind = "load" /\
+        condition.right.name = function.params.0.name /\
+        condition.right.type = "num" /\
+        condition.right_type = "num" /\
+        condition.type = "bit")
+    increment_matches: (increment_store.kind = "store_binding" /\
+        increment_store.name = initial_store.name /\
+        increment_store.type = "int" /\
+        increment_store.update = true /\
+        increment.kind = "binary_op" /\
+        increment.left.kind = "load" /\
+        increment.left.name = initial_store.name /\
+        increment.left.type = "int" /\
+        increment.left_type = "int" /\
+        increment.op = "PLUS" /\
+        increment.right.kind = "const" /\
+        increment.right.type = "int" /\
+        increment.right.value = 1 /\
+        increment.right_type = "int" /\
+        increment.type = "int")
+    return_matches: (final_return.kind = "return" /\
+        final_return.type = "num" /\
+        final_return.value.kind = "load" /\
+        final_return.value.name = initial_store.name /\
+        final_return.value.type = "num")
+    (function_header_matches /\
+        initial_store_matches /\
+        loop_header_matches /\
+        condition_matches /\
+        increment_matches /\
+        return_matches)
+
+_mir_numeric_count_to_loop_entry(function_name:str, entry_value:num):
+    (
+        instructions: [
+            mir_push_f64(entry_value),
+            _mir_call_no_handler(function_name, 1, 1, 1),
+            mir_return_f64()
+        ],
+        local_classes: [],
+        locals: [],
+        max_stack: 1,
+        may_error: false,
+        name: "\$entry",
+        owned_f64_list_locals: [],
+        owned_string_locals: [],
+        parameter_is_numeric_scalar: [],
+        parameter_mask_local: null,
+        parameters: [],
+        result_is_dynamic_f64_list: false,
+        result_is_numeric_scalar: false
+    )
+
+_mir_numeric_count_to_loop_function(
+    function_name:str,
+    parameter_name:str,
+    local_name:str,
+    initial_value:num,
+    increment_value:num,
+    entry_value:num
+):
+    (
+        instructions: [
+            mir_push_f64(initial_value),
+            mir_local("store_local", 1),
+            mir_branch("label", 0),
+            mir_load_local(1),
+            mir_push_f64(entry_value),
+            mir_simple("ordered_less_f64"),
+            mir_branch("jump_if_false", 1),
+            mir_load_local(1),
+            mir_push_f64(increment_value),
+            mir_simple("add_f64"),
+            mir_local("store_local", 1),
+            mir_branch("jump", 0),
+            mir_branch("label", 1),
+            mir_load_local(1),
+            mir_return_f64()
+        ],
+        local_classes: ["f64", "i64"],
+        locals: [parameter_name, local_name],
+        max_stack: 2,
+        may_error: false,
+        name: function_name,
+        owned_f64_list_locals: [],
+        owned_string_locals: [],
+        parameter_is_numeric_scalar: [true],
+        parameter_mask_local: null,
+        parameters: [parameter_name],
+        result_is_dynamic_f64_list: false,
+        result_is_numeric_scalar: true
+    )
+
+mir_numeric_count_to_loop_typed_module_matches(application:any) -> bit:
+    function: application.body.0
+    entry: application.body.1
+    print_call: entry.expr
+    function_call: print_call.args.0
+    entry_value: function_call.args.0
+    (_mir_numeric_count_to_loop_cardinalities_match(application) /\
+        application.kind = "typed_module" /\
+        mir_numeric_count_to_loop_function_matches(function) /\
+        entry.kind = "expr_stmt" /\
+        print_call.kind = "call" /\
+        print_call.callee.kind = "stdlib_function" /\
+        print_call.callee.full_name = "io.print" /\
+        print_call.callee.module = "io" /\
+        print_call.callee.name = "print" /\
+        print_call.callee.type = "fn(any)->any" /\
+        print_call.callee_type = "fn(any)->any" /\
+        print_call.arg_types.0 = "num" /\
+        print_call.type = "any" /\
+        function_call.kind = "call" /\
+        function_call.callee.kind = "load" /\
+        function_call.callee.name = function.name /\
+        function_call.callee.type = "fn(num)->num" /\
+        function_call.callee_type = "fn(num)->num" /\
+        function_call.arg_types.0 = "num" /\
+        function_call.specialization_arg_types.0 = "num" /\
+        function_call.type = "num" /\
+        entry_value.kind = "const" /\
+        entry_value.type = "num")
+
+mir_lower_numeric_count_to_loop_typed_module(application:any):
+    # Private layout projections are effect-free and bounded to the exact
+    # typed count-to loop envelope consumed by this Stage takeover tracer.
+    function: application.body.0
+    entry: application.body.1
+    initial_store: application.body.0.body.body.0
+    loop_statement: application.body.0.body.body.1
+    increment_store: application.body.0.body.body.1.body.body.0
+    final_return: application.body.0.body.body.2
+    condition: application.body.0.body.body.1.condition
+    increment: application.body.0.body.body.1.body.body.0.value
+    print_call: application.body.1.expr
+    function_call: application.body.1.expr.args.0
+    entry_value: application.body.1.expr.args.0.args.0
+    application.kind
+    function.kind
+    function.signature.kind
+    function.signature.params.0
+    function.params.0.kind
+    initial_store.kind
+    initial_store.value.kind
+    loop_statement.kind
+    loop_statement.body.kind
+    condition.kind
+    condition.left.kind
+    condition.right.kind
+    increment_store.kind
+    increment.kind
+    increment.left.kind
+    increment.right.kind
+    entry.kind
+    print_call.kind
+    print_call.callee.kind
+    function_call.kind
+    function_call.callee.kind
+    entry_value.kind
+    _mir_numeric_count_to_loop_cardinalities_match(application)?! "typed count-to loop application does not match MachineModule lowering"
+    (function.body.body.2.kind = "return")?! "typed count-to loop application does not match MachineModule lowering"
+    mir_numeric_count_to_loop_typed_module_matches(application)?! "typed count-to loop application does not match MachineModule lowering"
+    (
+        entry: _mir_numeric_count_to_loop_entry(
+            function.name,
+            entry_value.value
+        ),
+        functions: [_mir_numeric_count_to_loop_function(
+            function.name,
+            function.params.0.name,
+            initial_store.name,
+            initial_store.value.value,
+            increment.right.value,
+            entry_value.value
+        )],
+        output_count: 1,
+        output_kind: "f64",
+        output_tokens: [],
+        outputs: [],
+        schema: "vektorflow.machine_ir",
+        string_bytes: 77,
+        version: 23
+    )
+
 machine_ir_opcode_catalog:
     [
         "push_f64",

@@ -293,6 +293,121 @@ typed_numeric_positive_conditional_application(
         kind: "typed_module"
     )
 
+typed_numeric_count_to_loop_function(
+    function_name:str,
+    parameter_name:str,
+    local_name:str
+):
+    initial_store: (
+        kind: "store_binding",
+        name: local_name,
+        type: "int",
+        update: false,
+        value: (kind: "const", type: "int", value: 0)
+    )
+    increment_store: (
+        kind: "store_binding",
+        name: local_name,
+        type: "int",
+        update: true,
+        value: (
+            kind: "binary_op",
+            left: typed_load(local_name, "int"),
+            left_type: "int",
+            op: "PLUS",
+            right: (kind: "const", type: "int", value: 1),
+            right_type: "int",
+            type: "int"
+        )
+    )
+    loop_statement: (
+        body: (body: [increment_store], kind: "block"),
+        condition: (
+            kind: "binary_op",
+            left: typed_load(local_name, "int"),
+            left_type: "int",
+            op: "LT",
+            right: typed_load(parameter_name, "num"),
+            right_type: "num",
+            type: "bit"
+        ),
+        kind: "if_stmt",
+        loop: true
+    )
+    final_return: (
+        kind: "return",
+        type: "num",
+        value: typed_load(local_name, "num")
+    )
+    (
+        body: (
+            body: [initial_store, loop_statement, final_return],
+            kind: "block"
+        ),
+        kind: "function",
+        name: function_name,
+        params: [(
+            default: null,
+            kind: "param",
+            name: parameter_name,
+            type: "num",
+            variadic_named: false,
+            variadic_positional: false
+        )],
+        representation_type: "num",
+        return_type: "num",
+        signature: (
+            kind: "function_signature",
+            params: ["num"],
+            return_type: "num",
+            type: "fn(num)->num"
+        ),
+        type: "fn(num)->num"
+    )
+
+typed_numeric_count_to_loop_application(
+    function_name:str,
+    parameter_name:str,
+    local_name:str,
+    entry_value:num
+):
+    function: typed_numeric_count_to_loop_function(
+        function_name,
+        parameter_name,
+        local_name
+    )
+    function_call: (
+        arg_types: ["num"],
+        args: [(kind: "const", type: "num", value: entry_value)],
+        callee: (kind: "load", name: function_name, type: "fn(num)->num"),
+        callee_type: "fn(num)->num",
+        kind: "call",
+        named_args: [],
+        specialization_arg_types: ["num"],
+        spread_args: [],
+        type: "num"
+    )
+    print_call: (
+        arg_types: ["num"],
+        args: [function_call],
+        callee: (
+            full_name: "io.print",
+            kind: "stdlib_function",
+            module: "io",
+            name: "print",
+            type: "fn(any)->any"
+        ),
+        callee_type: "fn(any)->any",
+        kind: "call",
+        named_args: [],
+        spread_args: [],
+        type: "any"
+    )
+    (
+        body: [function, (expr: print_call, kind: "expr_stmt")],
+        kind: "typed_module"
+    )
+
 infer_literal_type(kind:str):
     kind??
         "number_literal" => "int"
