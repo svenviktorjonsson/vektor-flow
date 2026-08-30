@@ -593,6 +593,117 @@ std::string sha256_hex(const std::string& text) {
     return output.str();
 }
 
+#ifdef VKF_STRICT_DIRECT_ONLY
+std::string native_build_fingerprint(
+    const std::filesystem::path& self,
+    const std::filesystem::path& source);
+bool executable_has_fingerprint(
+    const std::filesystem::path& executable,
+    const std::string& fingerprint);
+
+vf::JsonValue::Object dispatch_internal_stage_component(
+    const std::filesystem::path& dispatcher_executable,
+    const std::string& component,
+    const std::filesystem::path& component_artifact,
+    const std::filesystem::path& component_source,
+    const std::filesystem::path& oracle_output,
+    const std::filesystem::path& selected_output,
+    const std::filesystem::path& provenance_path
+) {
+    if (component.empty()) throw DriverFailure("stage component name is empty");
+    if (component != "machine_ir.numeric_parameter_multiply.stack_validation") {
+        throw DriverFailure("unknown internal Stage component: " + component);
+    }
+    const auto absolute = [](const std::filesystem::path& path) {
+        return std::filesystem::absolute(path).lexically_normal();
+    };
+    const auto artifact = absolute(component_artifact);
+    const auto source = absolute(component_source);
+    const auto oracle = absolute(oracle_output);
+    const auto selected = absolute(selected_output);
+    const auto provenance = absolute(provenance_path);
+    for (const auto& [path, label] :
+         std::vector<std::pair<std::filesystem::path, std::string>>{
+             {artifact, "component artifact"},
+             {source, "component source"},
+             {oracle, "Stage 0 oracle output"}}) {
+        if (!std::filesystem::is_regular_file(path)) {
+            throw DriverFailure(label + " is not a regular file: " + path.string());
+        }
+    }
+    if (selected == provenance || selected == artifact || selected == source ||
+        selected == oracle || provenance == artifact || provenance == source ||
+        provenance == oracle) {
+        throw DriverFailure("stage component output paths overlap protected inputs");
+    }
+    for (const auto& path : {selected, provenance}) {
+        if (std::filesystem::exists(path) && !std::filesystem::is_regular_file(path)) {
+            throw DriverFailure(
+                "stage component output path is not a regular file: " + path.string());
+        }
+    }
+
+    const std::string source_graph_fingerprint = native_build_fingerprint(
+        dispatcher_executable, source);
+    if (!executable_has_fingerprint(artifact, source_graph_fingerprint)) {
+        throw DriverFailure(
+            "VKF stage component artifact does not match its source graph for " +
+            component);
+    }
+
+    const ProcessResult executed = run_process({artifact.string()});
+    if (executed.exit_code != 0) {
+        throw DriverFailure(
+            "VKF stage component failed for " + component +
+            (executed.stderr_text.empty() ? std::string{} : ": " + executed.stderr_text));
+    }
+    if (executed.stdout_text != read_file(oracle)) {
+        throw DriverFailure("VKF stage component observation mismatch for " + component);
+    }
+
+    for (const auto& path : {selected, provenance}) {
+        if (!path.parent_path().empty()) {
+            std::error_code error;
+            std::filesystem::create_directories(path.parent_path(), error);
+            if (error) {
+                throw DriverFailure(
+                    "could not create stage component output directory " +
+                    path.parent_path().string());
+            }
+        }
+    }
+
+    vf::JsonValue::Object provenance_record;
+    provenance_record["schema"] = "vektorflow.internal.stage_component_dispatch";
+    provenance_record["version"] = 1.0;
+    provenance_record["component"] = component;
+    provenance_record["implementation"] = "vkf_source";
+    provenance_record["dispatcher"] = "vkf-strict";
+    provenance_record["component_source"] = source.string();
+    provenance_record["component_source_sha256"] = sha256_hex(read_file(source));
+    provenance_record["component_source_graph_fingerprint"] = source_graph_fingerprint;
+    provenance_record["component_artifact"] = artifact.string();
+    provenance_record["component_artifact_sha256"] = sha256_hex(read_file(artifact));
+    provenance_record["oracle_output"] = oracle.string();
+    provenance_record["exact_oracle_match"] = true;
+    provenance_record["observation_sha256"] = sha256_hex(executed.stdout_text);
+    provenance_record["selected_output"] = selected.string();
+
+    write_file(selected, executed.stdout_text);
+    write_file(
+        provenance,
+        vf::json_stringify(vf::JsonValue(std::move(provenance_record)), 2) + "\n");
+
+    vf::JsonValue::Object summary;
+    summary["status"] = "selected";
+    summary["component"] = component;
+    summary["implementation"] = "vkf_source";
+    summary["selected_output_path"] = selected.string();
+    summary["provenance_path"] = provenance.string();
+    return summary;
+}
+#endif
+
 std::optional<std::filesystem::path> builtin_stdlib_cache_path(
     const std::filesystem::path& source,
     const std::string& normalized_source,
@@ -1916,6 +2027,20 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (argc > 0) locate_bundled_stdlib(argv[0]);
+#if defined(VKF_NATIVE_FRONTEND_LIBRARY) && defined(VKF_STRICT_DIRECT_ONLY)
+        if (argc >= 2 &&
+            std::string(argv[1]) == "--vkf-internal-stage-component") {
+            if (argc != 8) {
+                throw DriverFailure(
+                    "usage: vkf-strict --vkf-internal-stage-component "
+                    "name artifact source oracle-output selected-output provenance");
+            }
+            const auto summary = dispatch_internal_stage_component(
+                argv[0], argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
+            std::cout << vf::json_stringify(vf::JsonValue(summary), -1) << '\n';
+            return 0;
+        }
+#endif
         const auto compile_one = [](Args args) -> std::string {
         const auto total_started = Clock::now();
         validate_tool_paths(args);
