@@ -460,6 +460,16 @@ private:
             return false;
         }
         const std::string& rhs_kind = tokens_[index_ + 2].kind;
+        if (rhs_kind == "LBRACKET" && index_ + 3 < tokens_.size()) {
+            const std::string& element_kind = tokens_[index_ + 3].kind;
+            if (element_kind == "STRING" || element_kind == "STRING_RAW" ||
+                element_kind == "NUMBER" || element_kind == "TRUE" ||
+                element_kind == "FALSE" || element_kind == "NULL" ||
+                element_kind == "MINUS" || element_kind == "RANGE" ||
+                element_kind == "RBRACKET") {
+                return false;
+            }
+        }
         return rhs_kind == "LPAREN" || rhs_kind == "LBRACKET" || rhs_kind == "LBRACE";
     }
 
