@@ -14,6 +14,7 @@
 #include <set>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -1786,11 +1787,60 @@ public:
         }
 
         vf::JsonValue::Array body;
+        vf::JsonValue::Object process_limits;
         for (const auto& stmt : statements) {
+            const auto& statement = object_of(stmt, "module statement");
+            if (string_field(statement, "kind", "module statement") == "bind") {
+                const auto& target = object_of(
+                    field(statement, "target", "process setting"), "process setting target");
+                if (string_field(target, "kind", "process setting target") == "attribute") {
+                    const auto& base = object_of(
+                        field(target, "object", "process setting target"),
+                        "process setting base");
+                    if (string_field(base, "kind", "process setting base") == "identifier" &&
+                        string_field(base, "name", "process setting base") == "process" &&
+                        !module_env_.contains("process")) {
+                        const std::string name = string_field(
+                            target, "name", "process setting target");
+                        if (name != "max_cores" && name != "enable_gpu") {
+                            throw IRFailure("unknown process setting " + name);
+                        }
+                        if (process_limits.find(name) != process_limits.end()) {
+                            throw IRFailure("duplicate process setting " + name);
+                        }
+                        const auto lowered = lower_expr(
+                            field(statement, "value", "process setting"), module_env_);
+                        const auto& value = object_of(lowered, "process setting value");
+                        const auto raw = value.find("value");
+                        if (string_field(value, "kind", "process setting value") != "const" ||
+                            raw == value.end()) {
+                            throw IRFailure("process." + name + " must be a compile-time constant");
+                        }
+                        if (name == "max_cores") {
+                            if (string_field(value, "type", "process.max_cores") != "int" ||
+                                !raw->second.is_number() || !std::isfinite(raw->second.as_number()) ||
+                                std::floor(raw->second.as_number()) != raw->second.as_number() ||
+                                raw->second.as_number() < 1.0 ||
+                                raw->second.as_number() >
+                                    static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+                                throw IRFailure("process.max_cores must be a positive constant int");
+                            }
+                        } else if (string_field(value, "type", "process.enable_gpu") != "bit" ||
+                                   !raw->second.is_boolean()) {
+                            throw IRFailure("process.enable_gpu must be a constant bit");
+                        }
+                        process_limits[name] = raw->second;
+                        continue;
+                    }
+                }
+            }
             body.push_back(lower_stmt(stmt, module_env_));
         }
         auto out = node("typed_module");
         out["body"] = vf::JsonValue(std::move(body));
+        if (!process_limits.empty()) {
+            out["process_limits"] = vf::JsonValue(std::move(process_limits));
+        }
         return vf::JsonValue(std::move(out));
     }
 
