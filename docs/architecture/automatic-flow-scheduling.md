@@ -55,6 +55,7 @@ execution. A GPU plan must safely fall back to CPU before effects commit. The
 default numerical contract follows one deterministic logical flow and fixed
 reduction policy, with declared floating tolerance where the operation's
 contract permits it. These settings do not expose workers, pools, futures,
-joins, chunk controls, or a target-specific object. This packet records their
-private limit semantics; source binding and target scheduling remain follow-up
-implementation work.
+joins, chunk controls, or a target-specific object. The native compiler binds
+these settings into its private automatic-flow limits and reports the effective
+CPU ceiling in diagnostic artifact metadata. Target scheduling remains
+follow-up work.

@@ -32,6 +32,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -13080,6 +13081,50 @@ vf::JsonValue adaptive_optimizer_json(
     return vf::JsonValue(std::move(report));
 }
 
+vkf::adaptive_optimizer::AutomaticFlowLimits automatic_flow_limits(
+    const vf::JsonValue& typed_ir
+) {
+    vkf::adaptive_optimizer::AutomaticFlowLimits limits;
+    const auto& module = object_of(typed_ir, "typed IR process limits");
+    const auto found = module.find("process_limits");
+    if (found == module.end()) return limits;
+    const auto& settings = object_of(found->second, "typed IR process limits");
+    for (const auto& [name, value] : settings) {
+        if (name == "max_cores") {
+            if (!value.is_number() || !std::isfinite(value.as_number()) ||
+                std::floor(value.as_number()) != value.as_number() ||
+                value.as_number() < 1.0 ||
+                value.as_number() >
+                    static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+                throw BackendFailure("process.max_cores must be a positive constant int");
+            }
+            limits.max_cores = static_cast<std::uint32_t>(value.as_number());
+        } else if (name == "enable_gpu") {
+            if (!value.is_boolean()) {
+                throw BackendFailure("process.enable_gpu must be a constant bit");
+            }
+            limits.enable_gpu = value.as_boolean();
+        } else {
+            throw BackendFailure("unknown process setting " + name);
+        }
+    }
+    return limits;
+}
+
+vf::JsonValue automatic_flow_limits_json(
+    const vkf::adaptive_optimizer::AutomaticFlowLimits& limits
+) {
+    const std::uint32_t available_cores = std::max(1u, std::thread::hardware_concurrency());
+    vf::JsonValue::Object report;
+    report["max_cores"] = limits.max_cores
+        ? vf::JsonValue(static_cast<double>(*limits.max_cores))
+        : vf::JsonValue(nullptr);
+    report["cpu_partition_limit"] = static_cast<double>(
+        vkf::adaptive_optimizer::automatic_cpu_partition_limit(limits, available_cores));
+    report["enable_gpu"] = limits.enable_gpu;
+    return vf::JsonValue(std::move(report));
+}
+
 bool can_use_minimal_numeric_elf(const vkf::machine_ir::Module& module) {
     using vkf::machine_ir::Opcode;
     if (module.output_kind != vkf::machine_ir::OutputKind::F64) return false;
@@ -13735,8 +13780,10 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     vkf::machine_ir::Module machine_ir;
     std::vector<vkf::adaptive_optimizer::FunctionDecision> optimization_decisions;
     vkf::adaptive_optimizer::Policy selected_policy;
+    vkf::adaptive_optimizer::AutomaticFlowLimits flow_limits;
     TuningResult tuning;
     try {
+        flow_limits = automatic_flow_limits(typed_ir);
         machine_ir = supplied_machine_ir
             ? *supplied_machine_ir
             : vkf::machine_ir::lower(typed_ir);
@@ -13872,6 +13919,7 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         manifest["backend"] = is_pe ? "x64-pe" : "x64-elf";
         manifest["adaptive_optimizer"] = adaptive_optimizer_json(
             optimization_decisions, selected_policy);
+        manifest["automatic_flow_limits"] = automatic_flow_limits_json(flow_limits);
         manifest["empirical_tuning"] = tuning_json(tuning, optimization_policy);
         manifest["artifact_bytes"] = static_cast<double>(executable.size());
         manifest["artifact_compacted"] = compacted;
