@@ -634,6 +634,17 @@ inline std::vector<StructuralLayoutMatch> numeric_structural_layout_matches(
     return matches;
 }
 
+inline void refine_parameter_from_argument(
+    ValueLayout& current,
+    const ValueLayout& candidate
+);
+
+inline bool has_sparse_fixed_placeholder(const ValueLayout& layout) {
+    return std::any_of(layout.selectors.begin(), layout.selectors.end(), [](const auto& field) {
+        return field.second.kind == ValueKind::Any && field.second.width == 0;
+    });
+}
+
 inline void merge_inferred_layout(ValueLayout& current, const ValueLayout& candidate) {
     if (is_record_layout(candidate)) {
         if (!is_record_layout(current)) {
@@ -662,13 +673,28 @@ inline void merge_inferred_layout(ValueLayout& current, const ValueLayout& candi
     }
     if (current.kind == ValueKind::Aggregate && candidate.kind == ValueKind::Aggregate &&
         !is_record_layout(current) && !is_record_layout(candidate)) {
-        auto current_elements = indexed_element_layouts(current);
-        const auto candidate_elements = indexed_element_layouts(candidate);
-        if (current_elements.size() == candidate_elements.size()) {
-            for (std::size_t index = 0; index < current_elements.size(); ++index) {
-                merge_inferred_layout(current_elements[index], candidate_elements[index]);
+        std::vector<std::pair<std::string, ValueSlice>> current_fields;
+        for (const auto& [name, slice] : current.selectors) {
+            if (name.find('.') == std::string::npos) {
+                current_fields.push_back({name, slice});
             }
-            current = indexed_layout(current_elements);
+        }
+        std::stable_sort(
+            current_fields.begin(), current_fields.end(),
+            [](const auto& left, const auto& right) {
+                return left.second.offset < right.second.offset;
+            });
+        const bool sparse = has_sparse_fixed_placeholder(current);
+        for (const auto& [name, current_slice] : current_fields) {
+            if (current_slice.kind == ValueKind::Any && current_slice.width == 0) continue;
+            const auto supplied = candidate.selectors.find(name);
+            if (supplied == candidate.selectors.end()) continue;
+            auto element = record_field_layout(current, name, current_slice);
+            const auto supplied_element = record_field_layout(
+                candidate, name, supplied->second);
+            if (sparse) refine_parameter_from_argument(element, supplied_element);
+            else merge_inferred_layout(element, supplied_element);
+            assign_record_field_layout(current, name, element);
         }
         return;
     }
@@ -841,13 +867,14 @@ inline ValueLayout inferred_parameter_layout(
             std::uint32_t maximum = 0;
             for (const auto& [name, child] : node.children) {
                 (void)child;
-                maximum = std::max(maximum, static_cast<std::uint32_t>(std::stoul(name)));
+                maximum = std::max(
+                    maximum, static_cast<std::uint32_t>(std::stoul(name)));
             }
-            std::vector<ValueLayout> elements(maximum + 1);
+            std::vector<ValueLayout> elements(
+                maximum + 1, ValueLayout{0, ValueKind::Any, {}});
             for (const auto& [name, child] : node.children) {
-                if (!child.children.empty()) {
-                    elements[static_cast<std::size_t>(std::stoul(name))] = self(self, child);
-                }
+                elements[static_cast<std::size_t>(std::stoul(name))] =
+                    child.children.empty() ? ValueLayout{} : self(self, child);
             }
             return indexed_layout(elements);
         }
@@ -869,11 +896,12 @@ inline ValueLayout inferred_function_result_layout(
 
 inline void refine_callsite_parameter_layouts(
     const vf::JsonValue& value,
-    FunctionSignatures& signatures
+    FunctionSignatures& signatures,
+    bool module_scope = false
 ) {
     if (value.is_array()) {
         for (const auto& item : value.as_array()) {
-            refine_callsite_parameter_layouts(item, signatures);
+            refine_callsite_parameter_layouts(item, signatures, module_scope);
         }
         return;
     }
@@ -913,7 +941,7 @@ inline void refine_callsite_parameter_layouts(
             is_structural) {
             for (const auto& [name, child] : object) {
                 (void)name;
-                refine_callsite_parameter_layouts(child, signatures);
+                refine_callsite_parameter_layouts(child, signatures, module_scope);
             }
             return;
         }
@@ -951,8 +979,20 @@ inline void refine_callsite_parameter_layouts(
                                 }
                             }
                         }
-                        const auto candidate = layout_from_expression_shape(
-                            argument, signatures);
+                        ValueLayout candidate;
+                        const auto argument_name = argument.find("name");
+                        if (module_scope && argument_kind != argument.end() &&
+                            argument_kind->second.is_string() &&
+                            argument_kind->second.as_string() == "load" &&
+                            argument_name != argument.end() && argument_name->second.is_string()) {
+                            const auto module_layout = signatures.module_layouts.find(
+                                argument_name->second.as_string());
+                            candidate = module_layout != signatures.module_layouts.end()
+                                ? module_layout->second
+                                : layout_from_expression_shape(argument, signatures);
+                        } else {
+                            candidate = layout_from_expression_shape(argument, signatures);
+                        }
                         auto& current = signature->second.parameters[index];
                         refine_parameter_from_argument(current, candidate);
                         if (index < signature->second.parameter_displays.size()) {
@@ -1006,9 +1046,12 @@ inline void refine_callsite_parameter_layouts(
             }
         }
     }
+    const bool child_module_scope = module_scope &&
+        !(kind != object.end() && kind->second.is_string() &&
+          kind->second.as_string() == "function");
     for (const auto& [name, child] : object) {
         (void)name;
-        refine_callsite_parameter_layouts(child, signatures);
+        refine_callsite_parameter_layouts(child, signatures, child_module_scope);
     }
 }
 
@@ -4079,11 +4122,13 @@ inline bool can_project_call_layout(const ValueLayout& source, const ValueLayout
         target.kind == ValueKind::Aggregate && !is_record_layout(target);
     if (source_is_fixed_aggregate || target_is_fixed_aggregate) {
         if (!source_is_fixed_aggregate || !target_is_fixed_aggregate) return false;
-        const auto source_elements = indexed_element_layouts(source);
-        const auto target_elements = indexed_element_layouts(target);
-        if (source_elements.size() != target_elements.size()) return false;
-        for (std::size_t index = 0; index < source_elements.size(); ++index) {
-            if (!can_project_call_layout(source_elements[index], target_elements[index])) {
+        for (const auto& [name, target_slice] : ordered_record_fields(target)) {
+            if (target_slice.kind == ValueKind::Any && target_slice.width == 0) continue;
+            const auto found = source.selectors.find(name);
+            if (found == source.selectors.end()) return false;
+            if (!can_project_call_layout(
+                    record_field_layout(source, name, found->second),
+                    record_field_layout(target, name, target_slice))) {
                 return false;
             }
         }
@@ -4171,18 +4216,20 @@ inline void emit_projected_call_layout(
     const bool target_is_fixed_aggregate =
         target.kind == ValueKind::Aggregate && !is_record_layout(target);
     if (source_is_fixed_aggregate && target_is_fixed_aggregate) {
-        const auto source_fields = ordered_record_fields(source);
-        const auto target_fields = ordered_record_fields(target);
-        for (std::size_t index = 0; index < target_fields.size(); ++index) {
-            const auto& [source_name, source_slice] = source_fields[index];
-            const auto& [target_name, target_slice] = target_fields[index];
+        for (const auto& [name, target_slice] : ordered_record_fields(target)) {
+            if (target_slice.kind == ValueKind::Any && target_slice.width == 0) continue;
+            const auto found = source.selectors.find(name);
+            if (found == source.selectors.end()) {
+                throw LoweringFailure(
+                    "machine IR fixed aggregate projection is missing " + context + "." + name);
+            }
             emit_projected_call_layout(
                 builder,
                 strings,
-                source_local + source_slice.offset,
-                record_field_layout(source, source_name, source_slice),
-                record_field_layout(target, target_name, target_slice),
-                context + "." + std::to_string(index));
+                source_local + found->second.offset,
+                record_field_layout(source, name, found->second),
+                record_field_layout(target, name, target_slice),
+                context + "." + name);
         }
         return;
     }
@@ -14930,7 +14977,7 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
             refine_forwarded_parameter_layouts(
                 field(*function, "body", "function"), signatures[name], stable_signatures);
         }
-        refine_callsite_parameter_layouts(typed_ir, signatures);
+        refine_callsite_parameter_layouts(typed_ir, signatures, true);
         for (const auto& [name, function] : functions) {
             refine_function_environment_layouts(
                 *function, signatures[name], signatures);
