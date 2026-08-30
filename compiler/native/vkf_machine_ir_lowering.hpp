@@ -792,6 +792,7 @@ inline ValueLayout inferred_parameter_layout(
 ) {
     struct ProjectionNode {
         std::map<std::string, ProjectionNode> children;
+        bool full = false;
     };
     const auto projection_path = [&](const auto& self,
                                      const vf::JsonValue::Object& expression,
@@ -834,19 +835,45 @@ inline ValueLayout inferred_parameter_layout(
     };
     ProjectionNode root;
     bool found = false;
+    const auto record_projection = [&](const vf::JsonValue::Object& expression, bool full = false) {
+        std::vector<std::string> path;
+        if (!projection_path(projection_path, expression, path) || path.empty()) return;
+        found = true;
+        ProjectionNode* node = &root;
+        for (const auto& component : path) node = &node->children[component];
+        node->full = node->full || full;
+    };
     const auto collect = [&](const auto& self, const vf::JsonValue& value) -> void {
         if (value.is_array()) {
             for (const auto& item : value.as_array()) self(self, item);
             return;
         }
         if (!value.is_object()) return;
-        std::vector<std::string> path;
-        if (projection_path(projection_path, value.as_object(), path) && !path.empty()) {
-            found = true;
-            ProjectionNode* node = &root;
-            for (const auto& component : path) node = &node->children[component];
+        const auto& object = value.as_object();
+        const auto kind = object.find("kind");
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "call") {
+            const auto callee = object.find("callee");
+            if (callee != object.end() && callee->second.is_object()) {
+                const auto& callee_object = callee->second.as_object();
+                const auto callee_kind = callee_object.find("kind");
+                const auto callee_field = callee_object.find("field");
+                const auto callee_source = callee_object.find("object");
+                if (callee_kind != callee_object.end() && callee_kind->second.is_string() &&
+                    callee_kind->second.as_string() == "field_access" &&
+                    callee_field != callee_object.end() && callee_field->second.is_string() &&
+                    callee_field->second.as_string() == "length" &&
+                    callee_source != callee_object.end() && callee_source->second.is_object()) {
+                    record_projection(callee_source->second.as_object(), true);
+                    for (const auto& [name, child] : object) {
+                        if (name != "callee") self(self, child);
+                    }
+                    return;
+                }
+            }
         }
-        for (const auto& [name, child] : value.as_object()) {
+        record_projection(object);
+        for (const auto& [name, child] : object) {
             (void)name;
             self(self, child);
         }
@@ -859,6 +886,7 @@ inline ValueLayout inferred_parameter_layout(
         });
     };
     const auto make_layout = [&](const auto& self, const ProjectionNode& node) -> ValueLayout {
+        if (node.full) return {};
         const bool indexed = !node.children.empty() &&
             std::all_of(node.children.begin(), node.children.end(), [&](const auto& child) {
                 return numeric_name(child.first);
@@ -874,14 +902,15 @@ inline ValueLayout inferred_parameter_layout(
                 maximum + 1, ValueLayout{0, ValueKind::Any, {}});
             for (const auto& [name, child] : node.children) {
                 elements[static_cast<std::size_t>(std::stoul(name))] =
-                    child.children.empty() ? ValueLayout{} : self(self, child);
+                    child.full || !child.children.empty() ? self(self, child) : ValueLayout{};
             }
             return indexed_layout(elements);
         }
         ValueLayout record{0, ValueKind::Aggregate, {}};
         for (const auto& [name, child] : node.children) {
             assign_record_field_layout(
-                record, name, child.children.empty() ? ValueLayout{} : self(self, child));
+                record, name,
+                child.full || !child.children.empty() ? self(self, child) : ValueLayout{});
         }
         return record;
     };
@@ -9472,8 +9501,18 @@ inline ValueLayout lower_expression(
             }
             const auto& source = object_of(field(callee, "object", "length callee"), "length source");
             auto source_layout = layout_from_expression_shape(source, signatures);
-            if (string_field(source, "kind", "length source") == "load") {
+            const std::string source_kind = string_field(source, "kind", "length source");
+            if (source_kind == "load") {
                 source_layout = builder.layout(string_field(source, "name", "length source"));
+            } else if (source_kind == "field_access" || source_kind == "dotted_attr") {
+                const auto projection = projection_of(source);
+                if (const auto* root = builder.find_layout(projection.binding)) {
+                    const auto selected = root->selectors.find(projection.path);
+                    if (selected != root->selectors.end()) {
+                        source_layout = projected_layout(
+                            *root, projection.path, selected->second);
+                    }
+                }
             }
             if (source_layout.kind == ValueKind::DynamicF64List) {
                 const bool owns_input = expression_produces_owned_f64_list(source, signatures);
