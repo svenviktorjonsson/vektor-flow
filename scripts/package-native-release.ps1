@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
     [string]$BinaryDirectory = "build/native-compiler-clang/bin",
+    [string]$UiBinaryDirectory = "build/vf-overlay/Release",
     [string]$OutputDirectory = "dist/releases"
 )
 
@@ -9,11 +10,13 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $binaryRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $BinaryDirectory))
+$uiBinaryRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $UiBinaryDirectory))
 $outputRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDirectory))
 $repoPrefix = $repoRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
 if (-not $binaryRoot.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+    -not $uiBinaryRoot.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
     -not $outputRoot.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "BinaryDirectory and OutputDirectory must stay inside the repository"
+    throw "BinaryDirectory, UiBinaryDirectory, and OutputDirectory must stay inside the repository"
 }
 
 $stageRoot = Join-Path $outputRoot "vektor-flow-windows-x64"
@@ -27,6 +30,13 @@ if (-not (Test-Path -LiteralPath $compilerSource -PathType Leaf)) {
     throw "Missing release compiler: $compilerSource"
 }
 Copy-Item -LiteralPath $compilerSource -Destination (Join-Path $stageRoot "bin/vkf.exe")
+foreach ($helper in @("vkf-ui-package.exe", "vkf-runner.exe", "vkf-native-scene-artifact-stager.exe")) {
+    $helperSource = Join-Path $uiBinaryRoot $helper
+    if (-not (Test-Path -LiteralPath $helperSource -PathType Leaf)) {
+        throw "Missing private UI runtime helper: $helperSource"
+    }
+    Copy-Item -LiteralPath $helperSource -Destination (Join-Path $stageRoot "bin/$helper")
+}
 
 $stdlibTarget = Join-Path $stageRoot "compiler/self_hosted/stdlib"
 New-Item -ItemType Directory -Path $stdlibTarget -Force | Out-Null
@@ -53,7 +63,7 @@ $manifest = [ordered]@{
     entrypoint = "bin/vkf.exe"
     test_command = "vkf -t"
     stdlib_modules = @("math", "stat", "random", "time", "io", "collections", "errors", "system", "process", "regex", "linalg", "physics", "physics.units", "physics.units.si", "symbolic")
-    not_included_partial_modules = @("ui")
+    not_included_partial_modules = @()
     strict_direct = $true
     compatibility_fallback = $false
     runtime_contract = [ordered]@{
@@ -72,7 +82,7 @@ if ($forbiddenFiles) {
     throw "Strict native bundle contains forbidden compatibility/build sources: $($forbiddenFiles.FullName -join ', ')"
 }
 
-$smokeRoot = Join-Path $outputRoot ".installer-smoke"
+$smokeRoot = Join-Path $outputRoot ".s"
 if (Test-Path -LiteralPath $smokeRoot) { Remove-Item -LiteralPath $smokeRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $smokeRoot -Force | Out-Null
 $smokeSource = Join-Path $smokeRoot "installed_math.vkf"
@@ -81,15 +91,27 @@ m: .math
 :: m.tanh(0)
 "@ | Set-Content -LiteralPath $smokeSource -Encoding utf8
 
+$savedTemp = $env:TEMP
+$savedTmp = $env:TMP
+$isolatedTemp = Join-Path $smokeRoot ("temp-" + $PID)
 Push-Location $smokeRoot
 try {
+    New-Item -ItemType Directory -Path $isolatedTemp -Force | Out-Null
+    $env:TEMP = $isolatedTemp
+    $env:TMP = $isolatedTemp
     $compiler = Join-Path $stageRoot "bin/vkf.exe"
     $guardSource = Join-Path $smokeRoot "overwrite_guard.vkf"
     $guardOutput = Join-Path $smokeRoot "do-not-overwrite.exe"
     ':: 1' | Set-Content -LiteralPath $guardSource -Encoding utf8
     'user-owned-data' | Set-Content -LiteralPath $guardOutput -Encoding utf8
-    $guardMessage = & $compiler -b $guardSource -o $guardOutput 2>&1
-    $guardExitCode = $LASTEXITCODE
+    $savedErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $guardMessage = & $compiler -b $guardSource -o $guardOutput 2>&1
+        $guardExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
     if ($guardExitCode -eq 0 -or
         (Get-Content -LiteralPath $guardOutput -Raw).Trim() -ne 'user-owned-data' -or
         ($guardMessage -join "`n") -notmatch 'refusing to overwrite existing non-VKF file') {
@@ -97,8 +119,13 @@ try {
     }
     $decoyOutput = Join-Path $smokeRoot "marker-decoy.exe"
     'user-owned VKF-CACHE-V1:not-an-artifact' | Set-Content -LiteralPath $decoyOutput -Encoding utf8
-    $decoyMessage = & $compiler -b $guardSource -o $decoyOutput 2>&1
-    $decoyExitCode = $LASTEXITCODE
+    $ErrorActionPreference = "Continue"
+    try {
+        $decoyMessage = & $compiler -b $guardSource -o $decoyOutput 2>&1
+        $decoyExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
     if ($decoyExitCode -eq 0 -or
         (Get-Content -LiteralPath $decoyOutput -Raw).Trim() -ne 'user-owned VKF-CACHE-V1:not-an-artifact' -or
         ($decoyMessage -join "`n") -notmatch 'refusing to overwrite existing non-VKF file') {
@@ -117,6 +144,140 @@ try {
     $programOutput = & $programPath
     if ($LASTEXITCODE -ne 0 -or ($programOutput -join "`n").Trim() -ne "0") {
         throw "Packaged program smoke failed"
+    }
+    $uiSourceRoot = Join-Path $smokeRoot "u"
+    $uiRoot = Join-Path $uiSourceRoot "ui"
+    New-Item -ItemType Directory -Path (Join-Path $uiRoot "assets") -Force | Out-Null
+    $uiSource = Join-Path $uiSourceRoot "app.vkf"
+    @"
+: .ui.display
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.1, 0.2], size:[0.5, 0.6])
+frame.load("ui/main.html")
+"@ | Set-Content -LiteralPath $uiSource -Encoding utf8
+    '<link rel="stylesheet" href="theme.css"><button>Release UI</button>' |
+        Set-Content -LiteralPath (Join-Path $uiRoot "main.html") -Encoding utf8
+    'button { background-image: url("assets/icon.svg"); color: rgb(12, 34, 56); }' |
+        Set-Content -LiteralPath (Join-Path $uiRoot "theme.css") -Encoding utf8
+    '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>' |
+        Set-Content -LiteralPath (Join-Path $uiRoot "assets/icon.svg") -Encoding utf8
+    $uiFirst = Join-Path $uiSourceRoot "first.exe"
+    $uiSecond = Join-Path $uiSourceRoot "second.exe"
+    $savedPath = $env:PATH
+    $env:PATH = ""
+    try {
+        $uiFirstOutput = & $compiler -b $uiSource -o $uiFirst
+        $uiFirstExitCode = $LASTEXITCODE
+        $uiSecondOutput = & $compiler -b $uiSource -o $uiSecond
+        $uiSecondExitCode = $LASTEXITCODE
+
+        if ($uiFirstExitCode -ne 0 -or -not (Test-Path -LiteralPath $uiFirst) -or
+            ($uiFirstOutput -join "`n") -notmatch "^Built ") {
+            throw "Packaged compiler did not build the static UI application"
+        }
+        if ($uiSecondExitCode -ne 0 -or -not (Test-Path -LiteralPath $uiSecond) -or
+            (Get-FileHash -LiteralPath $uiFirst -Algorithm SHA256).Hash -ne
+            (Get-FileHash -LiteralPath $uiSecond -Algorithm SHA256).Hash) {
+            throw "Packaged UI application was not deterministic"
+        }
+    $uiBytes = [System.IO.File]::ReadAllBytes($uiFirst)
+    $uiFooter = [System.Text.Encoding]::ASCII.GetBytes("VKF_SCENE_BUNDLE_END_V1")
+    if ($uiBytes.Length -lt $uiFooter.Length) {
+        throw "Packaged UI application omitted its embedded scene bundle"
+    }
+    for ($index = 0; $index -lt $uiFooter.Length; $index++) {
+        if ($uiBytes[$uiBytes.Length - $uiFooter.Length + $index] -ne $uiFooter[$index]) {
+            throw "Packaged UI application omitted its embedded scene bundle"
+        }
+    }
+    $payloadSizeOffset = $uiBytes.Length - $uiFooter.Length - 8
+    $payloadSize = [System.BitConverter]::ToUInt64($uiBytes, $payloadSizeOffset)
+    if ($payloadSize -gt $payloadSizeOffset) {
+        throw "Packaged UI application reported an invalid scene bundle size"
+    }
+    $payloadStart = $payloadSizeOffset - [int64]$payloadSize
+    $uiPayloadText = [System.Text.Encoding]::UTF8.GetString($uiBytes, [int]$payloadStart, [int]$payloadSize)
+    if (-not $uiPayloadText.Contains('"schema":"vektorflow.internal.ui_package_provenance"')) {
+        throw "Packaged UI application omitted its private provenance"
+    }
+    $savedLocalAppData = $env:LOCALAPPDATA
+    $uiLocalAppData = Join-Path $savedLocalAppData ("VektorFlowPackageSmoke-" + $PID)
+    if (Test-Path -LiteralPath $uiLocalAppData) {
+        Remove-Item -LiteralPath $uiLocalAppData -Recurse -Force
+    }
+    $env:LOCALAPPDATA = $uiLocalAppData
+    try {
+            $openedUi = Join-Path $uiSourceRoot ("u10open-" + $PID + ".exe")
+            $taskkill = Join-Path $env:SystemRoot "System32/taskkill.exe"
+            $openCompiler = Start-Process -FilePath $compiler -ArgumentList @(
+                ('"' + $uiSource + '"'), "-o", ('"' + $openedUi + '"')
+            ) -WorkingDirectory $uiSourceRoot -PassThru
+            $openedProcess = $null
+            try {
+                for ($attempt = 0; $attempt -lt 300 -and -not $openCompiler.HasExited; $attempt++) {
+                    $openedProcess = Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($openedUi)) -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Path -eq $openedUi } |
+                        Select-Object -First 1
+                    if ($openedProcess) { break }
+                    Start-Sleep -Milliseconds 100
+                }
+                if (-not $openedProcess -or $openCompiler.HasExited) {
+                    throw "Packaged vkf app.vkf did not stay attached to the opened UI application"
+                }
+            } finally {
+                if (-not $openCompiler.HasExited) {
+                    & $taskkill /PID $openCompiler.Id /T /F 2>&1 | Out-Null
+                    $openCompiler.WaitForExit(10000) | Out-Null
+                } elseif ($openedProcess -and -not $openedProcess.HasExited) {
+                    & $taskkill /PID $openedProcess.Id /T /F 2>&1 | Out-Null
+                    $openedProcess.WaitForExit(10000) | Out-Null
+                }
+            }
+    $relocatedRoot = Join-Path $smokeRoot "r"
+    New-Item -ItemType Directory -Path $relocatedRoot -Force | Out-Null
+    $relocatedUi = Join-Path $relocatedRoot "renamed.exe"
+    Copy-Item -LiteralPath $uiFirst -Destination $relocatedUi
+    for ($attempt = 0; $attempt -lt 50 -and (Test-Path -LiteralPath $uiSourceRoot); $attempt++) {
+        try {
+            Remove-Item -LiteralPath $uiSourceRoot -Recurse -Force
+        } catch {
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    if (Test-Path -LiteralPath $uiSourceRoot) {
+        throw "Packaged UI open proof left its WebView profile locked"
+    }
+    if ((Get-ChildItem -LiteralPath $relocatedRoot -File).Count -ne 1) {
+        throw "Relocated UI application proof contained source or helper sidecars"
+    }
+    $uiProcess = $null
+    try {
+        $uiProcess = Start-Process -FilePath $relocatedUi -WorkingDirectory $relocatedRoot -PassThru
+        Start-Sleep -Seconds 2
+        if ($uiProcess.HasExited) {
+            throw "Relocated packaged UI application did not stay running"
+        }
+    } finally {
+        if ($uiProcess -and -not $uiProcess.HasExited) {
+            & $taskkill /PID $uiProcess.Id /T /F 2>&1 | Out-Null
+            $uiProcess.WaitForExit(10000) | Out-Null
+        }
+    }
+    } finally {
+        $env:LOCALAPPDATA = $savedLocalAppData
+        for ($attempt = 0; $attempt -lt 50 -and (Test-Path -LiteralPath $uiLocalAppData); $attempt++) {
+            try {
+                Remove-Item -LiteralPath $uiLocalAppData -Recurse -Force
+            } catch {
+                Start-Sleep -Milliseconds 200
+            }
+        }
+        if (Test-Path -LiteralPath $uiLocalAppData) {
+            throw "Packaged UI smoke left its isolated runtime cache behind"
+        }
+    }
+    } finally {
+        $env:PATH = $savedPath
     }
     @"
 io: .io
@@ -180,9 +341,10 @@ missing: system.env("VKF_MISSING_RELEASE_TEST_0_1_0")
     if ($LASTEXITCODE -ne 0 -or ($systemOutput -join "`n").Trim() -ne "windows`nx86_64`ntrue`ntrue`nfalse") {
         throw "Packaged native system smoke failed"
     }
+    $commandProcessor = $env:COMSPEC.Replace('\', '\\')
     @"
 process: .process
-result: process.run("cmd.exe", ["/d", "/c", "(<nul set /p =hello)&(<nul set /p =error>&2)&exit /b 7"])
+result: process.run("$commandProcessor", ["/d", "/c", "(<nul set /p =hello)&(<nul set /p =error>&2)&exit /b 7"])
 shell_result: process.shell("exit /b 0")
 :: result.code
 :: result.out
@@ -215,15 +377,22 @@ test installed_test() -> bit:
 "@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_test.vkf") -Encoding utf8
     $testOutput = & $compiler -t (Join-Path $smokeRoot "installed_test.vkf")
     if ($LASTEXITCODE -ne 0 -or ($testOutput -join "`n") -notmatch "PASS .*installed_test") {
-        throw "Packaged integrated test smoke failed"
-    }
-    $unsupportedOutput = & $compiler -e 'ui: .ui; :: 0' 2>&1
-    $unsupportedExitCode = $LASTEXITCODE
-    if ($unsupportedExitCode -eq 0 -or ($unsupportedOutput -join "`n") -notmatch "not included in the strict native release") {
-        throw "Strict release accepted an excluded stdlib module"
+        throw "Packaged integrated test smoke failed (exit $LASTEXITCODE): $($testOutput -join '`n')"
     }
     $global:LASTEXITCODE = 0
 } finally {
+    $env:TEMP = $savedTemp
+    $env:TMP = $savedTmp
+    for ($attempt = 0; $attempt -lt 50 -and (Test-Path -LiteralPath $isolatedTemp); $attempt++) {
+        try {
+            Remove-Item -LiteralPath $isolatedTemp -Recurse -Force
+        } catch {
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    if (Test-Path -LiteralPath $isolatedTemp) {
+        throw "Packaged release smoke left its isolated temporary state behind"
+    }
     Pop-Location
     Remove-Item -LiteralPath $smokeRoot -Recurse -Force
 }
