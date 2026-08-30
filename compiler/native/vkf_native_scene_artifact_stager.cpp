@@ -25,6 +25,7 @@ constexpr const char* kNativeSceneCompilerVersion = "vkf-native-scene-compiler-0
 struct Args {
     std::filesystem::path source;
     std::filesystem::path overlay_web;
+    std::filesystem::path typed_ir;
     std::string scene_config_json = "{}";
     std::string runtime_packets_json = "[]";
     std::string geom_transport_json = "{}";
@@ -494,6 +495,9 @@ public:
         const char ch = source_[pos_];
         if (ch == '(') {
             return parse_object(')');
+        }
+        if (ch == '{') {
+            return parse_object('}');
         }
         if (ch == '[') {
             return parse_array();
@@ -2491,6 +2495,222 @@ std::optional<std::string> extract_vkf_string_binding(const std::string& source,
     return std::nullopt;
 }
 
+void flatten_retained_html_numeric_value(
+    const VkfLiteralValue& value,
+    std::vector<double>& out
+) {
+    if (value.kind == VkfLiteralKind::Number) {
+        try {
+            const double number = std::stod(value.text);
+            if (!std::isfinite(number)) {
+                throw StagerError("retained HTML Frame geometry must be finite");
+            }
+            out.push_back(number);
+            return;
+        } catch (const StagerError&) {
+            throw;
+        } catch (...) {
+            throw StagerError("retained HTML Frame geometry must be numeric");
+        }
+    }
+    if (value.kind == VkfLiteralKind::Array) {
+        for (const auto& item : value.array) {
+            flatten_retained_html_numeric_value(item, out);
+        }
+        return;
+    }
+    if (value.kind == VkfLiteralKind::Object) {
+        const std::string kind = literal_string_or(value, "kind", "");
+        if (kind == "const") {
+            const VkfLiteralValue* nested = object_field(value, "value");
+            if (nested) {
+                flatten_retained_html_numeric_value(*nested, out);
+                return;
+            }
+        }
+        if (kind == "list") {
+            const VkfLiteralValue* nested = object_field(value, "items");
+            if (nested) {
+                flatten_retained_html_numeric_value(*nested, out);
+                return;
+            }
+        }
+    }
+    throw StagerError("retained HTML Frame geometry must be numeric");
+}
+
+std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
+    const std::filesystem::path& typed_ir_path
+) {
+    if (typed_ir_path.empty()) return std::nullopt;
+    const std::string typed_ir_text = read_file_bytes(typed_ir_path);
+    VkfLiteralParser parser(typed_ir_text, 0);
+    const VkfLiteralValue module = parser.parse_value();
+    const VkfLiteralValue* program = object_field(module, "ui_program");
+    if (!program) return std::nullopt;
+    if (program->kind != VkfLiteralKind::Object ||
+        literal_string_or(*program, "schema", "") != "vektor-flow/ui-program") {
+        throw StagerError("typed UI program has an unsupported schema");
+    }
+    const VkfLiteralValue* operations = object_field(*program, "operations");
+    if (!operations || operations->kind != VkfLiteralKind::Array) {
+        throw StagerError("typed UI operations must be an array");
+    }
+    bool has_attachment = false;
+    for (const auto& operation : operations->array) {
+        if (literal_string_or(operation, "kind", "") ==
+            "__vf_internal_attach_html_tree") {
+            has_attachment = true;
+            break;
+        }
+    }
+    if (!has_attachment) return std::nullopt;
+
+    const auto require_field = [](const VkfLiteralValue& value,
+                                  const std::string& key,
+                                  const std::string& context) -> const VkfLiteralValue& {
+        const VkfLiteralValue* found = object_field(value, key);
+        if (!found) throw StagerError("missing " + key + " in " + context);
+        return *found;
+    };
+    const auto require_number = [](const VkfLiteralValue& value,
+                                   const std::string& context) -> double {
+        if (value.kind != VkfLiteralKind::Number) {
+            throw StagerError("expected number for " + context);
+        }
+        try {
+            const double number = std::stod(value.text);
+            if (!std::isfinite(number)) throw StagerError("non-finite " + context);
+            return number;
+        } catch (const StagerError&) {
+            throw;
+        } catch (...) {
+            throw StagerError("invalid number for " + context);
+        }
+    };
+    const auto require_frame_id = [&](const VkfLiteralValue& value,
+                                      const std::string& context) -> std::uint64_t {
+        const double number = require_number(value, context);
+        if (number < 0.0 || std::floor(number) != number ||
+            number > static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
+            throw StagerError("invalid " + context);
+        }
+        return static_cast<std::uint64_t>(number);
+    };
+
+    struct FrameRect {
+        double x;
+        double y;
+        double w;
+        double h;
+    };
+    std::map<std::uint64_t, FrameRect> frames;
+    std::map<std::uint64_t, std::vector<std::string>> component_trees;
+    for (const auto& operation : operations->array) {
+        const std::string kind = literal_string_or(operation, "kind", "");
+        if (kind == "show") continue;
+        if (kind == "add_frame") {
+            if (literal_string_or(operation, "parent_kind", "") != "display") {
+                throw StagerError(
+                    "retained HTML attachment requires a Display-owned Frame");
+            }
+            const std::uint64_t frame_id = require_frame_id(
+                require_field(operation, "frame_id", "typed UI add_frame"),
+                "typed UI frame id");
+            std::vector<double> pos;
+            std::vector<double> size;
+            flatten_retained_html_numeric_value(
+                require_field(operation, "pos", "typed UI add_frame"), pos);
+            flatten_retained_html_numeric_value(
+                require_field(operation, "size", "typed UI add_frame"), size);
+            if (pos.size() != 2 || size.size() != 2) {
+                throw StagerError(
+                    "retained HTML attachment requires two-dimensional Frame geometry");
+            }
+            frames[frame_id] = {
+                pos[0], pos[1], size[0], size[1]};
+            continue;
+        }
+        if (kind == "__vf_internal_attach_html_tree") {
+            const VkfLiteralValue& target = require_field(
+                operation, "target", "internal component-tree attachment");
+            if (literal_string_or(target, "kind", "") != "frame") {
+                throw StagerError(
+                    "internal component-tree attachment requires a Frame target");
+            }
+            const std::uint64_t frame_id = require_frame_id(
+                require_field(target, "id", "internal component-tree target"),
+                "internal component-tree frame id");
+            if (component_trees.find(frame_id) != component_trees.end()) {
+                throw StagerError(
+                    "internal component-tree attachment accepts one tree per Frame");
+            }
+            const VkfLiteralValue& identities = require_field(
+                operation, "identities", "internal component-tree attachment");
+            if (identities.kind != VkfLiteralKind::Array || identities.array.empty()) {
+                throw StagerError(
+                    "internal component-tree attachment requires component identities");
+            }
+            std::vector<std::string> tree;
+            for (const auto& identity : identities.array) {
+                if (identity.kind != VkfLiteralKind::String ||
+                    (identity.text != "Div" && identity.text != "Button")) {
+                    throw StagerError(
+                        "internal component-tree attachment only accepts compiled Div and Button identities");
+                }
+                tree.push_back(identity.text);
+            }
+            component_trees.emplace(frame_id, std::move(tree));
+            continue;
+        }
+        throw StagerError(
+            "retained HTML attachment does not combine UI operation `" + kind + "`");
+    }
+
+    std::ostringstream commands;
+    bool first_command = true;
+    for (const auto& entry : component_trees) {
+        const auto frame = frames.find(entry.first);
+        if (frame == frames.end()) {
+            throw StagerError(
+                "retained HTML target was not created by Display.add_frame");
+        }
+        if (!first_command) commands << ",";
+        first_command = false;
+        const std::string frame_id = "frame_" + std::to_string(entry.first);
+        commands << "{\"kind\":\"frame_upsert\",\"id\":\""
+                 << json_escape(frame_id)
+                 << "\",\"payload\":{\"spec\":{\"id\":\""
+                 << json_escape(frame_id)
+                 << "\",\"title\":\"\",\"title_align\":\"left\",";
+        commands << "\"rect\":{\"x\":" << std::setprecision(15) << frame->second.x
+                 << ",\"y\":" << frame->second.y
+                 << ",\"w\":" << frame->second.w
+                 << ",\"h\":" << frame->second.h << "},";
+        commands << "\"flags\":{\"draggable\":true,\"dockable\":true,"
+                 << "\"resizable\":true,\"closable\":true,\"use_browser\":true},"
+                 << "\"alpha\":1,\"master\":false,\"dock_location\":\"tl\","
+                 << "\"anchor\":\"tl\",\"body\":null,\"body_transparent\":false,"
+                 << "\"body_layout\":null,\"parent_id\":null,\"aspect\":null,"
+                 << "\"frameless\":false,\"__vf_internal_html_components\":[";
+        for (std::size_t index = 0; index < entry.second.size(); ++index) {
+            if (index > 0) commands << ",";
+            commands << "\"" << json_escape(entry.second[index]) << "\"";
+        }
+        commands << "]}}}";
+    }
+
+    CompiledUiSceneBundle bundle;
+    bundle.scene_config_json = "[]";
+    bundle.runtime_packets_json =
+        "[{\"seq\":1,\"kind\":\"scene.replace\",\"payload\":{\"commands\":[" +
+        commands.str() + "]}},{\"seq\":2,\"kind\":\"ui_state.replace\"," +
+        "\"payload\":{\"state\":{}}},{\"seq\":3,\"kind\":\"display.replace\"," +
+        "\"payload\":{\"display\":{\"screen\":[],\"frames\":{},\"geom\":{}}}}]";
+    bundle.provenance = "vkf-retained-html-tree-lowering";
+    return bundle;
+}
+
 Args parse_args(int argc, char** argv) {
     Args args;
     for (int i = 1; i < argc; ++i) {
@@ -2506,6 +2726,8 @@ Args parse_args(int argc, char** argv) {
             args.source = require_value(arg);
         } else if (arg == "--overlay-web") {
             args.overlay_web = require_value(arg);
+        } else if (arg == "--typed-ir") {
+            args.typed_ir = require_value(arg);
         } else if (arg == "--scene-config") {
             args.scene_config_json = require_value(arg);
             args.scene_config_supplied = true;
@@ -2521,7 +2743,7 @@ Args parse_args(int argc, char** argv) {
         } else if (arg == "--help" || arg == "-h") {
             throw StagerError(
                 "usage: vkf_native_scene_artifact_stager --source file.vkf --overlay-web webdir "
-                "--scene-config json [--runtime-packets json]");
+                "[--typed-ir typed-ir.json] --scene-config json [--runtime-packets json]");
         } else {
             throw StagerError("unknown argument " + arg);
         }
@@ -2563,7 +2785,11 @@ int run(int argc, char** argv) {
             scene_config_provenance.path = slash_path(config_path);
             scene_config_provenance.source_hash_checked = true;
         } else {
-            auto compiled_ui_scene = try_compile_native_scene_from_source(source_text, effective.overlay_web);
+            auto compiled_ui_scene = try_compile_retained_html_tree(effective.typed_ir);
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_native_scene_from_source(
+                    source_text, effective.overlay_web);
+            }
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_axis_mode_deck_from_source(source_text);
             }

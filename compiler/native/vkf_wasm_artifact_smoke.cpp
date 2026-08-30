@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -850,6 +851,223 @@ bool parse_update_function(const vf::JsonValue::Object& stmt, const std::vector<
     return true;
 }
 
+void flatten_retained_html_numeric_value(
+    const vf::JsonValue& value,
+    std::vector<double>& out
+) {
+    if (value.is_number()) {
+        out.push_back(value.as_number());
+        return;
+    }
+    if (value.is_array()) {
+        for (const auto& item : value.as_array()) {
+            flatten_retained_html_numeric_value(item, out);
+        }
+        return;
+    }
+    if (value.is_object()) {
+        const auto& object = value.as_object();
+        const std::string kind = string_field(
+            object, "kind", "retained HTML numeric value");
+        if (kind == "const") {
+            flatten_retained_html_numeric_value(
+                field(object, "value", "retained HTML const"), out);
+            return;
+        }
+        if (kind == "list") {
+            flatten_retained_html_numeric_value(
+                field(object, "items", "retained HTML list"), out);
+            return;
+        }
+    }
+    throw WasmArtifactFailure("retained HTML Frame geometry must be numeric");
+}
+
+void collect_retained_html_packet_binding(
+    const vf::JsonValue& root_value,
+    WasmModulePlan& plan
+) {
+    const auto& root = object_of(root_value, "typed IR root");
+    const auto program_entry = root.find("ui_program");
+    if (program_entry == root.end()) return;
+    const auto& program = object_of(program_entry->second, "typed UI program");
+    if (string_field(program, "schema", "typed UI program") !=
+        "vektor-flow/ui-program") {
+        throw WasmArtifactFailure("typed UI program has an unsupported schema");
+    }
+    const auto& operations = array_of(
+        field(program, "operations", "typed UI program"),
+        "typed UI program.operations");
+    bool has_attachment = false;
+    for (const auto& raw_operation : operations) {
+        const auto& operation = object_of(raw_operation, "typed UI operation");
+        if (string_field(operation, "kind", "typed UI operation") ==
+            "__vf_internal_attach_html_tree") {
+            has_attachment = true;
+            break;
+        }
+    }
+    if (!has_attachment) return;
+
+    struct FrameRect {
+        double x;
+        double y;
+        double w;
+        double h;
+    };
+    std::map<std::int32_t, FrameRect> frames;
+    std::map<std::int32_t, std::vector<std::string>> component_trees;
+    for (const auto& raw_operation : operations) {
+        const auto& operation = object_of(raw_operation, "typed UI operation");
+        const std::string kind = string_field(operation, "kind", "typed UI operation");
+        if (kind == "show") continue;
+        if (kind == "add_frame") {
+            if (string_field(operation, "parent_kind", "typed UI add_frame") !=
+                "display") {
+                throw WasmArtifactFailure(
+                    "retained HTML attachment requires a Display-owned Frame");
+            }
+            const std::int32_t frame_id = checked_i32(
+                field(operation, "frame_id", "typed UI add_frame"),
+                "typed UI frame id");
+            std::vector<double> pos;
+            std::vector<double> size;
+            flatten_retained_html_numeric_value(
+                field(operation, "pos", "typed UI add_frame"), pos);
+            flatten_retained_html_numeric_value(
+                field(operation, "size", "typed UI add_frame"), size);
+            if (pos.size() != 2 || size.size() != 2) {
+                throw WasmArtifactFailure(
+                    "retained HTML attachment requires two-dimensional Frame geometry");
+            }
+            frames[frame_id] = {
+                pos[0], pos[1], size[0], size[1]};
+            continue;
+        }
+        if (kind == "__vf_internal_attach_html_tree") {
+            const auto& target = object_of(
+                field(operation, "target", "internal component-tree attachment"),
+                "internal component-tree target");
+            if (string_field(target, "kind", "internal component-tree target") !=
+                "frame") {
+                throw WasmArtifactFailure(
+                    "internal component-tree attachment requires a Frame target");
+            }
+            const std::int32_t frame_id = checked_i32(
+                field(target, "id", "internal component-tree target"),
+                "internal component-tree frame id");
+            if (component_trees.find(frame_id) != component_trees.end()) {
+                throw WasmArtifactFailure(
+                    "internal component-tree attachment accepts one tree per Frame");
+            }
+            const auto& identities = array_of(
+                field(operation, "identities", "internal component-tree attachment"),
+                "internal component identities");
+            if (identities.empty()) {
+                throw WasmArtifactFailure(
+                    "internal component-tree attachment requires component identities");
+            }
+            std::vector<std::string> tree;
+            for (const auto& identity : identities) {
+                if (!identity.is_string() ||
+                    (identity.as_string() != "Div" && identity.as_string() != "Button")) {
+                    throw WasmArtifactFailure(
+                        "internal component-tree attachment only accepts compiled Div and Button identities");
+                }
+                tree.push_back(identity.as_string());
+            }
+            component_trees.emplace(frame_id, std::move(tree));
+            continue;
+        }
+        throw WasmArtifactFailure(
+            "retained HTML attachment does not combine UI operation `" + kind + "`");
+    }
+
+    vf::JsonValue::Array commands;
+    for (const auto& entry : component_trees) {
+        const std::int32_t frame_id = entry.first;
+        const auto frame = frames.find(frame_id);
+        if (frame == frames.end()) {
+            throw WasmArtifactFailure(
+                "retained HTML target was not created by Display.add_frame");
+        }
+        const std::string retained_frame_id = "frame_" + std::to_string(frame_id);
+        vf::JsonValue::Object rect;
+        rect["x"] = vf::JsonValue(frame->second.x);
+        rect["y"] = vf::JsonValue(frame->second.y);
+        rect["w"] = vf::JsonValue(frame->second.w);
+        rect["h"] = vf::JsonValue(frame->second.h);
+        vf::JsonValue::Object flags;
+        flags["draggable"] = vf::JsonValue(true);
+        flags["dockable"] = vf::JsonValue(true);
+        flags["resizable"] = vf::JsonValue(true);
+        flags["closable"] = vf::JsonValue(true);
+        flags["use_browser"] = vf::JsonValue(true);
+        vf::JsonValue::Array tree;
+        for (const auto& identity : entry.second) {
+            tree.push_back(vf::JsonValue(identity));
+        }
+        vf::JsonValue::Object spec;
+        spec["id"] = vf::JsonValue(retained_frame_id);
+        spec["title"] = vf::JsonValue("");
+        spec["title_align"] = vf::JsonValue("left");
+        spec["rect"] = vf::JsonValue(std::move(rect));
+        spec["flags"] = vf::JsonValue(std::move(flags));
+        spec["alpha"] = vf::JsonValue(1.0);
+        spec["master"] = vf::JsonValue(false);
+        spec["dock_location"] = vf::JsonValue("tl");
+        spec["anchor"] = vf::JsonValue("tl");
+        spec["body"] = vf::JsonValue(nullptr);
+        spec["body_transparent"] = vf::JsonValue(false);
+        spec["body_layout"] = vf::JsonValue(nullptr);
+        spec["parent_id"] = vf::JsonValue(nullptr);
+        spec["aspect"] = vf::JsonValue(nullptr);
+        spec["frameless"] = vf::JsonValue(false);
+        spec["__vf_internal_html_components"] = vf::JsonValue(std::move(tree));
+        vf::JsonValue::Object payload;
+        payload["spec"] = vf::JsonValue(std::move(spec));
+        vf::JsonValue::Object command;
+        command["kind"] = vf::JsonValue("frame_upsert");
+        command["id"] = vf::JsonValue(retained_frame_id);
+        command["payload"] = vf::JsonValue(std::move(payload));
+        commands.push_back(vf::JsonValue(std::move(command)));
+    }
+
+    vf::JsonValue::Array packets;
+    vf::JsonValue::Object scene_payload;
+    scene_payload["commands"] = vf::JsonValue(std::move(commands));
+    vf::JsonValue::Object scene;
+    scene["seq"] = vf::JsonValue(1.0);
+    scene["kind"] = vf::JsonValue("scene.replace");
+    scene["payload"] = vf::JsonValue(std::move(scene_payload));
+    packets.push_back(vf::JsonValue(std::move(scene)));
+    vf::JsonValue::Object state_payload;
+    state_payload["state"] = vf::JsonValue(vf::JsonValue::Object{});
+    vf::JsonValue::Object state;
+    state["seq"] = vf::JsonValue(2.0);
+    state["kind"] = vf::JsonValue("ui_state.replace");
+    state["payload"] = vf::JsonValue(std::move(state_payload));
+    packets.push_back(vf::JsonValue(std::move(state)));
+    vf::JsonValue::Object display_data;
+    display_data["screen"] = vf::JsonValue(vf::JsonValue::Array{});
+    display_data["frames"] = vf::JsonValue(vf::JsonValue::Object{});
+    display_data["geom"] = vf::JsonValue(vf::JsonValue::Object{});
+    vf::JsonValue::Object display_payload;
+    display_payload["display"] = vf::JsonValue(std::move(display_data));
+    vf::JsonValue::Object display;
+    display["seq"] = vf::JsonValue(3.0);
+    display["kind"] = vf::JsonValue("display.replace");
+    display["payload"] = vf::JsonValue(std::move(display_payload));
+    packets.push_back(vf::JsonValue(std::move(display)));
+
+    WasmBinding packet_binding;
+    packet_binding.name = "$ui$compiled$packets";
+    packet_binding.kind = WasmBinding::Kind::String;
+    packet_binding.string_value = vf::json_stringify(
+        vf::JsonValue(std::move(packets)), -1);
+    plan.bindings.push_back(std::move(packet_binding));
+}
+
 WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
     auto filtered_root = object_of(root, "typed IR root");
     vf::JsonValue::Array filtered_body;
@@ -902,6 +1120,7 @@ WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
         }
         throw WasmArtifactFailure("unsupported typed IR module item for wasm artifact emission");
     }
+    collect_retained_html_packet_binding(root, plan);
     return plan;
 }
 

@@ -315,7 +315,9 @@
           try {
             bodySignature = JSON.stringify({
               body: Array.isArray(spec.body) ? spec.body : [],
-              body_layout: spec.body_layout || null
+              body_layout: spec.body_layout || null,
+              __vf_internal_html_components: Array.isArray(spec.__vf_internal_html_components)
+                ? spec.__vf_internal_html_components : []
             });
           } catch (_) {
             bodySignature = "";
@@ -327,6 +329,20 @@
             applySpecRectToPanel(panel, spec);
           } else if ((!spec.body || !Array.isArray(spec.body) || spec.body.length === 0) &&
                      panel.root.__vfBodySignature !== bodySignature) {
+            var internalIdentities = Array.isArray(spec.__vf_internal_html_components)
+              ? spec.__vf_internal_html_components : [];
+            var preparedInternalTree = null;
+            if (internalIdentities.length > 0) {
+              if (!global.VfHtmlComponents || !global.VfHtmlComponents.__internal ||
+                  typeof global.VfHtmlComponents.__internal.mountTree !== "function") {
+                runtimeFail("applySceneCommands: internal HTML component runtime is unavailable");
+              }
+              preparedInternalTree = document.createElement("div");
+              var preparedInternalElements = global.VfHtmlComponents.__internal.mountTree(
+                preparedInternalTree,
+                internalIdentities
+              );
+            }
             if (widgets && typeof widgets.clearFrame === "function") {
               widgets.clearFrame(id);
             }
@@ -339,6 +355,14 @@
                   body.removeChild(ch);
                 }
                 ch = next;
+              }
+              if (preparedInternalTree) {
+                while (preparedInternalTree.firstChild) {
+                  body.appendChild(preparedInternalTree.firstChild);
+                }
+                if (typeof global.VfHtmlComponents.__internal.adoptTree === "function") {
+                  global.VfHtmlComponents.__internal.adoptTree(body, preparedInternalElements);
+                }
               }
             }
             panel.root.__vfBodySignature = bodySignature;
