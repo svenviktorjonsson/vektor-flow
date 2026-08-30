@@ -32,7 +32,7 @@ piece_at(board:any, file:num, rank:num) -> Piece:
         found.side = Side.none?
             p.captured = false?
                 rules.same_square(p, file, rank)?
-                    found: p
+                    .found: p
         i: i + 1
     @: found
 
