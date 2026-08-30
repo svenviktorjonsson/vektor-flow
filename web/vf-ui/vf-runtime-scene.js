@@ -27,6 +27,7 @@
     var displayRefresh = options.displayRefresh || function() {};
     var isLegacyFallbackActive = options.isLegacyFallbackActive || function() { return false; };
     var livePanelsById = Object.create(null);
+    var lastInternalHtmlPatchSequence = 0;
 
     function runtimeFail(message) {
       var text = String(message || "runtime scene failure");
@@ -52,6 +53,33 @@
       var layer = getLayer();
       if (!layer || !deps.frame || !deps.frame.postNativeHostLayout) { return; }
       deps.frame.postNativeHostLayout(layer, { stageAlpha: 0 });
+    }
+
+    function applyInternalHtmlPatchPacket(packet) {
+      var patch = packet && packet.payload && packet.payload.__vf_internal_retained_html_patch;
+      var owner = patch && patch.owner;
+      var sequence = Number(packet && packet.seq);
+      if (!patch || patch.version !== 1 || !owner ||
+          !Number.isInteger(sequence) || sequence <= lastInternalHtmlPatchSequence) {
+        runtimeFail("applyInternalHtmlPatchPacket: malformed or stale private patch packet");
+      }
+      var ownerRoot = null;
+      if (owner.kind === "frame") {
+        var panel = livePanelsById[String(owner.id || "")];
+        ownerRoot = panel && panel.body;
+      } else if (owner.kind === "display") {
+        var layer = getLayer();
+        var displayId = layer && layer.dataset
+          ? String(layer.dataset.vfDisplayId || layer.id || "")
+          : "";
+        if (displayId === String(owner.id || "")) { ownerRoot = layer; }
+      }
+      if (!ownerRoot || !global.VfHtmlComponents || !global.VfHtmlComponents.__internal ||
+          typeof global.VfHtmlComponents.__internal.applyPatch !== "function") {
+        runtimeFail("applyInternalHtmlPatchPacket: retained owner is unavailable");
+      }
+      global.VfHtmlComponents.__internal.applyPatch(ownerRoot, patch);
+      lastInternalHtmlPatchSequence = sequence;
     }
 
     function applySpecRectToPanel(panel, spec) {
@@ -417,7 +445,8 @@
 
     return {
       syncNativeLayout: syncNativeLayout,
-      applySceneCommands: applySceneCommands
+      applySceneCommands: applySceneCommands,
+      applyInternalHtmlPatchPacket: applyInternalHtmlPatchPacket
     };
   }
 

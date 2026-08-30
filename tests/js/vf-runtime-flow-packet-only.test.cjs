@@ -247,6 +247,61 @@ function createFlow(options) {
   }
 
   {
+    const state = {};
+    const applied = [];
+    const flow = createFlow({
+      config: { strictPacketOnly: true },
+      state,
+      applyInternalHtmlPatchPacket(packet) { applied.push(packet); },
+    });
+    const packet = {
+      seq: 1,
+      kind: "__vf_internal_html.patch",
+      payload: {
+        __vf_internal_retained_html_patch: {
+          version: 1,
+          owner: { kind: "frame", id: "frame-0" },
+          target: 0,
+          mutation: { tag: 1, name: "", value: "Ready" },
+        },
+      },
+    };
+    flow.routeRuntimePacket(packet);
+    assert.deepEqual(applied, [packet]);
+    assert.equal(state.lastRuntimePacketSeq, 1);
+    assert.throws(
+      () => flow.routeRuntimePacket({
+        ...packet,
+        seq: 2,
+        payload: {
+          __vf_internal_retained_html_patch: {
+            ...packet.payload.__vf_internal_retained_html_patch,
+            mutation: { tag: 2, name: "onclick", value: "bad()" },
+          },
+        },
+      }),
+      /private retained HTML patch is malformed/
+    );
+    assert.equal(state.lastRuntimePacketSeq, 1);
+    assert.equal(applied.length, 1);
+    assert.throws(
+      () => flow.routeRuntimePacket({
+        ...packet,
+        seq: 2,
+        payload: {
+          __vf_internal_retained_html_patch: {
+            ...packet.payload.__vf_internal_retained_html_patch,
+            mutation: { tag: 1, name: "", value: "bad", extra: true },
+          },
+        },
+      }),
+      /private retained HTML patch is malformed/
+    );
+    assert.equal(state.lastRuntimePacketSeq, 1);
+    assert.equal(applied.length, 1);
+  }
+
+  {
     const flow = createFlow({
       config: { strictPacketOnly: false },
       state: { runtimePacketsSeen: true },

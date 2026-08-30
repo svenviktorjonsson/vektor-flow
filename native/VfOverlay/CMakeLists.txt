@@ -467,6 +467,19 @@ if(MSVC)
   target_link_options(vf-ui-owner-event-queues-test PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
 
+add_executable(vf-retained-html-patch-runtime-test
+  retained_html_patch_runtime_test.cpp
+  vf/json.cpp
+  vf/ui_runtime_contract.cpp
+)
+target_include_directories(vf-retained-html-patch-runtime-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+if(MSVC)
+  target_compile_options(vf-retained-html-patch-runtime-test PRIVATE /Zi)
+  target_link_options(vf-retained-html-patch-runtime-test PRIVATE /DEBUG /INCREMENTAL:NO)
+endif()
+
 add_executable(overlay-packet-runtime-reload-test
   overlay_packet_runtime.cpp
   overlay_packet_runtime_reload_test.cpp

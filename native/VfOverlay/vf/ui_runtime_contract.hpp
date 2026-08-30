@@ -19,6 +19,7 @@ enum class UiRuntimePacketKind {
     GeomColorPatch,
     WidgetAppendText,
     InputEvent,
+    InternalHtmlPatch,
 };
 
 const char* ToString(UiRuntimePacketKind kind);
@@ -53,13 +54,18 @@ struct InputEventPacketPayload {
     JsonValue::Object event;
 };
 
+struct InternalHtmlPatchPacketPayload {
+    JsonValue::Object patch;
+};
+
 using UiRuntimePacketPayload = std::variant<
     SceneReplacePacketPayload,
     UiStateReplacePacketPayload,
     DisplayReplacePacketPayload,
     GeomColorPatchPacketPayload,
     WidgetAppendTextPacketPayload,
-    InputEventPacketPayload>;
+    InputEventPacketPayload,
+    InternalHtmlPatchPacketPayload>;
 
 struct UiRuntimePacket {
     std::uint64_t seq = 0;
@@ -141,6 +147,7 @@ JsonValue ToJsonValue(const DisplayReplacePacketPayload& payload);
 JsonValue ToJsonValue(const GeomColorPatchPacketPayload& payload);
 JsonValue ToJsonValue(const WidgetAppendTextPacketPayload& payload);
 JsonValue ToJsonValue(const InputEventPacketPayload& payload);
+JsonValue ToJsonValue(const InternalHtmlPatchPacketPayload& payload);
 JsonValue ToJsonValue(const UiRuntimePacket& packet);
 JsonValue ToJsonValue(const UiRuntimePacketSnapshotMetadata& metadata);
 JsonValue ToJsonValue(const UiRuntimePacketSnapshot& snapshot);
@@ -305,6 +312,8 @@ const DisplayReplacePacketPayload* AsDisplayReplacePacketPayload(const UiRuntime
 const GeomColorPatchPacketPayload* AsGeomColorPatchPacketPayload(const UiRuntimePacket& packet) noexcept;
 const WidgetAppendTextPacketPayload* AsWidgetAppendTextPacketPayload(const UiRuntimePacket& packet) noexcept;
 const InputEventPacketPayload* AsInputEventPacketPayload(const UiRuntimePacket& packet) noexcept;
+const InternalHtmlPatchPacketPayload* AsInternalHtmlPatchPacketPayload(
+    const UiRuntimePacket& packet) noexcept;
 
 const JsonValue::Object& GetInputEventObject(const InputEventPacketPayload& payload) noexcept;
 bool HasInputEventField(const InputEventPacketPayload& payload, std::string_view key) noexcept;

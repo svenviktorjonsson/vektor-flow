@@ -16,7 +16,8 @@
     "display.replace": true,
     "geom.color.patch": true,
     "widget.append_text": true,
-    "input.event": true
+    "input.event": true,
+    "__vf_internal_html.patch": true
   };
 
   var BOOTSTRAP_COALESCE_KINDS = {
@@ -24,6 +25,12 @@
     "ui_state.replace": true,
     "display.replace": true
   };
+
+  function hasExactKeys(value, keys) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) { return false; }
+    var actual = Object.keys(value);
+    return actual.length === keys.length && actual.every(function(key) { return keys.indexOf(key) >= 0; });
+  }
 
   function validatePacketPayload(kind, payload, phase) {
     kind = String(kind || "");
@@ -58,6 +65,24 @@
           (event.widget_id != null && (typeof event.widget_id !== "string" || !event.widget_id)) ||
           (event.frame_id != null && (typeof event.frame_id !== "string" || !event.frame_id))) {
         return phase === "source" ? "malformed input.event packet" : "input.event packet missing event payload";
+      }
+    }
+    if (kind === "__vf_internal_html.patch") {
+      var patch = payload && payload.__vf_internal_retained_html_patch;
+      var owner = patch && patch.owner;
+      var mutation = patch && patch.mutation;
+      if (!hasExactKeys(payload, ["__vf_internal_retained_html_patch"]) ||
+          !hasExactKeys(patch, ["version", "owner", "target", "mutation"]) || patch.version !== 1 ||
+          !hasExactKeys(owner, ["kind", "id"]) ||
+          !owner || (owner.kind !== "frame" && owner.kind !== "display") ||
+          typeof owner.id !== "string" || !owner.id ||
+          !Number.isInteger(patch.target) || patch.target < 0 ||
+          !hasExactKeys(mutation, ["tag", "name", "value"]) ||
+          !mutation || (mutation.tag !== 1 && mutation.tag !== 2) ||
+          typeof mutation.name !== "string" || typeof mutation.value !== "string" ||
+          (mutation.tag === 1 && mutation.name !== "") ||
+          (mutation.tag === 2 && (!mutation.name || /^on/i.test(mutation.name)))) {
+        return "private retained HTML patch is malformed";
       }
     }
     return "";

@@ -38,5 +38,7 @@ assert.match(source, /strict packet-only runtime packet source failed: runtime f
 assert.match(source, /strict packet-only scene delivery failed: scene adapter unavailable/);
 assert.match(source, /strict packet-only runtime packet routing failed: runtime flow unavailable/);
 assert.match(source, /strict packet-only runtime payload delivery failed: runtime flow unavailable/);
+assert.match(source, /function applyInternalHtmlPatchPacket/);
+assert.match(source, /applyInternalHtmlPatchPacket:\s*applyInternalHtmlPatchPacket/);
 
 console.log("vf-runtime-shell-deps tests passed");

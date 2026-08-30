@@ -745,6 +745,7 @@
         runtimeLog: runtimeLog,
         getRuntimeSource: getRuntimeSource,
         applySceneCommands: applySceneCommands,
+        applyInternalHtmlPatchPacket: applyInternalHtmlPatchPacket,
         state: state
       });
       return state.runtimeFlow;
@@ -787,6 +788,14 @@
         return;
       }
       adapter.applySceneCommands(data);
+    }
+
+    function applyInternalHtmlPatchPacket(packet) {
+      var adapter = getSceneAdapter();
+      if (!adapter || !adapter.applyInternalHtmlPatchPacket) {
+        throw new Error("private retained HTML patch scene adapter unavailable");
+      }
+      adapter.applyInternalHtmlPatchPacket(packet);
     }
 
     function routeRuntimePacket(packet) {

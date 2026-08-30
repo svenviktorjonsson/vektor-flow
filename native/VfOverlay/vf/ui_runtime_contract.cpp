@@ -111,6 +111,46 @@ void validate_input_event_object(const JsonObject& event) {
     }
 }
 
+void validate_internal_html_patch_record(const JsonObject& patch) {
+    require_allowed_keys(patch, {"version", "owner", "target", "mutation"}, "private retained HTML patch");
+    if (require_uint64(require_object_field(patch, "version"), "version") != 1U) {
+        throw std::runtime_error("private retained HTML patch version must be 1");
+    }
+
+    const JsonObject& owner = require_object_field(patch, "owner").as_object();
+    require_allowed_keys(owner, {"kind", "id"}, "private retained HTML patch owner");
+    const std::string& owner_kind = require_object_field(owner, "kind").as_string();
+    if (owner_kind != "frame" && owner_kind != "display") {
+        throw std::runtime_error("private retained HTML patch owner kind must be frame or display");
+    }
+    if (require_object_field(owner, "id").as_string().empty()) {
+        throw std::runtime_error("private retained HTML patch owner id must not be empty");
+    }
+
+    static_cast<void>(require_uint64(require_object_field(patch, "target"), "target"));
+    const JsonObject& mutation = require_object_field(patch, "mutation").as_object();
+    require_allowed_keys(mutation, {"tag", "name", "value"}, "private retained HTML patch mutation");
+    const std::uint64_t tag = require_uint64(require_object_field(mutation, "tag"), "tag");
+    const std::string& name = require_object_field(mutation, "name").as_string();
+    static_cast<void>(require_object_field(mutation, "value").as_string());
+    const bool event_handler_name = name.size() >= 2 &&
+        (name[0] == 'o' || name[0] == 'O') &&
+        (name[1] == 'n' || name[1] == 'N');
+    if (tag == 1U) {
+        if (!name.empty()) {
+            throw std::runtime_error("private retained HTML text mutation name must be empty");
+        }
+        return;
+    }
+    if (tag == 2U) {
+        if (name.empty() || event_handler_name) {
+            throw std::runtime_error("private retained HTML attribute mutation name is invalid");
+        }
+        return;
+    }
+    throw std::runtime_error("private retained HTML patch mutation tag is invalid");
+}
+
 SceneReplacePacketPayload parse_scene_replace_payload(const JsonValue::Object& payload) {
     require_allowed_keys(payload, {"commands"}, "scene.replace payload");
     const JsonValue& commands = require_object_field(payload, "commands");
@@ -157,6 +197,17 @@ InputEventPacketPayload parse_input_event_payload(const JsonValue::Object& paylo
     const JsonObject& event_object = event.as_object();
     validate_input_event_object(event_object);
     return InputEventPacketPayload{event_object};
+}
+
+InternalHtmlPatchPacketPayload parse_internal_html_patch_payload(const JsonValue::Object& payload) {
+    require_allowed_keys(
+        payload,
+        {"__vf_internal_retained_html_patch"},
+        "private retained HTML patch payload");
+    const JsonObject& patch =
+        require_object_field(payload, "__vf_internal_retained_html_patch").as_object();
+    validate_internal_html_patch_record(patch);
+    return InternalHtmlPatchPacketPayload{patch};
 }
 
 JsonValue packet_payload_to_json(const UiRuntimePacketPayload& payload) {
@@ -268,6 +319,8 @@ UiRuntimePacketSnapshot build_snapshot_from_packets(
         case UiRuntimePacketKind::InputEvent:
             snapshot.input_event_packets.push_back(*AsInputEventPacketPayload(packet));
             break;
+        case UiRuntimePacketKind::InternalHtmlPatch:
+            break;
         }
     }
 
@@ -290,6 +343,8 @@ const char* ToString(UiRuntimePacketKind kind) {
         return "widget.append_text";
     case UiRuntimePacketKind::InputEvent:
         return "input.event";
+    case UiRuntimePacketKind::InternalHtmlPatch:
+        return "__vf_internal_html.patch";
     default:
         return "unknown";
     }
@@ -313,6 +368,9 @@ UiRuntimePacketKind ParseUiRuntimePacketKind(std::string_view kind) {
     }
     if (kind == "input.event") {
         return UiRuntimePacketKind::InputEvent;
+    }
+    if (kind == "__vf_internal_html.patch") {
+        return UiRuntimePacketKind::InternalHtmlPatch;
     }
     throw std::runtime_error("unknown ui runtime packet kind: " + std::string(kind));
 }
@@ -348,6 +406,12 @@ JsonValue ToJsonValue(const WidgetAppendTextPacketPayload& payload) {
 
 JsonValue ToJsonValue(const InputEventPacketPayload& payload) {
     return JsonValue::Object{{"event", JsonValue(payload.event)}};
+}
+
+JsonValue ToJsonValue(const InternalHtmlPatchPacketPayload& payload) {
+    return JsonValue::Object{
+        {"__vf_internal_retained_html_patch", JsonValue(payload.patch)},
+    };
 }
 
 JsonValue ToJsonValue(const UiRuntimePacket& packet) {
@@ -392,6 +456,7 @@ bool IsUiRuntimeReplacePacketKind(UiRuntimePacketKind kind) noexcept {
     case UiRuntimePacketKind::GeomColorPatch:
     case UiRuntimePacketKind::WidgetAppendText:
     case UiRuntimePacketKind::InputEvent:
+    case UiRuntimePacketKind::InternalHtmlPatch:
         return false;
     }
     return false;
@@ -824,6 +889,11 @@ const InputEventPacketPayload* AsInputEventPacketPayload(const UiRuntimePacket& 
     return std::get_if<InputEventPacketPayload>(&packet.payload);
 }
 
+const InternalHtmlPatchPacketPayload* AsInternalHtmlPatchPacketPayload(
+    const UiRuntimePacket& packet) noexcept {
+    return std::get_if<InternalHtmlPatchPacketPayload>(&packet.payload);
+}
+
 const JsonValue::Object& GetInputEventObject(const InputEventPacketPayload& payload) noexcept {
     return payload.event;
 }
@@ -1165,6 +1235,15 @@ void ValidateUiRuntimePacket(const UiRuntimePacket& packet) {
         static_cast<void>(ToJsonValue(*payload));
         break;
     }
+    case UiRuntimePacketKind::InternalHtmlPatch: {
+        const auto* payload = AsInternalHtmlPatchPacketPayload(packet);
+        if (payload == nullptr) {
+            throw std::runtime_error("private retained HTML patch packet kind/payload mismatch");
+        }
+        validate_internal_html_patch_record(payload->patch);
+        static_cast<void>(ToJsonValue(*payload));
+        break;
+    }
     }
 }
 
@@ -1414,6 +1493,9 @@ UiRuntimePacket ParseUiRuntimePacket(const JsonValue& value) {
         break;
     case UiRuntimePacketKind::InputEvent:
         packet.payload = parse_input_event_payload(payload);
+        break;
+    case UiRuntimePacketKind::InternalHtmlPatch:
+        packet.payload = parse_internal_html_patch_payload(payload);
         break;
     }
 
