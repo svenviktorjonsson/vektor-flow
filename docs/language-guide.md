@@ -605,21 +605,35 @@ z: num(1, 2)
 
 Postfix `.` produces a first-class type value. A structured type can be spilled
 into another type container: `(:Point)` exposes a nominal type's backing record
-type, while `[:Point]` produces a fixed-vector type when every backing field has
-one exact type. Likewise, `[:(1, 2, 3).]`, `[int, int, int]`, and `[int:3]` are
-the same `[int:3]` type value. Mixed type values such as `[int, num]` have type
-`[type:2]`; they remain type data and do not promote to a numeric vector. A
-primitive type may also be spilled into scope.
+type. For a closed record value `a`, `[:a]` and `[:a.]` both return its accessible
+field names in declaration order as an exact `[str:N]` vector. Spilling a nominal
+record type, such as `[:Point]`, returns the same ordered keys. Record key
+reflection discards field values and never coerces heterogeneous fields to one
+value type. `{:a}` and `{:a.}` return the same keys as a `multiset<str>`, without
+an ordering guarantee, while `(:a.)` retains field-type reflection as a record
+type value.
+
+This record-specific rule does not change positional type vectors. For example,
+`[:(1, 2, 3).]`, `[int, int, int]`, and `[int:3]` remain the same `[int:3]` type
+value. Mixed type values such as `[int, num]` have type `[type:2]`; they remain
+type data and do not promote to a numeric vector. A primitive type may also be
+spilled into scope.
+
+Compatibility note for 0.4.0: `[:a.]` and `[:Point]` no longer produce a
+homogeneous vector type from record field types. Use `(:a.)` or `(:Point)` for
+record field-type reflection.
 
 <!-- readme-example: core/46-member-reflection.vkf -->
 ```vkf
 point: (x:3, y:4)
-record_members: (:point.)
-vector_members: [:point.]
+field_types: (:point.)
+value_keys: [:point]
+type_keys: [:point.]
 member_names: {:point.}
 
-:: record_members
-:: vector_members
+:: field_types
+:: value_keys
+:: type_keys
 :: member_names
 ```
 
@@ -629,7 +643,8 @@ member_names: {:point.}
 
 ```text
 (x:int, y:int)
-[int:2]
+[x, y]
+[x, y]
 {x:1, y:1}
 ```
 
@@ -932,8 +947,8 @@ overloads with one name construct the same nominal type. Postfix `.` on an
 instance returns that nominal type; explicitly spilling a record instance before
 reflection, `(:value).`, reveals its structural type. Bare `..` remains the range
 operator. A nominal type itself may be spilled: `(:Point)` is its backing record
-type, `(:Point).` is `type`, and `[:Point]` is the corresponding fixed-vector
-type when its fields are homogeneous.
+type, `(:Point).` is `type`, and `[:Point]` is the declaration-order `[str:N]`
+vector of its backing record's accessible field names.
 
 <!-- readme-example: core/49-nominal-constructors.vkf -->
 ```vkf
@@ -971,7 +986,7 @@ Point
 (x:num, y:num)
 (x:num, y:num)
 type
-[num:2]
+[x, y]
 true
 [int:3]
 (x:num, y:num)
