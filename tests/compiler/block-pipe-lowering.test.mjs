@@ -97,6 +97,6 @@ test("the unchanged foldered chess bot advances beyond block-pipe lowering", {
   assert.doesNotMatch(diagnostic, /unsupported pipe segment kind block/u);
   assert.match(
     diagnostic,
-    /in function __vkf_module_state__piece_at: Cannot declare existing name found; update it with \.found:value/u,
+    /in function __vkf_module_state__piece_at: Cannot declare existing name i; update it with \.i:value/u,
   );
 });
