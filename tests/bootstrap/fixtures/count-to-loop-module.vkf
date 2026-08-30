@@ -1,0 +1,7 @@
+count_to(limit:num) -> num:
+    value: 0
+    value < limit?>
+        .value: value + 1
+    @: value
+
+:: count_to(3)
