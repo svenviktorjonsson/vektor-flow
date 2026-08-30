@@ -1,5 +1,6 @@
 #pragma once
 
+#include "compiler/native/vkf_machine_ir.hpp"
 #include "native/VfOverlay/vf/json.hpp"
 
 #include <cstddef>
@@ -44,7 +45,8 @@ ArtifactResult compile(
     const std::string& optimization_policy = "auto",
     std::uint32_t optimization_run_budget = 1000,
     double optimization_time_budget_ms = 0.0,
-    std::uint32_t optimization_landscape_runs = 0
+    std::uint32_t optimization_landscape_runs = 0,
+    const vkf::machine_ir::Module* supplied_machine_ir = nullptr
 );
 
 }  // namespace vkf_x64_backend

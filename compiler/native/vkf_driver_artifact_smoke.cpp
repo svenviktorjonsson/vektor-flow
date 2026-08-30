@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -600,6 +601,210 @@ std::string native_build_fingerprint(
 bool executable_has_fingerprint(
     const std::filesystem::path& executable,
     const std::string& fingerprint);
+void require_safe_output_target(const std::filesystem::path& output);
+
+#ifdef VKF_X64_BACKEND_LIBRARY
+inline constexpr const char* kTypedModulePipelineComponent =
+    "machine_ir.numeric_parameter_multiply.typed_module_pipeline";
+
+std::vector<std::string> tracer_observation_lines(const std::string& observation) {
+    std::vector<std::string> lines;
+    std::istringstream input(observation);
+    std::string line;
+    while (std::getline(input, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        lines.push_back(std::move(line));
+    }
+    if (lines.size() != 68) {
+        throw DriverFailure(
+            "numeric tracer observation must contain exactly 68 structural leaves");
+    }
+    return lines;
+}
+
+void require_tracer_leaf(
+    const std::vector<std::string>& lines,
+    std::size_t index,
+    const std::string& expected
+) {
+    if (lines[index] != expected) {
+        throw DriverFailure(
+            "malformed numeric tracer observation at leaf " +
+            std::to_string(index) + ": expected " + expected);
+    }
+}
+
+double tracer_number(const std::string& text, std::size_t index) {
+    std::size_t consumed = 0;
+    double value = 0.0;
+    try {
+        value = std::stod(text, &consumed);
+    } catch (const std::exception&) {
+        throw DriverFailure(
+            "numeric tracer leaf " + std::to_string(index) + " must be finite");
+    }
+    if (consumed != text.size() || !std::isfinite(value)) {
+        throw DriverFailure(
+            "numeric tracer leaf " + std::to_string(index) + " must be finite");
+    }
+    return value;
+}
+
+vkf::machine_ir::Module parse_numeric_tracer_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(observation);
+    const std::vector<std::pair<std::size_t, std::string>> fixed{
+        {0, "0"}, {1, "false"}, {2, "call"}, {3, "false"}, {4, "0"},
+        {5, "1"}, {7, "false"}, {8, "1"}, {9, "false"}, {10, "call"},
+        {11, "false"}, {12, "1"}, {13, "1"}, {15, "false"},
+        {16, "return_f64"}, {17, "[]"}, {18, "[]"}, {19, "1"},
+        {20, "false"}, {21, "$entry"}, {22, "[]"}, {23, "[]"},
+        {24, "[]"}, {25, "null"}, {26, "[]"}, {27, "false"},
+        {28, "false"}, {29, "system_cpu_count"}, {30, "return_f64"},
+        {31, "[]"}, {32, "[]"}, {33, "1"}, {34, "false"},
+        {36, "[]"}, {37, "[]"}, {38, "[]"}, {39, "null"}, {40, "[]"},
+        {41, "false"}, {42, "true"}, {43, "0"}, {44, "load_local"},
+        {45, "push_f64"}, {48, "return_f64"}, {49, "f64"}, {51, "2"},
+        {52, "false"}, {54, "[]"}, {55, "[]"}, {56, "true"},
+        {57, "null"}, {59, "false"}, {60, "true"}, {61, "1"},
+        {62, "f64"}, {63, "[]"}, {64, "[]"},
+        {65, "vektorflow.machine_ir"}, {66, "77"}, {67, "23"},
+    };
+    for (const auto& [index, expected] : fixed) {
+        require_tracer_leaf(lines, index, expected);
+    }
+    if (lines[47] != "multiply_f64") {
+        throw DriverFailure("unsupported numeric tracer opcode " + lines[47]);
+    }
+    if (lines[6].empty() || lines[35] != lines[6]) {
+        throw DriverFailure("numeric tracer host symbol does not match its function");
+    }
+    if (lines[14].empty() || lines[53] != lines[14]) {
+        throw DriverFailure("numeric tracer call symbol does not match its function");
+    }
+    if (lines[50].empty() || lines[58] != lines[50]) {
+        throw DriverFailure("numeric tracer local does not match its parameter");
+    }
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure("numeric tracer source identity has the wrong byte width");
+    }
+
+    vkf::machine_ir::Instruction host_call;
+    host_call.opcode = vkf::machine_ir::Opcode::Call;
+    host_call.argument_count = 0;
+    host_call.result_count = 1;
+    host_call.symbol = lines[6];
+    vkf::machine_ir::Instruction function_call;
+    function_call.opcode = vkf::machine_ir::Opcode::Call;
+    function_call.argument_count = 1;
+    function_call.result_count = 1;
+    function_call.provided_parameter_mask = 1;
+    function_call.symbol = lines[14];
+    vkf::machine_ir::Instruction return_f64;
+    return_f64.opcode = vkf::machine_ir::Opcode::ReturnF64;
+
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions = {host_call, function_call, return_f64};
+    entry.max_stack = 1;
+
+    vkf::machine_ir::Instruction system_cpu_count;
+    system_cpu_count.opcode = vkf::machine_ir::Opcode::SystemCpuCount;
+    vkf::machine_ir::Function host;
+    host.name = lines[35];
+    host.instructions = {system_cpu_count, return_f64};
+    host.max_stack = 1;
+    host.result_is_numeric_scalar = true;
+
+    vkf::machine_ir::Instruction load_local;
+    load_local.opcode = vkf::machine_ir::Opcode::LoadLocal;
+    load_local.index = 0;
+    vkf::machine_ir::Instruction push_f64;
+    push_f64.opcode = vkf::machine_ir::Opcode::PushF64;
+    push_f64.f64 = tracer_number(lines[46], 46);
+    vkf::machine_ir::Instruction multiply_f64;
+    multiply_f64.opcode = vkf::machine_ir::Opcode::MultiplyF64;
+    vkf::machine_ir::Function function;
+    function.name = lines[53];
+    function.parameters = {lines[58]};
+    function.parameter_is_numeric_scalar = {true};
+    function.result_is_numeric_scalar = true;
+    function.locals = {lines[50]};
+    function.local_classes = {vkf::machine_ir::ValueClass::F64};
+    function.instructions = {load_local, push_f64, multiply_f64, return_f64};
+    function.max_stack = 2;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.functions = {std::move(host), std::move(function)};
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
+vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
+    const std::string& component,
+    const std::filesystem::path& artifact,
+    const std::filesystem::path& source,
+    const std::filesystem::path& oracle,
+    const std::filesystem::path& output,
+    const std::filesystem::path& provenance,
+    const std::string& source_graph_fingerprint,
+    const std::string& observation
+) {
+    require_safe_output_target(output);
+    for (const auto& path : {output, provenance}) {
+        const auto parent = path.parent_path();
+        if (!parent.empty() && std::filesystem::exists(parent) &&
+            !std::filesystem::is_directory(parent)) {
+            throw DriverFailure(
+                "stage component output parent is not a directory: " +
+                parent.string());
+        }
+    }
+    auto machine_module = parse_numeric_tracer_observation(
+        observation, source_graph_fingerprint);
+    const auto typed_module = vf::parse_json("{\"body\":[],\"kind\":\"typed_module\"}");
+    const auto compiled = vkf_x64_backend::compile(
+        typed_module, source, oracle, {}, false, output, {}, "mask-0", 0, 0.0, 0,
+        &machine_module);
+
+    vf::JsonValue::Object receipt;
+    receipt["schema"] = "vektorflow.internal.machine_module_pipeline";
+    receipt["version"] = 1.0;
+    receipt["component"] = component;
+    receipt["implementation"] = "vkf_source_machine_module";
+    receipt["consumer"] = "vkf_x64_backend.machine_ir";
+    receipt["component_source"] = source.string();
+    receipt["component_source_sha256"] = sha256_hex(read_file(source));
+    receipt["component_source_graph_fingerprint"] = source_graph_fingerprint;
+    receipt["component_artifact"] = artifact.string();
+    receipt["component_artifact_sha256"] = sha256_hex(read_file(artifact));
+    receipt["oracle_output"] = oracle.string();
+    receipt["exact_oracle_match"] = true;
+    receipt["observation_sha256"] = sha256_hex(observation);
+    receipt["machine_code_fingerprint"] = compiled.machine_code_fingerprint;
+    receipt["artifact_path"] = compiled.artifact_path.string();
+    receipt["artifact_sha256"] = sha256_hex(read_file(compiled.artifact_path));
+    if (!provenance.parent_path().empty()) {
+        std::filesystem::create_directories(provenance.parent_path());
+    }
+    write_file(
+        provenance, vf::json_stringify(vf::JsonValue(std::move(receipt)), 2) + "\n");
+
+    vf::JsonValue::Object summary;
+    summary["status"] = "compiled";
+    summary["component"] = component;
+    summary["implementation"] = "vkf_source_machine_module";
+    summary["artifact_path"] = compiled.artifact_path.string();
+    summary["provenance_path"] = provenance.string();
+    return summary;
+}
+#endif
 
 vf::JsonValue::Object dispatch_internal_stage_component(
     const std::filesystem::path& dispatcher_executable,
@@ -612,7 +817,11 @@ vf::JsonValue::Object dispatch_internal_stage_component(
 ) {
     if (component.empty()) throw DriverFailure("stage component name is empty");
     if (component != "machine_ir.numeric_parameter_multiply.stack_validation" &&
-        component != "machine_ir.numeric_parameter_multiply.module_lowering") {
+        component != "machine_ir.numeric_parameter_multiply.module_lowering"
+#ifdef VKF_X64_BACKEND_LIBRARY
+        && component != kTypedModulePipelineComponent
+#endif
+    ) {
         throw DriverFailure("unknown internal Stage component: " + component);
     }
     const auto absolute = [](const std::filesystem::path& path) {
@@ -661,6 +870,14 @@ vf::JsonValue::Object dispatch_internal_stage_component(
     if (executed.stdout_text != read_file(oracle)) {
         throw DriverFailure("VKF stage component observation mismatch for " + component);
     }
+
+#ifdef VKF_X64_BACKEND_LIBRARY
+    if (component == kTypedModulePipelineComponent) {
+        return dispatch_internal_typed_module_pipeline(
+            component, artifact, source, oracle, selected, provenance,
+            source_graph_fingerprint, executed.stdout_text);
+    }
+#endif
 
     for (const auto& path : {selected, provenance}) {
         if (!path.parent_path().empty()) {
