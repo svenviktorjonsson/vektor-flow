@@ -41,6 +41,17 @@ keeps the complete function ordered until that proof exists.
 boundaries. Their shared native `ProcessRun` operation is effect ordered,
 non-replayable, and never treated as an ordinary automatic-flow partition.
 
+The first native CPU execution seam accepts exactly two privately planned
+demands. Both Machine IR functions must be replay-safe partition candidates,
+the demand planner must prove them independent, each branch must exceed the
+conservative work threshold, and the effective CPU limit must be at least two.
+One branch runs on a private CPU task while the caller runs the other; results
+return in source order so commits remain deterministic. A one-core limit,
+dependencies, effects, fallibility, owned resources, reductions without a
+stable merge tree, or small work all retain serial execution. Generated
+artifacts do not yet split source flows into these demand pairs, so end-to-end
+automatic native branch execution remains an explicit follow-up RED.
+
 The only approved public scheduling settings are process-wide ceilings:
 
 ~~~vkf
