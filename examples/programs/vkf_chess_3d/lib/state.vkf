@@ -57,11 +57,11 @@ path_clear_on_board(board:any, piece:Piece, to_file:num, to_rank:num) -> bit:
     done = false?>
         f = to_file?
             r = to_rank?
-                done: true
+                .done: true
         done = false?
             piece_at(board, f, r).side ~= Side.none?
                 clear: false
-                done: true
+                .done: true
         done = false?
             f: f + df
             r: r + dr
