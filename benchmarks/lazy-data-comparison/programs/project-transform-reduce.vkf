@@ -1,0 +1,5 @@
+data: .data
+stat: .stat
+
+rows: data.load("fixture.csv")
+:: stat.sum((rows.x * 2.0 - rows.y)^2)

@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "status": "non_gating",
+  "workload": {
+    "id": "csv-project-transform-reduce-v1",
+    "fixture": "deterministic wide CSV",
+    "expression": "sum((2*x-y)^2)",
+    "precision": "f64",
+    "threads": 1
+  },
+  "correctness": {
+    "kind": "exact_f64_integer",
+    "output": "sum((2*x-y)^2)",
+    "tolerance": 0
+  },
+  "fixtures": {
+    "correctness_rows": 4096,
+    "candidate_measurement_rows": 1000000,
+    "generation": "outside every timed boundary",
+    "storage": "generated under ignored work storage; never committed"
+  },
+  "boundaries": {
+    "fresh_source_e2e": {
+      "process": "fresh_per_sample",
+      "derived_cache": "empty_per_sample",
+      "os_cache": "uncontrolled_reported",
+      "timed_from": "runner process launch",
+      "timed_through": "validated scalar output and process exit",
+      "includes": [
+        "runtime startup",
+        "source binding",
+        "CSV parsing and indexing",
+        "expression construction",
+        "scalar materialization",
+        "process teardown"
+      ],
+      "excludes": [
+        "fixture generation",
+        "VKF compilation",
+        "dependency installation"
+      ]
+    },
+    "warm_source_e2e": {
+      "process": "fresh_per_sample",
+      "derived_cache": "retained",
+      "os_cache": "uncontrolled_reported",
+      "timed_from": "runner process launch",
+      "timed_through": "validated scalar output and process exit",
+      "includes": [
+        "runtime startup",
+        "source binding",
+        "expression construction",
+        "scalar materialization",
+        "process teardown"
+      ],
+      "excludes": [
+        "fixture generation",
+        "VKF compilation",
+        "dependency installation",
+        "one cache-preparation pass"
+      ]
+    }
+  },
+  "measurement": {
+    "order": "paired_rotating_same_host",
+    "outliers": "retain_all",
+    "timeouts": "retained_as_censored_failures",
+    "candidate_samples_per_row": 10,
+    "estimator": "median with one-sided 95% ratio upper bound",
+    "required_raw_sample_fields": [
+      "peer",
+      "boundary",
+      "round",
+      "order",
+      "elapsed_wall_ms",
+      "result",
+      "status"
+    ],
+    "required_provenance_fields": [
+      "revision",
+      "contract_sha256",
+      "fixture_sha256",
+      "source_sha256",
+      "runner_sha256",
+      "os",
+      "architecture",
+      "cpu",
+      "logical_cpus",
+      "memory_bytes",
+      "runtime_version",
+      "peer_version",
+      "threads",
+      "os_cache"
+    ],
+    "memory": "peak RSS requires a later validated cross-platform process probe"
+  },
+  "peer_set": {
+    "status": "unfrozen_dependencies",
+    "members": ["vkf", "vaex", "dask"],
+    "rule": "missing or unverified dependencies are UNAVAILABLE; no fallback implementation"
+  },
+  "graduation": {
+    "relative_goal": "U95(VKF / peer) < 0.5 per peer and metric",
+    "release_gate_after": "three primary-runner passes and one independent-runner pass"
+  }
+}
