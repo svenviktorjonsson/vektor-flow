@@ -1094,6 +1094,139 @@ vf::JsonValue rewrite_aliased_module_calls(
     return vf::JsonValue(std::move(rewritten));
 }
 
+void collect_linked_identifier_references(
+    const vf::JsonValue& value,
+    std::set<std::string>& references
+) {
+    if (value.is_array()) {
+        for (const auto& item : value.as_array()) {
+            collect_linked_identifier_references(item, references);
+        }
+        return;
+    }
+    if (!value.is_object()) return;
+    const auto& object = value.as_object();
+    const auto kind = object.find("kind");
+    if (kind != object.end() && kind->second.is_string() &&
+        kind->second.as_string() == "identifier") {
+        const auto name = object.find("name");
+        if (name != object.end() && name->second.is_string()) {
+            references.insert(name->second.as_string());
+        }
+        return;
+    }
+    const bool binding = kind != object.end() && kind->second.is_string() &&
+        kind->second.as_string() == "bind";
+    for (const auto& [key, child] : object) {
+        if (binding && key == "target") continue;
+        collect_linked_identifier_references(child, references);
+    }
+}
+
+bool is_elidable_linked_literal(const vf::JsonValue& value) {
+    if (!value.is_object()) return false;
+    const auto& object = value.as_object();
+    const auto kind = object.find("kind");
+    if (kind == object.end() || !kind->second.is_string()) return false;
+    const auto& name = kind->second.as_string();
+    if (name == "number_literal" || name == "string_literal" ||
+        name == "bool_literal" || name == "null_literal") {
+        return true;
+    }
+    if (name == "list_literal") {
+        const auto items = object.find("items");
+        return items != object.end() && items->second.is_array() &&
+            std::all_of(
+                items->second.as_array().begin(), items->second.as_array().end(),
+                [](const auto& item) { return is_elidable_linked_literal(item); });
+    }
+    if (name == "record_literal") {
+        const auto fields = object.find("fields");
+        if (fields == object.end() || !fields->second.is_array()) return false;
+        return std::all_of(
+            fields->second.as_array().begin(), fields->second.as_array().end(),
+            [](const auto& field_value) {
+                if (!field_value.is_object()) return false;
+                const auto& field = field_value.as_object();
+                const auto field_kind = field.find("kind");
+                const auto field_value_it = field.find("value");
+                return field_kind != field.end() && field_kind->second.is_string() &&
+                    field_kind->second.as_string() == "record_field" &&
+                    field_value_it != field.end() &&
+                    is_elidable_linked_literal(field_value_it->second);
+            });
+    }
+    if (name == "block") {
+        const auto statements = object.find("statements");
+        if (statements == object.end() || !statements->second.is_array()) return false;
+        return std::all_of(
+            statements->second.as_array().begin(), statements->second.as_array().end(),
+            [](const auto& statement_value) {
+                if (!statement_value.is_object()) return false;
+                const auto& statement = statement_value.as_object();
+                const auto statement_kind = statement.find("kind");
+                if (statement_kind == statement.end() ||
+                    !statement_kind->second.is_string()) {
+                    return false;
+                }
+                if (statement_kind->second.as_string() == "struct_identity") return true;
+                if (statement_kind->second.as_string() != "bind") return false;
+                const auto value = statement.find("value");
+                return value != statement.end() &&
+                    is_elidable_linked_literal(value->second);
+            });
+    }
+    return false;
+}
+
+std::optional<std::string> linked_binding_name(const vf::JsonValue& statement_value) {
+    if (!statement_value.is_object()) return std::nullopt;
+    const auto& statement = statement_value.as_object();
+    const auto kind = statement.find("kind");
+    const auto target = statement.find("target");
+    if (kind == statement.end() || !kind->second.is_string() ||
+        kind->second.as_string() != "bind" || target == statement.end() ||
+        !target->second.is_object()) {
+        return std::nullopt;
+    }
+    const auto& target_object = target->second.as_object();
+    const auto target_kind = target_object.find("kind");
+    const auto target_name = target_object.find("name");
+    if (target_kind == target_object.end() || !target_kind->second.is_string() ||
+        target_kind->second.as_string() != "identifier" ||
+        target_name == target_object.end() || !target_name->second.is_string()) {
+        return std::nullopt;
+    }
+    return target_name->second.as_string();
+}
+
+vf::JsonValue::Array prune_unused_pure_linked_bindings(
+    vf::JsonValue::Array body,
+    const std::size_t namespaced_statement_count
+) {
+    std::set<std::string> references;
+    for (const auto& statement : body) {
+        collect_linked_identifier_references(statement, references);
+    }
+    vf::JsonValue::Array pruned;
+    pruned.reserve(body.size());
+    for (std::size_t index = 0; index < body.size(); ++index) {
+        auto& statement = body[index];
+        const auto name = linked_binding_name(statement);
+        const bool namespaced = index < namespaced_statement_count && name &&
+            name->rfind("__vkf_module_", 0) == 0;
+        if (namespaced && !references.count(*name)) {
+            const auto& object = statement.as_object();
+            const auto value = object.find("value");
+            if (value != object.end() && is_elidable_linked_literal(value->second)) {
+                continue;
+            }
+        }
+        pruned.push_back(std::move(statement));
+    }
+    return pruned;
+}
+
 const vf::JsonValue* resolve_static_record(
     const vf::JsonValue& expression,
     const std::map<std::string, const vf::JsonValue*>& bindings,
@@ -1316,13 +1449,15 @@ vf::JsonValue link_spilled_file_modules(
     for (auto& statement : namespaced_modules) {
         rewritten_body.push_back(rewrite_aliased_module_calls(statement, exports));
     }
+    const auto namespaced_statement_count = rewritten_body.size();
     for (const auto& statement : linked_body) {
         rewritten_body.push_back(rewrite_aliased_module_calls(statement, exports));
     }
     vf::JsonValue::Object linked_module;
     linked_module["kind"] = "module";
     linked_module["body"] = vf::JsonValue(
-        expand_top_level_record_spills(std::move(rewritten_body)));
+        expand_top_level_record_spills(prune_unused_pure_linked_bindings(
+            std::move(rewritten_body), namespaced_statement_count)));
     return vf::JsonValue(std::move(linked_module));
 }
 

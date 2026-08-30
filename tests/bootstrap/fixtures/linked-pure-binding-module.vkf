@@ -1,0 +1,7 @@
+unused_catalog:
+    label: "dead"
+    opcodes: ["push", "return"]
+
+referenced_value: 7
+retained_effect: cpu_count()
+retained_nonliteral: 1 + 2
