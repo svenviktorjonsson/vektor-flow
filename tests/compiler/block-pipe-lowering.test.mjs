@@ -73,7 +73,7 @@ test("an indented block remains a typed pipe segment", () => {
   ]);
 });
 
-test("the unchanged foldered chess bot advances beyond block-pipe lowering", {
+test("the foldered chess bot advances through the next rebinding gate", {
   skip: process.platform !== "win32",
 }, async () => {
   assert.ok(nativeDriver, "VKF_NATIVE_DRIVER must name the focused strict native driver");
@@ -95,8 +95,12 @@ test("the unchanged foldered chess bot advances beyond block-pipe lowering", {
 
   assert.notEqual(result.status, 0, "chess unexpectedly passed its next migration gate");
   assert.doesNotMatch(diagnostic, /unsupported pipe segment kind block/u);
-  assert.match(
+  assert.doesNotMatch(
     diagnostic,
     /in function __vkf_module_state__piece_at: Cannot declare existing name i; update it with \.i:value/u,
+  );
+  assert.match(
+    diagnostic,
+    /in function __vkf_module_state__path_clear_on_board: Cannot declare existing name done; update it with \.done:value/u,
   );
 });

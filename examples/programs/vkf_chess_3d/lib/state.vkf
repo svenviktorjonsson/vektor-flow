@@ -33,7 +33,7 @@ piece_at(board:any, file:num, rank:num) -> Piece:
             p.captured = false?
                 rules.same_square(p, file, rank)?
                     .found: p
-        i: i + 1
+        .i: i + 1
     @: found
 
 target_side_at(state:GameState, file:num, rank:num) -> num:
