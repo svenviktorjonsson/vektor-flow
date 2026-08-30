@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { arch, cpus, platform, release, totalmem } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -9,6 +10,7 @@ import { writeFixture } from './materialize-fixture.mjs';
 const benchmarkRoot = dirname(fileURLToPath(import.meta.url));
 const contractPath = join(benchmarkRoot, 'contract.json');
 const sourcePath = join(benchmarkRoot, 'programs', 'project-transform-reduce.vkf');
+const repositoryRoot = resolve(benchmarkRoot, '../..');
 
 function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -84,15 +86,108 @@ export function validateCandidateSamples(samples, fixtureManifest, contract = lo
   return samples;
 }
 
-export function buildReadinessReceipt({ fixturePath, fixtureManifest, runners, revision }) {
+function vkfSourceForFixture(fixturePath) {
+  const template = readFileSync(sourcePath, 'utf8');
+  const marker = '"fixture.csv"';
+  if (template.split(marker).length !== 2) {
+    throw new Error('VKF benchmark source must contain exactly one fixture marker');
+  }
+  const escaped = resolve(fixturePath).replaceAll('\\', '/').replaceAll('"', '\\"');
+  return template.replace(marker, `"${escaped}"`);
+}
+
+export function verifyVkfRunner({ runner, fixturePath, fixtureManifest, workRoot }) {
+  const resolvedRunner = resolve(runner);
+  const identity = {
+    runner: resolvedRunner,
+    runner_sha256: sha256File(resolvedRunner),
+    source_sha256: sha256TextFile(sourcePath),
+  };
+  const runnerWork = resolve(workRoot);
+  mkdirSync(runnerWork, { recursive: true });
+  const generatedSource = join(runnerWork, 'project-transform-reduce.vkf');
+  const artifact = join(
+    runnerWork,
+    `project-transform-reduce${process.platform === 'win32' ? '.exe' : ''}`,
+  );
+  writeFileSync(generatedSource, vkfSourceForFixture(fixturePath), 'utf8');
+
+  const compiled = spawnSync(
+    resolvedRunner,
+    ['-b', generatedSource, '-o', artifact, '--diagnostics'],
+    { cwd: repositoryRoot, encoding: 'utf8', timeout: 60_000, windowsHide: true },
+  );
+  if (compiled.error || compiled.status !== 0 || !existsSync(artifact)) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: compiled.error ? 'VKF compiler could not start' : 'VKF public lazy CSV compilation failed',
+      ...identity,
+    });
+  }
+
+  const executed = spawnSync(
+    artifact,
+    [],
+    { cwd: runnerWork, encoding: 'utf8', timeout: 60_000, windowsHide: true },
+  );
+  if (executed.error || executed.status !== 0) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: executed.error ? 'VKF artifact could not start' : 'VKF public lazy CSV execution failed',
+      ...identity,
+    });
+  }
+  const rendered = String(executed.stdout || '').trim();
+  const result = Number(rendered);
+  if (!rendered || !Number.isFinite(result) || result !== fixtureManifest.expected_sum) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: `correctness oracle mismatch: ${rendered || '<empty>'}`,
+      ...identity,
+    });
+  }
+  return Object.freeze({ status: 'AVAILABLE', ...identity, result });
+}
+
+const readinessVerifiers = Object.freeze({
+  vkf: verifyVkfRunner,
+});
+
+export function buildReadinessReceipt({
+  fixturePath,
+  fixtureManifest,
+  runners,
+  revision,
+  workRoot = join(dirname(fixturePath), 'runner-work'),
+}) {
   const fixtureHash = sha256File(fixturePath);
   if (fixtureHash !== fixtureManifest.sha256) {
     throw new Error(`fixture SHA-256 changed: ${fixtureHash}; expected ${fixtureManifest.sha256}`);
   }
   const contract = loadContract();
   const availability = availabilityReport(runners, contract);
+  const peers = { ...availability.peers };
+  for (const peer of contract.peer_set.members) {
+    if (peers[peer]?.status !== 'AVAILABLE') continue;
+    const verifier = readinessVerifiers[peer];
+    if (!verifier) {
+      peers[peer] = Object.freeze({
+        ...peers[peer],
+        status: 'UNAVAILABLE',
+        reason: 'correctness verifier not implemented',
+      });
+      continue;
+    }
+    peers[peer] = verifier({
+      runner: runners[peer],
+      fixturePath,
+      fixtureManifest,
+      workRoot: join(workRoot, peer),
+    });
+  }
   return Object.freeze({
     ...availability,
+    peers: Object.freeze(peers),
     contract_schema_version: contract.schema_version,
     workload: contract.workload.id,
     fixture: fixtureManifest,
@@ -103,7 +198,7 @@ export function buildReadinessReceipt({ fixturePath, fixtureManifest, runners, r
       source_sha256: sha256TextFile(sourcePath),
       runner_sha256: Object.fromEntries(contract.peer_set.members.map((peer) => [
         peer,
-        availability.peers[peer].runner_sha256 ?? null,
+        peers[peer].runner_sha256 ?? null,
       ])),
       os: `${platform()} ${release()}`,
       architecture: arch(),
