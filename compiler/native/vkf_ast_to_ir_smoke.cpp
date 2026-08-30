@@ -1748,6 +1748,18 @@ struct UiHandleRef {
     std::uint64_t id = 0;
 };
 
+struct WorldObjectRef {
+    std::uint64_t id = 0;
+    std::string type;
+    vf::JsonValue value;
+};
+
+struct WorldRef {
+    std::uint64_t id = 0;
+    vf::JsonValue::Object options;
+    std::vector<WorldObjectRef> objects;
+};
+
 class Lowerer {
 public:
     vf::JsonValue lower_module(const vf::JsonValue& ast) {
@@ -1794,8 +1806,28 @@ public:
         for (const auto& stmt : statements) {
             body.push_back(lower_stmt(stmt, module_env_));
         }
+        for (auto& binding : ui_retained_bindings_) {
+            body.push_back(std::move(binding));
+        }
         auto out = node("typed_module");
         out["body"] = vf::JsonValue(std::move(body));
+        if (!worlds_.empty()) {
+            vf::JsonValue::Array worlds;
+            for (const auto& world : worlds_) {
+                vf::JsonValue::Object definition;
+                definition["id"] = vf::JsonValue(static_cast<double>(world.id));
+                definition["dimension"] = vf::JsonValue(2.0);
+                for (const auto& [name, value] : world.options) {
+                    definition[name] = value;
+                }
+                worlds.emplace_back(std::move(definition));
+            }
+            vf::JsonValue::Object program;
+            program["version"] = vf::JsonValue(1.0);
+            program["worlds"] = vf::JsonValue(std::move(worlds));
+            program["operations"] = vf::JsonValue(std::move(world_operations_));
+            out["__vf_internal_world"] = vf::JsonValue(std::move(program));
+        }
         if (!ui_displays_.empty()) {
             vf::JsonValue::Object program;
             program["schema"] = vf::JsonValue("vektor-flow/ui-program");
@@ -2335,6 +2367,16 @@ private:
                         static_cast<std::uint64_t>(raw_handle.as_number())
                     };
                 }
+                if (value_type == "World<2>") {
+                    const auto& handle = object_of(value, "World handle");
+                    const auto& raw_handle = field(handle, "value", "World handle");
+                    if (string_field(handle, "kind", "World handle") != "const" ||
+                        !raw_handle.is_number() || raw_handle.as_number() < 0.0) {
+                        throw IRFailure("retained World handle must be a non-negative constant");
+                    }
+                    world_handle_bindings_[name] = static_cast<std::uint64_t>(
+                        raw_handle.as_number());
+                }
                 remember_symbolic_binding(name, value);
                 if (is_update) {
                     symbolic_expression_sources_.erase(name);
@@ -2763,6 +2805,103 @@ private:
         return vf::JsonValue(std::move(out));
     }
 
+    vf::JsonValue lower_world_embedding_add(
+        const vf::JsonValue::Array& named_args,
+        vf::JsonValue source
+    ) {
+        const vf::JsonValue* position = nullptr;
+        const vf::JsonValue* color = nullptr;
+        const vf::JsonValue* size = nullptr;
+        const vf::JsonValue* size_mode = nullptr;
+        for (const auto& raw_named : named_args) {
+            const auto& named = object_of(raw_named, "World embedding argument");
+            const std::string name = string_field(
+                named, "name", "World embedding argument");
+            const vf::JsonValue& value = field(
+                named, "value", "World embedding argument");
+            if (name == "p_u") position = &value;
+            else if (name == "c_uc") color = &value;
+            else if (name == "s_u") size = &value;
+            else if (name == "s_mode") size_mode = &value;
+            else {
+                throw IRFailure(
+                    "the first World embedding supports p_u, c_uc, s_u, and s_mode");
+            }
+        }
+        if (position == nullptr || color == nullptr || size == nullptr || size_mode == nullptr) {
+            throw IRFailure(
+                "the first World embedding requires p_u, c_uc, s_u, and s_mode");
+        }
+        const auto require_shape = [](const vf::JsonValue& value,
+                                      const std::vector<std::size_t>& expected,
+                                      const std::string& context) {
+            const auto shape = fixed_numeric_vector_shape(string_field(
+                object_of(value, context), "type", context));
+            if (!shape || shape->dimensions != expected) {
+                throw IRFailure(context + " has an incompatible fixed numeric shape");
+            }
+        };
+        require_shape(*position, {1, 2}, "World embedding p_u");
+        require_shape(*color, {1, 4}, "World embedding c_uc");
+        require_shape(*size, {1}, "World embedding s_u");
+        if (string_field(
+                object_of(*size_mode, "World embedding s_mode"),
+                "type", "World embedding s_mode") != "ui_measure_space<data>") {
+            throw IRFailure("the canonical World embedding requires s_mode:data");
+        }
+
+        const auto axes = [](std::initializer_list<const char*> values) {
+            vf::JsonValue::Array result;
+            for (const auto* value : values) result.emplace_back(value);
+            return result;
+        };
+        const auto shape = [](std::initializer_list<double> values) {
+            vf::JsonValue::Array result;
+            for (const double value : values) result.emplace_back(value);
+            return result;
+        };
+
+        vf::JsonValue::Array channels;
+        vf::JsonValue::Object position_channel;
+        position_channel["name"] = vf::JsonValue("p");
+        position_channel["semantic_axes"] = vf::JsonValue(axes({"u", "c"}));
+        position_channel["shape"] = vf::JsonValue(shape({1, 2}));
+        position_channel["value_kind"] = vf::JsonValue("position");
+        position_channel["value"] = *position;
+        channels.emplace_back(std::move(position_channel));
+
+        vf::JsonValue::Object color_channel;
+        color_channel["name"] = vf::JsonValue("c");
+        color_channel["semantic_axes"] = vf::JsonValue(axes({"u", "c"}));
+        color_channel["shape"] = vf::JsonValue(shape({1, 4}));
+        color_channel["broadcast_axes"] = vf::JsonValue(vf::JsonValue::Array{});
+        color_channel["value_kind"] = vf::JsonValue("rgba");
+        color_channel["value"] = *color;
+        channels.emplace_back(std::move(color_channel));
+
+        vf::JsonValue::Object size_channel;
+        size_channel["name"] = vf::JsonValue("s");
+        size_channel["semantic_axes"] = vf::JsonValue(axes({"u"}));
+        size_channel["shape"] = vf::JsonValue(shape({1}));
+        size_channel["broadcast_axes"] = vf::JsonValue(vf::JsonValue::Array{});
+        size_channel["measure_space"] = vf::JsonValue("data");
+        size_channel["value_kind"] = vf::JsonValue("size");
+        size_channel["value"] = *size;
+        channels.emplace_back(std::move(size_channel));
+
+        vf::JsonValue::Object add;
+        add["kind"] = vf::JsonValue("add");
+        add["layer_axes"] = vf::JsonValue(axes({"u"}));
+        add["channels"] = vf::JsonValue(std::move(channels));
+        add["source"] = std::move(source);
+        ui_operations_.emplace_back(std::move(add));
+
+        vf::JsonValue layer = num_const(
+            static_cast<double>(ui_operations_.size() - 1));
+        layer.as_object()["type"] = vf::JsonValue("Layer");
+        return layer;
+    }
+
     std::optional<vf::JsonValue> lower_adjacent_symbol_product(
         const std::string& spelling,
         const TypeEnv& env
@@ -2985,6 +3124,14 @@ private:
         }
         if (kind == "identifier") {
             const std::string name = string_field(object, "name", "identifier");
+            const bool spilled_ui_display = std::find(
+                spilled_modules_.begin(), spilled_modules_.end(), "ui.display") !=
+                spilled_modules_.end();
+            if (spilled_ui_display && !env.contains(name) && name == "data") {
+                vf::JsonValue out = num_const(0.0);
+                out.as_object()["type"] = vf::JsonValue("ui_measure_space<data>");
+                return out;
+            }
             if (name == "type" && !env.contains(name)) {
                 vf::JsonValue out = string_const("type");
                 out.as_object()["type"] = vf::JsonValue("type<type>");
@@ -3216,7 +3363,8 @@ private:
             vf::JsonValue::Array named_args;
             vf::JsonValue::Array spread_args;
             bool advanced_call_shape = false;
-            for (const auto& arg : array_of(field(object, "args", "call"), "call.args")) {
+            const auto& raw_call_args = array_of(field(object, "args", "call"), "call.args");
+            for (const auto& arg : raw_call_args) {
                 const auto& arg_object = object_of(arg, "call arg AST");
                 const std::string arg_kind = string_field(arg_object, "kind", "call arg AST");
                 if (arg_kind == "named_call_arg") {
@@ -3240,6 +3388,9 @@ private:
             }
             const bool spilled_ui_display = std::find(
                 spilled_modules_.begin(), spilled_modules_.end(), "ui.display") !=
+                spilled_modules_.end();
+            const bool spilled_physics = std::find(
+                spilled_modules_.begin(), spilled_modules_.end(), "physics") !=
                 spilled_modules_.end();
             const auto named_value = [&](const std::string& wanted,
                                          const std::string& context) -> const vf::JsonValue* {
@@ -3265,6 +3416,47 @@ private:
                         "ui_component<" + component_identity + ">");
                     return component;
                 }
+            }
+            if (spilled_physics &&
+                string_field(callee_ast, "kind", "call.callee") == "identifier" &&
+                string_field(callee_ast, "name", "call.callee") == "World") {
+                if (!args.empty() || !spread_args.empty()) {
+                    throw IRFailure("World currently accepts named arguments only");
+                }
+                const vf::JsonValue* dimension_value = named_value("dim", "World");
+                if (dimension_value == nullptr) {
+                    throw IRFailure("World requires `dim:`");
+                }
+                const auto& dimension = object_of(*dimension_value, "World dim");
+                const auto& raw_dimension = field(dimension, "value", "World dim");
+                if (string_field(dimension, "kind", "World dim") != "const" ||
+                    !raw_dimension.is_number() || raw_dimension.as_number() != 2.0) {
+                    throw IRFailure("the first World reference application requires `dim:2`");
+                }
+                static const std::set<std::string> supported{
+                    "dim", "em", "gravity", "rigid_collisions"
+                };
+                vf::JsonValue::Object world_options;
+                for (const auto& raw_named : named_args) {
+                    const auto& named = object_of(raw_named, "World argument");
+                    const std::string name = string_field(named, "name", "World argument");
+                    if (supported.find(name) == supported.end()) {
+                        throw IRFailure("the first World reference application does not support `" + name + "`");
+                    }
+                    if (name == "dim") continue;
+                    const auto& value = object_of(
+                        field(named, "value", "World switch"), "World switch");
+                    if (string_field(value, "kind", "World switch") != "const" ||
+                        !field(value, "value", "World switch").is_boolean()) {
+                        throw IRFailure("World `" + name + "` requires a constant bit");
+                    }
+                    world_options[name] = field(value, "value", "World switch");
+                }
+                const std::uint64_t world_id = worlds_.size();
+                worlds_.push_back(WorldRef{world_id, std::move(world_options), {}});
+                vf::JsonValue handle = num_const(static_cast<double>(world_id));
+                handle.as_object()["type"] = vf::JsonValue("World<2>");
+                return handle;
             }
             if (spilled_ui_display &&
                 string_field(callee_ast, "kind", "call.callee") == "identifier" &&
@@ -3321,6 +3513,161 @@ private:
                 if (string_field(owner_ast, "kind", "method owner") == "identifier") {
                     const std::string queue_name = string_field(owner_ast, "name", "method owner");
                     const std::string queue_type = env.get(queue_name);
+                    if (spilled_physics && queue_type == "World<2>" && method == "add") {
+                        if (args.size() != 1 || !named_args.empty() || !spread_args.empty()) {
+                            throw IRFailure("World.add requires exactly one positional object");
+                        }
+                        const auto world_binding = world_handle_bindings_.find(queue_name);
+                        if (world_binding == world_handle_bindings_.end() ||
+                            world_binding->second >= worlds_.size()) {
+                            throw IRFailure("World.add requires a retained World binding");
+                        }
+                        const std::uint64_t world_id = world_binding->second;
+                        const std::uint64_t object_id = worlds_[world_id].objects.size();
+                        const std::string object_type = string_field(
+                            object_of(args.front(), "World.add object"),
+                            "type", "World.add object");
+                        worlds_[world_id].objects.push_back(WorldObjectRef{
+                            object_id, object_type, args.front()
+                        });
+
+                        vf::JsonValue::Object operation;
+                        operation["kind"] = vf::JsonValue("add");
+                        operation["world_id"] = vf::JsonValue(static_cast<double>(world_id));
+                        operation["object_id"] = vf::JsonValue(static_cast<double>(object_id));
+                        operation["object_type"] = vf::JsonValue(object_type);
+                        world_operations_.emplace_back(std::move(operation));
+                        return std::move(args.front());
+                    }
+                    if (spilled_ui_display &&
+                        (queue_type == "Display<2>" || queue_type == "Frame<2>") &&
+                        method == "append_world") {
+                        if (args.size() != 2 || !named_args.empty() || !spread_args.empty() ||
+                            raw_call_args.size() != 2) {
+                            throw IRFailure(
+                                "append_world requires one World and one embedding overload group");
+                        }
+                        const auto& raw_world = object_of(
+                            raw_call_args[0], "append_world World argument");
+                        const auto& raw_embedding = object_of(
+                            raw_call_args[1], "append_world embedding argument");
+                        if (string_field(raw_world, "kind", "append_world World argument") !=
+                                "identifier" ||
+                            string_field(raw_embedding, "kind", "append_world embedding argument") !=
+                                "identifier") {
+                            throw IRFailure(
+                                "append_world requires named World and embedding bindings");
+                        }
+                        const std::string world_name = string_field(
+                            raw_world, "name", "append_world World argument");
+                        const std::string embedding_name = string_field(
+                            raw_embedding, "name", "append_world embedding argument");
+                        const auto world_binding = world_handle_bindings_.find(world_name);
+                        if (world_binding == world_handle_bindings_.end() ||
+                            world_binding->second >= worlds_.size()) {
+                            throw IRFailure("append_world requires a retained World binding");
+                        }
+                        if (!functions_.contains(embedding_name)) {
+                            throw IRFailure("append_world requires a named embedding overload group");
+                        }
+
+                        const std::uint64_t world_id = world_binding->second;
+                        std::size_t matched = 0;
+                        for (const auto& object_ref : worlds_[world_id].objects) {
+                            const FunctionInfo* embedding = functions_.get(
+                                embedding_name, {object_ref.type});
+                            if (embedding == nullptr) continue;
+                            std::string representation = resolve_type_alias(
+                                embedding->representation_type);
+                            if (representation == "any") {
+                                representation = resolve_type_alias(embedding->return_type);
+                            }
+                            const auto output_fields = ordered_record_type_fields(representation);
+                            if (output_fields.empty()) {
+                                throw IRFailure(
+                                    "embedding overload for " + object_ref.type +
+                                    " must return normal Display.add channels");
+                            }
+
+                            auto callee = node("load");
+                            callee["name"] = vf::JsonValue(
+                                functions_.runtime_name(*embedding));
+                            callee["type"] = vf::JsonValue(embedding->signature);
+                            vf::JsonValue::Array call_args;
+                            call_args.push_back(object_ref.value);
+                            auto call = node("call");
+                            call["args"] = vf::JsonValue(std::move(call_args));
+                            call["arg_types"] = vf::JsonValue(
+                                vf::JsonValue::Array{vf::JsonValue(object_ref.type)});
+                            call["named_args"] = vf::JsonValue(vf::JsonValue::Array{});
+                            call["spread_args"] = vf::JsonValue(vf::JsonValue::Array{});
+                            call["callee"] = vf::JsonValue(std::move(callee));
+                            call["callee_type"] = vf::JsonValue(embedding->signature);
+                            call["type"] = vf::JsonValue(representation);
+
+                            const std::string retained_name =
+                                "$ui$world$" + std::to_string(world_id) + "$object$" +
+                                std::to_string(object_ref.id) + "$embedding$" +
+                                std::to_string(matched);
+                            auto retained = node("store_binding");
+                            retained["name"] = vf::JsonValue(retained_name);
+                            retained["type"] = vf::JsonValue(representation);
+                            retained["value"] = vf::JsonValue(std::move(call));
+                            retained["update"] = vf::JsonValue(false);
+                            ui_retained_bindings_.emplace_back(std::move(retained));
+
+                            vf::JsonValue::Array embedding_args;
+                            for (const auto& [field_name, field_type] : output_fields) {
+                                auto load = node("load");
+                                load["name"] = vf::JsonValue(retained_name);
+                                load["type"] = vf::JsonValue(representation);
+                                auto access = node("field_access");
+                                access["object"] = vf::JsonValue(std::move(load));
+                                access["object_type"] = vf::JsonValue(representation);
+                                access["field"] = vf::JsonValue(field_name);
+                                access["type"] = vf::JsonValue(resolve_type_alias(field_type));
+                                auto named = node("named_arg");
+                                named["name"] = vf::JsonValue(field_name);
+                                named["value"] = vf::JsonValue(std::move(access));
+                                embedding_args.emplace_back(std::move(named));
+                            }
+
+                            vf::JsonValue::Object source;
+                            source["kind"] = vf::JsonValue("world_embedding");
+                            source["world_id"] = vf::JsonValue(static_cast<double>(world_id));
+                            source["object_id"] = vf::JsonValue(
+                                static_cast<double>(object_ref.id));
+                            source["object_type"] = vf::JsonValue(object_ref.type);
+                            source["embedding"] = vf::JsonValue(embedding_name);
+                            (void)lower_world_embedding_add(
+                                embedding_args, vf::JsonValue(std::move(source)));
+                            ++matched;
+                        }
+                        if (matched == 0) {
+                            throw IRFailure("append_world found no matching embedding overload");
+                        }
+                        vf::JsonValue::Object push;
+                        push["kind"] = vf::JsonValue("push");
+                        ui_operations_.emplace_back(std::move(push));
+                        ui_result_type_ = "View";
+                        vf::JsonValue view = num_const(0.0);
+                        view.as_object()["type"] = vf::JsonValue("View");
+                        return view;
+                    }
+                    if (spilled_ui_display &&
+                        (queue_type == "Display<2>" || queue_type == "Frame<2>") &&
+                        method == "show") {
+                        if (!args.empty() || !named_args.empty() || !spread_args.empty()) {
+                            throw IRFailure("show does not accept arguments");
+                        }
+                        vf::JsonValue::Object show;
+                        show["kind"] = vf::JsonValue("show");
+                        ui_operations_.emplace_back(std::move(show));
+                        auto result = node("const");
+                        result["type"] = vf::JsonValue("null");
+                        result["value"] = vf::JsonValue(nullptr);
+                        return vf::JsonValue(std::move(result));
+                    }
                     if (spilled_ui_display && queue_type == "Frame<2>" &&
                         method == "load") {
                         if (args.size() != 1 || !named_args.empty() || !spread_args.empty()) {
@@ -5034,6 +5381,11 @@ private:
             }
             vf::JsonValue object_ir = lower_expr(field(object, "object", "attribute"), env);
             const std::string object_type = string_field(object_ir.as_object(), "type", "attribute object");
+            std::string structural_object_type = resolve_type_alias(object_type);
+            const auto nominal_representation = nominal_representations_.find(object_type);
+            if (nominal_representation != nominal_representations_.end()) {
+                structural_object_type = resolve_type_alias(nominal_representation->second);
+            }
             const std::string field_name = string_field(object, "name", "attribute");
             const bool vector_object = starts_with(object_type, "list<") ||
                 (object_type.size() >= 2 && object_type.front() == '[' && object_type.back() == ']');
@@ -5050,7 +5402,7 @@ private:
             out["type"] = vf::JsonValue(
                 length_object && field_name == "length"
                 ? "fn()->int"
-                : field_type_from_record(object_type, field_name));
+                : field_type_from_record(structural_object_type, field_name));
             return vf::JsonValue(std::move(out));
         }
         if (kind == "dotted_index") {
@@ -6388,8 +6740,12 @@ private:
     std::map<std::string, vf::JsonValue> symbolic_expression_sources_;
     std::set<std::string> symbolic_trace_stack_;
     std::map<std::string, UiHandleRef> ui_handle_bindings_;
+    std::map<std::string, std::uint64_t> world_handle_bindings_;
+    std::vector<WorldRef> worlds_;
+    vf::JsonValue::Array world_operations_;
     vf::JsonValue::Array ui_displays_;
     vf::JsonValue::Array ui_operations_;
+    vf::JsonValue::Array ui_retained_bindings_;
     std::string ui_result_type_ = "null";
     bool symbolic_imported_ = false;
     std::uint64_t next_lambda_local_ = 0;
