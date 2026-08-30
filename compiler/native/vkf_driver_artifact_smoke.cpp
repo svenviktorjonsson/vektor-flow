@@ -1,5 +1,6 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_sha256.hpp"
+#include "compiler/native/vkf_ui_package_contract.hpp"
 #ifdef VKF_X64_BACKEND_LIBRARY
 #include "compiler/native/vkf_x64_backend.hpp"
 #include "compiler/native/vkf_target.hpp"
@@ -841,8 +842,10 @@ void require_safe_output_target(const std::filesystem::path& output) {
         static_cast<unsigned char>(binary[1]) == 0xfa &&
         static_cast<unsigned char>(binary[2]) == 0xed &&
         static_cast<unsigned char>(binary[3]) == 0xfe;
-    if ((!pe && !elf && !macho) ||
-        binary.find("VKF-CACHE-V1:") == std::string::npos) {
+    const bool owned_artifact =
+        binary.find("VKF-CACHE-V1:") != std::string::npos ||
+        vkf::ui_package::has_bundle_footer(binary);
+    if ((!pe && !elf && !macho) || !owned_artifact) {
         throw DriverFailure(
             "refusing to overwrite existing non-VKF file " + output.string() +
             "; choose another -o path or move the file first");
@@ -1388,6 +1391,22 @@ ProcessResult run_checked(const std::vector<std::string>& args, const std::strin
     return result;
 }
 
+std::string last_nonempty_line(const std::string& text, const std::string& context) {
+    std::size_t end = text.size();
+    while (end > 0 && (text[end - 1] == '\n' || text[end - 1] == '\r')) --end;
+    if (end == 0) throw DriverFailure(context + " returned no summary");
+    const auto start = text.rfind('\n', end - 1);
+    const std::size_t line_start = start == std::string::npos ? 0 : start + 1;
+    return text.substr(line_start, end - line_start);
+}
+
+bool has_ui_program(const vf::JsonValue& typed_ir) {
+    if (!typed_ir.is_object()) return false;
+    const auto& object = typed_ir.as_object();
+    const auto found = object.find("ui_program");
+    return found != object.end() && found->second.is_object();
+}
+
 const vf::JsonValue::Object& object_of(const vf::JsonValue& value, const std::string& context) {
     if (!value.is_object()) {
         throw DriverFailure("expected object for " + context);
@@ -1883,6 +1902,77 @@ int main(int argc, char** argv) {
         }
         const auto ir_finished = Clock::now();
         if (materialize_frontend) write_file(typed_ir_path, typed_ir.stdout_text);
+
+        const vf::JsonValue* lowered_ir = integrated_typed_ir
+            ? &*integrated_typed_ir
+            : nullptr;
+        std::optional<vf::JsonValue> parsed_lowered_ir;
+        if (!lowered_ir) {
+            parsed_lowered_ir = vf::parse_json(typed_ir.stdout_text);
+            lowered_ir = &*parsed_lowered_ir;
+        }
+        if (has_ui_program(*lowered_ir)) {
+#ifdef _WIN32
+            if (!args.eval_source.empty()) {
+                throw DriverFailure("UI applications require a source file");
+            }
+            const auto package_parent = build_dir_for(args.source);
+            const auto package_workspace = package_parent /
+                ("ui-package-" + std::to_string(GetCurrentProcessId()));
+            const auto package_ir = package_workspace / "ui-typed-ir.json";
+            const auto package_root = package_parent.parent_path();
+            const auto package_manifest = package_root /
+                (args.source.stem().string() + ".manifest.json");
+            const auto cleanup_package_workspace = [&]() {
+                std::error_code ignore;
+                std::filesystem::remove_all(package_workspace, ignore);
+                ignore.clear();
+                std::filesystem::remove(package_manifest, ignore);
+                ignore.clear();
+                std::filesystem::remove(package_parent, ignore);
+                ignore.clear();
+                std::filesystem::remove(package_root, ignore);
+            };
+            try {
+                std::filesystem::create_directories(package_workspace);
+                write_file(
+                    package_ir,
+                    vf::json_stringify(*lowered_ir, -1) + "\n");
+                const auto packager = sibling_tool_path(args.self, "vkf-ui-package");
+                require_tool_exists(packager, "UI packager");
+                auto default_output = std::filesystem::absolute(args.source);
+                default_output.replace_extension(".exe");
+                const auto output = args.output.empty()
+                    ? default_output
+                    : std::filesystem::absolute(args.output);
+                const ProcessResult packaged = run_checked({
+                    packager.string(),
+                    "--package",
+                    "--source", std::filesystem::absolute(args.source).string(),
+                    "--typed-ir", package_ir.string(),
+                    "--output", output.string(),
+                }, "UI package");
+                const std::string summary_text =
+                    last_nonempty_line(packaged.stdout_text, "UI package");
+                const auto summary_json = vf::parse_json(summary_text);
+                const auto& summary = object_of(summary_json, "UI package summary");
+                if (string_field(summary, "status", "UI package summary") != "compiled") {
+                    throw DriverFailure("UI package did not report compiled status");
+                }
+                if (string_field(summary, "artifact_path", "UI package summary") !=
+                    output.string()) {
+                    throw DriverFailure("UI package reported an unexpected artifact path");
+                }
+                cleanup_package_workspace();
+                return summary_text;
+            } catch (...) {
+                cleanup_package_workspace();
+                throw;
+            }
+#else
+            throw DriverFailure("UI application packaging is unavailable in this build");
+#endif
+        }
 
         std::vector<std::string> artifact_args;
         if (!args.aot || !args.fallback_artifact.empty()) {
