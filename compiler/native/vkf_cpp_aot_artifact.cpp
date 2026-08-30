@@ -1,5 +1,6 @@
 #include "native/VfOverlay/vf/json.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
@@ -131,6 +132,16 @@ private:
     std::set<std::string> variables_;
 
     void discover() {
+        std::set<std::string> linked_declarations;
+        for (const auto& statement : array_of(field(module_, "body", "typed module"), "typed module body")) {
+            const auto& object = object_of(statement, "top-level statement");
+            const auto kind = string_field(object, "kind", "top-level statement");
+            if (kind != "function" && kind != "type_alias" && kind != "store_binding") continue;
+            const auto name = object.find("name");
+            if (name != object.end() && name->second.is_string()) {
+                linked_declarations.insert(name->second.as_string());
+            }
+        }
         for (const auto& statement : array_of(field(module_, "body", "typed module"), "typed module body")) {
             const auto& object = object_of(statement, "top-level statement");
             const std::string kind = string_field(object, "kind", "top-level statement");
@@ -153,6 +164,20 @@ private:
                 }
                 if (alias.fields.empty()) throw AotFailure("unsupported type alias " + shape);
                 aliases_[name] = std::move(alias);
+            } else if (kind == "module_import") {
+                const auto& alias_value = field(object, "alias", "module_import");
+                if (!alias_value.is_string() || alias_value.as_string().empty()) {
+                    throw AotFailure("malformed linked module import alias");
+                }
+                const std::string prefix =
+                    "__vkf_module_" + alias_value.as_string() + "__";
+                const bool resolved = std::any_of(
+                    linked_declarations.begin(), linked_declarations.end(),
+                    [&](const auto& name) { return name.rfind(prefix, 0) == 0; });
+                if (!resolved) {
+                    throw AotFailure(
+                        "unresolved linked module import " + alias_value.as_string());
+                }
             } else if (kind != "expr_stmt") {
                 throw AotFailure("unsupported top-level typed IR statement " + kind);
             }

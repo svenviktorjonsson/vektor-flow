@@ -1,0 +1,2 @@
+twice(value:num) -> num:
+    value * 2
