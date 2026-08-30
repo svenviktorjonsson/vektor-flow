@@ -1516,6 +1516,100 @@ void collect_owner_event_poll_binding(
     plan.bindings.push_back(std::move(binding));
 }
 
+void collect_owner_event_loop_binding(
+    const vf::JsonValue& root_value,
+    WasmModulePlan& plan
+) {
+    const auto& root = object_of(root_value, "typed IR root");
+    vf::JsonValue::Array loops;
+    for (const auto& raw_statement : array_of(
+             field(root, "body", "typed IR root"), "typed IR root.body")) {
+        const auto& statement = object_of(raw_statement, "typed IR statement");
+        if (string_field(statement, "kind", "typed IR statement") != "expr_stmt") {
+            continue;
+        }
+        const auto& loop = object_of(
+            field(statement, "expr", "typed IR expression statement"),
+            "typed IR expression statement.expr");
+        const std::string expression_kind = string_field(
+            loop, "kind", "typed IR expression");
+        if (expression_kind == "match_stmt") {
+            const auto& repeats = field(loop, "loop", "typed IR match statement");
+            const auto& discriminant = object_of(
+                field(loop, "discriminant", "typed IR match statement"),
+                "typed IR match discriminant");
+            if (repeats.is_boolean() && repeats.as_boolean() &&
+                string_field(discriminant, "kind", "typed IR match discriminant") ==
+                    "bind_expr" &&
+                field(discriminant, "value", "typed IR match discriminant").is_object() &&
+                string_field(
+                    object_of(field(discriminant, "value", "typed IR match discriminant"),
+                              "typed IR match value"),
+                    "kind", "typed IR match value") == "ui_owner_event_get") {
+                throw WasmArtifactFailure("unsupported internal owner event loop");
+            }
+        }
+        if (expression_kind != "ui_owner_event_loop") {
+            continue;
+        }
+        const std::string binding_name = string_field(
+            loop, "binding", "owner event loop");
+        if (binding_name.empty()) {
+            throw WasmArtifactFailure("malformed internal owner event loop binding");
+        }
+        const auto& poll = object_of(
+            field(loop, "poll", "owner event loop"), "owner event loop poll");
+        const auto& owner = object_of(
+            field(poll, "owner", "owner event loop poll"), "owner event loop owner");
+        const std::string owner_kind = string_field(
+            poll, "owner_kind", "owner event loop poll");
+        const std::string poll_type = string_field(
+            poll, "type", "owner event loop poll");
+        const std::string owner_type = string_field(
+            owner, "type", "owner event loop owner");
+        const bool button_poll = owner_kind == "Button" &&
+            poll_type == "ButtonEvent|null" && owner_type == "ui_component<Button>";
+        const bool display_poll = owner_kind == "Display" &&
+            poll_type == "DisplayEvent|null" && owner_type == "Display<2>";
+        if (string_field(poll, "kind", "owner event loop poll") != "ui_owner_event_get" ||
+            string_field(owner, "kind", "owner event loop owner") != "load" ||
+            (!button_poll && !display_poll)) {
+            throw WasmArtifactFailure("malformed internal owner event loop poll");
+        }
+
+        vf::JsonValue::Array event_types;
+        const auto& arms = array_of(field(loop, "arms", "owner event loop"),
+                                    "owner event loop arms");
+        if (arms.empty()) {
+            throw WasmArtifactFailure("malformed internal owner event loop arms");
+        }
+        for (const auto& raw_arm : arms) {
+            const auto& arm = object_of(raw_arm, "owner event loop arm");
+            const std::string event_type = string_field(
+                arm, "event_type", "owner event loop arm");
+            if (string_field(arm, "kind", "owner event loop arm") !=
+                    "ui_owner_event_arm" ||
+                (event_type != "ButtonEvent" && event_type != "ButtonClicked") ||
+                !field(arm, "body", "owner event loop arm").is_object()) {
+                throw WasmArtifactFailure("malformed internal owner event loop arm");
+            }
+            event_types.emplace_back(event_type);
+        }
+        vf::JsonValue::Object descriptor;
+        descriptor["binding"] = vf::JsonValue(binding_name);
+        descriptor["poll"] = vf::JsonValue(poll);
+        descriptor["event_types"] = vf::JsonValue(std::move(event_types));
+        loops.emplace_back(std::move(descriptor));
+    }
+    if (loops.empty()) return;
+
+    WasmBinding binding;
+    binding.name = "$ui$owner$event$loops";
+    binding.kind = WasmBinding::Kind::String;
+    binding.string_value = vf::json_stringify(vf::JsonValue(std::move(loops)), -1);
+    plan.bindings.push_back(std::move(binding));
+}
+
 WasmModulePlan collect_module_plan(
     const vf::JsonValue& root,
     const std::filesystem::path& source_path
@@ -1581,6 +1675,7 @@ WasmModulePlan collect_module_plan(
     }
     collect_retained_html_packet_binding(root, source_path, plan);
     collect_owner_event_poll_binding(root, plan);
+    collect_owner_event_loop_binding(root, plan);
     return plan;
 }
 
