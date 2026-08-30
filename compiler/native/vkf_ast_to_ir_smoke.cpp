@@ -3,6 +3,7 @@
 #include "compiler/native/vkf_symbolic_lowering.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
 #include "compiler/native/vkf_physical_dimensions.hpp"
+#include "compiler/native/vkf_html_component_catalog.generated.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -3184,6 +3185,20 @@ private:
                 arg_types.push_back(argument_type);
                 argument_type_names.push_back(argument_type.as_string());
                 args.push_back(std::move(lowered_arg));
+            }
+            const bool spilled_ui_display = std::find(
+                spilled_modules_.begin(), spilled_modules_.end(), "ui.display") !=
+                spilled_modules_.end();
+            if (spilled_ui_display &&
+                string_field(callee_ast, "kind", "call.callee") == "identifier") {
+                const std::string component_identity = string_field(
+                    callee_ast, "name", "call.callee");
+                if (vf::html_component_catalog::Contains(component_identity) &&
+                    args.empty() && named_args.empty() && spread_args.empty()) {
+                    vf::JsonValue component = string_const(component_identity);
+                    component.as_object()["type"] = vf::JsonValue("any");
+                    return component;
+                }
             }
             if (string_field(callee_ast, "kind", "call.callee") == "attribute") {
                 const auto& owner_ast = object_of(
