@@ -1,8 +1,8 @@
 # Lazy data comparison tracer
 
-This is a correctness-first, non-gating harness for VKF, Polars, and future
-Vaex/Dask comparisons. It does not contain measured performance results and
-does not time VKF's private CSV scanner.
+This is a correctness-first, non-gating harness for VKF, Polars, DuckDB, and
+future Vaex/Dask comparisons. It does not contain measured performance results
+and does not time VKF's private CSV scanner.
 
 The workload reads one deterministic wide CSV and observes:
 
@@ -73,16 +73,37 @@ fixture oracle and pinned Polars version, and records canonical hashes for the
 runner source, Python executable, and installed Polars package contents. It
 still records no samples, timings, or performance ratios.
 
-Without explicit peer runners the receipt reports VKF, Polars, Vaex, and Dask as
-`UNAVAILABLE`, retains empty raw-sample and comparison arrays, and makes no
-timing claim. A missing peer is never replaced with pandas, NumPy, the private
-VKF scanner, or another implementation.
+DuckDB is the second verified external peer. Its independently pinned runner
+uses the public CSV table function and SQL projection/reduction path:
+
+```sh
+python -m venv .venv
+.venv/bin/python -m pip install -r \
+  benchmarks/lazy-data-comparison/requirements-duckdb.txt
+node benchmarks/lazy-data-comparison/run.mjs \
+  --fixture=benchmarks/lazy-data-comparison/.work/fixture.csv \
+  --rows=4096 \
+  --output=benchmarks/lazy-data-comparison/.work/readiness.json \
+  --revision=<git-commit> \
+  --duckdb-runner=.venv/bin/python
+```
+
+DuckDB readiness also requires its JSON physical plan to expose exactly `x`
+and `y` as the CSV projection. It fixes the connection to one thread and binds
+the exact version, source, executable, and installed-distribution hashes. Plan
+inspection and dependency hashing remain correctness/readiness work outside any
+future timed boundary.
+
+Without explicit peer runners the receipt reports VKF, Polars, DuckDB, Vaex,
+and Dask as `UNAVAILABLE`, retains empty raw-sample and comparison arrays, and
+makes no timing claim. A missing peer is never replaced with pandas, NumPy, the
+private VKF scanner, or another implementation.
 
 Public executable CSV-backed `data.load`, a compatible Vaex runner, and a
 compatible Dask runner are prerequisites for measurement. This environment has
-not verified a mutually compatible Vaex/Dask/Python dependency set. Polars is
-pinned independently because it passes the exact tiny-fixture oracle; the
-remaining peer set stays `unfrozen_dependencies`.
+not verified a mutually compatible Vaex/Dask/Python dependency set. Polars and
+DuckDB are pinned independently because each passes the exact tiny-fixture
+oracle; the remaining peer set stays `unfrozen_dependencies`.
 Readiness derives peer names from that versioned contract rather than a fixed
 code list, so later peer-set reviews do not require fallback logic.
 
