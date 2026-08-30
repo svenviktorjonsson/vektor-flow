@@ -1748,6 +1748,11 @@ struct UiHandleRef {
     std::uint64_t id = 0;
 };
 
+struct UiStaticIdentity {
+    std::string id;
+    std::string type;
+};
+
 struct WorldObjectRef {
     std::uint64_t id = 0;
     std::string type;
@@ -1798,6 +1803,7 @@ public:
                     module_name;
             }
         }
+        discover_static_ui_identities(statements);
         for (const auto& stmt : statements) {
             register_function_if_present(stmt, module_env_);
         }
@@ -1841,6 +1847,163 @@ public:
     }
 
 private:
+    void discover_static_ui_identities(const vf::JsonValue::Array& statements) {
+        std::set<std::string> frame_bindings;
+        for (const auto& statement_value : statements) {
+            if (!statement_value.is_object()) continue;
+            const auto& statement = statement_value.as_object();
+            if (string_field(statement, "kind", "static Frame binding") != "bind") continue;
+            const auto& target = object_of(
+                field(statement, "target", "static Frame binding"),
+                "static Frame binding target");
+            const auto& value = object_of(
+                field(statement, "value", "static Frame binding"),
+                "static Frame binding value");
+            if (string_field(target, "kind", "static Frame binding target") != "identifier" ||
+                string_field(value, "kind", "static Frame binding value") != "call") {
+                continue;
+            }
+            const auto& callee = object_of(
+                field(value, "callee", "static Frame binding call"),
+                "static Frame binding callee");
+            if (string_field(callee, "kind", "static Frame binding callee") == "attribute" &&
+                string_field(callee, "name", "static Frame binding callee") == "add_frame") {
+                frame_bindings.insert(string_field(
+                    target, "name", "static Frame binding target"));
+            }
+        }
+
+        const auto inspect_for_load = [&](const auto& self, const vf::JsonValue& value) -> void {
+            if (value.is_array()) {
+                for (const auto& item : value.as_array()) self(self, item);
+                return;
+            }
+            if (!value.is_object()) return;
+            const auto& object = value.as_object();
+            const auto kind = object.find("kind");
+            if (kind != object.end() && kind->second.is_string() &&
+                kind->second.as_string() == "call") {
+                const auto callee = object.find("callee");
+                if (callee != object.end() && callee->second.is_object()) {
+                    const auto& callee_object = callee->second.as_object();
+                    const auto callee_kind = callee_object.find("kind");
+                    const auto name = callee_object.find("name");
+                    if (callee_kind != callee_object.end() && callee_kind->second.is_string() &&
+                        callee_kind->second.as_string() == "attribute" &&
+                        name != callee_object.end() && name->second.is_string() &&
+                        name->second.as_string() == "load") {
+                        const auto owner = callee_object.find("object");
+                        if (owner != callee_object.end() && owner->second.is_object()) {
+                            const auto& owner_object = owner->second.as_object();
+                            const auto owner_kind = owner_object.find("kind");
+                            const auto owner_name = owner_object.find("name");
+                            has_static_html_load_ = has_static_html_load_ ||
+                                (owner_kind != owner_object.end() &&
+                                 owner_kind->second.is_string() &&
+                                 owner_kind->second.as_string() == "identifier" &&
+                                 owner_name != owner_object.end() &&
+                                 owner_name->second.is_string() &&
+                                 frame_bindings.find(owner_name->second.as_string()) !=
+                                     frame_bindings.end());
+                        }
+                    }
+                }
+            }
+            for (const auto& [name, child] : object) {
+                (void)name;
+                self(self, child);
+            }
+        };
+
+        for (const auto& statement_value : statements) {
+            inspect_for_load(inspect_for_load, statement_value);
+            if (!statement_value.is_object()) continue;
+            const auto& statement = statement_value.as_object();
+            if (string_field(statement, "kind", "static retained identity") != "bind") continue;
+            const auto& value = object_of(
+                field(statement, "value", "static retained identity"),
+                "static retained identity value");
+            if (string_field(value, "kind", "static retained identity value") != "call") continue;
+            const auto& callee = object_of(
+                field(value, "callee", "static retained identity call"),
+                "static retained identity callee");
+            if (string_field(callee, "kind", "static retained identity callee") != "identifier") {
+                continue;
+            }
+            const std::string identity = string_field(
+                callee, "name", "static retained identity callee");
+            if (!vf::html_component_catalog::Contains(identity)) continue;
+            for (const auto& argument_value : array_of(
+                     field(value, "args", "static retained identity call"),
+                     "static retained identity arguments")) {
+                if (!argument_value.is_object()) continue;
+                const auto& argument = argument_value.as_object();
+                if (string_field(argument, "kind", "static retained identity argument") !=
+                        "named_call_arg" ||
+                    string_field(argument, "name", "static retained identity argument") != "id") {
+                    continue;
+                }
+                const auto& id = object_of(
+                    field(argument, "value", "static retained identity id"),
+                    "static retained identity id");
+                const auto raw = id.find("value");
+                if (string_field(id, "kind", "static retained identity id") == "string_literal" &&
+                    raw != id.end() && raw->second.is_string() && !raw->second.as_string().empty()) {
+                    ui_static_identities_.push_back(UiStaticIdentity{
+                        raw->second.as_string(), identity});
+                }
+            }
+        }
+    }
+
+    std::string ui_owner_lookup_type(const vf::JsonValue& id) const {
+        std::optional<std::string> literal;
+        std::string id_type;
+        if (id.is_object()) {
+            const auto& object = id.as_object();
+            const auto kind = object.find("kind");
+            const auto type = object.find("type");
+            const auto value = object.find("value");
+            if (type != object.end() && type->second.is_string()) {
+                id_type = type->second.as_string();
+            }
+            if (kind != object.end() && kind->second.is_string() &&
+                kind->second.as_string() == "const" &&
+                id_type == "str" &&
+                value != object.end() && value->second.is_string()) {
+                literal = value->second.as_string();
+            }
+        }
+
+        std::vector<std::string> types;
+        const auto add = [&](const std::string& type) {
+            if (std::find(types.begin(), types.end(), type) == types.end()) {
+                types.push_back(type);
+            }
+        };
+        if (id_type == "str") {
+            for (const auto& identity : ui_static_identities_) {
+                if (!literal.has_value() || identity.id == *literal) add(identity.type);
+            }
+            if (has_static_html_load_ && (!literal.has_value() || types.empty())) {
+                for (const auto& entry : vf::html_component_catalog::kEntries) {
+                    add(std::string(entry.identity));
+                }
+            }
+        } else if (id_type == "int") {
+            add("Frame<2>");
+            add("View");
+            add("Layer");
+        }
+        if (types.empty()) return "null";
+        std::string result;
+        for (const auto& type : types) {
+            if (!result.empty()) result += "|";
+            result += type;
+        }
+        return result + "|null";
+    }
+
     static std::string primitive_type_name(const std::string& name, const TypeEnv& env) {
         const auto direct = [](const std::string& value) {
             return value == "bit" || value == "chr" || value == "int" ||
@@ -3409,11 +3572,30 @@ private:
                 string_field(callee_ast, "kind", "call.callee") == "identifier") {
                 const std::string component_identity = string_field(
                     callee_ast, "name", "call.callee");
-                if (vf::html_component_catalog::Contains(component_identity) &&
-                    args.empty() && named_args.empty() && spread_args.empty()) {
+                if (vf::html_component_catalog::Contains(component_identity)) {
+                    if (!args.empty() || !spread_args.empty() || named_args.size() > 1) {
+                        throw IRFailure(
+                            component_identity + " currently accepts only optional `id:`");
+                    }
                     vf::JsonValue component = string_const(component_identity);
                     component.as_object()["type"] = vf::JsonValue(
                         "ui_component<" + component_identity + ">");
+                    if (!named_args.empty()) {
+                        const vf::JsonValue* id = named_value("id", component_identity);
+                        if (id == nullptr) {
+                            throw IRFailure(
+                                component_identity + " currently accepts only `id:`");
+                        }
+                        const auto& value = object_of(*id, component_identity + " id");
+                        const auto& raw = field(value, "value", component_identity + " id");
+                        if (string_field(value, "kind", component_identity + " id") != "const" ||
+                            string_field(value, "type", component_identity + " id") != "str" ||
+                            !raw.is_string() || raw.as_string().empty()) {
+                            throw IRFailure(
+                                component_identity + " `id:` requires a non-empty constant string");
+                        }
+                        component.as_object()["id"] = raw;
+                    }
                     return component;
                 }
             }
@@ -3517,6 +3699,34 @@ private:
                 if (string_field(owner_ast, "kind", "method owner") == "identifier") {
                     const std::string queue_name = string_field(owner_ast, "name", "method owner");
                     const std::string queue_type = env.get(queue_name);
+                    const bool retained_owner = queue_type == "Display<2>" ||
+                        queue_type == "Frame<2>" || queue_type == "View" ||
+                        queue_type == "Layer" || starts_with(queue_type, "ui_component<");
+                    if (spilled_ui_display && retained_owner && method == "get") {
+                        if (args.size() != 1 || !named_args.empty() || !spread_args.empty()) {
+                            throw IRFailure("retained owner.get requires exactly one id");
+                        }
+                        const std::string id_type = string_field(
+                            object_of(args.front(), "retained owner.get id"),
+                            "type", "retained owner.get id");
+                        if (id_type != "str" && id_type != "int") {
+                            throw IRFailure("retained owner.get id must be str or int");
+                        }
+                        auto owner = node("load");
+                        owner["name"] = vf::JsonValue(queue_name);
+                        owner["type"] = vf::JsonValue(queue_type);
+                        auto lookup = node("ui_owner_get");
+                        lookup["owner"] = vf::JsonValue(std::move(owner));
+                        lookup["owner_kind"] = vf::JsonValue(
+                            queue_type == "Display<2>" ? "Display" :
+                            queue_type == "Frame<2>" ? "Frame" :
+                            queue_type == "View" ? "View" :
+                            queue_type == "Layer" ? "Layer" :
+                            queue_type.substr(13, queue_type.size() - 14));
+                        lookup["id"] = args.front();
+                        lookup["type"] = vf::JsonValue(ui_owner_lookup_type(args.front()));
+                        return vf::JsonValue(std::move(lookup));
+                    }
                     if (spilled_physics && queue_type == "World<2>" && method == "add") {
                         if (args.size() != 1 || !named_args.empty() || !spread_args.empty()) {
                             throw IRFailure("World.add requires exactly one positional object");
@@ -6744,6 +6954,7 @@ private:
     std::map<std::string, vf::JsonValue> symbolic_expression_sources_;
     std::set<std::string> symbolic_trace_stack_;
     std::map<std::string, UiHandleRef> ui_handle_bindings_;
+    std::vector<UiStaticIdentity> ui_static_identities_;
     std::map<std::string, std::uint64_t> world_handle_bindings_;
     std::vector<WorldRef> worlds_;
     vf::JsonValue::Array world_operations_;
@@ -6752,6 +6963,7 @@ private:
     vf::JsonValue::Array ui_retained_bindings_;
     std::string ui_result_type_ = "null";
     bool symbolic_imported_ = false;
+    bool has_static_html_load_ = false;
     std::uint64_t next_lambda_local_ = 0;
     std::uint64_t next_ui_frame_ = 0;
 };
