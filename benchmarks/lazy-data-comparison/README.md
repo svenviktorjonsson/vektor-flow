@@ -35,6 +35,22 @@ node benchmarks/lazy-data-comparison/run.mjs \
   --revision=<git-commit>
 ```
 
+Provide the integrated public VKF compiler to verify the real VKF runner:
+
+```sh
+node benchmarks/lazy-data-comparison/run.mjs \
+  --fixture=benchmarks/lazy-data-comparison/.work/fixture.csv \
+  --rows=4096 \
+  --output=benchmarks/lazy-data-comparison/.work/readiness.json \
+  --revision=<git-commit> \
+  --vkf-runner=<path-to-vkf>
+```
+
+The readiness step generates a source file from the checked-in VKF template,
+compiles it through public `data.load`, executes the resulting artifact, and
+requires the exact fixture oracle. Only then is VKF `AVAILABLE`. The receipt
+records canonical source and runner hashes but no elapsed time or ratio.
+
 Without explicit peer runners the receipt reports VKF, Vaex, and Dask as
 `UNAVAILABLE`, retains empty raw-sample and comparison arrays, and makes no
 timing claim. A missing peer is never replaced with pandas, NumPy, the private
