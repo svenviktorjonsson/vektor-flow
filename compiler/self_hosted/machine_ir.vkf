@@ -222,6 +222,76 @@ mir_lower_numeric_parameter_multiply_function_module(function:any):
         version: 23
     )
 
+mir_numeric_parameter_multiply_typed_module_matches(application:any) -> bit:
+    function: application.body.0
+    entry: application.body.1
+    print_call: entry.expr
+    function_call: print_call.args.0
+    host_call: function_call.args.0
+    (application.kind = "typed_module" /\
+        mir_numeric_parameter_multiply_function_matches(function) /\
+        entry.kind = "expr_stmt" /\
+        print_call.kind = "call" /\
+        print_call.callee.kind = "stdlib_function" /\
+        print_call.callee.full_name = "io.print" /\
+        print_call.callee.module = "io" /\
+        print_call.callee.name = "print" /\
+        print_call.callee.type = "fn(any)->any" /\
+        print_call.callee_type = "fn(any)->any" /\
+        print_call.arg_types.0 = "num" /\
+        print_call.type = "any" /\
+        function_call.kind = "call" /\
+        function_call.callee.kind = "load" /\
+        function_call.callee.name = function.name /\
+        function_call.callee.type = "fn(num)->num" /\
+        function_call.callee_type = "fn(num)->num" /\
+        function_call.arg_types.0 = "num" /\
+        function_call.specialization_arg_types.0 = "num" /\
+        function_call.type = "num" /\
+        host_call.kind = "call" /\
+        host_call.callee.kind = "load" /\
+        host_call.callee.name = "cpu_count" /\
+        host_call.callee.type = "fn()->int" /\
+        host_call.callee_type = "fn()->int" /\
+        host_call.type = "num")
+
+mir_lower_numeric_parameter_multiply_typed_module(application:any):
+    # These effect-free projections give the private direct-call ABI the exact
+    # application layout that the matcher consumes before validation runs.
+    function: application.body.0
+    entry: application.body.1
+    print_call: entry.expr
+    function_call: print_call.args.0
+    host_call: function_call.args.0
+    application.kind
+    function.kind
+    entry.kind
+    print_call.kind
+    print_call.callee.kind
+    print_call.callee.full_name
+    print_call.callee.module
+    print_call.callee.name
+    print_call.callee.type
+    print_call.callee_type
+    print_call.arg_types.0
+    print_call.type
+    function_call.kind
+    function_call.callee.kind
+    function_call.callee.name
+    function_call.callee.type
+    function_call.callee_type
+    function_call.arg_types.0
+    function_call.specialization_arg_types.0
+    function_call.type
+    host_call.kind
+    host_call.callee.kind
+    host_call.callee.name
+    host_call.callee.type
+    host_call.callee_type
+    host_call.type
+    mir_numeric_parameter_multiply_typed_module_matches(application)?! "typed numeric application does not match MachineModule lowering"
+    mir_lower_numeric_parameter_multiply_function_module(application.body.0)
+
 machine_ir_opcode_catalog:
     [
         "push_f64",

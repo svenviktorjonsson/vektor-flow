@@ -130,6 +130,58 @@ typed_numeric_parameter_multiply_function(
         type: "fn(num)->num"
     )
 
+typed_numeric_parameter_multiply_application(
+    function_name:str,
+    parameter_name:str,
+    right_value:num
+):
+    function: typed_numeric_parameter_multiply_function(
+        function_name,
+        parameter_name,
+        right_value
+    )
+    host_call: (
+        arg_types: [],
+        args: [],
+        callee: (kind: "load", name: "cpu_count", type: "fn()->int"),
+        callee_type: "fn()->int",
+        kind: "call",
+        named_args: [],
+        spread_args: [],
+        type: "num"
+    )
+    function_call: (
+        arg_types: ["num"],
+        args: [host_call],
+        callee: (kind: "load", name: function_name, type: "fn(num)->num"),
+        callee_type: "fn(num)->num",
+        kind: "call",
+        named_args: [],
+        specialization_arg_types: ["num"],
+        spread_args: [],
+        type: "num"
+    )
+    print_call: (
+        arg_types: ["num"],
+        args: [function_call],
+        callee: (
+            full_name: "io.print",
+            kind: "stdlib_function",
+            module: "io",
+            name: "print",
+            type: "fn(any)->any"
+        ),
+        callee_type: "fn(any)->any",
+        kind: "call",
+        named_args: [],
+        spread_args: [],
+        type: "any"
+    )
+    (
+        body: [function, (expr: print_call, kind: "expr_stmt")],
+        kind: "typed_module"
+    )
+
 infer_literal_type(kind:str):
     kind??
         "number_literal" => "int"
