@@ -51,8 +51,112 @@
     var runtimeLog = options.runtimeLog || function() {};
     var getRuntimeSource = options.getRuntimeSource || function() { return null; };
     var applySceneCommands = options.applySceneCommands || function() {};
+    var runPureDemand = options.__internalRunPureDemand || null;
     var state = options.state || {};
     var BOOTSTRAP_COALESCE_KINDS = _packetContract && _packetContract.BOOTSTRAP_COALESCE_KINDS || FALLBACK_BOOTSTRAP_COALESCE_KINDS;
+    var pureDemandQueue = [];
+    var pureDemandCommitQueue = [];
+    var pureDemandDrainScheduled = false;
+    var lastPureDemandEventSeq = -Infinity;
+    var pureDemandQueueLimit = Math.floor(Number(config.__internalPureDemandQueueLimit) || 32);
+    if (pureDemandQueueLimit < 1) { pureDemandQueueLimit = 1; }
+
+    function pureDemandSafetyAllowsDeferral(safety) {
+      return !!(
+        safety &&
+        safety.deterministic === true &&
+        safety.replay_safe === true &&
+        safety.partition_candidate === true &&
+        safety.requires_ordered_effects !== true &&
+        safety.external_process_boundary !== true
+      );
+    }
+
+    function commitCompletedPureDemands() {
+      while (pureDemandCommitQueue.length > 0 && pureDemandCommitQueue[0].completed) {
+        var completed = pureDemandCommitQueue.shift();
+        if (completed.failed) {
+          runtimeLog(
+            "warn",
+            "pure demand failed before commit: " +
+              (completed.error && completed.error.message
+                ? completed.error.message
+                : String(completed.error || "unknown error"))
+          );
+          continue;
+        }
+        completed.commit(completed.value);
+      }
+    }
+
+    function startQueuedPureDemands() {
+      pureDemandDrainScheduled = false;
+      var queued = pureDemandQueue.splice(0);
+      for (var i = 0; i < queued.length; i++) {
+        (function(task) {
+          pureDemandCommitQueue.push(task);
+          Promise.resolve()
+            .then(function() { return runPureDemand(task.plan); })
+            .then(function(value) {
+              task.value = value;
+              task.completed = true;
+              commitCompletedPureDemands();
+            }, function(error) {
+              task.error = error;
+              task.failed = true;
+              task.completed = true;
+              commitCompletedPureDemands();
+            });
+        })(queued[i]);
+      }
+    }
+
+    function scheduleQueuedPureDemands() {
+      if (pureDemandDrainScheduled) { return; }
+      pureDemandDrainScheduled = true;
+      if (typeof global.requestAnimationFrame === "function") {
+        global.requestAnimationFrame(function() {
+          if (typeof global.setTimeout === "function") {
+            global.setTimeout(startQueuedPureDemands, 0);
+            return;
+          }
+          Promise.resolve().then(startQueuedPureDemands);
+        });
+        return;
+      }
+      if (typeof global.setTimeout === "function") {
+        global.setTimeout(startQueuedPureDemands, 0);
+        return;
+      }
+      Promise.resolve().then(startQueuedPureDemands);
+    }
+
+    // Private bridge for compiler/runtime-owned event handlers. It deliberately
+    // accepts only the conservative native AutomaticFlowSafety result. Public
+    // VKF effects and process operations stay on their synchronous path.
+    function enqueuePureDemand(plan) {
+      if (!plan || typeof plan !== "object" || typeof runPureDemand !== "function") {
+        return false;
+      }
+      var eventSeq = Number(plan.event_seq);
+      if (!Number.isFinite(eventSeq) || eventSeq < lastPureDemandEventSeq ||
+          typeof plan.commit !== "function" ||
+          !pureDemandSafetyAllowsDeferral(plan.safety)) {
+        return false;
+      }
+      if (pureDemandQueue.length + pureDemandCommitQueue.length >= pureDemandQueueLimit) {
+        return false;
+      }
+      pureDemandQueue.push({
+        plan: plan,
+        commit: plan.commit,
+        completed: false,
+        failed: false
+      });
+      lastPureDemandEventSeq = eventSeq;
+      scheduleQueuedPureDemands();
+      return true;
+    }
 
     function strictPacketOnlyEnabled() {
       return !!config.strictPacketOnly;
@@ -432,6 +536,7 @@
       getPacketRuntimeState: getPacketRuntimeState,
       getNextPacketPollDelay: getNextPacketPollDelay,
       enterBootstrapOnly: enterBootstrapOnly,
+      __internalEnqueuePureDemand: enqueuePureDemand,
       packetRuntimeStates: PACKET_RUNTIME_STATES
     };
   }
