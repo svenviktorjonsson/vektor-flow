@@ -82,6 +82,54 @@ typed_field_access(object:any, field:str, object_type:str, type:str):
 function_symbol(name:str, param_types:any, return_type:str, signature:str):
     (name: name, param_types: param_types, return_type: return_type, signature: signature)
 
+typed_numeric_parameter_multiply_expression(parameter_name:str, right_value:num):
+    (
+        kind: "binary_op",
+        left: typed_load(parameter_name, "num"),
+        left_type: "num",
+        op: "STAR",
+        right: (kind: "const", type: "int", value: right_value),
+        right_type: "int",
+        type: "num"
+    )
+
+typed_numeric_parameter_multiply_function(
+    function_name:str,
+    parameter_name:str,
+    right_value:num
+):
+    (
+        body: (
+            body: [(
+                expr: typed_numeric_parameter_multiply_expression(
+                    parameter_name,
+                    right_value
+                ),
+                kind: "expr_stmt"
+            )],
+            kind: "block"
+        ),
+        kind: "function",
+        name: function_name,
+        params: [(
+            default: null,
+            kind: "param",
+            name: parameter_name,
+            type: "num",
+            variadic_named: false,
+            variadic_positional: false
+        )],
+        representation_type: "num",
+        return_type: "num",
+        signature: (
+            kind: "function_signature",
+            params: ["num"],
+            return_type: "num",
+            type: "fn(num)->num"
+        ),
+        type: "fn(num)->num"
+    )
+
 infer_literal_type(kind:str):
     kind??
         "number_literal" => "int"

@@ -1,0 +1,6 @@
+: .system
+
+twice(value:num) -> num:
+    value * 2
+
+:: twice(cpu_count())

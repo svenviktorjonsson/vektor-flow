@@ -52,8 +52,23 @@ MachineModule: (
     functions:any
 )
 
+NumericFunctionConstInput: (kind:str, value:num, type:str)
+NumericFunctionLoadInput: (kind:str, name:str, type:str)
+NumericFunctionMultiplyInput: (kind:str, left:NumericFunctionLoadInput, left_type:str, op:str, right:NumericFunctionConstInput, right_type:str, type:str)
+NumericFunctionStatementInput: (expr:NumericFunctionMultiplyInput, kind:str)
+NumericFunctionBlockInput: (body:[NumericFunctionStatementInput:1], kind:str)
+NumericFunctionParameterInput: (default:any, kind:str, name:str, type:str, variadic_named:bit, variadic_positional:bit)
+NumericFunctionSignatureInput: (kind:str, params:[str:1], return_type:str, type:str)
+NumericFunctionInput: (body:NumericFunctionBlockInput, kind:str, name:str, params:[NumericFunctionParameterInput:1], representation_type:str, return_type:str, signature:NumericFunctionSignatureInput, type:str)
+
 mir_simple(kind:str):
     (kind: kind,)
+
+mir_multiply_f64():
+    mir_simple("multiply_f64")
+
+mir_return_f64():
+    mir_simple("return_f64")
 
 mir_push_f64(value:num):
     (kind: "push_f64", value: value)
@@ -63,6 +78,9 @@ mir_push_string(index:num, byte_count:num):
 
 mir_local(kind:str, index:num):
     (kind: kind, index: index)
+
+mir_load_local(index:num):
+    mir_local("load_local", index)
 
 mir_call(symbol:str, argument_count:num, result_count:num, provided_parameter_mask:num=0, uses_parameter_mask:bit=false, may_error:bit=false, has_error_handler:bit=false, error_label:num=0, error_value_local:num=0, error_type_local:num=0):
     (kind: "call", symbol: symbol, argument_count: argument_count, result_count: result_count, provided_parameter_mask: provided_parameter_mask, uses_parameter_mask: uses_parameter_mask, may_error: may_error, has_error_handler: has_error_handler, error_label: error_label, error_value_local: error_value_local, error_type_local: error_type_local)
@@ -101,6 +119,22 @@ mir_module(entry:MachineFunction, functions:any, output_kind:str, string_data:an
         entry: entry,
         functions: functions
     )
+
+mir_numeric_parameter_multiply_instructions(right_value:num):
+    [
+        mir_load_local(0),
+        mir_push_f64(right_value),
+        mir_multiply_f64(),
+        mir_return_f64()
+    ]
+
+mir_numeric_parameter_multiply_function_matches(function:NumericFunctionInput) -> bit:
+    (function.kind = "function" /\
+        function.params.0.kind = "param" /\
+        function.body.kind = "block" /\
+        function.body.body.0.kind = "expr_stmt" /\
+        function.body.body.0.expr.kind = "binary_op" /\
+        function.body.body.0.expr.op = "STAR")
 
 machine_ir_opcode_catalog:
     [
