@@ -13633,7 +13633,8 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     const std::string& optimization_policy,
     std::uint32_t optimization_run_budget,
     double optimization_time_budget_ms,
-    std::uint32_t optimization_landscape_runs
+    std::uint32_t optimization_landscape_runs,
+    const vkf::machine_ir::Module* supplied_machine_ir
 ) {
     constexpr auto target = vkf::target::host_x64_contract();
     const std::string stem = source.stem().string().empty() ? "program" : source.stem().string();
@@ -13648,7 +13649,9 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     vkf::adaptive_optimizer::Policy selected_policy;
     TuningResult tuning;
     try {
-        machine_ir = vkf::machine_ir::lower(typed_ir);
+        machine_ir = supplied_machine_ir
+            ? *supplied_machine_ir
+            : vkf::machine_ir::lower(typed_ir);
         const bool supports_simd = vkf::target::host_x64_supports_avx2();
         optimization_decisions = vkf::adaptive_optimizer::decide_module(
             machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
