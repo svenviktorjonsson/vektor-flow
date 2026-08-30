@@ -96,7 +96,13 @@
   },
   "peer_set": {
     "status": "unfrozen_dependencies",
-    "members": ["vkf", "vaex", "dask"],
+    "members": ["vkf", "polars", "vaex", "dask"],
+    "requirements": {
+      "polars": {
+        "distribution": "polars",
+        "version": "1.44.1"
+      }
+    },
     "rule": "missing or unverified dependencies are UNAVAILABLE; no fallback implementation"
   },
   "graduation": {
