@@ -1,7 +1,27 @@
 (function (global) {
   "use strict";
 
-  function staticDocument(text, baseUrl) {
+  function bundleRoot(baseUrl) {
+    const url = new global.URL(baseUrl);
+    const match = url.pathname.match(/^(.*\/vf-static-ui-[0-9a-f]{16}\/)/);
+    if (!match) throw new Error("static HTML resource is outside a content-addressed bundle");
+    return { origin: url.origin, path: match[1] };
+  }
+
+  function resolveLocal(rawReference, baseUrl, root, context) {
+    const reference = String(rawReference || "").trim().split(/[?#]/, 1)[0];
+    if (!reference || reference.startsWith("/") || reference.startsWith("#") ||
+        reference.includes(":")) {
+      throw new Error(`${context} must be source-relative`);
+    }
+    const resolved = new global.URL(reference, baseUrl);
+    if (resolved.origin !== root.origin || !resolved.pathname.startsWith(root.path)) {
+      throw new Error(`${context} escapes its static bundle`);
+    }
+    return resolved.href;
+  }
+
+  function staticDocument(text, baseUrl, root) {
     const parsed = new global.DOMParser().parseFromString(text, "text/html");
     if (parsed.querySelector("script")) {
       throw new Error("static HTML cannot contain scripts");
@@ -15,25 +35,89 @@
       }
     }
     const stylesheets = [];
+    const assets = [];
     for (const link of parsed.querySelectorAll('link[rel~="stylesheet"]')) {
-      const href = String(link.getAttribute("href") || "").trim();
-      if (!href || href.startsWith("/") || href.startsWith("#") || href.includes(":")) {
-        throw new Error("static HTML stylesheet must be source-relative");
-      }
-      const resolved = new global.URL(href, baseUrl);
-      if (resolved.origin !== new global.URL(baseUrl).origin) {
-        throw new Error("static HTML stylesheet must be source-relative");
-      }
-      link.setAttribute("href", resolved.href);
-      stylesheets.push(resolved.href);
+      const resolved = resolveLocal(
+        link.getAttribute("href"), baseUrl, root, "static HTML stylesheet",
+      );
+      link.setAttribute("href", resolved);
+      stylesheets.push(resolved);
     }
-    return { parsed, stylesheets };
+    for (const image of parsed.querySelectorAll("img[src], source[src]")) {
+      const resolved = resolveLocal(
+        image.getAttribute("src"), baseUrl, root, "static HTML image",
+      );
+      image.setAttribute("src", resolved);
+      assets.push(resolved);
+    }
+    return { parsed, stylesheets, assets, entry: baseUrl };
   }
 
   async function fetchOk(url) {
     const response = await global.fetch(url);
     if (!response.ok) throw new Error("static HTML resource could not be loaded");
     return response;
+  }
+
+  function cssReferences(css) {
+    const imports = [];
+    const assets = [];
+    css.replace(
+      /@import\s+(?:url\(\s*)?(?:"([^"]*)"|'([^']*)'|([^'"\s;)]+))\s*\)?/gi,
+      (match, doubleQuoted, singleQuoted, bare) => {
+        imports.push(doubleQuoted ?? singleQuoted ?? bare);
+        return match;
+      },
+    );
+    css.replace(
+      /url\(\s*(?:"([^"]*)"|'([^']*)'|([^'"\s)]+))\s*\)/gi,
+      (match, doubleQuoted, singleQuoted, bare) => {
+        const reference = doubleQuoted ?? singleQuoted ?? bare;
+        if (!/^data:/i.test(reference)) assets.push(reference);
+        return match;
+      },
+    );
+    return { imports, assets };
+  }
+
+  async function preflightStaticGraph(prepared, root) {
+    const visiting = new Set();
+    const visited = new Set();
+    const fetchedAssets = new Set();
+    const claimed = new Set([prepared.entry]);
+    function claim(url) {
+      if (claimed.has(url)) return false;
+      if (claimed.size >= 256) {
+        throw new Error("static HTML resource graph exceeds 256 files");
+      }
+      claimed.add(url);
+      return true;
+    }
+    async function fetchAsset(url) {
+      if (fetchedAssets.has(url)) return;
+      claim(url);
+      fetchedAssets.add(url);
+      await fetchOk(url);
+    }
+    async function visitCss(url, depth) {
+      if (depth > 64) throw new Error("static HTML CSS graph exceeds depth 64");
+      if (visiting.has(url)) throw new Error("static HTML CSS import cycle");
+      if (visited.has(url)) return;
+      claim(url);
+      visiting.add(url);
+      const response = await fetchOk(url);
+      const references = cssReferences(await response.text());
+      for (const reference of references.imports) {
+        await visitCss(resolveLocal(reference, response.url, root, "static HTML CSS import"), depth + 1);
+      }
+      for (const reference of references.assets) {
+        await fetchAsset(resolveLocal(reference, response.url, root, "static HTML CSS URL"));
+      }
+      visiting.delete(url);
+      visited.add(url);
+    }
+    for (const stylesheet of prepared.stylesheets) await visitCss(stylesheet, 0);
+    for (const asset of prepared.assets) await fetchAsset(asset);
   }
 
   async function mountFrameHtml(frameRoot, resourcePath) {
@@ -49,8 +133,9 @@
     }
 
     const response = await fetchOk(resourcePath);
-    const prepared = staticDocument(await response.text(), response.url);
-    await Promise.all(prepared.stylesheets.map(fetchOk));
+    const rootBoundary = bundleRoot(response.url);
+    const prepared = staticDocument(await response.text(), response.url, rootBoundary);
+    await preflightStaticGraph(prepared, rootBoundary);
 
     const root = global.document.createElement("div");
     root.setAttribute("data-vf-static-html-root", "");
