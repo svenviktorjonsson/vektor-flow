@@ -66,7 +66,7 @@
       var ownerRoot = null;
       if (owner.kind === "frame") {
         var panel = livePanelsById[String(owner.id || "")];
-        ownerRoot = panel && panel.body;
+        ownerRoot = panel && panel.root;
       } else if (owner.kind === "display") {
         var layer = getLayer();
         var displayId = layer && layer.dataset

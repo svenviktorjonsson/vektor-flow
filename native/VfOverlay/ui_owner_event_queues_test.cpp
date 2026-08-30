@@ -31,6 +31,9 @@ vf::JsonValue::Array TakeXs(vf::InternalOwnerEventQueue& queue) {
     vf::JsonValue::Array values;
     values.emplace_back(*vf::GetInputEventX(*queue.Get()));
     values.emplace_back(*vf::GetInputEventX(*queue.Get()));
+    if (queue.Get().has_value()) {
+        throw std::runtime_error("owner event FIFO did not drain to null");
+    }
     return values;
 }
 
@@ -148,6 +151,12 @@ int main() {
     fifo_observation.emplace("button", TakeXs(fifo.Button()));
     fifo_observation.emplace("frame", TakeXs(fifo.Frame()));
     fifo_observation.emplace("display", TakeXs(fifo.Display()));
+    fifo_observation.emplace("displayEmpty", Summary(fifo.Display().Get()));
+    vf::JsonValue::Array fifo_defaults;
+    fifo_defaults.emplace_back(*vf::GetInputEventX(*fifo.TakeInternalDefaultEvent()));
+    fifo_defaults.emplace_back(*vf::GetInputEventX(*fifo.TakeInternalDefaultEvent()));
+    fifo_observation.emplace("defaults", std::move(fifo_defaults));
+    fifo_observation.emplace("defaultEmpty", Summary(fifo.TakeInternalDefaultEvent()));
 
     vf::InternalButtonClickedOwnerQueues malformed("button-0", "frame-0", "display-0");
     bool rejected = false;
@@ -161,11 +170,85 @@ int main() {
     malformed_observation.emplace("buttonEmpty", Summary(malformed.Button().Get()));
     malformed_observation.emplace("frameEmpty", Summary(malformed.Frame().Get()));
     malformed_observation.emplace("displayEmpty", Summary(malformed.Display().Get()));
+    malformed.ConsumeRuntimePacket(Packet(1, 11));
+    vf::JsonValue::Array malformed_recovered;
+    malformed_recovered.emplace_back(Summary(malformed.Button().Get()));
+    malformed_recovered.emplace_back(Summary(malformed.Frame().Get()));
+    malformed_recovered.emplace_back(Summary(malformed.Display().Get()));
+    malformed.CompleteInternalOwnerEvent(malformed.Display(), false, false);
+    malformed_observation.emplace("recovered", std::move(malformed_recovered));
+    malformed_observation.emplace("defaultEvent", Summary(malformed.TakeInternalDefaultEvent()));
+
+    vf::InternalButtonClickedOwnerQueues prevented(
+        "button-0", std::vector<std::string>{"frame-inner", "frame-outer"}, "display-0");
+    prevented.ConsumeRuntimePacket(Packet(1, 30, "frame-inner"));
+    vf::JsonValue::Array prevented_owners;
+    prevented_owners.emplace_back(Summary(prevented.Button().Get()));
+    prevented.CompleteInternalOwnerEvent(prevented.Button(), true, false);
+    prevented_owners.emplace_back(Summary(prevented.Frame(0).Get()));
+    prevented.CompleteInternalOwnerEvent(prevented.Frame(0), false, false);
+    prevented_owners.emplace_back(Summary(prevented.Frame(1).Get()));
+    prevented.CompleteInternalOwnerEvent(prevented.Frame(1), false, false);
+    prevented_owners.emplace_back(Summary(prevented.Display().Get()));
+    prevented.CompleteInternalOwnerEvent(prevented.Display(), false, false);
+    vf::JsonValue::Object prevented_observation;
+    prevented_observation.emplace("owners", std::move(prevented_owners));
+    prevented_observation.emplace("defaultEvent", Summary(prevented.TakeInternalDefaultEvent()));
+
+    vf::InternalButtonClickedOwnerQueues stopped(
+        "button-0", std::vector<std::string>{"frame-inner", "frame-outer"}, "display-0");
+    stopped.ConsumeRuntimePacket(Packet(1, 40, "frame-inner"));
+    const auto stopped_button = stopped.Button().Get();
+    stopped.CompleteInternalOwnerEvent(stopped.Button(), false, true);
+    vf::JsonValue::Object stopped_observation;
+    stopped_observation.emplace("button", Summary(stopped_button));
+    stopped_observation.emplace("inner", Summary(stopped.Frame(0).Get()));
+    stopped_observation.emplace("outer", Summary(stopped.Frame(1).Get()));
+    stopped_observation.emplace("display", Summary(stopped.Display().Get()));
+    stopped_observation.emplace("defaultEvent", Summary(stopped.TakeInternalDefaultEvent()));
+    stopped_observation.emplace("defaultEmpty", Summary(stopped.TakeInternalDefaultEvent()));
+
+    vf::InternalButtonClickedOwnerQueues normal(
+        "button-0", std::vector<std::string>{"frame-inner", "frame-outer"}, "display-0");
+    normal.ConsumeRuntimePacket(Packet(1, 50, "frame-inner"));
+    normal.Button().Get();
+    normal.CompleteInternalOwnerEvent(normal.Button(), false, false);
+    normal.Frame(0).Get();
+    normal.CompleteInternalOwnerEvent(normal.Frame(0), false, false);
+    normal.Frame(1).Get();
+    normal.CompleteInternalOwnerEvent(normal.Frame(1), false, false);
+    normal.Display().Get();
+    normal.CompleteInternalOwnerEvent(normal.Display(), false, false);
+    vf::JsonValue::Object normal_observation;
+    normal_observation.emplace("defaultEvent", Summary(normal.TakeInternalDefaultEvent()));
+    normal_observation.emplace("defaultEmpty", Summary(normal.TakeInternalDefaultEvent()));
+
+    vf::InternalButtonClickedOwnerQueues completion("button-0", "frame-0", "display-0");
+    vf::InternalButtonClickedOwnerQueues foreign("button-0", "frame-0", "display-0");
+    completion.ConsumeRuntimePacket(Packet(1, 60));
+    completion.Button().Get();
+    bool completion_rejected = false;
+    try {
+        completion.CompleteInternalOwnerEvent(foreign.Button(), false, true);
+    } catch (const std::exception&) {
+        completion_rejected = true;
+    }
+    completion.CompleteInternalOwnerEvent(completion.Button(), false, true);
+    vf::JsonValue::Object completion_observation;
+    completion_observation.emplace("rejected", completion_rejected);
+    completion_observation.emplace("frame", Summary(completion.Frame().Get()));
+    completion_observation.emplace("display", Summary(completion.Display().Get()));
+    completion_observation.emplace("defaultEvent", Summary(completion.TakeInternalDefaultEvent()));
+    completion_observation.emplace("defaultEmpty", Summary(completion.TakeInternalDefaultEvent()));
 
     vf::JsonValue::Object root;
     root.emplace("fanout", std::move(fanout_observation));
     root.emplace("fifo", std::move(fifo_observation));
     root.emplace("malformed", std::move(malformed_observation));
+    root.emplace("prevented", std::move(prevented_observation));
+    root.emplace("stopped", std::move(stopped_observation));
+    root.emplace("normal", std::move(normal_observation));
+    root.emplace("completion", std::move(completion_observation));
     std::cout << vf::json_stringify(vf::JsonValue(std::move(root)), 0) << std::endl;
     return 0;
 }

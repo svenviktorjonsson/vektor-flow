@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -101,6 +102,9 @@ struct InputEventMatch {
     const InputEventPacketPayload* payload = nullptr;
 };
 
+struct InternalOwnerEventInteraction;
+class InternalButtonClickedOwnerQueues;
+
 class InternalOwnerEventQueue {
 public:
     std::optional<InputEventPacketPayload> Get();
@@ -110,9 +114,21 @@ public:
 private:
     friend class InternalButtonClickedOwnerQueues;
     friend class InternalGeometryPickOwnerQueues;
+    struct LedgerEntry {
+        std::shared_ptr<InternalOwnerEventInteraction> interaction;
+        InputEventPacketPayload payload;
+    };
+
     void Push(InputEventPacketPayload payload);
+    void PushLedger(
+        std::shared_ptr<InternalOwnerEventInteraction> interaction,
+        InputEventPacketPayload payload);
 
     std::deque<InputEventPacketPayload> values_;
+    InternalButtonClickedOwnerQueues* ledger_ = nullptr;
+    std::size_t ledger_index_ = 0;
+    std::deque<LedgerEntry> ledger_values_;
+    std::optional<LedgerEntry> ledger_active_;
 };
 
 class InternalButtonClickedOwnerQueues {
@@ -121,20 +137,45 @@ public:
         std::string button_id,
         std::string frame_id,
         std::string display_id);
+    InternalButtonClickedOwnerQueues(
+        std::string button_id,
+        std::vector<std::string> frame_ids,
+        std::string display_id);
+    InternalButtonClickedOwnerQueues(const InternalButtonClickedOwnerQueues&) = delete;
+    InternalButtonClickedOwnerQueues& operator=(const InternalButtonClickedOwnerQueues&) = delete;
+    InternalButtonClickedOwnerQueues(InternalButtonClickedOwnerQueues&&) = delete;
+    InternalButtonClickedOwnerQueues& operator=(InternalButtonClickedOwnerQueues&&) = delete;
 
     void ConsumeRuntimePacket(const UiRuntimePacket& packet);
     InternalOwnerEventQueue& Button() noexcept;
     InternalOwnerEventQueue& Frame() noexcept;
+    InternalOwnerEventQueue& Frame(std::size_t index);
+    std::size_t FrameCount() const noexcept;
     InternalOwnerEventQueue& Display() noexcept;
+    void CompleteInternalOwnerEvent(
+        InternalOwnerEventQueue& owner,
+        bool prevent_default,
+        bool stop_propagation);
+    std::optional<InputEventPacketPayload> TakeInternalDefaultEvent();
 
 private:
+    friend class InternalOwnerEventQueue;
+    std::optional<InputEventPacketPayload> GetFromQueue(InternalOwnerEventQueue& owner);
+    void CompleteActive(
+        InternalOwnerEventQueue& owner,
+        bool prevent_default,
+        bool stop_propagation);
+    void FinalizeInteraction(const std::shared_ptr<InternalOwnerEventInteraction>& interaction);
+    InternalOwnerEventQueue& OwnerQueue(std::size_t index);
+
     std::string button_id_;
-    std::string frame_id_;
+    std::vector<std::string> frame_ids_;
     std::string display_id_;
     std::uint64_t last_sequence_ = 0;
     InternalOwnerEventQueue button_;
-    InternalOwnerEventQueue frame_;
+    std::vector<InternalOwnerEventQueue> frames_;
     InternalOwnerEventQueue display_;
+    std::deque<InputEventPacketPayload> default_events_;
 };
 
 class InternalGeometryPickOwnerQueues {
