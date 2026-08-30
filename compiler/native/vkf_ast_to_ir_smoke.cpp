@@ -7153,7 +7153,13 @@ bool try_fold_pipe_chain_expr(
         for (const auto& segment : array_of(field(object, "segments", "pipe_chain"), "pipe_chain.segments")) {
             std::map<std::string, double> locals;
             locals["$"] = current;
-            current = eval_pipe_segment_expr(segment, locals, functions);
+            try {
+                current = eval_pipe_segment_expr(segment, locals, functions);
+            } catch (const IRFailure&) {
+                // Constant folding is optional. Block-bodied calls and pipe
+                // blocks retain their ordinary typed lowering semantics.
+                return false;
+            }
         }
         mapped.push_back(current);
     }
