@@ -1934,6 +1934,15 @@ private:
             return lowered_subject;
         }
         subject_type = resolve_type_alias(subject_type);
+        std::string record_value_type = subject_type;
+        if (!type_spill && container == "multiset" &&
+            nominal_representation != nominal_representations_.end()) {
+            record_value_type = resolve_type_alias(nominal_representation->second);
+        }
+        const bool record_value_key_spill =
+            !type_spill && container == "multiset" &&
+            starts_with(record_value_type, "record{") && record_value_type.back() == '}';
+        if (record_value_key_spill) subject_type = std::move(record_value_type);
 
         if (type_spill && primitive.empty() && container == "record" &&
             (!ordered_record_type_fields(subject_type).empty() ||
@@ -1943,7 +1952,9 @@ private:
 
         if (!type_spill && container == "record") return lowered_subject;
 
-        if (!type_spill && (container == "vector" || container == "multiset")) {
+        if (!type_spill &&
+            (container == "vector" ||
+             (container == "multiset" && !record_value_key_spill))) {
             std::vector<std::string> element_types;
             bool dynamic_vector = false;
             if (starts_with(subject_type, "tuple<") && subject_type.back() == '>') {
