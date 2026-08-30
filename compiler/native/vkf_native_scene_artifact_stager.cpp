@@ -1,4 +1,5 @@
 #include "vkf_static_html_bundle.hpp"
+#include "vkf_world_mesh_packet.hpp"
 
 #include <cstdint>
 #include <algorithm>
@@ -3011,11 +3012,12 @@ std::optional<CompiledUiSceneBundle> try_compile_typed_world_presentation(
         throw StagerError("the first typed World presentation requires one World, object, and layer");
     }
     const VkfLiteralValue& world = worlds->array.front();
+    const double world_dimension = literal_number_or(world, "dimension", -1.0);
     if (literal_number_or(*world_program, "version", -1.0) != 1.0 ||
         literal_number_or(*ui_program, "version", -1.0) != 1.0 ||
         literal_number_or(world, "id", -1.0) != 0.0 ||
-        literal_number_or(world, "dimension", -1.0) != 2.0) {
-        throw StagerError("the first typed World presentation requires dimension 2");
+        (world_dimension != 2.0 && world_dimension != 3.0)) {
+        throw StagerError("the first typed World presentation requires dimension 2 or 3");
     }
     for (const std::string option : {"em", "gravity", "rigid_collisions"}) {
         const VkfLiteralValue* value = object_field(world, option);
@@ -3045,47 +3047,81 @@ std::optional<CompiledUiSceneBundle> try_compile_typed_world_presentation(
         throw StagerError("typed World object operation does not match its layer source");
     }
     const VkfLiteralValue* channels = object_field(add, "channels");
-    if (!channels || channels->kind != VkfLiteralKind::Array || channels->array.size() != 3) {
-        throw StagerError("typed World layer requires p, c, and s channels");
+    if (!channels || channels->kind != VkfLiteralKind::Array) {
+        throw StagerError("typed World layer requires presentation channels");
     }
 
     TypedWorldValueEvaluator evaluator(module);
     std::map<std::string, std::vector<double>> channel_values;
     for (const auto& channel : channels->array) {
         const std::string name = literal_string_or(channel, "name", "");
-        if (name != "p" && name != "c" && name != "s") {
+        if (name != "p" && name != "c" && name != "s" &&
+            name != "positions" && name != "topology" &&
+            name != "color" && name != "material") {
             throw StagerError("typed World layer contains an unsupported channel " + name);
+        }
+        if (channel_values.find(name) != channel_values.end()) {
+            throw StagerError("typed World layer contains duplicate channel " + name);
         }
         const VkfLiteralValue* value = object_field(channel, "value");
         if (!value) throw StagerError("typed World channel " + name + " has no value");
         channel_values[name] = typed_world_numeric_values(
             evaluator.evaluate(*value), "typed World channel " + name);
     }
-    const auto& position = channel_values["p"];
-    const auto& color = channel_values["c"];
-    const auto& size = channel_values["s"];
-    if (position.size() != 2 || color.size() != 4 || size.size() != 1) {
-        throw StagerError("the first typed World layer requires one 2D position, RGBA color, and size");
-    }
 
     const std::string frame_id = "world_0_view_0";
     const std::string mesh_id = "world_0_layer_0";
-    const std::vector<double> vertices{
-        position[0], position[1], 0.0,
-        0.0, 0.0, 1.0,
-        color[0], color[1], color[2], color[3]
-    };
     const std::string frame = axis_deck_frame_command_json(
         frame_id, "", 0.0, 0.0, 1.0, 1.0);
-    std::ostringstream mesh;
-    mesh << "{\"type\":\"field_mesh\",\"id\":\"" << mesh_id
-         << "\",\"topology\":\"point-list\",\"render_mode\":\"marker_impostor\","
-         << "\"marker_space\":\"world\",\"mode3d\":false,\"vertices\":"
-         << typed_world_number_array_json(vertices)
-         << ",\"indices\":[0],\"vertex_size\":" << std::setprecision(17) << size[0]
-         << ",\"depth_write\":false,\"no_lighting\":true,\"pickable\":true,\"layer_id\":0}";
+    std::string mesh_json;
+    std::string materials_suffix;
+    const bool particle_channels = channel_values.size() == 3 &&
+        channel_values.count("p") == 1 && channel_values.count("c") == 1 &&
+        channel_values.count("s") == 1;
+    const bool mesh_channels = channel_values.size() == 4 &&
+        channel_values.count("positions") == 1 && channel_values.count("topology") == 1 &&
+        channel_values.count("color") == 1 && channel_values.count("material") == 1;
+    if (particle_channels) {
+        const auto& position = channel_values["p"];
+        const auto& color = channel_values["c"];
+        const auto& size = channel_values["s"];
+        if (world_dimension != 2.0 || position.size() != 2 ||
+            color.size() != 4 || size.size() != 1) {
+            throw StagerError(
+                "the first typed World particle requires dimension 2, one position, RGBA color, and size");
+        }
+        const std::vector<double> vertices{
+            position[0], position[1], 0.0,
+            0.0, 0.0, 1.0,
+            color[0], color[1], color[2], color[3]
+        };
+        std::ostringstream mesh;
+        mesh << "{\"type\":\"field_mesh\",\"id\":\"" << mesh_id
+             << "\",\"topology\":\"point-list\",\"render_mode\":\"marker_impostor\","
+             << "\"marker_space\":\"world\",\"mode3d\":false,\"vertices\":"
+             << typed_world_number_array_json(vertices)
+             << ",\"indices\":[0],\"vertex_size\":" << std::setprecision(17) << size[0]
+             << ",\"depth_write\":false,\"no_lighting\":true,\"pickable\":true,\"layer_id\":0}";
+        mesh_json = mesh.str();
+    } else if (mesh_channels) {
+        if (world_dimension != 3.0) {
+            throw StagerError("typed World mesh channels require dimension 3");
+        }
+        try {
+            const auto mesh = vkf::world_mesh::compile(
+                channel_values["positions"], channel_values["topology"],
+                channel_values["color"], channel_values["material"]);
+            mesh_json = vkf::world_mesh::mesh_json(mesh, mesh_id, 0);
+            materials_suffix = ",\"materials\":" + vkf::world_mesh::materials_json(mesh);
+        } catch (const std::exception& error) {
+            throw StagerError(error.what());
+        }
+    } else {
+        throw StagerError(
+            "typed World layer requires either p/c/s or positions/topology/color/material channels");
+    }
     const std::string geom = "{\"" + frame_id + "\":{\"frame\":\"" + frame_id +
-        "\",\"meshes\":[" + mesh.str() + "],\"texts\":[]}}";
+        "\",\"meshes\":[" + mesh_json + "],\"texts\":[]" + materials_suffix + "}}";
 
     CompiledUiSceneBundle bundle;
     bundle.scene_config_json = "[]";
