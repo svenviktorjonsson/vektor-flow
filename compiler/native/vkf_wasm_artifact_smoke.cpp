@@ -1106,6 +1106,337 @@ void collect_retained_html_packet_binding(
     }
 }
 
+class TypedWorldWasmEvaluator {
+public:
+    explicit TypedWorldWasmEvaluator(const vf::JsonValue& root) {
+        const auto& module = object_of(root, "typed World module");
+        for (const auto& raw_statement : array_of(
+                 field(module, "body", "typed World module"), "typed World module.body")) {
+            const auto& statement = object_of(raw_statement, "typed World statement");
+            const std::string kind = string_field(statement, "kind", "typed World statement");
+            const auto name = statement.find("name");
+            if (name == statement.end() || !name->second.is_string()) continue;
+            if (kind == "function") functions_[name->second.as_string()] = &raw_statement;
+            if (kind == "store_binding") bindings_[name->second.as_string()] = &raw_statement;
+        }
+    }
+
+    vf::JsonValue evaluate(const vf::JsonValue& expression) {
+        std::map<std::string, vf::JsonValue> locals;
+        std::map<std::string, bool> active;
+        return evaluate(expression, locals, active, 0);
+    }
+
+private:
+    using Locals = std::map<std::string, vf::JsonValue>;
+
+    vf::JsonValue evaluate(
+        const vf::JsonValue& expression,
+        Locals& locals,
+        std::map<std::string, bool>& active,
+        std::size_t depth
+    ) {
+        if (depth > 64) throw WasmArtifactFailure("typed World value evaluation exceeded its bound");
+        const auto& value = object_of(expression, "typed World value expression");
+        const std::string kind = string_field(value, "kind", "typed World value expression");
+        if (kind == "const") return field(value, "value", "typed World const");
+        if (kind == "list" || kind == "tuple") {
+            vf::JsonValue::Array result;
+            for (const auto& item : array_of(
+                     field(value, "items", "typed World list"), "typed World list.items")) {
+                result.push_back(evaluate(item, locals, active, depth + 1));
+            }
+            return vf::JsonValue(std::move(result));
+        }
+        if (kind == "record") {
+            vf::JsonValue::Object result;
+            for (const auto& raw_field : array_of(
+                     field(value, "fields", "typed World record"), "typed World record.fields")) {
+                const auto& record_field = object_of(raw_field, "typed World record field");
+                const std::string name = string_field(
+                    record_field, "name", "typed World record field");
+                result[name] = evaluate(
+                    field(record_field, "value", "typed World record field"),
+                    locals,
+                    active,
+                    depth + 1);
+            }
+            return vf::JsonValue(std::move(result));
+        }
+        if (kind == "load") {
+            const std::string name = string_field(value, "name", "typed World load");
+            const auto local = locals.find(name);
+            if (local != locals.end()) return local->second;
+            const auto binding = bindings_.find(name);
+            if (binding == bindings_.end()) {
+                throw WasmArtifactFailure("typed World value references unknown binding " + name);
+            }
+            if (active[name]) throw WasmArtifactFailure("typed World value binding cycle at " + name);
+            active[name] = true;
+            const auto& binding_object = object_of(*binding->second, "typed World binding");
+            vf::JsonValue result = evaluate(
+                field(binding_object, "value", "typed World binding"), locals, active, depth + 1);
+            active[name] = false;
+            return result;
+        }
+        if (kind == "field_access") {
+            const vf::JsonValue subject_value = evaluate(
+                field(value, "object", "typed World field access"), locals, active, depth + 1);
+            const auto& subject = object_of(subject_value, "typed World selected record");
+            return field(
+                subject,
+                string_field(value, "field", "typed World field access"),
+                "typed World selected record");
+        }
+        if (kind == "binary_op") {
+            const vf::JsonValue left = evaluate(
+                field(value, "left", "typed World binary op"), locals, active, depth + 1);
+            const vf::JsonValue right = evaluate(
+                field(value, "right", "typed World binary op"), locals, active, depth + 1);
+            if (string_field(value, "op", "typed World binary op") != "STAR" ||
+                !left.is_number() || !right.is_number()) {
+                throw WasmArtifactFailure("typed World value only supports numeric multiplication");
+            }
+            return vf::JsonValue(left.as_number() * right.as_number());
+        }
+        if (kind == "call") {
+            const auto& callee = object_of(field(value, "callee", "typed World call"), "typed World callee");
+            if (string_field(callee, "kind", "typed World callee") != "load") {
+                throw WasmArtifactFailure("typed World value call requires a named function");
+            }
+            const std::string name = string_field(callee, "name", "typed World callee");
+            const auto function = functions_.find(name);
+            if (function == functions_.end()) {
+                throw WasmArtifactFailure("typed World value calls unknown function " + name);
+            }
+            const auto& function_object = object_of(*function->second, "typed World function");
+            const auto& params = array_of(
+                field(function_object, "params", "typed World function"), "typed World function.params");
+            const auto& args = array_of(field(value, "args", "typed World call"), "typed World call.args");
+            if (params.size() != args.size()) {
+                throw WasmArtifactFailure("typed World value call arity mismatch for " + name);
+            }
+            Locals function_locals;
+            for (std::size_t index = 0; index < params.size(); ++index) {
+                const auto& param = object_of(params[index], "typed World parameter");
+                function_locals[string_field(param, "name", "typed World parameter")] =
+                    evaluate(args[index], locals, active, depth + 1);
+            }
+            const auto& block = object_of(
+                field(function_object, "body", "typed World function"), "typed World function body");
+            const auto& statements = array_of(
+                field(block, "body", "typed World function body"), "typed World function statements");
+            if (statements.empty()) throw WasmArtifactFailure("typed World function has no result " + name);
+            const auto& tail = object_of(statements.back(), "typed World function result");
+            const std::string tail_kind = string_field(tail, "kind", "typed World function result");
+            const std::string result_field = tail_kind == "return" ? "value" : "expr";
+            if (tail_kind != "return" && tail_kind != "expr_stmt") {
+                throw WasmArtifactFailure("typed World function result must be a return or expression");
+            }
+            return evaluate(
+                field(tail, result_field, "typed World function result"),
+                function_locals,
+                active,
+                depth + 1);
+        }
+        throw WasmArtifactFailure("unsupported typed World value expression " + kind);
+    }
+
+    std::map<std::string, const vf::JsonValue*> functions_;
+    std::map<std::string, const vf::JsonValue*> bindings_;
+};
+
+std::vector<double> typed_world_wasm_numbers(
+    const vf::JsonValue& value,
+    const std::string& context
+) {
+    std::vector<double> result;
+    const auto flatten = [&](const auto& self, const vf::JsonValue& item) -> void {
+        if (item.is_number()) {
+            if (!std::isfinite(item.as_number())) throw WasmArtifactFailure(context + " must be finite");
+            result.push_back(item.as_number());
+            return;
+        }
+        if (item.is_array()) {
+            for (const auto& child : item.as_array()) self(self, child);
+            return;
+        }
+        throw WasmArtifactFailure(context + " must contain only numbers");
+    };
+    flatten(flatten, value);
+    return result;
+}
+
+bool collect_typed_world_packet_binding(const vf::JsonValue& root_value, WasmModulePlan& plan) {
+    const auto& root = object_of(root_value, "typed World root");
+    const auto world_entry = root.find("__vf_internal_world");
+    const auto ui_entry = root.find("ui_program");
+    if (world_entry == root.end() || ui_entry == root.end()) return false;
+    const auto& world_program = object_of(world_entry->second, "typed World program");
+    const auto& ui_program = object_of(ui_entry->second, "typed World UI program");
+    if (string_field(ui_program, "schema", "typed World UI program") != "vektor-flow/ui-program") {
+        throw WasmArtifactFailure("typed World UI program has an unsupported schema");
+    }
+    const auto& worlds = array_of(
+        field(world_program, "worlds", "typed World program"), "typed World program.worlds");
+    const auto& world_operations = array_of(
+        field(world_program, "operations", "typed World program"), "typed World program.operations");
+    const auto& operations = array_of(
+        field(ui_program, "operations", "typed World UI program"), "typed World UI operations");
+    if (worlds.size() != 1 || world_operations.size() != 1 || operations.size() != 3) {
+        throw WasmArtifactFailure("the first typed World presentation requires one World, object, and layer");
+    }
+    const auto& world = object_of(worlds.front(), "typed World definition");
+    if (checked_i32(field(world_program, "version", "typed World program"), "typed World version") != 1 ||
+        checked_i32(field(ui_program, "version", "typed World UI program"), "typed World UI version") != 1 ||
+        checked_i32(field(world, "id", "typed World definition"), "typed World id") != 0 ||
+        checked_i32(field(world, "dimension", "typed World definition"), "typed World dimension") != 2) {
+        throw WasmArtifactFailure("the first typed World presentation requires dimension 2");
+    }
+    for (const std::string option : {"em", "gravity", "rigid_collisions"}) {
+        const auto value = world.find(option);
+        if (value == world.end() || !value->second.is_boolean() || value->second.as_boolean()) {
+            throw WasmArtifactFailure(
+                "the first typed World presentation requires `" + option + ":false`");
+        }
+    }
+    const auto& add = object_of(operations[0], "typed World add");
+    if (string_field(add, "kind", "typed World add") != "add" ||
+        string_field(object_of(operations[1], "typed World push"), "kind", "typed World push") != "push" ||
+        string_field(object_of(operations[2], "typed World show"), "kind", "typed World show") != "show") {
+        throw WasmArtifactFailure("typed World presentation requires ordered add, push, show operations");
+    }
+    const auto& source = object_of(field(add, "source", "typed World add"), "typed World source");
+    if (string_field(source, "kind", "typed World source") != "world_embedding" ||
+        checked_i32(field(source, "world_id", "typed World source"), "typed World source id") != 0 ||
+        checked_i32(field(source, "object_id", "typed World source"), "typed World object id") != 0) {
+        throw WasmArtifactFailure("typed World layer source does not match its retained object");
+    }
+    const auto& world_add = object_of(world_operations.front(), "typed World object operation");
+    if (string_field(world_add, "kind", "typed World object operation") != "add" ||
+        checked_i32(field(world_add, "world_id", "typed World object operation"), "typed World id") != 0 ||
+        checked_i32(field(world_add, "object_id", "typed World object operation"), "typed World object id") != 0 ||
+        string_field(world_add, "object_type", "typed World object operation") !=
+            string_field(source, "object_type", "typed World source")) {
+        throw WasmArtifactFailure("typed World object operation does not match its layer source");
+    }
+
+    TypedWorldWasmEvaluator evaluator(root_value);
+    std::map<std::string, std::vector<double>> values;
+    const auto& channels = array_of(field(add, "channels", "typed World add"), "typed World channels");
+    if (channels.size() != 3) throw WasmArtifactFailure("typed World layer requires p, c, and s channels");
+    for (const auto& raw_channel : channels) {
+        const auto& channel = object_of(raw_channel, "typed World channel");
+        const std::string name = string_field(channel, "name", "typed World channel");
+        if (name != "p" && name != "c" && name != "s") {
+            throw WasmArtifactFailure("typed World layer contains an unsupported channel " + name);
+        }
+        values[name] = typed_world_wasm_numbers(
+            evaluator.evaluate(field(channel, "value", "typed World channel")),
+            "typed World channel " + name);
+    }
+    const auto& position = values["p"];
+    const auto& color = values["c"];
+    const auto& size = values["s"];
+    if (position.size() != 2 || color.size() != 4 || size.size() != 1) {
+        throw WasmArtifactFailure(
+            "the first typed World layer requires one 2D position, RGBA color, and size");
+    }
+
+    const std::string frame_id = "world_0_view_0";
+    vf::JsonValue::Object rect;
+    rect["x"] = vf::JsonValue(0.0);
+    rect["y"] = vf::JsonValue(0.0);
+    rect["w"] = vf::JsonValue(1.0);
+    rect["h"] = vf::JsonValue(1.0);
+    vf::JsonValue::Object flags;
+    flags["draggable"] = vf::JsonValue(false);
+    flags["dockable"] = vf::JsonValue(false);
+    flags["resizable"] = vf::JsonValue(false);
+    flags["closable"] = vf::JsonValue(false);
+    flags["use_browser"] = vf::JsonValue(true);
+    vf::JsonValue::Object spec;
+    spec["id"] = vf::JsonValue(frame_id);
+    spec["title"] = vf::JsonValue("");
+    spec["title_align"] = vf::JsonValue("left");
+    spec["rect"] = vf::JsonValue(std::move(rect));
+    spec["flags"] = vf::JsonValue(std::move(flags));
+    spec["alpha"] = vf::JsonValue(1.0);
+    spec["master"] = vf::JsonValue(false);
+    spec["dock_location"] = vf::JsonValue("tl");
+    spec["anchor"] = vf::JsonValue("tl");
+    spec["body"] = vf::JsonValue(vf::JsonValue::Array{});
+    vf::JsonValue::Object frame_payload;
+    frame_payload["spec"] = vf::JsonValue(std::move(spec));
+    vf::JsonValue::Object frame;
+    frame["kind"] = vf::JsonValue("frame_upsert");
+    frame["id"] = vf::JsonValue(frame_id);
+    frame["payload"] = vf::JsonValue(std::move(frame_payload));
+
+    vf::JsonValue::Array vertices;
+    for (double value : std::vector<double>{
+             position[0], position[1], 0.0, 0.0, 0.0, 1.0,
+             color[0], color[1], color[2], color[3]}) {
+        vertices.emplace_back(value);
+    }
+    vf::JsonValue::Object mesh;
+    mesh["type"] = vf::JsonValue("field_mesh");
+    mesh["id"] = vf::JsonValue("world_0_layer_0");
+    mesh["topology"] = vf::JsonValue("point-list");
+    mesh["render_mode"] = vf::JsonValue("marker_impostor");
+    mesh["marker_space"] = vf::JsonValue("world");
+    mesh["mode3d"] = vf::JsonValue(false);
+    mesh["vertices"] = vf::JsonValue(std::move(vertices));
+    mesh["indices"] = vf::JsonValue(vf::JsonValue::Array{vf::JsonValue(0.0)});
+    mesh["vertex_size"] = vf::JsonValue(size[0]);
+    mesh["depth_write"] = vf::JsonValue(false);
+    mesh["no_lighting"] = vf::JsonValue(true);
+    mesh["pickable"] = vf::JsonValue(true);
+    mesh["layer_id"] = vf::JsonValue(0.0);
+    vf::JsonValue::Object frame_geom;
+    frame_geom["frame"] = vf::JsonValue(frame_id);
+    frame_geom["meshes"] = vf::JsonValue(
+        vf::JsonValue::Array{vf::JsonValue(std::move(mesh))});
+    frame_geom["texts"] = vf::JsonValue(vf::JsonValue::Array{});
+    vf::JsonValue::Object geom;
+    geom[frame_id] = vf::JsonValue(std::move(frame_geom));
+
+    vf::JsonValue::Array packets;
+    vf::JsonValue::Object scene_payload;
+    scene_payload["commands"] = vf::JsonValue(
+        vf::JsonValue::Array{vf::JsonValue(std::move(frame))});
+    vf::JsonValue::Object scene;
+    scene["seq"] = vf::JsonValue(1.0);
+    scene["kind"] = vf::JsonValue("scene.replace");
+    scene["payload"] = vf::JsonValue(std::move(scene_payload));
+    packets.emplace_back(std::move(scene));
+    vf::JsonValue::Object state_payload;
+    state_payload["state"] = vf::JsonValue(vf::JsonValue::Object{});
+    vf::JsonValue::Object state;
+    state["seq"] = vf::JsonValue(2.0);
+    state["kind"] = vf::JsonValue("ui_state.replace");
+    state["payload"] = vf::JsonValue(std::move(state_payload));
+    packets.emplace_back(std::move(state));
+    vf::JsonValue::Object display_data;
+    display_data["screen"] = vf::JsonValue(vf::JsonValue::Array{});
+    display_data["frames"] = vf::JsonValue(vf::JsonValue::Object{});
+    display_data["geom"] = vf::JsonValue(std::move(geom));
+    vf::JsonValue::Object display_payload;
+    display_payload["display"] = vf::JsonValue(std::move(display_data));
+    vf::JsonValue::Object display;
+    display["seq"] = vf::JsonValue(3.0);
+    display["kind"] = vf::JsonValue("display.replace");
+    display["payload"] = vf::JsonValue(std::move(display_payload));
+    packets.emplace_back(std::move(display));
+
+    WasmBinding binding;
+    binding.name = "$ui$compiled$packets";
+    binding.kind = WasmBinding::Kind::String;
+    binding.string_value = vf::json_stringify(vf::JsonValue(std::move(packets)), -1);
+    plan.bindings.push_back(std::move(binding));
+    return true;
+}
+
 void collect_owner_event_poll_binding(
     const vf::JsonValue& root_value,
     WasmModulePlan& plan
@@ -1161,8 +1492,9 @@ WasmModulePlan collect_module_plan(
         }
     }
     filtered_root["body"] = vf::JsonValue(std::move(filtered_body));
-    const auto module = vkf::wasm::parse_typed_module(vf::JsonValue(std::move(filtered_root)));
     WasmModulePlan plan;
+    if (collect_typed_world_packet_binding(root, plan)) return plan;
+    const auto module = vkf::wasm::parse_typed_module(vf::JsonValue(std::move(filtered_root)));
     for (const auto& item : module.items) {
         if (item.kind == vkf::wasm::ModuleItemKind::TypeAlias
             || item.kind == vkf::wasm::ModuleItemKind::ExpressionStatement) {
