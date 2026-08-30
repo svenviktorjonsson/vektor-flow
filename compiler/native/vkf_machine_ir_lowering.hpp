@@ -4122,7 +4122,11 @@ inline bool can_project_call_layout(const ValueLayout& source, const ValueLayout
         target.kind == ValueKind::Aggregate && !is_record_layout(target);
     if (source_is_fixed_aggregate || target_is_fixed_aggregate) {
         if (!source_is_fixed_aggregate || !target_is_fixed_aggregate) return false;
-        for (const auto& [name, target_slice] : ordered_record_fields(target)) {
+        const auto source_fields = ordered_record_fields(source);
+        const auto target_fields = ordered_record_fields(target);
+        const bool sparse_target = has_sparse_fixed_placeholder(target);
+        if (!sparse_target && source_fields.size() != target_fields.size()) return false;
+        for (const auto& [name, target_slice] : target_fields) {
             if (target_slice.kind == ValueKind::Any && target_slice.width == 0) continue;
             const auto found = source.selectors.find(name);
             if (found == source.selectors.end()) return false;
