@@ -2765,6 +2765,339 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
     return bundle;
 }
 
+class TypedWorldValueEvaluator {
+public:
+    explicit TypedWorldValueEvaluator(const VkfLiteralValue& module) {
+        const VkfLiteralValue* body = object_field(module, "body");
+        if (!body || body->kind != VkfLiteralKind::Array) {
+            throw StagerError("typed World module body must be an array");
+        }
+        for (const auto& statement : body->array) {
+            const std::string kind = literal_string_or(statement, "kind", "");
+            const std::string name = literal_string_or(statement, "name", "");
+            if (kind == "function" && !name.empty()) functions_[name] = &statement;
+            if (kind == "store_binding" && !name.empty()) bindings_[name] = &statement;
+        }
+    }
+
+    VkfLiteralValue evaluate(const VkfLiteralValue& expression) {
+        std::map<std::string, VkfLiteralValue> locals;
+        std::map<std::string, bool> active_bindings;
+        return evaluate(expression, locals, active_bindings, 0);
+    }
+
+private:
+    using Locals = std::map<std::string, VkfLiteralValue>;
+
+    static const VkfLiteralValue& require_field(
+        const VkfLiteralValue& value,
+        const std::string& key,
+        const std::string& context
+    ) {
+        const VkfLiteralValue* found = object_field(value, key);
+        if (!found) throw StagerError("typed World value is missing " + key + " in " + context);
+        return *found;
+    }
+
+    VkfLiteralValue evaluate(
+        const VkfLiteralValue& expression,
+        Locals& locals,
+        std::map<std::string, bool>& active_bindings,
+        std::size_t depth
+    ) {
+        if (depth > 64) throw StagerError("typed World value evaluation exceeded its bound");
+        if (expression.kind != VkfLiteralKind::Object) {
+            throw StagerError("typed World value expression must be an object");
+        }
+        const std::string kind = literal_string_or(expression, "kind", "");
+        if (kind == "const") {
+            return require_field(expression, "value", "const");
+        }
+        if (kind == "list" || kind == "tuple") {
+            const VkfLiteralValue& items = require_field(expression, "items", kind);
+            if (items.kind != VkfLiteralKind::Array) {
+                throw StagerError("typed World " + kind + " items must be an array");
+            }
+            VkfLiteralValue result;
+            result.kind = VkfLiteralKind::Array;
+            for (const auto& item : items.array) {
+                result.array.push_back(evaluate(item, locals, active_bindings, depth + 1));
+            }
+            return result;
+        }
+        if (kind == "record") {
+            const VkfLiteralValue& fields = require_field(expression, "fields", "record");
+            if (fields.kind != VkfLiteralKind::Array) {
+                throw StagerError("typed World record fields must be an array");
+            }
+            VkfLiteralValue result;
+            result.kind = VkfLiteralKind::Object;
+            for (const auto& field_value : fields.array) {
+                const std::string name = literal_string_or(field_value, "name", "");
+                if (name.empty()) throw StagerError("typed World record field must have a name");
+                result.object.push_back({
+                    name,
+                    evaluate(
+                        require_field(field_value, "value", "record field"),
+                        locals,
+                        active_bindings,
+                        depth + 1)
+                });
+            }
+            return result;
+        }
+        if (kind == "load") {
+            const std::string name = literal_string_or(expression, "name", "");
+            const auto local = locals.find(name);
+            if (local != locals.end()) return local->second;
+            const auto binding = bindings_.find(name);
+            if (binding == bindings_.end()) {
+                throw StagerError("typed World value references unknown binding " + name);
+            }
+            if (active_bindings[name]) {
+                throw StagerError("typed World value binding cycle at " + name);
+            }
+            active_bindings[name] = true;
+            VkfLiteralValue result = evaluate(
+                require_field(*binding->second, "value", "store_binding"),
+                locals,
+                active_bindings,
+                depth + 1);
+            active_bindings[name] = false;
+            return result;
+        }
+        if (kind == "field_access") {
+            VkfLiteralValue subject = evaluate(
+                require_field(expression, "object", "field_access"),
+                locals,
+                active_bindings,
+                depth + 1);
+            const std::string field_name = literal_string_or(expression, "field", "");
+            const VkfLiteralValue* selected = object_field(subject, field_name);
+            if (!selected) {
+                throw StagerError("typed World value has no field " + field_name);
+            }
+            return *selected;
+        }
+        if (kind == "binary_op") {
+            const std::string op = literal_string_or(expression, "op", "");
+            VkfLiteralValue left = evaluate(
+                require_field(expression, "left", "binary_op"),
+                locals,
+                active_bindings,
+                depth + 1);
+            VkfLiteralValue right = evaluate(
+                require_field(expression, "right", "binary_op"),
+                locals,
+                active_bindings,
+                depth + 1);
+            if (op != "STAR" || left.kind != VkfLiteralKind::Number ||
+                right.kind != VkfLiteralKind::Number) {
+                throw StagerError("typed World value only supports numeric multiplication");
+            }
+            VkfLiteralValue result;
+            result.kind = VkfLiteralKind::Number;
+            std::ostringstream number;
+            number << std::setprecision(17) << std::stod(left.text) * std::stod(right.text);
+            result.text = number.str();
+            return result;
+        }
+        if (kind == "call") {
+            const VkfLiteralValue& callee = require_field(expression, "callee", "call");
+            if (literal_string_or(callee, "kind", "") != "load") {
+                throw StagerError("typed World value call requires a named function");
+            }
+            const std::string function_name = literal_string_or(callee, "name", "");
+            const auto function = functions_.find(function_name);
+            if (function == functions_.end()) {
+                throw StagerError("typed World value calls unknown function " + function_name);
+            }
+            const VkfLiteralValue& params = require_field(*function->second, "params", "function");
+            const VkfLiteralValue& args = require_field(expression, "args", "call");
+            if (params.kind != VkfLiteralKind::Array || args.kind != VkfLiteralKind::Array ||
+                params.array.size() != args.array.size()) {
+                throw StagerError("typed World value call arity mismatch for " + function_name);
+            }
+            Locals function_locals;
+            for (std::size_t index = 0; index < params.array.size(); ++index) {
+                const std::string param_name = literal_string_or(params.array[index], "name", "");
+                if (param_name.empty()) throw StagerError("typed World function parameter has no name");
+                function_locals[param_name] = evaluate(
+                    args.array[index], locals, active_bindings, depth + 1);
+            }
+            const VkfLiteralValue& block = require_field(*function->second, "body", "function");
+            const VkfLiteralValue& statements = require_field(block, "body", "function block");
+            if (statements.kind != VkfLiteralKind::Array || statements.array.empty()) {
+                throw StagerError("typed World function has no result " + function_name);
+            }
+            const VkfLiteralValue& tail = statements.array.back();
+            const std::string tail_kind = literal_string_or(tail, "kind", "");
+            const std::string result_field = tail_kind == "return" ? "value" : "expr";
+            if (tail_kind != "return" && tail_kind != "expr_stmt") {
+                throw StagerError("typed World function result must be a return or expression");
+            }
+            return evaluate(
+                require_field(tail, result_field, "function result"),
+                function_locals,
+                active_bindings,
+                depth + 1);
+        }
+        throw StagerError("unsupported typed World value expression " + kind);
+    }
+
+    std::map<std::string, const VkfLiteralValue*> functions_;
+    std::map<std::string, const VkfLiteralValue*> bindings_;
+};
+
+std::vector<double> typed_world_numeric_values(
+    const VkfLiteralValue& value,
+    const std::string& context
+) {
+    std::vector<double> values;
+    const auto flatten = [&](const auto& self, const VkfLiteralValue& item) -> void {
+        if (item.kind == VkfLiteralKind::Number) {
+            try {
+                const double number = std::stod(item.text);
+                if (!std::isfinite(number)) throw StagerError(context + " must be finite");
+                values.push_back(number);
+                return;
+            } catch (const StagerError&) {
+                throw;
+            } catch (...) {
+                throw StagerError(context + " must be numeric");
+            }
+        }
+        if (item.kind == VkfLiteralKind::Array) {
+            for (const auto& child : item.array) self(self, child);
+            return;
+        }
+        throw StagerError(context + " must contain only numbers");
+    };
+    flatten(flatten, value);
+    return values;
+}
+
+std::string typed_world_number_array_json(const std::vector<double>& values) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) out << ",";
+        out << std::setprecision(17) << values[index];
+    }
+    out << "]";
+    return out.str();
+}
+
+std::optional<CompiledUiSceneBundle> try_compile_typed_world_presentation(
+    const std::filesystem::path& typed_ir_path
+) {
+    if (typed_ir_path.empty()) return std::nullopt;
+    const std::string typed_ir_text = read_file_bytes(typed_ir_path);
+    VkfLiteralParser parser(typed_ir_text, 0);
+    const VkfLiteralValue module = parser.parse_value();
+    const VkfLiteralValue* world_program = object_field(module, "__vf_internal_world");
+    const VkfLiteralValue* ui_program = object_field(module, "ui_program");
+    if (!world_program || !ui_program) return std::nullopt;
+    if (literal_string_or(*ui_program, "schema", "") != "vektor-flow/ui-program") {
+        throw StagerError("typed World UI program has an unsupported schema");
+    }
+    const VkfLiteralValue* worlds = object_field(*world_program, "worlds");
+    const VkfLiteralValue* world_operations = object_field(*world_program, "operations");
+    const VkfLiteralValue* operations = object_field(*ui_program, "operations");
+    if (!worlds || worlds->kind != VkfLiteralKind::Array || worlds->array.size() != 1 ||
+        !world_operations || world_operations->kind != VkfLiteralKind::Array ||
+        world_operations->array.size() != 1 || !operations ||
+        operations->kind != VkfLiteralKind::Array || operations->array.size() != 3) {
+        throw StagerError("the first typed World presentation requires one World, object, and layer");
+    }
+    const VkfLiteralValue& world = worlds->array.front();
+    if (literal_number_or(*world_program, "version", -1.0) != 1.0 ||
+        literal_number_or(*ui_program, "version", -1.0) != 1.0 ||
+        literal_number_or(world, "id", -1.0) != 0.0 ||
+        literal_number_or(world, "dimension", -1.0) != 2.0) {
+        throw StagerError("the first typed World presentation requires dimension 2");
+    }
+    for (const std::string option : {"em", "gravity", "rigid_collisions"}) {
+        const VkfLiteralValue* value = object_field(world, option);
+        if (!value || value->kind != VkfLiteralKind::Bool || value->bool_value) {
+            throw StagerError(
+                "the first typed World presentation requires `" + option + ":false`");
+        }
+    }
+    const VkfLiteralValue& add = operations->array[0];
+    if (literal_string_or(add, "kind", "") != "add" ||
+        literal_string_or(operations->array[1], "kind", "") != "push" ||
+        literal_string_or(operations->array[2], "kind", "") != "show") {
+        throw StagerError("typed World presentation requires ordered add, push, show operations");
+    }
+    const VkfLiteralValue* source = object_field(add, "source");
+    if (!source || literal_string_or(*source, "kind", "") != "world_embedding" ||
+        literal_number_or(*source, "world_id", -1.0) != 0.0 ||
+        literal_number_or(*source, "object_id", -1.0) != 0.0) {
+        throw StagerError("typed World layer source does not match its retained object");
+    }
+    const VkfLiteralValue& world_add = world_operations->array.front();
+    if (literal_string_or(world_add, "kind", "") != "add" ||
+        literal_number_or(world_add, "world_id", -1.0) != 0.0 ||
+        literal_number_or(world_add, "object_id", -1.0) != 0.0 ||
+        literal_string_or(world_add, "object_type", "") !=
+            literal_string_or(*source, "object_type", "")) {
+        throw StagerError("typed World object operation does not match its layer source");
+    }
+    const VkfLiteralValue* channels = object_field(add, "channels");
+    if (!channels || channels->kind != VkfLiteralKind::Array || channels->array.size() != 3) {
+        throw StagerError("typed World layer requires p, c, and s channels");
+    }
+
+    TypedWorldValueEvaluator evaluator(module);
+    std::map<std::string, std::vector<double>> channel_values;
+    for (const auto& channel : channels->array) {
+        const std::string name = literal_string_or(channel, "name", "");
+        if (name != "p" && name != "c" && name != "s") {
+            throw StagerError("typed World layer contains an unsupported channel " + name);
+        }
+        const VkfLiteralValue* value = object_field(channel, "value");
+        if (!value) throw StagerError("typed World channel " + name + " has no value");
+        channel_values[name] = typed_world_numeric_values(
+            evaluator.evaluate(*value), "typed World channel " + name);
+    }
+    const auto& position = channel_values["p"];
+    const auto& color = channel_values["c"];
+    const auto& size = channel_values["s"];
+    if (position.size() != 2 || color.size() != 4 || size.size() != 1) {
+        throw StagerError("the first typed World layer requires one 2D position, RGBA color, and size");
+    }
+
+    const std::string frame_id = "world_0_view_0";
+    const std::string mesh_id = "world_0_layer_0";
+    const std::vector<double> vertices{
+        position[0], position[1], 0.0,
+        0.0, 0.0, 1.0,
+        color[0], color[1], color[2], color[3]
+    };
+    const std::string frame = axis_deck_frame_command_json(
+        frame_id, "", 0.0, 0.0, 1.0, 1.0);
+    std::ostringstream mesh;
+    mesh << "{\"type\":\"field_mesh\",\"id\":\"" << mesh_id
+         << "\",\"topology\":\"point-list\",\"render_mode\":\"marker_impostor\","
+         << "\"marker_space\":\"world\",\"mode3d\":false,\"vertices\":"
+         << typed_world_number_array_json(vertices)
+         << ",\"indices\":[0],\"vertex_size\":" << std::setprecision(17) << size[0]
+         << ",\"depth_write\":false,\"no_lighting\":true,\"pickable\":true,\"layer_id\":0}";
+    const std::string geom = "{\"" + frame_id + "\":{\"frame\":\"" + frame_id +
+        "\",\"meshes\":[" + mesh.str() + "],\"texts\":[]}}";
+
+    CompiledUiSceneBundle bundle;
+    bundle.scene_config_json = "[]";
+    bundle.runtime_packets_json =
+        "[{\"seq\":1,\"kind\":\"scene.replace\",\"payload\":{\"commands\":[" +
+        frame + "]}},{\"seq\":2,\"kind\":\"ui_state.replace\",\"payload\":{\"state\":{}}},"
+        "{\"seq\":3,\"kind\":\"display.replace\",\"payload\":{\"display\":{"
+        "\"screen\":[],\"frames\":{},\"geom\":" + geom + "}}}]";
+    bundle.provenance = "vkf-world-ui-program-lowering";
+    return bundle;
+}
+
 Args parse_args(int argc, char** argv) {
     Args args;
     for (int i = 1; i < argc; ++i) {
@@ -2841,6 +3174,10 @@ int run(int argc, char** argv) {
         } else {
             auto compiled_ui_scene = try_compile_retained_html_tree(
                 effective.typed_ir, absolute_source);
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_typed_world_presentation(
+                    effective.typed_ir);
+            }
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_native_scene_from_source(
                     source_text, effective.overlay_web);
