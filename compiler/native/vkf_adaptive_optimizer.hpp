@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -172,6 +173,88 @@ inline bool is_nondeterministic(machine_ir::Opcode opcode) {
         opcode == Opcode::LocalTimeParts || opcode == Opcode::SystemCpuCount ||
         opcode == Opcode::SystemCwdString || opcode == Opcode::SystemEnvString ||
         opcode == Opcode::ProcessRun;
+}
+
+// Private safety boundary for automatic ordinary-flow scheduling. This does
+// not select a backend or grant permission to reorder dependencies: it only
+// records which functions may enter replay/partition analysis at all.
+struct AutomaticFlowSafety {
+    bool deterministic = true;
+    bool replay_safe = true;
+    bool partition_candidate = true;
+    bool requires_ordered_effects = false;
+    bool requires_stable_reduction_tree = false;
+    bool external_process_boundary = false;
+};
+
+struct AutomaticFlowLimits {
+    std::optional<std::uint32_t> max_cores;
+    // Mirrors the VKF `process.enable_gpu` bit. Permission is not a command.
+    bool enable_gpu = true;
+};
+
+inline std::uint32_t automatic_cpu_partition_limit(
+    const AutomaticFlowLimits& limits,
+    std::uint32_t available_cores
+) {
+    return limits.max_cores
+        ? std::min(available_cores, *limits.max_cores)
+        : available_cores;
+}
+
+inline bool is_reduction(machine_ir::Opcode opcode) {
+    using machine_ir::Opcode;
+    switch (opcode) {
+        case Opcode::SumF64Values:
+        case Opcode::MeanF64Values:
+        case Opcode::VarianceF64Values:
+        case Opcode::StdDevF64Values:
+        case Opcode::RangeF64Values:
+        case Opcode::CountValues:
+        case Opcode::SumF64Locals:
+        case Opcode::MeanF64Locals:
+        case Opcode::VarianceF64Locals:
+        case Opcode::StdDevF64Locals:
+        case Opcode::RangeF64Locals:
+        case Opcode::CountLocalValues:
+        case Opcode::SumF64List:
+        case Opcode::MeanF64List:
+        case Opcode::VarianceF64List:
+        case Opcode::StdDevF64List:
+        case Opcode::RangeF64List:
+        case Opcode::CountF64List:
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline AutomaticFlowSafety automatic_flow_safety(
+    const machine_ir::Function& function
+) {
+    AutomaticFlowSafety safety;
+    bool may_error = function.may_error;
+    for (const auto& instruction : function.instructions) {
+        safety.deterministic =
+            safety.deterministic && !is_nondeterministic(instruction.opcode);
+        safety.requires_ordered_effects =
+            safety.requires_ordered_effects || is_effectful(instruction.opcode);
+        safety.requires_stable_reduction_tree =
+            safety.requires_stable_reduction_tree || is_reduction(instruction.opcode);
+        safety.external_process_boundary = safety.external_process_boundary ||
+            instruction.opcode == machine_ir::Opcode::ProcessRun;
+        may_error = may_error || instruction.may_error;
+    }
+    safety.replay_safe = safety.deterministic &&
+        !safety.requires_ordered_effects && !may_error &&
+        function.owned_f64_list_locals.empty() &&
+        function.owned_string_locals.empty();
+    // Dependency and demand analysis must still prove independent partitions.
+    // Reductions wait for a fixed logical merge tree so device/worker count
+    // cannot change the result.
+    safety.partition_candidate =
+        safety.replay_safe && !safety.requires_stable_reduction_tree;
+    return safety;
 }
 
 inline void append_unique(std::vector<std::string>& values, std::string value) {
