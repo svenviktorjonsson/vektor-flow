@@ -5056,6 +5056,273 @@ private:
         if (kind == "dotted_index") {
             vf::JsonValue base = lower_expr(field(object, "base", "dotted_index"), env);
             std::string result_type = string_field(base.as_object(), "type", "dotted_index.base");
+            std::string structural_type = resolve_type_alias(result_type);
+            const auto nominal_representation = nominal_representations_.find(result_type);
+            if (nominal_representation != nominal_representations_.end()) {
+                structural_type = resolve_type_alias(nominal_representation->second);
+            }
+            const bool structural_record = starts_with(structural_type, "record{") &&
+                !structural_type.empty() && structural_type.back() == '}';
+            const auto structural_fields = ordered_record_type_fields(structural_type);
+            const auto& raw_indices = array_of(
+                field(object, "indices", "dotted_index"), "dotted_index.indices");
+            if (structural_record && raw_indices.size() == 1) {
+                vf::JsonValue selector = lower_expr(raw_indices.front(), env);
+                const auto& selector_object = selector.as_object();
+                const std::string selector_kind = string_field(
+                    selector_object, "kind", "record selector");
+                const auto dot_overload = [&]() -> const FunctionInfo* {
+                    if (const auto* exact = functions_.get(".", {result_type, "str"})) {
+                        return exact;
+                    }
+                    if (nominal_representation != nominal_representations_.end()) {
+                        return nullptr;
+                    }
+                    const FunctionInfo* match = nullptr;
+                    for (const auto* candidate : functions_.family(".")) {
+                        if (candidate->param_types.size() != 2 ||
+                            !structurally_compatible_type(
+                                structural_type,
+                                resolve_type_alias(candidate->param_types[0])) ||
+                            !structurally_compatible_type(
+                                "str", resolve_type_alias(candidate->param_types[1]))) continue;
+                        if (match != nullptr) return nullptr;
+                        match = candidate;
+                    }
+                    return match;
+                }();
+                const auto make_dot_call = [&](vf::JsonValue subject,
+                                               vf::JsonValue key,
+                                               const FunctionInfo& function) {
+                    auto call = node("call");
+                    call["args"] = vf::JsonValue(vf::JsonValue::Array{
+                        std::move(subject), std::move(key)});
+                    call["arg_types"] = vf::JsonValue(vf::JsonValue::Array{
+                        vf::JsonValue(result_type), vf::JsonValue("str")});
+                    call["named_args"] = vf::JsonValue(vf::JsonValue::Array{});
+                    call["spread_args"] = vf::JsonValue(vf::JsonValue::Array{});
+                    auto callee = node("load");
+                    callee["name"] = vf::JsonValue(functions_.runtime_name(function));
+                    callee["type"] = vf::JsonValue(function.signature);
+                    call["callee"] = vf::JsonValue(std::move(callee));
+                    call["callee_type"] = vf::JsonValue(function.signature);
+                    call["type"] = vf::JsonValue(function.return_type);
+                    return vf::JsonValue(std::move(call));
+                };
+                const auto common_result_type = [&](const auto& fields) {
+                    if (fields.empty()) return std::string("any");
+                    std::string common = resolve_type_alias(fields.front().second);
+                    for (auto candidate = fields.begin() + 1; candidate != fields.end(); ++candidate) {
+                        const std::string type = resolve_type_alias(candidate->second);
+                        if (type_name_coercible(type, common)) continue;
+                        if (type_name_coercible(common, type)) {
+                            common = type;
+                            continue;
+                        }
+                        return std::string("any");
+                    }
+                    return common;
+                };
+                const auto fixed_selector_items = [&]() {
+                    vf::JsonValue::Array items;
+                    if (selector_kind == "list") {
+                        for (const auto& item : array_of(
+                                 field(selector_object, "items", "record selector"),
+                                 "record selector items")) {
+                            items.push_back(item);
+                        }
+                    }
+                    return items;
+                }();
+                const auto selector_value = selector_object.find("value");
+                if (selector_kind == "const" && selector_value != selector_object.end() &&
+                    selector_value->second.is_string()) {
+                    const std::string key = selector_value->second.as_string();
+                    const auto selected = std::find_if(
+                        structural_fields.begin(), structural_fields.end(),
+                        [&](const auto& candidate) { return candidate.first == key; });
+                    if (selected == structural_fields.end()) {
+                        if (dot_overload == nullptr) {
+                            throw IRFailure("unknown record selector key " + key);
+                        }
+                        return make_dot_call(std::move(base), selector, *dot_overload);
+                    }
+                    auto access = node("field_access");
+                    access["field"] = vf::JsonValue(key);
+                    access["object"] = std::move(base);
+                    access["object_type"] = vf::JsonValue(result_type);
+                    access["type"] = vf::JsonValue(resolve_type_alias(selected->second));
+                    return vf::JsonValue(std::move(access));
+                }
+                if (!fixed_selector_items.empty()) {
+                    struct FixedSelectorLane {
+                        std::string key;
+                        std::string type;
+                        bool uses_fallback = false;
+                    };
+                    std::vector<FixedSelectorLane> selected_fields;
+                    bool fixed_string_selector = true;
+                    for (const auto& selector_item_value : fixed_selector_items) {
+                        const auto& selector_item = object_of(
+                            selector_item_value, "record selector item");
+                        const auto value = selector_item.find("value");
+                        if (string_field(
+                                selector_item, "kind", "record selector item") != "const" ||
+                            value == selector_item.end() || !value->second.is_string()) {
+                            fixed_string_selector = false;
+                            break;
+                        }
+                        const std::string key = value->second.as_string();
+                        const auto selected = std::find_if(
+                            structural_fields.begin(), structural_fields.end(),
+                            [&](const auto& field) { return field.first == key; });
+                        if (selected == structural_fields.end()) {
+                            if (dot_overload == nullptr) {
+                                throw IRFailure("unknown record selector key " + key);
+                            }
+                            selected_fields.push_back({
+                                key, resolve_type_alias(dot_overload->return_type), true});
+                            continue;
+                        }
+                        selected_fields.push_back({
+                            selected->first, resolve_type_alias(selected->second), false});
+                    }
+                    if (fixed_string_selector && !selected_fields.empty()) {
+                        std::vector<std::pair<std::string, std::string>> selected_types;
+                        selected_types.reserve(selected_fields.size());
+                        for (const auto& selected : selected_fields) {
+                            selected_types.emplace_back(selected.key, selected.type);
+                        }
+                        const std::string common_type = common_result_type(selected_types);
+                        const bool homogeneous = common_type != "any";
+                        const auto aggregate_type = [&]() {
+                            if (homogeneous) {
+                                return "[" + common_type +
+                                    ":" + std::to_string(selected_fields.size()) + "]";
+                            }
+                            std::string type = "tuple<";
+                            for (std::size_t index = 0; index < selected_fields.size(); ++index) {
+                                if (index != 0) type += ",";
+                                type += selected_fields[index].type;
+                            }
+                            return type + ">";
+                        }();
+                        const auto make_aggregate = [&](const vf::JsonValue& subject) {
+                            vf::JsonValue::Array items;
+                            for (const auto& selected : selected_fields) {
+                                vf::JsonValue value;
+                                if (selected.uses_fallback) {
+                                    auto key = node("const");
+                                    key["type"] = vf::JsonValue("str");
+                                    key["value"] = vf::JsonValue(selected.key);
+                                    value = make_dot_call(
+                                        subject, vf::JsonValue(std::move(key)), *dot_overload);
+                                } else {
+                                    auto access = node("field_access");
+                                    access["field"] = vf::JsonValue(selected.key);
+                                    access["object"] = subject;
+                                    access["object_type"] = vf::JsonValue(result_type);
+                                    access["type"] = vf::JsonValue(selected.type);
+                                    value = vf::JsonValue(std::move(access));
+                                }
+                                if (homogeneous) {
+                                    value = coerce_value_to_type(
+                                        std::move(value), common_type, "record selector field");
+                                }
+                                items.emplace_back(std::move(value));
+                            }
+                            auto aggregate = node(homogeneous ? "list" : "tuple");
+                            aggregate["items"] = vf::JsonValue(std::move(items));
+                            if (homogeneous) {
+                                aggregate["element_type"] = vf::JsonValue(
+                                    common_type);
+                            }
+                            aggregate["type"] = vf::JsonValue(aggregate_type);
+                            return vf::JsonValue(std::move(aggregate));
+                        };
+                        if (string_field(base.as_object(), "kind", "record selector base") == "load" ||
+                            selected_fields.size() == 1) {
+                            return make_aggregate(base);
+                        }
+                        const std::string subject_name = "$record_select$" +
+                            std::to_string(next_lambda_local_++);
+                        auto binding = node("store_binding");
+                        binding["name"] = vf::JsonValue(subject_name);
+                        binding["type"] = vf::JsonValue(result_type);
+                        binding["update"] = vf::JsonValue(false);
+                        binding["value"] = std::move(base);
+                        auto subject = node("load");
+                        subject["name"] = vf::JsonValue(subject_name);
+                        subject["type"] = vf::JsonValue(result_type);
+                        auto tail = node("expr_stmt");
+                        tail["expr"] = make_aggregate(vf::JsonValue(std::move(subject)));
+                        auto block = node("block_expr");
+                        block["body"] = vf::JsonValue(vf::JsonValue::Array{
+                            vf::JsonValue(std::move(binding)), vf::JsonValue(std::move(tail))});
+                        block["type"] = vf::JsonValue(aggregate_type);
+                        return vf::JsonValue(std::move(block));
+                    }
+                }
+                const std::string selector_type = string_field(
+                    selector_object, "type", "record selector");
+                if (selector_type == "str" && selector_kind != "const") {
+                    if (structural_fields.empty() && dot_overload == nullptr) {
+                        throw IRFailure(
+                            "dynamic record selector requires one compatible result type");
+                    }
+                    auto dynamic_result_fields = structural_fields;
+                    if (dot_overload != nullptr) {
+                        dynamic_result_fields.emplace_back(
+                            "$missing", dot_overload->return_type);
+                    }
+                    const std::string common_type = common_result_type(dynamic_result_fields);
+                    if (common_type == "any") {
+                        throw IRFailure(dot_overload == nullptr
+                            ? "dynamic record selector requires one compatible result type"
+                            : "dynamic record selector and dot overload require one compatible result type");
+                    }
+                    const auto make_selector = [&](vf::JsonValue subject) {
+                        vf::JsonValue::Array fields;
+                        for (const auto& candidate : structural_fields) {
+                            vf::JsonValue::Object descriptor;
+                            descriptor["name"] = vf::JsonValue(candidate.first);
+                            descriptor["type"] = vf::JsonValue(
+                                resolve_type_alias(candidate.second));
+                            fields.emplace_back(std::move(descriptor));
+                        }
+                        auto out = node("record_selector");
+                        out["base"] = std::move(subject);
+                        out["selector"] = selector;
+                        out["fields"] = vf::JsonValue(std::move(fields));
+                        if (dot_overload != nullptr) {
+                            out["fallback_symbol"] = vf::JsonValue(
+                                functions_.runtime_name(*dot_overload));
+                        }
+                        out["type"] = vf::JsonValue(common_type);
+                        return vf::JsonValue(std::move(out));
+                    };
+                    if (string_field(base.as_object(), "kind", "record selector base") == "load") {
+                        return make_selector(std::move(base));
+                    }
+                    const std::string subject_name = "$record_select$" +
+                        std::to_string(next_lambda_local_++);
+                    auto binding = node("store_binding");
+                    binding["name"] = vf::JsonValue(subject_name);
+                    binding["type"] = vf::JsonValue(result_type);
+                    binding["update"] = vf::JsonValue(false);
+                    binding["value"] = std::move(base);
+                    auto subject = node("load");
+                    subject["name"] = vf::JsonValue(subject_name);
+                    subject["type"] = vf::JsonValue(result_type);
+                    auto tail = node("expr_stmt");
+                    tail["expr"] = make_selector(vf::JsonValue(std::move(subject)));
+                    auto block = node("block_expr");
+                    block["body"] = vf::JsonValue(vf::JsonValue::Array{
+                        vf::JsonValue(std::move(binding)), vf::JsonValue(std::move(tail))});
+                    block["type"] = vf::JsonValue(common_type);
+                    return vf::JsonValue(std::move(block));
+                }
+            }
             const auto base_shape = fixed_numeric_vector_shape(result_type);
             vf::JsonValue::Array current_indices;
             std::optional<FixedNumericVectorShape> broadcast_index_shape;
