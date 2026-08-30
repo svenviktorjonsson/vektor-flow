@@ -240,28 +240,29 @@ add_custom_target(vkf-embedded-vf-ui-assets
     "${VF_EMBEDDED_VF_UI_HPP}"
 )
 
-add_executable(vkf
+add_executable(vkf-ui-package
   vkf_launcher.cpp
   ${VF_OVERLAY_HOST_SOURCES}
   "${VF_EMBEDDED_VF_UI_CPP}"
   "${VF_EMBEDDED_VF_UI_RC}"
 )
-target_include_directories(vkf PRIVATE
+target_include_directories(vkf-ui-package PRIVATE
+  "${VF_REPO_ROOT}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
   "${WV2_INCLUDE_DIR}"
   "${cjson_SOURCE_DIR}"
 )
-target_compile_definitions(vkf PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST VF_OVERLAY_NO_STANDALONE_MAIN)
-target_link_libraries(vkf PRIVATE
+target_compile_definitions(vkf-ui-package PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST VF_OVERLAY_NO_STANDALONE_MAIN)
+target_link_libraries(vkf-ui-package PRIVATE
   ${VF_OVERLAY_HOST_LIBS}
   kernel32
 )
 if(MSVC)
-  target_compile_options(vkf PRIVATE /Zi)
-  target_link_options(vkf PRIVATE /DEBUG /INCREMENTAL:NO)
+  target_compile_options(vkf-ui-package PRIVATE /Zi)
+  target_link_options(vkf-ui-package PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
-add_dependencies(vkf vkf-embedded-vf-ui-assets)
+add_dependencies(vkf-ui-package vkf-embedded-vf-ui-assets)
 
 add_executable(vkf-runner WIN32
   vkf_launcher.cpp
@@ -270,6 +271,7 @@ add_executable(vkf-runner WIN32
   "${VF_EMBEDDED_VF_UI_RC}"
 )
 target_include_directories(vkf-runner PRIVATE
+  "${VF_REPO_ROOT}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
   "${WV2_INCLUDE_DIR}"
@@ -285,7 +287,7 @@ if(MSVC)
   target_link_options(vkf-runner PRIVATE /DEBUG /INCREMENTAL:NO /ENTRY:wmainCRTStartup)
 endif()
 add_dependencies(vkf-runner vkf-embedded-vf-ui-assets)
-add_dependencies(vkf vkf-runner)
+add_dependencies(vkf-ui-package vkf-runner)
 
 add_executable(vkf-native-scene-artifact-stager
   ../../compiler/native/vkf_native_scene_artifact_stager.cpp
@@ -294,7 +296,7 @@ if(MSVC)
   target_compile_options(vkf-native-scene-artifact-stager PRIVATE /Zi)
   target_link_options(vkf-native-scene-artifact-stager PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
-add_dependencies(vkf vkf-native-scene-artifact-stager)
+add_dependencies(vkf-ui-package vkf-native-scene-artifact-stager)
 
 add_library(vf-compiled-ui-demo SHARED
   vf/compiled_ui_runtime_demo.cpp
