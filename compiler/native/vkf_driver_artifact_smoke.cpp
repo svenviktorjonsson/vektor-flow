@@ -608,6 +608,8 @@ inline constexpr const char* kTypedModulePipelineComponent =
     "machine_ir.numeric_parameter_multiply.typed_module_pipeline";
 inline constexpr const char* kConditionalTypedModulePipelineComponent =
     "machine_ir.numeric_positive_conditional.typed_module_pipeline";
+inline constexpr const char* kLoopTypedModulePipelineComponent =
+    "machine_ir.numeric_count_to_loop.typed_module_pipeline";
 
 std::vector<std::string> tracer_observation_lines(
     const std::string& observation,
@@ -857,6 +859,113 @@ vkf::machine_ir::Module parse_conditional_tracer_observation(
     return module;
 }
 
+vkf::machine_ir::Module parse_loop_tracer_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(observation, 71, "loop tracer");
+    const std::vector<std::string> expected{
+        "push_f64", "3", "1", "false", "call", "false", "1", "1",
+        "count_to", "false", "return_f64", "[]", "[]", "1", "false",
+        "$entry", "[]", "[]", "[]", "null", "[]", "false", "false",
+        "push_f64", "0", "1", "store_local", "label", "0", "1",
+        "load_local", "push_f64", "3", "ordered_less_f64",
+        "jump_if_false", "1", "1", "load_local", "push_f64", "1",
+        "add_f64", "1", "store_local", "jump", "0", "label", "1", "1",
+        "load_local", "return_f64", "f64", "i64", "limit", "value", "2",
+        "false", "count_to", "[]", "[]", "true", "null", "limit",
+        "false", "true", "1", "f64", "[]", "[]",
+        "vektorflow.machine_ir", "77", "23",
+    };
+    for (std::size_t index = 0; index < expected.size(); ++index) {
+        if (lines[index] == expected[index]) continue;
+        const bool opcode_leaf = index == 0 || index == 4 || index == 10 ||
+            index == 23 || index == 26 || index == 27 || index == 30 ||
+            index == 31 || index == 33 || index == 34 || index == 37 ||
+            index == 38 || index == 40 || index == 42 || index == 43 ||
+            index == 45 || index == 48 || index == 49;
+        if (opcode_leaf) {
+            throw DriverFailure(
+                "unsupported loop tracer opcode " + lines[index] +
+                " at leaf " + std::to_string(index));
+        }
+        throw DriverFailure(
+            "malformed loop tracer observation at leaf " +
+            std::to_string(index) + ": expected " + expected[index]);
+    }
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure("loop tracer source identity has the wrong byte width");
+    }
+
+    const auto instruction = [](
+        vkf::machine_ir::Opcode opcode,
+        std::uint32_t index = 0,
+        double value = 0.0
+    ) {
+        vkf::machine_ir::Instruction result;
+        result.opcode = opcode;
+        result.index = index;
+        result.f64 = value;
+        return result;
+    };
+    const auto branch = [](vkf::machine_ir::Opcode opcode, std::uint32_t label) {
+        vkf::machine_ir::Instruction result;
+        result.opcode = opcode;
+        result.label = label;
+        return result;
+    };
+    vkf::machine_ir::Instruction call;
+    call.opcode = vkf::machine_ir::Opcode::Call;
+    call.argument_count = 1;
+    call.result_count = 1;
+    call.provided_parameter_mask = 1;
+    call.symbol = "count_to";
+
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions = {
+        instruction(vkf::machine_ir::Opcode::PushF64, 0, 3.0),
+        call,
+        instruction(vkf::machine_ir::Opcode::ReturnF64)};
+    entry.max_stack = 1;
+
+    vkf::machine_ir::Function function;
+    function.name = "count_to";
+    function.parameters = {"limit"};
+    function.parameter_is_numeric_scalar = {true};
+    function.result_is_numeric_scalar = true;
+    function.locals = {"limit", "value"};
+    function.local_classes = {
+        vkf::machine_ir::ValueClass::F64,
+        vkf::machine_ir::ValueClass::I64};
+    function.instructions = {
+        instruction(vkf::machine_ir::Opcode::PushF64, 0, 0.0),
+        instruction(vkf::machine_ir::Opcode::StoreLocal, 1),
+        branch(vkf::machine_ir::Opcode::Label, 0),
+        instruction(vkf::machine_ir::Opcode::LoadLocal, 1),
+        instruction(vkf::machine_ir::Opcode::PushF64, 0, 3.0),
+        instruction(vkf::machine_ir::Opcode::OrderedLessF64),
+        branch(vkf::machine_ir::Opcode::JumpIfFalse, 1),
+        instruction(vkf::machine_ir::Opcode::LoadLocal, 1),
+        instruction(vkf::machine_ir::Opcode::PushF64, 0, 1.0),
+        instruction(vkf::machine_ir::Opcode::AddF64),
+        instruction(vkf::machine_ir::Opcode::StoreLocal, 1),
+        branch(vkf::machine_ir::Opcode::Jump, 0),
+        branch(vkf::machine_ir::Opcode::Label, 1),
+        instruction(vkf::machine_ir::Opcode::LoadLocal, 1),
+        instruction(vkf::machine_ir::Opcode::ReturnF64)};
+    function.max_stack = 2;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.functions = {std::move(function)};
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
 vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
     const std::string& component,
     const std::filesystem::path& artifact,
@@ -877,9 +986,11 @@ vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
                 parent.string());
         }
     }
-    auto machine_module = component == kConditionalTypedModulePipelineComponent
-        ? parse_conditional_tracer_observation(observation, source_graph_fingerprint)
-        : parse_numeric_tracer_observation(observation, source_graph_fingerprint);
+    auto machine_module = component == kLoopTypedModulePipelineComponent
+        ? parse_loop_tracer_observation(observation, source_graph_fingerprint)
+        : component == kConditionalTypedModulePipelineComponent
+            ? parse_conditional_tracer_observation(observation, source_graph_fingerprint)
+            : parse_numeric_tracer_observation(observation, source_graph_fingerprint);
     const auto typed_module = vf::parse_json("{\"body\":[],\"kind\":\"typed_module\"}");
     const auto compiled = vkf_x64_backend::compile(
         typed_module, source, oracle, {}, false, output, {}, "mask-0", 0, 0.0, 0,
@@ -933,6 +1044,7 @@ vf::JsonValue::Object dispatch_internal_stage_component(
 #ifdef VKF_X64_BACKEND_LIBRARY
         && component != kTypedModulePipelineComponent
         && component != kConditionalTypedModulePipelineComponent
+        && component != kLoopTypedModulePipelineComponent
 #endif
     ) {
         throw DriverFailure("unknown internal Stage component: " + component);
@@ -986,7 +1098,8 @@ vf::JsonValue::Object dispatch_internal_stage_component(
 
 #ifdef VKF_X64_BACKEND_LIBRARY
     if (component == kTypedModulePipelineComponent ||
-        component == kConditionalTypedModulePipelineComponent) {
+        component == kConditionalTypedModulePipelineComponent ||
+        component == kLoopTypedModulePipelineComponent) {
         return dispatch_internal_typed_module_pipeline(
             component, artifact, source, oracle, selected, provenance,
             source_graph_fingerprint, executed.stdout_text);
