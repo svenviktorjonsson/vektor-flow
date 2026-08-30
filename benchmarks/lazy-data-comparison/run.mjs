@@ -10,6 +10,11 @@ import { writeFixture } from './materialize-fixture.mjs';
 const benchmarkRoot = dirname(fileURLToPath(import.meta.url));
 const contractPath = join(benchmarkRoot, 'contract.json');
 const sourcePath = join(benchmarkRoot, 'programs', 'project-transform-reduce.vkf');
+const polarsSourcePath = join(
+  benchmarkRoot,
+  'programs',
+  'project-transform-reduce-polars.py',
+);
 const repositoryRoot = resolve(benchmarkRoot, '../..');
 
 function sha256File(path) {
@@ -149,8 +154,98 @@ export function verifyVkfRunner({ runner, fixturePath, fixtureManifest, workRoot
   return Object.freeze({ status: 'AVAILABLE', ...identity, result });
 }
 
+export function verifyPolarsRunner({
+  runner,
+  fixturePath,
+  fixtureManifest,
+  requirement,
+  threads,
+}) {
+  const resolvedRunner = resolve(runner);
+  const identity = {
+    runner: resolvedRunner,
+    runner_sha256: sha256File(resolvedRunner),
+    source_sha256: sha256TextFile(polarsSourcePath),
+  };
+  const executed = spawnSync(
+    resolvedRunner,
+    [polarsSourcePath, resolve(fixturePath)],
+    {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: { ...process.env, POLARS_MAX_THREADS: String(threads) },
+      timeout: 60_000,
+      windowsHide: true,
+    },
+  );
+  if (executed.error || executed.status !== 0) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: executed.error ? 'Polars runner could not start' : 'Polars lazy execution failed',
+      ...identity,
+    });
+  }
+
+  let observed;
+  try {
+    observed = JSON.parse(String(executed.stdout || '').trim());
+  } catch {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: 'Polars runner returned malformed output',
+      ...identity,
+    });
+  }
+  if (!observed || Array.isArray(observed) || typeof observed !== 'object') {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: 'Polars runner returned malformed output',
+      ...identity,
+    });
+  }
+  if (observed.peer_version !== requirement?.version) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: `incompatible Polars version: ${observed.peer_version ?? '<missing>'}`,
+      ...identity,
+    });
+  }
+  if (!/^[0-9a-f]{64}$/.test(observed.dependency_sha256 ?? '')) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: 'Polars dependency hash is missing or malformed',
+      ...identity,
+    });
+  }
+  if (observed.threads !== threads) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: `Polars thread contract mismatch: ${observed.threads ?? '<missing>'}`,
+      ...identity,
+    });
+  }
+  if (!Number.isFinite(observed.result) || observed.result !== fixtureManifest.expected_sum) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: `correctness oracle mismatch: ${observed.result ?? '<missing>'}`,
+      ...identity,
+      peer_version: observed.peer_version,
+      dependency_sha256: observed.dependency_sha256,
+    });
+  }
+  return Object.freeze({
+    status: 'AVAILABLE',
+    ...identity,
+    peer_version: observed.peer_version,
+    dependency_sha256: observed.dependency_sha256,
+    threads: observed.threads,
+    result: observed.result,
+  });
+}
+
 const readinessVerifiers = Object.freeze({
   vkf: verifyVkfRunner,
+  polars: verifyPolarsRunner,
 });
 
 export function buildReadinessReceipt({
@@ -183,6 +278,8 @@ export function buildReadinessReceipt({
       fixturePath,
       fixtureManifest,
       workRoot: join(workRoot, peer),
+      requirement: contract.peer_set.requirements?.[peer],
+      threads: contract.workload.threads,
     });
   }
   return Object.freeze({

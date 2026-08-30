@@ -67,7 +67,11 @@ test('freezes non-gating correctness, cache, timing, sample, and provenance boun
   assert.ok(contract.measurement.required_raw_sample_fields.includes('elapsed_wall_ms'));
   assert.ok(contract.measurement.required_provenance_fields.includes('fixture_sha256'));
   assert.equal(contract.peer_set.status, 'unfrozen_dependencies');
-  assert.deepEqual(contract.peer_set.members, ['vkf', 'vaex', 'dask']);
+  assert.deepEqual(contract.peer_set.members, ['vkf', 'polars', 'vaex', 'dask']);
+  assert.deepEqual(contract.peer_set.requirements.polars, {
+    distribution: 'polars',
+    version: '1.44.1',
+  });
 });
 
 test('reports every absent peer as UNAVAILABLE without fallback or timing claims', () => {
@@ -78,7 +82,7 @@ test('reports every absent peer as UNAVAILABLE without fallback or timing claims
   assert.equal(report.non_gating, true);
   assert.deepEqual(report.samples, []);
   assert.deepEqual(report.comparisons, []);
-  for (const peer of ['vkf', 'vaex', 'dask']) {
+  for (const peer of ['vkf', 'polars', 'vaex', 'dask']) {
     assert.deepEqual(report.peers[peer], {
       status: 'UNAVAILABLE',
       reason: 'runner not provided',
@@ -101,6 +105,10 @@ test('binds an available runner by hash and reports a missing path as UNAVAILABL
       status: 'AVAILABLE',
       runner,
       runner_sha256: sha256(readFileSync(runner)),
+    });
+    assert.deepEqual(report.peers.polars, {
+      status: 'UNAVAILABLE',
+      reason: 'runner not provided',
     });
     assert.deepEqual(report.peers.vaex, {
       status: 'UNAVAILABLE',
@@ -171,6 +179,7 @@ test('readiness receipt binds fixture, contract, and VKF source hashes before me
     assert.match(receipt.provenance.source_sha256, /^[0-9a-f]{64}$/);
     assert.deepEqual(receipt.provenance.runner_sha256, {
       vkf: null,
+      polars: null,
       vaex: null,
       dask: null,
     });
@@ -213,7 +222,12 @@ test('CLI emits a deterministic readiness receipt and never substitutes missing 
     assert.equal(receipt.provenance.revision, 'test-cli-revision');
     assert.deepEqual(
       Object.fromEntries(Object.entries(receipt.peers).map(([peer, value]) => [peer, value.status])),
-      { vkf: 'UNAVAILABLE', vaex: 'UNAVAILABLE', dask: 'UNAVAILABLE' },
+      {
+        vkf: 'UNAVAILABLE',
+        polars: 'UNAVAILABLE',
+        vaex: 'UNAVAILABLE',
+        dask: 'UNAVAILABLE',
+      },
     );
     assert.deepEqual(receipt.samples, []);
     assert.deepEqual(receipt.comparisons, []);
