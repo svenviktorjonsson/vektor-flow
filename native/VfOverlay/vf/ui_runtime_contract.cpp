@@ -1,5 +1,6 @@
 #include "vf/ui_runtime_contract.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <limits>
@@ -924,11 +925,28 @@ std::optional<std::string> GetInputEventWidgetId(const InputEventPacketPayload& 
     return GetInputEventStringField(payload, "widget_id");
 }
 
+struct InternalOwnerEventInteraction {
+    InputEventPacketPayload event;
+    std::vector<bool> resolved;
+    std::optional<std::size_t> stop_after;
+    bool prevent_default = false;
+    bool finalized = false;
+};
+
 void InternalOwnerEventQueue::Push(InputEventPacketPayload payload) {
     values_.push_back(std::move(payload));
 }
 
+void InternalOwnerEventQueue::PushLedger(
+    std::shared_ptr<InternalOwnerEventInteraction> interaction,
+    InputEventPacketPayload payload) {
+    ledger_values_.push_back({std::move(interaction), std::move(payload)});
+}
+
 std::optional<InputEventPacketPayload> InternalOwnerEventQueue::Get() {
+    if (ledger_ != nullptr) {
+        return ledger_->GetFromQueue(*this);
+    }
     if (values_.empty()) {
         return std::nullopt;
     }
@@ -938,10 +956,16 @@ std::optional<InputEventPacketPayload> InternalOwnerEventQueue::Get() {
 }
 
 std::size_t InternalOwnerEventQueue::Size() const noexcept {
+    if (ledger_ != nullptr) {
+        return ledger_values_.size();
+    }
     return values_.size();
 }
 
 bool InternalOwnerEventQueue::Empty() const noexcept {
+    if (ledger_ != nullptr) {
+        return ledger_values_.empty();
+    }
     return values_.empty();
 }
 
@@ -949,12 +973,35 @@ InternalButtonClickedOwnerQueues::InternalButtonClickedOwnerQueues(
     std::string button_id,
     std::string frame_id,
     std::string display_id)
+    : InternalButtonClickedOwnerQueues(
+          std::move(button_id),
+          std::vector<std::string>{std::move(frame_id)},
+          std::move(display_id)) {}
+
+InternalButtonClickedOwnerQueues::InternalButtonClickedOwnerQueues(
+    std::string button_id,
+    std::vector<std::string> frame_ids,
+    std::string display_id)
     : button_id_(std::move(button_id)),
-      frame_id_(std::move(frame_id)),
-      display_id_(std::move(display_id)) {
-    if (button_id_.empty() || frame_id_.empty() || display_id_.empty()) {
+      frame_ids_(std::move(frame_ids)),
+      display_id_(std::move(display_id)),
+      frames_(frame_ids_.size()) {
+    if (button_id_.empty() || frame_ids_.empty() || display_id_.empty()) {
         throw std::runtime_error("internal ButtonClicked owner ids must not be empty");
     }
+    for (const std::string& frame_id : frame_ids_) {
+        if (frame_id.empty()) {
+            throw std::runtime_error("internal ButtonClicked owner ids must not be empty");
+        }
+    }
+    button_.ledger_ = this;
+    button_.ledger_index_ = 0;
+    for (std::size_t index = 0; index < frames_.size(); ++index) {
+        frames_[index].ledger_ = this;
+        frames_[index].ledger_index_ = index + 1;
+    }
+    display_.ledger_ = this;
+    display_.ledger_index_ = frames_.size() + 1;
 }
 
 void InternalButtonClickedOwnerQueues::ConsumeRuntimePacket(const UiRuntimePacket& packet) {
@@ -970,17 +1017,20 @@ void InternalButtonClickedOwnerQueues::ConsumeRuntimePacket(const UiRuntimePacke
     const std::optional<std::string> frame_id = GetInputEventFrameId(*payload);
     if (GetInputEventName(*payload) != "ButtonClicked" ||
         !widget_id.has_value() || *widget_id != button_id_ ||
-        !frame_id.has_value() || *frame_id != frame_id_) {
+        !frame_id.has_value() || *frame_id != frame_ids_.front()) {
         throw std::runtime_error("ButtonClicked owner event does not match its bound owners");
     }
 
-    InputEventPacketPayload button_payload = *payload;
-    InputEventPacketPayload frame_payload = *payload;
-    InputEventPacketPayload display_payload = *payload;
+    const std::size_t owner_count = frames_.size() + 2;
+    auto interaction = std::make_shared<InternalOwnerEventInteraction>();
+    interaction->event = *payload;
+    interaction->resolved.resize(owner_count, false);
     last_sequence_ = packet.seq;
-    button_.Push(std::move(button_payload));
-    frame_.Push(std::move(frame_payload));
-    display_.Push(std::move(display_payload));
+    button_.PushLedger(interaction, *payload);
+    for (InternalOwnerEventQueue& frame : frames_) {
+        frame.PushLedger(interaction, *payload);
+    }
+    display_.PushLedger(std::move(interaction), *payload);
 }
 
 InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Button() noexcept {
@@ -988,11 +1038,123 @@ InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Button() noexcept {
 }
 
 InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Frame() noexcept {
-    return frame_;
+    return frames_.front();
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Frame(std::size_t index) {
+    if (index >= frames_.size()) {
+        throw std::runtime_error("internal owner event Frame index is out of range");
+    }
+    return frames_[index];
+}
+
+std::size_t InternalButtonClickedOwnerQueues::FrameCount() const noexcept {
+    return frames_.size();
 }
 
 InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Display() noexcept {
     return display_;
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::OwnerQueue(std::size_t index) {
+    if (index == 0) return button_;
+    if (index <= frames_.size()) return frames_[index - 1];
+    if (index == frames_.size() + 1) return display_;
+    throw std::runtime_error("internal owner event queue index is out of range");
+}
+
+void InternalButtonClickedOwnerQueues::FinalizeInteraction(
+    const std::shared_ptr<InternalOwnerEventInteraction>& interaction) {
+    if (interaction->finalized) return;
+    const std::size_t last_owner = interaction->stop_after.value_or(
+        interaction->resolved.size() - 1);
+    for (std::size_t index = 0; index <= last_owner; ++index) {
+        if (!interaction->resolved[index]) return;
+    }
+    interaction->finalized = true;
+    if (!interaction->prevent_default) {
+        default_events_.push_back(interaction->event);
+    }
+}
+
+void InternalButtonClickedOwnerQueues::CompleteActive(
+    InternalOwnerEventQueue& owner,
+    bool prevent_default,
+    bool stop_propagation) {
+    if (owner.ledger_ != this || !owner.ledger_active_.has_value()) {
+        throw std::runtime_error("internal owner event completion requires an active event");
+    }
+    std::shared_ptr<InternalOwnerEventInteraction> interaction =
+        owner.ledger_active_->interaction;
+    if (prevent_default) interaction->prevent_default = true;
+    if (stop_propagation && !interaction->stop_after.has_value()) {
+        interaction->stop_after = owner.ledger_index_;
+        for (std::size_t later = owner.ledger_index_ + 1;
+             later < interaction->resolved.size();
+             ++later) {
+            InternalOwnerEventQueue& later_owner = OwnerQueue(later);
+            later_owner.ledger_values_.erase(
+                std::remove_if(
+                    later_owner.ledger_values_.begin(),
+                    later_owner.ledger_values_.end(),
+                    [&](const InternalOwnerEventQueue::LedgerEntry& entry) {
+                        return entry.interaction == interaction;
+                    }),
+                later_owner.ledger_values_.end());
+        }
+    }
+    interaction->resolved[owner.ledger_index_] = true;
+    owner.ledger_active_.reset();
+    FinalizeInteraction(interaction);
+}
+
+std::optional<InputEventPacketPayload> InternalButtonClickedOwnerQueues::GetFromQueue(
+    InternalOwnerEventQueue& owner) {
+    if (owner.ledger_ != this) {
+        throw std::runtime_error("internal owner event queue is not bound to this ledger");
+    }
+    if (owner.ledger_active_.has_value()) {
+        CompleteActive(owner, false, false);
+    }
+    while (!owner.ledger_values_.empty()) {
+        InternalOwnerEventQueue::LedgerEntry& entry = owner.ledger_values_.front();
+        const std::shared_ptr<InternalOwnerEventInteraction> interaction = entry.interaction;
+        if (interaction->stop_after.has_value() &&
+            owner.ledger_index_ > *interaction->stop_after) {
+            owner.ledger_values_.pop_front();
+            continue;
+        }
+        for (std::size_t earlier = 0; earlier < owner.ledger_index_; ++earlier) {
+            if (interaction->resolved[earlier]) continue;
+            InternalOwnerEventQueue& earlier_owner = OwnerQueue(earlier);
+            if (earlier_owner.ledger_active_.has_value() &&
+                earlier_owner.ledger_active_->interaction == interaction) {
+                CompleteActive(earlier_owner, false, false);
+            }
+        }
+        for (std::size_t pending = 0; pending < owner.ledger_index_; ++pending) {
+            if (!interaction->resolved[pending]) return std::nullopt;
+        }
+        owner.ledger_active_ = std::move(owner.ledger_values_.front());
+        owner.ledger_values_.pop_front();
+        return owner.ledger_active_->payload;
+    }
+    return std::nullopt;
+}
+
+void InternalButtonClickedOwnerQueues::CompleteInternalOwnerEvent(
+    InternalOwnerEventQueue& owner,
+    bool prevent_default,
+    bool stop_propagation) {
+    CompleteActive(owner, prevent_default, stop_propagation);
+}
+
+std::optional<InputEventPacketPayload>
+InternalButtonClickedOwnerQueues::TakeInternalDefaultEvent() {
+    if (default_events_.empty()) return std::nullopt;
+    InputEventPacketPayload event = std::move(default_events_.front());
+    default_events_.pop_front();
+    return event;
 }
 
 InternalGeometryPickOwnerQueues::InternalGeometryPickOwnerQueues(

@@ -118,25 +118,132 @@
   function createInternalButtonClickedOwnerQueues(options) {
     options = options || {};
     var buttonId = requireOwnerId(options.buttonId, "buttonId");
-    var frameId = requireOwnerId(options.frameId, "frameId");
+    var frameIds = Array.isArray(options.frameIds)
+      ? options.frameIds.map(function(id) { return requireOwnerId(id, "frameIds"); })
+      : [requireOwnerId(options.frameId, "frameId")];
+    if (frameIds.length === 0) {
+      throw new TypeError("internal owner event queues require frameIds");
+    }
+    var frameId = frameIds[0];
     var displayId = requireOwnerId(options.displayId, "displayId");
-    var buttonQueue = createQueue();
-    var frameQueue = createQueue();
-    var displayQueue = createQueue();
+    var ownerQueues = [];
+    var ownerObjects = [];
+    var defaultValues = [];
+    var defaultHead = 0;
     var lastSequence = 0;
 
-    function owner(kind, id, queue) {
-      return Object.freeze({
-        kind: kind,
-        id: id,
-        events: Object.freeze({ get: queue.get })
-      });
+    function finalizeInteraction(interaction) {
+      if (interaction.finalized) return;
+      var lastOwner = interaction.stopAfter == null
+        ? ownerQueues.length - 1
+        : interaction.stopAfter;
+      for (var index = 0; index <= lastOwner; index += 1) {
+        if (!interaction.resolved[index]) return;
+      }
+      interaction.finalized = true;
+      if (!interaction.preventDefault) {
+        defaultValues.push(Object.freeze(Object.assign({}, interaction.event)));
+      }
     }
 
+    function completeDelivery(queue, directives) {
+      if (!queue.active) {
+        throw new TypeError("internal owner event completion requires an active event");
+      }
+      var interaction = queue.active.interaction;
+      if (directives.preventDefault) interaction.preventDefault = true;
+      if (directives.stopPropagation && interaction.stopAfter == null) {
+        interaction.stopAfter = queue.index;
+        for (var later = queue.index + 1; later < ownerQueues.length; later += 1) {
+          var laterQueue = ownerQueues[later];
+          laterQueue.values = laterQueue.values.slice(laterQueue.head).filter(function(delivery) {
+            return delivery.interaction !== interaction;
+          });
+          laterQueue.head = 0;
+        }
+      }
+      interaction.resolved[queue.index] = true;
+      queue.active = null;
+      finalizeInteraction(interaction);
+    }
+
+    function queueGet(queue) {
+      if (queue.active) {
+        completeDelivery(queue, { preventDefault: false, stopPropagation: false });
+      }
+      while (queue.head < queue.values.length) {
+        var delivery = queue.values[queue.head];
+        var interaction = delivery.interaction;
+        if (interaction.stopAfter != null && queue.index > interaction.stopAfter) {
+          queue.head += 1;
+          continue;
+        }
+        for (var earlier = 0; earlier < queue.index; earlier += 1) {
+          if (interaction.resolved[earlier]) continue;
+          var earlierQueue = ownerQueues[earlier];
+          if (earlierQueue.active && earlierQueue.active.interaction === interaction) {
+            completeDelivery(earlierQueue, { preventDefault: false, stopPropagation: false });
+          }
+        }
+        for (var pending = 0; pending < queue.index; pending += 1) {
+          if (!interaction.resolved[pending]) return null;
+        }
+        queue.head += 1;
+        queue.active = delivery;
+        if (queue.head >= 64 && queue.head * 2 >= queue.values.length) {
+          queue.values = queue.values.slice(queue.head);
+          queue.head = 0;
+        }
+        return delivery.payload;
+      }
+      return null;
+    }
+
+    function owner(kind, id) {
+      var queue = { index: ownerQueues.length, values: [], head: 0, active: null };
+      ownerQueues.push(queue);
+      var value = Object.freeze({
+        kind: kind,
+        id: id,
+        events: Object.freeze({ get: function() { return queueGet(queue); } })
+      });
+      ownerObjects.push(value);
+      return value;
+    }
+
+    var buttonOwner = owner("Button", buttonId);
+    var frameOwners = frameIds.map(function(id) { return owner("Frame", id); });
+    var displayOwner = owner("Display", displayId);
     var queues = {
-      button: owner("Button", buttonId, buttonQueue),
-      frame: owner("Frame", frameId, frameQueue),
-      display: owner("Display", displayId, displayQueue),
+      button: buttonOwner,
+      frame: frameOwners[0],
+      frames: Object.freeze(frameOwners.slice()),
+      display: displayOwner,
+      completeInternalOwnerEvent: function(ownerValue, directives) {
+        var ownerIndex = ownerObjects.indexOf(ownerValue);
+        if (ownerIndex < 0) {
+          throw new TypeError("internal owner event completion requires a bound owner");
+        }
+        directives = directives == null ? {} : directives;
+        if (!directives || typeof directives !== "object" || Array.isArray(directives) ||
+            Object.keys(directives).some(function(key) {
+              return key !== "preventDefault" && key !== "stopPropagation";
+            }) ||
+            (directives.preventDefault != null && typeof directives.preventDefault !== "boolean") ||
+            (directives.stopPropagation != null && typeof directives.stopPropagation !== "boolean")) {
+          throw new TypeError("internal owner event completion is malformed");
+        }
+        completeDelivery(ownerQueues[ownerIndex], {
+          preventDefault: directives.preventDefault === true,
+          stopPropagation: directives.stopPropagation === true
+        });
+      },
+      takeInternalDefaultEvent: function() {
+        if (defaultHead >= defaultValues.length) return null;
+        var value = defaultValues[defaultHead];
+        defaultHead += 1;
+        return value;
+      },
       consumeRuntimePacket: function(packet) {
         if (!packet || packet.kind !== "input.event" ||
             !Number.isSafeInteger(packet.seq) || packet.seq <= lastSequence) {
@@ -151,14 +258,21 @@
           throw new TypeError("ButtonClicked owner event does not match its bound owners");
         }
 
-        var buttonEvent = Object.freeze(Object.assign({}, event));
-        var frameEvent = Object.freeze(Object.assign({}, event));
-        var displayEvent = Object.freeze(Object.assign({}, event));
+        var interactionEvent = Object.freeze(Object.assign({}, event));
+        var interaction = {
+          event: interactionEvent,
+          preventDefault: false,
+          stopAfter: null,
+          resolved: ownerQueues.map(function() { return false; }),
+          finalized: false
+        };
+        var events = ownerQueues.map(function(queue) {
+          var payload = Object.freeze(Object.assign({}, interactionEvent));
+          queue.values.push({ interaction: interaction, payload: payload });
+          return payload;
+        });
         lastSequence = packet.seq;
-        buttonQueue.push(buttonEvent);
-        frameQueue.push(frameEvent);
-        displayQueue.push(displayEvent);
-        return buttonEvent;
+        return events[0];
       }
     };
     return Object.freeze(queues);
