@@ -22,6 +22,7 @@ set(VF_UI_NATIVE_SCENE_ASSETS
   "vf-frame.css"
   "vf-frame.js"
   "vf-widgets.js"
+  "vf-static-html-loader.js"
   "vf-shared-runtime.js"
   "vf-gpu-runtime.js"
   "vf-axis3d-kernel.js"

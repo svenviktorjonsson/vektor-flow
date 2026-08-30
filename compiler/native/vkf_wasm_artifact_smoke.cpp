@@ -1,5 +1,6 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
+#include "vkf_static_html_bundle.hpp"
 
 #include <cstdint>
 #include <cmath>
@@ -103,6 +104,7 @@ struct UpdateFunctionPlan {
 struct WasmModulePlan {
     std::vector<WasmBinding> bindings;
     UpdateFunctionPlan update;
+    std::vector<vf::static_html::Bundle> static_html_bundles;
 };
 
 const vf::JsonValue::Object& object_of(const vf::JsonValue& value, const std::string& context) {
@@ -885,6 +887,7 @@ void flatten_retained_html_numeric_value(
 
 void collect_retained_html_packet_binding(
     const vf::JsonValue& root_value,
+    const std::filesystem::path& source_path,
     WasmModulePlan& plan
 ) {
     const auto& root = object_of(root_value, "typed IR root");
@@ -901,8 +904,8 @@ void collect_retained_html_packet_binding(
     bool has_attachment = false;
     for (const auto& raw_operation : operations) {
         const auto& operation = object_of(raw_operation, "typed UI operation");
-        if (string_field(operation, "kind", "typed UI operation") ==
-            "__vf_internal_attach_html_tree") {
+        const std::string kind = string_field(operation, "kind", "typed UI operation");
+        if (kind == "load" || kind == "__vf_internal_attach_html_tree") {
             has_attachment = true;
             break;
         }
@@ -917,6 +920,7 @@ void collect_retained_html_packet_binding(
     };
     std::map<std::int32_t, FrameRect> frames;
     std::map<std::int32_t, std::vector<std::string>> component_trees;
+    std::map<std::int32_t, vf::static_html::Bundle> static_bundles;
     for (const auto& raw_operation : operations) {
         const auto& operation = object_of(raw_operation, "typed UI operation");
         const std::string kind = string_field(operation, "kind", "typed UI operation");
@@ -942,6 +946,32 @@ void collect_retained_html_packet_binding(
             }
             frames[frame_id] = {
                 pos[0], pos[1], size[0], size[1]};
+            continue;
+        }
+        if (kind == "load") {
+            const auto& target = object_of(
+                field(operation, "target", "Frame.load operation"),
+                "Frame.load target");
+            if (string_field(target, "kind", "Frame.load target") != "frame") {
+                throw WasmArtifactFailure("Frame.load requires a Frame target");
+            }
+            const std::int32_t frame_id = checked_i32(
+                field(target, "id", "Frame.load target"), "Frame.load frame id");
+            std::filesystem::path resource_path = string_field(
+                operation, "resource", "Frame.load operation");
+            if (resource_path.is_absolute()) {
+                throw WasmArtifactFailure("Frame.load resource path must be source-relative");
+            }
+            if (static_bundles.find(frame_id) != static_bundles.end()) {
+                throw WasmArtifactFailure("Frame.load initial slice accepts one load per Frame");
+            }
+            resource_path = source_path.parent_path() / resource_path;
+            try {
+                static_bundles.emplace(frame_id, vf::static_html::collect(
+                    source_path, resource_path, "frame_" + std::to_string(frame_id)));
+            } catch (const vf::static_html::Error& error) {
+                throw WasmArtifactFailure(error.what());
+            }
             continue;
         }
         if (kind == "__vf_internal_attach_html_tree") {
@@ -984,8 +1014,10 @@ void collect_retained_html_packet_binding(
     }
 
     vf::JsonValue::Array commands;
-    for (const auto& entry : component_trees) {
-        const std::int32_t frame_id = entry.first;
+    std::set<std::int32_t> target_frames;
+    for (const auto& entry : component_trees) target_frames.insert(entry.first);
+    for (const auto& entry : static_bundles) target_frames.insert(entry.first);
+    for (const std::int32_t frame_id : target_frames) {
         const auto frame = frames.find(frame_id);
         if (frame == frames.end()) {
             throw WasmArtifactFailure(
@@ -1003,10 +1035,6 @@ void collect_retained_html_packet_binding(
         flags["resizable"] = vf::JsonValue(true);
         flags["closable"] = vf::JsonValue(true);
         flags["use_browser"] = vf::JsonValue(true);
-        vf::JsonValue::Array tree;
-        for (const auto& identity : entry.second) {
-            tree.push_back(vf::JsonValue(identity));
-        }
         vf::JsonValue::Object spec;
         spec["id"] = vf::JsonValue(retained_frame_id);
         spec["title"] = vf::JsonValue("");
@@ -1023,7 +1051,14 @@ void collect_retained_html_packet_binding(
         spec["parent_id"] = vf::JsonValue(nullptr);
         spec["aspect"] = vf::JsonValue(nullptr);
         spec["frameless"] = vf::JsonValue(false);
-        spec["__vf_internal_html_components"] = vf::JsonValue(std::move(tree));
+        const auto component_tree = component_trees.find(frame_id);
+        if (component_tree != component_trees.end()) {
+            vf::JsonValue::Array tree;
+            for (const auto& identity : component_tree->second) {
+                tree.push_back(vf::JsonValue(identity));
+            }
+            spec["__vf_internal_html_components"] = vf::JsonValue(std::move(tree));
+        }
         vf::JsonValue::Object payload;
         payload["spec"] = vf::JsonValue(std::move(spec));
         vf::JsonValue::Object command;
@@ -1066,6 +1101,9 @@ void collect_retained_html_packet_binding(
     packet_binding.string_value = vf::json_stringify(
         vf::JsonValue(std::move(packets)), -1);
     plan.bindings.push_back(std::move(packet_binding));
+    for (auto& entry : static_bundles) {
+        plan.static_html_bundles.push_back(std::move(entry.second));
+    }
 }
 
 void collect_owner_event_poll_binding(
@@ -1110,7 +1148,10 @@ void collect_owner_event_poll_binding(
     plan.bindings.push_back(std::move(binding));
 }
 
-WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
+WasmModulePlan collect_module_plan(
+    const vf::JsonValue& root,
+    const std::filesystem::path& source_path
+) {
     auto filtered_root = object_of(root, "typed IR root");
     vf::JsonValue::Array filtered_body;
     for (const auto& item : array_of(field(filtered_root, "body", "typed IR root"), "typed IR root.body")) {
@@ -1169,7 +1210,7 @@ WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
         }
         throw WasmArtifactFailure("unsupported typed IR module item for wasm artifact emission");
     }
-    collect_retained_html_packet_binding(root, plan);
+    collect_retained_html_packet_binding(root, source_path, plan);
     collect_owner_event_poll_binding(root, plan);
     return plan;
 }
@@ -1988,7 +2029,7 @@ int main(int argc, char** argv) {
         const std::string source_text = read_file(args.source);
         const std::string typed_ir_text = read_file(args.typed_ir);
         const vf::JsonValue typed_ir = vf::parse_json(typed_ir_text);
-        auto plan = collect_module_plan(typed_ir);
+        auto plan = collect_module_plan(typed_ir, std::filesystem::absolute(args.source));
         const std::vector<std::uint8_t> wasm_bytes = build_wasm_module(plan);
 
         const std::string source_hash = stable_hash(source_text);
@@ -2003,9 +2044,12 @@ int main(int argc, char** argv) {
         const auto build_dir = repo_root_from_source(args.source) / ".vkfbuild" / artifact_stem;
         const auto manifest_path = build_dir / "wasm-manifest.json";
         const auto artifact_path = build_dir / (artifact_stem + ".wasm");
-        const std::string desired_manifest_hash = stable_hash(
-            manifest_key(source_hash, typed_ir_hash, artifact_hash, dependencies, artifact_path)
-        );
+        std::string manifest_material = manifest_key(
+            source_hash, typed_ir_hash, artifact_hash, dependencies, artifact_path);
+        for (const auto& bundle : plan.static_html_bundles) {
+            manifest_material += "\nstatic-html\n" + bundle.frame_id + "\n" + bundle.entry;
+        }
+        const std::string desired_manifest_hash = stable_hash(manifest_material);
 
         std::filesystem::create_directories(build_dir);
         std::string status = "compiled";
@@ -2015,6 +2059,24 @@ int main(int argc, char** argv) {
             status = "current";
         } else {
             write_bytes(artifact_path, wasm_bytes);
+        }
+
+        if (!plan.static_html_bundles.empty()) {
+            vf::JsonValue::Array mounts;
+            for (const auto& bundle : plan.static_html_bundles) {
+                vf::JsonValue::Object mount;
+                mount["frame_id"] = vf::JsonValue(bundle.frame_id);
+                mount["resource"] = vf::JsonValue(bundle.entry);
+                mounts.push_back(vf::JsonValue(std::move(mount)));
+                for (const auto& resource : bundle.resources) {
+                    const std::filesystem::path output = build_dir / resource.name;
+                    std::filesystem::create_directories(output.parent_path());
+                    write_text(output, resource.bytes);
+                }
+            }
+            write_text(
+                build_dir / "vf-static-html-loads.json",
+                vf::json_stringify(vf::JsonValue(std::move(mounts)), 2) + "\n");
         }
 
         auto manifest = manifest_payload(

@@ -1743,6 +1743,11 @@ void attach_expression_facts(
     out["free_variables"] = vf::JsonValue(std::move(vars));
 }
 
+struct UiHandleRef {
+    std::string kind;
+    std::uint64_t id = 0;
+};
+
 class Lowerer {
 public:
     vf::JsonValue lower_module(const vf::JsonValue& ast) {
@@ -1791,6 +1796,15 @@ public:
         }
         auto out = node("typed_module");
         out["body"] = vf::JsonValue(std::move(body));
+        if (!ui_displays_.empty()) {
+            vf::JsonValue::Object program;
+            program["schema"] = vf::JsonValue("vektor-flow/ui-program");
+            program["version"] = vf::JsonValue(1.0);
+            program["displays"] = vf::JsonValue(std::move(ui_displays_));
+            program["operations"] = vf::JsonValue(std::move(ui_operations_));
+            program["result"] = vf::JsonValue(ui_result_type_);
+            out["ui_program"] = vf::JsonValue(std::move(program));
+        }
         return vf::JsonValue(std::move(out));
     }
 
@@ -2283,6 +2297,18 @@ private:
                 }
                 if (is_update) env.set(name, environment_type);
                 else env.declare(name, environment_type);
+                if (value_type == "Display<2>" || value_type == "Frame<2>") {
+                    const auto& handle = object_of(value, "UI handle");
+                    const auto& raw_handle = field(handle, "value", "UI handle");
+                    if (string_field(handle, "kind", "UI handle") != "const" ||
+                        !raw_handle.is_number() || raw_handle.as_number() < 0.0) {
+                        throw IRFailure("retained UI handle must be a non-negative constant");
+                    }
+                    ui_handle_bindings_[name] = UiHandleRef{
+                        value_type == "Display<2>" ? "display" : "frame",
+                        static_cast<std::uint64_t>(raw_handle.as_number())
+                    };
+                }
                 remember_symbolic_binding(name, value);
                 if (is_update) {
                     symbolic_expression_sources_.erase(name);
@@ -3189,6 +3215,19 @@ private:
             const bool spilled_ui_display = std::find(
                 spilled_modules_.begin(), spilled_modules_.end(), "ui.display") !=
                 spilled_modules_.end();
+            const auto named_value = [&](const std::string& wanted,
+                                         const std::string& context) -> const vf::JsonValue* {
+                const vf::JsonValue* result = nullptr;
+                for (const auto& raw_named : named_args) {
+                    const auto& named = object_of(raw_named, context);
+                    if (string_field(named, "name", context) != wanted) continue;
+                    if (result != nullptr) {
+                        throw IRFailure(context + " received duplicate `" + wanted + "`");
+                    }
+                    result = &field(named, "value", context);
+                }
+                return result;
+            };
             if (spilled_ui_display &&
                 string_field(callee_ast, "kind", "call.callee") == "identifier") {
                 const std::string component_identity = string_field(
@@ -3200,6 +3239,32 @@ private:
                         "ui_component<" + component_identity + ">");
                     return component;
                 }
+            }
+            if (spilled_ui_display &&
+                string_field(callee_ast, "kind", "call.callee") == "identifier" &&
+                string_field(callee_ast, "name", "call.callee") == "Display") {
+                if (!args.empty() || !spread_args.empty() || named_args.size() != 1) {
+                    throw IRFailure("Display currently requires exactly `dim:`");
+                }
+                const vf::JsonValue* dimension_value = named_value("dim", "Display");
+                if (dimension_value == nullptr) {
+                    throw IRFailure("Display currently requires exactly `dim:`");
+                }
+                const auto& dimension = object_of(*dimension_value, "Display dim");
+                const auto& raw_dimension = field(dimension, "value", "Display dim");
+                if (string_field(dimension, "kind", "Display dim") != "const" ||
+                    !raw_dimension.is_number() || raw_dimension.as_number() != 2.0) {
+                    throw IRFailure("Display currently requires `dim:2`");
+                }
+                vf::JsonValue::Object display;
+                display["dimension"] = vf::JsonValue(2.0);
+                display["surface"] = vf::JsonValue("web_surface");
+                display["transparent"] = vf::JsonValue(true);
+                ui_displays_.emplace_back(std::move(display));
+                vf::JsonValue handle = num_const(
+                    static_cast<double>(ui_displays_.size() - 1));
+                handle.as_object()["type"] = vf::JsonValue("Display<2>");
+                return handle;
             }
             if (string_field(callee_ast, "kind", "call.callee") == "attribute") {
                 const auto& owner_ast = object_of(
@@ -3230,6 +3295,79 @@ private:
                 if (string_field(owner_ast, "kind", "method owner") == "identifier") {
                     const std::string queue_name = string_field(owner_ast, "name", "method owner");
                     const std::string queue_type = env.get(queue_name);
+                    if (spilled_ui_display && queue_type == "Frame<2>" &&
+                        method == "load") {
+                        if (args.size() != 1 || !named_args.empty() || !spread_args.empty()) {
+                            throw IRFailure("Frame.load requires exactly one resource path");
+                        }
+                        const auto target = ui_handle_bindings_.find(queue_name);
+                        if (target == ui_handle_bindings_.end() ||
+                            target->second.kind != "frame") {
+                            throw IRFailure("Frame.load requires a retained Frame binding");
+                        }
+                        const auto& resource = object_of(args.front(), "Frame.load resource");
+                        const auto& raw_resource = field(resource, "value", "Frame.load resource");
+                        if (string_field(resource, "kind", "Frame.load resource") != "const" ||
+                            string_field(resource, "type", "Frame.load resource") != "str" ||
+                            !raw_resource.is_string()) {
+                            throw IRFailure("Frame.load requires a constant string resource path");
+                        }
+                        vf::JsonValue::Object target_value;
+                        target_value["kind"] = vf::JsonValue("frame");
+                        target_value["id"] = vf::JsonValue(
+                            static_cast<double>(target->second.id));
+                        vf::JsonValue::Object load;
+                        load["kind"] = vf::JsonValue("load");
+                        load["resource"] = vf::JsonValue(raw_resource.as_string());
+                        load["target"] = vf::JsonValue(std::move(target_value));
+                        ui_operations_.emplace_back(std::move(load));
+                        auto result = node("const");
+                        result["type"] = vf::JsonValue("null");
+                        result["value"] = vf::JsonValue(nullptr);
+                        return vf::JsonValue(std::move(result));
+                    }
+                    if (spilled_ui_display && queue_type == "Display<2>" &&
+                        method == "add_frame") {
+                        if (!args.empty() || !spread_args.empty() || named_args.size() != 2) {
+                            throw IRFailure("Display.add_frame requires exactly `pos:` and `size:`");
+                        }
+                        const vf::JsonValue* pos = named_value("pos", "Display.add_frame");
+                        const vf::JsonValue* size = named_value("size", "Display.add_frame");
+                        if (pos == nullptr || size == nullptr) {
+                            throw IRFailure("Display.add_frame requires exactly `pos:` and `size:`");
+                        }
+                        const auto require_vec2 = [](const vf::JsonValue& value,
+                                                     const std::string& context) {
+                            const std::string type = string_field(
+                                object_of(value, context), "type", context);
+                            const auto shape = fixed_numeric_vector_shape(type);
+                            if (!shape || shape->dimensions != std::vector<std::size_t>{2}) {
+                                throw IRFailure(context + " requires a fixed numeric vector of length 2");
+                            }
+                        };
+                        require_vec2(*pos, "Display.add_frame pos");
+                        require_vec2(*size, "Display.add_frame size");
+                        const auto parent = ui_handle_bindings_.find(queue_name);
+                        if (parent == ui_handle_bindings_.end() ||
+                            parent->second.kind != "display") {
+                            throw IRFailure("Display.add_frame requires a retained Display binding");
+                        }
+                        const std::uint64_t frame_index = next_ui_frame_++;
+                        vf::JsonValue::Object add_frame;
+                        add_frame["kind"] = vf::JsonValue("add_frame");
+                        add_frame["frame_id"] = vf::JsonValue(
+                            static_cast<double>(frame_index));
+                        add_frame["parent_kind"] = vf::JsonValue("display");
+                        add_frame["parent_id"] = vf::JsonValue(
+                            static_cast<double>(parent->second.id));
+                        add_frame["pos"] = *pos;
+                        add_frame["size"] = *size;
+                        ui_operations_.emplace_back(std::move(add_frame));
+                        ui_result_type_ = "Frame<2>";
+                        vf::JsonValue frame = num_const(static_cast<double>(frame_index));
+                        frame.as_object()["type"] = vf::JsonValue("Frame<2>");
+                        return frame;
+                    }
                     if (starts_with(queue_type, "queue<")) {
                         if (!named_args.empty() || !spread_args.empty()) {
                             throw IRFailure("collections.queue methods do not accept named or spread arguments");
@@ -5956,8 +6094,13 @@ private:
     std::map<std::string, SymbolicBindingSpec> symbolic_bindings_;
     std::map<std::string, vf::JsonValue> symbolic_expression_sources_;
     std::set<std::string> symbolic_trace_stack_;
+    std::map<std::string, UiHandleRef> ui_handle_bindings_;
+    vf::JsonValue::Array ui_displays_;
+    vf::JsonValue::Array ui_operations_;
+    std::string ui_result_type_ = "null";
     bool symbolic_imported_ = false;
     std::uint64_t next_lambda_local_ = 0;
+    std::uint64_t next_ui_frame_ = 0;
 };
 
 double require_const_number(const vf::JsonValue& value, const std::string& context) {

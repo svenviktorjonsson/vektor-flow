@@ -613,6 +613,7 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
         L"vf-runtime-flow.js",
         L"vf-render-clock.js",
         L"vf-frame.js",
+        L"vf-static-html-loader.js",
         L"vf-display.js",
         L"vf-native-scene.js",
         L"vf-axis3d-kernel.js",

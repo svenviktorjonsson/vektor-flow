@@ -1,3 +1,5 @@
+#include "vkf_static_html_bundle.hpp"
+
 #include <cstdint>
 #include <algorithm>
 #include <array>
@@ -31,6 +33,7 @@ struct Args {
     std::string geom_transport_json = "{}";
     std::string geom_state_json = "{}";
     std::string event_program_json = "{}";
+    std::vector<vf::static_html::Bundle> static_html_bundles;
     bool scene_config_supplied = false;
     bool runtime_packets_supplied = false;
 };
@@ -44,6 +47,7 @@ struct CompiledUiSceneBundle {
     std::string scene_config_json;
     std::string runtime_packets_json;
     std::string provenance;
+    std::vector<vf::static_html::Bundle> static_html_bundles;
 };
 
 struct ArtifactInputProvenance {
@@ -1135,6 +1139,7 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
         "vf-render-clock.js",
         "vf-frame.js",
         "vf-widgets.js",
+        "vf-static-html-loader.js",
         "vf-shared-runtime.js",
         "vf-gpu-runtime.js",
         "vf-native-scene.js",
@@ -2330,7 +2335,8 @@ std::string html_text(
     const std::string& scene_config_json,
     const std::string& scene_config_filename = "",
     const std::string& arena_filename = "",
-    const std::string& runtime_asset_version = ""
+    const std::string& runtime_asset_version = "",
+    bool has_static_html = false
 ) {
     const std::string asset_query = runtime_asset_version.empty() ? "" : ("?v=" + json_escape(runtime_asset_version));
     const std::string native_scene_runtime_config =
@@ -2345,6 +2351,7 @@ std::string html_text(
         "\"vf-render-clock.js\","
         "\"vf-frame.js\","
         "\"vf-widgets.js\","
+        "\"vf-static-html-loader.js\","
         "\"vf-shared-runtime.js\","
         "\"vf-gpu-runtime.js\","
         "\"vf-axis3d-kernel.js\","
@@ -2365,7 +2372,11 @@ std::string html_text(
     if (trim_left_copy(scene_config_json) == "[]") {
         return std::string("<!DOCTYPE html>\n")
             + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
-            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
+            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\""
+            + (has_static_html
+                ? " data-vf-static-html-loads=\"vf-static-html-loads.json\""
+                : "")
+            + ">"
             + native_scene_runtime_config
             + "<script src=\"../../vf-runtime-shell.js" + asset_query + "\"></script>"
             + "</body></html>\n";
@@ -2540,7 +2551,8 @@ void flatten_retained_html_numeric_value(
 }
 
 std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
-    const std::filesystem::path& typed_ir_path
+    const std::filesystem::path& typed_ir_path,
+    const std::filesystem::path& source_path
 ) {
     if (typed_ir_path.empty()) return std::nullopt;
     const std::string typed_ir_text = read_file_bytes(typed_ir_path);
@@ -2558,8 +2570,8 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
     }
     bool has_attachment = false;
     for (const auto& operation : operations->array) {
-        if (literal_string_or(operation, "kind", "") ==
-            "__vf_internal_attach_html_tree") {
+        const std::string kind = literal_string_or(operation, "kind", "");
+        if (kind == "load" || kind == "__vf_internal_attach_html_tree") {
             has_attachment = true;
             break;
         }
@@ -2606,6 +2618,7 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
     };
     std::map<std::uint64_t, FrameRect> frames;
     std::map<std::uint64_t, std::vector<std::string>> component_trees;
+    std::map<std::uint64_t, vf::static_html::Bundle> static_bundles;
     for (const auto& operation : operations->array) {
         const std::string kind = literal_string_or(operation, "kind", "");
         if (kind == "show") continue;
@@ -2629,6 +2642,36 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
             }
             frames[frame_id] = {
                 pos[0], pos[1], size[0], size[1]};
+            continue;
+        }
+        if (kind == "load") {
+            const VkfLiteralValue& target = require_field(
+                operation, "target", "Frame.load target");
+            if (literal_string_or(target, "kind", "") != "frame") {
+                throw StagerError("Frame.load requires a Frame target");
+            }
+            const std::uint64_t frame_id = require_frame_id(
+                require_field(target, "id", "Frame.load target"),
+                "Frame.load frame id");
+            const VkfLiteralValue& resource = require_field(
+                operation, "resource", "Frame.load operation");
+            if (resource.kind != VkfLiteralKind::String) {
+                throw StagerError("Frame.load resource must be a string");
+            }
+            std::filesystem::path resource_path(resource.text);
+            if (resource_path.is_absolute()) {
+                throw StagerError("Frame.load resource path must be source-relative");
+            }
+            if (static_bundles.find(frame_id) != static_bundles.end()) {
+                throw StagerError("Frame.load initial slice accepts one load per Frame");
+            }
+            resource_path = source_path.parent_path() / resource_path;
+            try {
+                static_bundles.emplace(frame_id, vf::static_html::collect(
+                    source_path, resource_path, "frame_" + std::to_string(frame_id)));
+            } catch (const vf::static_html::Error& error) {
+                throw StagerError(error.what());
+            }
             continue;
         }
         if (kind == "__vf_internal_attach_html_tree") {
@@ -2669,15 +2712,18 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
 
     std::ostringstream commands;
     bool first_command = true;
-    for (const auto& entry : component_trees) {
-        const auto frame = frames.find(entry.first);
+    std::set<std::uint64_t> target_frames;
+    for (const auto& entry : component_trees) target_frames.insert(entry.first);
+    for (const auto& entry : static_bundles) target_frames.insert(entry.first);
+    for (const std::uint64_t target_frame : target_frames) {
+        const auto frame = frames.find(target_frame);
         if (frame == frames.end()) {
             throw StagerError(
                 "retained HTML target was not created by Display.add_frame");
         }
         if (!first_command) commands << ",";
         first_command = false;
-        const std::string frame_id = "frame_" + std::to_string(entry.first);
+        const std::string frame_id = "frame_" + std::to_string(target_frame);
         commands << "{\"kind\":\"frame_upsert\",\"id\":\""
                  << json_escape(frame_id)
                  << "\",\"payload\":{\"spec\":{\"id\":\""
@@ -2692,12 +2738,17 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
                  << "\"alpha\":1,\"master\":false,\"dock_location\":\"tl\","
                  << "\"anchor\":\"tl\",\"body\":null,\"body_transparent\":false,"
                  << "\"body_layout\":null,\"parent_id\":null,\"aspect\":null,"
-                 << "\"frameless\":false,\"__vf_internal_html_components\":[";
-        for (std::size_t index = 0; index < entry.second.size(); ++index) {
-            if (index > 0) commands << ",";
-            commands << "\"" << json_escape(entry.second[index]) << "\"";
+                 << "\"frameless\":false";
+        const auto tree = component_trees.find(target_frame);
+        if (tree != component_trees.end()) {
+            commands << ",\"__vf_internal_html_components\":[";
+            for (std::size_t index = 0; index < tree->second.size(); ++index) {
+                if (index > 0) commands << ",";
+                commands << "\"" << json_escape(tree->second[index]) << "\"";
+            }
+            commands << "]";
         }
-        commands << "]}}}";
+        commands << "}}}";
     }
 
     CompiledUiSceneBundle bundle;
@@ -2708,6 +2759,9 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
         "\"payload\":{\"state\":{}}},{\"seq\":3,\"kind\":\"display.replace\"," +
         "\"payload\":{\"display\":{\"screen\":[],\"frames\":{},\"geom\":{}}}}]";
     bundle.provenance = "vkf-retained-html-tree-lowering";
+    for (auto& entry : static_bundles) {
+        bundle.static_html_bundles.push_back(std::move(entry.second));
+    }
     return bundle;
 }
 
@@ -2785,7 +2839,8 @@ int run(int argc, char** argv) {
             scene_config_provenance.path = slash_path(config_path);
             scene_config_provenance.source_hash_checked = true;
         } else {
-            auto compiled_ui_scene = try_compile_retained_html_tree(effective.typed_ir);
+            auto compiled_ui_scene = try_compile_retained_html_tree(
+                effective.typed_ir, absolute_source);
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_native_scene_from_source(
                     source_text, effective.overlay_web);
@@ -2802,6 +2857,8 @@ int run(int argc, char** argv) {
                     "compile the UI scene through compiler/self_hosted/native_scene_compiler.vkf before staging");
             }
             effective.scene_config_json = compiled_ui_scene->scene_config_json;
+            effective.static_html_bundles = std::move(
+                compiled_ui_scene->static_html_bundles);
             scene_config_provenance.source = compiled_ui_scene->provenance;
             scene_config_provenance.source_hash_checked = true;
             if (!effective.runtime_packets_supplied) {
@@ -2872,7 +2929,12 @@ int run(int argc, char** argv) {
         page_rel,
         scene_config_provenance,
         runtime_packets_provenance));
-    write_file(session_dir / "vkf-scene.html", html_text(effective.scene_config_json, config_filename, arena_filename, runtime_asset_version), true);
+    write_file(session_dir / "vkf-scene.html", html_text(
+        effective.scene_config_json,
+        config_filename,
+        arena_filename,
+        runtime_asset_version,
+        !effective.static_html_bundles.empty()), true);
     write_file(session_dir / "vf-launch-manifest.json", native_scene_launch_manifest_json(effective.scene_config_json), true);
     if (multi_view_scene) {
         write_file(session_dir / config_filename, effective.scene_config_json + "\n");
@@ -2884,6 +2946,21 @@ int run(int argc, char** argv) {
     write_file(session_dir / "vf-geom-ledger-transport.json", effective.geom_transport_json, true);
     write_file(session_dir / "vf-geom-ledger-state.json", effective.geom_state_json, true);
     write_file(session_dir / "vf-event-program.json", effective.event_program_json, true);
+    if (!effective.static_html_bundles.empty()) {
+        std::ostringstream mounts;
+        mounts << "[";
+        for (std::size_t index = 0; index < effective.static_html_bundles.size(); ++index) {
+            if (index > 0) mounts << ",";
+            const auto& bundle = effective.static_html_bundles[index];
+            mounts << "{\"frame_id\":\"" << json_escape(bundle.frame_id)
+                   << "\",\"resource\":\"" << json_escape(bundle.entry) << "\"}";
+            for (const auto& resource : bundle.resources) {
+                write_file(session_dir / resource.name, resource.bytes);
+            }
+        }
+        mounts << "]\n";
+        write_file(session_dir / "vf-static-html-loads.json", mounts.str(), true);
+    }
 
     std::cout << "{"
               << "\"status\":\"compiled\","
