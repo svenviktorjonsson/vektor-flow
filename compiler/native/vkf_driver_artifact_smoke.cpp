@@ -971,7 +971,8 @@ void collect_linked_aliased_modules(
         throw DriverFailure("linked module AST has no body");
     }
     for (const auto& statement : body->second.as_array()) {
-        if (const auto imported = aliased_module_path(statement, module_source)) {
+        const auto imported = aliased_module_path(statement, module_source);
+        if (imported) {
             const std::string key = imported->alias + "\n" +
                 std::filesystem::absolute(imported->path).lexically_normal().string();
             const bool first_alias_visit = visited_aliases.insert(key).second;
@@ -984,6 +985,17 @@ void collect_linked_aliased_modules(
             // metadata is installed when the dependency body is lowered.
             if (first_alias_visit) linked_aliases.push_back(*imported);
             continue;
+        }
+        if (statement.is_object()) {
+            const auto& object = statement.as_object();
+            const auto kind = object.find("kind");
+            const auto alias = object.find("alias");
+            if (kind != object.end() && kind->second.is_string() &&
+                kind->second.as_string() == "spill_import" &&
+                alias != object.end() && alias->second.is_string()) {
+                throw DriverFailure(
+                    "could not resolve linked module import " + alias->second.as_string());
+            }
         }
         const auto dependency = spilled_module_path(statement, module_source);
         if (!dependency) continue;

@@ -132,16 +132,6 @@ private:
     std::set<std::string> variables_;
 
     void discover() {
-        std::set<std::string> linked_declarations;
-        for (const auto& statement : array_of(field(module_, "body", "typed module"), "typed module body")) {
-            const auto& object = object_of(statement, "top-level statement");
-            const auto kind = string_field(object, "kind", "top-level statement");
-            if (kind != "function" && kind != "type_alias" && kind != "store_binding") continue;
-            const auto name = object.find("name");
-            if (name != object.end() && name->second.is_string()) {
-                linked_declarations.insert(name->second.as_string());
-            }
-        }
         for (const auto& statement : array_of(field(module_, "body", "typed module"), "typed module body")) {
             const auto& object = object_of(statement, "top-level statement");
             const std::string kind = string_field(object, "kind", "top-level statement");
@@ -169,14 +159,17 @@ private:
                 if (!alias_value.is_string() || alias_value.as_string().empty()) {
                     throw AotFailure("malformed linked module import alias");
                 }
-                const std::string prefix =
-                    "__vkf_module_" + alias_value.as_string() + "__";
-                const bool resolved = std::any_of(
-                    linked_declarations.begin(), linked_declarations.end(),
-                    [&](const auto& name) { return name.rfind(prefix, 0) == 0; });
-                if (!resolved) {
-                    throw AotFailure(
-                        "unresolved linked module import " + alias_value.as_string());
+                const auto& path = object_of(field(object, "path", "module_import"), "module_import.path");
+                if (string_field(path, "kind", "module_import.path") != "dot_module_path") {
+                    throw AotFailure("malformed linked module import path");
+                }
+                const auto& segments = array_of(
+                    field(path, "segments", "module_import.path"),
+                    "module_import.path.segments");
+                if (segments.empty() || std::any_of(
+                    segments.begin(), segments.end(),
+                    [](const auto& segment) { return !segment.is_string(); })) {
+                    throw AotFailure("malformed linked module import path");
                 }
             } else if (kind != "expr_stmt") {
                 throw AotFailure("unsupported top-level typed IR statement " + kind);

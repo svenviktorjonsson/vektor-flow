@@ -113,3 +113,39 @@ test("unresolved linked imports fail before fallback artifact generation", () =>
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("resolved empty linked modules remain valid metadata", () => {
+  const work = makeWork("empty-linked-import-fallback-");
+  try {
+    copyFileSync(
+      join(root, "tests", "bootstrap", "fixtures", "empty-linked-module.vkf"),
+      join(work, "empty_linked_module.vkf"),
+    );
+    const source = join(work, "empty-linked-import.vkf");
+    writeFileSync(source, "empty: .empty_linked_module\n:: 5\n", "utf8");
+    const compiled = compile(source);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+    const summary = JSON.parse(compiled.stdout);
+    const typed = JSON.parse(readFileSync(summary.typed_ir_path, "utf8"));
+    assert.ok(typed.body.some((item) => item.kind === "module_import"));
+    assert.equal(
+      typed.body.some(
+        (item) => typeof item.name === "string" && item.name.startsWith("__vkf_module_empty__"),
+      ),
+      false,
+      "empty module unexpectedly needed a declaration marker",
+    );
+    const run = spawnSync(summary.artifact_path, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `empty-module artifact did not start: ${run.error}`);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout.trim(), "5");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
