@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, rm } from "node:fs/promises";
+import { access, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test, { after } from "node:test";
@@ -99,8 +99,13 @@ test("the foldered chess bot advances through the next rebinding gate", {
     diagnostic,
     /in function __vkf_module_state__piece_at: Cannot declare existing name i; update it with \.i:value/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     diagnostic,
     /in function __vkf_module_state__path_clear_on_board: Cannot declare existing name done; update it with \.done:value/u,
   );
+  assert.match(
+    diagnostic,
+    /in function __vkf_module_state__path_clear_on_board: Cannot declare existing name clear; update it with \.clear:value/u,
+  );
+  await assert.rejects(access(artifact));
 });
