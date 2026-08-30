@@ -13041,15 +13041,7 @@ bool can_use_minimal_numeric_elf(const vkf::machine_ir::Module& module) {
 bool can_tune_machine_code(const vkf::machine_ir::Module& module) {
     if (module.output_kind != vkf::machine_ir::OutputKind::F64) return false;
     const auto safe_function = [](const vkf::machine_ir::Function& function) {
-        if (!function.owned_f64_list_locals.empty() || !function.owned_string_locals.empty()) {
-            return false;
-        }
-        return std::all_of(
-            function.instructions.begin(), function.instructions.end(),
-            [](const auto& instruction) {
-                return !vkf::adaptive_optimizer::is_effectful(instruction.opcode) &&
-                    !vkf::adaptive_optimizer::is_nondeterministic(instruction.opcode);
-            });
+        return vkf::adaptive_optimizer::automatic_flow_safety(function).replay_safe;
     };
     return safe_function(module.entry) && std::all_of(
         module.functions.begin(), module.functions.end(), safe_function);
