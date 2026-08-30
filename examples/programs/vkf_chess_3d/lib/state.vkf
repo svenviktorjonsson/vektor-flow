@@ -63,7 +63,7 @@ path_clear_on_board(board:any, piece:Piece, to_file:num, to_rank:num) -> bit:
                 .clear: false
                 .done: true
         done = false?
-            f: f + df
+            .f: f + df
             r: r + dr
     @: clear
 
