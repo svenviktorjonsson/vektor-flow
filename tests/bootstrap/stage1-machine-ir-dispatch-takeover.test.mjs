@@ -25,6 +25,7 @@ const nativeBin = process.env.VKF_NATIVE_BIN
 const compiler = join(nativeBin, `vkf-strict${executableSuffix}`);
 const outputNewline = process.platform === "win32" ? "\r\n" : "\n";
 const componentName = "machine_ir.numeric_parameter_multiply.stack_validation";
+const moduleLoweringComponentName = "machine_ir.numeric_parameter_multiply.module_lowering";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -36,6 +37,16 @@ function makeWork(prefix) {
     : join(root, ".work");
   mkdirSync(workRoot, { recursive: true });
   return mkdtempSync(join(workRoot, prefix));
+}
+
+function compileSource(source, artifact) {
+  const compiled = spawnSync(
+    compiler,
+    ["-b", source, "-o", artifact, "--diagnostics", "--optimizer-policy", "mask-0"],
+    { cwd: root, encoding: "utf8", timeout: 20_000, windowsHide: true },
+  );
+  assert.equal(compiled.error, undefined, `component compile did not start: ${compiled.error}`);
+  assert.equal(compiled.status, 0, compiled.stderr);
 }
 
 function compileComponent(work) {
@@ -56,14 +67,28 @@ function compileComponent(work) {
     ].join("\n"),
     "utf8",
   );
-  const compiled = spawnSync(
-    compiler,
-    ["-b", source, "-o", artifact, "--diagnostics", "--optimizer-policy", "mask-0"],
-    { cwd: root, encoding: "utf8", timeout: 20_000, windowsHide: true },
-  );
-  assert.equal(compiled.error, undefined, `component compile did not start: ${compiled.error}`);
-  assert.equal(compiled.status, 0, compiled.stderr);
+  compileSource(source, artifact);
   return { artifact, source };
+}
+
+function structuralLeafPaths(value, prefix = "") {
+  if (Array.isArray(value)) {
+    return value.length === 0
+      ? [prefix]
+      : value.flatMap((item, index) => structuralLeafPaths(item, `${prefix}.${index}`));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.keys(value).flatMap((key) =>
+      structuralLeafPaths(value[key], prefix ? `${prefix}.${key}` : key)
+    );
+  }
+  return [prefix];
+}
+
+function renderObservedValue(value) {
+  if (Array.isArray(value)) return "[]";
+  if (value === null) return "null";
+  return String(value);
 }
 
 function dispatch({ artifact, oracle, provenance, selected, source, name = componentName }) {
@@ -254,6 +279,113 @@ test("strict dispatcher never partially publishes malformed output paths", () =>
     assert.match(rejected.stderr, /stage component output path is not a regular file/);
     assert.equal(rejected.stdout, "");
     assert.equal(readFileSync(selected, "utf8"), "preserve-selected");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("strict dispatcher selects exhaustive VKF MachineModule lowering", () => {
+  const work = makeWork("i34-module-");
+  try {
+    for (const moduleName of ["typed_ir", "machine_ir"]) {
+      copyFileSync(
+        join(root, "compiler", "self_hosted", `${moduleName}.vkf`),
+        join(work, `${moduleName}.vkf`),
+      );
+    }
+
+    const oracleSource = join(work, "oracle-module.vkf");
+    const oracleArtifact = join(work, `oracle-module${executableSuffix}`);
+    copyFileSync(
+      join(root, "tests", "bootstrap", "fixtures", "parameter-multiply-function-module.vkf"),
+      oracleSource,
+    );
+    compileSource(oracleSource, oracleArtifact);
+    const oracleModule = JSON.parse(readFileSync(
+      join(work, ".vkfbuild", "oracle-module", "machine-ir.json"),
+      "utf8",
+    ));
+    const paths = structuralLeafPaths(oracleModule);
+
+    const source = join(work, "module-lowering.vkf");
+    const artifact = join(work, `module-lowering${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "typed: .typed_ir",
+        "mir: .machine_ir",
+        'function: typed.typed_numeric_parameter_multiply_function("twice", "value", 2)',
+        "module: mir.mir_lower_numeric_parameter_multiply_function_module(function)",
+        ...paths.map((path) => `:: module.${path}`),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    compileSource(source, artifact);
+
+    const oracle = join(work, "module-oracle.txt");
+    const selected = join(work, "module-selected.txt");
+    const provenance = join(work, "module-provenance.json");
+    const expected = paths
+      .map((path) => renderObservedValue(
+        path.split(".").reduce((owner, key) => owner[key], oracleModule),
+      ))
+      .join(outputNewline) + outputNewline;
+    writeFileSync(oracle, expected, "utf8");
+
+    const dispatched = dispatch({
+      artifact,
+      name: moduleLoweringComponentName,
+      oracle,
+      provenance,
+      selected,
+      source,
+    });
+    assert.equal(dispatched.error, undefined, `dispatcher did not start: ${dispatched.error}`);
+    assert.equal(dispatched.status, 0, dispatched.stderr);
+    assert.equal(readFileSync(selected, "utf8"), expected);
+    assert.deepEqual(JSON.parse(dispatched.stdout), {
+      component: moduleLoweringComponentName,
+      implementation: "vkf_source",
+      provenance_path: resolve(provenance),
+      selected_output_path: resolve(selected),
+      status: "selected",
+    });
+    const sourceBytes = readFileSync(source);
+    const artifactBytes = readFileSync(artifact);
+    const sourceGraphMarker = artifactBytes
+      .toString("latin1")
+      .match(/VKF-CACHE-V1:([0-9a-f]{64})/);
+    assert.ok(sourceGraphMarker, "MachineModule component has no source-graph fingerprint");
+    const provenanceBytes = readFileSync(provenance);
+    assert.deepEqual(JSON.parse(provenanceBytes), {
+      component: moduleLoweringComponentName,
+      component_artifact: resolve(artifact),
+      component_artifact_sha256: sha256(artifactBytes),
+      component_source: resolve(source),
+      component_source_graph_fingerprint: sourceGraphMarker[1],
+      component_source_sha256: sha256(sourceBytes),
+      dispatcher: "vkf-strict",
+      exact_oracle_match: true,
+      implementation: "vkf_source",
+      observation_sha256: sha256(Buffer.from(expected)),
+      oracle_output: resolve(oracle),
+      schema: "vektorflow.internal.stage_component_dispatch",
+      selected_output: resolve(selected),
+      version: 1,
+    });
+
+    const repeated = dispatch({
+      artifact,
+      name: moduleLoweringComponentName,
+      oracle,
+      provenance,
+      selected,
+      source,
+    });
+    assert.equal(repeated.status, 0, repeated.stderr);
+    assert.equal(repeated.stdout, dispatched.stdout);
+    assert.deepEqual(readFileSync(provenance), provenanceBytes);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
