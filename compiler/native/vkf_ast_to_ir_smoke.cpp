@@ -6001,6 +6001,67 @@ private:
             vf::JsonValue discriminant = lower_expr(field(object, "discriminant", "match_stmt"), env);
             const auto& catch_value = field(object, "catch", "match_stmt");
             const bool catch_errors = catch_value.is_boolean() && catch_value.as_boolean();
+            const auto& loop_value = field(object, "loop", "match_stmt");
+            const bool repeats = loop_value.is_boolean() && loop_value.as_boolean();
+            const auto& discriminant_object = object_of(discriminant, "match_stmt discriminant");
+            const bool owner_event_binding = repeats && !catch_errors &&
+                string_field(discriminant_object, "kind", "match_stmt discriminant") == "bind_expr" &&
+                field(discriminant_object, "value", "match_stmt discriminant").is_object() &&
+                string_field(
+                    object_of(field(discriminant_object, "value", "match_stmt discriminant"),
+                              "match_stmt discriminant value"),
+                    "kind", "match_stmt discriminant value") == "ui_owner_event_get";
+            if (owner_event_binding) {
+                const std::string binding = string_field(
+                    discriminant_object, "name", "owner event loop binding");
+                bool supported = true;
+                for (const auto& arm_value : array_of(
+                         field(object, "arms", "match_stmt"), "match_stmt.arms")) {
+                    const auto& arm = object_of(arm_value, "match arm");
+                    const vf::JsonValue& condition = field(arm, "condition", "match arm");
+                    if (!condition.is_object() ||
+                        string_field(object_of(condition, "match arm condition"),
+                                     "kind", "match arm condition") != "identifier") {
+                        supported = false;
+                        continue;
+                    }
+                    const std::string event_type = string_field(
+                        object_of(condition, "match arm condition"),
+                        "name", "match arm condition");
+                    supported = supported &&
+                        (event_type == "ButtonEvent" || event_type == "ButtonClicked");
+                }
+                if (supported) {
+                    vf::JsonValue::Array arms;
+                    for (const auto& arm_value : array_of(
+                             field(object, "arms", "match_stmt"), "match_stmt.arms")) {
+                        const auto& arm = object_of(arm_value, "match arm");
+                        const std::string event_type = string_field(
+                            object_of(field(arm, "condition", "match arm"),
+                                      "match arm condition"),
+                            "name", "match arm condition");
+                        auto lowered_arm = node("ui_owner_event_arm");
+                        lowered_arm["event_type"] = vf::JsonValue(event_type);
+                        const vf::JsonValue& body_ast = field(arm, "body", "match arm");
+                        TypeEnv body_env = env;
+                        body_env.begin_scope();
+                        body_env.set(binding, event_type);
+                        lowered_arm["body"] = kind_of(body_ast) == "block"
+                            ? lower_body(body_ast, body_env)
+                            : lower_expr(body_ast, body_env);
+                        arms.emplace_back(std::move(lowered_arm));
+                    }
+                    auto out = node("ui_owner_event_loop");
+                    out["binding"] = vf::JsonValue(binding);
+                    out["poll"] = field(
+                        discriminant_object, "value", "owner event loop poll");
+                    out["arms"] = vf::JsonValue(std::move(arms));
+                    out["type"] = vf::JsonValue("any");
+                    return vf::JsonValue(std::move(out));
+                }
+                throw IRFailure(
+                    "owner event loop currently supports ButtonEvent and ButtonClicked branches");
+            }
             vf::JsonValue::Array arms;
             for (const auto& arm_value : array_of(field(object, "arms", "match_stmt"), "match_stmt.arms")) {
                 const auto& arm = object_of(arm_value, "match arm");
@@ -6021,7 +6082,7 @@ private:
             auto out = node("match_stmt");
             out["discriminant"] = std::move(discriminant);
             out["arms"] = vf::JsonValue(std::move(arms));
-            out["loop"] = field(object, "loop", "match_stmt");
+            out["loop"] = loop_value;
             out["catch"] = catch_value;
             out["type"] = vf::JsonValue("any");
             return vf::JsonValue(std::move(out));

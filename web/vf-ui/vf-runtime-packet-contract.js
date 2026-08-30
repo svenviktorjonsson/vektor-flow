@@ -352,7 +352,7 @@
     return Object.freeze(queues);
   }
 
-  function executeInternalOwnerEventPoll(poll, owners) {
+  function resolveInternalOwnerEventPoll(poll, owners) {
     var owner = poll && poll.owner;
     var boundOwner = owner && owners && owners[owner.name];
     var buttonPoll = poll && poll.owner_kind === "Button" &&
@@ -365,7 +365,70 @@
         typeof boundOwner.events.get !== "function") {
       throw new TypeError("internal owner event poll is malformed");
     }
-    return boundOwner.events.get();
+    return boundOwner;
+  }
+
+  function executeInternalOwnerEventPoll(poll, owners) {
+    return resolveInternalOwnerEventPoll(poll, owners).events.get();
+  }
+
+  function createInternalOwnerEventLoopExecution(plan, owners) {
+    var planKeys = plan && typeof plan === "object" && !Array.isArray(plan)
+      ? Object.keys(plan)
+      : [];
+    var eventTypes = plan && plan.event_types;
+    var validEventTypes = Array.isArray(eventTypes) && eventTypes.length > 0 &&
+      eventTypes.every(function(eventType) {
+        return eventType === "ButtonEvent" || eventType === "ButtonClicked";
+      });
+    if (!plan || planKeys.length !== 3 ||
+        planKeys.some(function(key) {
+          return key !== "binding" && key !== "poll" && key !== "event_types";
+        }) ||
+        typeof plan.binding !== "string" || !plan.binding || !validEventTypes ||
+        !owners || typeof owners.completeInternalOwnerEvent !== "function") {
+      throw new TypeError("internal owner event loop is malformed");
+    }
+    var boundOwner;
+    try {
+      boundOwner = resolveInternalOwnerEventPoll(plan.poll, owners);
+    } catch (error) {
+      throw new TypeError("internal owner event loop is malformed");
+    }
+    var active = false;
+    var ended = false;
+    return Object.freeze({
+      next: function() {
+        if (active) {
+          throw new TypeError("internal owner event loop branch is not complete");
+        }
+        if (ended) return null;
+        var event = boundOwner.events.get();
+        if (event === null) {
+          ended = true;
+          return null;
+        }
+        active = true;
+        var eventType = event.event;
+        var branchIndex = eventTypes.indexOf(eventType);
+        if (branchIndex < 0 && eventType === "ButtonClicked") {
+          branchIndex = eventTypes.indexOf("ButtonEvent");
+        }
+        return Object.freeze({
+          binding: plan.binding,
+          event_type: eventType,
+          branch_index: branchIndex < 0 ? null : branchIndex,
+          event: event
+        });
+      },
+      complete: function(directives) {
+        if (!active) {
+          throw new TypeError("internal owner event loop branch is not active");
+        }
+        owners.completeInternalOwnerEvent(boundOwner, directives);
+        active = false;
+      }
+    });
   }
 
   return {
@@ -374,6 +437,7 @@
     validatePacketPayload: validatePacketPayload,
     createInternalButtonClickedOwnerQueues: createInternalButtonClickedOwnerQueues,
     createInternalGeometryPickOwnerQueues: createInternalGeometryPickOwnerQueues,
-    executeInternalOwnerEventPoll: executeInternalOwnerEventPoll
+    executeInternalOwnerEventPoll: executeInternalOwnerEventPoll,
+    createInternalOwnerEventLoopExecution: createInternalOwnerEventLoopExecution
   };
 }));
