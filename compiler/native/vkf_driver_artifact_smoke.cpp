@@ -611,7 +611,8 @@ vf::JsonValue::Object dispatch_internal_stage_component(
     const std::filesystem::path& provenance_path
 ) {
     if (component.empty()) throw DriverFailure("stage component name is empty");
-    if (component != "machine_ir.numeric_parameter_multiply.stack_validation") {
+    if (component != "machine_ir.numeric_parameter_multiply.stack_validation" &&
+        component != "machine_ir.numeric_parameter_multiply.module_lowering") {
         throw DriverFailure("unknown internal Stage component: " + component);
     }
     const auto absolute = [](const std::filesystem::path& path) {
