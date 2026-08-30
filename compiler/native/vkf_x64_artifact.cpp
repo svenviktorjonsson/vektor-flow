@@ -2592,6 +2592,11 @@ private:
             function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
                 return instruction.opcode == vkf::machine_ir::Opcode::ProcessRun;
             });
+        const bool needs_csv_scratch = std::any_of(
+            function.instructions.begin(), function.instructions.end(), [](const auto& instruction) {
+                return instruction.opcode == vkf::machine_ir::Opcode::Call &&
+                    instruction.symbol == "$internal.csv_project_transform_sum";
+            });
         unsigned capture_scratch_slots = 0;
         for (const auto& instruction : function.instructions) {
             if (instruction.opcode != vkf::machine_ir::Opcode::CaptureRegex) continue;
@@ -2608,6 +2613,7 @@ private:
             });
         frame.scratch_slots = std::max({
             needs_process_scratch ? 9u : 0u,
+            needs_csv_scratch ? 5u : 0u,
             needs_line_scratch ? 4u : 0u,
             capture_scratch_slots,
             static_cast<unsigned>(needs_scratch),
@@ -4621,6 +4627,91 @@ private:
         }
         emit_number(vkf::machine_ir::null_value());
         store_xmm(0, frame.displacement(frame.temp_base + first));
+    }
+
+    void emit_csv_project_transform_sum(
+        const Frame& frame,
+        unsigned first,
+        const vkf::machine_ir::Instruction& instruction
+    ) {
+#ifdef _WIN32
+        // fopen(source, "rb"). Both strings live in the immutable Machine IR
+        // pool; the CSV bytes themselves are never embedded in the artifact.
+        emit_string_pointer_to_rax(instruction.index);
+        code_.raw({0x48, 0x89, 0xc1});
+        emit_string_pointer_to_rax(instruction.byte_count);
+        code_.raw({0x48, 0x89, 0xc2});
+        call_runtime_slot(35);
+        code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+        const auto opened = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(opened, code_.position());
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot));
+
+        // Consume the header without assigning or retaining any cell bytes.
+        code_.raw({0x48, 0x89, 0xc1});
+        emit_string_pointer_to_rax(instruction.error_message_offset);
+        code_.raw({0x48, 0x89, 0xc2});
+        call_runtime_slot(36);
+
+        emit_number(0.0);
+        store_xmm(0, frame.displacement(frame.scratch_slot + 1));
+        code_.raw({0x48, 0xc7, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot + 4));
+        code_.i32(0);
+        const auto row_loop = code_.position();
+
+        // The bounded I45 tracer demands columns 1 and 2 only. fscanf scans
+        // and discards all other columns inside the CRT stream buffer.
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        emit_string_pointer_to_rax(instruction.degrees_of_freedom);
+        code_.raw({0x48, 0x89, 0xc2, 0x4c, 0x8d, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot + 2));
+        code_.raw({0x4c, 0x8d, 0x8d});
+        code_.i32(frame.displacement(frame.scratch_slot + 3));
+        call_runtime_slot(36);
+        code_.raw({0x83, 0xf8, 0x02, 0x0f, 0x85});
+        const auto finished = code_.rel32_placeholder();
+
+        load_xmm(0, frame.displacement(frame.scratch_slot + 2));
+        std::uint64_t scale_bits = 0;
+        std::memcpy(&scale_bits, &instruction.f64, sizeof(scale_bits));
+        code_.raw({0x48, 0xb8});
+        code_.u64(scale_bits);
+        code_.raw({0x66, 0x48, 0x0f, 0x6e, 0xc8, 0xf2, 0x0f, 0x59, 0xc1});
+        load_xmm(1, frame.displacement(frame.scratch_slot + 3));
+        code_.raw({0xf2, 0x0f, 0x5c, 0xc1, 0xf2, 0x0f, 0x59, 0xc0});
+        load_xmm(1, frame.displacement(frame.scratch_slot + 1));
+        code_.raw({0xf2, 0x0f, 0x58, 0xc1});
+        store_xmm(0, frame.displacement(frame.scratch_slot + 1));
+        code_.raw({0x48, 0xff, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot + 4));
+        code_.raw({0xe9});
+        const auto repeat = code_.rel32_placeholder();
+        code_.patch_rel32(repeat, row_loop);
+
+        code_.patch_rel32(finished, code_.position());
+        code_.raw({0x48, 0x8b, 0x85});
+        code_.i32(frame.displacement(frame.scratch_slot + 4));
+        code_.raw({0xb9});
+        code_.i32(static_cast<std::int32_t>(instruction.label));
+        code_.raw({0x48, 0x39, 0xc8, 0x0f, 0x84});
+        const auto row_count_matches = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(row_count_matches, code_.position());
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(frame.scratch_slot));
+        call_runtime_slot(31);
+        load_xmm(0, frame.displacement(frame.scratch_slot + 1));
+        store_xmm(0, frame.displacement(frame.temp_base + first));
+#else
+        (void)frame;
+        (void)first;
+        (void)instruction;
+        throw BackendFailure("CSV streaming reduction is not available for this native target");
+#endif
     }
 
     static bool is_integer_function_candidate(const vkf::machine_ir::Function& function) {
@@ -12574,6 +12665,11 @@ private:
                 }
                 --stack_depth;
                 store_xmm(0, frame.displacement(frame.temp_base + stack_depth - 1));
+            } else if (opcode == Opcode::Call &&
+                       instruction.symbol == "$internal.csv_project_transform_sum") {
+                const unsigned first = stack_depth;
+                emit_csv_project_transform_sum(frame, first, instruction);
+                stack_depth = first + 1;
             } else if (opcode == Opcode::Call) {
                 require_stack(stack_depth, instruction.argument_count);
                 const unsigned first = stack_depth - instruction.argument_count;

@@ -33,8 +33,11 @@ struct MathImports {
     bool ln = false;
     bool write = false;
     bool files = false;
+    bool csv = false;
 
-    static MathImports all() { return {true, true, true, true, true, true, true, true, true}; }
+    static MathImports all() {
+        return {true, true, true, true, true, true, true, true, true, true};
+    }
 };
 
 inline MathImports math_imports_for(const vkf::machine_ir::Module& module) {
@@ -54,6 +57,8 @@ inline MathImports math_imports_for(const vkf::machine_ir::Module& module) {
                 instruction.opcode == Opcode::ReadLineString ||
                 instruction.opcode == Opcode::WriteFileString ||
                 instruction.opcode == Opcode::ProcessRun;
+            imports.csv = imports.csv || (instruction.opcode == Opcode::Call &&
+                instruction.symbol == "$internal.csv_project_transform_sum");
         }
     };
     inspect(module.entry);
@@ -182,6 +187,10 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
         msvcrt_imports.push_back({"_read", 0});
         msvcrt_imports.push_back({"_close", 0});
         msvcrt_imports.push_back({"_lseek", 0});
+    }
+    if (math_imports.csv) {
+        msvcrt_imports.push_back({"fopen", 0});
+        msvcrt_imports.push_back({"fscanf", 0});
     }
     msvcrt_imports.push_back({"_getcwd", 0});
     msvcrt_imports.push_back({"getenv", 0});
@@ -341,6 +350,8 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto dup2_iat = imported_iat("_dup2");
     const auto dup_iat = imported_iat("_dup");
     const auto spawnvp_iat = imported_iat("_spawnvp");
+    const auto fopen_iat = imported_iat("fopen");
+    const auto fscanf_iat = imported_iat("fscanf");
     const auto imported_kernel_iat = [&](const std::string& name) -> std::uint64_t {
         for (std::size_t index = 0; index < kernel_imports.size(); ++index) {
             if (kernel_imports[index].name == name) {
@@ -421,13 +432,13 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     };
     if (sequence_output) {
         const std::uint32_t required = std::max(
-            0x138u,
+            math_imports.csv ? 0x148u : 0x138u,
             0x20u + vkf::machine_ir::runtime_output_base + output_components * 8u);
         std::uint32_t frame_bytes = detail::align_up(required, 16u);
         if ((frame_bytes & 15u) == 0) frame_bytes += 8u;
         out.raw({0x48, 0x81, 0xec}); out.u32(frame_bytes);
     } else {
-        out.raw({0x48, 0x81, 0xec}); out.u32(0x138);
+        out.raw({0x48, 0x81, 0xec}); out.u32(math_imports.csv ? 0x148 : 0x138);
     }
     const auto emit_runtime_import = [&](std::uint64_t iat, std::uint32_t offset) {
         if (iat != 0) {
@@ -480,6 +491,10 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     emit_runtime_import(dup2_iat, 0x120);
     emit_runtime_import(dup_iat, 0x128);
     emit_runtime_import(spawnvp_iat, 0x130);
+    // Slots 35 and 36 are POSIX process slots in the target-neutral ABI and
+    // are otherwise unused by the Windows entry wrapper.
+    emit_runtime_import(fopen_iat, 0x138);
+    emit_runtime_import(fscanf_iat, 0x140);
     if (sequence_output) {
         out.raw({0x4c, 0x8d, 0x64, 0x24, 0x20, 0x4c, 0x89, 0xe1, 0xe8});
     } else {

@@ -6508,6 +6508,42 @@ inline ValueLayout lower_expression(
     StringPool& strings
 ) {
     const std::string kind = string_field(expression, "kind", "expression");
+    if (kind == "csv_project_transform_sum") {
+        const auto source = string_field(expression, "source", "CSV reduction");
+        const auto numeric_u32 = [&](const std::string& name) {
+            const auto& value = field(expression, name, "CSV reduction");
+            if (!value.is_number() || value.as_number() < 0 ||
+                value.as_number() != static_cast<double>(
+                    static_cast<std::uint32_t>(value.as_number()))) {
+                throw LoweringFailure("invalid " + name + " in CSV reduction");
+            }
+            return static_cast<std::uint32_t>(value.as_number());
+        };
+        const auto& scale_value = field(expression, "scale", "CSV reduction");
+        if (!scale_value.is_number() || !std::isfinite(scale_value.as_number())) {
+            throw LoweringFailure("invalid scale in CSV reduction");
+        }
+        const auto left_column = numeric_u32("left_column");
+        const auto right_column = numeric_u32("right_column");
+        if (left_column != 1 || right_column != 2) {
+            throw LoweringFailure("unsupported demanded columns in CSV reduction");
+        }
+        Instruction instruction;
+        instruction.opcode = Opcode::Call;
+        instruction.symbol = "$internal.csv_project_transform_sum";
+        instruction.index = strings.intern(source + std::string(1, '\0'));
+        instruction.byte_count = strings.intern("rb" + std::string(1, '\0'));
+        instruction.error_message_offset = strings.intern(
+            "%*[^\n]%*c" + std::string(1, '\0'));
+        instruction.degrees_of_freedom = strings.intern(
+            "%*[^,],%lf,%lf,%*[^\n]%*c" + std::string(1, '\0'));
+        instruction.argument_count = 0;
+        instruction.result_count = 1;
+        instruction.label = numeric_u32("row_count");
+        instruction.f64 = scale_value.as_number();
+        builder.emit(std::move(instruction));
+        return {};
+    }
     if (kind == "bind_expr") {
         const std::string name = string_field(expression, "name", "bind expression");
         const auto& value = object_of(
@@ -14901,6 +14937,202 @@ inline std::optional<vf::JsonValue> specialize_direct_local_calls(const vf::Json
         : std::optional<vf::JsonValue>(std::move(rewritten));
 }
 
+// Keep the first executable CSV slice honest and bounded: recognize the exact
+// lazy column projection/transform/reduction produced by data.load and retain
+// only its path and demand plan. The backend streams the file; no CSV payload
+// becomes part of typed or Machine IR.
+inline std::optional<vf::JsonValue> specialize_csv_project_transform_sum(
+    const vf::JsonValue& typed_ir
+) {
+    if (!typed_ir.is_object()) return std::nullopt;
+    vf::JsonValue rewritten = typed_ir;
+    auto& module = rewritten.as_object();
+    auto body_it = module.find("body");
+    if (body_it == module.end() || !body_it->second.is_array()) return std::nullopt;
+    auto& body = body_it->second.as_array();
+
+    std::map<std::string, vf::JsonValue::Object*> bindings;
+    for (auto& statement_value : body) {
+        if (!statement_value.is_object()) continue;
+        auto& statement = statement_value.as_object();
+        const auto kind = statement.find("kind");
+        const auto name = statement.find("name");
+        if (kind != statement.end() && kind->second.is_string() &&
+            kind->second.as_string() == "store_binding" &&
+            name != statement.end() && name->second.is_string()) {
+            bindings[name->second.as_string()] = &statement;
+        }
+    }
+
+    std::map<std::string, std::size_t> load_counts;
+    const auto count_loads = [&](const auto& self, const vf::JsonValue& value) -> void {
+        if (value.is_array()) {
+            for (const auto& item : value.as_array()) self(self, item);
+            return;
+        }
+        if (!value.is_object()) return;
+        const auto& object = value.as_object();
+        const auto kind = object.find("kind");
+        const auto name = object.find("name");
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "load" &&
+            name != object.end() && name->second.is_string()) {
+            ++load_counts[name->second.as_string()];
+        }
+        for (const auto& [_, child] : object) self(self, child);
+    };
+    count_loads(count_loads, rewritten);
+
+    const auto const_number = [](const vf::JsonValue::Object& expression)
+        -> std::optional<double> {
+        const auto kind = expression.find("kind");
+        const auto value = expression.find("value");
+        if (kind == expression.end() || !kind->second.is_string() ||
+            kind->second.as_string() != "const" || value == expression.end() ||
+            !value->second.is_number()) return std::nullopt;
+        return value->second.as_number();
+    };
+    const auto loaded_name = [](const vf::JsonValue::Object& expression)
+        -> std::optional<std::string> {
+        const auto kind = expression.find("kind");
+        const auto name = expression.find("name");
+        if (kind == expression.end() || !kind->second.is_string() ||
+            kind->second.as_string() != "load" || name == expression.end() ||
+            !name->second.is_string()) return std::nullopt;
+        return name->second.as_string();
+    };
+
+    for (auto& [answer_name, answer_statement] : bindings) {
+        auto answer_value = answer_statement->find("value");
+        if (answer_value == answer_statement->end() || !answer_value->second.is_object()) continue;
+        auto& call = answer_value->second.as_object();
+        const auto call_kind = call.find("kind");
+        const auto callee_it = call.find("callee");
+        const auto args_it = call.find("args");
+        if (call_kind == call.end() || !call_kind->second.is_string() ||
+            call_kind->second.as_string() != "call" || callee_it == call.end() ||
+            !callee_it->second.is_object() || args_it == call.end() ||
+            !args_it->second.is_array() || args_it->second.as_array().size() != 1) continue;
+        const auto& callee = callee_it->second.as_object();
+        const auto full_name = callee.find("full_name");
+        if (full_name == callee.end() || !full_name->second.is_string() ||
+            full_name->second.as_string() != "stat.sum") continue;
+        const auto& sum_argument = args_it->second.as_array().front();
+        if (!sum_argument.is_object()) continue;
+        const auto signal_name = loaded_name(sum_argument.as_object());
+        if (!signal_name || load_counts[*signal_name] != 1) continue;
+        const auto signal_binding = bindings.find(*signal_name);
+        if (signal_binding == bindings.end()) continue;
+        const auto signal_value = signal_binding->second->find("value");
+        if (signal_value == signal_binding->second->end() ||
+            !signal_value->second.is_object()) continue;
+
+        const auto& power = signal_value->second.as_object();
+        const auto power_kind = power.find("kind");
+        const auto power_op = power.find("op");
+        const auto power_left = power.find("left");
+        const auto power_right = power.find("right");
+        if (power_kind == power.end() || !power_kind->second.is_string() ||
+            power_kind->second.as_string() != "binary_op" || power_op == power.end() ||
+            !power_op->second.is_string() || power_op->second.as_string() != "CARET" ||
+            power_left == power.end() || !power_left->second.is_object() ||
+            power_right == power.end() || !power_right->second.is_object() ||
+            const_number(power_right->second.as_object()) != std::optional<double>(2.0)) continue;
+        const auto& difference = power_left->second.as_object();
+        const auto difference_op = difference.find("op");
+        const auto difference_left = difference.find("left");
+        const auto difference_right = difference.find("right");
+        if (difference_op == difference.end() || !difference_op->second.is_string() ||
+            difference_op->second.as_string() != "MINUS" ||
+            difference_left == difference.end() || !difference_left->second.is_object() ||
+            difference_right == difference.end() || !difference_right->second.is_object()) continue;
+        const auto& product = difference_left->second.as_object();
+        const auto product_op = product.find("op");
+        const auto product_left = product.find("left");
+        const auto product_right = product.find("right");
+        if (product_op == product.end() || !product_op->second.is_string() ||
+            product_op->second.as_string() != "STAR" ||
+            product_left == product.end() || !product_left->second.is_object() ||
+            product_right == product.end() || !product_right->second.is_object()) continue;
+        const auto scale = const_number(product_right->second.as_object());
+        if (!scale || !std::isfinite(*scale)) continue;
+
+        const auto field_selection = [&](const vf::JsonValue::Object& expression)
+            -> std::optional<std::pair<std::string, std::string>> {
+            const auto kind = expression.find("kind");
+            const auto field = expression.find("field");
+            const auto object = expression.find("object");
+            if (kind == expression.end() || !kind->second.is_string() ||
+                kind->second.as_string() != "field_access" || field == expression.end() ||
+                !field->second.is_string() || object == expression.end() ||
+                !object->second.is_object()) return std::nullopt;
+            const auto base = loaded_name(object->second.as_object());
+            if (!base) return std::nullopt;
+            return std::pair<std::string, std::string>{*base, field->second.as_string()};
+        };
+        const auto left = field_selection(product_left->second.as_object());
+        const auto right = field_selection(difference_right->second.as_object());
+        if (!left || !right || left->first != right->first ||
+            load_counts[left->first] != 2) continue;
+        const auto record_binding = bindings.find(left->first);
+        if (record_binding == bindings.end()) continue;
+        const auto record_value = record_binding->second->find("value");
+        if (record_value == record_binding->second->end() ||
+            !record_value->second.is_object()) continue;
+        const auto& record = record_value->second.as_object();
+        const auto record_kind = record.find("kind");
+        const auto source = record.find("source");
+        const auto row_count = record.find("row_count");
+        const auto fields = record.find("fields");
+        if (record_kind == record.end() || !record_kind->second.is_string() ||
+            record_kind->second.as_string() != "csv_lazy_record" ||
+            source == record.end() || !source->second.is_string() ||
+            row_count == record.end() || !row_count->second.is_number() ||
+            fields == record.end() || !fields->second.is_array()) continue;
+        std::map<std::string, std::uint32_t> columns;
+        for (const auto& field_value : fields->second.as_array()) {
+            if (!field_value.is_object()) continue;
+            const auto& field_object = field_value.as_object();
+            const auto name = field_object.find("name");
+            const auto value = field_object.find("value");
+            if (name == field_object.end() || !name->second.is_string() ||
+                value == field_object.end() || !value->second.is_object()) continue;
+            const auto& column = value->second.as_object();
+            const auto column_kind = column.find("kind");
+            const auto column_index = column.find("column");
+            if (column_kind == column.end() || !column_kind->second.is_string() ||
+                column_kind->second.as_string() != "csv_lazy_column" ||
+                column_index == column.end() || !column_index->second.is_number() ||
+                column_index->second.as_number() < 0 ||
+                column_index->second.as_number() > UINT32_MAX) continue;
+            columns[name->second.as_string()] =
+                static_cast<std::uint32_t>(column_index->second.as_number());
+        }
+        if (!columns.count(left->second) || !columns.count(right->second) ||
+            columns[left->second] != 1 || columns[right->second] != 2) continue;
+
+        vf::JsonValue::Object fused;
+        fused["kind"] = "csv_project_transform_sum";
+        fused["source"] = source->second;
+        fused["row_count"] = row_count->second;
+        fused["left_column"] = static_cast<double>(columns[left->second]);
+        fused["right_column"] = static_cast<double>(columns[right->second]);
+        fused["scale"] = *scale;
+        fused["type"] = "num";
+        answer_value->second = vf::JsonValue(std::move(fused));
+        body.erase(std::remove_if(body.begin(), body.end(), [&](const auto& statement_value) {
+            if (!statement_value.is_object()) return false;
+            const auto& statement = statement_value.as_object();
+            const auto name = statement.find("name");
+            return name != statement.end() && name->second.is_string() &&
+                (name->second.as_string() == *signal_name ||
+                 name->second.as_string() == left->first);
+        }), body.end());
+        return rewritten;
+    }
+    return std::nullopt;
+}
+
 inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
     using namespace detail;
     const auto& module = object_of(typed_ir, "typed module");
@@ -17342,7 +17574,9 @@ inline Module lower(const vf::JsonValue& typed_ir) {
     const vf::JsonValue& recursive_shaped = recursive_locals
         ? *recursive_locals : immediate_shaped;
     const auto local_calls = specialize_direct_local_calls(recursive_shaped);
-    auto lowered = lower_monomorphic(local_calls ? *local_calls : recursive_shaped);
+    const vf::JsonValue& local_shaped = local_calls ? *local_calls : recursive_shaped;
+    const auto csv_reduction = specialize_csv_project_transform_sum(local_shaped);
+    auto lowered = lower_monomorphic(csv_reduction ? *csv_reduction : local_shaped);
     coalesce_scalar_local_copies(lowered);
     refine_machine_error_effects(lowered);
     refine_integral_local_classes(lowered);
