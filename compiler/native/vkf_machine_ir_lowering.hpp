@@ -78,6 +78,7 @@ inline const vf::JsonValue::Array& array_of(const vf::JsonValue& value, const st
 
 enum class ValueKind : std::uint8_t {
     Numeric,
+    Any,
     Complex,
     Null,
     String,
@@ -1467,6 +1468,7 @@ inline ValueLayout layout_from_type(
             return layout_from_type(resolved, signatures);
         }
     }
+    if (type == "any") return {1, ValueKind::Any, {}};
     if (type == "null") return {1, ValueKind::Null, {}};
     if (type == "str") return {2, ValueKind::String, {}};
     if (symbolic_expression_surface_type(type)) {
@@ -3976,15 +3978,23 @@ inline bool collect_record_projection(
         const std::string path = source_path.empty() ? name : source_path + "." + name;
         const auto found = source.selectors.find(path);
         if (found == source.selectors.end()) return false;
+        const auto source_field = record_field_layout(source, path, found->second);
         const auto target_field = record_field_layout(target, name, target_slice);
-        if (is_record_layout(target_field)) {
+        if (same_layout(source_field, target_field)) {
+            slices.push_back(found->second);
+            continue;
+        }
+        if (target_field.kind == ValueKind::Any &&
+            source_field.width == target_field.width) {
+            slices.push_back(found->second);
+            continue;
+        }
+        if (source_field.kind == ValueKind::Aggregate &&
+            target_field.kind == ValueKind::Aggregate) {
             if (!collect_record_projection(path, source, target_field, slices)) return false;
             continue;
         }
-        if (found->second.width != target_slice.width || found->second.kind != target_slice.kind) {
-            return false;
-        }
-        slices.push_back(found->second);
+        return false;
     }
     return true;
 }
@@ -4032,7 +4042,24 @@ inline bool is_flat_fixed_numeric_vector(const ValueLayout& layout) {
 
 inline bool can_project_call_layout(const ValueLayout& source, const ValueLayout& target) {
     if (same_layout(source, target)) return true;
+    if (target.kind == ValueKind::Any && source.width == target.width) return true;
     if (source.kind == ValueKind::DynamicF64List && is_flat_fixed_numeric_vector(target)) {
+        return true;
+    }
+    const bool source_is_fixed_aggregate =
+        source.kind == ValueKind::Aggregate && !is_record_layout(source);
+    const bool target_is_fixed_aggregate =
+        target.kind == ValueKind::Aggregate && !is_record_layout(target);
+    if (source_is_fixed_aggregate || target_is_fixed_aggregate) {
+        if (!source_is_fixed_aggregate || !target_is_fixed_aggregate) return false;
+        const auto source_elements = indexed_element_layouts(source);
+        const auto target_elements = indexed_element_layouts(target);
+        if (source_elements.size() != target_elements.size()) return false;
+        for (std::size_t index = 0; index < source_elements.size(); ++index) {
+            if (!can_project_call_layout(source_elements[index], target_elements[index])) {
+                return false;
+            }
+        }
         return true;
     }
     if (!is_record_layout(source) || !is_record_layout(target)) return false;
@@ -4100,6 +4127,35 @@ inline void emit_projected_call_layout(
             index.f64 = static_cast<double>(component);
             builder.emit(std::move(index));
             builder.emit({Opcode::LoadF64ListIndex});
+        }
+        return;
+    }
+    if (target.kind == ValueKind::Any && source.width == target.width) {
+        for (std::uint32_t component = 0; component < source.width; ++component) {
+            Instruction load;
+            load.opcode = Opcode::LoadLocal;
+            load.index = source_local + component;
+            builder.emit(std::move(load));
+        }
+        return;
+    }
+    const bool source_is_fixed_aggregate =
+        source.kind == ValueKind::Aggregate && !is_record_layout(source);
+    const bool target_is_fixed_aggregate =
+        target.kind == ValueKind::Aggregate && !is_record_layout(target);
+    if (source_is_fixed_aggregate && target_is_fixed_aggregate) {
+        const auto source_fields = ordered_record_fields(source);
+        const auto target_fields = ordered_record_fields(target);
+        for (std::size_t index = 0; index < target_fields.size(); ++index) {
+            const auto& [source_name, source_slice] = source_fields[index];
+            const auto& [target_name, target_slice] = target_fields[index];
+            emit_projected_call_layout(
+                builder,
+                strings,
+                source_local + source_slice.offset,
+                record_field_layout(source, source_name, source_slice),
+                record_field_layout(target, target_name, target_slice),
+                context + "." + std::to_string(index));
         }
         return;
     }
