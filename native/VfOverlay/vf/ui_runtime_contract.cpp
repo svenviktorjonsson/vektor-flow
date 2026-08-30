@@ -1,5 +1,6 @@
 #include "vf/ui_runtime_contract.hpp"
 
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -990,6 +991,86 @@ InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Frame() noexcept {
 }
 
 InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Display() noexcept {
+    return display_;
+}
+
+InternalGeometryPickOwnerQueues::InternalGeometryPickOwnerQueues(
+    std::uint64_t layer_id,
+    std::string frame_id,
+    std::string display_id)
+    : layer_id_(layer_id),
+      frame_id_(std::move(frame_id)),
+      display_id_(std::move(display_id)) {
+    if (display_id_.empty() || layer_id_ > 9007199254740991ULL) {
+        throw std::runtime_error("internal geometry pick owner ids must not be empty");
+    }
+}
+
+void InternalGeometryPickOwnerQueues::ConsumeRuntimePacket(const UiRuntimePacket& packet) {
+    ValidateUiRuntimePacket(packet);
+    const InputEventPacketPayload* payload = AsInputEventPacketPayload(packet);
+    if (packet.kind != UiRuntimePacketKind::InputEvent || payload == nullptr) {
+        throw std::runtime_error("internal owner event queues require an input.event packet");
+    }
+    if (packet.seq <= last_sequence_) {
+        throw std::runtime_error("internal owner event packet sequence must increase");
+    }
+    const JsonValue* target_value = FindInputEventField(*payload, "target");
+    if (GetInputEventName(*payload) != "MouseButtonPressed" ||
+        target_value == nullptr || !target_value->is_object()) {
+        throw std::runtime_error("geometry pick target does not match its bound Layer");
+    }
+    const JsonObject& target = target_value->as_object();
+    const JsonValue* raw_layer_id = find_object_field(target, "layer_id");
+    const JsonValue* raw_type = find_object_field(target, "type");
+    if (raw_layer_id == nullptr || !raw_layer_id->is_number() ||
+        raw_type == nullptr || !raw_type->is_string()) {
+        throw std::runtime_error("geometry pick target does not match its bound Layer");
+    }
+    const double layer_id = raw_layer_id->as_number();
+    const std::string& type = raw_type->as_string();
+    if (!std::isfinite(layer_id) || layer_id < 0.0 ||
+        std::floor(layer_id) != layer_id ||
+        layer_id != static_cast<double>(layer_id_) ||
+        (type != "Face" && type != "Edge" && type != "Vertex")) {
+        throw std::runtime_error("geometry pick target does not match its bound Layer");
+    }
+    std::size_t topology_index_count = 0;
+    for (const auto& [name, value] : target) {
+        if (name == "layer_id" || name == "type") continue;
+        ++topology_index_count;
+        const auto first = static_cast<unsigned char>(name.empty() ? '\0' : name.front());
+        bool valid_name = !name.empty() && (std::isalpha(first) || name.front() == '_');
+        for (std::size_t index = 1; valid_name && index < name.size(); ++index) {
+            const auto character = static_cast<unsigned char>(name[index]);
+            valid_name = std::isalnum(character) || name[index] == '_';
+        }
+        if (!valid_name || !value.is_number() || !std::isfinite(value.as_number()) ||
+            value.as_number() < 0.0 || value.as_number() > 9007199254740991.0 ||
+            std::floor(value.as_number()) != value.as_number()) {
+            throw std::runtime_error("geometry pick target topology indices are malformed");
+        }
+    }
+    if (topology_index_count == 0) {
+        throw std::runtime_error("geometry pick target topology indices are malformed");
+    }
+
+    InputEventPacketPayload display_payload = *payload;
+    display_payload.event.erase("event");
+    last_sequence_ = packet.seq;
+    if (!frame_id_.empty()) {
+        InputEventPacketPayload frame_payload = *payload;
+        frame_payload.event.erase("event");
+        frame_.Push(std::move(frame_payload));
+    }
+    display_.Push(std::move(display_payload));
+}
+
+InternalOwnerEventQueue& InternalGeometryPickOwnerQueues::Frame() noexcept {
+    return frame_;
+}
+
+InternalOwnerEventQueue& InternalGeometryPickOwnerQueues::Display() noexcept {
     return display_;
 }
 

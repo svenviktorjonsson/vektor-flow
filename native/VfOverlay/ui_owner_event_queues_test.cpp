@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 namespace {
@@ -33,9 +34,54 @@ vf::JsonValue::Array TakeXs(vf::InternalOwnerEventQueue& queue) {
     return values;
 }
 
+vf::UiRuntimePacket GeometryPacket(std::uint64_t sequence, std::uint64_t layer_id) {
+    return vf::ParseUiRuntimePacket(
+        "{\"seq\":" + std::to_string(sequence) +
+        ",\"kind\":\"input.event\",\"payload\":{\"event\":{"
+        "\"event\":\"MouseButtonPressed\",\"target\":{\"layer_id\":" +
+        std::to_string(layer_id) + ",\"type\":\"Face\",\"u\":2,\"v\":5}}}}");
+}
+
+void CheckGeometryPickQueues() {
+    vf::InternalGeometryPickOwnerQueues queues(7, "frame-0", "display-0");
+    bool rejected = false;
+    try {
+        queues.ConsumeRuntimePacket(GeometryPacket(1, 8));
+    } catch (const std::exception&) {
+        rejected = true;
+    }
+    if (!rejected || !queues.Frame().Empty() || !queues.Display().Empty()) {
+        throw std::runtime_error("malformed geometry pick mutated owner queues");
+    }
+    queues.ConsumeRuntimePacket(GeometryPacket(1, 7));
+    const auto frame = queues.Frame().Get();
+    const auto display = queues.Display().Get();
+    const std::string frame_target = frame.has_value()
+        ? vf::json_stringify(vf::RequireInputEventField(*frame, "target"), -1)
+        : "missing";
+    const std::string display_target = display.has_value()
+        ? vf::json_stringify(vf::RequireInputEventField(*display, "target"), -1)
+        : "missing";
+    const std::string expected =
+        "{\"layer_id\":7, \"type\":\"Face\", \"u\":2, \"v\":5}";
+    if (!frame.has_value() || !display.has_value() ||
+        frame_target != expected || display_target != expected ||
+        !queues.Frame().Empty() || !queues.Display().Empty()) {
+        throw std::runtime_error(
+            "geometry pick owner queues lost their public target: " +
+            frame_target + " / " + display_target);
+    }
+}
+
 }  // namespace
 
 int main() {
+    try {
+        CheckGeometryPickQueues();
+    } catch (const std::exception& error) {
+        std::cerr << error.what() << std::endl;
+        return 1;
+    }
     vf::InternalButtonClickedOwnerQueues fanout("button-0", "frame-0", "display-0");
     fanout.ConsumeRuntimePacket(Packet(1, 10));
     vf::JsonValue::Object fanout_observation;
