@@ -9800,7 +9800,7 @@ inline ValueLayout lower_expression(
                 Instruction run;
                 run.opcode = Opcode::ProcessRun;
                 run.argument_count = argument_count;
-                run.index = strings.intern("\0");
+                run.index = strings.intern(std::string(1, '\0'));
                 run.owns_input = true;
                 builder.emit(std::move(run));
                 ValueLayout result{5, ValueKind::Aggregate, {}};
@@ -9840,7 +9840,7 @@ inline ValueLayout lower_expression(
                 Instruction run;
                 run.opcode = Opcode::ProcessRun;
                 run.argument_count = shell_argument_count;
-                run.index = strings.intern("\0");
+                run.index = strings.intern(std::string(1, '\0'));
                 run.owns_input = true;
                 builder.emit(std::move(run));
                 ValueLayout result{5, ValueKind::Aggregate, {}};
