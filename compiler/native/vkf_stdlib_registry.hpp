@@ -19,12 +19,13 @@ struct ModuleDescriptor {
     bool native_release;
 };
 
-inline constexpr std::array<ModuleDescriptor, 18> modules{{
+inline constexpr std::array<ModuleDescriptor, 19> modules{{
     {"math", "math.vkf", ImplementationClass::Mixed, true},
     {"stat", "stat.vkf", ImplementationClass::Mixed, true},
     {"random", "random.vkf", ImplementationClass::Mixed, true},
     {"collections", "collections.vkf", ImplementationClass::Mixed, true},
     {"io", "io.vkf", ImplementationClass::Mixed, true},
+    {"data", "data.vkf", ImplementationClass::Intrinsic, true},
     {"errors", "errors.vkf", ImplementationClass::Intrinsic, true},
     {"system", "system.vkf", ImplementationClass::Mixed, true},
     {"process", "process.vkf", ImplementationClass::Mixed, true},

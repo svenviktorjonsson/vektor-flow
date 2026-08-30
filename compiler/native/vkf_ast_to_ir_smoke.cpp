@@ -2,6 +2,7 @@
 #include "compiler/native/vkf_native_frontend.hpp"
 #include "compiler/native/vkf_symbolic_lowering.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
+#include "compiler/native/vkf_csv_demand_source_scanner.hpp"
 #include "compiler/native/vkf_physical_dimensions.hpp"
 
 #include <algorithm>
@@ -3732,6 +3733,83 @@ private:
                 return vf::JsonValue(std::move(error));
             }
             if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
+                string_field(callee_ir, "module", "call callee IR") == "data" &&
+                string_field(callee_ir, "name", "call callee IR") == "load") {
+                if (args.size() == 1 && named_args.empty() && spread_args.empty()) {
+                    const auto& source_value = object_of(args.front(), "data.load source");
+                    const auto source_text = source_value.find("value");
+                    if (string_field(source_value, "kind", "data.load source") == "const" &&
+                        string_field(source_value, "type", "data.load source") == "str" &&
+                        source_text != source_value.end() && source_text->second.is_string()) {
+                        try {
+                            const std::string source = source_text->second.as_string();
+                            std::ifstream input(source, std::ios::binary);
+                            if (input) {
+                                const auto scanner =
+                                    vkf::data::detail::CsvDemandSourceScanner::scan(
+                                        input,
+                                        vkf::data::detail::CsvScanLimits{
+                                            128u,
+                                            1024u * 1024u,
+                                            1024u * 1024u,
+                                        },
+                                        vkf::data::detail::CsvHeaderMode::present);
+                                const auto valid_field_name = [](const std::string& name) {
+                                    if (name.empty() ||
+                                        !(std::isalpha(static_cast<unsigned char>(name.front())) ||
+                                          name.front() == '_')) {
+                                        return false;
+                                    }
+                                    return std::all_of(
+                                        name.begin() + 1, name.end(), [](unsigned char ch) {
+                                            return std::isalnum(ch) || ch == '_';
+                                        });
+                                };
+                                const auto& names = scanner.raw_column_names();
+                                std::set<std::string> unique_names;
+                                const bool supported_header =
+                                    names.size() == scanner.column_count() &&
+                                    std::all_of(
+                                        names.begin(), names.end(), [&](const std::string& name) {
+                                            return valid_field_name(name) &&
+                                                unique_names.insert(name).second;
+                                        });
+                                if (supported_header) {
+                                    vf::JsonValue::Array fields;
+                                    std::string record_type = "record{";
+                                    for (std::size_t column = 0; column < names.size(); ++column) {
+                                        if (column != 0) record_type += ',';
+                                        record_type += names[column] + ":[any]";
+                                        auto lazy_column = node("csv_lazy_column");
+                                        lazy_column["column"] =
+                                            vf::JsonValue(static_cast<double>(column));
+                                        lazy_column["row_count"] = vf::JsonValue(
+                                            static_cast<double>(scanner.row_count()));
+                                        lazy_column["type"] = vf::JsonValue("[any]");
+                                        auto field_value = node("field");
+                                        field_value["name"] = vf::JsonValue(names[column]);
+                                        field_value["type"] = vf::JsonValue("[any]");
+                                        field_value["value"] =
+                                            vf::JsonValue(std::move(lazy_column));
+                                        fields.emplace_back(std::move(field_value));
+                                    }
+                                    record_type += '}';
+                                    auto record = node("csv_lazy_record");
+                                    record["source"] = vf::JsonValue(source);
+                                    record["row_count"] = vf::JsonValue(
+                                        static_cast<double>(scanner.row_count()));
+                                    record["fields"] = vf::JsonValue(std::move(fields));
+                                    record["type"] = vf::JsonValue(std::move(record_type));
+                                    return vf::JsonValue(std::move(record));
+                                }
+                            }
+                        } catch (const std::exception&) {
+                            // Public failure timing and diagnostics remain unfrozen.
+                        }
+                    }
+                }
+            }
+            if (string_field(callee_ir, "kind", "call callee IR") == "stdlib_function" &&
                 string_field(callee_ir, "module", "call callee IR") == "collections" &&
                 string_field(callee_ir, "name", "call callee IR") == "map") {
                 if (!args.empty() || !spread_args.empty()) {
@@ -4799,6 +4877,12 @@ private:
                         return stdlib_function("collections", field_name);
                     }
                     throw IRFailure("unknown stdlib collections member " + field_name);
+                }
+                if (module_reference && canonical_module == "data") {
+                    if (field_name == "load") {
+                        return stdlib_function("data", field_name);
+                    }
+                    throw IRFailure("unknown stdlib data member " + field_name);
                 }
                 if (module_reference && canonical_module == "io") {
                     if (field_name == "print" || field_name == "eprint" ||

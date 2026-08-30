@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 get_filename_component(VKF_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(VKF_JSON_SOURCE "${VKF_REPO_ROOT}/native/VfOverlay/vf/json.cpp")
+set(VKF_CSV_DEMAND_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/vkf_csv_demand_source_scanner.cpp")
 
 function(vkf_native_target target source uses_json)
     add_executable(${target} "${CMAKE_CURRENT_SOURCE_DIR}/${source}")
@@ -28,11 +29,13 @@ target_sources(vkf PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/vkf_lexer_cursor_smoke.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vkf_parser_token_stream_smoke.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vkf_ast_to_ir_smoke.cpp"
+    "${VKF_CSV_DEMAND_SOURCE}"
 )
 target_compile_definitions(vkf PRIVATE VKF_NATIVE_FRONTEND_LIBRARY)
 vkf_native_target(vkf_lexer_cursor_smoke vkf_lexer_cursor_smoke.cpp FALSE)
 vkf_native_target(vkf_parser_token_stream_smoke vkf_parser_token_stream_smoke.cpp TRUE)
 vkf_native_target(vkf_ast_to_ir_smoke vkf_ast_to_ir_smoke.cpp TRUE)
+target_sources(vkf_ast_to_ir_smoke PRIVATE "${VKF_CSV_DEMAND_SOURCE}")
 vkf_native_target(vkf_compiler_artifact_smoke vkf_compiler_artifact_smoke.cpp TRUE)
 vkf_native_target(vkf_arm64_artifact vkf_arm64_artifact.cpp TRUE)
 set(VKF_AOT_TARGETS)
@@ -47,6 +50,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_parser_token_stream_smoke.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_ast_to_ir_smoke.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_x64_artifact.cpp"
+        "${VKF_CSV_DEMAND_SOURCE}"
     )
     target_compile_definitions(vkf_strict PRIVATE
         VKF_NATIVE_FRONTEND_LIBRARY
@@ -89,6 +93,7 @@ if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "(arm64|aarch64|ARM64)")
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_lexer_cursor_smoke.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_parser_token_stream_smoke.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_ast_to_ir_smoke.cpp"
+        "${VKF_CSV_DEMAND_SOURCE}"
     )
     target_compile_definitions(vkf_strict PRIVATE
         VKF_NATIVE_FRONTEND_LIBRARY
