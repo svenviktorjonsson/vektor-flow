@@ -1935,14 +1935,17 @@ private:
         }
         subject_type = resolve_type_alias(subject_type);
         std::string record_value_type = subject_type;
-        if (!type_spill && container == "multiset" &&
+        if (!type_spill && (container == "vector" || container == "multiset") &&
             nominal_representation != nominal_representations_.end()) {
             record_value_type = resolve_type_alias(nominal_representation->second);
         }
         const bool record_value_key_spill =
-            !type_spill && container == "multiset" &&
+            !type_spill && (container == "vector" || container == "multiset") &&
             starts_with(record_value_type, "record{") && record_value_type.back() == '}';
         if (record_value_key_spill) subject_type = std::move(record_value_type);
+        const bool record_key_vector_spill =
+            container == "vector" && primitive.empty() &&
+            starts_with(subject_type, "record{") && subject_type.back() == '}';
 
         if (type_spill && primitive.empty() && container == "record" &&
             (!ordered_record_type_fields(subject_type).empty() ||
@@ -1953,8 +1956,8 @@ private:
         if (!type_spill && container == "record") return lowered_subject;
 
         if (!type_spill &&
-            (container == "vector" ||
-             (container == "multiset" && !record_value_key_spill))) {
+            (container == "vector" || container == "multiset") &&
+            !record_value_key_spill) {
             std::vector<std::string> element_types;
             bool dynamic_vector = false;
             if (starts_with(subject_type, "tuple<") && subject_type.back() == '>') {
@@ -2033,7 +2036,7 @@ private:
                 }
             }
         }
-        if (members.empty()) {
+        if (members.empty() && !record_key_vector_spill) {
             throw IRFailure("container type spill requires a structured or primitive type");
         }
 
@@ -2058,6 +2061,18 @@ private:
             return vf::JsonValue(std::move(out));
         }
         if (container == "vector") {
+            if (record_key_vector_spill) {
+                vf::JsonValue::Array items;
+                for (const auto& member : members) {
+                    items.push_back(string_const(member.first));
+                }
+                auto out = node("list");
+                out["items"] = vf::JsonValue(std::move(items));
+                out["element_type"] = vf::JsonValue("str");
+                out["type"] = vf::JsonValue(
+                    "[str:" + std::to_string(members.size()) + "]");
+                return vf::JsonValue(std::move(out));
+            }
             if (primitive.empty()) {
                 const std::string element_type = resolve_type_alias(members.front().second);
                 if (!std::all_of(members.begin() + 1, members.end(), [&](const auto& member) {
