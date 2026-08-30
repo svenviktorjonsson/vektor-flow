@@ -3497,15 +3497,19 @@ private:
                         const std::string owner_name = string_field(
                             event_owner_ast, "name", "events owner");
                         const std::string owner_type = env.get(owner_name);
-                        if (owner_type == "ui_component<Button>" &&
-                            args.empty() && named_args.empty() && spread_args.empty()) {
+                        if (args.empty() && named_args.empty() && spread_args.empty() &&
+                            (owner_type == "ui_component<Button>" ||
+                             owner_type == "Display<2>")) {
+                            const bool button_owner = owner_type == "ui_component<Button>";
                             auto owner = node("load");
                             owner["name"] = vf::JsonValue(owner_name);
                             owner["type"] = vf::JsonValue(owner_type);
                             auto poll = node("ui_owner_event_get");
                             poll["owner"] = vf::JsonValue(std::move(owner));
-                            poll["owner_kind"] = vf::JsonValue("Button");
-                            poll["type"] = vf::JsonValue("ButtonEvent|null");
+                            poll["owner_kind"] = vf::JsonValue(
+                                button_owner ? "Button" : "Display");
+                            poll["type"] = vf::JsonValue(
+                                button_owner ? "ButtonEvent|null" : "DisplayEvent|null");
                             return vf::JsonValue(std::move(poll));
                         }
                     }

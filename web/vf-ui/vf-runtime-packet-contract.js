@@ -164,15 +164,92 @@
     return Object.freeze(queues);
   }
 
+  function requireLayerId(value) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new TypeError("internal geometry pick owner queues require layerId");
+    }
+    return value;
+  }
+
+  function cloneGeometryPickEvent(event, layerId) {
+    var target = event && event.target;
+    if (!event || event.event !== "MouseButtonPressed" ||
+        !target || typeof target !== "object" || Array.isArray(target) ||
+        !Number.isSafeInteger(target.layer_id) || target.layer_id !== layerId ||
+        (target.type !== "Face" && target.type !== "Edge" && target.type !== "Vertex")) {
+      throw new TypeError("geometry pick target does not match its bound Layer");
+    }
+    var topologyKeys = Object.keys(target).filter(function(key) {
+      return key !== "layer_id" && key !== "type";
+    });
+    if (topologyKeys.length === 0 || topologyKeys.some(function(key) {
+      return !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ||
+        !Number.isSafeInteger(target[key]) || target[key] < 0;
+    })) {
+      throw new TypeError("geometry pick target topology indices are malformed");
+    }
+    var targetCopy = {};
+    Object.keys(target).forEach(function(key) { targetCopy[key] = target[key]; });
+    targetCopy = Object.freeze(targetCopy);
+    var eventCopy = {};
+    Object.keys(event).forEach(function(key) {
+      if (key !== "event" && key !== "target") { eventCopy[key] = event[key]; }
+    });
+    eventCopy.target = targetCopy;
+    return Object.freeze(eventCopy);
+  }
+
+  function createInternalGeometryPickOwnerQueues(options) {
+    options = options || {};
+    var layerId = requireLayerId(options.layerId);
+    var frameId = options.frameId == null ? "" : requireOwnerId(options.frameId, "frameId");
+    var displayId = requireOwnerId(options.displayId, "displayId");
+    var frameQueue = frameId ? createQueue() : null;
+    var displayQueue = createQueue();
+    var lastSequence = 0;
+
+    function owner(kind, id, queue) {
+      return Object.freeze({
+        kind: kind,
+        id: id,
+        events: Object.freeze({ get: queue.get })
+      });
+    }
+
+    var queues = {
+      display: owner("Display", displayId, displayQueue),
+      consumeRuntimePacket: function(packet) {
+        if (!packet || packet.kind !== "input.event" ||
+            !Number.isSafeInteger(packet.seq) || packet.seq <= lastSequence) {
+          throw new TypeError("internal owner event queues require increasing input.event packets");
+        }
+        var payloadError = validatePacketPayload("input.event", packet.payload, "route");
+        if (payloadError) { throw new TypeError(payloadError); }
+        var event = packet.payload.event;
+        var frameEvent = frameQueue ? cloneGeometryPickEvent(event, layerId) : null;
+        var displayEvent = cloneGeometryPickEvent(event, layerId);
+        lastSequence = packet.seq;
+        if (frameQueue) { frameQueue.push(frameEvent); }
+        displayQueue.push(displayEvent);
+        return frameEvent || displayEvent;
+      }
+    };
+    if (frameQueue) { queues.frame = owner("Frame", frameId, frameQueue); }
+    return Object.freeze(queues);
+  }
+
   function executeInternalOwnerEventPoll(poll, owners) {
     var owner = poll && poll.owner;
     var boundOwner = owner && owners && owners[owner.name];
-    if (!poll || poll.kind !== "ui_owner_event_get" ||
-        poll.owner_kind !== "Button" || poll.type !== "ButtonEvent|null" ||
-        !owner || owner.kind !== "load" || owner.type !== "ui_component<Button>" ||
-        !boundOwner || boundOwner.kind !== "Button" || !boundOwner.events ||
+    var buttonPoll = poll && poll.owner_kind === "Button" &&
+      poll.type === "ButtonEvent|null" && owner && owner.type === "ui_component<Button>";
+    var displayPoll = poll && poll.owner_kind === "Display" &&
+      poll.type === "DisplayEvent|null" && owner && owner.type === "Display<2>";
+    if (!poll || poll.kind !== "ui_owner_event_get" || (!buttonPoll && !displayPoll) ||
+        !owner || owner.kind !== "load" ||
+        !boundOwner || boundOwner.kind !== poll.owner_kind || !boundOwner.events ||
         typeof boundOwner.events.get !== "function") {
-      throw new TypeError("internal Button owner event poll is malformed");
+      throw new TypeError("internal owner event poll is malformed");
     }
     return boundOwner.events.get();
   }
@@ -182,6 +259,7 @@
     BOOTSTRAP_COALESCE_KINDS: BOOTSTRAP_COALESCE_KINDS,
     validatePacketPayload: validatePacketPayload,
     createInternalButtonClickedOwnerQueues: createInternalButtonClickedOwnerQueues,
+    createInternalGeometryPickOwnerQueues: createInternalGeometryPickOwnerQueues,
     executeInternalOwnerEventPoll: executeInternalOwnerEventPoll
   };
 }));

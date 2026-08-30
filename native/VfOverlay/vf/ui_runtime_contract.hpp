@@ -109,6 +109,7 @@ public:
 
 private:
     friend class InternalButtonClickedOwnerQueues;
+    friend class InternalGeometryPickOwnerQueues;
     void Push(InputEventPacketPayload payload);
 
     std::deque<InputEventPacketPayload> values_;
@@ -132,6 +133,26 @@ private:
     std::string display_id_;
     std::uint64_t last_sequence_ = 0;
     InternalOwnerEventQueue button_;
+    InternalOwnerEventQueue frame_;
+    InternalOwnerEventQueue display_;
+};
+
+class InternalGeometryPickOwnerQueues {
+public:
+    InternalGeometryPickOwnerQueues(
+        std::uint64_t layer_id,
+        std::string frame_id,
+        std::string display_id);
+
+    void ConsumeRuntimePacket(const UiRuntimePacket& packet);
+    InternalOwnerEventQueue& Frame() noexcept;
+    InternalOwnerEventQueue& Display() noexcept;
+
+private:
+    std::uint64_t layer_id_ = 0;
+    std::string frame_id_;
+    std::string display_id_;
+    std::uint64_t last_sequence_ = 0;
     InternalOwnerEventQueue frame_;
     InternalOwnerEventQueue display_;
 };
