@@ -1,6 +1,7 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
 #include "vkf_static_html_bundle.hpp"
+#include "vkf_world_mesh_packet.hpp"
 
 #include <cstdint>
 #include <cmath>
@@ -10,6 +11,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -1287,11 +1289,13 @@ bool collect_typed_world_packet_binding(const vf::JsonValue& root_value, WasmMod
         throw WasmArtifactFailure("the first typed World presentation requires one World, object, and layer");
     }
     const auto& world = object_of(worlds.front(), "typed World definition");
+    const std::int32_t world_dimension = checked_i32(
+        field(world, "dimension", "typed World definition"), "typed World dimension");
     if (checked_i32(field(world_program, "version", "typed World program"), "typed World version") != 1 ||
         checked_i32(field(ui_program, "version", "typed World UI program"), "typed World UI version") != 1 ||
         checked_i32(field(world, "id", "typed World definition"), "typed World id") != 0 ||
-        checked_i32(field(world, "dimension", "typed World definition"), "typed World dimension") != 2) {
-        throw WasmArtifactFailure("the first typed World presentation requires dimension 2");
+        (world_dimension != 2 && world_dimension != 3)) {
+        throw WasmArtifactFailure("the first typed World presentation requires dimension 2 or 3");
     }
     for (const std::string option : {"em", "gravity", "rigid_collisions"}) {
         const auto value = world.find(option);
@@ -1324,23 +1328,20 @@ bool collect_typed_world_packet_binding(const vf::JsonValue& root_value, WasmMod
     TypedWorldWasmEvaluator evaluator(root_value);
     std::map<std::string, std::vector<double>> values;
     const auto& channels = array_of(field(add, "channels", "typed World add"), "typed World channels");
-    if (channels.size() != 3) throw WasmArtifactFailure("typed World layer requires p, c, and s channels");
     for (const auto& raw_channel : channels) {
         const auto& channel = object_of(raw_channel, "typed World channel");
         const std::string name = string_field(channel, "name", "typed World channel");
-        if (name != "p" && name != "c" && name != "s") {
+        if (name != "p" && name != "c" && name != "s" &&
+            name != "positions" && name != "topology" &&
+            name != "color" && name != "material") {
             throw WasmArtifactFailure("typed World layer contains an unsupported channel " + name);
+        }
+        if (values.find(name) != values.end()) {
+            throw WasmArtifactFailure("typed World layer contains duplicate channel " + name);
         }
         values[name] = typed_world_wasm_numbers(
             evaluator.evaluate(field(channel, "value", "typed World channel")),
             "typed World channel " + name);
-    }
-    const auto& position = values["p"];
-    const auto& color = values["c"];
-    const auto& size = values["s"];
-    if (position.size() != 2 || color.size() != 4 || size.size() != 1) {
-        throw WasmArtifactFailure(
-            "the first typed World layer requires one 2D position, RGBA color, and size");
     }
 
     const std::string frame_id = "world_0_view_0";
@@ -1373,31 +1374,67 @@ bool collect_typed_world_packet_binding(const vf::JsonValue& root_value, WasmMod
     frame["id"] = vf::JsonValue(frame_id);
     frame["payload"] = vf::JsonValue(std::move(frame_payload));
 
-    vf::JsonValue::Array vertices;
-    for (double value : std::vector<double>{
-             position[0], position[1], 0.0, 0.0, 0.0, 1.0,
-             color[0], color[1], color[2], color[3]}) {
-        vertices.emplace_back(value);
-    }
     vf::JsonValue::Object mesh;
-    mesh["type"] = vf::JsonValue("field_mesh");
-    mesh["id"] = vf::JsonValue("world_0_layer_0");
-    mesh["topology"] = vf::JsonValue("point-list");
-    mesh["render_mode"] = vf::JsonValue("marker_impostor");
-    mesh["marker_space"] = vf::JsonValue("world");
-    mesh["mode3d"] = vf::JsonValue(false);
-    mesh["vertices"] = vf::JsonValue(std::move(vertices));
-    mesh["indices"] = vf::JsonValue(vf::JsonValue::Array{vf::JsonValue(0.0)});
-    mesh["vertex_size"] = vf::JsonValue(size[0]);
-    mesh["depth_write"] = vf::JsonValue(false);
-    mesh["no_lighting"] = vf::JsonValue(true);
-    mesh["pickable"] = vf::JsonValue(true);
-    mesh["layer_id"] = vf::JsonValue(0.0);
+    std::optional<vf::JsonValue> materials;
+    const bool particle_channels = values.size() == 3 &&
+        values.count("p") == 1 && values.count("c") == 1 && values.count("s") == 1;
+    const bool mesh_channels = values.size() == 4 &&
+        values.count("positions") == 1 && values.count("topology") == 1 &&
+        values.count("color") == 1 && values.count("material") == 1;
+    if (particle_channels) {
+        const auto& position = values["p"];
+        const auto& color = values["c"];
+        const auto& size = values["s"];
+        if (world_dimension != 2 || position.size() != 2 ||
+            color.size() != 4 || size.size() != 1) {
+            throw WasmArtifactFailure(
+                "the first typed World particle requires dimension 2, one position, RGBA color, and size");
+        }
+        vf::JsonValue::Array vertices;
+        for (double value : std::vector<double>{
+                 position[0], position[1], 0.0, 0.0, 0.0, 1.0,
+                 color[0], color[1], color[2], color[3]}) {
+            vertices.emplace_back(value);
+        }
+        mesh["type"] = vf::JsonValue("field_mesh");
+        mesh["id"] = vf::JsonValue("world_0_layer_0");
+        mesh["topology"] = vf::JsonValue("point-list");
+        mesh["render_mode"] = vf::JsonValue("marker_impostor");
+        mesh["marker_space"] = vf::JsonValue("world");
+        mesh["mode3d"] = vf::JsonValue(false);
+        mesh["vertices"] = vf::JsonValue(std::move(vertices));
+        mesh["indices"] = vf::JsonValue(vf::JsonValue::Array{vf::JsonValue(0.0)});
+        mesh["vertex_size"] = vf::JsonValue(size[0]);
+        mesh["depth_write"] = vf::JsonValue(false);
+        mesh["no_lighting"] = vf::JsonValue(true);
+        mesh["pickable"] = vf::JsonValue(true);
+        mesh["layer_id"] = vf::JsonValue(0.0);
+    } else if (mesh_channels) {
+        if (world_dimension != 3) {
+            throw WasmArtifactFailure("typed World mesh channels require dimension 3");
+        }
+        try {
+            const auto compiled = vkf::world_mesh::compile(
+                values["positions"], values["topology"],
+                values["color"], values["material"]);
+            mesh = object_of(
+                vf::parse_json(vkf::world_mesh::mesh_json(
+                    compiled, "world_0_layer_0", 0)),
+                "typed World mesh packet");
+            materials = vf::parse_json(vkf::world_mesh::materials_json(compiled));
+        } catch (const std::exception& error) {
+            throw WasmArtifactFailure(error.what());
+        }
+    } else {
+        throw WasmArtifactFailure(
+            "typed World layer requires either p/c/s or positions/topology/color/material channels");
+    }
     vf::JsonValue::Object frame_geom;
     frame_geom["frame"] = vf::JsonValue(frame_id);
     frame_geom["meshes"] = vf::JsonValue(
         vf::JsonValue::Array{vf::JsonValue(std::move(mesh))});
     frame_geom["texts"] = vf::JsonValue(vf::JsonValue::Array{});
+    if (materials.has_value()) frame_geom["materials"] = std::move(*materials);
     vf::JsonValue::Object geom;
     geom[frame_id] = vf::JsonValue(std::move(frame_geom));
 
