@@ -852,6 +852,77 @@ std::optional<std::string> GetInputEventWidgetId(const InputEventPacketPayload& 
     return GetInputEventStringField(payload, "widget_id");
 }
 
+void InternalOwnerEventQueue::Push(InputEventPacketPayload payload) {
+    values_.push_back(std::move(payload));
+}
+
+std::optional<InputEventPacketPayload> InternalOwnerEventQueue::Get() {
+    if (values_.empty()) {
+        return std::nullopt;
+    }
+    InputEventPacketPayload payload = std::move(values_.front());
+    values_.pop_front();
+    return payload;
+}
+
+std::size_t InternalOwnerEventQueue::Size() const noexcept {
+    return values_.size();
+}
+
+bool InternalOwnerEventQueue::Empty() const noexcept {
+    return values_.empty();
+}
+
+InternalButtonClickedOwnerQueues::InternalButtonClickedOwnerQueues(
+    std::string button_id,
+    std::string frame_id,
+    std::string display_id)
+    : button_id_(std::move(button_id)),
+      frame_id_(std::move(frame_id)),
+      display_id_(std::move(display_id)) {
+    if (button_id_.empty() || frame_id_.empty() || display_id_.empty()) {
+        throw std::runtime_error("internal ButtonClicked owner ids must not be empty");
+    }
+}
+
+void InternalButtonClickedOwnerQueues::ConsumeRuntimePacket(const UiRuntimePacket& packet) {
+    ValidateUiRuntimePacket(packet);
+    const InputEventPacketPayload* payload = AsInputEventPacketPayload(packet);
+    if (packet.kind != UiRuntimePacketKind::InputEvent || payload == nullptr) {
+        throw std::runtime_error("internal owner event queues require an input.event packet");
+    }
+    if (packet.seq <= last_sequence_) {
+        throw std::runtime_error("internal owner event packet sequence must increase");
+    }
+    const std::optional<std::string> widget_id = GetInputEventWidgetId(*payload);
+    const std::optional<std::string> frame_id = GetInputEventFrameId(*payload);
+    if (GetInputEventName(*payload) != "ButtonClicked" ||
+        !widget_id.has_value() || *widget_id != button_id_ ||
+        !frame_id.has_value() || *frame_id != frame_id_) {
+        throw std::runtime_error("ButtonClicked owner event does not match its bound owners");
+    }
+
+    InputEventPacketPayload button_payload = *payload;
+    InputEventPacketPayload frame_payload = *payload;
+    InputEventPacketPayload display_payload = *payload;
+    last_sequence_ = packet.seq;
+    button_.Push(std::move(button_payload));
+    frame_.Push(std::move(frame_payload));
+    display_.Push(std::move(display_payload));
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Button() noexcept {
+    return button_;
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Frame() noexcept {
+    return frame_;
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Display() noexcept {
+    return display_;
+}
+
 std::optional<double> GetInputEventNumberField(const InputEventPacketPayload& payload, std::string_view key) {
     const JsonValue* value = FindInputEventField(payload, key);
     if (value == nullptr) {

@@ -454,6 +454,19 @@ if(MSVC)
   target_link_options(overlay-packet-runtime-input-test PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
 
+add_executable(vf-ui-owner-event-queues-test
+  ui_owner_event_queues_test.cpp
+  vf/json.cpp
+  vf/ui_runtime_contract.cpp
+)
+target_include_directories(vf-ui-owner-event-queues-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+if(MSVC)
+  target_compile_options(vf-ui-owner-event-queues-test PRIVATE /Zi)
+  target_link_options(vf-ui-owner-event-queues-test PRIVATE /DEBUG /INCREMENTAL:NO)
+endif()
+
 add_executable(overlay-packet-runtime-reload-test
   overlay_packet_runtime.cpp
   overlay_packet_runtime_reload_test.cpp

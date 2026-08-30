@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -92,6 +93,41 @@ struct UiRuntimePacketSnapshotMetadata {
 struct InputEventMatch {
     const UiRuntimePacket* packet = nullptr;
     const InputEventPacketPayload* payload = nullptr;
+};
+
+class InternalOwnerEventQueue {
+public:
+    std::optional<InputEventPacketPayload> Get();
+    std::size_t Size() const noexcept;
+    bool Empty() const noexcept;
+
+private:
+    friend class InternalButtonClickedOwnerQueues;
+    void Push(InputEventPacketPayload payload);
+
+    std::deque<InputEventPacketPayload> values_;
+};
+
+class InternalButtonClickedOwnerQueues {
+public:
+    InternalButtonClickedOwnerQueues(
+        std::string button_id,
+        std::string frame_id,
+        std::string display_id);
+
+    void ConsumeRuntimePacket(const UiRuntimePacket& packet);
+    InternalOwnerEventQueue& Button() noexcept;
+    InternalOwnerEventQueue& Frame() noexcept;
+    InternalOwnerEventQueue& Display() noexcept;
+
+private:
+    std::string button_id_;
+    std::string frame_id_;
+    std::string display_id_;
+    std::uint64_t last_sequence_ = 0;
+    InternalOwnerEventQueue button_;
+    InternalOwnerEventQueue frame_;
+    InternalOwnerEventQueue display_;
 };
 
 struct WidgetAppendTextMatch {
