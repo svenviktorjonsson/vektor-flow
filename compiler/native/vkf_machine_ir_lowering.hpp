@@ -403,6 +403,7 @@ inline bool same_signature_layouts(
 }
 
 inline ValueLayout indexed_layout(const std::vector<ValueLayout>& elements);
+inline std::vector<ValueLayout> indexed_element_layouts(const ValueLayout& source);
 inline ValueLayout layout_from_expression_shape(
     const vf::JsonValue::Object& expression,
     const FunctionSignatures& signatures
@@ -657,6 +658,22 @@ inline void merge_inferred_layout(ValueLayout& current, const ValueLayout& candi
             }
             assign_record_field_layout(current, name, merged_field);
         }
+        return;
+    }
+    if (current.kind == ValueKind::Aggregate && candidate.kind == ValueKind::Aggregate &&
+        !is_record_layout(current) && !is_record_layout(candidate)) {
+        auto current_elements = indexed_element_layouts(current);
+        const auto candidate_elements = indexed_element_layouts(candidate);
+        if (current_elements.size() == candidate_elements.size()) {
+            for (std::size_t index = 0; index < current_elements.size(); ++index) {
+                merge_inferred_layout(current_elements[index], candidate_elements[index]);
+            }
+            current = indexed_layout(current_elements);
+        }
+        return;
+    }
+    if (current.width == candidate.width && current.kind == ValueKind::Any) {
+        current = candidate;
         return;
     }
     if (current.width == 1 && current.kind == ValueKind::Numeric &&
@@ -1461,12 +1478,21 @@ inline ValueLayout layout_from_type(
     if (signatures) {
         const auto alias = signatures->type_aliases.find(type);
         if (alias != signatures->type_aliases.end() && alias->second != type) {
-            std::string resolved = trim(alias->second);
-            if (resolved.size() >= 2 && resolved.front() == '(' && resolved.back() == ')') {
-                resolved = "record{" + resolved.substr(1, resolved.size() - 2) + "}";
-            }
-            return layout_from_type(resolved, signatures);
+            return layout_from_type(alias->second, signatures);
         }
+    }
+    if (type.size() >= 2 && type.front() == '(' && type.back() == ')') {
+        const std::string inside = type.substr(1, type.size() - 2);
+        const auto items = split_top_level(inside, ',');
+        const bool record = std::any_of(items.begin(), items.end(), [](const std::string& item) {
+            return find_top_level(item, ':') != std::string::npos;
+        });
+        if (record) return layout_from_type("record{" + inside + "}", signatures);
+        std::vector<ValueLayout> elements;
+        for (const auto& item : items) {
+            if (!trim(item).empty()) elements.push_back(layout_from_type(item, signatures));
+        }
+        return indexed_layout(elements);
     }
     if (type == "any") return {1, ValueKind::Any, {}};
     if (type == "null") return {1, ValueKind::Null, {}};
@@ -1756,7 +1782,8 @@ inline DisplayShape display_shape_from_expression(
                     ? DisplayShape{DisplayKind::F64, {}}
                     : DisplayShape{};
             }
-            source = source.children[position].second;
+            auto selected = source.children[position].second;
+            source = std::move(selected);
         }
         return source;
     }
@@ -14858,6 +14885,9 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                         representation_type.rfind(':') + 1),
                     representation_type.end() - 1,
                     [](unsigned char ch) { return std::isdigit(ch); }));
+            signature.result_is_any = signature.result_is_any || std::any_of(
+                signature.result.selectors.begin(), signature.result.selectors.end(),
+                [](const auto& selector) { return selector.second.kind == ValueKind::Any; });
             if (elementwise_math_function) signature.result_is_any = false;
             signatures[name] = std::move(signature);
         }
