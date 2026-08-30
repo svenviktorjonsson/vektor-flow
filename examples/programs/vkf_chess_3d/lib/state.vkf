@@ -216,7 +216,7 @@ king_piece_on_board(board:any, side:num) -> Piece:
             p.captured = false?
                 p.side = side?
                     p.role = PieceRole.king?
-                        found: p
+                        .found: p
         i: i + 1
     @: found
 
