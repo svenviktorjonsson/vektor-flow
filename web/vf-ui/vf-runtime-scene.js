@@ -389,7 +389,7 @@
                   body.appendChild(preparedInternalTree.firstChild);
                 }
                 if (typeof global.VfHtmlComponents.__internal.adoptTree === "function") {
-                  global.VfHtmlComponents.__internal.adoptTree(body, preparedInternalElements);
+                  global.VfHtmlComponents.__internal.adoptTree(panel.root, preparedInternalElements);
                 }
               }
             }

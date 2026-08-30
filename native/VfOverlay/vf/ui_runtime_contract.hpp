@@ -157,6 +157,28 @@ private:
     InternalOwnerEventQueue display_;
 };
 
+using InternalRetainedId = std::variant<std::string, std::uint64_t>;
+
+struct InternalRetainedNode {
+    InternalRetainedId id;
+    std::string kind;
+    std::vector<InternalRetainedNode> children;
+};
+
+class InternalRetainedOwnerLookup {
+public:
+    explicit InternalRetainedOwnerLookup(std::vector<InternalRetainedNode> descendants);
+
+    const InternalRetainedNode* Get(const InternalRetainedId& id) const noexcept;
+    const InternalRetainedNode* GetFrom(
+        const InternalRetainedNode& owner,
+        const InternalRetainedId& id) const noexcept;
+    const std::vector<InternalRetainedNode>& Descendants() const noexcept;
+
+private:
+    std::vector<InternalRetainedNode> descendants_;
+};
+
 struct WidgetAppendTextMatch {
     const UiRuntimePacket* packet = nullptr;
     const WidgetAppendTextPacketPayload* payload = nullptr;

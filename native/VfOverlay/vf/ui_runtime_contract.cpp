@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cmath>
 #include <limits>
+#include <set>
 #include <stdexcept>
 
 namespace vf {
@@ -1072,6 +1073,68 @@ InternalOwnerEventQueue& InternalGeometryPickOwnerQueues::Frame() noexcept {
 
 InternalOwnerEventQueue& InternalGeometryPickOwnerQueues::Display() noexcept {
     return display_;
+}
+
+namespace {
+
+std::string retained_id_key(const InternalRetainedId& id) {
+    if (const auto* text = std::get_if<std::string>(&id)) {
+        if (text->empty()) {
+            throw std::runtime_error("retained descendant id must not be empty");
+        }
+        return "s:" + *text;
+    }
+    return "n:" + std::to_string(std::get<std::uint64_t>(id));
+}
+
+void collect_retained_ids(
+    const std::vector<InternalRetainedNode>& nodes,
+    std::set<std::string>& ids
+) {
+    for (const auto& node : nodes) {
+        const std::string key = retained_id_key(node.id);
+        if (!ids.insert(key).second) {
+            const std::string display = key.substr(2);
+            throw std::runtime_error("duplicate retained descendant id `" + display + "`");
+        }
+        collect_retained_ids(node.children, ids);
+    }
+}
+
+const InternalRetainedNode* find_retained_descendant(
+    const std::vector<InternalRetainedNode>& nodes,
+    const InternalRetainedId& id
+) noexcept {
+    for (const auto& node : nodes) {
+        if (node.id == id) return &node;
+        if (const auto* nested = find_retained_descendant(node.children, id)) return nested;
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+InternalRetainedOwnerLookup::InternalRetainedOwnerLookup(
+    std::vector<InternalRetainedNode> descendants)
+    : descendants_(std::move(descendants)) {
+    std::set<std::string> ids;
+    collect_retained_ids(descendants_, ids);
+}
+
+const InternalRetainedNode* InternalRetainedOwnerLookup::Get(
+    const InternalRetainedId& id) const noexcept {
+    return find_retained_descendant(descendants_, id);
+}
+
+const InternalRetainedNode* InternalRetainedOwnerLookup::GetFrom(
+    const InternalRetainedNode& owner,
+    const InternalRetainedId& id) const noexcept {
+    return find_retained_descendant(owner.children, id);
+}
+
+const std::vector<InternalRetainedNode>&
+InternalRetainedOwnerLookup::Descendants() const noexcept {
+    return descendants_;
 }
 
 std::optional<double> GetInputEventNumberField(const InputEventPacketPayload& payload, std::string_view key) {

@@ -1135,6 +1135,7 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
         "vf-runtime-shell.js",
         "vf-runtime-packet-contract.js",
         "vf-runtime-source.js",
+        "vf-html-components.js",
         "vf-runtime-scene.js",
         "vf-runtime-flow.js",
         "vf-render-clock.js",
@@ -2347,6 +2348,7 @@ std::string html_text(
         "sceneScriptDeps:["
         "\"vf-runtime-packet-contract.js\","
         "\"vf-runtime-source.js\","
+        "\"vf-html-components.js\","
         "\"vf-runtime-scene.js\","
         "\"vf-runtime-flow.js\","
         "\"vf-render-clock.js\","
