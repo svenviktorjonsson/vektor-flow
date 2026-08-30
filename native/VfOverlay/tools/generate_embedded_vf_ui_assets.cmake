@@ -16,6 +16,7 @@ set(VF_UI_NATIVE_SCENE_ASSETS
   "vf-runtime-shell.js"
   "vf-runtime-packet-contract.js"
   "vf-runtime-source.js"
+  "vf-html-components.js"
   "vf-runtime-scene.js"
   "vf-runtime-flow.js"
   "vf-render-clock.js"

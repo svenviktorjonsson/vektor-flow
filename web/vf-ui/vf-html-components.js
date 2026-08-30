@@ -8,8 +8,17 @@
   const components = {};
   for (const entry of catalog) {
     const Component = class {
-      constructor() {
-        return global.document.createElement(entry.tag);
+      constructor(options) {
+        const element = global.document.createElement(entry.tag);
+        if (options != null) {
+          if (typeof options !== "object" || Array.isArray(options) ||
+              global.Object.keys(options).some(function(key) { return key !== "id"; }) ||
+              typeof options.id !== "string" || options.id.length === 0) {
+            throw new TypeError(entry.identity + " currently accepts only a non-empty id");
+          }
+          element.setAttribute("id", options.id);
+        }
+        return element;
       }
     };
     global.Object.defineProperty(Component, "name", { value: entry.identity });
@@ -17,6 +26,117 @@
   }
 
   const internalTrees = new global.WeakMap();
+  const internalLookups = new global.WeakMap();
+
+  function retainedIdKey(id) {
+    if (typeof id === "string" && id.length > 0) return "s:" + id;
+    if (typeof id === "number" && global.Number.isSafeInteger(id) && id >= 0) {
+      return "n:" + String(id);
+    }
+    throw new TypeError("retained descendant id must be a non-empty string or safe non-negative integer");
+  }
+
+  function installOwnerGet(owner) {
+    if (!owner || (typeof owner !== "object" && typeof owner !== "function")) {
+      throw new TypeError("retained lookup owner must be an object");
+    }
+    if (!global.Object.prototype.hasOwnProperty.call(owner, "get")) {
+      global.Object.defineProperty(owner, "get", {
+        value: function(id) { return getRetainedDescendant(owner, id); },
+        enumerable: false,
+        writable: false,
+        configurable: false,
+      });
+    }
+  }
+
+  function addLookupEntry(index, id, value) {
+    const key = retainedIdKey(id);
+    if (index.has(key)) {
+      throw new TypeError("duplicate retained descendant id `" + String(id) + "`");
+    }
+    index.set(key, value);
+  }
+
+  function setLookupPart(owner, part, index) {
+    const prior = internalLookups.get(owner) || {
+      dom: new global.Map(),
+      registered: new global.Map(),
+    };
+    const other = part === "dom" ? prior.registered : prior.dom;
+    for (const key of index.keys()) {
+      if (other.has(key)) {
+        throw new TypeError("duplicate retained descendant id `" + key.slice(2) + "`");
+      }
+    }
+    const next = { dom: prior.dom, registered: prior.registered };
+    next[part] = index;
+    internalLookups.set(owner, next);
+  }
+
+  function elementChildren(element) {
+    return element && element.children ? global.Array.from(element.children) : [];
+  }
+
+  function buildElementLookup(ownerRoot) {
+    const index = new global.Map();
+    function visit(element) {
+      if (!(element instanceof global.Element)) return;
+      const id = typeof element.getAttribute === "function"
+        ? element.getAttribute("id")
+        : null;
+      if (id != null) {
+        addLookupEntry(index, id, element);
+      }
+      installOwnerGet(element);
+      for (const child of elementChildren(element)) visit(child);
+    }
+    for (const child of elementChildren(ownerRoot)) visit(child);
+    return index;
+  }
+
+  function buildRegisteredLookup(nodes) {
+    if (!Array.isArray(nodes)) {
+      throw new TypeError("retained lookup tree must be an array");
+    }
+    const index = new global.Map();
+    function visit(rawNode) {
+      if (!rawNode || typeof rawNode !== "object" ||
+          !global.Object.prototype.hasOwnProperty.call(rawNode, "id") ||
+          !rawNode.value || (typeof rawNode.value !== "object" && typeof rawNode.value !== "function") ||
+          !Array.isArray(rawNode.children)) {
+        throw new TypeError("retained lookup node is malformed");
+      }
+      addLookupEntry(index, rawNode.id, rawNode.value);
+      const childIndex = buildRegisteredLookup(rawNode.children);
+      setLookupPart(rawNode.value, "registered", childIndex);
+      installOwnerGet(rawNode.value);
+      for (const child of rawNode.children) visitChildren(index, child);
+    }
+    function visitChildren(target, rawNode) {
+      addLookupEntry(target, rawNode.id, rawNode.value);
+      installOwnerGet(rawNode.value);
+      const childIndex = buildRegisteredLookup(rawNode.children);
+      setLookupPart(rawNode.value, "registered", childIndex);
+      for (const child of rawNode.children) visitChildren(target, child);
+    }
+    for (const node of nodes) visit(node);
+    return index;
+  }
+
+  function getRetainedDescendant(owner, id) {
+    const indexes = internalLookups.get(owner);
+    if (!indexes) return null;
+    const key = retainedIdKey(id);
+    return indexes.dom.get(key) || indexes.registered.get(key) || null;
+  }
+
+  function registerInternalTree(owner, nodes) {
+    const index = buildRegisteredLookup(nodes);
+    setLookupPart(owner, "registered", index);
+    installOwnerGet(owner);
+    return owner;
+  }
 
   function adoptInternalTree(ownerRoot, elements) {
     if (!(ownerRoot instanceof global.Element) || !Array.isArray(elements)) {
@@ -28,7 +148,10 @@
         throw new TypeError("internal HTML component tree adoption received a detached element");
       }
     }
+    const index = buildElementLookup(ownerRoot);
     internalTrees.set(ownerRoot, retained);
+    setLookupPart(ownerRoot, "dom", index);
+    installOwnerGet(ownerRoot);
     return retained;
   }
 
@@ -62,14 +185,15 @@
     const fragment = global.document.createDocumentFragment();
     const mounted = [];
     for (const rawIdentity of identities) {
-      const identity = String(rawIdentity || "");
+      const descriptor = rawIdentity && typeof rawIdentity === "object" ? rawIdentity : null;
+      const identity = String(descriptor ? descriptor.identity : rawIdentity || "");
       const Component = global.Object.prototype.hasOwnProperty.call(components, identity)
         ? components[identity]
         : null;
       if (typeof Component !== "function") {
         throw new TypeError("internal HTML component tree received an unknown identity");
       }
-      const element = new Component();
+      const element = new Component(descriptor && descriptor.id != null ? { id: descriptor.id } : null);
       if (!(element instanceof global.Element)) {
         throw new TypeError("internal HTML component constructor did not create an element");
       }
@@ -86,6 +210,8 @@
       catalog: catalog,
       mountTree: mountInternalTree,
       adoptTree: adoptInternalTree,
+      registerTree: registerInternalTree,
+      get: getRetainedDescendant,
       applyPatch: applyInternalPatch,
     }),
     enumerable: false,

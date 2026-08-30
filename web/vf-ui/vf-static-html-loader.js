@@ -148,6 +148,16 @@
     }
     root.appendChild(fragment);
     frameBody.appendChild(root);
+    try {
+      if (!global.VfHtmlComponents || !global.VfHtmlComponents.__internal ||
+          typeof global.VfHtmlComponents.__internal.adoptTree !== "function") {
+        throw new Error("static HTML retained lookup runtime is unavailable");
+      }
+      global.VfHtmlComponents.__internal.adoptTree(frameRoot, [root]);
+    } catch (error) {
+      frameBody.removeChild(root);
+      throw error;
+    }
     frameBody.classList.remove("vf-frame__body--empty");
   }
 

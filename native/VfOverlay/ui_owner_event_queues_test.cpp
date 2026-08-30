@@ -73,11 +73,60 @@ void CheckGeometryPickQueues() {
     }
 }
 
+void CheckRecursiveRetainedLookup() {
+    vf::InternalRetainedOwnerLookup lookup({
+        vf::InternalRetainedNode{
+            std::string("frame"),
+            "Frame",
+            {
+                vf::InternalRetainedNode{
+                    std::string("panel"),
+                    "Div",
+                    {vf::InternalRetainedNode{std::string("save"), "Button", {}}}},
+                vf::InternalRetainedNode{
+                    std::string("view"),
+                    "View",
+                    {vf::InternalRetainedNode{std::uint64_t{7}, "Layer", {}}}},
+            }},
+    });
+    const auto* frame = lookup.Get(std::string("frame"));
+    const auto* save = lookup.Get(std::string("save"));
+    const auto* layer = lookup.Get(std::uint64_t{7});
+    if (frame == nullptr || save == nullptr || save->kind != "Button" ||
+        layer == nullptr || layer->kind != "Layer" ||
+        lookup.Get(std::string("missing")) != nullptr ||
+        lookup.GetFrom(*frame, std::uint64_t{7}) != layer) {
+        throw std::runtime_error("recursive retained owner lookup lost a descendant identity");
+    }
+
+    bool duplicate_rejected = false;
+    try {
+        vf::InternalRetainedOwnerLookup duplicate({
+            vf::InternalRetainedNode{
+                std::string("left"),
+                "Div",
+                {vf::InternalRetainedNode{std::string("save"), "Button", {}}}},
+            vf::InternalRetainedNode{
+                std::string("right"),
+                "Div",
+                {vf::InternalRetainedNode{std::string("save"), "Button", {}}}},
+        });
+        static_cast<void>(duplicate);
+    } catch (const std::exception& error) {
+        duplicate_rejected = std::string(error.what()) ==
+            "duplicate retained descendant id `save`";
+    }
+    if (!duplicate_rejected) {
+        throw std::runtime_error("duplicate retained descendant ids were not diagnosed");
+    }
+}
+
 }  // namespace
 
 int main() {
     try {
         CheckGeometryPickQueues();
+        CheckRecursiveRetainedLookup();
     } catch (const std::exception& error) {
         std::cerr << error.what() << std::endl;
         return 1;
