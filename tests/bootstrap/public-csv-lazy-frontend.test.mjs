@@ -27,7 +27,8 @@ test("public data.load binds header columns lazily through a demanded projection
     const csv = join(work, "fixture.csv");
     const rows = ["row_id,x,y,unused"];
     for (let row = 0; row < 20_000; row += 1) {
-      rows.push(`${row},${row + 1},${2 * row + 3},unused-payload-${row}`);
+      const unused = row === 123 ? "u".repeat(1_200_000) : `unused-payload-${row}`;
+      rows.push(`${row},${row + 1},${2 * row + 3},${unused}`);
     }
     writeFileSync(csv, `${rows.join("\n")}\n`, "utf8");
 
@@ -38,6 +39,7 @@ test("public data.load binds header columns lazily through a demanded projection
       `weather: data.load("${sourcePath}")`,
       "signal: (weather.x * 2 - weather.y) ^ 2",
       "answer: stat.sum(signal)",
+      ":: answer",
     ].join("\n"), "utf8");
 
     assert.ok(nativeDriver, "VKF_NATIVE_DRIVER must name the focused strict native driver");
@@ -48,12 +50,17 @@ test("public data.load binds header columns lazily through a demanded projection
       windowsHide: true,
     });
     assert.equal(compiled.error, undefined, `failed to start compiler: ${compiled.error}`);
-    assert.notEqual(
-      compiled.status,
-      0,
-      "the native CSV demand executor landed; replace this frontend boundary with execution evidence",
-    );
-    assert.equal(existsSync(artifact), false, "unsupported CSV execution emitted an artifact");
+    assert.equal(compiled.status, 0, `${compiled.stdout}\n${compiled.stderr}`);
+    assert.equal(existsSync(artifact), true, "native CSV demand executor emitted no artifact");
+    const executed = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 60_000,
+      windowsHide: true,
+    });
+    assert.equal(executed.error, undefined, `failed to start artifact: ${executed.error}`);
+    assert.equal(executed.status, 0, `${executed.stdout}\n${executed.stderr}`);
+    assert.equal(executed.stdout.trim(), "20000");
     const typed = JSON.parse(readFileSync(
       join(work, ".vkfbuild", "public-csv-lazy", "typed-ir.json"),
       "utf8",
@@ -81,6 +88,31 @@ test("public data.load binds header columns lazily through a demanded projection
     assert.equal(binding(typed, "answer").type, "num");
     assert.ok(JSON.stringify(typed).length < 16_384, "typed demand plan grew with CSV payload");
     assert.doesNotMatch(JSON.stringify(typed), /unused-payload-19999/u);
+    const machine = JSON.parse(readFileSync(
+      join(work, ".vkfbuild", "public-csv-lazy", "machine-ir.json"),
+      "utf8",
+    ));
+    const csvPlan = machine.entry.instructions.find(
+      ({ kind, symbol }) => kind === "call" && symbol === "$internal.csv_project_transform_sum",
+    );
+    assert.equal(csvPlan.argument_count, 0);
+    assert.equal(csvPlan.result_count, 1);
+    assert.ok(machine.string_bytes < 4096, "Machine CSV demand plan grew with payload");
+    assert.equal(
+      readFileSync(artifact).includes(Buffer.from("u".repeat(32_768))),
+      false,
+      "unused CSV column payload leaked into the native artifact",
+    );
+
+    writeFileSync(csv, `${rows.slice(0, -1).join("\n")}\n`, "utf8");
+    const truncated = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 60_000,
+      windowsHide: true,
+    });
+    assert.equal(truncated.error, undefined, `failed to rerun artifact: ${truncated.error}`);
+    assert.notEqual(truncated.status, 0, "truncated CSV silently returned a partial reduction");
   } finally {
     rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }

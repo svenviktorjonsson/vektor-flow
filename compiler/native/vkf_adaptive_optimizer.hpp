@@ -235,10 +235,14 @@ inline AutomaticFlowSafety automatic_flow_safety(
     AutomaticFlowSafety safety;
     bool may_error = function.may_error;
     for (const auto& instruction : function.instructions) {
+        const bool private_csv_read = instruction.opcode == machine_ir::Opcode::Call &&
+            instruction.symbol == "$internal.csv_project_transform_sum";
         safety.deterministic =
-            safety.deterministic && !is_nondeterministic(instruction.opcode);
+            safety.deterministic && !is_nondeterministic(instruction.opcode) &&
+            !private_csv_read;
         safety.requires_ordered_effects =
-            safety.requires_ordered_effects || is_effectful(instruction.opcode);
+            safety.requires_ordered_effects || is_effectful(instruction.opcode) ||
+            private_csv_read;
         safety.requires_stable_reduction_tree =
             safety.requires_stable_reduction_tree || is_reduction(instruction.opcode);
         safety.external_process_boundary = safety.external_process_boundary ||
@@ -333,9 +337,13 @@ inline FunctionDecision decide(
     if (decision.integer_local_count != 0) append_unique(decision.strategies, "native-integer");
 
     for (std::size_t index = 0; index < function.instructions.size(); ++index) {
-        const auto opcode = function.instructions[index].opcode;
-        decision.pure = decision.pure && !is_effectful(opcode);
-        decision.deterministic = decision.deterministic && !is_nondeterministic(opcode);
+        const auto& instruction = function.instructions[index];
+        const auto opcode = instruction.opcode;
+        const bool private_csv_read = opcode == Opcode::Call &&
+            instruction.symbol == "$internal.csv_project_transform_sum";
+        decision.pure = decision.pure && !is_effectful(opcode) && !private_csv_read;
+        decision.deterministic = decision.deterministic &&
+            !is_nondeterministic(opcode) && !private_csv_read;
         if (opcode == Opcode::Jump || opcode == Opcode::JumpIfFalse || opcode == Opcode::JumpIfTrue) {
             const auto label = function.instructions[index].label;
             const auto found = std::find_if(
