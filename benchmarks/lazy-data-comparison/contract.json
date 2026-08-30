@@ -96,11 +96,15 @@
   },
   "peer_set": {
     "status": "unfrozen_dependencies",
-    "members": ["vkf", "polars", "vaex", "dask"],
+    "members": ["vkf", "polars", "duckdb", "vaex", "dask"],
     "requirements": {
       "polars": {
         "distribution": "polars",
         "version": "1.44.1"
+      },
+      "duckdb": {
+        "distribution": "duckdb",
+        "version": "1.5.5"
       }
     },
     "rule": "missing or unverified dependencies are UNAVAILABLE; no fallback implementation"

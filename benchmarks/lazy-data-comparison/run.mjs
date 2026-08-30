@@ -15,6 +15,11 @@ const polarsSourcePath = join(
   'programs',
   'project-transform-reduce-polars.py',
 );
+const duckdbSourcePath = join(
+  benchmarkRoot,
+  'programs',
+  'project-transform-reduce-duckdb.py',
+);
 const repositoryRoot = resolve(benchmarkRoot, '../..');
 
 function sha256File(path) {
@@ -243,9 +248,107 @@ export function verifyPolarsRunner({
   });
 }
 
+export function verifyDuckdbRunner({
+  runner,
+  fixturePath,
+  fixtureManifest,
+  requirement,
+  threads,
+}) {
+  const resolvedRunner = resolve(runner);
+  const identity = {
+    runner: resolvedRunner,
+    runner_sha256: sha256File(resolvedRunner),
+    source_sha256: sha256TextFile(duckdbSourcePath),
+  };
+  const executed = spawnSync(
+    resolvedRunner,
+    [duckdbSourcePath, resolve(fixturePath), String(threads)],
+    {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: { ...process.env, PYTHONUTF8: '1' },
+      timeout: 60_000,
+      windowsHide: true,
+    },
+  );
+  if (executed.error || executed.status !== 0) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: executed.error ? 'DuckDB runner could not start' : 'DuckDB CSV execution failed',
+      ...identity,
+    });
+  }
+
+  let observed;
+  try {
+    observed = JSON.parse(String(executed.stdout || '').trim());
+  } catch {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: 'DuckDB runner returned malformed output',
+      ...identity,
+    });
+  }
+  if (!observed || Array.isArray(observed) || typeof observed !== 'object') {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: 'DuckDB runner returned malformed output',
+      ...identity,
+    });
+  }
+  if (observed.peer_version !== requirement?.version) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: `incompatible DuckDB version: ${observed.peer_version ?? '<missing>'}`,
+      ...identity,
+    });
+  }
+  if (!/^[0-9a-f]{64}$/.test(observed.distribution_sha256 ?? '')) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: 'DuckDB distribution hash is missing or malformed',
+      ...identity,
+    });
+  }
+  if (observed.threads !== threads) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: `DuckDB thread contract mismatch: ${observed.threads ?? '<missing>'}`,
+      ...identity,
+    });
+  }
+  if (JSON.stringify(observed.projected_columns) !== JSON.stringify(['x', 'y'])) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: 'DuckDB plan did not prove exact x/y CSV projection',
+      ...identity,
+    });
+  }
+  if (!Number.isFinite(observed.result) || observed.result !== fixtureManifest.expected_sum) {
+    return Object.freeze({
+      status: 'UNAVAILABLE',
+      reason: `correctness oracle mismatch: ${observed.result ?? '<missing>'}`,
+      ...identity,
+      peer_version: observed.peer_version,
+      distribution_sha256: observed.distribution_sha256,
+    });
+  }
+  return Object.freeze({
+    status: 'AVAILABLE',
+    ...identity,
+    peer_version: observed.peer_version,
+    distribution_sha256: observed.distribution_sha256,
+    threads: observed.threads,
+    projected_columns: Object.freeze([...observed.projected_columns]),
+    result: observed.result,
+  });
+}
+
 const readinessVerifiers = Object.freeze({
   vkf: verifyVkfRunner,
   polars: verifyPolarsRunner,
+  duckdb: verifyDuckdbRunner,
 });
 
 export function buildReadinessReceipt({
