@@ -14825,6 +14825,19 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
     }
     bool layouts_converged = false;
     for (unsigned pass = 0; pass < 64; ++pass) {
+        // Result layouts can grow during inference. Refresh top-level bindings
+        // before refining call sites so `any` parameters receive the current
+        // heterogeneous aggregate shape instead of a cached scalar placeholder.
+        for (const auto& value : module_body) {
+            const auto& statement = object_of(value, "top-level layout declaration");
+            if (string_field(statement, "kind", "top-level layout declaration") != "store_binding") {
+                continue;
+            }
+            const std::string name = string_field(statement, "name", "top-level layout binding");
+            const auto& expression = object_of(
+                field(statement, "value", "top-level layout binding"), "top-level layout value");
+            signatures.module_layouts[name] = layout_from_expression_shape(expression, signatures);
+        }
         const auto before = signatures;
         const auto stable_signatures = signatures;
         for (const auto& [name, function] : functions) {
