@@ -1068,6 +1068,48 @@ void collect_retained_html_packet_binding(
     plan.bindings.push_back(std::move(packet_binding));
 }
 
+void collect_owner_event_poll_binding(
+    const vf::JsonValue& root_value,
+    WasmModulePlan& plan
+) {
+    const auto& root = object_of(root_value, "typed IR root");
+    vf::JsonValue::Array polls;
+    for (const auto& raw_statement : array_of(
+             field(root, "body", "typed IR root"), "typed IR root.body")) {
+        const auto& statement = object_of(raw_statement, "typed IR statement");
+        if (string_field(statement, "kind", "typed IR statement") != "store_binding") {
+            continue;
+        }
+        const auto& value = object_of(
+            field(statement, "value", "typed IR store_binding"),
+            "typed IR store_binding.value");
+        if (string_field(value, "kind", "typed IR store_binding.value") !=
+            "ui_owner_event_get") {
+            continue;
+        }
+        const auto& owner = object_of(
+            field(value, "owner", "owner event poll"), "owner event poll owner");
+        if (string_field(value, "owner_kind", "owner event poll") != "Button" ||
+            string_field(value, "type", "owner event poll") != "ButtonEvent|null" ||
+            string_field(owner, "kind", "owner event poll owner") != "load" ||
+            string_field(owner, "type", "owner event poll owner") !=
+                "ui_component<Button>") {
+            throw WasmArtifactFailure("malformed internal Button owner event poll");
+        }
+        vf::JsonValue::Object descriptor;
+        descriptor["binding"] = field(statement, "name", "owner event poll binding");
+        descriptor["poll"] = vf::JsonValue(value);
+        polls.push_back(vf::JsonValue(std::move(descriptor)));
+    }
+    if (polls.empty()) return;
+
+    WasmBinding binding;
+    binding.name = "$ui$owner$event$polls";
+    binding.kind = WasmBinding::Kind::String;
+    binding.string_value = vf::json_stringify(vf::JsonValue(std::move(polls)), -1);
+    plan.bindings.push_back(std::move(binding));
+}
+
 WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
     auto filtered_root = object_of(root, "typed IR root");
     vf::JsonValue::Array filtered_body;
@@ -1090,6 +1132,13 @@ WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
                 module.runtime_bindings[item.category_index].declaration,
                 "typed IR runtime binding"
             );
+            const auto& value = object_of(
+                field(stmt, "value", "typed IR runtime binding"),
+                "typed IR runtime binding.value");
+            if (string_field(value, "kind", "typed IR runtime binding.value") ==
+                "ui_owner_event_get") {
+                continue;
+            }
             try {
                 plan.bindings.push_back(binding_from_store(stmt, plan.bindings));
             } catch (const WasmArtifactFailure&) {
@@ -1121,6 +1170,7 @@ WasmModulePlan collect_module_plan(const vf::JsonValue& root) {
         throw WasmArtifactFailure("unsupported typed IR module item for wasm artifact emission");
     }
     collect_retained_html_packet_binding(root, plan);
+    collect_owner_event_poll_binding(root, plan);
     return plan;
 }
 

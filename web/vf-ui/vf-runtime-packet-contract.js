@@ -139,10 +139,24 @@
     return Object.freeze(queues);
   }
 
+  function executeInternalOwnerEventPoll(poll, owners) {
+    var owner = poll && poll.owner;
+    var boundOwner = owner && owners && owners[owner.name];
+    if (!poll || poll.kind !== "ui_owner_event_get" ||
+        poll.owner_kind !== "Button" || poll.type !== "ButtonEvent|null" ||
+        !owner || owner.kind !== "load" || owner.type !== "ui_component<Button>" ||
+        !boundOwner || boundOwner.kind !== "Button" || !boundOwner.events ||
+        typeof boundOwner.events.get !== "function") {
+      throw new TypeError("internal Button owner event poll is malformed");
+    }
+    return boundOwner.events.get();
+  }
+
   return {
     PACKET_KINDS: PACKET_KINDS,
     BOOTSTRAP_COALESCE_KINDS: BOOTSTRAP_COALESCE_KINDS,
     validatePacketPayload: validatePacketPayload,
-    createInternalButtonClickedOwnerQueues: createInternalButtonClickedOwnerQueues
+    createInternalButtonClickedOwnerQueues: createInternalButtonClickedOwnerQueues,
+    executeInternalOwnerEventPoll: executeInternalOwnerEventPoll
   };
 }));

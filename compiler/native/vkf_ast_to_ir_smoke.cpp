@@ -3196,17 +3196,40 @@ private:
                 if (vf::html_component_catalog::Contains(component_identity) &&
                     args.empty() && named_args.empty() && spread_args.empty()) {
                     vf::JsonValue component = string_const(component_identity);
-                    component.as_object()["type"] = vf::JsonValue("any");
+                    component.as_object()["type"] = vf::JsonValue(
+                        "ui_component<" + component_identity + ">");
                     return component;
                 }
             }
             if (string_field(callee_ast, "kind", "call.callee") == "attribute") {
                 const auto& owner_ast = object_of(
                     field(callee_ast, "object", "method callee"), "method owner");
+                const std::string method = string_field(callee_ast, "name", "method callee");
+                if (method == "get" &&
+                    string_field(owner_ast, "kind", "method owner") == "attribute" &&
+                    string_field(owner_ast, "name", "method owner") == "events") {
+                    const auto& event_owner_ast = object_of(
+                        field(owner_ast, "object", "events owner"), "events owner");
+                    if (string_field(event_owner_ast, "kind", "events owner") == "identifier") {
+                        const std::string owner_name = string_field(
+                            event_owner_ast, "name", "events owner");
+                        const std::string owner_type = env.get(owner_name);
+                        if (owner_type == "ui_component<Button>" &&
+                            args.empty() && named_args.empty() && spread_args.empty()) {
+                            auto owner = node("load");
+                            owner["name"] = vf::JsonValue(owner_name);
+                            owner["type"] = vf::JsonValue(owner_type);
+                            auto poll = node("ui_owner_event_get");
+                            poll["owner"] = vf::JsonValue(std::move(owner));
+                            poll["owner_kind"] = vf::JsonValue("Button");
+                            poll["type"] = vf::JsonValue("ButtonEvent|null");
+                            return vf::JsonValue(std::move(poll));
+                        }
+                    }
+                }
                 if (string_field(owner_ast, "kind", "method owner") == "identifier") {
                     const std::string queue_name = string_field(owner_ast, "name", "method owner");
                     const std::string queue_type = env.get(queue_name);
-                    const std::string method = string_field(callee_ast, "name", "method callee");
                     if (starts_with(queue_type, "queue<")) {
                         if (!named_args.empty() || !spread_args.empty()) {
                             throw IRFailure("collections.queue methods do not accept named or spread arguments");
