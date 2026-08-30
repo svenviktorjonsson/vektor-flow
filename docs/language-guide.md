@@ -623,6 +623,22 @@ Compatibility note for 0.4.0: `[:a.]` and `[:Point]` no longer produce a
 homogeneous vector type from record field types. Use `(:a.)` or `(:Point)` for
 record field-type reflection.
 
+A string selects a record field structurally: `a.(name)` returns that one field,
+where `name` may be a runtime `str`. A fixed selector vector distributes in
+selector order: `a.(["x", "label"])` returns a fixed vector when the selected
+field types have one normal common target, and otherwise returns a tuple. Normal
+numeric promotion applies, so `int` and `num` fields share a `num` result. This
+also makes `a.([:a])` the explicit declaration-order extraction of unnamed field
+values. A dynamic selector is accepted only when every accessible field has one
+statically guaranteed common result type. Real record fields take precedence
+over an overload of `.`, while absent literal names retain the existing overload
+fallback. The overload is `__getattr__`-like rather than `__getattribute__`-like:
+a dynamic selector also reads a real field first and calls the overload only when
+the key is absent. Its result must share the selector's normal common target type.
+Repeated fixed keys preserve repeated lanes in exact selector order. Fixed
+unknown keys are diagnosed before the subject is materialized when no `.`
+overload can provide them; otherwise each missing lane uses that fallback.
+
 <!-- readme-example: core/46-member-reflection.vkf -->
 ```vkf
 point: (x:3, y:4)
