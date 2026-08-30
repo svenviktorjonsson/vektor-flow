@@ -23,7 +23,7 @@ SymbolicTypeFacts: (symbolic:bit, shape:str, surface:str, scalar_domain:str, bas
 TypedExpressionFacts: (mode:str, value_type:str, symbolic_type:SymbolicTypeFacts, symbolic_node_kind:str, free_variables:any)
 
 type_name(name:str):
-    (name: name)
+    (name: name,)
 
 function_signature(params:any, return_type:str):
     (

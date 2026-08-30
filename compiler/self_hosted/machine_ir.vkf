@@ -53,7 +53,7 @@ MachineModule: (
 )
 
 mir_simple(kind:str):
-    (kind: kind)
+    (kind: kind,)
 
 mir_push_f64(value:num):
     (kind: "push_f64", value: value)
