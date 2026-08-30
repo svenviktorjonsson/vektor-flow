@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <future>
 #include <iomanip>
 #include <limits>
 #include <optional>
@@ -12,6 +13,8 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -259,6 +262,71 @@ inline AutomaticFlowSafety automatic_flow_safety(
     safety.partition_candidate =
         safety.replay_safe && !safety.requires_stable_reduction_tree;
     return safety;
+}
+
+// The first executable CPU-flow seam is deliberately a pair. The caller must
+// already have proved the demands independent and supplies a conservative work
+// estimate; safety classification and process limits remain authoritative.
+inline constexpr std::uint64_t automatic_cpu_minimum_branch_work = 1ull << 20u;
+
+class AutomaticCpuPairPlan {
+public:
+    bool concurrent() const noexcept { return concurrent_; }
+    std::uint32_t lane_limit() const noexcept { return lane_limit_; }
+
+private:
+    friend AutomaticCpuPairPlan automatic_cpu_pair_plan(
+        const AutomaticFlowLimits&, std::uint32_t,
+        const machine_ir::Function&, std::uint64_t,
+        const machine_ir::Function&, std::uint64_t, bool);
+
+    bool concurrent_ = false;
+    std::uint32_t lane_limit_ = 1;
+};
+
+inline AutomaticCpuPairPlan automatic_cpu_pair_plan(
+    const AutomaticFlowLimits& limits,
+    std::uint32_t available_cores,
+    const machine_ir::Function& left,
+    std::uint64_t left_work,
+    const machine_ir::Function& right,
+    std::uint64_t right_work,
+    bool independent
+) {
+    AutomaticCpuPairPlan plan;
+    plan.lane_limit_ = std::max(
+        1u, automatic_cpu_partition_limit(limits, std::max(1u, available_cores)));
+    if (!independent || plan.lane_limit_ < 2 ||
+        left_work < automatic_cpu_minimum_branch_work ||
+        right_work < automatic_cpu_minimum_branch_work) {
+        return plan;
+    }
+    plan.concurrent_ = automatic_flow_safety(left).partition_candidate &&
+        automatic_flow_safety(right).partition_candidate;
+    return plan;
+}
+
+template <typename LeftDemand, typename RightDemand>
+auto execute_automatic_cpu_pair(
+    const AutomaticCpuPairPlan& plan,
+    LeftDemand&& left,
+    RightDemand&& right
+) {
+    using LeftResult = std::decay_t<std::invoke_result_t<LeftDemand>>;
+    using RightResult = std::decay_t<std::invoke_result_t<RightDemand>>;
+    static_assert(!std::is_void_v<LeftResult> && !std::is_void_v<RightResult>,
+                  "automatic CPU demands must return retained values");
+    if (!plan.concurrent()) {
+        auto left_value = std::forward<LeftDemand>(left)();
+        auto right_value = std::forward<RightDemand>(right)();
+        return std::tuple<LeftResult, RightResult>(
+            std::move(left_value), std::move(right_value));
+    }
+    auto left_future = std::async(std::launch::async, std::forward<LeftDemand>(left));
+    auto right_value = std::forward<RightDemand>(right)();
+    auto left_value = left_future.get();
+    return std::tuple<LeftResult, RightResult>(
+        std::move(left_value), std::move(right_value));
 }
 
 inline void append_unique(std::vector<std::string>& values, std::string value) {
