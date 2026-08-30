@@ -15,12 +15,16 @@ machine_ir_numeric_stack_depth(depth:num, kind:str, argument_count:num=0, result
         .produced: 1
     kind = "push_f64"?
         .produced: 1
-    kind = "multiply_f64"?
+    (kind = "add_f64" \/ kind = "multiply_f64" \/ kind = "ordered_less_f64")?
         .required: 2
         .produced: 1
+    kind = "store_local"?
+        .required: 1
+    kind = "jump_if_false"?
+        .required: 1
     kind = "return_f64"?
         .required: 1
-    (kind = "call" \/ kind = "system_cpu_count" \/ kind = "load_local" \/ kind = "push_f64" \/ kind = "multiply_f64" \/ kind = "return_f64")?! "machine IR stack validation encountered an unsupported opcode"
+    (kind = "call" \/ kind = "system_cpu_count" \/ kind = "load_local" \/ kind = "push_f64" \/ kind = "add_f64" \/ kind = "multiply_f64" \/ kind = "ordered_less_f64" \/ kind = "store_local" \/ kind = "label" \/ kind = "jump" \/ kind = "jump_if_false" \/ kind = "return_f64")?! "machine IR stack validation encountered an unsupported opcode"
     (depth >= required)?! "machine IR stack underflow"
     depth - required + produced
 
@@ -77,5 +81,89 @@ machine_ir_numeric_parameter_multiply_stack_maxima(function_name:str, parameter_
     depth > maximum?
         .maximum: depth
     maxima.2: maximum
+
+    maxima
+
+machine_ir_numeric_count_to_loop_stack_maxima(
+    function_name:str,
+    parameter_name:str,
+    local_name:str,
+    entry_value:num
+) -> [num:2]:
+    application: typed.typed_numeric_count_to_loop_application(
+        function_name,
+        parameter_name,
+        local_name,
+        entry_value
+    )
+    module: mir.mir_lower_numeric_count_to_loop_typed_module(application)
+    [num:2] maxima: [0, 0]
+    depth: 0
+    maximum: 0
+
+    .depth: machine_ir_numeric_stack_depth(depth, module.entry.instructions.0.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(
+        depth,
+        module.entry.instructions.1.kind,
+        module.entry.instructions.1.argument_count,
+        module.entry.instructions.1.result_count
+    )
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.entry.instructions.2.kind)
+    depth > maximum?
+        .maximum: depth
+    maxima.0: maximum
+
+    .depth: 0
+    .maximum: 0
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.0.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.1.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.2.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.3.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.4.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.5.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.6.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.7.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.8.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.9.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.10.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.11.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.12.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.13.kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.14.kind)
+    depth > maximum?
+        .maximum: depth
+    maxima.1: maximum
 
     maxima
