@@ -367,6 +367,7 @@ private:
 struct FunctionSignature {
     std::vector<std::string> parameter_names;
     std::vector<ValueLayout> parameters;
+    std::vector<std::vector<std::string>> parameter_full_projections;
     std::vector<DisplayShape> parameter_displays;
     std::vector<bool> parameter_is_any;
     std::vector<const vf::JsonValue*> parameter_defaults;
@@ -394,6 +395,8 @@ inline bool same_signature_layouts(
         if (found == right.end() || signature.parameters.size() != found->second.parameters.size()) {
             return false;
         }
+        if (signature.parameter_full_projections !=
+            found->second.parameter_full_projections) return false;
         for (std::size_t index = 0; index < signature.parameters.size(); ++index) {
             if (!same_layout(signature.parameters[index], found->second.parameters[index])) return false;
         }
@@ -788,7 +791,8 @@ inline void collect_parameter_indices(
 
 inline ValueLayout inferred_parameter_layout(
     const vf::JsonValue::Object& function,
-    const std::string& parameter
+    const std::string& parameter,
+    std::vector<std::string>* full_projections = nullptr
 ) {
     struct ProjectionNode {
         std::map<std::string, ProjectionNode> children;
@@ -838,6 +842,14 @@ inline ValueLayout inferred_parameter_layout(
     const auto record_projection = [&](const vf::JsonValue::Object& expression, bool full = false) {
         std::vector<std::string> path;
         if (!projection_path(projection_path, expression, path) || path.empty()) return;
+        if (full && full_projections) {
+            std::string joined;
+            for (const auto& component : path) {
+                joined += (joined.empty() ? "" : ".") + component;
+            }
+            if (std::find(full_projections->begin(), full_projections->end(), joined) ==
+                full_projections->end()) full_projections->push_back(std::move(joined));
+        }
         found = true;
         ProjectionNode* node = &root;
         for (const auto& component : path) node = &node->children[component];
@@ -922,6 +934,61 @@ inline ValueLayout inferred_function_result_layout(
     const FunctionSignature& signature,
     const FunctionSignatures& signatures
 );
+
+inline void refine_full_projection_path(
+    ValueLayout& current,
+    const ValueLayout& candidate,
+    const std::vector<std::string>& path,
+    std::size_t index = 0
+) {
+    if (index == path.size()) {
+        current = candidate;
+        return;
+    }
+    if (candidate.kind != ValueKind::Aggregate) return;
+    const auto supplied = candidate.selectors.find(path[index]);
+    if (supplied == candidate.selectors.end()) return;
+    ValueLayout field_layout;
+    if (current.kind == ValueKind::Aggregate) {
+        const auto existing = current.selectors.find(path[index]);
+        if (existing != current.selectors.end()) {
+            field_layout = record_field_layout(current, path[index], existing->second);
+        }
+    }
+    refine_full_projection_path(
+        field_layout,
+        record_field_layout(candidate, path[index], supplied->second),
+        path,
+        index + 1);
+    assign_record_field_layout(current, path[index], field_layout);
+}
+
+inline void refine_full_projection_paths(
+    ValueLayout& current,
+    const ValueLayout& candidate,
+    const std::vector<std::string>& paths
+) {
+    for (const auto& path : paths) {
+        refine_full_projection_path(
+            current, candidate, split_structural_path(path));
+    }
+}
+
+inline void merge_full_projection_paths(
+    std::vector<std::string>& current,
+    const std::vector<std::string>& candidate,
+    const std::string& prefix = ""
+) {
+    for (const auto& path : candidate) {
+        const std::string merged = prefix.empty()
+            ? path
+            : prefix + (path.empty() ? "" : "." + path);
+        if (std::find(current.begin(), current.end(), merged) == current.end()) {
+            current.push_back(merged);
+        }
+    }
+    std::sort(current.begin(), current.end());
+}
 
 inline void refine_callsite_parameter_layouts(
     const vf::JsonValue& value,
@@ -1023,6 +1090,12 @@ inline void refine_callsite_parameter_layouts(
                             candidate = layout_from_expression_shape(argument, signatures);
                         }
                         auto& current = signature->second.parameters[index];
+                        if (index < signature->second.parameter_full_projections.size()) {
+                            refine_full_projection_paths(
+                                current,
+                                candidate,
+                                signature->second.parameter_full_projections[index]);
+                        }
                         refine_parameter_from_argument(current, candidate);
                         if (index < signature->second.parameter_displays.size()) {
                             const auto candidate_display = shallow_display_shape(argument);
@@ -1087,7 +1160,7 @@ inline void refine_callsite_parameter_layouts(
 inline void refine_forwarded_parameter_layouts(
     const vf::JsonValue& value,
     FunctionSignature& caller,
-    const FunctionSignatures& signatures
+    FunctionSignatures& signatures
 ) {
     if (value.is_array()) {
         for (const auto& item : value.as_array()) {
@@ -1109,7 +1182,7 @@ inline void refine_forwarded_parameter_layouts(
             if (callee_kind != callee_object.end() && callee_kind->second.is_string() &&
                 callee_kind->second.as_string() == "load" &&
                 callee_name != callee_object.end() && callee_name->second.is_string()) {
-                const auto target = signatures.find(callee_name->second.as_string());
+                auto target = signatures.find(callee_name->second.as_string());
                 if (target != signatures.end()) {
                     const auto& arguments = args->second.as_array();
                     for (std::size_t argument_index = 0;
@@ -1150,12 +1223,31 @@ inline void refine_forwarded_parameter_layouts(
                             parameter - caller.parameter_names.begin());
                         if (parameter_index >= caller.parameter_is_any.size() ||
                             !caller.parameter_is_any[parameter_index]) continue;
-                        const auto& candidate = target->second.parameters[argument_index];
+                        const auto candidate = target->second.parameters[argument_index];
                         auto& current = caller.parameters[parameter_index];
+                        if (argument_index <
+                            target->second.parameter_full_projections.size()) {
+                            if (caller.parameter_full_projections.size() <
+                                caller.parameters.size()) {
+                                caller.parameter_full_projections.resize(
+                                    caller.parameters.size());
+                            }
+                            merge_full_projection_paths(
+                                caller.parameter_full_projections[parameter_index],
+                                target->second.parameter_full_projections[argument_index],
+                                forwarded_field);
+                        }
                         if (!forwarded_field.empty()) {
                             assign_record_field_layout(current, forwarded_field, candidate);
                         } else {
                             merge_inferred_layout(current, candidate);
+                        }
+                        if (forwarded_field.empty() && argument_index <
+                            target->second.parameter_full_projections.size()) {
+                            refine_full_projection_paths(
+                                target->second.parameters[argument_index],
+                                current,
+                                target->second.parameter_full_projections[argument_index]);
                         }
                     }
                 }
@@ -14910,13 +15002,15 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                     explicit_parameter_layout.kind == ValueKind::StringMultiset ||
                     (!known_scalar_parameter && !known_aggregate_parameter));
                 signature.parameter_is_any.push_back(inferred_parameter);
+                std::vector<std::string> full_projections;
                 if (bool_field(parameter, "variadic_named", "param")) {
                     if (signature.variadic_named_index) {
                         throw LoweringFailure("direct machine IR supports one variadic named parameter");
                     }
                     signature.variadic_named_index = signature.parameters.size();
                     signature.parameters.push_back(
-                        inferred_parameter_layout(statement, signature.parameter_names.back()));
+                        inferred_parameter_layout(
+                            statement, signature.parameter_names.back(), &full_projections));
                 } else if (bool_field(parameter, "variadic_positional", "param")) {
                     if (signature.variadic_positional_index) {
                         throw LoweringFailure("direct machine IR supports one variadic positional parameter");
@@ -14931,7 +15025,7 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                     if (inferred_parameter && complex_capable_fixed_vector) {
                         auto parameter_layout = explicit_parameter_layout;
                         const auto inferred_layout = inferred_parameter_layout(
-                            statement, signature.parameter_names.back());
+                            statement, signature.parameter_names.back(), &full_projections);
                         if (!is_record_layout(inferred_layout)) {
                             merge_inferred_layout(parameter_layout, inferred_layout);
                         }
@@ -14939,10 +15033,16 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                     } else {
                         signature.parameters.push_back(
                             inferred_parameter
-                                ? inferred_parameter_layout(statement, signature.parameter_names.back())
+                                ? inferred_parameter_layout(
+                                    statement, signature.parameter_names.back(), &full_projections)
                                 : explicit_parameter_layout);
                     }
                 }
+                std::sort(full_projections.begin(), full_projections.end());
+                full_projections.erase(
+                    std::unique(full_projections.begin(), full_projections.end()),
+                    full_projections.end());
+                signature.parameter_full_projections.push_back(std::move(full_projections));
                 if (bool_field(parameter, "variadic_named", "param")) {
                     auto display = display_shape_from_layout(signature.parameters.back());
                     display.kind = DisplayKind::Record;
@@ -15015,10 +15115,9 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
             signatures.module_layouts[name] = layout_from_expression_shape(expression, signatures);
         }
         const auto before = signatures;
-        const auto stable_signatures = signatures;
         for (const auto& [name, function] : functions) {
             refine_forwarded_parameter_layouts(
-                field(*function, "body", "function"), signatures[name], stable_signatures);
+                field(*function, "body", "function"), signatures[name], signatures);
         }
         refine_callsite_parameter_layouts(typed_ir, signatures, true);
         for (const auto& [name, function] : functions) {
