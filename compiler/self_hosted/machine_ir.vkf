@@ -136,6 +136,92 @@ mir_numeric_parameter_multiply_function_matches(function:NumericFunctionInput) -
         function.body.body.0.expr.kind = "binary_op" /\
         function.body.body.0.expr.op = "STAR")
 
+_mir_call_no_handler(symbol:str, argument_count:num, result_count:num, provided_parameter_mask:num):
+    (
+        argument_count: argument_count,
+        has_error_handler: false,
+        kind: "call",
+        may_error: false,
+        provided_parameter_mask: provided_parameter_mask,
+        result_count: result_count,
+        symbol: symbol,
+        uses_parameter_mask: false
+    )
+
+_mir_numeric_entry(function_name:str):
+    (
+        instructions: [
+            _mir_call_no_handler("cpu_count", 0, 1, 0),
+            _mir_call_no_handler(function_name, 1, 1, 1),
+            mir_return_f64()
+        ],
+        local_classes: [],
+        locals: [],
+        max_stack: 1,
+        may_error: false,
+        name: "\$entry",
+        owned_f64_list_locals: [],
+        owned_string_locals: [],
+        parameter_is_numeric_scalar: [],
+        parameter_mask_local: null,
+        parameters: [],
+        result_is_dynamic_f64_list: false,
+        result_is_numeric_scalar: false
+    )
+
+_mir_numeric_cpu_count_function():
+    (
+        instructions: [mir_simple("system_cpu_count"), mir_return_f64()],
+        local_classes: [],
+        locals: [],
+        max_stack: 1,
+        may_error: false,
+        name: "cpu_count",
+        owned_f64_list_locals: [],
+        owned_string_locals: [],
+        parameter_is_numeric_scalar: [],
+        parameter_mask_local: null,
+        parameters: [],
+        result_is_dynamic_f64_list: false,
+        result_is_numeric_scalar: true
+    )
+
+_mir_numeric_parameter_multiply_function(function:NumericFunctionInput):
+    (
+        instructions: mir_numeric_parameter_multiply_instructions(
+            function.body.body.0.expr.right.value
+        ),
+        local_classes: ["f64"],
+        locals: [function.params.0.name],
+        max_stack: 2,
+        may_error: false,
+        name: function.name,
+        owned_f64_list_locals: [],
+        owned_string_locals: [],
+        parameter_is_numeric_scalar: [true],
+        parameter_mask_local: null,
+        parameters: [function.params.0.name],
+        result_is_dynamic_f64_list: false,
+        result_is_numeric_scalar: true
+    )
+
+mir_lower_numeric_parameter_multiply_function_module(function:any):
+    mir_numeric_parameter_multiply_function_matches(function)?!
+    (
+        entry: _mir_numeric_entry(function.name),
+        functions: [
+            _mir_numeric_cpu_count_function(),
+            _mir_numeric_parameter_multiply_function(function)
+        ],
+        output_count: 1,
+        output_kind: "f64",
+        output_tokens: [],
+        outputs: [],
+        schema: "vektorflow.machine_ir",
+        string_bytes: 77,
+        version: 23
+    )
+
 machine_ir_opcode_catalog:
     [
         "push_f64",
