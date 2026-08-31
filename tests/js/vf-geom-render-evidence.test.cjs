@@ -77,6 +77,8 @@ assert.deepEqual(receipt, {
   lightClusterOverflowAssignments: 0,
   lightClusterOverflowClusters: 0,
   lightClusterCap: 64,
+  lightClusterStorageBytes: 0,
+  lightRecordStorageBytes: 0,
 });
 assert.equal(createdTextures.length, 3);
 
