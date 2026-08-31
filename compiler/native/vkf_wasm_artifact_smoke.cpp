@@ -108,6 +108,7 @@ struct WasmModulePlan {
     std::vector<WasmBinding> bindings;
     UpdateFunctionPlan update;
     std::vector<vf::static_html::Bundle> static_html_bundles;
+    std::string event_program_json;
 };
 
 const vf::JsonValue::Object& object_of(const vf::JsonValue& value, const std::string& context) {
@@ -920,6 +921,7 @@ bool collect_retained_scene_packet_binding(
             event_binding.name = "$ui$compiled$event_program";
             event_binding.kind = WasmBinding::Kind::String;
             event_binding.string_value = vf::json_stringify(*event_program, -1);
+            plan.event_program_json = event_binding.string_value;
             plan.bindings.push_back(std::move(event_binding));
         }
         std::map<std::uint64_t, bool> loaded_frames;
@@ -2579,6 +2581,9 @@ int main(int argc, char** argv) {
         for (const auto& bundle : plan.static_html_bundles) {
             manifest_material += "\nstatic-html\n" + bundle.frame_id + "\n" + bundle.entry;
         }
+        if (!plan.event_program_json.empty()) {
+            manifest_material += "\nretained-event-program\n" + plan.event_program_json;
+        }
         const std::string desired_manifest_hash = stable_hash(manifest_material);
 
         std::filesystem::create_directories(build_dir);
@@ -2607,6 +2612,9 @@ int main(int argc, char** argv) {
             write_text(
                 build_dir / "vf-static-html-loads.json",
                 vf::json_stringify(vf::JsonValue(std::move(mounts)), 2) + "\n");
+        }
+        if (!plan.event_program_json.empty()) {
+            write_text(build_dir / "vf-event-program.json", plan.event_program_json + "\n");
         }
 
         auto manifest = manifest_payload(
