@@ -913,6 +913,15 @@ bool collect_retained_scene_packet_binding(
         packet_binding.kind = WasmBinding::Kind::String;
         packet_binding.string_value = vf::json_stringify(*packets, -1);
         plan.bindings.push_back(std::move(packet_binding));
+        const auto event_program = vkf::retained_scene::compile_event_program(
+            root, *packets);
+        if (event_program.has_value()) {
+            WasmBinding event_binding;
+            event_binding.name = "$ui$compiled$event_program";
+            event_binding.kind = WasmBinding::Kind::String;
+            event_binding.string_value = vf::json_stringify(*event_program, -1);
+            plan.bindings.push_back(std::move(event_binding));
+        }
         std::map<std::uint64_t, bool> loaded_frames;
         for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
             std::filesystem::path resource_path(load.resource);

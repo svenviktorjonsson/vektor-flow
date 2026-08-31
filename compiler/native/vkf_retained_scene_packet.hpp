@@ -387,4 +387,183 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
     return vf::JsonValue(std::move(packets));
 }
 
+inline std::optional<vf::JsonValue> compile_event_program(
+    const vf::JsonValue& root_value,
+    const vf::JsonValue& packets_value
+) {
+    const auto& root = detail::object(root_value, "typed IR root");
+    const auto& body_value = detail::field(root, "body", "typed IR root");
+    if (!body_value.is_array()) throw Error("typed IR body must be an array");
+
+    struct Component {
+        std::string kind;
+        std::string id;
+    };
+    struct Layer {
+        std::uint64_t frame_id;
+        std::string mesh_id;
+    };
+    std::map<std::string, Component> components;
+    std::map<std::string, std::uint64_t> layer_bindings;
+    for (const auto& raw_statement : body_value.as_array()) {
+        const auto& statement = detail::object(raw_statement, "typed IR statement");
+        const auto kind_entry = statement.find("kind");
+        if (kind_entry == statement.end() || !kind_entry->second.is_string() ||
+            kind_entry->second.as_string() != "store_binding") continue;
+        const std::string name = detail::text(statement, "name", "typed IR binding");
+        const std::string type = detail::text(statement, "type", "typed IR binding");
+        const auto& value = detail::object(
+            detail::field(statement, "value", "typed IR binding"), "typed IR binding value");
+        if (type == "Layer") {
+            layer_bindings[name] = detail::id(value, "value", "Layer binding");
+            continue;
+        }
+        const std::string component_prefix = "ui_component<";
+        if (type.rfind(component_prefix, 0) == 0 && !type.empty() && type.back() == '>') {
+            const auto id_entry = value.find("id");
+            if (id_entry == value.end() || !id_entry->second.is_string()) {
+                throw Error("event owner component requires an explicit id");
+            }
+            components[name] = {
+                type.substr(component_prefix.size(), type.size() - component_prefix.size() - 1),
+                id_entry->second.as_string(),
+            };
+        }
+    }
+
+    std::map<std::uint64_t, Layer> layers;
+    const auto& program = detail::object(
+        detail::field(root, "ui_program", "typed IR root"), "typed UI program");
+    const auto& operations = detail::field(program, "operations", "typed UI program");
+    if (!operations.is_array()) throw Error("typed UI operations must be an array");
+    for (const auto& raw_operation : operations.as_array()) {
+        const auto& operation = detail::object(raw_operation, "typed UI operation");
+        if (detail::text(operation, "kind", "typed UI operation") != "add") continue;
+        const auto properties = detail::properties(operation);
+        const auto& id_value = detail::field(properties, "id", "Frame.add");
+        if (!id_value.is_string()) throw Error("Frame.add id must be a string");
+        layers[detail::id(operation, "layer_id", "Frame.add")] = {
+            detail::id(operation, "frame_id", "Frame.add"), id_value.as_string()};
+    }
+
+    const auto& packets = packets_value.as_array();
+    if (packets.size() < 3) throw Error("retained event program requires display packets");
+    const auto& display_packet = detail::object(packets[2], "display packet");
+    const auto& display_payload = detail::object(
+        detail::field(display_packet, "payload", "display packet"), "display payload");
+    const auto& display = detail::object(
+        detail::field(display_payload, "display", "display payload"), "display payload data");
+    const auto& geom = detail::object(
+        detail::field(display, "geom", "display payload data"), "display geom");
+
+    const auto value_descriptor = [&](const vf::JsonValue& raw_value,
+                                      const std::string& binding) -> vf::JsonValue {
+        const auto& value = detail::object(raw_value, "retained event patch value");
+        const std::string kind = detail::text(value, "kind", "retained event patch value");
+        if (kind == "const") {
+            return vf::JsonValue(vf::JsonValue::Object{
+                {"kind", vf::JsonValue("const")},
+                {"value", detail::field(value, "value", "retained event patch const")},
+            });
+        }
+        if (kind == "field_access") {
+            const auto& subject = detail::object(
+                detail::field(value, "object", "retained event field access"),
+                "retained event field access object");
+            if (detail::text(subject, "kind", "retained event field access object") != "load" ||
+                detail::text(subject, "name", "retained event field access object") != binding) {
+                throw Error("retained event patch can only read its current event binding");
+            }
+            return vf::JsonValue(vf::JsonValue::Object{
+                {"kind", vf::JsonValue("event_field")},
+                {"field", detail::field(value, "field", "retained event field access")},
+            });
+        }
+        throw Error("retained event patch requires a constant or event field");
+    };
+
+    vf::JsonValue::Array rules;
+    for (const auto& raw_statement : body_value.as_array()) {
+        const auto& statement = detail::object(raw_statement, "typed IR statement");
+        const auto statement_kind = statement.find("kind");
+        if (statement_kind == statement.end() || !statement_kind->second.is_string() ||
+            statement_kind->second.as_string() != "expr_stmt") continue;
+        const auto& loop = detail::object(
+            detail::field(statement, "expr", "typed IR expression statement"),
+            "typed IR expression");
+        if (detail::text(loop, "kind", "typed IR expression") != "ui_owner_event_loop") continue;
+        const std::string binding = detail::text(loop, "binding", "owner event loop");
+        const auto& poll = detail::object(
+            detail::field(loop, "poll", "owner event loop"), "owner event loop poll");
+        const auto& owner = detail::object(
+            detail::field(poll, "owner", "owner event loop poll"), "owner event loop owner");
+        const std::string owner_name = detail::text(owner, "name", "owner event loop owner");
+        const auto component = components.find(owner_name);
+        if (component == components.end()) throw Error("retained event owner requires a component id");
+        const auto& arms = detail::field(loop, "arms", "owner event loop");
+        if (!arms.is_array()) throw Error("owner event loop arms must be an array");
+        for (const auto& raw_arm : arms.as_array()) {
+            const auto& arm = detail::object(raw_arm, "owner event loop arm");
+            const auto& arm_body = detail::object(
+                detail::field(arm, "body", "owner event loop arm"), "owner event loop arm body");
+            vf::JsonValue::Array statements;
+            if (detail::text(arm_body, "kind", "owner event loop arm body") == "block") {
+                const auto& block = detail::field(arm_body, "body", "owner event loop arm block");
+                if (!block.is_array()) throw Error("owner event loop arm block must be an array");
+                statements = block.as_array();
+            } else {
+                statements.push_back(detail::field(arm, "body", "owner event loop arm"));
+            }
+            vf::JsonValue::Array actions;
+            for (const auto& raw_action : statements) {
+                const auto& action = detail::object(raw_action, "owner event loop action");
+                if (detail::text(action, "kind", "owner event loop action") != "update_attr") {
+                    throw Error("retained event branches currently require direct Layer member assignments");
+                }
+                const std::string base_name = detail::text(action, "base_name", "Layer patch");
+                const auto layer_binding = layer_bindings.find(base_name);
+                if (layer_binding == layer_bindings.end()) {
+                    throw Error("retained event member assignment requires a Layer binding");
+                }
+                const auto layer = layers.find(layer_binding->second);
+                if (layer == layers.end()) throw Error("retained event Layer was not added to a Frame");
+                const std::string property = detail::text(action, "field", "Layer patch");
+                const std::vector<std::string> allowed{
+                    "visible", "alpha", "reflectivity", "roughness", "specular_strength"};
+                bool supported = false;
+                for (const auto& candidate : allowed) supported = supported || candidate == property;
+                if (!supported) throw Error("retained event Layer patch does not support `" + property + "`");
+                const std::string frame_id = "frame_" + std::to_string(layer->second.frame_id);
+                const auto frame_geom = geom.find(frame_id);
+                if (frame_geom == geom.end()) throw Error("retained event Layer Frame has no geometry");
+                vf::JsonValue::Object state{
+                    {"layer_id", vf::JsonValue(static_cast<double>(layer_binding->second))},
+                    {"mesh_id", vf::JsonValue(layer->second.mesh_id)},
+                    {"property", vf::JsonValue(property)},
+                    {"value", value_descriptor(
+                        detail::field(action, "value", "Layer patch"), binding)},
+                    {"geom", frame_geom->second},
+                };
+                actions.push_back(vf::JsonValue(vf::JsonValue::Object{
+                    {"op", vf::JsonValue("retained_layer_patch")},
+                    {"target", vf::JsonValue(frame_id)},
+                    {"state", vf::JsonValue(std::move(state))},
+                }));
+            }
+            if (actions.empty()) continue;
+            rules.push_back(vf::JsonValue(vf::JsonValue::Object{
+                {"event", detail::field(arm, "event_type", "owner event loop arm")},
+                {"widget_id", vf::JsonValue(component->second.id)},
+                {"actions", vf::JsonValue(std::move(actions))},
+            }));
+        }
+    }
+    if (rules.empty()) return std::nullopt;
+    return vf::JsonValue(vf::JsonValue::Object{
+        {"schema", vf::JsonValue("vektor-flow/retained-event-program")},
+        {"version", vf::JsonValue(1.0)},
+        {"rules", vf::JsonValue(std::move(rules))},
+    });
+}
+
 }  // namespace vkf::retained_scene

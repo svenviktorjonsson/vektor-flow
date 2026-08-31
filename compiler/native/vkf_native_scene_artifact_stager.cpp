@@ -48,6 +48,7 @@ struct ArenaExternalization {
 struct CompiledUiSceneBundle {
     std::string scene_config_json;
     std::string runtime_packets_json;
+    std::string event_program_json = "{}";
     std::string provenance;
     std::vector<vf::static_html::Bundle> static_html_bundles;
 };
@@ -2566,6 +2567,11 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_scene_packets(
         CompiledUiSceneBundle bundle;
         bundle.scene_config_json = "[]";
         bundle.runtime_packets_json = vf::json_stringify(*packets, -1);
+        const auto event_program = vkf::retained_scene::compile_event_program(
+            root, *packets);
+        if (event_program.has_value()) {
+            bundle.event_program_json = vf::json_stringify(*event_program, -1);
+        }
         bundle.provenance = "vkf-retained-scene-lowering";
         std::map<std::uint64_t, bool> loaded_frames;
         for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
@@ -3272,6 +3278,7 @@ int run(int argc, char** argv) {
                     "compile the UI scene through compiler/self_hosted/native_scene_compiler.vkf before staging");
             }
             effective.scene_config_json = compiled_ui_scene->scene_config_json;
+            effective.event_program_json = compiled_ui_scene->event_program_json;
             effective.static_html_bundles = std::move(
                 compiled_ui_scene->static_html_bundles);
             scene_config_provenance.source = compiled_ui_scene->provenance;
