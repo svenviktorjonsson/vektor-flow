@@ -313,3 +313,21 @@ test("scene gallery captures a short polar-coordinate ribbon", async () => {
   assert.equal(sha256(bytes), example.media.sha256);
   assert.equal(example.capture.hidden, true);
 });
+
+test("scene gallery captures a wireframe from explicit 3D point data", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "19-wireframe-points");
+  assert.ok(example);
+  assert.equal(example.dimension, 3);
+  assert.deepEqual(example.features, ["3d", "wireframe", "point-data"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  for (const field of ['kind:"field_mesh"', "vertices:[", 'topology:"line-list"', 'render_mode:"line"', "mode3d:true"]) {
+    assert.ok(source.includes(field), `missing ${field}`);
+  }
+  assert.ok(source.split(/\r?\n/u).filter((line) => line.trim()).length <= 20);
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+  assert.equal(example.capture.hidden, true);
+});

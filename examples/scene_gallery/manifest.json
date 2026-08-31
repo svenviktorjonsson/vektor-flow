@@ -404,6 +404,28 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "19-wireframe-points",
+      "title": "Wireframe points",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "wireframe",
+        "point-data"
+      ],
+      "source": "19-wireframe-points/app.vkf",
+      "sourceSha256": "13f782011fb1b6e18b72e0e864388ea3c43c70d5abbf82a20d9adb6c7932943d",
+      "media": {
+        "path": "docs/public/images/scene-gallery/19-wireframe-points.png",
+        "sha256": "b55505a1860a4755a97fe6dafd8d87b2b28492c262d7b0ffc4d43f985ff952ec"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "wireframe_points"
+      }
     }
   ]
 }
