@@ -43,6 +43,8 @@
   "files": [
     "index.js",
     "README.md",
+    "examples/scene_gallery",
+    "docs/public/images/scene-gallery",
     "web/editor",
     "web/vf-ui"
   ],
