@@ -213,6 +213,28 @@ test('retained camera change redraws the same point buffer at a new output posit
   assert.equal(state.bufferSubDataCalls.length, 1);
 });
 
+test('identical retained state is a no-op while visual state changes still redraw', async () => {
+  const { gl, state } = trackedWebGl();
+  const renderer = createScreenSpacePointCloudRenderer({
+    width: 1280,
+    height: 720,
+    getContext: () => gl
+  });
+  await renderer.initialize();
+  const points = new Float32Array([0.25, -0.5]);
+  const options = { count: 1, pointSize: 2, color: [0.4, 0.9, 1, 0.9] };
+  setRetainedWorldPointCloud2D(renderer, points, projection(), options);
+  setRetainedWorldPointCloud2D(renderer, points, projection(), {
+    ...options,
+    color: [...options.color]
+  });
+  assert.equal(state.draws.length, 1);
+  assert.equal(state.bufferSubDataCalls.length, 1);
+
+  setRetainedWorldPointCloud2D(renderer, points, projection(), { ...options, pointSize: 3 });
+  assert.equal(state.draws.length, 2);
+});
+
 test('ordinary world-point updates preserve mutable-buffer upload behavior', async () => {
   const { gl, state } = trackedWebGl();
   const renderer = createScreenSpacePointCloudRenderer({

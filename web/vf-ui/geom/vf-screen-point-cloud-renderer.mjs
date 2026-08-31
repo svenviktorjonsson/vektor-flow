@@ -111,19 +111,29 @@ export function createScreenSpacePointCloudRenderer(canvas) {
       throw new RangeError('world point count exceeds the packed buffer');
     }
     const retainPointData = options[RETAINED_POINT_DATA] === true;
-    pointDataDirty = pointDataDirty
+    const nextPointDataDirty = pointDataDirty
       || !retainPointData
       || points !== nextPoints
       || components !== nextComponents
       || !worldMode
       || count !== nextCount;
+    const normalizedProjection = normalizeProjection(nextProjection);
+    const nextPointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
+    const nextColor = normalizeColor(options.color ?? color);
+    if (!nextPointDataDirty
+      && sameProjection(projection, normalizedProjection)
+      && pointSize === nextPointSize
+      && sameVector(color, nextColor)) {
+      return;
+    }
+    pointDataDirty = nextPointDataDirty;
     points = nextPoints;
     components = nextComponents;
     worldMode = true;
     count = nextCount;
-    projection = normalizeProjection(nextProjection);
-    pointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
-    color = normalizeColor(options.color ?? color);
+    projection = normalizedProjection;
+    pointSize = nextPointSize;
+    color = nextColor;
     render();
   }
 
@@ -199,6 +209,19 @@ function normalizeProjection(value) {
     yAxis: Object.freeze(finiteVector(value?.yAxis, 2, 'yAxis')),
     zAxis: Object.freeze(finiteVector(value?.zAxis, 2, 'zAxis'))
   });
+}
+
+function sameProjection(left, right) {
+  return left != null
+    && sameVector(left.worldOrigin, right.worldOrigin)
+    && sameVector(left.screenOrigin, right.screenOrigin)
+    && sameVector(left.xAxis, right.xAxis)
+    && sameVector(left.yAxis, right.yAxis)
+    && sameVector(left.zAxis, right.zAxis);
+}
+
+function sameVector(left, right) {
+  return left?.length === right?.length && left.every((value, index) => value === right[index]);
 }
 
 function finiteVector(value, length, name) {
