@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>grass camera demand runtime smoke</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #91b8d0;
+      }
+
+      #layer {
+        position: fixed;
+        inset: 0;
+      }
+    </style>
+  </head>
+  <body data-vf-runtime-autoboot="false">
+    <div id="layer"></div>
+    <canvas id="vf-screen-canvas"></canvas>
+    <script src="../../web/vf-ui/vf-runtime-shell.js"></script>
+    <script type="module">
+      import {
+        createGrassMaterialFieldReference,
+      } from '../../web/vf-ui/vf-grass-material-field.mjs';
+      import {
+        createGrassCameraDemandControllerReference,
+      } from '../../web/vf-ui/vf-grass-camera-demand-runtime.mjs';
+      import {
+        createRetainedGeometryPacketRuntimeReference,
+      } from '../../web/vf-ui/vf-rock-camera-demand-runtime.mjs';
+
+      const frameId = 'grass_camera_demand_runtime_frame';
+      const displayCamera = {
+        pos: [0, -4, 2],
+        target: [0, 40, 2],
+        up: [0, 0, 1],
+        fov: 60,
+      };
+      const demandCamera = (eye, target) => ({
+        eye,
+        target,
+        up: [0, 0, 1],
+        verticalFovRadians: Math.PI / 3,
+        viewportWidth: 1236,
+        viewportHeight: 725,
+      });
+      try {
+        await window.VfRuntimeShell.ensureSceneDependencies();
+        const panel = window.VfFrame.mount(document.getElementById('layer'), {
+          id: frameId,
+          title: 'Bounded horizon grass demand',
+          draggable: false,
+          dockable: false,
+          resizable: false,
+          closable: false,
+        });
+        panel.root.style.left = '5%';
+        panel.root.style.top = '5%';
+        panel.root.style.width = '90%';
+        panel.root.style.height = '90%';
+
+        const ground = Object.freeze({
+          id: 'grass:camera-runtime:ground',
+          type: 'field_mesh',
+          vertices: new Float32Array([
+            -55, -5, -0.01, 0, 0, 1, 0.12, 0.18, 0.06, 1,
+            55, -5, -0.01, 0, 0, 1, 0.12, 0.18, 0.06, 1,
+            55, 55, -0.01, 0, 0, 1, 0.12, 0.18, 0.06, 1,
+            -55, 55, -0.01, 0, 0, 1, 0.12, 0.18, 0.06, 1,
+          ]),
+          indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+          cull_backfaces: false,
+          no_lighting: true,
+        });
+        let packets = [];
+        let renderRequests = 0;
+        window.VfDisplay.mountDynamicGeomFrame(frameId, () => ({
+          meshes: [ground, ...packets],
+          camera: displayCamera,
+          lights: [],
+          background: [0.30, 0.50, 0.66, 1],
+          unified_renderer: true,
+        }));
+        const runtime = createRetainedGeometryPacketRuntimeReference({
+          requestRender(nextPackets) {
+            packets = nextPackets;
+            renderRequests += 1;
+            window.VfDisplay.requestDynamicGeomFrameUpdate(frameId);
+          },
+        });
+        const controller = createGrassCameraDemandControllerReference({
+          field: createGrassMaterialFieldReference({
+            generator: 'vkf.conditioned',
+            version: 1,
+            seed: [0x01234567, 0x89abcdef],
+            domain: 'material',
+            hierarchy: ['world:temperate', 'grass-field:horizon'],
+            lod: 0,
+            channel: 'surface',
+          }),
+          runtime,
+          planeZ: 0,
+          maximumDistance: 50,
+          cellBudget: 128,
+          bladeBudget: 1024,
+        });
+        const first = controller.request({
+          revision: 1,
+          camera: demandCamera([0, -4, 3], [0, 8, 0]),
+        });
+        const second = controller.request({
+          revision: 2,
+          camera: demandCamera(displayCamera.pos, displayCamera.target),
+        });
+        const [superseded, applied] = await Promise.all([first, second]);
+        window.__grassCameraDemandRuntimeEvidence = {
+          superseded,
+          appliedRevision: applied.revision,
+          appliedCellCount: applied.cells.length,
+          detailLevel: applied.detailLevel,
+          farClipped: applied.farClipped,
+          packetCount: runtime.packets().length,
+          upload: applied.runtime.upload,
+          renderRequests,
+          status: controller.status(),
+          zeroLightScene: true,
+        };
+      } catch (error) {
+        window.__vfLastError = String(error && error.stack || error);
+      }
+    </script>
+  </body>
+</html>

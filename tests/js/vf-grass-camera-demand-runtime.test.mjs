@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   createGrassMaterialFieldReference,
@@ -152,4 +153,16 @@ test('moving the grass view retains shared cells and evicts out-of-view packets'
   shared.forEach((packet) => {
     assert.strictEqual(packet, initialById.get(packet.id));
   });
+});
+
+test('offscreen fixture coalesces a horizon-clipped zero-light grass view', async () => {
+  const html = await readFile(
+    new URL('../fixtures/grass-camera-demand-runtime-smoke.html', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(html, /createGrassCameraDemandControllerReference/);
+  assert.match(html, /maximumDistance: 50/);
+  assert.match(html, /lights: \[\]/);
+  assert.match(html, /__grassCameraDemandRuntimeEvidence/);
 });
