@@ -19,6 +19,7 @@
   var _vfGeomLogThrottleMs = 250;
   var clusteredLightPlannerPromise = null;
   var rockMaterialShaderPromise = null;
+  var grassBladeComputeShaderPromise = null;
   var DEFAULT_CLUSTERED_LIGHT_GRID = Object.freeze({
     xSlices: 16,
     ySlices: 9,
@@ -144,6 +145,19 @@
       });
     }
     return rockMaterialShaderPromise;
+  }
+
+  function loadGrassBladeComputeShaderSource() {
+    if (!grassBladeComputeShaderPromise) {
+      grassBladeComputeShaderPromise = import(runtimeAssetUrl("../vf-grass-blade-gpu.mjs")).then(function (moduleApi) {
+        var source = moduleApi && moduleApi.GRASS_BLADE_COMPUTE_WGSL;
+        if (typeof source !== "string" || source.indexOf("fn vf_grass_blade_compute(") < 0) {
+          throw new Error("grass-blade GPU module does not export valid WGSL");
+        }
+        return source;
+      });
+    }
+    return grassBladeComputeShaderPromise;
   }
 
   function conservativeClusteredLightInputs(lights, grid) {
@@ -3723,14 +3737,20 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         var format = navigator.gpu.getPreferredCanvasFormat();
         wlog("info", "format: " + format);
         var rockMaterialShaderSource = await loadRockMaterialShaderSource();
+        var grassBladeComputeShaderSource = await loadGrassBladeComputeShaderSource();
         var shaderSource = SHADER.replace("__VF_ROCK_MATERIAL_WGSL__", rockMaterialShaderSource);
         if (shaderSource.indexOf("__VF_ROCK_MATERIAL_WGSL__") >= 0) {
           throw new Error("rock-material WGSL marker was not resolved");
         }
         var mod = device.createShaderModule({ code: shaderSource, label: "vf-geom-main" });
         var flareMod = device.createShaderModule({ code: FLARE_SHADER, label: "vf-geom-flare" });
+        var grassBladeComputeMod = device.createShaderModule({
+          code: grassBladeComputeShaderSource,
+          label: "vf-grass-blade-compute"
+        });
         logShaderCompilationInfo(mod, "vf-geom-main");
         logShaderCompilationInfo(flareMod, "vf-geom-flare");
+        logShaderCompilationInfo(grassBladeComputeMod, "vf-grass-blade-compute");
 
         // Vertex buffer layout: stride=40, pos@0, normal@12, color@24
         var vbufDesc = {
@@ -4104,6 +4124,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           fragment: { module: frameBlitMod, entryPoint: "fs_blit", targets: [{ format: format }] },
           primitive: { topology: "triangle-strip" }
         });
+        var pipeGrassBladeCompute = device.createComputePipeline({
+          label: "vf-grass-blade-compute",
+          layout: "auto",
+          compute: {
+            module: grassBladeComputeMod,
+            entryPoint: "vf_grass_blade_compute"
+          }
+        });
+        var grassBladeComputeBindLayout = pipeGrassBladeCompute.getBindGroupLayout(0);
         sharedWgpu = {
           device, format, bindLayout,
           pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive,
@@ -4113,7 +4142,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           clusteredLightBindLayout,
           pipeShadow0, pipeShadow1, shadowBindLayout,
           pipePick, pickBindLayout,
-          frameBlitBindLayout, pipeFrameBlit
+          frameBlitBindLayout, pipeFrameBlit,
+          pipeGrassBladeCompute, grassBladeComputeBindLayout
         };
         wlog("info", "getSharedWgpu: OK");
         return sharedWgpu;
@@ -6686,6 +6716,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pipeSphereInst = null;
     this._pipeCylinderInst = null;
     this._pipeGrassBladeInst = null;
+    this._pipeGrassBladeCompute = null;
+    this._grassBladeComputeBindLayout = null;
     this._pipePointImpostor = null;
     this._pipeLineImpostor = null;
     this._bindLayout = null;
@@ -7121,7 +7153,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         );
       } else if (part.ib) { try { part.ib.destroy(); } catch(_){} }
       if (part.rockMaterialBuf) { try { part.rockMaterialBuf.destroy(); } catch(_){} }
-      if (part.instanceBuf) { try { part.instanceBuf.destroy(); } catch(_){} }
+      if (part.grassGpuRuntime) {
+        this._destroyGrassGpuRuntime(part.grassGpuRuntime);
+      } else if (part.instanceBuf) { try { part.instanceBuf.destroy(); } catch(_){} }
       if (part.uniformBuf) { try { part.uniformBuf.destroy(); } catch(_){} }
       if (part.shadowUniformBuf0) { try { part.shadowUniformBuf0.destroy(); } catch(_){} }
       if (part.shadowUniformBuf1) { try { part.shadowUniformBuf1.destroy(); } catch(_){} }
@@ -8622,6 +8656,87 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       return stepped;
     },
 
+    _dispatchGrassGpuRuntime: function (runtime, grassGpu, instanceCount) {
+      var records = grassGpu && grassGpu.cell_records;
+      var cellCount = records ? Math.floor(records.length / 12) : 0;
+      var parameters = new Uint32Array([
+        instanceCount,
+        grassGpu.blades_per_cell,
+        cellCount,
+        0
+      ]);
+      this._device.queue.writeBuffer(runtime.cellBuffer, 0, records);
+      this._device.queue.writeBuffer(runtime.parameterBuffer, 0, parameters);
+      var encoder = this._device.createCommandEncoder({ label: "vf-grass-blade-compute" });
+      var pass = encoder.beginComputePass({ label: "vf-grass-blade-compute" });
+      pass.setPipeline(this._pipeGrassBladeCompute);
+      pass.setBindGroup(0, runtime.bindGroup);
+      pass.dispatchWorkgroups(Math.ceil(instanceCount / 64));
+      pass.end();
+      this._device.queue.submit([encoder.finish()]);
+    },
+
+    _createGrassGpuRuntime: function (grassGpu, instanceCount) {
+      if (!this._pipeGrassBladeCompute || !this._grassBladeComputeBindLayout) {
+        failFast("grass GPU packet requires the grass compute pipeline");
+      }
+      if (!grassGpu || grassGpu.kind !== "grass-blade-philox:v1" ||
+          !(grassGpu.cell_records instanceof Uint32Array) ||
+          grassGpu.cell_stride_words !== 12 ||
+          !(grassGpu.blades_per_cell > 0) || !(instanceCount > 0)) {
+        failFast("grass GPU packet has invalid bounded descriptors");
+      }
+      var dev = this._device;
+      var cellBuffer = dev.createBuffer({
+        label: "vf-grass-cell-descriptors",
+        size: grassGpu.cell_records.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      });
+      var instanceBuffer = dev.createBuffer({
+        label: "vf-grass-blade-instances",
+        size: instanceCount * 64,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX
+      });
+      var parameterBuffer = dev.createBuffer({
+        label: "vf-grass-compute-parameters",
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+      });
+      var runtime = {
+        cellBuffer: cellBuffer,
+        instanceBuffer: instanceBuffer,
+        parameterBuffer: parameterBuffer,
+        cellBytes: grassGpu.cell_records.byteLength,
+        instanceBytes: instanceCount * 64,
+        bindGroup: dev.createBindGroup({
+          layout: this._grassBladeComputeBindLayout,
+          entries: [
+            { binding: 0, resource: { buffer: cellBuffer } },
+            { binding: 1, resource: { buffer: instanceBuffer } },
+            { binding: 2, resource: { buffer: parameterBuffer } }
+          ]
+        })
+      };
+      this._dispatchGrassGpuRuntime(runtime, grassGpu, instanceCount);
+      return runtime;
+    },
+
+    _updateGrassGpuRuntime: function (runtime, grassGpu, instanceCount) {
+      if (!runtime || !grassGpu ||
+          runtime.cellBytes !== grassGpu.cell_records.byteLength ||
+          runtime.instanceBytes !== instanceCount * 64) {
+        failFast("grass GPU retained update exceeds its allocated buffers");
+      }
+      this._dispatchGrassGpuRuntime(runtime, grassGpu, instanceCount);
+    },
+
+    _destroyGrassGpuRuntime: function (runtime) {
+      if (!runtime) { return; }
+      if (runtime.cellBuffer) { try { runtime.cellBuffer.destroy(); } catch(_){} }
+      if (runtime.instanceBuffer) { try { runtime.instanceBuffer.destroy(); } catch(_){} }
+      if (runtime.parameterBuffer) { try { runtime.parameterBuffer.destroy(); } catch(_){} }
+    },
+
     _createScenePart: function (mesh, index) {
       var dev = this._device;
       var sg2 = sharedWgpu;
@@ -8657,8 +8772,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         dev.queue.writeBuffer(ib, 0, mesh.indices);
       }
       var instanceBuf = null;
+      var grassGpuRuntime = null;
       if (physicsRuntime && physicsRuntime.renderInstanceBuffer) {
         instanceBuf = physicsRuntime.renderInstanceBuffer;
+      } else if (mesh.grass_gpu) {
+        grassGpuRuntime = this._createGrassGpuRuntime(
+          mesh.grass_gpu,
+          Number(mesh.instance_count || 0)
+        );
+        instanceBuf = grassGpuRuntime.instanceBuffer;
       } else if (mesh.instances && mesh.instances.byteLength > 0) {
         instanceBuf = dev.createBuffer({
           size: mesh.instances.byteLength,
@@ -8712,6 +8834,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         sharedGrassIndexEntry: sharedGrassIndexEntry,
         sharedGrassIndexSource: sharedGrassIndexEntry ? mesh.indices : null,
         instanceBuf: instanceBuf,
+        grassGpuRuntime: grassGpuRuntime,
         rockMaterialBuf: rockMaterialBuf,
         rockMaterialByteLength: rockMaterialData ? rockMaterialData.byteLength : 0,
         physicsRuntime: physicsRuntime,
@@ -8721,7 +8844,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         instanceKind: mesh.instance_kind || null,
         staticIndices: mesh.static_indices === true,
         staticVertices: mesh.static_vertices === true,
-        staticInstances: mesh.static_instances === true || (mesh.static_vertices === true && mesh.static_indices === true && !!mesh.instance_kind),
+        staticInstances: mesh.static_instances === true || (mesh.static_instances == null && mesh.static_vertices === true && mesh.static_indices === true && !!mesh.instance_kind),
         ibCount: mesh.indices.length,
         topology: mesh.topology || "triangle-list",
         uniformBuf: uniformBuf,
@@ -8751,6 +8874,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (part.mesh.indices.byteLength !== mesh.indices.byteLength) { return false; }
       if (!!part.mesh.instances !== !!mesh.instances) { return false; }
       if (part.mesh.instances && mesh.instances && part.mesh.instances.byteLength !== mesh.instances.byteLength) { return false; }
+      if (!!part.grassGpuRuntime !== !!mesh.grass_gpu) { return false; }
+      if (part.grassGpuRuntime && (
+          part.grassGpuRuntime.cellBytes !== mesh.grass_gpu.cell_records.byteLength ||
+          part.grassGpuRuntime.instanceBytes !== Number(mesh.instance_count || 0) * 64)) { return false; }
       if (!!part.rockMaterialBuf !== !!mesh.rock_material_gpu) { return false; }
       if (part.rockMaterialBuf && part.rockMaterialByteLength !== (mesh.vertices.length / 10) * 24) { return false; }
       return true;
@@ -8791,6 +8918,13 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           if (mesh.instances && existing.instanceBuf && !existing.staticInstances && !existing.physicsRuntime) {
             dev.queue.writeBuffer(existing.instanceBuf, 0, mesh.instances);
           }
+          if (mesh.grass_gpu && existing.grassGpuRuntime && !existing.staticInstances) {
+            this._updateGrassGpuRuntime(
+              existing.grassGpuRuntime,
+              mesh.grass_gpu,
+              Number(mesh.instance_count || 0)
+            );
+          }
           if (existing.rockMaterialBuf) {
             var nextRockMaterialData = packRockMaterialVertexData(mesh);
             dev.queue.writeBuffer(existing.rockMaterialBuf, 0, nextRockMaterialData);
@@ -8802,7 +8936,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           existing.instanceKind = mesh.instance_kind || null;
           existing.staticIndices = mesh.static_indices === true;
           existing.staticVertices = mesh.static_vertices === true;
-          existing.staticInstances = mesh.static_instances === true || (mesh.static_vertices === true && mesh.static_indices === true && !!mesh.instance_kind);
+          existing.staticInstances = mesh.static_instances === true || (mesh.static_instances == null && mesh.static_vertices === true && mesh.static_indices === true && !!mesh.instance_kind);
           existing.topology = mesh.topology || "triangle-list";
           existing.objectId = Number(mesh.object_id || (i + 1)) || (i + 1);
           nextParts[i] = existing;
@@ -9495,6 +9629,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pipeSphereInst = sg.pipeSphereInst || null;
     this._pipeCylinderInst = sg.pipeCylinderInst || null;
     this._pipeGrassBladeInst = sg.pipeGrassBladeInst || null;
+    this._pipeGrassBladeCompute = sg.pipeGrassBladeCompute || null;
+    this._grassBladeComputeBindLayout = sg.grassBladeComputeBindLayout || null;
     this._pipePointImpostor = sg.pipePointImpostor || null;
     this._pipePointImpostorDepth = sg.pipePointImpostorDepth || null;
     this._pipeLineImpostor = sg.pipeLineImpostor || null;
