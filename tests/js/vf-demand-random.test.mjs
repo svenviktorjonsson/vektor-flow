@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   encodeDemandIdentity,
   philox4x32_10,
+  sha256Bytes,
 } from '../../web/vf-ui/vf-demand-random.mjs';
 
 test('Philox4x32-10 matches the Random123 known-answer vectors', () => {
@@ -27,6 +28,18 @@ test('Philox4x32-10 matches the Random123 known-answer vectors', () => {
 
   for (const vector of vectors) {
     assert.deepEqual(philox4x32_10(vector.counter, vector.key), vector.expected);
+  }
+});
+
+test('identity digest matches the FIPS 180-4 SHA-256 vectors', () => {
+  const vectors = [
+    ['', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'],
+    ['abc', 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'],
+  ];
+
+  for (const [input, expected] of vectors) {
+    const digest = sha256Bytes(new TextEncoder().encode(input));
+    assert.equal(Buffer.from(digest).toString('hex'), expected);
   }
 });
 
