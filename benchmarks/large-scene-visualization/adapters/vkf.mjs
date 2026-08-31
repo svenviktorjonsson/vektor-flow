@@ -29,14 +29,25 @@ export function createVkfLargeSceneAdapter(canvas, workload, options = {}) {
   }
   const renderer = rendererFactory(canvas);
   let initialized = false;
+  let rendered = false;
+  let retainedProjection = null;
+
+  function sameProjection(left, right) {
+    return left != null && ['worldOrigin', 'screenOrigin', 'xAxis', 'yAxis', 'zAxis']
+      .every((name) => left[name].every((value, index) => value === right[name][index]));
+  }
 
   function renderFrame(frame) {
     if (!initialized) throw new Error('VKF large-scene adapter must initialize before rendering');
-    setRetainedWorldPointCloud2D(renderer, points, projectionForFrame(workload, frame), {
+    const nextProjection = projectionForFrame(workload, frame);
+    if (rendered && sameProjection(retainedProjection, nextProjection)) return;
+    setRetainedWorldPointCloud2D(renderer, points, nextProjection, {
       count: workload.pointCount,
       pointSize: workload.pointDiameterPixels,
       color: workload.pointRgba.map((value) => value / 255),
     });
+    retainedProjection = nextProjection;
+    rendered = true;
   }
 
   async function initialize() {
@@ -53,6 +64,8 @@ export function createVkfLargeSceneAdapter(canvas, workload, options = {}) {
   function destroy() {
     renderer.destroy();
     initialized = false;
+    rendered = false;
+    retainedProjection = null;
   }
 
   return Object.freeze({ initialize, renderFrame, destroy });
