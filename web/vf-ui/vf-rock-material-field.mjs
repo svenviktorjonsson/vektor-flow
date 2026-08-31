@@ -136,3 +136,142 @@ export function sampleRockMaterialReference(
     tangentNormal: normalizedTangentNormal(derivativeU, derivativeV),
   });
 }
+
+function requireRadii(radii) {
+  const isTypedArray = ArrayBuffer.isView(radii) && !(radii instanceof DataView);
+  if ((!Array.isArray(radii) && !isTypedArray) || radii.length !== 3) {
+    throw new TypeError('rock material radii must contain exactly three numbers');
+  }
+  for (let axis = 0; axis < 3; axis += 1) {
+    if (typeof radii[axis] !== 'number') {
+      throw new TypeError(`rock material radius[${axis}] must be a number`);
+    }
+    if (!Number.isFinite(radii[axis]) || !(radii[axis] > 0)) {
+      throw new RangeError(`rock material radius[${axis}] must be finite and positive`);
+    }
+  }
+}
+
+function signNotZero(value) {
+  return value < 0 ? -1 : 1;
+}
+
+export function rockEllipsoidSurfaceCoordinatesReference(position, radii) {
+  if (!position || position.length !== 3) {
+    throw new TypeError('rock material position must contain exactly three numbers');
+  }
+  requireRadii(radii);
+  const direction = position.map((value, axis) => {
+    if (typeof value !== 'number') {
+      throw new TypeError(`rock material position[${axis}] must be a number`);
+    }
+    if (!Number.isFinite(value)) {
+      throw new RangeError(`rock material position[${axis}] must be finite`);
+    }
+    return value / radii[axis];
+  });
+  const scale = Math.abs(direction[0]) + Math.abs(direction[1]) + Math.abs(direction[2]);
+  if (!(scale > 0)) {
+    throw new RangeError('rock material position must not be the ellipsoid origin');
+  }
+  const x = direction[0] / scale;
+  const y = direction[1] / scale;
+  const z = direction[2] / scale;
+  if (z >= 0) {
+    return Object.freeze([x, y]);
+  }
+  return Object.freeze([
+    (1 - Math.abs(y)) * signNotZero(x),
+    (1 - Math.abs(x)) * signNotZero(y),
+  ]);
+}
+
+function normalize3(vector) {
+  const length = Math.hypot(...vector);
+  return vector.map((value) => value / length);
+}
+
+function cross3(first, second) {
+  return [
+    first[1] * second[2] - first[2] * second[1],
+    first[2] * second[0] - first[0] * second[2],
+    first[0] * second[1] - first[1] * second[0],
+  ];
+}
+
+function worldNormal(baseNormal, tangentNormal) {
+  const reference = Math.abs(baseNormal[2]) < 0.9 ? [0, 0, 1] : [0, 1, 0];
+  const tangent = normalize3(cross3(reference, baseNormal));
+  const bitangent = normalize3(cross3(baseNormal, tangent));
+  return normalize3([
+    tangent[0] * tangentNormal[0]
+      + bitangent[0] * tangentNormal[1]
+      + baseNormal[0] * tangentNormal[2],
+    tangent[1] * tangentNormal[0]
+      + bitangent[1] * tangentNormal[1]
+      + baseNormal[1] * tangentNormal[2],
+    tangent[2] * tangentNormal[0]
+      + bitangent[2] * tangentNormal[1]
+      + baseNormal[2] * tangentNormal[2],
+  ]);
+}
+
+export function adaptRockMaterialToRendererPacketReference(
+  packet,
+  field,
+  { radii, detailLevel, footprint },
+) {
+  if (
+    !packet
+    || packet.type !== 'field_mesh'
+    || !(packet.vertices instanceof Float32Array)
+    || packet.vertices.length % 10 !== 0
+    || !(packet.indices instanceof Uint32Array)
+  ) {
+    throw new TypeError('rock field-mesh renderer packet is required');
+  }
+  requireRadii(radii);
+  requireOptions({ detailLevel, footprint });
+  if (!fieldState.has(field)) {
+    throw new TypeError('rock material field is required');
+  }
+  const vertexCount = packet.vertices.length / 10;
+  const vertices = new Float32Array(packet.vertices.length);
+  const roughness = new Float32Array(vertexCount);
+  const displacement = new Float32Array(vertexCount);
+  const surfaceCoordinates = new Float32Array(vertexCount * 2);
+  let roughnessSum = 0;
+  for (let vertex = 0; vertex < vertexCount; vertex += 1) {
+    const offset = vertex * 10;
+    const position = Array.from(packet.vertices.slice(offset, offset + 3));
+    const baseNormal = normalize3(Array.from(packet.vertices.slice(offset + 3, offset + 6)));
+    const coordinates = rockEllipsoidSurfaceCoordinatesReference(position, radii);
+    const sample = sampleRockMaterialReference(field, coordinates, {
+      detailLevel,
+      footprint,
+    });
+    const perturbedNormal = worldNormal(baseNormal, sample.tangentNormal);
+    vertices.set([
+      position[0] + baseNormal[0] * sample.displacement,
+      position[1] + baseNormal[1] * sample.displacement,
+      position[2] + baseNormal[2] * sample.displacement,
+      ...perturbedNormal,
+      ...sample.baseColor,
+    ], offset);
+    roughness[vertex] = sample.roughness;
+    displacement[vertex] = sample.displacement;
+    surfaceCoordinates.set(coordinates, vertex * 2);
+    roughnessSum += sample.roughness;
+  }
+  return Object.freeze({
+    ...packet,
+    vertices,
+    specular_strength: 1 - roughnessSum / vertexCount,
+    material_channels: Object.freeze({
+      kind: field.kind,
+      roughness,
+      displacement,
+      surfaceCoordinates,
+    }),
+  });
+}
