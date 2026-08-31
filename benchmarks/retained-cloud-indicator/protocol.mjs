@@ -14,7 +14,7 @@ export const INDICATOR_PROTOCOL = Object.freeze({
   renderState: Object.freeze({
     framebuffer: Object.freeze([1280, 720]),
     devicePixelRatio: 1,
-    primitive: 'analytic circular point impostor',
+    primitive: '1px discrete point; 4px analytic circular point impostor',
     depthCompare: 'less',
     depthWrite: true,
     blend: 'premultiplied-alpha source-over',
