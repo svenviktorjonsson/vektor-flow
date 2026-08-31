@@ -7,6 +7,7 @@ Recorded: `2026-08-31T14:44:19+02:00`
 - Base: `cdcfb8e21292fe98bd855e51ea19c891bc06a523`
 - Implementation: `ae3d44feb7dcaaa594963844655d328ed83107e6`
 - Research/contract documentation: `2e5b994762ce9c2f5882458aa4a0e922f1784e4a`
+- Correctness-oracle hardening: `682270ed8a83f5ec2353bf38a0e2069d8a930b9a`
 - No public VKF API, renderer, syntax, schema, or ABI changed.
 - No browser was launched; all work was Node-only.
 
@@ -37,11 +38,11 @@ manifest research pins only; peer dependencies were not installed or executed.
 - 1m fixture SHA-256:
   `1520b7e81a98109b762d554900540824cb942b4f7c6bfc44b5695035893d9e5d`.
 - File SHA-256 of `manifest.json`:
-  `e24fcb0f997c99cd28d3319ae4db76641f4cd2127ec47750586bbb6d890a03ec`.
+  `49ac4218fe397e7eadc6ddf247c6877edb48eb97c4256a682f354bc23d1425b8`.
 - Canonical manifest contract SHA-256 embedded in the scaffold:
-  `f262b6e0f175c8f5ae1029f960f42950bc3608c876d72257aa5f0326dbaafa5a`.
+  `c9a0d712bda981f12613f9857fadd835e2b82bd898aece31164d3b23884f4400`.
 - File SHA-256 of `results/scaffold.json`:
-  `a74d5dc7cb1f43fe90f6cc5c43e899bc7ac765014cdbf3ae183b12c75903c0af`.
+  `669c82f7da2ac6686d011c18d94eec8ba9a26fe31c42cdaa55d9741a6db3a7ec`.
 - Every measured lane must upload the same position bytes during preparation;
   measured pan frames may update only the camera. Data rebuild/reupload makes a
   lane noncomparable.
@@ -55,6 +56,8 @@ RED sequence:
 3. equivalence test failed because the manifest had not yet frozen `dataMutation:
    none` and the camera-only pan responsibility;
 4. ratchet test showed that a VKF-only timing could be mislabeled published.
+5. oracle-contract test failed until the exact camera formula, ideal-disc
+   reference, 8×8 subpixel grid, and region channels were manifest data.
 
 GREEN behavior:
 
