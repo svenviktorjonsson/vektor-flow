@@ -23,4 +23,8 @@ function edgeLaunchArgs({ profile, port, url, gpuMode = 'swiftshader' }) {
   return args;
 }
 
-module.exports = { edgeLaunchArgs };
+function gpuModeFromEnvironment(environment = process.env) {
+  return environment.VF_LARGE_SCENE_GPU_MODE || 'swiftshader';
+}
+
+module.exports = { edgeLaunchArgs, gpuModeFromEnvironment };

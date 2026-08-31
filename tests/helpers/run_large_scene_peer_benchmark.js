@@ -3,7 +3,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const esbuild = require('esbuild');
-const { edgeLaunchArgs } = require('./large_scene_edge_launch.js');
+const {
+  edgeLaunchArgs,
+  gpuModeFromEnvironment,
+} = require('./large_scene_edge_launch.js');
 const { startLargeSceneIsolatedOrigin } = require('./large_scene_isolated_origin.js');
 
 function delay(milliseconds) {
@@ -97,6 +100,7 @@ async function main() {
   const measured = Number(process.env.VF_LARGE_SCENE_MEASURED || 1);
   const correctnessOnly = process.env.VF_LARGE_SCENE_CORRECTNESS_ONLY !== '0';
   const edgePath = process.env.VF_EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+  const gpuMode = gpuModeFromEnvironment();
   if (!fs.existsSync(edgePath)) throw new Error(`edge missing at ${edgePath}`);
   const port = Number(process.env.VF_LARGE_SCENE_CDP_PORT || 9353);
   const ownedRoot = path.resolve(repoRoot, '.test-tmp');
