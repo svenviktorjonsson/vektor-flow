@@ -235,6 +235,7 @@ inline vf::JsonValue material_mesh(
 }
 
 struct Frame {
+    bool targeted = false;
     std::vector<double> pos;
     std::vector<double> size;
     vf::JsonValue::Object options;
@@ -244,6 +245,34 @@ struct Frame {
 };
 
 }  // namespace detail
+
+struct StaticHtmlLoad {
+    std::uint64_t frame_id;
+    std::string resource;
+};
+
+inline std::vector<StaticHtmlLoad> static_html_loads(const vf::JsonValue& root_value) {
+    std::vector<StaticHtmlLoad> result;
+    const auto& root = detail::object(root_value, "typed IR root");
+    const auto program_entry = root.find("ui_program");
+    if (program_entry == root.end()) return result;
+    const auto& program = detail::object(program_entry->second, "typed UI program");
+    const auto& raw_operations = detail::field(program, "operations", "typed UI program");
+    if (!raw_operations.is_array()) throw Error("typed UI operations must be an array");
+    for (const auto& raw : raw_operations.as_array()) {
+        const auto& operation = detail::object(raw, "typed UI operation");
+        if (detail::text(operation, "kind", "typed UI operation") != "load") continue;
+        const auto& target = detail::object(
+            detail::field(operation, "target", "Frame.load"), "Frame.load target");
+        if (detail::text(target, "kind", "Frame.load target") != "frame") {
+            throw Error("Frame.load requires a Frame target");
+        }
+        const auto& resource = detail::field(operation, "resource", "Frame.load");
+        if (!resource.is_string()) throw Error("Frame.load resource must be a string");
+        result.push_back({detail::id(target, "id", "Frame.load target"), resource.as_string()});
+    }
+    return result;
+}
 
 inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_value) {
     const auto& root = detail::object(root_value, "typed IR root");
@@ -289,11 +318,21 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
             frames.emplace(frame_id, std::move(frame));
             continue;
         }
+        if (kind == "load") {
+            const auto& target = detail::object(
+                detail::field(operation, "target", "Frame.load"), "Frame.load target");
+            const auto frame_id = detail::id(target, "id", "Frame.load target");
+            const auto found = frames.find(frame_id);
+            if (found == frames.end()) throw Error("Frame.load target Frame was not created");
+            found->second.targeted = true;
+            continue;
+        }
         if (kind == "set_geom_options" || kind == "add_camera" ||
             kind == "add_light" || kind == "add") {
             const auto frame_id = detail::id(operation, "frame_id", "retained scene operation");
             const auto found = frames.find(frame_id);
             if (found == frames.end()) throw Error("retained scene target Frame was not created");
+            found->second.targeted = true;
             auto properties = detail::properties(operation);
             if (kind == "set_geom_options") {
                 for (auto& entry : properties) found->second.options[entry.first] = std::move(entry.second);
@@ -313,11 +352,10 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
     vf::JsonValue::Array commands;
     vf::JsonValue::Object geom;
     for (auto& entry : frames) {
-        if (entry.second.meshes.empty() && entry.second.lights.empty() &&
-            !entry.second.camera.has_value() && entry.second.options.empty()) {
-            continue;
-        }
+        if (!entry.second.targeted) continue;
         commands.push_back(detail::frame_command(entry.first, entry.second.pos, entry.second.size));
+        if (entry.second.meshes.empty() && entry.second.lights.empty() &&
+            !entry.second.camera.has_value() && entry.second.options.empty()) continue;
         vf::JsonValue::Object scene;
         scene["frame"] = vf::JsonValue("frame_" + std::to_string(entry.first));
         scene["meshes"] = vf::JsonValue(std::move(entry.second.meshes));
