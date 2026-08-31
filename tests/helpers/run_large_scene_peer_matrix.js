@@ -47,15 +47,33 @@ function runLane(repoRoot, implementation, workload, port) {
 
 function main() {
   const repoRoot = path.resolve(__dirname, '..', '..');
+  const manifest = JSON.parse(fs.readFileSync(
+    path.resolve(repoRoot, 'benchmarks', 'large-scene-visualization', 'manifest.json'),
+    'utf8',
+  ));
   const lanes = [];
   let port = Number(process.env.VF_LARGE_SCENE_MATRIX_PORT || 9360);
   for (let workloadIndex = 0; workloadIndex < WORKLOADS.length; workloadIndex += 1) {
+    const workload = manifest.workloads.find(({ id }) => id === WORKLOADS[workloadIndex]);
+    if (!workload) throw new Error(`manifest workload ${WORKLOADS[workloadIndex]} is missing`);
     const rotated = IMPLEMENTATIONS.map((_, index) => IMPLEMENTATIONS[(index + workloadIndex) % IMPLEMENTATIONS.length]);
     for (const implementation of rotated) {
-      lanes.push(runLane(repoRoot, implementation, WORKLOADS[workloadIndex], port++));
+      if (workload.comparableImplementations.includes(implementation)) {
+        lanes.push(runLane(repoRoot, implementation, workload.id, port++));
+      } else {
+        const exclusion = workload.nonComparableImplementations.find(({ id }) => id === implementation);
+        lanes.push({
+          implementation,
+          workload: workload.id,
+          state: 'not-applicable',
+          passed: null,
+          reason: exclusion.reason,
+        });
+      }
     }
   }
-  const allCorrect = lanes.every(({ passed }) => passed);
+  const requiredLanes = lanes.filter(({ state }) => state !== 'not-applicable');
+  const allCorrect = requiredLanes.every(({ passed }) => passed);
   const firstEnvironment = lanes.find(({ result }) => result?.webgl)?.result;
   const git = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
   const report = {
@@ -67,8 +85,8 @@ function main() {
     globalGate: {
       allEightCorrect: allCorrect,
       timingStarted: false,
-      validCorrectnessRows: lanes.filter(({ passed }) => passed).length,
-      requiredCorrectnessRows: lanes.length,
+      validCorrectnessRows: requiredLanes.filter(({ passed }) => passed).length,
+      requiredCorrectnessRows: requiredLanes.length,
     },
     environment: {
       operatingSystem: `${os.type()} ${os.release()}`,

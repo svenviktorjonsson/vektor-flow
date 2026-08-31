@@ -8,6 +8,11 @@ import {
 
 export const PLOTLY_SCATTERGL_VERSION = '4.0.0';
 
+export function plotlyMarkerSize(workload) {
+  return workload.adapterCalibration?.['plotly-scattergl']?.markerSizePixels
+    ?? workload.pointDiameterPixels;
+}
+
 export function plotlyPlanarPositions(points, pointCount) {
   if (!(points instanceof Float32Array) || points.length < pointCount * 2) {
     throw new TypeError('Plotly positions must contain packed float32 x/y values');
@@ -52,7 +57,7 @@ export function createPlotlyScatterGlLargeSceneAdapter(host, workload, options =
         y: planar.y,
         hoverinfo: 'skip',
         marker: {
-          size: workload.pointDiameterPixels,
+          size: plotlyMarkerSize(workload),
           color: `rgba(${workload.pointRgba.join(',')})`,
           opacity: workload.pointRgba[3] / 255,
           line: { width: 0 },
@@ -77,6 +82,7 @@ export function createPlotlyScatterGlLargeSceneAdapter(host, workload, options =
       });
     },
     async renderFrameImpl(frame) {
+      if (workload.cameraPath.kind === 'fixed') return;
       const ranges = cameraRangesForFrame(workload, frame);
       await Plotly.relayout(plot, { 'xaxis.range': ranges.x, 'yaxis.range': ranges.y });
     },

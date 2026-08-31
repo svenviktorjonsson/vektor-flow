@@ -15,10 +15,10 @@ import { generatePointFixture } from './materialize-fixtures.mjs';
 
 const manifest = JSON.parse(readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'));
 
-function testManifest() {
+function testManifest(workloadIndex = 0) {
   const copy = structuredClone(manifest);
   copy.measurement.minimumMeasuredFrames = 3;
-  copy.workloads = [structuredClone(copy.workloads[0])];
+  copy.workloads = [structuredClone(copy.workloads[workloadIndex])];
   copy.workloads[0].pointCount = 16;
   copy.workloads[0].fixture.sha256 = createHash('sha256')
     .update(generatePointFixture(copy.workloads[0].fixture, 16))
@@ -84,6 +84,10 @@ test('pins equivalent large point workloads and current peer adapter contracts',
     'plotly-scattergl',
   ]);
   assert.deepEqual(manifest.workloads.map(({ pointCount }) => pointCount), [100_000, 1_000_000]);
+  assert.deepEqual(manifest.workloads.map(({ comparableImplementations }) => comparableImplementations), [
+    ['vkf', 'deck-gl', 'vtk-js', 'plotly-scattergl'],
+    ['vkf', 'deck-gl', 'vtk-js'],
+  ]);
   for (const workload of manifest.workloads) {
     assert.deepEqual(workload.viewport, [1280, 720]);
     assert.equal(workload.devicePixelRatio, 1);
@@ -161,6 +165,34 @@ test('a 0.4 measured workload is withheld until every frozen peer row is valid',
     publishedMeasurement(activeManifest, 'vtk-js', [12, 12, 12]),
     { implementation: 'plotly-scattergl', state: 'scaffold', comparable: true },
   ])), /must publish vkf, deck-gl, vtk-js, plotly-scattergl together/);
+});
+
+test('retained pan excludes Plotly relayout but still requires both comparable peers', () => {
+  const activeManifest = testManifest(1);
+  const measurements = [
+    publishedMeasurement(activeManifest, 'vkf', [8, 8, 8]),
+    publishedMeasurement(activeManifest, 'deck-gl', [10, 10, 10]),
+    publishedMeasurement(activeManifest, 'vtk-js', [12, 12, 12]),
+    {
+      implementation: 'plotly-scattergl',
+      state: 'not-applicable',
+      comparable: false,
+      reason: activeManifest.workloads[0].nonComparableImplementations[0].reason,
+    },
+  ];
+  const result = evaluateReport(activeManifest, report(activeManifest, measurements));
+  assert.deepEqual(result.rows.map(({ peer }) => peer), ['deck-gl', 'vtk-js']);
+
+  assert.throws(() => evaluateReport(activeManifest, report(activeManifest, [
+    measurements[0],
+    measurements[1],
+    measurements[3],
+  ])), /must publish vkf, deck-gl, vtk-js together/);
+
+  assert.throws(() => evaluateReport(activeManifest, report(activeManifest, [
+    ...measurements.slice(0, 3),
+    publishedMeasurement(activeManifest, 'plotly-scattergl', [11, 11, 11]),
+  ])), /plotly-scattergl is not comparable for orthographic-points-1m-pan/);
 });
 
 test('published timing is rejected unless correctness completed first on the exact contract', () => {
