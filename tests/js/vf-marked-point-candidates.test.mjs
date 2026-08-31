@@ -56,3 +56,31 @@ test('queried cell produces pinned bounded candidate identities and marks', () =
   assert.ok(candidates.every((candidate) => Object.isFrozen(candidate.position)));
   assert.ok(candidates.every((candidate) => Object.isFrozen(candidate.marks)));
 });
+
+test('cell candidate generation rejects malformed or unbounded requests', () => {
+  const node = createPointNode();
+  const valid = {
+    cellSize: 10,
+    maxCandidates: 2,
+    baseProbability: 0.5,
+    correlationLength: 20,
+    spatialStrength: 0.5,
+  };
+  const sample = (cell, overrides = {}) => sampleMarkedPointCell2Reference(
+    node,
+    cell,
+    { ...valid, ...overrides },
+  );
+
+  assert.throws(() => sample([0]), TypeError);
+  assert.throws(() => sample([0.5, 0]), TypeError);
+  assert.throws(() => sample([0x80000000, 0]), RangeError);
+  assert.throws(() => sample([0, 0], { cellSize: 0 }), RangeError);
+  assert.throws(() => sample([0, 0], { maxCandidates: -1 }), RangeError);
+  assert.throws(() => sample([0, 0], { maxCandidates: 1_025 }), RangeError);
+  assert.throws(() => sample([0, 0], { baseProbability: 1.1 }), RangeError);
+  assert.throws(() => sample([0, 0], { correlationLength: Infinity }), RangeError);
+  assert.throws(() => sample([0, 0], { spatialStrength: -0.1 }), RangeError);
+  assert.throws(() => sample([0, 0], { spatialStrength: 1.1 }), RangeError);
+  assert.deepEqual(sample(new Int32Array([0, 0]), { maxCandidates: 0 }), []);
+});

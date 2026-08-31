@@ -7,6 +7,31 @@ import {
 } from './vf-spatial-correlation.mjs';
 
 const U32_RANGE = 0x100000000;
+const MAX_CANDIDATES_PER_CELL = 1_024;
+
+function requireCell2(cell) {
+  const isTypedArray = ArrayBuffer.isView(cell) && !(cell instanceof DataView);
+  if ((!Array.isArray(cell) && !isTypedArray) || cell.length !== 2) {
+    throw new TypeError('marked-point cell must contain exactly two integers');
+  }
+  for (let index = 0; index < 2; index += 1) {
+    if (!Number.isInteger(cell[index])) {
+      throw new TypeError(`marked-point cell[${index}] must be an integer`);
+    }
+    if (cell[index] < -0x80000000 || cell[index] > 0x7fffffff) {
+      throw new RangeError(`marked-point cell[${index}] must fit signed 32-bit`);
+    }
+  }
+}
+
+function requireFiniteScalar(value, name, { min = -Infinity, max = Infinity } = {}) {
+  if (typeof value !== 'number') {
+    throw new TypeError(`${name} must be a number`);
+  }
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new RangeError(`${name} must be finite and in [${min}, ${max}]`);
+  }
+}
 
 function sampleUnit(node, slot, lane) {
   return sampleBoundedUniform(node, [slot, lane], { min: 0, max: 1 });
@@ -27,13 +52,33 @@ export function sampleMarkedPointCell2Reference(
     spatialStrength,
   },
 ) {
-  const densityNode = conditionChild(node, {
-    segment: 'density-field',
-    channel: 'marked-point-density',
-  });
+  requireCell2(cell);
+  requireFiniteScalar(cellSize, 'marked-point cell size', { min: Number.MIN_VALUE });
+  if (!Number.isInteger(maxCandidates)) {
+    throw new TypeError('marked-point maximum candidates must be an integer');
+  }
+  if (maxCandidates < 0 || maxCandidates > MAX_CANDIDATES_PER_CELL) {
+    throw new RangeError(
+      `marked-point maximum candidates must be in [0, ${MAX_CANDIDATES_PER_CELL}]`,
+    );
+  }
+  requireFiniteScalar(baseProbability, 'marked-point base probability', { min: 0, max: 1 });
+  requireFiniteScalar(
+    correlationLength,
+    'marked-point correlation length',
+    { min: Number.MIN_VALUE },
+  );
+  requireFiniteScalar(spatialStrength, 'marked-point spatial strength', { min: 0, max: 1 });
   const cellNode = conditionChild(node, {
     segment: `cell:${cell[0]}:${cell[1]}`,
     channel: 'marked-point-candidates',
+  });
+  if (maxCandidates === 0) {
+    return Object.freeze([]);
+  }
+  const densityNode = conditionChild(node, {
+    segment: 'density-field',
+    channel: 'marked-point-density',
   });
   const frozenCell = Object.freeze([...cell]);
   const center = [(cell[0] + 0.5) * cellSize, (cell[1] + 0.5) * cellSize];
