@@ -31,6 +31,28 @@ function rendererInfo(gl) {
   };
 }
 
+function clockEvidence(reads = 100_000) {
+  if (globalThis.crossOriginIsolated !== true) {
+    throw new Error('large-scene timing requires a cross-origin-isolated origin');
+  }
+  let previous = performance.now();
+  let minimumPositiveDeltaMs = Infinity;
+  let positiveReads = 0;
+  for (let index = 0; index < reads; index += 1) {
+    const current = performance.now();
+    const delta = current - previous;
+    if (delta > 0) {
+      minimumPositiveDeltaMs = Math.min(minimumPositiveDeltaMs, delta);
+      positiveReads += 1;
+    }
+    previous = current;
+  }
+  if (!Number.isFinite(minimumPositiveDeltaMs) || minimumPositiveDeltaMs > 0.01) {
+    throw new Error(`large-scene timing clock resolution ${minimumPositiveDeltaMs}ms exceeds 0.01ms`);
+  }
+  return { crossOriginIsolated: true, minimumPositiveDeltaMs, reads, positiveReads };
+}
+
 async function execute() {
   const query = new URLSearchParams(location.search);
   const implementation = query.get('implementation');
@@ -39,6 +61,7 @@ async function execute() {
   const workload = manifest.workloads.find(({ id }) => id === workloadId);
   if (!factory) throw new Error(`unknown implementation ${implementation}`);
   if (!workload) throw new Error(`unknown workload ${workloadId}`);
+  const clock = clockEvidence();
   const tracker = installLargeBufferUploadTracker(workload.pointCount * 4);
   const adapter = factory(document.getElementById('host'), workload, { tracker });
   const result = await runCorrectnessThenTiming(adapter, workload, {
@@ -55,6 +78,7 @@ async function execute() {
     adapterVersion: result.version,
     userAgent: navigator.userAgent,
     webgl: rendererInfo(gl),
+    clock,
     correctness: result.correctness,
     timing: result.timing,
   };
