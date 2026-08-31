@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>rock camera demand runtime smoke</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #10141a;
+      }
+
+      #layer {
+        position: fixed;
+        inset: 0;
+      }
+    </style>
+  </head>
+  <body data-vf-runtime-autoboot="false">
+    <div id="layer"></div>
+    <canvas id="vf-screen-canvas"></canvas>
+    <script src="../../web/vf-ui/vf-runtime-shell.js"></script>
+    <script type="module">
+      import {
+        createCoarseEllipsoidReference,
+      } from '../../web/vf-ui/vf-demand-refined-geometry.mjs';
+      import {
+        createEllipsoidCameraDemandControllerReference,
+        createRetainedGeometryPacketRuntimeReference,
+      } from '../../web/vf-ui/vf-rock-camera-demand-runtime.mjs';
+
+      const frameId = 'rock_camera_demand_runtime_frame';
+      const camera = (eye) => Object.freeze({
+        eye: Object.freeze(eye),
+        target: Object.freeze([0, 0, 0]),
+        up: Object.freeze([0, 0, 1]),
+        verticalFovRadians: Math.PI / 3,
+        viewportHeight: 1080,
+      });
+      const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      const waitForRenderer = async () => {
+        for (let attempt = 0; attempt < 120; attempt += 1) {
+          const status = window.VfDisplay.geomFrameStatus(frameId);
+          if (status && status.runningRenderers > 0) return;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error('rock camera demand renderer did not start');
+      };
+
+      try {
+        await window.VfRuntimeShell.ensureSceneDependencies();
+        const layer = document.getElementById('layer');
+        const panel = window.VfFrame.mount(layer, {
+          id: frameId,
+          title: 'Demand-refined rock',
+          draggable: false,
+          dockable: false,
+          resizable: false,
+          closable: false,
+        });
+        panel.root.style.left = '5%';
+        panel.root.style.top = '5%';
+        panel.root.style.width = '90%';
+        panel.root.style.height = '90%';
+
+        let livePackets = Object.freeze([]);
+        let mounted = false;
+        const receipts = [];
+        const runtime = createRetainedGeometryPacketRuntimeReference({
+          requestRender: (packets, receipt) => {
+            livePackets = packets;
+            receipts.push({
+              upserted: [...receipt.upserted],
+              removed: [...receipt.removed],
+              upload: receipt.upload,
+            });
+            if (mounted) {
+              window.VfDisplay.requestDynamicGeomFrameUpdate(frameId);
+            }
+          },
+        });
+        const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+        const controller = createEllipsoidCameraDemandControllerReference({
+          coarse,
+          runtime,
+          maxErrorPixels: 0,
+          refinementBudget: 4,
+          vertexBudget: 2,
+          faceBudget: 6,
+        });
+
+        await controller.request({ revision: 1, camera: camera([8, 0, 0]) });
+        window.VfDisplay.mountDynamicGeomFrame(frameId, () => ({
+          meshes: livePackets,
+          camera: {
+            pos: [7, -7, 5],
+            target: [0, 0, 0],
+            up: [0, 0, 1],
+            fov: 42,
+          },
+          lights: [{
+            id: 'rock_key',
+            kind: 'point',
+            pos: [4, -5, 7],
+            target: [0, 0, 0],
+            color: [1, 0.94, 0.82, 1],
+            intensity: 14,
+            range: 20,
+          }],
+          background: [0.035, 0.05, 0.075, 1],
+          unified_renderer: true,
+        }));
+        mounted = true;
+        window.VfDisplay.requestDynamicGeomFrameUpdate(frameId);
+        await waitForRenderer();
+
+        await controller.request({ revision: 2, camera: camera([8, 0, -2]) });
+        await nextFrame();
+        await nextFrame();
+        await controller.request({ revision: 3, camera: camera([8, 0, 0]) });
+        await nextFrame();
+        await nextFrame();
+
+        window.__rockCameraDemandRuntimeEvidence = {
+          receipts,
+          status: controller.status(),
+          ids: livePackets.map(({ id }) => id),
+          objectIds: livePackets.map(({ object_id: objectId }) => objectId),
+        };
+      } catch (error) {
+        window.__vfLastError = String(error && error.stack || error);
+      }
+    </script>
+  </body>
+</html>
