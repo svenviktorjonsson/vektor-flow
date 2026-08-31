@@ -1,7 +1,7 @@
 {
   "schema": "vkf.large-scene-visualization-report",
   "schemaVersion": 1,
-  "manifestSha256": "f262b6e0f175c8f5ae1029f960f42950bc3608c876d72257aa5f0326dbaafa5a",
+  "manifestSha256": "c9a0d712bda981f12613f9857fadd835e2b82bd898aece31164d3b23884f4400",
   "status": "scaffold",
   "environment": {
     "operatingSystem": "not-measured",
