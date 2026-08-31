@@ -46,9 +46,13 @@ export function installWebGpuFixtureTracker(minimumFixtureBytes, globals = globa
   }
   const queuePrototype = globals.GPUQueue?.prototype;
   const devicePrototype = globals.GPUDevice?.prototype;
+  const bufferPrototype = globals.GPUBuffer?.prototype;
+  const encoderPrototype = globals.GPUCommandEncoder?.prototype;
   if (!queuePrototype || !devicePrototype) throw new Error('WebGPU prototypes are required for retention tracking');
   const originalWriteBuffer = queuePrototype.writeBuffer;
   const originalCreateBuffer = devicePrototype.createBuffer;
+  const originalMapAsync = bufferPrototype?.mapAsync;
+  const originalCopyBufferToBuffer = encoderPrototype?.copyBufferToBuffer;
   const fixtureBuffers = new Set();
   const creationSizes = new Map();
   const writeHistory = [];
@@ -56,6 +60,9 @@ export function installWebGpuFixtureTracker(minimumFixtureBytes, globals = globa
   let fixtureBufferWritesAfterInitialize = 0;
   let fixtureBufferBytesAfterInitialize = 0;
   let fixtureBufferReallocationsAfterInitialize = 0;
+  let fixtureBufferMapsAfterInitialize = 0;
+  let fixtureBufferCopiesAfterInitialize = 0;
+  let largeMappedAtCreationAfterInitialize = 0;
   queuePrototype.writeBuffer = function(buffer, offset, source, ...rest) {
     const bytes = byteLength(source);
     writeHistory.push({ buffer, bytes, initialized });
@@ -69,9 +76,34 @@ export function installWebGpuFixtureTracker(minimumFixtureBytes, globals = globa
     const buffer = originalCreateBuffer.call(this, descriptor);
     const size = Number(descriptor?.size) || 0;
     creationSizes.set(buffer, size);
-    if (initialized && size >= minimumFixtureBytes) fixtureBufferReallocationsAfterInitialize += 1;
+    if (initialized && size >= minimumFixtureBytes) {
+      fixtureBufferReallocationsAfterInitialize += 1;
+      if (descriptor?.mappedAtCreation === true) largeMappedAtCreationAfterInitialize += 1;
+    }
     return buffer;
   };
+  if (typeof originalMapAsync === 'function') {
+    bufferPrototype.mapAsync = function(...args) {
+      if (initialized && fixtureBuffers.has(this)) {
+        fixtureBufferWritesAfterInitialize += 1;
+        fixtureBufferBytesAfterInitialize += creationSizes.get(this) ?? 0;
+        fixtureBufferMapsAfterInitialize += 1;
+      }
+      return originalMapAsync.apply(this, args);
+    };
+  }
+  if (typeof originalCopyBufferToBuffer === 'function') {
+    encoderPrototype.copyBufferToBuffer = function(source, sourceOffset, destination, destinationOffset, size) {
+      if (initialized && fixtureBuffers.has(destination)) {
+        fixtureBufferWritesAfterInitialize += 1;
+        fixtureBufferBytesAfterInitialize += Number(size) || 0;
+        fixtureBufferCopiesAfterInitialize += 1;
+      }
+      return originalCopyBufferToBuffer.call(
+        this, source, sourceOffset, destination, destinationOffset, size,
+      );
+    };
+  }
   return Object.freeze({
     registerFixtureBuffer(buffer) {
       if (!creationSizes.has(buffer)) throw new Error('fixture buffer was not created under the tracker');
@@ -94,11 +126,18 @@ export function installWebGpuFixtureTracker(minimumFixtureBytes, globals = globa
         fixtureBufferWritesAfterInitialize,
         fixtureBufferBytesAfterInitialize,
         fixtureBufferReallocationsAfterInitialize,
+        fixtureBufferMapsAfterInitialize,
+        fixtureBufferCopiesAfterInitialize,
+        largeMappedAtCreationAfterInitialize,
       };
     },
     restore() {
       queuePrototype.writeBuffer = originalWriteBuffer;
       devicePrototype.createBuffer = originalCreateBuffer;
+      if (typeof originalMapAsync === 'function') bufferPrototype.mapAsync = originalMapAsync;
+      if (typeof originalCopyBufferToBuffer === 'function') {
+        encoderPrototype.copyBufferToBuffer = originalCopyBufferToBuffer;
+      }
     },
   });
 }

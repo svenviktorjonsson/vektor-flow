@@ -9,7 +9,22 @@ export const INDICATOR_PROTOCOL = Object.freeze({
   measuredFrames: 100,
   orbitFrames: 100,
   fixtureSeed: 144862629,
-  timingBoundary: 'animation-frame callback through explicit GPU completion',
+  fixtureSha256: '469116dd54fbf3bcf2a061cbbd81a27bbb9d17c5bc0d1f2804fc70d4ce5a9104',
+  correctnessFrames: Object.freeze([0, 25, 50, 75, 100]),
+  renderState: Object.freeze({
+    framebuffer: Object.freeze([1280, 720]),
+    devicePixelRatio: 1,
+    primitive: 'analytic circular point impostor',
+    depthCompare: 'less',
+    depthWrite: true,
+    blend: 'premultiplied-alpha source-over',
+    sampleCount: 4,
+    canvasColorSpace: 'srgb',
+    backgroundRgba: Object.freeze([0, 0, 0, 255]),
+    clipDepth: 'WebGPU 0..1',
+    orthographicHalfHeight: 1.1,
+  }),
+  timingBoundary: 'rAF callback scheduling, GPU timestamp pass, and serialized completion reported separately',
 });
 
 function mix32(value) {
@@ -67,13 +82,13 @@ export function orbitProjection(frame, viewport = INDICATOR_PROTOCOL.viewport) {
     throw new RangeError(`frame ${frame} is outside the deterministic orbit`);
   }
   const [width, height] = viewport;
-  const scale = Math.min(width, height) * 0.44;
+  const scale = height / (2 * INDICATOR_PROTOCOL.renderState.orthographicHalfHeight);
   const angle = 2 * Math.PI * frame / INDICATOR_PROTOCOL.orbitFrames;
   return Object.freeze({
     worldOrigin: Object.freeze([0, 0, 0]),
     screenOrigin: Object.freeze([width / 2, height / 2]),
     xAxis: Object.freeze([scale * Math.cos(angle), 0]),
     yAxis: Object.freeze([0, -scale]),
-    zAxis: Object.freeze([scale * Math.sin(angle), 0]),
+    zAxis: Object.freeze([-scale * Math.sin(angle), 0]),
   });
 }
