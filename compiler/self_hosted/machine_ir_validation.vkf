@@ -102,6 +102,7 @@ machine_ir_numeric_positive_conditional_stack_maxima(
     )
     module: mir.mir_lower_numeric_positive_conditional_typed_module(application)
     (module.entry.instructions.2.kind = "return_f64")?!
+    (module.functions.0.instructions.1.kind = "return_f64")?!
     (module.functions.1.instructions.3.kind = "jump_if_false")?!
     (module.functions.1.instructions.5.kind = "return_f64")?!
     (module.functions.1.instructions.6.kind = "label")?!
