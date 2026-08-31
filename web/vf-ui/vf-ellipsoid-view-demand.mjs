@@ -52,10 +52,36 @@ function binaryCompare(first, second) {
   return first < second ? -1 : first > second ? 1 : 0;
 }
 
+function traversalFaces(shape, traversalChunks) {
+  if (traversalChunks === undefined) {
+    return shape.faces;
+  }
+  if (
+    !Array.isArray(traversalChunks)
+    || traversalChunks.some((chunk) => !Array.isArray(chunk))
+  ) {
+    throw new TypeError('ellipsoid view traversal chunks must be arrays');
+  }
+  const ids = traversalChunks.flat();
+  const faceById = new Map(shape.faces.map((face) => [face.id, face]));
+  const uniqueIds = new Set(ids);
+  if (
+    ids.length !== shape.faces.length
+    || uniqueIds.size !== ids.length
+    || ids.some((id) => !faceById.has(id))
+  ) {
+    throw new RangeError(
+      'ellipsoid view traversal must contain every face identity exactly once',
+    );
+  }
+  return ids.map((id) => faceById.get(id));
+}
+
 export function selectEllipsoidViewDemandReference(shape, {
   camera,
   maxErrorPixels,
   budget,
+  traversalChunks,
 }) {
   if (typeof budget !== 'number') {
     throw new TypeError('ellipsoid view refinement budget must be a number');
@@ -69,6 +95,7 @@ export function selectEllipsoidViewDemandReference(shape, {
       `ellipsoid view refinement budget must be an integer from 0 to ${MAX_REFINEMENT_BUDGET}`,
     );
   }
+  const visitedFaces = traversalFaces(shape, traversalChunks);
   const positions = new Map(shape.vertices.map(({ id, position }) => [id, position]));
   const basis = cameraBasis(camera);
   const facing = new Map(shape.faces.map((face) => {
@@ -79,7 +106,7 @@ export function selectEllipsoidViewDemandReference(shape, {
     return [face.id, value < -FACING_EPSILON ? 'back' : 'visible'];
   }));
   const facesByEdge = new Map();
-  for (const face of shape.faces) {
+  for (const face of visitedFaces) {
     for (const edge of face.boundary) {
       const incident = facesByEdge.get(edge) ?? [];
       incident.push(face.id);
@@ -154,6 +181,10 @@ export function selectEllipsoidViewDemandReference(shape, {
     || second.projectedErrorPixels - first.projectedErrorPixels
     || second.errorBoundPixels - first.errorBoundPixels
     || binaryCompare(first.face, second.face)
+  ));
+  const canonicalFaceIndex = new Map(shape.faces.map(({ id }, index) => [id, index]));
+  culled.sort((first, second) => (
+    canonicalFaceIndex.get(first) - canonicalFaceIndex.get(second)
   ));
   return Object.freeze({
     demands: Object.freeze(candidates.slice(0, budget).map(({ face }) => face)),

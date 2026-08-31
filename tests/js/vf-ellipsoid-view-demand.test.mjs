@@ -130,3 +130,23 @@ test('silhouette candidates outrank a visible interior face', () => {
     'face:+x:+y:+z',
   ]);
 });
+
+test('face demands are stable across traversal order and chunks', () => {
+  const shape = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const ids = shape.faces.map(({ id }) => id);
+  const select = (traversalChunks) => selectEllipsoidViewDemandReference(shape, {
+    camera: { ...camera, eye: [8, 8, 8] },
+    maxErrorPixels: 0,
+    budget: 3,
+    traversalChunks,
+  });
+  const forward = select([ids]);
+  const reversed = select([[...ids].reverse()]);
+  const chunked = select([ids.slice(0, 1), ids.slice(1, 6), ids.slice(6)]);
+
+  assert.deepEqual(reversed, forward);
+  assert.deepEqual(chunked, forward);
+  assert.throws(() => select([ids.slice(1)]), RangeError);
+  assert.throws(() => select([[ids[0], ...ids]]), RangeError);
+  assert.throws(() => select([[...ids.slice(0, -1), 'face:missing']]), RangeError);
+});
