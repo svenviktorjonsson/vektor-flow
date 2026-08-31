@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "evidenceStatus": "implementation-provisional",
+  "workload": "four-independent-integer-recurrences",
+  "iterationsPerLane": 250000000,
+  "sampleCount": 7,
+  "compilerSha256": "07d2d6eb9f651ae54cf1247cd2d5c42804381670034b61caed151511f0a96934",
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "logicalCpus": 14,
+    "node": "v24.11.0"
+  },
+  "correctness": {
+    "equalOutputs": true
+  },
+  "oneCore": {
+    "configuredCores": 1,
+    "groupSelected": false,
+    "output": ["250000001", "250000002", "250000003", "250000004"],
+    "samplesMs": [
+      2488.8583,
+      1406.6539,
+      1210.5594,
+      1443.5857,
+      2029.804,
+      4465.9527,
+      6038.4761
+    ],
+    "meanMs": 2726.2700142857143,
+    "sampleStddevMs": 1835.877566624358,
+    "medianMs": 2029.804,
+    "p95Ms": 6038.4761,
+    "minMs": 1210.5594,
+    "maxMs": 6038.4761
+  },
+  "fourCore": {
+    "configuredCores": 4,
+    "groupSelected": true,
+    "output": ["250000001", "250000002", "250000003", "250000004"],
+    "samplesMs": [
+      818.6928,
+      708.4865,
+      667.007,
+      493.6877,
+      898.7747,
+      1379.0403,
+      1160.0181
+    ],
+    "meanMs": 875.1010142857142,
+    "sampleStddevMs": 304.25168060860636,
+    "medianMs": 818.6928,
+    "p95Ms": 1379.0403,
+    "minMs": 493.6877,
+    "maxMs": 1379.0403
+  },
+  "speedup": {
+    "median": 2.4793231356132606,
+    "p95": 4.37875245560264
+  }
+}
