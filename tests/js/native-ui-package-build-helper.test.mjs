@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { test } from "node:test";
 
 test(
@@ -25,8 +26,19 @@ test(
     assert.equal(plan.usesShortRepositoryPath, true);
     assert.equal(plan.buildDirectory, "build/v");
     assert.equal(plan.packageUiBinaryDirectory, "build/v");
-    assert.ok(plan.legacyMsbuildScratchPathLength > 260);
-    assert.ok(plan.mappedCMakeScratchPathLength < 200);
+
+    const syntheticDeepWorktree = path.win32.join(
+      "C:\\checkout",
+      `worktree-${"x".repeat(180)}`,
+    );
+    const syntheticMsbuildScratch = path.win32.join(
+      syntheticDeepWorktree,
+      "build/vf-overlay",
+      "CMakeFiles/CMakeScratch/TryCompile-12345678",
+      "cmTC_123456.dir/Debug/cmTC_123456.tlog/link-rc.read.1.tlog",
+    );
+    assert.equal(syntheticMsbuildScratch.length, 321);
+    assert.ok(syntheticMsbuildScratch.length > 260);
     assert.equal(plan.minimumNinjaVersion, "1.11.0");
     assert.equal(plan.pinnedNinjaVersion, "1.12.1");
     assert.equal(
