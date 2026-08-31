@@ -122,7 +122,8 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
                              std::uint32_t numeric_output_count = 0,
                              MathImports math_imports = MathImports::all(),
                              const std::vector<vkf::machine_ir::OutputKind>& sequence_outputs = {},
-                             const std::vector<vkf::machine_ir::OutputToken>& output_tokens = {}) {
+                             const std::vector<vkf::machine_ir::OutputToken>& output_tokens = {},
+                             bool execute_automatic_cpu_pair = false) {
     constexpr std::uint64_t image_base = 0x140000000ull;
     constexpr std::uint32_t file_alignment = 0x200;
     constexpr std::uint32_t section_alignment = 0x1000;
@@ -216,6 +217,11 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
         {"Sleep", 0},
         {"GetActiveProcessorCount", 0},
     };
+    if (execute_automatic_cpu_pair) {
+        kernel_imports.push_back({"CreateThread", 0});
+        kernel_imports.push_back({"WaitForSingleObject", 0});
+        kernel_imports.push_back({"CloseHandle", 0});
+    }
     const auto kernel_lookup_patch = rdata.values.size();
     for (std::size_t index = 0; index <= kernel_imports.size(); ++index) rdata.u64(0);
     for (auto& imported : msvcrt_imports) {
@@ -366,6 +372,9 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto wall_time_iat = imported_kernel_iat("GetSystemTimePreciseAsFileTime");
     const auto sleep_iat = imported_kernel_iat("Sleep");
     const auto cpu_count_iat = imported_kernel_iat("GetActiveProcessorCount");
+    const auto create_thread_iat = imported_kernel_iat("CreateThread");
+    const auto wait_for_single_object_iat = imported_kernel_iat("WaitForSingleObject");
+    const auto close_handle_iat = imported_kernel_iat("CloseHandle");
     const auto wrapper_start = out.values.size();
     const auto emit_display_plan = [&]() {
         std::uint32_t component = 0;
@@ -495,6 +504,13 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     // are otherwise unused by the Windows entry wrapper.
     emit_runtime_import(fopen_iat, 0x138);
     emit_runtime_import(fscanf_iat, 0x140);
+    if (execute_automatic_cpu_pair) {
+        // Wrapper-private gap before runtime_output_base; these are not
+        // target-neutral Machine IR runtime slots.
+        emit_runtime_import(create_thread_iat, 0x148);
+        emit_runtime_import(wait_for_single_object_iat, 0x150);
+        emit_runtime_import(close_handle_iat, 0x158);
+    }
     if (sequence_output) {
         out.raw({0x4c, 0x8d, 0x64, 0x24, 0x20, 0x4c, 0x89, 0xe1, 0xe8});
     } else {
