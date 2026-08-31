@@ -32,6 +32,33 @@ test('weighted categorical sampling selects a pinned category without expansion'
   );
 });
 
+test('weighted categorical sampling strictly validates compact weights', () => {
+  const child = conditionChild(createConditionedRoot(ROOT_IDENTITY), {
+    segment: 'instance:17',
+    channel: 'species',
+  });
+  const sample = [3, 0];
+
+  assert.throws(() => sampleWeightedCategoricalIndex(child, sample, []), RangeError);
+  assert.throws(() => sampleWeightedCategoricalIndex(child, sample, [0, 0]), RangeError);
+  assert.throws(() => sampleWeightedCategoricalIndex(child, sample, [1, -1]), RangeError);
+  assert.throws(() => sampleWeightedCategoricalIndex(child, sample, [1, NaN]), RangeError);
+  assert.throws(
+    () => sampleWeightedCategoricalIndex(child, sample, [Number.MAX_VALUE, Number.MAX_VALUE]),
+    RangeError,
+  );
+  assert.throws(
+    () => sampleWeightedCategoricalIndex(child, sample, new Set([1, 2])),
+    TypeError,
+  );
+
+  const compactHugeWeights = Object.freeze([1e15, 3e15]);
+  assert.equal(
+    sampleWeightedCategoricalIndex(child, sample, compactHugeWeights),
+    1,
+  );
+});
+
 test('normal reference transform matches a pinned Box-Muller oracle', () => {
   const root = createConditionedRoot(ROOT_IDENTITY);
   const child = conditionChild(root, {

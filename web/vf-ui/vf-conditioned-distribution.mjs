@@ -88,10 +88,42 @@ export function sampleBoundedUniform(node, sample, { min, max }) {
   return min + span * unit;
 }
 
+function requireCategoricalWeights(weights) {
+  const isTypedArray = ArrayBuffer.isView(weights) && !(weights instanceof DataView);
+  if (!Array.isArray(weights) && !isTypedArray) {
+    throw new TypeError('categorical weights must be an array or typed array');
+  }
+  if (weights.length === 0) {
+    throw new RangeError('categorical weights must not be empty');
+  }
+  let total = 0;
+  let lastPositiveIndex = -1;
+  for (let index = 0; index < weights.length; index += 1) {
+    const weight = weights[index];
+    if (typeof weight !== 'number') {
+      throw new TypeError(`categorical weight[${index}] must be a number`);
+    }
+    if (!Number.isFinite(weight) || weight < 0) {
+      throw new RangeError(`categorical weight[${index}] must be finite and non-negative`);
+    }
+    total += weight;
+    if (!Number.isFinite(total)) {
+      throw new RangeError('categorical weight total must be finite');
+    }
+    if (weight > 0) {
+      lastPositiveIndex = index;
+    }
+  }
+  if (!(total > 0)) {
+    throw new RangeError('categorical weights must contain a positive weight');
+  }
+  return { total, lastPositiveIndex };
+}
+
 export function sampleWeightedCategoricalIndex(node, sample, weights) {
   const { stream } = requireNode(node);
   requireSample(sample);
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  const { total, lastPositiveIndex } = requireCategoricalWeights(weights);
   const target = (sampleDemandStreamU32(stream, sample) / U32_RANGE) * total;
   let cumulative = 0;
   for (let index = 0; index < weights.length; index += 1) {
@@ -100,7 +132,7 @@ export function sampleWeightedCategoricalIndex(node, sample, weights) {
       return index;
     }
   }
-  return weights.length - 1;
+  return lastPositiveIndex;
 }
 
 export function normalReferenceFromU32(
