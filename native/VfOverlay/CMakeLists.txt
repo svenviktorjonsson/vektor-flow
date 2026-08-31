@@ -472,6 +472,26 @@ if(MSVC)
   target_link_options(overlay-packet-runtime-input-test PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
 
+add_executable(vf-retained-scene-event-program-runtime-test
+  overlay_packet_runtime.cpp
+  retained_scene_event_program_runtime_test.cpp
+  vf/json.cpp
+  vf/ui_runtime_contract.cpp
+)
+target_include_directories(vf-retained-scene-event-program-runtime-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_compile_definitions(vf-retained-scene-event-program-runtime-test PRIVATE UNICODE _UNICODE)
+target_link_libraries(vf-retained-scene-event-program-runtime-test PRIVATE
+  user32
+  kernel32
+  ws2_32
+)
+if(MSVC)
+  target_compile_options(vf-retained-scene-event-program-runtime-test PRIVATE /Zi)
+  target_link_options(vf-retained-scene-event-program-runtime-test PRIVATE /DEBUG /INCREMENTAL:NO)
+endif()
+
 add_executable(vf-ui-owner-event-queues-test
   ui_owner_event_queues_test.cpp
   vf/json.cpp
