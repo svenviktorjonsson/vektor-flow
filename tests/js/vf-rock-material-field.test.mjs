@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   adaptRockMaterialToRendererPacketReference,
   createRockMaterialFieldReference,
+  rockEllipsoidSurfaceCoordinatesReference,
   sampleRockMaterialReference,
 } from '../../web/vf-ui/vf-rock-material-field.mjs';
 import {
@@ -228,5 +229,42 @@ test('shared rock vertices keep identical filtered material across packet detail
   assert.equal(
     detailMaterial.material_channels.roughness[detailIndex],
     coarseMaterial.material_channels.roughness[coarseIndex],
+  );
+});
+
+test('rock material rejects unbounded demand and pins stable ellipsoid coordinates', () => {
+  const field = createRockMaterialFieldReference(IDENTITY);
+  const valid = { detailLevel: 1, footprint: 0.1 };
+
+  assert.deepEqual(
+    rockEllipsoidSurfaceCoordinatesReference([3, 0, 0], [3, 2, 1.5]),
+    [1, 0],
+  );
+  assert.deepEqual(
+    rockEllipsoidSurfaceCoordinatesReference([6, 0, 0], [3, 2, 1.5]),
+    [1, 0],
+  );
+  assert.deepEqual(
+    rockEllipsoidSurfaceCoordinatesReference([0, 0, -1.5], [3, 2, 1.5]),
+    [1, 1],
+  );
+  assert.throws(() => sampleRockMaterialReference({}, [0, 0], valid), TypeError);
+  assert.throws(() => sampleRockMaterialReference(field, [0], valid), TypeError);
+  assert.throws(() => sampleRockMaterialReference(field, [0, NaN], valid), RangeError);
+  assert.throws(() => sampleRockMaterialReference(field, [0, 0], {
+    ...valid,
+    detailLevel: -1,
+  }), RangeError);
+  assert.throws(() => sampleRockMaterialReference(field, [0, 0], {
+    ...valid,
+    footprint: Infinity,
+  }), RangeError);
+  assert.throws(
+    () => rockEllipsoidSurfaceCoordinatesReference([0, 0, 0], [3, 2, 1.5]),
+    RangeError,
+  );
+  assert.throws(
+    () => rockEllipsoidSurfaceCoordinatesReference([1, 0, 0], [3, 0, 1.5]),
+    RangeError,
   );
 });
