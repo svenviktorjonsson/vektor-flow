@@ -837,7 +837,7 @@ symbolic_parse_relation_tail_right(
 
 symbolic_relation_node(left:any, op:str, right:any, location:SymbolicLocation):
     op = "="?
-        left.kind??
+        @: left.kind??
             "call" => symbolic_definition(
                 left.name,
                 left.args,
