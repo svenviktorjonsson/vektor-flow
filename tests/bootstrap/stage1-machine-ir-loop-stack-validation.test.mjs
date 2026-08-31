@@ -707,3 +707,50 @@ test("VKF rejects a fixed loop whose exit edge is not a conditional branch", () 
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects a fixed loop whose exit block is not terminated by a return", () => {
+  const work = makeWork("i83-term-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /            mir_branch\("label", 1\),\r?\n            mir_load_local\(1\),\r?\n            mir_return_f64\(\)/,
+      [
+        '            mir_branch("label", 1),',
+        "            mir_load_local(1),",
+        '            mir_local("store_local", 1)',
+      ].join("\n"),
+    );
+    assert.notEqual(mutatedMachineIr, originalMachineIr, "loop-exit terminator mutation did not apply");
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "exit-terminator.vkf");
+    const artifact = join(work, `exit-terminator${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_count_to_loop_stack_maxima("count_to", "limit", "value", 3)',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `loop-exit terminator probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "unterminated fixed-loop exit block produced output");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});

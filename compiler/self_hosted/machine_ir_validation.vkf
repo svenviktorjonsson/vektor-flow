@@ -195,6 +195,7 @@ machine_ir_numeric_count_to_loop_stack_maxima(
     (module.functions.0.instructions.6.kind = "jump_if_false")?!
     (module.functions.0.instructions.12.kind = "label")?!
     (module.functions.0.instructions.6.label = module.functions.0.instructions.12.label)?!
+    (module.functions.0.instructions.14.kind = "return_f64")?!
     [num:2] maxima: [0, 0]
     depth: 0
     maximum: 0
