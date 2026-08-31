@@ -1,4 +1,3 @@
-const DEFAULT_COPLANAR_TOLERANCE = 1e-6;
 const FNV_OFFSET_64 = 0xcbf29ce484222325n;
 const FNV_PRIME_64 = 0x100000001b3n;
 const U64_MASK = 0xffffffffffffffffn;
@@ -9,6 +8,16 @@ function finiteNumber(value, label) {
     throw new TypeError(`${label} must be finite`);
   }
   return number;
+}
+
+function compareCodeUnits(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function canonicalId(value, label) {
+  const id = String(value ?? '').trim();
+  if (!id) throw new TypeError(`${label} must be non-empty`);
+  return id;
 }
 
 function canonicalPlane(plane, facetId) {
@@ -49,13 +58,12 @@ function canonicalFacet(input) {
   if (!input || typeof input !== 'object') {
     throw new TypeError('reflection facet must be an object');
   }
-  const id = String(input.id ?? '').trim();
-  if (!id) throw new TypeError('reflection facet id must be non-empty');
+  const id = canonicalId(input.id, 'reflection facet id');
   const projectedPixels = Math.max(0, Math.ceil(finiteNumber(input.projectedPixels ?? 0, `reflection facet "${id}" projectedPixels`)));
   return {
     id,
     plane: canonicalPlane(input.plane, id),
-    neighbors: [...new Set((input.neighbors ?? []).map(value => String(value)))].sort(),
+    neighbors: [...new Set((input.neighbors ?? []).map(value => canonicalId(value, `reflection facet "${id}" neighbor id`)))].sort(compareCodeUnits),
     bounds: canonicalBounds(input.bounds, id),
     projectedPixels,
     schedulable: input.visible !== false && input.frontFacing !== false && projectedPixels > 0
@@ -71,7 +79,7 @@ function planesAreCoplanar(left, right, tolerance) {
 
 function stableHash(parts) {
   let hash = FNV_OFFSET_64;
-  const text = parts.join('\u0000');
+  const text = parts.map(part => `${part.length}:${part}`).join('');
   for (let index = 0; index < text.length; index += 1) {
     hash ^= BigInt(text.charCodeAt(index));
     hash = (hash * FNV_PRIME_64) & U64_MASK;
@@ -95,10 +103,10 @@ function mergeBounds(facets) {
 
 export function clusterReflectionFacets(inputs, options = {}) {
   if (!Array.isArray(inputs)) throw new TypeError('reflection facets must be an array');
-  const tolerance = finiteNumber(options.coplanarTolerance ?? DEFAULT_COPLANAR_TOLERANCE, 'coplanar tolerance');
+  const tolerance = finiteNumber(options.coplanarTolerance ?? 0, 'coplanar tolerance');
   if (tolerance < 0) throw new RangeError('coplanar tolerance must be non-negative');
 
-  const facets = inputs.map(canonicalFacet).sort((left, right) => left.id.localeCompare(right.id));
+  const facets = inputs.map(canonicalFacet).sort((left, right) => compareCodeUnits(left.id, right.id));
   const byId = new Map();
   for (const facet of facets) {
     if (byId.has(facet.id)) throw new RangeError(`duplicate reflection facet id "${facet.id}"`);
@@ -120,7 +128,7 @@ export function clusterReflectionFacets(inputs, options = {}) {
     const leftRoot = find(leftId);
     const rightRoot = find(rightId);
     if (leftRoot === rightRoot) return;
-    if (leftRoot.localeCompare(rightRoot) < 0) parent.set(rightRoot, leftRoot);
+    if (compareCodeUnits(leftRoot, rightRoot) < 0) parent.set(rightRoot, leftRoot);
     else parent.set(leftRoot, rightRoot);
   };
 
@@ -152,7 +160,7 @@ export function clusterReflectionFacets(inputs, options = {}) {
       schedulableFacetIds,
       projectedPixels: group.reduce((sum, facet) => sum + (facet.schedulable ? facet.projectedPixels : 0), 0)
     };
-  }).sort((left, right) => left.facetIds[0].localeCompare(right.facetIds[0]));
+  }).sort((left, right) => compareCodeUnits(left.facetIds[0], right.facetIds[0]));
 }
 
 function nonNegativeInteger(value, label) {
@@ -169,7 +177,7 @@ export function scheduleReflectionCaptures(clusters, budget) {
   const candidates = clusters
     .filter(cluster => Array.isArray(cluster.schedulableFacetIds) && cluster.schedulableFacetIds.length > 0 && cluster.projectedPixels > 0)
     .slice()
-    .sort((left, right) => right.projectedPixels - left.projectedPixels || left.id.localeCompare(right.id));
+    .sort((left, right) => right.projectedPixels - left.projectedPixels || compareCodeUnits(left.id, right.id));
 
   const jobs = [];
   let allocatedPixels = 0;
