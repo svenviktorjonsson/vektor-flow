@@ -28,6 +28,12 @@ import {
 import { rawOrbitUniform } from './adapters/raw-webgpu.mjs';
 import { threeOrbitPosition } from './adapters/three.mjs';
 import { deckOrbitViewState } from './adapters/deck-gl.mjs';
+import {
+  SUITE_IMPLEMENTATIONS,
+  SUITE_REPEATS,
+  aggregateRunMeans,
+  validateSuiteMatrix,
+} from './suite-contract.mjs';
 
 test('release indicator freezes one million aligned XYZ+RGBA8 points and two size lanes', async () => {
   assert.equal(INDICATOR_PROTOCOL.pointCount, 1_000_000);
@@ -301,8 +307,8 @@ test('WebGL tracker rejects split fixture uploads after initialization', () => {
     initialFixtureBufferWrites: 2,
     initialFixtureBufferBytes: 3072,
     initialFixtureBufferAllocations: 2,
-    fixtureBufferWritesAfterInitialize: 2,
-    fixtureBufferBytesAfterInitialize: 4096,
+    fixtureBufferWritesAfterInitialize: 1,
+    fixtureBufferBytesAfterInitialize: 2048,
     fixtureBufferReallocationsAfterInitialize: 1,
     fixtureBufferMapsAfterInitialize: 0,
     fixtureBufferCopiesAfterInitialize: 0,
@@ -401,4 +407,33 @@ test('deck.gl peer receives the exact deterministic orbit state', () => {
   assert.equal(quarter.rotationOrbit, -90);
   assert.equal(frame0.rotationX, 0);
   assert.ok(Math.abs(2 ** frame0.zoom - 720 / 2.2) < 1e-10);
+});
+
+test('suite requires both sizes, every implementation, repeated runs, and one environment', () => {
+  const environmentKey = 'pinned-env';
+  const rows = SUITE_IMPLEMENTATIONS.flatMap((implementation) => (
+    INDICATOR_PROTOCOL.pointSizesPx.map((pointSizePx) => ({
+      implementation,
+      pointSizePx,
+      runs: Array.from({ length: SUITE_REPEATS }, () => ({
+        environmentKey,
+        result: {
+          correctness: { passed: true },
+          timing: { retainedAfterTiming: {
+            fixtureBufferWritesAfterInitialize: 0,
+            fixtureBufferReallocationsAfterInitialize: 0,
+          } },
+        },
+      })),
+    }))
+  ));
+  assert.equal(validateSuiteMatrix(rows, environmentKey), true);
+  assert.throws(() => validateSuiteMatrix(rows.slice(1), environmentKey), /both 1px and 4px/);
+  assert.throws(() => validateSuiteMatrix(rows.map((row, index) => (
+    index === 0 ? { ...row, runs: row.runs.slice(1) } : row
+  )), environmentKey), /requires 3 runs/);
+  const aggregate = aggregateRunMeans([10, 20, 30]);
+  assert.equal(aggregate.meanOfRunMeansMs, 20);
+  assert.equal(aggregate.sampleStddevOfRunMeansMs, 10);
+  assert.equal(aggregate.method, 'two-sided Student t interval, df=2');
 });

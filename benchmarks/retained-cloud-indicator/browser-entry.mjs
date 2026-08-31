@@ -25,12 +25,22 @@ async function rendererInfo() {
   };
 }
 
+function encodeCapturePng(capture) {
+  const canvas = document.createElement('canvas');
+  canvas.width = capture.width;
+  canvas.height = capture.height;
+  const context = canvas.getContext('2d');
+  context.putImageData(new ImageData(new Uint8ClampedArray(capture.rgba), capture.width, capture.height), 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
 async function execute() {
   const query = new URLSearchParams(location.search);
   const pointCount = Number(query.get('pointCount') ?? 10_000);
   const pointSizePx = Number(query.get('pointSizePx') ?? 4);
   const mode = query.get('mode') ?? 'smoke';
   const implementation = query.get('implementation') ?? 'vkf';
+  const captureArtifacts = query.get('captureArtifacts') === '1';
   const fixture = createCloudFixture(pointCount);
   const factories = {
     'deck-gl': createDeckGlAdapter,
@@ -43,7 +53,11 @@ async function execute() {
   const adapter = factory(document.getElementById('host'), fixture);
   let result;
   if (mode === 'full') {
-    result = await runIndicatorLane(adapter, { pointSizePx }, { fixture, release: true });
+    result = await runIndicatorLane(adapter, { pointSizePx }, {
+      fixture,
+      release: true,
+      encodeCaptureArtifact: captureArtifacts ? encodeCapturePng : undefined,
+    });
   } else {
     const cold = await adapter.initialize({ pointSizePx });
     try {

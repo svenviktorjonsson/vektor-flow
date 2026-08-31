@@ -81,6 +81,9 @@ export async function runIndicatorLane(adapter, lane, options = {}) {
       if (verified?.passed !== true || typeof verified.artifactSha256 !== 'string') {
         throw new Error(`correctness capture failed at frame ${frame}: ${JSON.stringify(verified)}`);
       }
+      if (typeof options.encodeCaptureArtifact === 'function') {
+        verified.artifactPngDataUrl = await options.encodeCaptureArtifact(rawCapture, frame, lane);
+      }
       captures.push(verified);
     }
     const anchorHashes = new Set(captures.slice(0, -1).map(({ artifactSha256 }) => artifactSha256));
