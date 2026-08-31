@@ -137,14 +137,14 @@ test('camera changes upload one bounded detail and regenerate evicted packets ex
 
   await run(1, [8, 0, 0]);
   const initial = runtime.packets();
-  const changed = await run(2, [8, 0, 2]);
+  const changed = await run(2, [8, 0, -2]);
   const changedPackets = runtime.packets();
 
   assert.deepEqual(changed.runtime.upserted, [
-    'rock:detail:face:+x:-y:+z',
+    'rock:detail:face:+x:-y:-z',
   ]);
   assert.deepEqual(changed.runtime.removed, [
-    'rock:detail:face:+x:+y:-z',
+    'rock:detail:face:+x:+y:+z',
   ]);
   assert.deepEqual(changed.runtime.upload, {
     packets: 1,
@@ -156,17 +156,17 @@ test('camera changes upload one bounded detail and regenerate evicted packets ex
   });
   assert.strictEqual(changedPackets[0], initial[0]);
   assert.strictEqual(
-    changedPackets.find(({ id }) => id === 'rock:detail:face:+x:+y:+z'),
-    initial.find(({ id }) => id === 'rock:detail:face:+x:+y:+z'),
+    changedPackets[1],
+    initial[2],
   );
 
   const returned = await run(3, [8, 0, 0]);
   const regenerated = runtime.packets();
   assert.deepEqual(returned.runtime.upserted, [
-    'rock:detail:face:+x:+y:-z',
+    'rock:detail:face:+x:+y:+z',
   ]);
   assert.deepEqual(regenerated, initial);
   assert.strictEqual(regenerated[0], initial[0]);
-  assert.strictEqual(regenerated[1], initial[1]);
-  assert.notStrictEqual(regenerated[2], initial[2]);
+  assert.notStrictEqual(regenerated[1], initial[1]);
+  assert.strictEqual(regenerated[2], initial[2]);
 });
