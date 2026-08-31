@@ -55,6 +55,8 @@ function lane(spec, milliseconds, options = {}) {
       },
       timing: milliseconds === null ? null : {
         startedAtSequence: 2,
+        warmupFrames: 60,
+        measuredFrames: 120,
         samplesMs: Array(120).fill(milliseconds),
         measuredGpuFrames: 120,
         gpuCompletionCalls: checkpointCount + 60 + 120,
@@ -100,6 +102,38 @@ test('publishes only after global preflight, exact environment, 60 warmups, and 
     versions: {},
     sourceCommit: 'b'.repeat(40),
   }), /120 measured frames/);
+});
+
+test('rejects over-counted work that claims the exact 60/120 protocol', () => {
+  const specs = applicableLaneSpecs(manifest);
+  const preflight = specs.map((spec) => lane(spec, null));
+  const timing = specs.map((spec) => lane(spec, 1));
+  const build = () => buildTimingEvidence(manifest, {
+    preflight,
+    timing,
+    environment,
+    versions: {},
+    sourceCommit: 'b'.repeat(40),
+  });
+
+  preflight[0].result.correctness.gpuCompletionCalls += 1;
+  assert.throws(build, /correctness GPU completions/);
+  preflight[0].result.correctness.gpuCompletionCalls -= 1;
+
+  timing[0].result.timing.samplesMs.push(1);
+  timing[0].result.timing.measuredGpuFrames += 1;
+  timing[0].result.timing.measuredFrames += 1;
+  timing[0].result.timing.gpuCompletionCalls += 1;
+  assert.throws(build, /exactly 120 measured samples/);
+  timing[0] = lane(specs[0], 1);
+
+  timing[0].result.timing.warmupFrames += 1;
+  timing[0].result.timing.gpuCompletionCalls += 1;
+  assert.throws(build, /exactly 60 warmup frames/);
+  timing[0] = lane(specs[0], 1);
+
+  timing[0].result.timing.gpuCompletionCalls += 1;
+  assert.throws(build, /exactly 183 GPU completions/);
 });
 
 test('withholds publication while preserving raw samples when a ratio fails', () => {
