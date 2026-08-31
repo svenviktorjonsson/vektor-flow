@@ -200,3 +200,39 @@ test('evicted renderer packets regenerate exactly with stable object identities'
   });
   assert.ok(returned.packets.every(({ id }) => !id.includes('face:-x')));
 });
+
+test('adapter rejects malformed and cross-shape retained states', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const working = updateEllipsoidRefinementWorkingSetReference(coarse, null, {
+    demands: [demand('face:+x:+y:+z', 40)],
+    vertexBudget: 1,
+    faceBudget: 3,
+  });
+  const adapted = adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+    working,
+    null,
+  );
+
+  assert.throws(
+    () => adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference({}, null),
+    TypeError,
+  );
+  assert.throws(
+    () => adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(working, {}),
+    TypeError,
+  );
+
+  const otherCoarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const otherWorking = updateEllipsoidRefinementWorkingSetReference(otherCoarse, null, {
+    demands: [demand('face:+x:+y:+z', 40)],
+    vertexBudget: 1,
+    faceBudget: 3,
+  });
+  assert.throws(
+    () => adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+      otherWorking,
+      adapted,
+    ),
+    RangeError,
+  );
+});
