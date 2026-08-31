@@ -3,6 +3,102 @@ import { installWebGlFixtureTracker } from '../retention-ledger.mjs';
 
 export const DECK_GL_VERSION = '9.3.11';
 
+export function deckPrimitiveForPointSize(pointSizePx) {
+  return pointSizePx === 1 ? 'custom-discrete-point-layer' : 'scatterplot-layer';
+}
+
+function createDiscretePointLayerClass({ Layer, project32, color, picking, Model, Geometry }, viewport) {
+  return class DiscretePointLayer extends Layer {
+    static layerName = 'DiscretePointLayer';
+
+    getShaders() {
+      return super.getShaders({
+        modules: [project32, color, picking],
+        vs: `#version 300 es
+          in vec3 positions;
+          in vec3 instancePositions;
+          in vec3 instancePositions64Low;
+          in vec4 instanceFillColors;
+          in vec3 instancePickingColors;
+          out vec2 pointCenterPixels;
+          out vec4 pointColor;
+          void main(void) {
+            geometry.worldPosition = instancePositions;
+            geometry.pickingColor = instancePickingColors;
+            vec4 center = project_position_to_clipspace(
+              instancePositions, instancePositions64Low, vec3(0.0), geometry.position
+            );
+            DECKGL_FILTER_GL_POSITION(center, geometry);
+            pointCenterPixels = (center.xy / center.w * 0.5 + 0.5) * vec2(${viewport[0]}.0, ${viewport[1]}.0);
+            vec3 offset = positions * 1.5;
+            DECKGL_FILTER_SIZE(offset, geometry);
+            center.xy += project_pixel_size_to_clipspace(offset.xy);
+            gl_Position = center;
+            pointColor = vec4(instanceFillColors.rgb, instanceFillColors.a * layer.opacity);
+            DECKGL_FILTER_COLOR(pointColor, geometry);
+          }
+        `,
+        fs: `#version 300 es
+          precision highp float;
+          in vec2 pointCenterPixels;
+          in vec4 pointColor;
+          out vec4 fragColor;
+          void main(void) {
+            if (floor(gl_FragCoord.x) != floor(pointCenterPixels.x)
+                || floor(gl_FragCoord.y) != floor(pointCenterPixels.y)) discard;
+            fragColor = pointColor;
+            DECKGL_FILTER_COLOR(fragColor, geometry);
+          }
+        `,
+      });
+    }
+
+    initializeState() {
+      this.getAttributeManager().addInstanced({
+        instancePositions: {
+          size: 3,
+          type: 'float64',
+          fp64: this.use64bitPositions(),
+          accessor: 'getPosition',
+        },
+        instanceFillColors: {
+          size: 4,
+          type: 'unorm8',
+          accessor: 'getFillColor',
+          defaultValue: [0, 0, 0, 255],
+        },
+      });
+      this.setState({ model: this._getModel() });
+    }
+
+    draw() {
+      this.state.model.draw(this.context.renderPass);
+    }
+
+    finalizeState() {
+      this.state.model?.destroy();
+    }
+
+    _getModel() {
+      return new Model(this.context.device, {
+        ...this.getShaders(),
+        id: this.props.id,
+        bufferLayout: this.getAttributeManager().getBufferLayouts(),
+        geometry: new Geometry({
+          topology: 'triangle-strip',
+          attributes: {
+            positions: {
+              size: 3,
+              value: new Float32Array([-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0]),
+            },
+          },
+        }),
+        isInstanced: true,
+      });
+    }
+  };
+}
+
 export function deckOrbitViewState(frame, viewport) {
   const rotationOrbit = -360 * frame / INDICATOR_PROTOCOL.orbitFrames;
   return {
@@ -49,13 +145,19 @@ export function createDeckGlAdapter(host, fixture, options = {}) {
     async initialize(lane) {
       const started = performance.now();
       tracker = installWebGlFixtureTracker(3_000_000);
-      const [{ Deck, OrbitView, COORDINATE_SYSTEM }, { ScatterplotLayer }] = await Promise.all([
+      const [{ Deck, OrbitView, COORDINATE_SYSTEM, Layer, project32, color, picking },
+        { ScatterplotLayer }, { Model, Geometry }] = await Promise.all([
         import('@deck.gl/core'),
         import('@deck.gl/layers'),
+        import('@luma.gl/engine'),
       ]);
       retainedPositions = fixture.positions;
       retainedColors = fixture.colors;
-      layer = new ScatterplotLayer({
+      const primitive = deckPrimitiveForPointSize(lane.pointSizePx);
+      const LayerClass = primitive === 'custom-discrete-point-layer'
+        ? createDiscretePointLayerClass({ Layer, project32, color, picking, Model, Geometry }, viewport)
+        : ScatterplotLayer;
+      layer = new LayerClass({
         id: 'retained-cloud-scatterplot',
         data: {
           length: fixture.pointCount,
@@ -119,7 +221,7 @@ export function createDeckGlAdapter(host, fixture, options = {}) {
         uploadBytes: fixture.byteLength,
         estimatedGpuBytes: fixture.byteLength + viewport[0] * viewport[1] * 8,
         jsHeapBytes: performance.memory?.usedJSHeapSize ?? null,
-        backend: `deck.gl ${DECK_GL_VERSION} ScatterplotLayer WebGL2`,
+        backend: `deck.gl ${DECK_GL_VERSION} ${primitive} WebGL2`,
         timestampMode: 'unsupported by WebGL adapter',
         sampleCount: gl.getParameter(gl.SAMPLES),
         renderer: gl.getParameter(gl.RENDERER),
