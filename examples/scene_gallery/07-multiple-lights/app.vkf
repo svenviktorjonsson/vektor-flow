@@ -1,0 +1,13 @@
+: .ui.display
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])
+frame.set_geom_options(background:[0.008, 0.012, 0.025, 1], unified_renderer:true)
+frame.add_camera(pos:[4.6, -6.4, 3.8], target:[0, 0.5, 0.6], up:[0, 0, 1], fov:42)
+frame.add_light(id:"warm", kind:"point", pos:[-3.2, -2.5, 4.8], target:[0, 0.5, 0.6], color:[1, 0.35, 0.08, 1], intensity:30, range:16, casts_shadow:true)
+frame.add_light(id:"cool", kind:"point", pos:[3.6, 0.2, 3.6], target:[0, 0.5, 0.6], color:[0.08, 0.45, 1, 1], intensity:26, range:16, casts_shadow:false)
+frame.add(
+    x:[[-1.8, 0, 1.8], [-1.8, 0, 1.8], [-1.8, 0, 1.8]],
+    y:[[-1, -1, -1], [0.5, 0.5, 0.5], [2, 2, 2]],
+    z:[[0, 0.4, 0], [0.2, 1.4, 0.3], [0, 0.5, 0.1]],
+    id:"surface", color:[0.72, 0.72, 0.76, 1], roughness:0.24, specular_strength:0.8, receives_lighting:true, casts_shadow:true
+)

@@ -131,6 +131,28 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "07-multiple-lights",
+      "title": "Warm and cool lights",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "lighting",
+        "multiple-lights"
+      ],
+      "source": "07-multiple-lights/app.vkf",
+      "sourceSha256": "c54710e182b46ef9e9bae391306dc7d3b65f3ffc7b39d60850199b618f03fc48",
+      "media": {
+        "path": "docs/public/images/scene-gallery/07-multiple-lights.png",
+        "sha256": "71dc90afb48017069c6ef1063946faa4c3a74da7e4fd05dbee5712133ff76379"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }
