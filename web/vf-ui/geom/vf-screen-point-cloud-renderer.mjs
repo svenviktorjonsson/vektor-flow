@@ -1,3 +1,8 @@
+import {
+  RETAINED_POINT_COMPONENTS,
+  RETAINED_POINT_DATA,
+} from './internal/vf-retained-point-cloud-camera.mjs';
+
 const DEFAULT_COLOR = Object.freeze([0.396, 0.91, 1, 0.92]);
 
 export function projectPointCloud3DToScreen(positions, count, projection, output = null) {
@@ -43,11 +48,13 @@ export function createScreenSpacePointCloudRenderer(canvas) {
   let zAxisLocation = null;
   let points = new Float32Array();
   let components = 2;
+  let worldMode = false;
   let projection = null;
   let count = 0;
   let pointSize = 4;
   let color = [...DEFAULT_COLOR];
   let capacityBytes = 0;
+  let pointDataDirty = false;
   let destroyed = false;
 
   async function initialize() {
@@ -84,8 +91,10 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     if (!Number.isInteger(nextCount) || nextCount < 0 || nextPoints.length < nextCount * 2) {
       throw new RangeError('screen point count exceeds the packed buffer');
     }
+    pointDataDirty = true;
     points = nextPoints;
     components = 2;
+    worldMode = false;
     projection = null;
     count = nextCount;
     pointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
@@ -96,12 +105,21 @@ export function createScreenSpacePointCloudRenderer(canvas) {
   function setWorldPoints(nextPoints, nextProjection, options = {}) {
     assertAlive();
     if (!(nextPoints instanceof Float32Array)) throw new TypeError('world points must be a Float32Array');
-    const nextCount = options.count == null ? nextPoints.length / 3 : Number(options.count);
-    if (!Number.isInteger(nextCount) || nextCount < 0 || nextPoints.length < nextCount * 3) {
+    const nextComponents = options[RETAINED_POINT_COMPONENTS] === 2 ? 2 : 3;
+    const nextCount = options.count == null ? nextPoints.length / nextComponents : Number(options.count);
+    if (!Number.isInteger(nextCount) || nextCount < 0 || nextPoints.length < nextCount * nextComponents) {
       throw new RangeError('world point count exceeds the packed buffer');
     }
+    const retainPointData = options[RETAINED_POINT_DATA] === true;
+    pointDataDirty = pointDataDirty
+      || !retainPointData
+      || points !== nextPoints
+      || components !== nextComponents
+      || !worldMode
+      || count !== nextCount;
     points = nextPoints;
-    components = 3;
+    components = nextComponents;
+    worldMode = true;
     count = nextCount;
     projection = normalizeProjection(nextProjection);
     pointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
@@ -130,15 +148,19 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     if (requiredBytes > capacityBytes) {
       capacityBytes = growCapacity(capacityBytes, requiredBytes);
       gl.bufferData(gl.ARRAY_BUFFER, capacityBytes, gl.DYNAMIC_DRAW);
+      pointDataDirty = true;
     }
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, points, 0, count * components);
+    if (pointDataDirty) {
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, points, 0, count * components);
+      pointDataDirty = false;
+    }
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, components, gl.FLOAT, false, 0, 0);
     gl.uniform2f(viewportLocation, canvas.width, canvas.height);
     gl.uniform1f(pointSizeLocation, pointSize);
     gl.uniform4fv(colorLocation, color);
-    gl.uniform1i(worldModeLocation, components === 3 ? 1 : 0);
-    if (components === 3) {
+    gl.uniform1i(worldModeLocation, worldMode ? 1 : 0);
+    if (worldMode) {
       gl.uniform3fv(worldOriginLocation, projection.worldOrigin);
       gl.uniform2fv(screenOriginLocation, projection.screenOrigin);
       gl.uniform2fv(xAxisLocation, projection.xAxis);
@@ -158,6 +180,8 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     program = null;
     points = new Float32Array();
     count = 0;
+    worldMode = false;
+    pointDataDirty = false;
   }
 
   function assertAlive() {
