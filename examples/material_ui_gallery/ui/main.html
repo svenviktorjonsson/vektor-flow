@@ -1,0 +1,40 @@
+<link rel="stylesheet" href="gallery.css">
+<main class="gallery-controls" aria-label="VKF material gallery controls">
+  <header>
+    <p class="eyebrow">VKF MATERIAL LAB</p>
+    <h1>Light, surface, flow.</h1>
+    <p class="intro">One compiled scene. Static HTML and CSS. VKF owns every action.</p>
+  </header>
+
+  <nav aria-label="Material views">
+    <button id="view-lighting" type="button">
+      <span>01</span>
+      Lighting + shadow
+    </button>
+    <button id="view-mirror" type="button">
+      <span>02</span>
+      Mirror reflection
+    </button>
+    <button id="view-glass" type="button">
+      <span>03</span>
+      Tinted glass
+    </button>
+    <button id="view-all" type="button">
+      <span>04</span>
+      Full composition
+    </button>
+  </nav>
+
+  <section class="control-group" aria-labelledby="glass-label">
+    <div class="control-heading">
+      <label id="glass-label" for="glass-alpha">Glass alpha</label>
+      <output for="glass-alpha">0.48</output>
+    </div>
+    <input id="glass-alpha" type="range" min="0.08" max="0.92" step="0.02" value="0.48">
+  </section>
+
+  <footer>
+    <span><i class="swatch warm"></i>Warm key</span>
+    <span><i class="swatch cool"></i>Cool fill</span>
+  </footer>
+</main>

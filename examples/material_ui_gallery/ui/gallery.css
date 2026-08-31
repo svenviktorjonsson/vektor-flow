@@ -1,0 +1,128 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.gallery-controls {
+  display: grid;
+  gap: 1rem;
+  min-height: 100%;
+  padding: 1.2rem;
+  color: #edf7ff;
+  background:
+    radial-gradient(circle at 80% 8%, rgba(36, 183, 255, 0.18), transparent 34%),
+    linear-gradient(155deg, rgba(13, 20, 35, 0.98), rgba(6, 10, 19, 0.96));
+  border: 1px solid rgba(126, 204, 255, 0.26);
+}
+
+.eyebrow {
+  margin: 0 0 0.45rem;
+  color: #70d7ff;
+  font-size: 0.67rem;
+  font-weight: 760;
+  letter-spacing: 0.2em;
+}
+
+h1 {
+  max-width: 12ch;
+  margin: 0;
+  font-size: clamp(1.25rem, 2.2vw, 2rem);
+  font-weight: 620;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+.intro {
+  margin: 0.75rem 0 0;
+  color: #9cb1c5;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+nav {
+  display: grid;
+  gap: 0.45rem;
+}
+
+button {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  align-items: center;
+  width: 100%;
+  padding: 0.72rem;
+  color: #dcecff;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(165, 211, 255, 0.12);
+  border-radius: 0.55rem;
+  cursor: pointer;
+  transition: 120ms ease;
+}
+
+button:hover,
+button:focus-visible {
+  color: white;
+  background: rgba(65, 184, 255, 0.12);
+  border-color: rgba(94, 205, 255, 0.56);
+  outline: none;
+  transform: translateX(0.12rem);
+}
+
+button span {
+  color: #61cdfc;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.control-group {
+  align-self: end;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(180, 220, 255, 0.14);
+}
+
+.control-heading,
+footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: #9fb5c9;
+  font-size: 0.72rem;
+}
+
+output {
+  color: #72d7ff;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  width: 100%;
+  margin-top: 0.75rem;
+  accent-color: #3cc8ff;
+}
+
+footer {
+  flex-wrap: wrap;
+  padding-top: 0.8rem;
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.48rem;
+  height: 0.48rem;
+  margin-right: 0.3rem;
+  border-radius: 50%;
+}
+
+.warm {
+  background: #ff9a63;
+  box-shadow: 0 0 0.6rem #ff7b3d;
+}
+
+.cool {
+  background: #55b8ff;
+  box-shadow: 0 0 0.6rem #278cff;
+}
