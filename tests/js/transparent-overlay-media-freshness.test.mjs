@@ -19,6 +19,10 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function sha256CanonicalText(bytes) {
+  return sha256(Buffer.from(bytes.toString("utf8").replaceAll("\r\n", "\n")));
+}
+
 function littleEndianU16(bytes, offset) {
   return bytes[offset] | (bytes[offset + 1] << 8);
 }
@@ -30,7 +34,11 @@ test("transparent overlay README capture remains tied to its executable sources"
   assert.equal(manifest.capture.execution, "headless Edge WebGPU");
 
   for (const [relativePath, expected] of Object.entries(manifest.sources)) {
-    assert.equal(sha256(await readFile(path.join(repoRoot, relativePath))), expected, relativePath);
+    assert.equal(
+      sha256CanonicalText(await readFile(path.join(repoRoot, relativePath))),
+      expected,
+      relativePath,
+    );
   }
 
   for (const [relativePath, spec] of Object.entries(manifest.media)) {

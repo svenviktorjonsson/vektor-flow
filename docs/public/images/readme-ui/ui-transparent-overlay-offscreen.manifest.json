@@ -8,12 +8,12 @@
     "zoom_steps": [-2, 0, 2]
   },
   "sources": {
-    "tests/fixtures/clustered_geometry_emitter_capture.html": "cc29e45c512b482014dfccddd5c94c42ff999a7945024fb8aecdfd5669986446",
-    "tests/helpers/capture_mirror_scene.js": "10838f5496253d853950760bf9ec4fd4927b84a1e6144a2023d1b62487290a0e",
+    "tests/fixtures/clustered_geometry_emitter_capture.html": "d31cebecb40453dfa3418c041107f516df106fd6c6611721f4d3290b7f8aa0d7",
+    "tests/helpers/capture_mirror_scene.js": "9e8086427fb2c70501cfa9b971db1fd963cd4304f5e1451225cd5ffc27b626ee",
     "tests/fixtures/transparent-overlay-acceptance/main.html": "3b5d6b40403ecf5ecbd4f8b1961541f97e071c11196a452c5964c687d72b800d",
     "tests/fixtures/transparent-overlay-acceptance/theme.css": "a57be20b33ceb947a63211648b186589946900b40a9e400271761f2848414583",
     "tests/fixtures/transparent-overlay-acceptance/app.vkf": "a0030b25f03e3a26d6a1443f4affa647f87b72afc6e6e292ec76bc7d07538217",
-    "web/vf-ui/vf-static-html-loader.js": "7b97b3c19780cc1cb09a4cef4f87516664b843925001043239a28f5d19ef3aa5"
+    "web/vf-ui/vf-static-html-loader.js": "71bd12c268b023dab13be48d05caa6ee03048f0cddc761ddfc67c11390340775"
   },
   "media": {
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.png": {
