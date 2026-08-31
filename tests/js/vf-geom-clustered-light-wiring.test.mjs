@@ -108,6 +108,37 @@ test('renderer culls bounded point lights outside the exact camera frustum', () 
   assert.equal(renderer._debugRenderEvidence().plannedLights, 2);
 });
 
+test('renderer projects spot bounds while retaining a near-plane point light', () => {
+  const renderer = createRenderer();
+  renderer._clusteredLightGrid = {
+    xSlices: 4,
+    ySlices: 2,
+    depthSlices: 4,
+    nearDepth: 1,
+    farDepth: 10
+  };
+  renderer._clusteredLightMaxLightsPerCluster = 8;
+
+  const nearPoint = { ...normalizedLight(0), kind: 'point', pos: [0, 0, -1], range: 0.5 };
+  const visibleSpot = {
+    ...normalizedLight(1),
+    kind: 'spot',
+    pos: [0, 0, -4],
+    direction_f32: [0, 0, -1],
+    range: 2,
+    outer_cone_cos: Math.SQRT1_2
+  };
+  const outsideSpot = { ...visibleSpot, id: 'outside', pos: [20, 0, -4] };
+  const plan = renderer._planClusteredLightsForFrame(
+    [nearPoint, visibleSpot, outsideSpot],
+    VIEW_CAMERA
+  );
+
+  assert.equal(plan.culledLightCount, 1);
+  assert.ok(plan.assignmentCount < 96);
+  assert.deepEqual([...new Set(plan.lightIds)], [0, 1]);
+});
+
 test('uploads clustered plans and light records into a bound GPU storage group', () => {
   const renderer = createRenderer();
   const createdBuffers = [];
