@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createCoarseEllipsoidReference,
+  refineEllipsoidChildFaceReference,
   refineEllipsoidFaceReference,
 } from '../../web/vf-ui/vf-demand-refined-geometry.mjs';
 
@@ -203,4 +204,32 @@ test('independently refined neighbors retain their exact shared boundary', () =>
   assert.equal(secondChildren.filter(({ boundary }) => boundary.includes(shared[0])).length, 1);
   assert.ok(!first.vertices.slice(coarse.vertices.length).some(({ id }) => shared[0].includes(id)));
   assert.ok(!second.vertices.slice(coarse.vertices.length).some(({ id }) => shared[0].includes(id)));
+});
+
+test('one demanded child face receives stable hierarchical refinement identities', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const levelOne = refineEllipsoidFaceReference(coarse, 'face:+x:+y:+z');
+  const target = 'face:+x:+y:+z/refine:1/child:0';
+  const levelTwo = refineEllipsoidChildFaceReference(levelOne, target);
+
+  assert.equal(levelTwo.refinement.level, 2);
+  assert.equal(levelTwo.refinement.demand, target);
+  assert.deepEqual(levelTwo.refinement.children, [
+    `${target}/refine:2/child:0`,
+    `${target}/refine:2/child:1`,
+    `${target}/refine:2/child:2`,
+    `${target}/refine:2/child:3`,
+  ]);
+  assert.deepEqual(levelTwo.refinement.midpoints, [
+    'vertex:midpoint:2:edge:vertex:+x|vertex:+y',
+    'vertex:midpoint:2:edge:vertex:+y|vertex:face:+x:+y:+z/refine:1/center',
+    'vertex:midpoint:2:edge:vertex:+x|vertex:face:+x:+y:+z/refine:1/center',
+  ]);
+  assert.equal(levelTwo.refinement.repairs.length, 3);
+  assert.deepEqual(levelTwo.refinement.work, {
+    demandedFaces: 1,
+    conformityFaces: 3,
+    generatedVertices: 3,
+    generatedFaces: 10,
+  });
 });
