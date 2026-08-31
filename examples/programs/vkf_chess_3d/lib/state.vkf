@@ -250,7 +250,7 @@ square_attacked_by(board:any, side:num, file:num, rank:num) -> bit:
             p.captured = false?
                 p.side = side?
                     piece_attacks_square(board, p, file, rank)?
-                        attacked: true
+                        .attacked: true
         i: i + 1
     @: attacked
 
