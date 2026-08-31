@@ -4,6 +4,8 @@ import {
 } from '../../web/vf-ui/geom/vf-clustered-light-plan.mjs';
 import { createVkfMarkerImpostorAdapter } from './adapters/vkf-marker-impostor.mjs';
 import { createRawWebGpuAdapter } from './adapters/raw-webgpu.mjs';
+import { createThreeAdapter } from './adapters/three.mjs';
+import { createDeckGlAdapter } from './adapters/deck-gl.mjs';
 import { runIndicatorLane } from './measurement.mjs';
 import { createCloudFixture, fixtureSha256 } from './protocol.mjs';
 import { verifyCloudCapture } from './correctness.mjs';
@@ -30,9 +32,15 @@ async function execute() {
   const mode = query.get('mode') ?? 'smoke';
   const implementation = query.get('implementation') ?? 'vkf';
   const fixture = createCloudFixture(pointCount);
-  const adapter = implementation === 'raw-webgpu'
-    ? createRawWebGpuAdapter(document.getElementById('host'), fixture)
-    : createVkfMarkerImpostorAdapter(document.getElementById('host'), fixture);
+  const factories = {
+    'deck-gl': createDeckGlAdapter,
+    'raw-webgpu': createRawWebGpuAdapter,
+    three: createThreeAdapter,
+    vkf: createVkfMarkerImpostorAdapter,
+  };
+  const factory = factories[implementation];
+  if (!factory) throw new Error(`unknown retained-cloud implementation ${implementation}`);
+  const adapter = factory(document.getElementById('host'), fixture);
   let result;
   if (mode === 'full') {
     result = await runIndicatorLane(adapter, { pointSizePx }, { fixture, release: true });
