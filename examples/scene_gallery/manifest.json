@@ -109,6 +109,28 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "06-shadows",
+      "title": "Cast shadows",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "lighting",
+        "shadows"
+      ],
+      "source": "06-shadows/app.vkf",
+      "sourceSha256": "c546df46ca85b7766f29d715cf65e1d80492889aa0b44a1b44c2f875787879cf",
+      "media": {
+        "path": "docs/public/images/scene-gallery/06-shadows.png",
+        "sha256": "5cc7fdc16472155732c1f7636748a2af8b386cc617ee1a54a4ca09c2e17ace45"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }
