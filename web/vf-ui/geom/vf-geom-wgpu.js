@@ -6708,6 +6708,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._ibCount    = 0;
     this._topology   = "triangle-list";
     this._parts      = null;
+    this._grassVertexTemplateBuffers = new WeakMap();
+    this._grassIndexTemplateBuffers = new WeakMap();
     this._scenePartSpecsForLightResolution = null;
     this._lastMesh   = null;
     this._lastMeshRevision = -1;
@@ -7065,6 +7067,31 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       });
     },
 
+    _acquireSharedGrassTemplateBuffer: function (cache, data, usage, label) {
+      var entry = cache.get(data);
+      if (entry) {
+        entry.references += 1;
+        return entry;
+      }
+      var buffer = this._device.createBuffer({
+        label: label,
+        size: data.byteLength,
+        usage: usage | GPUBufferUsage.COPY_DST,
+      });
+      this._device.queue.writeBuffer(buffer, 0, data);
+      entry = { buffer: buffer, references: 1 };
+      cache.set(data, entry);
+      return entry;
+    },
+
+    _releaseSharedGrassTemplateBuffer: function (cache, data, entry) {
+      if (!entry) { return; }
+      entry.references = Math.max(0, Number(entry.references || 0) - 1);
+      if (entry.references > 0) { return; }
+      cache.delete(data);
+      if (entry.buffer) { try { entry.buffer.destroy(); } catch(_){} }
+    },
+
     _destroyParts: function () {
       if (!this._parts || !this._parts.length) { this._parts = null; return; }
       for (var i = 0; i < this._parts.length; i++) {
@@ -7079,8 +7106,20 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (part.physicsRuntime && typeof part.physicsRuntime.destroy === "function") {
         try { part.physicsRuntime.destroy(); } catch(_) {}
       }
-      if (part.vb) { try { part.vb.destroy(); } catch(_){} }
-      if (part.ib) { try { part.ib.destroy(); } catch(_){} }
+      if (part.sharedGrassVertexEntry) {
+        this._releaseSharedGrassTemplateBuffer(
+          this._grassVertexTemplateBuffers,
+          part.sharedGrassVertexSource,
+          part.sharedGrassVertexEntry
+        );
+      } else if (part.vb) { try { part.vb.destroy(); } catch(_){} }
+      if (part.sharedGrassIndexEntry) {
+        this._releaseSharedGrassTemplateBuffer(
+          this._grassIndexTemplateBuffers,
+          part.sharedGrassIndexSource,
+          part.sharedGrassIndexEntry
+        );
+      } else if (part.ib) { try { part.ib.destroy(); } catch(_){} }
       if (part.rockMaterialBuf) { try { part.rockMaterialBuf.destroy(); } catch(_){} }
       if (part.instanceBuf) { try { part.instanceBuf.destroy(); } catch(_){} }
       if (part.uniformBuf) { try { part.uniformBuf.destroy(); } catch(_){} }
@@ -8588,14 +8627,35 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var sg2 = sharedWgpu;
       var physicsRuntime = this._createPartPhysicsRuntime(mesh);
       var vb = null;
+      var sharedGrassVertexEntry = null;
+      var sharedGrassIndexEntry = null;
       if (physicsRuntime && physicsRuntime.renderVertexBuffer) {
         vb = physicsRuntime.renderVertexBuffer;
+      } else if (mesh.instance_kind === "grass-blade-list" && mesh.static_vertices === true) {
+        sharedGrassVertexEntry = this._acquireSharedGrassTemplateBuffer(
+          this._grassVertexTemplateBuffers,
+          mesh.vertices,
+          GPUBufferUsage.VERTEX,
+          "grass-blade-template-vertices"
+        );
+        vb = sharedGrassVertexEntry.buffer;
       } else {
         vb = dev.createBuffer({ size: mesh.vertices.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
         dev.queue.writeBuffer(vb, 0, mesh.vertices);
       }
-      var ib = dev.createBuffer({ size: mesh.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-      dev.queue.writeBuffer(ib, 0, mesh.indices);
+      var ib = null;
+      if (mesh.instance_kind === "grass-blade-list" && mesh.static_indices === true) {
+        sharedGrassIndexEntry = this._acquireSharedGrassTemplateBuffer(
+          this._grassIndexTemplateBuffers,
+          mesh.indices,
+          GPUBufferUsage.INDEX,
+          "grass-blade-template-indices"
+        );
+        ib = sharedGrassIndexEntry.buffer;
+      } else {
+        ib = dev.createBuffer({ size: mesh.indices.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+        dev.queue.writeBuffer(ib, 0, mesh.indices);
+      }
       var instanceBuf = null;
       if (physicsRuntime && physicsRuntime.renderInstanceBuffer) {
         instanceBuf = physicsRuntime.renderInstanceBuffer;
@@ -8647,6 +8707,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         mesh: mesh,
         vb: vb,
         ib: ib,
+        sharedGrassVertexEntry: sharedGrassVertexEntry,
+        sharedGrassVertexSource: sharedGrassVertexEntry ? mesh.vertices : null,
+        sharedGrassIndexEntry: sharedGrassIndexEntry,
+        sharedGrassIndexSource: sharedGrassIndexEntry ? mesh.indices : null,
         instanceBuf: instanceBuf,
         rockMaterialBuf: rockMaterialBuf,
         rockMaterialByteLength: rockMaterialData ? rockMaterialData.byteLength : 0,
