@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 
 import {
   assertComparableAdapter,
   runCorrectnessThenTiming,
 } from './peer-measurement.mjs';
+
+const require = createRequire(import.meta.url);
+const { edgeLaunchArgs } = require('../../tests/helpers/large_scene_edge_launch.js');
 
 function workload() {
   return {
