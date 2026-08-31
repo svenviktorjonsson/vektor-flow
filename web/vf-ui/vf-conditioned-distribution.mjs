@@ -120,6 +120,22 @@ function requireCategoricalWeights(weights) {
   return { total, lastPositiveIndex };
 }
 
+function requireFiniteVector2(value, name, { nonNegative = false } = {}) {
+  const isTypedArray = ArrayBuffer.isView(value) && !(value instanceof DataView);
+  if ((!Array.isArray(value) && !isTypedArray) || value.length !== 2) {
+    throw new TypeError(`${name} must contain exactly two numbers`);
+  }
+  for (let index = 0; index < 2; index += 1) {
+    if (typeof value[index] !== 'number') {
+      throw new TypeError(`${name}[${index}] must be a number`);
+    }
+    if (!Number.isFinite(value[index]) || (nonNegative && value[index] < 0)) {
+      const constraint = nonNegative ? 'finite and non-negative' : 'finite';
+      throw new RangeError(`${name}[${index}] must be ${constraint}`);
+    }
+  }
+}
+
 export function sampleWeightedCategoricalIndex(node, sample, weights) {
   const { stream } = requireNode(node);
   requireSample(sample);
@@ -158,6 +174,18 @@ export function correlatedNormal2ReferenceFromU32(
   { mean, standardDeviation, correlation },
 ) {
   requireSample(words);
+  requireFiniteVector2(mean, 'correlated normal mean');
+  requireFiniteVector2(
+    standardDeviation,
+    'correlated normal standard deviation',
+    { nonNegative: true },
+  );
+  if (typeof correlation !== 'number') {
+    throw new TypeError('correlated normal correlation must be a number');
+  }
+  if (!Number.isFinite(correlation) || correlation < -1 || correlation > 1) {
+    throw new RangeError('correlated normal correlation must be finite and in [-1, 1]');
+  }
   const radiusUniform = (words[0] + 0.5) / U32_RANGE;
   const angleUniform = words[1] / U32_RANGE;
   const radius = Math.sqrt(-2 * Math.log(radiusUniform));

@@ -111,6 +111,28 @@ test('demand-keyed correlated normal reaches the same pinned oracle', () => {
   );
 });
 
+test('correlated-normal transform rejects malformed or impossible parameters', () => {
+  const words = [0xf4d2fe28, 0x9ffe0525];
+  const valid = {
+    mean: [10, -5],
+    standardDeviation: [2.5, 4],
+    correlation: 0.75,
+  };
+  const transform = (overrides) => correlatedNormal2ReferenceFromU32(
+    words,
+    { ...valid, ...overrides },
+  );
+
+  assert.throws(() => transform({ mean: [0] }), TypeError);
+  assert.throws(() => transform({ mean: [0, NaN] }), RangeError);
+  assert.throws(() => transform({ standardDeviation: [1] }), TypeError);
+  assert.throws(() => transform({ standardDeviation: [1, -1] }), RangeError);
+  assert.throws(() => transform({ standardDeviation: [1, Infinity] }), RangeError);
+  assert.throws(() => transform({ correlation: NaN }), RangeError);
+  assert.throws(() => transform({ correlation: 1.0000001 }), RangeError);
+  assert.throws(() => transform({ correlation: -1.0000001 }), RangeError);
+});
+
 test('stable parent identity conditions children without branch state', () => {
   const makeChild = (identity, segment) => conditionChild(
     createConditionedRoot(identity),
