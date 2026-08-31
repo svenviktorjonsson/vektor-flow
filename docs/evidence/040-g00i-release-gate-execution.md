@@ -4,6 +4,7 @@
 - Base: `360a226e5764a9eeb2d050fdcd0d95d118cff0a4`
 - Branch: `codex/0.4/040-g00i-release-gate-execution`
 - Implementation: `3cef0f9bbca862610e356e6840ec069048856ac1`
+- Integration follow-up: `688c3e41cdf45a1273e9421d201172eace7d0fab`
 - Implementation tree: `a756b503f259fff491dcf5eaf3eb2170484a3105`
 - Environment: Windows x64, Node.js v24.11.0, MSVC, CMake, Ninja 1.12.1
 
@@ -35,10 +36,10 @@ cmake -S native/VfOverlay -B build/vf-overlay -A x64
 ```
 
 MSBuild FileTracker reported `FTK1011` while creating a `.tlog` below CMake's
-compiler-probe scratch tree. The observed failing path was 274 characters. The
-same layout is 269 characters in the deterministic test probe, beyond the
-legacy Windows/MSBuild path boundary. This classified the failure as release
-build orchestration on an isolated deep worktree, not a native UI regression.
+compiler-probe scratch tree. The observed failing path was 274 characters,
+beyond the legacy Windows/MSBuild path boundary. This classified the failure
+as release build orchestration on an isolated deep worktree, not a native UI
+regression.
 
 The focused test was written first and failed because the build helper did not
 exist:
@@ -72,8 +73,11 @@ Focused verification:
 node --test tests/js/native-ui-package-build-helper.test.mjs
 ```
 
-Result: 1/1 passed. The plan proves a 269-character legacy path becomes a
-199-character short-path Ninja build path.
+Result: 1/1 passed. The test synthesizes a deterministic 321-character
+FileTracker scratch path, independent of checkout location, then proves the
+helper selects Ninja, uses the short repository path, and avoids FileTracker.
+This follow-up was first reproduced RED in the shorter integration worktree,
+where the old checkout-derived assertion measured 249 characters.
 
 Real native UI build:
 
@@ -123,4 +127,4 @@ or mixed into the deep-path repair.
 | --- | --- | --- |
 | `.github/workflows/native-release.yml` | `57d17e92b55bbccfcdf70d47d11435ee2c8dad56` | `b7ab274f65c9299b026416755b6b83f870b96035add59e2b5f855ba0aaa88880` |
 | `scripts/build-native-ui-package.ps1` | `0444b95e046f771ea395e4eb8718e5ae7c84e5f8` | `3591fb659314cc3c6528d4cf019ed7983c556a5391ce6b9426655bf79216a29c` |
-| `tests/js/native-ui-package-build-helper.test.mjs` | `91c1938f3886dabb795722f5b1be1da31ca44151` | `ddadefdbf0ca34792f4fdeb8089b3cf14050262ad2983e57e51aa0ec2955e3e0` |
+| `tests/js/native-ui-package-build-helper.test.mjs` | `da99ee7a5cab4b5212e7b884898f6ff6f312f5c0` | `f19b77b74512248ec0a981a92d94cf9786d6800671483a8b910fb78082f0a49f` |
