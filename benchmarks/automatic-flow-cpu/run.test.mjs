@@ -34,6 +34,11 @@ test('large pure demands are faster with four configured CPUs than one', {
     assert.deepEqual(result.oneCore.output, result.fourCore.output);
     assert.equal(result.oneCore.samplesMs.length, 5);
     assert.equal(result.fourCore.samplesMs.length, 5);
+    assert.equal(
+      result.oneCore.medianMs >= 250,
+      true,
+      `one-core workload was not long enough to separate timings: ${result.oneCore.medianMs} ms`,
+    );
     for (const summary of [result.oneCore, result.fourCore]) {
       for (const name of ['meanMs', 'sampleStddevMs', 'medianMs', 'p95Ms', 'minMs', 'maxMs']) {
         assert.equal(Number.isFinite(summary[name]), true, `${name} is not finite`);
