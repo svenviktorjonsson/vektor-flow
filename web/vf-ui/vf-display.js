@@ -2746,6 +2746,11 @@
     out.light_flares = spec.light_flares || mesh.light_flares || null;
     out.texture = spec.texture || mesh.texture || null;
     out.surface_system = spec.surface_system || mesh.surface_system || null;
+    // Internal procedural-material sidecars must survive display packet
+    // normalization unchanged: renderer retention keys and typed channel
+    // buffers are owned by the demand-refined material adapter.
+    out.rock_material_gpu = spec.rock_material_gpu || mesh.rock_material_gpu || null;
+    out.material_channels = spec.material_channels || mesh.material_channels || null;
     // Physics is a first-class field-mesh property. Preserve it for ordinary
     // triangle meshes as well as instanced and expanded marker meshes.
     out.physics = spec.physics && typeof spec.physics === "object" ? spec.physics : (mesh.physics || null);
@@ -7341,6 +7346,8 @@
           return {
             instanceKind: String(part && part.instanceKind || ""),
             instanceCount: Number(part && part.instanceCount || 0) || 0,
+            hasRockMaterialBuffer: !!(part && part.rockMaterialBuf),
+            rockMaterialBytes: Number(part && part.rockMaterialByteLength || 0) || 0,
             hasPhysicsRuntime: !!(part && part.physicsRuntime),
             physicsParticleCount: Number(part && part.physicsRuntime && part.physicsRuntime.particleCount || 0) || 0,
             physicsGrid: grid ? {

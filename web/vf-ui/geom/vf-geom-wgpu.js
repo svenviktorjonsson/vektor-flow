@@ -18,6 +18,7 @@
   var _vfGeomSuppressedCount = 0;
   var _vfGeomLogThrottleMs = 250;
   var clusteredLightPlannerPromise = null;
+  var rockMaterialShaderPromise = null;
   var DEFAULT_CLUSTERED_LIGHT_GRID = Object.freeze({
     xSlices: 16,
     ySlices: 9,
@@ -130,6 +131,19 @@
       });
     }
     return clusteredLightPlannerPromise;
+  }
+
+  function loadRockMaterialShaderSource() {
+    if (!rockMaterialShaderPromise) {
+      rockMaterialShaderPromise = import(runtimeAssetUrl("../vf-rock-material-gpu.mjs")).then(function (moduleApi) {
+        var source = moduleApi && moduleApi.ROCK_MATERIAL_WGSL;
+        if (typeof source !== "string" || source.indexOf("fn vf_rock_material_sample(") < 0) {
+          throw new Error("rock-material module does not export valid WGSL");
+        }
+        return source;
+      });
+    }
+    return rockMaterialShaderPromise;
   }
 
   function conservativeClusteredLightInputs(lights, grid) {
@@ -1000,6 +1014,9 @@ struct Scene {
   shadow2_pts               : array<vec4<f32>, 32>,
   shadow3_pts               : array<vec4<f32>, 32>,
   depth_params              : vec4<f32>,
+  rock_material_stream      : vec4<u32>,
+  rock_material_radii_enabled: vec4<f32>,
+  rock_material_filter      : vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> sc: Scene;
 @group(0) @binding(1) var surfaceSampler: sampler;
@@ -1021,10 +1038,20 @@ struct ClusteredLightRecord {
 @group(1) @binding(0) var<storage, read> clusteredLightPlan: array<u32>;
 @group(1) @binding(1) var<storage, read> clusteredLightRecords: array<ClusteredLightRecord>;
 
+__VF_ROCK_MATERIAL_WGSL__
+
 struct Vin {
   @location(0) pos   : vec3<f32>,
   @location(1) normal: vec3<f32>,
   @location(2) color : vec4<f32>,
+}
+struct RockMaterialVin {
+  @location(0) pos   : vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) color : vec4<f32>,
+  @location(6) surface_coordinates: vec2<f32>,
+  @location(7) baked_displacement: f32,
+  @location(8) base_normal: vec3<f32>,
 }
 struct SphereInstVin {
   @location(0) pos        : vec3<f32>,
@@ -1049,6 +1076,8 @@ struct Vout {
   @location(3)       local_pos : vec3<f32>,
   @location(4)       screen_pos : vec4<f32>,
   @location(5)       surface_proj_pos : vec4<f32>,
+  @location(6)       rock_surface_coordinates : vec2<f32>,
+  @location(7)       rock_baked_displacement : f32,
 }
 struct PointImpostorVOut {
   @builtin(position) clip    : vec4<f32>,
@@ -3058,6 +3087,25 @@ fn vs(v: Vin) -> Vout {
   // normal in world space (assumes uniform scale)
   o.normal = normalize((sc.model * vec4f(v.normal, 0.0)).xyz);
   o.local_pos = v.pos;
+  o.rock_surface_coordinates = vec2<f32>(0.0);
+  o.rock_baked_displacement = 0.0;
+  return o;
+}
+
+@vertex
+fn vs_rock_material(v: RockMaterialVin) -> Vout {
+  var o: Vout;
+  let wp = (sc.model * vec4f(v.pos, 1.0)).xyz;
+  let rawClip = sc.mvp * vec4f(wp, 1.0);
+  o.clip = applyDepthOffset(rawClip);
+  o.screen_pos = rawClip;
+  o.surface_proj_pos = sc.surface_projector * vec4f(wp, 1.0);
+  o.color = v.color;
+  o.world_pos = wp;
+  o.normal = normalize((sc.model * vec4f(v.base_normal, 0.0)).xyz);
+  o.local_pos = v.pos;
+  o.rock_surface_coordinates = v.surface_coordinates;
+  o.rock_baked_displacement = v.baked_displacement;
   return o;
 }
 
@@ -3074,6 +3122,8 @@ fn vs_sphere_instance(v: SphereInstVin) -> Vout {
   o.world_pos = wp;
   o.normal = normalize((sc.model * vec4f(v.normal, 0.0)).xyz);
   o.local_pos = v.pos;
+  o.rock_surface_coordinates = vec2<f32>(0.0);
+  o.rock_baked_displacement = 0.0;
   return o;
 }
 
@@ -3103,6 +3153,8 @@ fn vs_cylinder_instance(v: CylinderInstVin) -> Vout {
   o.world_pos = wp;
   o.normal = normalize((sc.model * vec4f(wn, 0.0)).xyz);
   o.local_pos = vec3<f32>(v.pos.x, v.pos.y, v.pos.z);
+  o.rock_surface_coordinates = vec2<f32>(0.0);
+  o.rock_baked_displacement = 0.0;
   return o;
 }
 
@@ -3166,8 +3218,39 @@ fn vs_line_impostor(v: CylinderInstVin) -> LineImpostorVOut {
   return o;
 }
 
+fn vfRockWorldNormal(base_normal: vec3<f32>, tangent_normal: vec3<f32>) -> vec3<f32> {
+  let normal = normalize(base_normal);
+  let reference = select(
+    vec3<f32>(0.0, 1.0, 0.0),
+    vec3<f32>(0.0, 0.0, 1.0),
+    abs(normal.z) < 0.9,
+  );
+  let tangent = normalize(cross(reference, normal));
+  let bitangent = normalize(cross(normal, tangent));
+  return normalize(
+    (tangent * tangent_normal.x)
+    + (bitangent * tangent_normal.y)
+    + (normal * tangent_normal.z)
+  );
+}
+
 @fragment
 fn fs(i: Vout) -> @location(0) vec4f {
+  if (sc.rock_material_radii_enabled.w > 0.5) {
+    let surfaceCoordinates = i.rock_surface_coordinates;
+    let pixelFootprint = max(length(dpdx(surfaceCoordinates)), length(dpdy(surfaceCoordinates)));
+    let footprint = max(pixelFootprint, max(sc.rock_material_filter.x, 0.0));
+    let rock = vf_rock_material_sample(
+      surfaceCoordinates,
+      footprint,
+      u32(max(sc.rock_material_filter.y, 0.0)),
+      sc.rock_material_stream.xy,
+      sc.rock_material_stream.zw,
+    );
+    let rockNormal = vfRockWorldNormal(i.normal, rock.tangent_normal);
+    let rockSpecularScale = 0.34 * (1.0 - rock.roughness) * (1.0 - rock.roughness);
+    return shadeLitBaseScaled(rock.base_color.rgb, i.color.a, i.world_pos, rockNormal, false, rockSpecularScale);
+  }
   let materialFootprint = max(length(dpdx(i.local_pos)), length(dpdy(i.local_pos))) * max(sc.texture_params.y, sc.texture_params.z);
   if (sc.texture_params.x > 3.5) {
     let packedScreenFlags = max(sc.texture_params.w, 0.0);
@@ -3604,7 +3687,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         } catch (e) {}
         var format = navigator.gpu.getPreferredCanvasFormat();
         wlog("info", "format: " + format);
-        var mod = device.createShaderModule({ code: SHADER, label: "vf-geom-main" });
+        var rockMaterialShaderSource = await loadRockMaterialShaderSource();
+        var shaderSource = SHADER.replace("__VF_ROCK_MATERIAL_WGSL__", rockMaterialShaderSource);
+        if (shaderSource.indexOf("__VF_ROCK_MATERIAL_WGSL__") >= 0) {
+          throw new Error("rock-material WGSL marker was not resolved");
+        }
+        var mod = device.createShaderModule({ code: shaderSource, label: "vf-geom-main" });
         var flareMod = device.createShaderModule({ code: FLARE_SHADER, label: "vf-geom-flare" });
         logShaderCompilationInfo(mod, "vf-geom-main");
         logShaderCompilationInfo(flareMod, "vf-geom-flare");
@@ -3625,6 +3713,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           attributes: [
             { format: "float32x4", offset:  0, shaderLocation: 3 },
             { format: "float32x4", offset: 16, shaderLocation: 4 },
+          ],
+        };
+        var rockMaterialDesc = {
+          arrayStride: 24,
+          stepMode: "vertex",
+          attributes: [
+            { format: "float32x2", offset: 0, shaderLocation: 6 },
+            { format: "float32", offset: 8, shaderLocation: 7 },
+            { format: "float32x3", offset: 12, shaderLocation: 8 },
           ],
         };
         var cylinderInstDesc = {
@@ -3776,7 +3873,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           return d;
         };
 
-        var pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive, pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, pipeShadow0, pipeShadow1;
+        var pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive, pipeRockTri, pipeRockTriCull, pipeRockTriAlpha, pipeRockTriAlphaCull, pipeRockTriAlphaDepth, pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, pipeShadow0, pipeShadow1;
         pipeTri  = device.createRenderPipeline(makeDesc("triangle-list"));
         pipeTriCull = device.createRenderPipeline(makeDesc("triangle-list", "back"));
         pipeLine = device.createRenderPipeline(makeDesc("line-list"));
@@ -3784,6 +3881,21 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         pipeTriAlphaCull = device.createRenderPipeline(makeDesc("triangle-list", "back", true));
         pipeTriMultiply = device.createRenderPipeline(makeDesc("triangle-list", null, false, null, null, "multiply"));
         pipeTriAdditive = device.createRenderPipeline(makeDesc("triangle-list", null, false, null, null, "additive"));
+        pipeRockTri = device.createRenderPipeline(
+          makeDesc("triangle-list", null, false, "vs_rock_material", [vbufDesc, rockMaterialDesc])
+        );
+        pipeRockTriCull = device.createRenderPipeline(
+          makeDesc("triangle-list", "back", false, "vs_rock_material", [vbufDesc, rockMaterialDesc])
+        );
+        pipeRockTriAlpha = device.createRenderPipeline(
+          makeDesc("triangle-list", null, true, "vs_rock_material", [vbufDesc, rockMaterialDesc])
+        );
+        pipeRockTriAlphaCull = device.createRenderPipeline(
+          makeDesc("triangle-list", "back", true, "vs_rock_material", [vbufDesc, rockMaterialDesc])
+        );
+        pipeRockTriAlphaDepth = device.createRenderPipeline(
+          makeDesc("triangle-list", null, true, "vs_rock_material", [vbufDesc, rockMaterialDesc], null, null, true)
+        );
         pipeSphereInst = device.createRenderPipeline(
           makeDesc("triangle-list", null, false, "vs_sphere_instance", [vbufDesc, sphereInstDesc])
         );
@@ -3947,6 +4059,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         sharedWgpu = {
           device, format, bindLayout,
           pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive,
+          pipeRockTri, pipeRockTriCull, pipeRockTriAlpha, pipeRockTriAlphaCull, pipeRockTriAlphaDepth,
           pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, flareQuadBuf,
           surfaceSampler, defaultSurfaceView, fontSampler, chessFontAtlas, shadowSampler, defaultShadowView,
           clusteredLightBindLayout,
@@ -4423,8 +4536,75 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     f32[depthParamsBase + 1] = clusteredCameraForward[0];
     f32[depthParamsBase + 2] = clusteredCameraForward[1];
     f32[depthParamsBase + 3] = clusteredCameraForward[2];
+    var rockMaterialBase = depthParamsBase + 4;
+    var rockMaterial = meshLike && meshLike.rock_material_gpu;
+    if (rockMaterial) {
+      if (
+        rockMaterial.kind !== "rock-geology-weathering-gpu:v1" ||
+        !Array.isArray(rockMaterial.streamWords) || rockMaterial.streamWords.length !== 4 ||
+        !Array.isArray(rockMaterial.radii) || rockMaterial.radii.length !== 3 ||
+        !Number.isSafeInteger(rockMaterial.detailLevel) || rockMaterial.detailLevel < 0
+      ) {
+        failFast("rock_material_gpu descriptor is malformed");
+      }
+      for (var rockWord = 0; rockWord < 4; rockWord += 1) {
+        var streamWord = rockMaterial.streamWords[rockWord];
+        if (!Number.isInteger(streamWord) || streamWord < 0 || streamWord > 0xffffffff) {
+          failFast("rock_material_gpu stream word must be u32");
+        }
+        u32[rockMaterialBase + rockWord] = streamWord >>> 0;
+      }
+      for (var rockAxis = 0; rockAxis < 3; rockAxis += 1) {
+        var radius = Number(rockMaterial.radii[rockAxis]);
+        if (!Number.isFinite(radius) || !(radius > 0)) {
+          failFast("rock_material_gpu radius must be finite and positive");
+        }
+        f32[rockMaterialBase + 4 + rockAxis] = radius;
+      }
+      var minimumFootprint = Number(rockMaterial.minimumFootprint || 0.0);
+      if (!Number.isFinite(minimumFootprint) || minimumFootprint < 0) {
+        failFast("rock_material_gpu minimum footprint must be finite and non-negative");
+      }
+      f32[rockMaterialBase + 7] = 1.0;
+      f32[rockMaterialBase + 8] = minimumFootprint;
+      f32[rockMaterialBase + 9] = Math.min(0xffffff, rockMaterial.detailLevel);
+      f32[rockMaterialBase + 10] = 6.0;
+      f32[rockMaterialBase + 11] = 1.0;
+      // Per-fragment roughness owns the energy-safe specular scale.
+      f32[75] = 1.0;
+    }
 
     return f32;
+  }
+
+  function packRockMaterialVertexData(meshLike) {
+    if (!meshLike || !meshLike.rock_material_gpu) { return null; }
+    var channels = meshLike.material_channels;
+    var vertexCount = meshLike.vertices && meshLike.vertices.length % 10 === 0
+      ? meshLike.vertices.length / 10
+      : 0;
+    if (
+      !channels ||
+      !(channels.surfaceCoordinates instanceof Float32Array) ||
+      !(channels.displacement instanceof Float32Array) ||
+      !(channels.baseNormals instanceof Float32Array) ||
+      channels.surfaceCoordinates.length !== vertexCount * 2 ||
+      channels.displacement.length !== vertexCount ||
+      channels.baseNormals.length !== vertexCount * 3
+    ) {
+      failFast("rock material channels do not match renderer vertices");
+    }
+    var packed = new Float32Array(vertexCount * 6);
+    for (var vertex = 0; vertex < vertexCount; vertex += 1) {
+      var target = vertex * 6;
+      packed[target + 0] = channels.surfaceCoordinates[vertex * 2 + 0];
+      packed[target + 1] = channels.surfaceCoordinates[vertex * 2 + 1];
+      packed[target + 2] = channels.displacement[vertex];
+      packed[target + 3] = channels.baseNormals[vertex * 3 + 0];
+      packed[target + 4] = channels.baseNormals[vertex * 3 + 1];
+      packed[target + 5] = channels.baseNormals[vertex * 3 + 2];
+    }
+    return packed;
   }
 
   function buildShadowUniform(model, shadowViewProj0, shadowViewProj1) {
@@ -6448,6 +6628,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pipeTri    = null;
     this._pipeLine   = null;
     this._pipeTriAlpha = null;
+    this._pipeRockTri = null;
+    this._pipeRockTriCull = null;
+    this._pipeRockTriAlpha = null;
+    this._pipeRockTriAlphaCull = null;
+    this._pipeRockTriAlphaDepth = null;
     this._pipeTriMultiply = null;
     this._pipeTriAdditive = null;
     this._pipeSphereInst = null;
@@ -6847,6 +7032,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       }
       if (part.vb) { try { part.vb.destroy(); } catch(_){} }
       if (part.ib) { try { part.ib.destroy(); } catch(_){} }
+      if (part.rockMaterialBuf) { try { part.rockMaterialBuf.destroy(); } catch(_){} }
       if (part.instanceBuf) { try { part.instanceBuf.destroy(); } catch(_){} }
       if (part.uniformBuf) { try { part.uniformBuf.destroy(); } catch(_){} }
       if (part.shadowUniformBuf0) { try { part.shadowUniformBuf0.destroy(); } catch(_){} }
@@ -7591,11 +7777,20 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
                       )
                 )
           );
+      if (part.rockMaterialBuf) {
+        pipePart = useTransparentDepthPart
+          ? this._pipeRockTriAlphaDepth
+          : (isTransparentPart
+            ? (useBackfaceCullPart ? this._pipeRockTriAlphaCull : this._pipeRockTriAlpha)
+            : (useBackfaceCullPart ? this._pipeRockTriCull : this._pipeRockTri));
+      }
       pass.setPipeline(pipePart);
       pass.setBindGroup(0, part.bindGroup);
       this._bindClusteredLightStorage(pass);
       pass.setVertexBuffer(0, part.vb);
-      if (part.instanceBuf && part.instanceCount > 0) {
+      if (part.rockMaterialBuf) {
+        pass.setVertexBuffer(1, part.rockMaterialBuf);
+      } else if (part.instanceBuf && part.instanceCount > 0) {
         pass.setVertexBuffer(1, part.instanceBuf);
       }
       pass.setIndexBuffer(part.ib, "uint32");
@@ -8358,6 +8553,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         });
         dev.queue.writeBuffer(instanceBuf, 0, mesh.instances);
       }
+      var rockMaterialData = packRockMaterialVertexData(mesh);
+      var rockMaterialBuf = null;
+      if (rockMaterialData) {
+        rockMaterialBuf = dev.createBuffer({
+          size: rockMaterialData.byteLength,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        dev.queue.writeBuffer(rockMaterialBuf, 0, rockMaterialData);
+      }
       var uniformBuf = dev.createBuffer({
         size: UB_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -8391,6 +8595,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         vb: vb,
         ib: ib,
         instanceBuf: instanceBuf,
+        rockMaterialBuf: rockMaterialBuf,
+        rockMaterialByteLength: rockMaterialData ? rockMaterialData.byteLength : 0,
         physicsRuntime: physicsRuntime,
         physicsLastTimeMs: null,
         physicsAccumulatedDt: 0.0,
@@ -8428,6 +8634,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (part.mesh.indices.byteLength !== mesh.indices.byteLength) { return false; }
       if (!!part.mesh.instances !== !!mesh.instances) { return false; }
       if (part.mesh.instances && mesh.instances && part.mesh.instances.byteLength !== mesh.instances.byteLength) { return false; }
+      if (!!part.rockMaterialBuf !== !!mesh.rock_material_gpu) { return false; }
+      if (part.rockMaterialBuf && part.rockMaterialByteLength !== (mesh.vertices.length / 10) * 24) { return false; }
       return true;
     },
 
@@ -8465,6 +8673,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           }
           if (mesh.instances && existing.instanceBuf && !existing.staticInstances && !existing.physicsRuntime) {
             dev.queue.writeBuffer(existing.instanceBuf, 0, mesh.instances);
+          }
+          if (existing.rockMaterialBuf) {
+            var nextRockMaterialData = packRockMaterialVertexData(mesh);
+            dev.queue.writeBuffer(existing.rockMaterialBuf, 0, nextRockMaterialData);
+            existing.rockMaterialByteLength = nextRockMaterialData.byteLength;
           }
           existing.mesh = mesh;
           existing.ibCount = mesh.indices.length;
@@ -9155,6 +9368,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pipeLine   = sg.pipeLine;
     this._pipeTriAlpha = sg.pipeTriAlpha || null;
     this._pipeTriAlphaDepth = sg.pipeTriAlphaDepth || null;
+    this._pipeRockTri = sg.pipeRockTri || null;
+    this._pipeRockTriCull = sg.pipeRockTriCull || null;
+    this._pipeRockTriAlpha = sg.pipeRockTriAlpha || null;
+    this._pipeRockTriAlphaCull = sg.pipeRockTriAlphaCull || null;
+    this._pipeRockTriAlphaDepth = sg.pipeRockTriAlphaDepth || null;
     this._pipeTriMultiply = sg.pipeTriMultiply || null;
     this._pipeTriAdditive = sg.pipeTriAdditive || null;
     this._pipeSphereInst = sg.pipeSphereInst || null;

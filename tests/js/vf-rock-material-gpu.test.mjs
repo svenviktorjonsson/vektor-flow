@@ -99,6 +99,20 @@ test('headless fixture executes the rock material field through WebGPU', async (
   assert.match(html, /__rockMaterialGpuParityEvidence/);
 });
 
+test('main receiver shader evaluates filtered rock channels per fragment', async () => {
+  const rendererSource = await readFile(
+    new URL('../../web/vf-ui/geom/vf-geom-wgpu.js', import.meta.url),
+    'utf8',
+  );
+  assert.match(rendererSource, /import\(runtimeAssetUrl\("\.\.\/vf-rock-material-gpu\.mjs"\)\)/);
+  assert.match(rendererSource, /rock_material_stream\s*:\s*vec4<u32>/);
+  assert.match(rendererSource, /rock_material_radii_enabled\s*:\s*vec4<f32>/);
+  assert.match(rendererSource, /vf_rock_material_sample\(/);
+  assert.match(rendererSource, /max\(length\(dpdx\(surfaceCoordinates\)\), length\(dpdy\(surfaceCoordinates\)\)\)/);
+  assert.match(rendererSource, /0\.34 \* \(1\.0 - rock\.roughness\) \* \(1\.0 - rock\.roughness\)/);
+  assert.match(rendererSource, /shadeLitBaseScaled\(rock\.base_color\.rgb,[\s\S]*rockSpecularScale\)/);
+});
+
 test('rock GPU fixture packs the exact conditioned stream and CPU material oracle', () => {
   const field = createRockMaterialFieldReference(IDENTITY);
   const descriptor = createRockMaterialGpuDescriptorReference(field, {

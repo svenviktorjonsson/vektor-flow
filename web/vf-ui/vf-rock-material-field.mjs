@@ -265,6 +265,7 @@ export function adaptRockMaterialToRendererPacketReference(
   const roughness = new Float32Array(vertexCount);
   const displacement = new Float32Array(vertexCount);
   const surfaceCoordinates = new Float32Array(vertexCount * 2);
+  const baseNormals = new Float32Array(vertexCount * 3);
   const rockMaterialGpu = createRockMaterialGpuDescriptorReference(field, {
     radii,
     detailLevel,
@@ -291,6 +292,7 @@ export function adaptRockMaterialToRendererPacketReference(
     roughness[vertex] = sample.roughness;
     displacement[vertex] = sample.displacement;
     surfaceCoordinates.set(coordinates, vertex * 2);
+    baseNormals.set(baseNormal, vertex * 3);
     roughnessSum += sample.roughness;
   }
   return Object.freeze({
@@ -303,6 +305,7 @@ export function adaptRockMaterialToRendererPacketReference(
       roughness,
       displacement,
       surfaceCoordinates,
+      baseNormals,
     }),
   });
 }
