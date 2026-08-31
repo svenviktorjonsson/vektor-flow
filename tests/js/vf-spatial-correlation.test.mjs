@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Worker } from 'node:worker_threads';
 
 import {
   conditionChild,
@@ -155,4 +156,40 @@ test('spatial field queries are traversal and chunk independent', () => {
 
   const chunks = [positions.slice(0, 3), positions.slice(3, 41), positions.slice(41)];
   assert.deepEqual(chunks.flatMap((chunk) => chunk.map(sample)), expected);
+});
+
+test('worker partitions reproduce spatial field samples', async () => {
+  const positions = Array.from({ length: 64 }, (_, index) => [
+    index * 0.375 - 12,
+    (index * index % 23) * 0.25 - 2,
+  ]);
+  const options = { correlationLength: 3, mean: 2, amplitude: 0.5 };
+  const expected = positions.map((position) => sampleSpatialCorrelation2Reference(
+    createFieldNode(),
+    position,
+    options,
+  ));
+  const partitions = Array.from({ length: 3 }, () => []);
+  positions.forEach((position, index) => {
+    partitions[index % partitions.length].push({ index, position });
+  });
+  const runWorker = (queries) => new Promise((resolve, reject) => {
+    const worker = new Worker(
+      new URL('../fixtures/vf-spatial-correlation-worker.mjs', import.meta.url),
+      {
+        workerData: {
+          identity: ROOT_IDENTITY,
+          child: { segment: 'patch:7', channel: 'moisture-field' },
+          queries,
+          options,
+        },
+      },
+    );
+    worker.once('message', resolve);
+    worker.once('error', reject);
+  });
+
+  const records = (await Promise.all(partitions.map(runWorker))).flat();
+  records.sort((first, second) => first.index - second.index);
+  assert.deepEqual(records.map((record) => record.value), expected);
 });
