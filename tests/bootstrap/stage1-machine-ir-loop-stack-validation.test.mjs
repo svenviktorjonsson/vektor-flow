@@ -325,3 +325,50 @@ test("VKF rejects a fixed loop that leaves values on its terminal stack", () => 
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects a fixed-loop entry that leaves values on its terminal stack", () => {
+  const work = makeWork("i64-loop-entry-terminal-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /            mir_push_f64\(entry_value\),\r?\n            _mir_call_no_handler\(function_name, 1, 1, 1\),\r?\n            mir_return_f64\(\)/,
+      [
+        "            mir_push_f64(entry_value),",
+        "            _mir_call_no_handler(function_name, 1, 1, 1),",
+        "            mir_push_f64(entry_value)",
+      ].join("\n"),
+    );
+    assert.notEqual(mutatedMachineIr, originalMachineIr, "entry-stack mutation did not apply");
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "loop-entry-terminal.vkf");
+    const artifact = join(work, `loop-entry-terminal${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_count_to_loop_stack_maxima("count_to", "limit", "value", 3)',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `entry-stack probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "unbalanced fixed-loop entry produced output");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
