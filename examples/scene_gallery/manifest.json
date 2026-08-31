@@ -198,6 +198,29 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "10-sun-reflection",
+      "title": "Sun reflection",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "lighting",
+        "specular",
+        "sun-reflection"
+      ],
+      "source": "10-sun-reflection/app.vkf",
+      "sourceSha256": "2987845050a27dea0d319003aa21cd99e1371c9970a36685eb1d585fbbcd981f",
+      "media": {
+        "path": "docs/public/images/scene-gallery/10-sun-reflection.png",
+        "sha256": "853c94acc8ea8e2b49b098fcb4ed495cd0e915162ecc0c579d833ccc2fd17d30"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "solkatt_frame"
+      }
     }
   ]
 }
