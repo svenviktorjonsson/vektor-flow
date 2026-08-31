@@ -6,6 +6,7 @@ import {
   createConditionedRoot,
 } from '../../web/vf-ui/vf-conditioned-distribution.mjs';
 import {
+  queryMarkedPointRegion2Reference,
   sampleMarkedPointCell2Reference,
 } from '../../web/vf-ui/vf-marked-point-candidates.mjs';
 
@@ -83,4 +84,30 @@ test('cell candidate generation rejects malformed or unbounded requests', () => 
   assert.throws(() => sample([0, 0], { spatialStrength: -0.1 }), RangeError);
   assert.throws(() => sample([0, 0], { spatialStrength: 1.1 }), RangeError);
   assert.deepEqual(sample(new Int32Array([0, 0]), { maxCandidates: 0 }), []);
+});
+
+test('region query includes candidates from every crossed neighbor cell', () => {
+  const candidates = queryMarkedPointRegion2Reference(
+    createPointNode(),
+    { min: [8, -3], max: [11.6, 2.5] },
+    {
+      cellSize: 10,
+      maxCandidates: 8,
+      baseProbability: 1,
+      correlationLength: 20,
+      spatialStrength: 0,
+    },
+  );
+
+  assert.deepEqual(
+    candidates.map(({ id, cell, slot }) => ({ id, cell, slot })),
+    [
+      { id: 'candidate:v1:5f176be7:5643cbb0', cell: [0, -1], slot: 2 },
+      { id: 'candidate:v1:df812db2:ecc08f23', cell: [1, -1], slot: 4 },
+      { id: 'candidate:v1:76f3e6d1:18391f06', cell: [0, 0], slot: 5 },
+      { id: 'candidate:v1:1357d14d:34ffea71', cell: [1, 0], slot: 1 },
+      { id: 'candidate:v1:dc612832:2e626ea1', cell: [1, 0], slot: 5 },
+    ],
+  );
+  assert.ok(Object.isFrozen(candidates));
 });

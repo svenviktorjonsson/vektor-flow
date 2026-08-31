@@ -112,3 +112,31 @@ export function sampleMarkedPointCell2Reference(
   }
   return Object.freeze(candidates);
 }
+
+export function queryMarkedPointRegion2Reference(node, bounds, options) {
+  const startX = Math.floor(bounds.min[0] / options.cellSize);
+  const startY = Math.floor(bounds.min[1] / options.cellSize);
+  const endX = Math.ceil(bounds.max[0] / options.cellSize) - 1;
+  const endY = Math.ceil(bounds.max[1] / options.cellSize) - 1;
+  const candidates = [];
+  for (let cellY = startY; cellY <= endY; cellY += 1) {
+    for (let cellX = startX; cellX <= endX; cellX += 1) {
+      for (const candidate of sampleMarkedPointCell2Reference(
+        node,
+        [cellX, cellY],
+        options,
+      )) {
+        const [x, y] = candidate.position;
+        if (
+          x >= bounds.min[0]
+          && x < bounds.max[0]
+          && y >= bounds.min[1]
+          && y < bounds.max[1]
+        ) {
+          candidates.push(candidate);
+        }
+      }
+    }
+  }
+  return Object.freeze(candidates);
+}
