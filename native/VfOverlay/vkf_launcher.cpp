@@ -646,6 +646,7 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
     const std::vector<fs::path> runtimeFiles = {
         L"index.html",
         L"vf-frame.css",
+        L"vf-chess.css",
         L"vf-runtime-shell.js",
         L"vf-runtime-packet-contract.js",
         L"vf-retained-event-adapter.js",
@@ -655,7 +656,10 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
         L"vf-runtime-flow.js",
         L"vf-render-clock.js",
         L"vf-frame.js",
+        L"vf-widgets.js",
         L"vf-static-html-loader.js",
+        L"vf-shared-runtime.js",
+        L"vf-gpu-runtime.js",
         L"vf-display.js",
         L"vf-native-scene.js",
         L"vf-axis3d-kernel.js",
@@ -671,6 +675,9 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
         L"geom/vf-geom-parametric-surface.js",
         L"geom/vf-geom-frame-adapter.js",
         L"geom/vf-geom-wgpu.js",
+        L"geom/vf-clustered-light-plan.mjs",
+        L"geom/vf-light-view-bounds.mjs",
+        L"assets/fonts/NotoSans-Regular-chess-sdf.png",
     };
     for (const fs::path& rel : runtimeFiles) {
         const fs::path file = webRoot / rel;

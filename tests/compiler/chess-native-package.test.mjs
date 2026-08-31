@@ -63,6 +63,9 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
     "vf-widgets.js",
     "vf-shared-runtime.js",
     "vf-gpu-runtime.js",
+    "geom/vf-clustered-light-plan.mjs",
+    "geom/vf-light-view-bounds.mjs",
+    "assets/fonts/NotoSans-Regular-chess-sdf.png",
   ]) {
     assert.ok(entries.has(runtimeAsset), `packaged chess runtime omitted ${runtimeAsset}`);
   }
