@@ -101,7 +101,7 @@ test('publishes only after global preflight, exact environment, 60 warmups, and 
     environment,
     versions: {},
     sourceCommit: 'b'.repeat(40),
-  }), /120 measured frames/);
+  }), /exactly 120 measured samples/);
 });
 
 test('rejects over-counted work that claims the exact 60/120 protocol', () => {
@@ -133,7 +133,9 @@ test('rejects over-counted work that claims the exact 60/120 protocol', () => {
   timing[0] = lane(specs[0], 1);
 
   timing[0].result.timing.gpuCompletionCalls += 1;
-  assert.throws(build, /exactly 183 GPU completions/);
+  assert.throws(build, new RegExp(`exactly ${
+    manifest.workloads[0].correctness.checkpoints.length + 60 + 120
+  } GPU completions`));
 });
 
 test('withholds publication while preserving raw samples when a ratio fails', () => {

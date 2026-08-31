@@ -88,7 +88,14 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
     return {
       version: adapter.version,
       correctness,
-      timing: { startedAtSequence, samplesMs, measuredGpuFrames, gpuCompletionCalls: gpuCompletions },
+      timing: {
+        startedAtSequence,
+        warmupFrames,
+        measuredFrames,
+        samplesMs,
+        measuredGpuFrames,
+        gpuCompletionCalls: gpuCompletions,
+      },
     };
   } finally {
     await adapter.destroy();
