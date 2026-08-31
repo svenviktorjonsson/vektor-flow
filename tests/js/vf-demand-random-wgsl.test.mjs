@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 import {
   createPhilox4x32WgslParityFixture,
+  decodePhilox4x32WgslReadback,
   verifyPhilox4x32WgslParity,
 } from '../../web/vf-ui/vf-demand-random-wgsl.mjs';
 
@@ -61,6 +62,22 @@ test('WGSL readback verifier pinpoints parity across every official vector', () 
     expected: 0x94fdcceb,
     actual: 0x94fdccea,
   });
+});
+
+test('CPU and GPU records use pinned little-endian u32 bytes', () => {
+  const fixture = createPhilox4x32WgslParityFixture([OFFICIAL_VECTORS[2]]);
+  assert.equal(
+    Buffer.from(fixture.inputBytes).toString('hex'),
+    '886a3f24d308a3852e8a191344737003223809a4d0319f290000000000000000',
+  );
+  assert.equal(
+    Buffer.from(fixture.expectedBytes).toString('hex'),
+    '09fe6cd1ebccfd9420e40150a16e1224',
+  );
+  assert.deepEqual(
+    [...decodePhilox4x32WgslReadback(fixture.expectedBytes)],
+    OFFICIAL_VECTORS[2].expected,
+  );
 });
 
 test('browser fixture executes the shader and verifies mapped GPU readback', async () => {

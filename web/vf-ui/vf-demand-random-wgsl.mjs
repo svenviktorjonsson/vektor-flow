@@ -85,6 +85,30 @@ function requireExpected(words, label) {
   }
 }
 
+function encodeLittleEndianWords(words) {
+  const bytes = new Uint8Array(words.length * 4);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < words.length; index += 1) {
+    view.setUint32(index * 4, words[index], true);
+  }
+  return bytes;
+}
+
+export function decodePhilox4x32WgslReadback(source) {
+  const bytes = ArrayBuffer.isView(source)
+    ? new Uint8Array(source.buffer, source.byteOffset, source.byteLength)
+    : new Uint8Array(source);
+  if (bytes.byteLength % 4 !== 0) {
+    throw new TypeError('Philox WGSL readback byte length must be divisible by four');
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const words = new Uint32Array(bytes.byteLength / 4);
+  for (let index = 0; index < words.length; index += 1) {
+    words[index] = view.getUint32(index * 4, true);
+  }
+  return words;
+}
+
 export function createPhilox4x32WgslParityFixture(records) {
   if (!Array.isArray(records)) {
     throw new TypeError('Philox WGSL parity records must be an array');
@@ -106,6 +130,8 @@ export function createPhilox4x32WgslParityFixture(records) {
     inputStrideWords: 8,
     inputWords,
     expectedWords,
+    inputBytes: encodeLittleEndianWords(inputWords),
+    expectedBytes: encodeLittleEndianWords(expectedWords),
   };
 }
 
