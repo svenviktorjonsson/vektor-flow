@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "internal/native-release-smoke-lifecycle.ps1")
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $binaryRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $BinaryDirectory))
@@ -83,7 +84,7 @@ if ($forbiddenFiles) {
 }
 
 $smokeRoot = Join-Path $outputRoot ".s"
-if (Test-Path -LiteralPath $smokeRoot) { Remove-Item -LiteralPath $smokeRoot -Recurse -Force }
+Remove-VkfPackageSmokePath -Path $smokeRoot -ExpectedRoot $outputRoot
 New-Item -ItemType Directory -Path $smokeRoot -Force | Out-Null
 $smokeSource = Join-Path $smokeRoot "installed_math.vkf"
 @"
@@ -211,7 +212,7 @@ frame.load("ui/main.html")
             $taskkill = Join-Path $env:SystemRoot "System32/taskkill.exe"
             $openCompiler = Start-Process -FilePath $compiler -ArgumentList @(
                 ('"' + $uiSource + '"'), "-o", ('"' + $openedUi + '"')
-            ) -WorkingDirectory $uiSourceRoot -PassThru
+            ) -WorkingDirectory $uiSourceRoot -WindowStyle Hidden -PassThru
             $openedProcess = $null
             try {
                 for ($attempt = 0; $attempt -lt 300 -and -not $openCompiler.HasExited; $attempt++) {
@@ -236,6 +237,7 @@ frame.load("ui/main.html")
     $relocatedRoot = Join-Path $smokeRoot "r"
     New-Item -ItemType Directory -Path $relocatedRoot -Force | Out-Null
     $relocatedUi = Join-Path $relocatedRoot "renamed.exe"
+    $relocatedProfile = "$relocatedUi.WebView2"
     Copy-Item -LiteralPath $uiFirst -Destination $relocatedUi
     for ($attempt = 0; $attempt -lt 50 -and (Test-Path -LiteralPath $uiSourceRoot); $attempt++) {
         try {
@@ -252,15 +254,18 @@ frame.load("ui/main.html")
     }
     $uiProcess = $null
     try {
-        $uiProcess = Start-Process -FilePath $relocatedUi -WorkingDirectory $relocatedRoot -PassThru
+        $uiProcess = Start-Process -FilePath $relocatedUi -WorkingDirectory $relocatedRoot -WindowStyle Hidden -PassThru
         Start-Sleep -Seconds 2
         if ($uiProcess.HasExited) {
             throw "Relocated packaged UI application did not stay running"
         }
     } finally {
-        if ($uiProcess -and -not $uiProcess.HasExited) {
-            & $taskkill /PID $uiProcess.Id /T /F 2>&1 | Out-Null
-            $uiProcess.WaitForExit(10000) | Out-Null
+        if ($uiProcess) {
+            Stop-VkfPackageSmokeProcess `
+                -Process $uiProcess `
+                -ExpectedExecutable $relocatedUi `
+                -ProfilePath $relocatedProfile `
+                -ExpectedRoot $smokeRoot
         }
     }
     } finally {
@@ -394,7 +399,7 @@ test installed_test() -> bit:
         throw "Packaged release smoke left its isolated temporary state behind"
     }
     Pop-Location
-    Remove-Item -LiteralPath $smokeRoot -Recurse -Force
+    Remove-VkfPackageSmokePath -Path $smokeRoot -ExpectedRoot $outputRoot
 }
 
 Compress-Archive -Path (Join-Path $stageRoot "*") -DestinationPath $archivePath -CompressionLevel Optimal
