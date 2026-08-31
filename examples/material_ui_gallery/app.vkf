@@ -102,6 +102,8 @@ mirror_wall: frame.add(
     z:[[0.15, 0.15], [3.85, 3.85]],
     id:"mirror_wall",
     color:[0.72, 0.82, 0.96, 1.0],
+    alpha:0.08,
+    transparent:true,
     reflectivity:0.88,
     roughness:0.06,
     surface_system:(
@@ -125,7 +127,7 @@ mirror_wall: frame.add(
     casts_shadow:true,
     receives_shadow:true,
     receives_lighting:true,
-    visible:false
+    visible:true
 )
 
 glass_panel: frame.add(
@@ -134,7 +136,7 @@ glass_panel: frame.add(
     z:[[0.28, 0.28], [2.95, 2.95]],
     id:"glass_panel",
     color:[0.14, 0.78, 0.94, 0.48],
-    alpha:0.48,
+    alpha:0.08,
     transparent:true,
     depth_write:false,
     reflectivity:0.24,
@@ -143,7 +145,7 @@ glass_panel: frame.add(
     casts_shadow:true,
     receives_shadow:true,
     receives_lighting:true,
-    visible:false
+    visible:true
 )
 
 controls: display.add_frame(pos:[0.785, 0.055], size:[0.18, 0.87])
@@ -157,27 +159,23 @@ glass_alpha: Input(id:"glass-alpha")
 
 (lighting_event: view_lighting.events.get())??>
     ButtonClicked =>
-        sculpture_panel.visible: true
-        mirror_wall.visible: false
-        glass_panel.visible: false
+        mirror_wall.alpha: 0.08
+        glass_panel.alpha: 0.08
 
 (mirror_event: view_mirror.events.get())??>
     ButtonClicked =>
-        sculpture_panel.visible: true
-        mirror_wall.visible: true
-        glass_panel.visible: false
+        mirror_wall.alpha: 1.0
+        glass_panel.alpha: 0.08
 
 (glass_event: view_glass.events.get())??>
     ButtonClicked =>
-        sculpture_panel.visible: true
-        mirror_wall.visible: false
-        glass_panel.visible: true
+        mirror_wall.alpha: 0.08
+        glass_panel.alpha: 0.62
 
 (all_event: view_all.events.get())??>
     ButtonClicked =>
-        sculpture_panel.visible: true
-        mirror_wall.visible: true
-        glass_panel.visible: true
+        mirror_wall.alpha: 1.0
+        glass_panel.alpha: 0.48
 
 (slider_event: glass_alpha.events.get())??>
     SliderValueChanged =>
