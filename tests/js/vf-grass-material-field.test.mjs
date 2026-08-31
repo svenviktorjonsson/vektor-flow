@@ -77,6 +77,31 @@ test('only demanded grass cells materialize a bounded typed renderer working set
   }
 });
 
+test('grass refinement appends blades without changing established cell identity', () => {
+  const field = createGrassMaterialFieldReference(IDENTITY);
+  const common = { cells: [[0, 0]], footprint: 0.02 };
+  const coarse = createGrassRendererPacketsReference(field, {
+    ...common,
+    detailLevel: 2,
+    bladeBudget: 4,
+  });
+  const fine = createGrassRendererPacketsReference(field, {
+    ...common,
+    detailLevel: 5,
+    bladeBudget: 16,
+  });
+
+  assert.equal(coarse.packets[0].id, fine.packets[0].id);
+  assert.deepEqual(
+    [...coarse.packets[0].vertices],
+    [...fine.packets[0].vertices.slice(0, coarse.packets[0].vertices.length)],
+  );
+  assert.deepEqual(
+    [...coarse.packets[0].indices],
+    [...fine.packets[0].indices.slice(0, coarse.packets[0].indices.length)],
+  );
+});
+
 test('offscreen grass fixture feeds demanded packets into the retained renderer', async () => {
   const html = await readFile(
     new URL('../fixtures/grass-material-field-smoke.html', import.meta.url),

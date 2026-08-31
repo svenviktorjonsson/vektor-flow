@@ -247,7 +247,7 @@ export function createGrassRendererPacketsReference(
     const material = sampleGrassMaterialReference(
       field,
       [cellX + 0.5, cellY + 0.5],
-      { detailLevel, footprint },
+      { detailLevel: 0, footprint: 0 },
     );
     const vertexValues = [];
     const indexValues = [];
@@ -285,7 +285,7 @@ export function createGrassRendererPacketsReference(
     indexBytes += indices.byteLength;
     bladeCount += cellBladeCount;
     packets.push(Object.freeze({
-      id: `grass:cell:${cellX}:${cellY}:lod:${detailLevel}`,
+      id: `grass:cell:${cellX}:${cellY}`,
       type: 'field_mesh',
       vertices,
       indices,
