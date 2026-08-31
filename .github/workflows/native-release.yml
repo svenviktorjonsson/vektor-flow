@@ -55,15 +55,13 @@ jobs:
 
       - name: Build embedded native UI runtime
         shell: pwsh
-        run: |
-          cmake -S native/VfOverlay -B build/vf-overlay -A x64
-          cmake --build build/vf-overlay --config Release --target vkf-ui-package --parallel 2
+        run: .\scripts\build-native-ui-package.ps1
 
       - name: Package portable release
         shell: pwsh
         run: |
           $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "$env:VKF_RELEASE_VERSION-dev" }
-          .\scripts\package-native-release.ps1 -Version $version
+          .\scripts\package-native-release.ps1 -Version $version -UiBinaryDirectory build/v
 
       - name: Build installer
         shell: pwsh
