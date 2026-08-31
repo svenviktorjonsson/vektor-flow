@@ -8,7 +8,10 @@ import {
 } from './peer-measurement.mjs';
 
 const require = createRequire(import.meta.url);
-const { edgeLaunchArgs } = require('../../tests/helpers/large_scene_edge_launch.js');
+const {
+  edgeLaunchArgs,
+  gpuModeFromEnvironment,
+} = require('../../tests/helpers/large_scene_edge_launch.js');
 
 function workload() {
   return {
@@ -95,6 +98,11 @@ test('timing browser is always headless and hardware mode does not force SwiftSh
   const software = edgeLaunchArgs({ ...common, gpuMode: 'swiftshader' });
   assert.equal(software.includes('--use-angle=swiftshader'), true);
   assert.throws(() => edgeLaunchArgs({ ...common, gpuMode: 'invalid' }), /GPU mode/);
+});
+
+test('timing runner selects the requested GPU mode and defaults to correctness-only software', () => {
+  assert.equal(gpuModeFromEnvironment({ VF_LARGE_SCENE_GPU_MODE: 'hardware' }), 'hardware');
+  assert.equal(gpuModeFromEnvironment({}), 'swiftshader');
 });
 
 test('failed correctness or a late large point upload withholds all timing', async () => {
