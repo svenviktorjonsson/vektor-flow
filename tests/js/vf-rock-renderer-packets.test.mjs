@@ -142,3 +142,61 @@ test('camera demand uploads only changed detail and never the coarse packet agai
   );
   assert.strictEqual(retainedPacket, first.packets[2]);
 });
+
+test('evicted renderer packets regenerate exactly with stable object identities', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const firstDemands = [
+    demand('face:+x:+y:+z', 40),
+    demand('face:+x:+y:-z', 20),
+  ];
+  const changedDemands = [
+    demand('face:-x:-y:+z', 70),
+    demand('face:-x:+y:+z', 50),
+  ];
+  const update = (previous, demands) => updateEllipsoidRefinementWorkingSetReference(
+    coarse,
+    previous,
+    { demands, vertexBudget: 2, faceBudget: 6 },
+  );
+  const firstWorking = update(null, firstDemands);
+  const first = adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+    firstWorking,
+    null,
+  );
+  const changedWorking = update(firstWorking, changedDemands);
+  const changed = adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+    changedWorking,
+    first,
+  );
+  const returnedWorking = update(changedWorking, [...firstDemands].reverse());
+  const returned = adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+    returnedWorking,
+    changed,
+  );
+
+  assert.strictEqual(returned.coarse, first.coarse);
+  assert.deepEqual(returned.packets, first.packets);
+  assert.notStrictEqual(returned.packets[1], first.packets[1]);
+  assert.notStrictEqual(returned.packets[2], first.packets[2]);
+  assert.deepEqual(returned.packets.map(({ id, object_id }) => ({ id, object_id })), [
+    { id: 'rock:ellipsoid-octahedron:v1:coarse', object_id: 1 },
+    { id: 'rock:detail:face:+x:+y:+z', object_id: 2 },
+    { id: 'rock:detail:face:+x:+y:-z', object_id: 6 },
+  ]);
+  assert.deepEqual(returned.delta.upsert.map(({ id }) => id), [
+    'rock:detail:face:+x:+y:+z',
+    'rock:detail:face:+x:+y:-z',
+  ]);
+  assert.deepEqual(returned.delta.remove, [
+    'rock:detail:face:-x:-y:+z',
+    'rock:detail:face:-x:+y:+z',
+  ]);
+  assert.deepEqual(returned.delta.upload, {
+    packets: 2,
+    vertices: 8,
+    faces: 6,
+    vertexFloats: 80,
+    indices: 18,
+  });
+  assert.ok(returned.packets.every(({ id }) => !id.includes('face:-x')));
+});
