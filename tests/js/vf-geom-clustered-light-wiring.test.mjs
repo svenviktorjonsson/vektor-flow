@@ -5,7 +5,10 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
-import { planClusteredLights } from '../../web/vf-ui/geom/vf-clustered-light-plan.mjs';
+import {
+  planClusteredLights,
+  planViewClusteredLights
+} from '../../web/vf-ui/geom/vf-clustered-light-plan.mjs';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const rendererSource = fs.readFileSync(
@@ -22,11 +25,28 @@ function createRenderer() {
     GPUTextureUsage: { COPY_SRC: 1, RENDER_ATTACHMENT: 2, TEXTURE_BINDING: 4 },
     GPUBufferUsage: { COPY_DST: 8, STORAGE: 128 },
     VfGeomMath: {},
-    VfClusteredLightPlan: { planClusteredLights }
+    VfClusteredLightPlan: { planClusteredLights, planViewClusteredLights }
   });
   vm.runInContext(rendererSource, context, { filename: 'vf-geom-wgpu.js' });
   return new context.VfGeomWgpu({ width: 640, height: 360 }, () => null);
 }
+
+const VIEW_CAMERA = Object.freeze({
+  viewMatrix: [
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    0, 0, 0, 1
+  ],
+  projectionMatrix: [
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, -10 / 9, -1,
+    0, 0, -10 / 9, 0
+  ],
+  nearDepth: 1,
+  farDepth: 10
+});
 
 function normalizedLight(index) {
   return {
@@ -64,6 +84,28 @@ test('renderer evidence exposes more than four planned lights with bounded overf
   assert.equal(evidence.lightClusterOverflowAssignments, 8);
   assert.equal(evidence.lightClusterOverflowClusters, 4);
   assert.equal(evidence.lightClusterCap, 4);
+});
+
+test('renderer culls bounded point lights outside the exact camera frustum', () => {
+  const renderer = createRenderer();
+  renderer._clusteredLightGrid = {
+    xSlices: 4,
+    ySlices: 2,
+    depthSlices: 4,
+    nearDepth: 1,
+    farDepth: 10
+  };
+  renderer._clusteredLightMaxLightsPerCluster = 8;
+
+  const plan = renderer._planClusteredLightsForFrame([
+    { ...normalizedLight(0), kind: 'point', pos: [0, 0, -5], range: 1 },
+    { ...normalizedLight(1), kind: 'point', pos: [20, 0, -5], range: 1 }
+  ], VIEW_CAMERA);
+
+  assert.equal(plan.assignmentCount, 8);
+  assert.equal(plan.culledLightCount, 1);
+  assert.deepEqual([...new Set(plan.lightIds)], [0]);
+  assert.equal(renderer._debugRenderEvidence().plannedLights, 2);
 });
 
 test('uploads clustered plans and light records into a bound GPU storage group', () => {

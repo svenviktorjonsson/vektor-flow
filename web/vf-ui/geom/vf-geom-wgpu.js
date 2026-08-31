@@ -110,9 +110,16 @@
   }
 
   function clusteredLightPlannerFrom(value) {
-    if (typeof value === "function") { return value; }
+    if (typeof value === "function") {
+      return { planClusteredLights: value, planViewClusteredLights: null };
+    }
     if (value && typeof value.planClusteredLights === "function") {
-      return value.planClusteredLights;
+      return {
+        planClusteredLights: value.planClusteredLights,
+        planViewClusteredLights: typeof value.planViewClusteredLights === "function"
+          ? value.planViewClusteredLights
+          : null
+      };
     }
     return null;
   }
@@ -149,6 +156,29 @@
           maxDepth: Number(grid.farDepth)
         }
       };
+    }
+    return out;
+  }
+
+  function projectedClusteredLightInputs(lights) {
+    var source = Array.isArray(lights) ? lights : [];
+    var out = new Array(source.length);
+    for (var i = 0; i < source.length; i += 1) {
+      var light = source[i] || {};
+      var kind = normalizeLightKind(light.kind);
+      var range = Number(light.range);
+      var position = light.pos;
+      if (kind !== "point" || !Array.isArray(position) || position.length < 3 ||
+          !Number.isFinite(range) || !(range > 0.0)) {
+        return null;
+      }
+      out[i] = {
+        id: i,
+        kind: "point",
+        position: [Number(position[0]), Number(position[1]), Number(position[2])],
+        radius: range
+      };
+      if (!out[i].position.every(Number.isFinite)) { return null; }
     }
     return out;
   }
@@ -6559,9 +6589,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       };
     },
 
-    _planClusteredLightsForFrame: function (lights) {
+    _planClusteredLightsForFrame: function (lights, camera) {
       var planner = this._clusteredLightPlanner || clusteredLightPlannerFrom(global.VfClusteredLightPlan);
-      if (!planner) {
+      if (!planner || typeof planner.planClusteredLights !== "function") {
         this._clusteredLightPlan = null;
         this._lastPlannedLightCount = 0;
         return null;
@@ -6569,11 +6599,22 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._clusteredLightPlanner = planner;
       var grid = this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID;
       var inputs = conservativeClusteredLightInputs(lights, grid);
-      var plan = planner({
-        grid: grid,
-        lights: inputs,
-        maxLightsPerCluster: this._clusteredLightMaxLightsPerCluster || DEFAULT_CLUSTERED_LIGHT_CAP
-      });
+      var capacity = this._clusteredLightMaxLightsPerCluster || DEFAULT_CLUSTERED_LIGHT_CAP;
+      var projectedInputs = camera && typeof planner.planViewClusteredLights === "function"
+        ? projectedClusteredLightInputs(lights)
+        : null;
+      var plan = projectedInputs
+        ? planner.planViewClusteredLights({
+            grid: grid,
+            camera: camera,
+            lights: projectedInputs,
+            maxLightsPerCluster: capacity
+          })
+        : planner.planClusteredLights({
+            grid: grid,
+            lights: inputs,
+            maxLightsPerCluster: capacity
+          });
       this._clusteredLightPlan = plan;
       this._lastPlannedLightCount = inputs.length;
       if (this._device) {
