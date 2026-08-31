@@ -75,7 +75,7 @@ test('a selected four-demand group executes on four overlapping OS threads', {
   const work = mkdtempSync(join(configuredWorkRoot, 'i85-overlap-'));
   let child = null;
   try {
-    const iterations = 500_000_000;
+    const iterations = 2_000_000_000;
     const source = join(work, 'overlap.vkf');
     const artifact = join(work, `overlap${suffix}`);
     writeFileSync(source, sourceFor(iterations), 'utf8');
