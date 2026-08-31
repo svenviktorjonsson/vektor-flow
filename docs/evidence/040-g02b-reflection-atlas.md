@@ -48,11 +48,22 @@ revision invalidates those slots. Omitting provenance fails before cache reuse.
 - 4,096 faceted requests allocate exactly 32 captures and 16,777,216 pixels;
   the other 4,064 requests report deterministic overflow.
 - Final SHA-256 hashes:
-  - atlas tests: `64abdb2bb08f4c0a5bdffe9a0a9c7da487d32ee61fba512f9d39a096a0113328`
+  - atlas tests: `9c31f4bf33be7625b024ef202b76797d9df70bc913623598dd2f137642417f54`
   - planner-consumer tests: `4415fe4551f26b05f107be144e3f97ed23ed20d29d68ed35cd8b5f31c76f2514`
-  - atlas module: `c000932cec64bcecc1c25da2b568196f28d900f200262820544ac43ee80c3ecd`
+  - atlas module: `1f0742279d8ed29fbfcce78a003d350287596236b3695ca59b8b1b1c92634fdc`
   - reflection planner: `6de6c06285d3cc32da8dba2b48cca7ff429222b16b1ffa07a6f06649a3b9d8b4`
 - Binary/artifact hash: not applicable; pure JavaScript modules
+
+## Slice 3: bounded inactive cache
+
+- RED command: `node --test tests/js/vf-reflection-atlas.test.mjs`
+- RED exit/duration: 1 after 0.24 s; inactive mirror slot was discarded
+- GREEN command: `node --test tests/js/vf-reflection-atlas-planner.test.mjs tests/js/vf-reflection-atlas.test.mjs tests/js/vf-reflection-planner.test.mjs`
+- GREEN exit/duration: 0 after 0.50 s; 15 tests passed
+- A temporarily culled mirror retains its slot and capture only when both slot
+  and resident-pixel budgets permit it.
+- Active work has priority; shrinking either budget deterministically evicts
+  inactive history before admitting work beyond the limit.
 
 ## Broader regression receipt
 

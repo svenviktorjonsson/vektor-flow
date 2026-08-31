@@ -97,3 +97,30 @@ test('bounds 4,096 faceted captures by the interactive atlas contract', () => {
   assert.equal(atlas.overflow.length, 4064);
   assert.equal(atlas.overflow.every(item => item.reason === 'capture-budget'), true);
 });
+
+test('retains inactive slots within budget for reuse after temporary culling', () => {
+  const first = allocateReflectionAtlas([
+    job('alpha', 320),
+    job('beta', 240)
+  ], { maxCaptures: 2, maxPixels: 600 });
+  const culled = allocateReflectionAtlas([
+    job('alpha', 320)
+  ], { previous: first, maxCaptures: 2, maxPixels: 600 });
+
+  assert.deepEqual(culled.slots.map(slot => [slot.clusterId, slot.slotId]), [
+    ['alpha', 'reflection-atlas-slot-0'],
+    ['beta', 'reflection-atlas-slot-1']
+  ]);
+
+  const returned = allocateReflectionAtlas([
+    job('beta', 240)
+  ], { previous: culled, maxCaptures: 2, maxPixels: 600 });
+  assert.equal(returned.assignments[0].slotId, 'reflection-atlas-slot-1');
+  assert.equal(returned.assignments[0].status, 'reused');
+
+  const constrained = allocateReflectionAtlas([
+    job('alpha', 320)
+  ], { previous: first, maxCaptures: 1, maxPixels: 400 });
+  assert.deepEqual(constrained.slots.map(slot => slot.clusterId), ['alpha']);
+  assert.equal(constrained.stats.allocatedPixels, 320);
+});
