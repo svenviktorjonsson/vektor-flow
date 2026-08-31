@@ -7274,6 +7274,9 @@
         frameHeight: frameRef && frameRef.height || 0,
         frameFormat: frameRef && frameRef.format || "",
         running: !!(renderer && renderer._running),
+        renderEvidence: renderer && typeof renderer._debugRenderEvidence === "function"
+          ? renderer._debugRenderEvidence()
+          : null,
       });
     }
     return out;
@@ -7356,6 +7359,9 @@
         }) : [],
         renderOnDemand: renderer._renderOnDemand === true,
         renderPending: renderer._renderPending === true,
+        renderEvidence: typeof renderer._debugRenderEvidence === "function"
+          ? renderer._debugRenderEvidence()
+          : null,
         lastPerfSample: renderer._lastPerfSample || null,
         lastPerfSummary: renderer._lastPerfSummary || null,
         physicsProfile: renderer._lastPhysicsProfile || null,
