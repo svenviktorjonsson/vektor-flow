@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import {
+  adaptRockMaterialToRendererPacketReference,
   createRockMaterialFieldReference,
   createRockMaterialGpuDescriptorReference,
   sampleRockMaterialReference,
@@ -21,6 +22,34 @@ const IDENTITY = Object.freeze({
   hierarchy: Object.freeze(['world:alpine', 'rock:gpu-parity']),
   lod: 0,
   channel: 'geology',
+});
+
+test('retained rock packet carries a compact GPU field descriptor without changing identity', () => {
+  const field = createRockMaterialFieldReference(IDENTITY);
+  const source = Object.freeze({
+    id: 'rock:detail:face:2',
+    object_id: 42,
+    type: 'field_mesh',
+    vertices: new Float32Array([
+      3, 0, 0, 1, 0, 0, 0.4, 0.3, 0.2, 1,
+      0, 2, 0, 0, 1, 0, 0.4, 0.3, 0.2, 1,
+      0, 0, 1.5, 0, 0, 1, 0.4, 0.3, 0.2, 1,
+    ]),
+    indices: new Uint32Array([0, 1, 2]),
+  });
+  const adapted = adaptRockMaterialToRendererPacketReference(source, field, {
+    radii: [3, 2, 1.5],
+    detailLevel: 5,
+    footprint: 0.04,
+  });
+
+  assert.equal(adapted.id, source.id);
+  assert.equal(adapted.object_id, source.object_id);
+  assert.equal(adapted.indices, source.indices);
+  assert.equal(adapted.rock_material_gpu.kind, 'rock-geology-weathering-gpu:v1');
+  assert.deepEqual(adapted.rock_material_gpu.radii, [3, 2, 1.5]);
+  assert.equal(adapted.rock_material_gpu.detailLevel, 5);
+  assert.equal(adapted.rock_material_gpu.maxOctaves, 6);
 });
 
 test('rock GPU parity verifier enforces channel-specific numerical bounds', () => {

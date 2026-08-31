@@ -265,6 +265,11 @@ export function adaptRockMaterialToRendererPacketReference(
   const roughness = new Float32Array(vertexCount);
   const displacement = new Float32Array(vertexCount);
   const surfaceCoordinates = new Float32Array(vertexCount * 2);
+  const rockMaterialGpu = createRockMaterialGpuDescriptorReference(field, {
+    radii,
+    detailLevel,
+    minimumFootprint: 0,
+  });
   let roughnessSum = 0;
   for (let vertex = 0; vertex < vertexCount; vertex += 1) {
     const offset = vertex * 10;
@@ -292,6 +297,7 @@ export function adaptRockMaterialToRendererPacketReference(
     ...packet,
     vertices,
     specular_strength: 1 - roughnessSum / vertexCount,
+    rock_material_gpu: rockMaterialGpu,
     material_channels: Object.freeze({
       kind: field.kind,
       roughness,
