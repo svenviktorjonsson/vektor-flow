@@ -329,6 +329,91 @@ auto execute_automatic_cpu_pair(
         std::move(left_value), std::move(right_value));
 }
 
+inline std::uint64_t automatic_static_loop_work(
+    const machine_ir::Function& function
+) {
+    using machine_ir::Opcode;
+    const auto& code = function.instructions;
+    for (std::size_t label_index = 2; label_index + 5 < code.size(); ++label_index) {
+        const auto& label = code[label_index];
+        const auto& counter = code[label_index + 1];
+        const auto& bound = code[label_index + 2];
+        const auto comparison = code[label_index + 3].opcode;
+        const auto& exit = code[label_index + 4];
+        if (label.opcode != Opcode::Label || counter.opcode != Opcode::LoadLocal ||
+            bound.opcode != Opcode::PushF64 || comparison != Opcode::OrderedLessF64 ||
+            exit.opcode != Opcode::JumpIfFalse ||
+            bound.f64 < 1.0 || bound.f64 != std::floor(bound.f64) ||
+            bound.f64 > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
+            continue;
+        }
+        bool initialized = false;
+        for (std::size_t index = 0; index + 1u < label_index; ++index) {
+            initialized = initialized ||
+                (code[index].opcode == Opcode::PushF64 && code[index].f64 == 0.0 &&
+                 code[index + 1u].opcode == Opcode::StoreLocal &&
+                 code[index + 1u].index == counter.index);
+        }
+        if (!initialized) continue;
+        for (std::size_t jump_index = label_index + 5; jump_index < code.size(); ++jump_index) {
+            if (code[jump_index].opcode != Opcode::Jump ||
+                code[jump_index].label != label.label || jump_index < 4u) {
+                continue;
+            }
+            const bool unit_increment = code[jump_index - 4u].opcode == Opcode::LoadLocal &&
+                code[jump_index - 4u].index == counter.index &&
+                code[jump_index - 3u].opcode == Opcode::PushF64 &&
+                code[jump_index - 3u].f64 == 1.0 &&
+                code[jump_index - 2u].opcode == Opcode::AddF64 &&
+                code[jump_index - 1u].opcode == Opcode::StoreLocal &&
+                code[jump_index - 1u].index == counter.index;
+            if (unit_increment) return static_cast<std::uint64_t>(bound.f64);
+        }
+    }
+    return 0;
+}
+
+// This is selection only: generated artifacts still execute the retained calls
+// serially until their private runtime gains a thread-launch/join bridge.
+inline bool select_automatic_cpu_pair(
+    const machine_ir::Module& module,
+    const AutomaticFlowLimits& limits,
+    std::uint32_t available_cores
+) {
+    using machine_ir::Opcode;
+    const auto& entry = module.entry.instructions;
+    if (entry.size() != 7u || entry[0].opcode != Opcode::Call ||
+        entry[1].opcode != Opcode::StoreLocal || entry[2].opcode != Opcode::Call ||
+        entry[3].opcode != Opcode::StoreLocal || entry[4].opcode != Opcode::LoadLocal ||
+        entry[5].opcode != Opcode::LoadLocal || entry[6].opcode != Opcode::ReturnValues ||
+        entry[0].argument_count != 0u || entry[2].argument_count != 0u ||
+        entry[0].result_count != 1u || entry[2].result_count != 1u ||
+        entry[0].may_error || entry[2].may_error ||
+        entry[1].index == entry[3].index || entry[4].index != entry[1].index ||
+        entry[5].index != entry[3].index || entry[6].result_count != 2u ||
+        entry[0].symbol == entry[2].symbol) {
+        return false;
+    }
+    const auto function_named = [&](const std::string& name) {
+        return std::find_if(
+            module.functions.begin(), module.functions.end(),
+            [&](const auto& function) { return function.name == name; });
+    };
+    const auto left = function_named(entry[0].symbol);
+    const auto right = function_named(entry[2].symbol);
+    if (left == module.functions.end() || right == module.functions.end() ||
+        !left->parameters.empty() || !right->parameters.empty() ||
+        !left->result_is_numeric_scalar || !right->result_is_numeric_scalar) {
+        return false;
+    }
+    const auto left_work = automatic_static_loop_work(*left);
+    const auto right_work = automatic_static_loop_work(*right);
+    const auto plan = automatic_cpu_pair_plan(
+        limits, available_cores,
+        *left, left_work, *right, right_work, true);
+    return plan.concurrent();
+}
+
 inline void append_unique(std::vector<std::string>& values, std::string value) {
     if (std::find(values.begin(), values.end(), value) == values.end()) {
         values.push_back(std::move(value));
@@ -347,6 +432,21 @@ inline std::string hexadecimal(std::uint64_t value) {
     std::ostringstream out;
     out << std::hex << std::setfill('0') << std::setw(16) << value;
     return out.str();
+}
+
+inline std::string decision_fingerprint(const FunctionDecision& decision) {
+    std::ostringstream material;
+    material << "vkf-adaptive-v" << schema_version << '|' << decision.target_features << '|'
+             << decision.name << '|' << decision.instruction_count << '|'
+             << decision.local_count << '|' << decision.loop_count << '|'
+             << decision.integer_local_count << '|' << decision.pure << '|'
+             << decision.deterministic;
+    for (const auto& strategy : decision.strategies) material << '|' << strategy;
+    for (const auto& region : decision.regions) {
+        material << '|' << region.label << ':' << region.width << ':'
+                 << region.kind << ':' << region.strategy;
+    }
+    return hexadecimal(fnv1a(material.str()));
 }
 
 inline std::vector<RegionDecision> structural_regions(
@@ -429,18 +529,7 @@ inline FunctionDecision decide(
     }
     if (decision.strategies.empty()) decision.strategies.push_back("baseline");
 
-    std::ostringstream material;
-    material << "vkf-adaptive-v" << schema_version << '|' << decision.target_features << '|'
-             << decision.name << '|' << decision.instruction_count << '|'
-             << decision.local_count << '|' << decision.loop_count << '|'
-             << decision.integer_local_count << '|' << decision.pure << '|'
-             << decision.deterministic;
-    for (const auto& strategy : decision.strategies) material << '|' << strategy;
-    for (const auto& region : decision.regions) {
-        material << '|' << region.label << ':' << region.width << ':'
-                 << region.kind << ':' << region.strategy;
-    }
-    decision.fingerprint = hexadecimal(fnv1a(material.str()));
+    decision.fingerprint = decision_fingerprint(decision);
     return decision;
 }
 

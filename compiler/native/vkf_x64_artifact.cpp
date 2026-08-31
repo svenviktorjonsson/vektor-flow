@@ -13790,6 +13790,15 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         const bool supports_simd = vkf::target::host_x64_supports_avx2();
         optimization_decisions = vkf::adaptive_optimizer::decide_module(
             machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
+        const bool automatic_cpu_pair = vkf::adaptive_optimizer::select_automatic_cpu_pair(
+            machine_ir, flow_limits, std::max(1u, std::thread::hardware_concurrency()));
+        if (automatic_cpu_pair && !optimization_decisions.empty()) {
+            auto& entry_decision = optimization_decisions.front();
+            vkf::adaptive_optimizer::append_unique(
+                entry_decision.strategies, "automatic-cpu-pair-selected");
+            entry_decision.fingerprint =
+                vkf::adaptive_optimizer::decision_fingerprint(entry_decision);
+        }
         if (!cache_fingerprint.empty()) {
             const std::string marker = "VKF-CACHE-V1:" + cache_fingerprint;
             machine_ir.string_data.insert(
