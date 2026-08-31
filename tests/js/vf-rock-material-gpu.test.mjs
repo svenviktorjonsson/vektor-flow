@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   createRockMaterialFieldReference,
@@ -55,6 +56,18 @@ test('rock GPU parity verifier enforces channel-specific numerical bounds', () =
     actual: corrupted[2],
     tolerance: 0.0002,
   });
+});
+
+test('headless fixture executes the rock material field through WebGPU', async () => {
+  const html = await readFile(
+    new URL('../fixtures/rock-material-gpu-parity-smoke.html', import.meta.url),
+    'utf8',
+  );
+  assert.match(html, /createComputePipelineAsync/);
+  assert.match(html, /vf_rock_parity_main/);
+  assert.match(html, /mapAsync\(GPUMapMode\.READ\)/);
+  assert.match(html, /verifyRockMaterialGpuParity/);
+  assert.match(html, /__rockMaterialGpuParityEvidence/);
 });
 
 test('rock GPU fixture packs the exact conditioned stream and CPU material oracle', () => {

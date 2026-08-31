@@ -1,0 +1,131 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rock-material-gpu-parity-running</title>
+<script type="module">
+  import {
+    createRockMaterialFieldReference,
+    createRockMaterialGpuDescriptorReference,
+    sampleRockMaterialReference,
+  } from '../../web/vf-ui/vf-rock-material-field.mjs';
+  import {
+    createRockMaterialGpuParityFixture,
+    verifyRockMaterialGpuParity,
+  } from '../../web/vf-ui/vf-rock-material-gpu.mjs';
+
+  const identity = {
+    generator: 'vkf.procedural',
+    version: 1,
+    seed: [0x12345678, 0x9abcdef0],
+    domain: 'material',
+    hierarchy: ['world:alpine', 'rock:gpu-parity'],
+    lod: 0,
+    channel: 'geology',
+  };
+
+  async function run() {
+    if (!navigator.gpu) {
+      return { outcome: 'unavailable', detail: 'navigator.gpu missing' };
+    }
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) {
+      return { outcome: 'unavailable', detail: 'WebGPU adapter unavailable' };
+    }
+    const device = await adapter.requestDevice();
+    const field = createRockMaterialFieldReference(identity);
+    const descriptor = createRockMaterialGpuDescriptorReference(field, {
+      radii: [3, 2, 1.5],
+      detailLevel: 5,
+    });
+    const queries = [
+      { surfaceCoordinates: [0.125, -0.375], footprint: 0.01 },
+      { surfaceCoordinates: [-0.75, 0.375], footprint: 0.08 },
+      { surfaceCoordinates: [0.5, 0.5], footprint: 0.5 },
+    ];
+    const records = queries.map(({ surfaceCoordinates, footprint }) => ({
+      descriptor,
+      surfaceCoordinates,
+      footprint,
+      expected: sampleRockMaterialReference(field, surfaceCoordinates, {
+        detailLevel: descriptor.detailLevel,
+        footprint,
+      }),
+    }));
+    const fixture = createRockMaterialGpuParityFixture(records);
+    const shader = device.createShaderModule({
+      label: 'VKF rock material CPU/WGSL parity',
+      code: fixture.source,
+    });
+    if (typeof shader.getCompilationInfo === 'function') {
+      const info = await shader.getCompilationInfo();
+      const errors = info.messages.filter((message) => message.type === 'error');
+      if (errors.length > 0) {
+        throw new Error(errors.map((error) => error.message).join('\n'));
+      }
+    }
+    const pipeline = await device.createComputePipelineAsync({
+      label: 'VKF rock material CPU/WGSL parity',
+      layout: 'auto',
+      compute: { module: shader, entryPoint: 'vf_rock_parity_main' },
+    });
+    const input = device.createBuffer({
+      size: fixture.inputWords.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const output = device.createBuffer({
+      size: fixture.expected.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const readback = device.createBuffer({
+      size: fixture.expected.byteLength,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      device.queue.writeBuffer(input, 0, fixture.inputWords);
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: input } },
+          { binding: 1, resource: { buffer: output } },
+        ],
+      });
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.dispatchWorkgroups(Math.ceil(records.length / 64));
+      pass.end();
+      encoder.copyBufferToBuffer(output, 0, readback, 0, fixture.expected.byteLength);
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const actual = new Float32Array(readback.getMappedRange().slice(0));
+      readback.unmap();
+      const parity = verifyRockMaterialGpuParity(fixture, actual);
+      if (!parity.matched) {
+        throw new Error(
+          `record ${parity.record} lane ${parity.lane}: ${parity.actual} != ${parity.expected} ± ${parity.tolerance}`,
+        );
+      }
+      return {
+        outcome: 'pass',
+        detail: `${parity.records} filtered samples matched`,
+        records: parity.records,
+        maxAbsoluteError: parity.maxAbsoluteError,
+        maxOctaves: descriptor.maxOctaves,
+        streamWords: descriptor.streamWords,
+      };
+    } finally {
+      input.destroy();
+      output.destroy();
+      readback.destroy();
+    }
+  }
+
+  let result;
+  try {
+    result = await run();
+  } catch (error) {
+    result = { outcome: 'fail', detail: String(error?.message || error) };
+  }
+  document.title = `rock-material-gpu-parity-${result.outcome}`;
+  window.__rockMaterialGpuParityEvidence = result;
+</script>
