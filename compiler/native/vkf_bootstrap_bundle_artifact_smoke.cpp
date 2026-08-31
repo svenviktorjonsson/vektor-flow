@@ -1,5 +1,6 @@
 #include "native/VfOverlay/vf/json.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -32,6 +33,7 @@ struct Args {
     std::filesystem::path lexer;
     std::filesystem::path parser;
     std::filesystem::path ir;
+    std::filesystem::path compiler;
 };
 
 struct ProcessResult {
@@ -122,6 +124,16 @@ Args parse_args(int argc, char** argv) {
     }
     if (args.ir.empty()) {
         args.ir = sibling_tool_path(args.self, "vkf_ast_to_ir_smoke");
+    }
+    if (const char* native_bin = std::getenv("VKF_NATIVE_BIN")) {
+        args.compiler = std::filesystem::path(native_bin) /
+#ifdef _WIN32
+            "vkf-strict.exe";
+#else
+            "vkf-strict";
+#endif
+    } else {
+        args.compiler = sibling_tool_path(args.self, "vkf-strict");
     }
     return args;
 }
@@ -343,137 +355,15 @@ std::vector<BundleUnit> read_manifest_units(const std::filesystem::path& manifes
         unit.token_path = unit_dir / "tokens.json";
         unit.ast_path = unit_dir / "ast.json";
         unit.typed_ir_path = unit_dir / "typed_ir.json";
-        unit.artifact_path = unit_dir / "bundle.artifact.cmd";
+#ifdef _WIN32
+        unit.artifact_path = unit_dir / "bundle.artifact.exe";
+#else
+        unit.artifact_path = unit_dir / "bundle.artifact";
+#endif
         unit.manifest_path = unit_dir / "manifest.json";
         units.push_back(std::move(unit));
     }
     return units;
-}
-
-std::string render_value_summary(const vf::JsonValue& value);
-
-std::string render_array_summary(const vf::JsonValue::Array& values) {
-    std::string out = "[";
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        if (i > 0) {
-            out += ", ";
-        }
-        out += render_value_summary(values[i]);
-    }
-    out += "]";
-    return out;
-}
-
-std::string render_value_summary(const vf::JsonValue& value) {
-    const auto& object = object_of(value, "typed IR value");
-    const std::string kind = require_string(field(object, "kind", "typed IR value"), "typed IR kind");
-    if (kind == "const") {
-        const vf::JsonValue& const_value = field(object, "value", "const");
-        if (const_value.is_string()) {
-            return "\"" + const_value.as_string() + "\"";
-        }
-        if (const_value.is_number()) {
-            std::ostringstream out;
-            out << const_value.as_number();
-            return out.str();
-        }
-        if (const_value.is_boolean()) {
-            return const_value.as_boolean() ? "true" : "false";
-        }
-        if (const_value.is_null()) {
-            return "null";
-        }
-        return "<const>";
-    }
-    if (kind == "load") {
-        return "$" + require_string(field(object, "name", "load"), "load.name");
-    }
-    if (kind == "stdlib_function") {
-        return require_string(field(object, "full_name", "stdlib_function"), "stdlib_function.full_name");
-    }
-    if (kind == "list") {
-        return render_array_summary(array_of(field(object, "items", "list"), "list.items"));
-    }
-    if (kind == "record") {
-        const auto& fields = array_of(field(object, "fields", "record"), "record.fields");
-        std::string out = "{";
-        for (std::size_t i = 0; i < fields.size(); ++i) {
-            const auto& field_value = object_of(fields[i], "record field");
-            if (i > 0) {
-                out += ", ";
-            }
-            out += require_string(field(field_value, "name", "record field"), "record field.name");
-            out += ": ";
-            out += render_value_summary(field(field_value, "value", "record field"));
-        }
-        out += "}";
-        return out;
-    }
-    if (kind == "binary_op") {
-        return "("
-            + render_value_summary(field(object, "left", "binary_op"))
-            + " " + require_string(field(object, "op", "binary_op"), "binary_op.op")
-            + " " + render_value_summary(field(object, "right", "binary_op"))
-            + ")";
-    }
-    if (kind == "field_access") {
-        return render_value_summary(field(object, "object", "field_access"))
-            + "." + require_string(field(object, "field", "field_access"), "field_access.field");
-    }
-    if (kind == "dotted_index") {
-        return render_value_summary(field(object, "base", "dotted_index"))
-            + ".(" + render_array_summary(array_of(field(object, "indices", "dotted_index"), "dotted_index.indices")) + ")";
-    }
-    if (kind == "call") {
-        return render_value_summary(field(object, "callee", "call"))
-            + "(" + render_array_summary(array_of(field(object, "args", "call"), "call.args")) + ")";
-    }
-    if (kind == "block_expr") {
-        return "<block>";
-    }
-    if (kind == "match_stmt") {
-        return "<match>";
-    }
-    return "<" + kind + ">";
-}
-
-std::string emit_placeholder_script(const vf::JsonValue& typed_ir) {
-    const auto& root = object_of(typed_ir, "typed IR module");
-    if (require_string(field(root, "kind", "typed IR module"), "typed IR module.kind") != "typed_module") {
-        throw BundleArtifactFailure("unsupported typed IR root kind");
-    }
-    std::string script = "@echo off\r\n";
-    script += "rem bootstrap compiler bundle artifact placeholder\r\n";
-    for (const auto& stmt_value : array_of(field(root, "body", "typed_module"), "typed_module.body")) {
-        const auto& stmt = object_of(stmt_value, "typed IR stmt");
-        const std::string kind = require_string(field(stmt, "kind", "typed IR stmt"), "typed IR stmt.kind");
-        if (kind == "store_binding") {
-            const std::string name = require_string(field(stmt, "name", "store_binding"), "store_binding.name");
-            script += "rem bind " + name + " = " + render_value_summary(field(stmt, "value", "store_binding")) + "\r\n";
-            continue;
-        }
-        if (kind == "function") {
-            const std::string name = require_string(field(stmt, "name", "function"), "function.name");
-            script += "rem function " + name + "\r\n";
-            continue;
-        }
-        if (kind == "type_alias") {
-            const std::string name = require_string(field(stmt, "name", "type_alias"), "type_alias.name");
-            script += "rem type alias " + name + "\r\n";
-            continue;
-        }
-        if (kind == "expr_stmt") {
-            script += "rem expr " + render_value_summary(field(stmt, "expr", "expr_stmt")) + "\r\n";
-            continue;
-        }
-        if (kind == "return") {
-            script += "rem return " + render_value_summary(field(stmt, "value", "return")) + "\r\n";
-            continue;
-        }
-        throw BundleArtifactFailure("unsupported typed IR statement kind " + kind);
-    }
-    script += "exit /b 0\r\n";
-    return script;
 }
 
 vf::JsonValue unit_manifest_json(const BundleUnit& unit, const vf::JsonValue& typed_ir) {
@@ -504,6 +394,9 @@ int main(int argc, char** argv) {
         if (!std::filesystem::is_regular_file(args.ir)) {
             throw BundleArtifactFailure("missing native sibling tool ir at " + args.ir.string());
         }
+        if (!std::filesystem::is_regular_file(args.compiler)) {
+            throw BundleArtifactFailure("missing strict compiler at " + args.compiler.string());
+        }
 
         std::vector<BundleUnit> units = read_manifest_units(args.manifest);
         vf::JsonValue::Array emitted_units;
@@ -526,7 +419,18 @@ int main(int argc, char** argv) {
             }
             write_file(unit.typed_ir_path, lowered.stdout_text);
             const vf::JsonValue typed_ir = vf::parse_json(lowered.stdout_text);
-            write_file(unit.artifact_path, emit_placeholder_script(typed_ir));
+            const ProcessResult compiled = run_process({
+                args.compiler.string(),
+                "-b",
+                unit.absolute_path.string(),
+                "-o",
+                unit.artifact_path.string(),
+                "--optimizer-policy",
+                "mask-0"
+            });
+            if (compiled.exit_code != 0) {
+                throw BundleArtifactFailure("compiler failed for " + unit.path + ": " + compiled.stderr_text);
+            }
             write_file(unit.manifest_path, vf::json_stringify(unit_manifest_json(unit, typed_ir), 2) + "\n");
 
             vf::JsonValue::Object out_unit;

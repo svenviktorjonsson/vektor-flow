@@ -242,7 +242,7 @@ compiler_capability:
         "native bootstrap manifest smoke can emit bundle units in declared order",
         "native bootstrap bundle lexer smoke tokenizes declared compiler bundle without Python runtime help",
         "native bootstrap bundle parser smoke parses the full declared compiler bundle without Python runtime help",
-        "native bootstrap bundle artifact smoke emits placeholder artifacts for the full declared compiler bundle without Python runtime help",
+        "native bootstrap bundle artifact smoke emits executable compiler-source units through the strict compiler without Python runtime help",
         "main artifact smoke now also compiles the full declared compiler bundle through source typed_ir artifact manifests",
         "typed IR now also lowers through a first real wasm artifact smoke path with lifecycle exports const binding getters and explicit input state runtime surface",
         "typed IR now also lowers through a first webgpu artifact smoke path with wgsl compute vkf_update and manifest-declared storage layouts",

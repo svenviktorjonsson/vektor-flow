@@ -34,7 +34,7 @@
     },
     {
       "path": "compiler/self_hosted/compiler.vkf",
-      "source_sha256": "92f6f454b4d50d2ff2725c0384e567de0bf0e13e6df7ecdc62bf946da9bec18b",
+      "source_sha256": "8ecede0d893a7d9e623c88f1b5eaf3323bbf4c5c99fd46f19d6b4224b15ff492",
       "parsed_with_native_parser": true
     },
     {
@@ -71,5 +71,5 @@
     "compiler/self_hosted/stdlib/io.vkf"
   ],
   "source_count": 10,
-  "bundle_sha256": "f57507492c76672696bb7339293492cfa747d2ab0d462f5c34a8966e86ab9aec"
+  "bundle_sha256": "54d99d94186039d80f0873bb6e16393ac731aadd3a2f7c99e672ca024d588786"
 }
