@@ -1,6 +1,7 @@
 import {
   conditionChild,
   createConditionedRoot,
+  sampleBoundedUniform,
 } from './vf-conditioned-distribution.mjs';
 import {
   sampleSpatialCorrelation2Reference,
@@ -8,6 +9,8 @@ import {
 
 const fieldState = new WeakMap();
 const MAX_OCTAVES = 6;
+const MAX_DEMANDED_CELLS = 4096;
+const MAX_BLADE_BUDGET = 65536;
 const DRY_COLOR = Object.freeze([0.24, 0.31, 0.08]);
 const LUSH_COLOR = Object.freeze([0.16, 0.48, 0.09]);
 
@@ -137,5 +140,168 @@ export function sampleGrassMaterialReference(
       DRY_COLOR[2] + (LUSH_COLOR[2] - DRY_COLOR[2]) * colorBlend,
       1,
     ]),
+  });
+}
+
+function requireDemandedCells(cells) {
+  if (!Array.isArray(cells)) {
+    throw new TypeError('grass demand cells must be an array');
+  }
+  if (cells.length > MAX_DEMANDED_CELLS) {
+    throw new RangeError(`grass demand exceeds ${MAX_DEMANDED_CELLS} cells`);
+  }
+  const canonical = new Map();
+  for (let index = 0; index < cells.length; index += 1) {
+    const cell = cells[index];
+    const typed = ArrayBuffer.isView(cell) && !(cell instanceof DataView);
+    if ((!Array.isArray(cell) && !typed) || cell.length !== 2) {
+      throw new TypeError(`grass demand cell[${index}] must contain two integers`);
+    }
+    for (let axis = 0; axis < 2; axis += 1) {
+      if (!Number.isSafeInteger(cell[axis])) {
+        throw new RangeError(`grass demand cell[${index}][${axis}] must be a safe integer`);
+      }
+      if (cell[axis] < -2_000_000_000 || cell[axis] > 2_000_000_000) {
+        throw new RangeError(`grass demand cell[${index}][${axis}] exceeds the bounded field`);
+      }
+    }
+    canonical.set(`${cell[0]}:${cell[1]}`, [cell[0], cell[1]]);
+  }
+  return [...canonical.values()].sort((first, second) => (
+    first[0] - second[0] || first[1] - second[1]
+  ));
+}
+
+function requireBladeBudget(bladeBudget) {
+  if (!Number.isSafeInteger(bladeBudget) || bladeBudget < 0) {
+    throw new RangeError('grass bladeBudget must be a non-negative safe integer');
+  }
+  if (bladeBudget > MAX_BLADE_BUDGET) {
+    throw new RangeError(`grass bladeBudget exceeds ${MAX_BLADE_BUDGET}`);
+  }
+}
+
+function appendBlade(vertices, indices, blade, baseIndex) {
+  const {
+    x,
+    y,
+    height,
+    halfWidth,
+    direction,
+    lean,
+    color,
+  } = blade;
+  const widthX = Math.cos(direction) * halfWidth;
+  const widthY = Math.sin(direction) * halfWidth;
+  const leanX = Math.cos(lean.direction) * lean.amount;
+  const leanY = Math.sin(lean.direction) * lean.amount;
+  const normalLength = Math.hypot(widthY, -widthX, halfWidth * 0.18);
+  const normal = [
+    widthY / normalLength,
+    -widthX / normalLength,
+    halfWidth * 0.18 / normalLength,
+  ];
+  const positions = [
+    [x - widthX, y - widthY, 0],
+    [x + widthX, y + widthY, 0],
+    [x + leanX + widthX * 0.28, y + leanY + widthY * 0.28, height],
+    [x + leanX - widthX * 0.28, y + leanY - widthY * 0.28, height],
+  ];
+  for (const position of positions) {
+    vertices.push(...position, ...normal, ...color);
+  }
+  indices.push(
+    baseIndex,
+    baseIndex + 1,
+    baseIndex + 2,
+    baseIndex,
+    baseIndex + 2,
+    baseIndex + 3,
+  );
+}
+
+export function createGrassRendererPacketsReference(
+  field,
+  { cells, detailLevel, footprint, bladeBudget },
+) {
+  const state = fieldState.get(field);
+  if (!state) {
+    throw new TypeError('grass material field is required');
+  }
+  requireOptions({ detailLevel, footprint });
+  requireBladeBudget(bladeBudget);
+  const demandedCells = requireDemandedCells(cells);
+  const bladesPerCell = 2 ** Math.min(4, detailLevel);
+  const packets = [];
+  let bladeCount = 0;
+  let vertexBytes = 0;
+  let indexBytes = 0;
+  for (const [cellX, cellY] of demandedCells) {
+    if (bladeCount >= bladeBudget) break;
+    const cellBladeCount = Math.min(bladesPerCell, bladeBudget - bladeCount);
+    if (cellBladeCount === 0) break;
+    const cellNode = conditionChild(state.detailNode, {
+      segment: `grass:cell:${cellX}:${cellY}`,
+      channel: 'blade-traits',
+    });
+    const material = sampleGrassMaterialReference(
+      field,
+      [cellX + 0.5, cellY + 0.5],
+      { detailLevel, footprint },
+    );
+    const vertexValues = [];
+    const indexValues = [];
+    const roughness = new Float32Array(cellBladeCount);
+    for (let bladeIndex = 0; bladeIndex < cellBladeCount; bladeIndex += 1) {
+      const sample = (lane, minimum, maximum) => sampleBoundedUniform(
+        cellNode,
+        [bladeIndex, lane],
+        { min: minimum, max: maximum },
+      );
+      const colorShift = sample(6, -0.035, 0.035);
+      const color = [
+        clamp(material.baseColor[0] + colorShift * 0.4, 0, 1),
+        clamp(material.baseColor[1] + colorShift, 0, 1),
+        clamp(material.baseColor[2] + colorShift * 0.2, 0, 1),
+        1,
+      ];
+      appendBlade(vertexValues, indexValues, {
+        x: cellX + sample(0, 0.08, 0.92),
+        y: cellY + sample(1, 0.08, 0.92),
+        height: material.bladeHeight * sample(2, 0.72, 1.28),
+        halfWidth: sample(3, 0.012, 0.028),
+        direction: sample(4, 0, Math.PI),
+        lean: {
+          direction: sample(5, 0, Math.PI * 2),
+          amount: material.bladeHeight * sample(7, 0.02, 0.16),
+        },
+        color,
+      }, bladeIndex * 4);
+      roughness[bladeIndex] = material.roughness;
+    }
+    const vertices = new Float32Array(vertexValues);
+    const indices = new Uint32Array(indexValues);
+    vertexBytes += vertices.byteLength;
+    indexBytes += indices.byteLength;
+    bladeCount += cellBladeCount;
+    packets.push(Object.freeze({
+      id: `grass:cell:${cellX}:${cellY}:lod:${detailLevel}`,
+      type: 'field_mesh',
+      vertices,
+      indices,
+      blade_count: cellBladeCount,
+      cull_backfaces: false,
+      specular_strength: 0.02,
+      material_channels: Object.freeze({ roughness }),
+    }));
+  }
+  return Object.freeze({
+    kind: 'grass-renderer-working-set:v1',
+    packets: Object.freeze(packets),
+    demandedCellCount: demandedCells.length,
+    bladeCount,
+    vertexBytes,
+    indexBytes,
+    budget: bladeBudget,
   });
 }

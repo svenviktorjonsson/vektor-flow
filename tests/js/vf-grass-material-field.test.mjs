@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createGrassMaterialFieldReference,
+  createGrassRendererPacketsReference,
   sampleGrassMaterialReference,
 } from '../../web/vf-ui/vf-grass-material-field.mjs';
 
@@ -37,4 +38,39 @@ test('grass material samples deterministic field and patch variation on demand',
   assert.equal(first.baseColor.length, 4);
   assert.ok(Object.isFrozen(first));
   assert.ok(Object.isFrozen(first.baseColor));
+});
+
+test('only demanded grass cells materialize a bounded typed renderer working set', () => {
+  const field = createGrassMaterialFieldReference(IDENTITY);
+  const cells = [[2, -1], [0, 0], [1, 0], [-1, 1]];
+  const options = {
+    cells,
+    detailLevel: 5,
+    footprint: 0.02,
+    bladeBudget: 17,
+  };
+  const forward = createGrassRendererPacketsReference(field, options);
+  const reverse = createGrassRendererPacketsReference(field, {
+    ...options,
+    cells: [...cells].reverse(),
+  });
+
+  assert.equal(forward.bladeCount, 17);
+  assert.equal(forward.vertexBytes + forward.indexBytes, 17 * 184);
+  assert.ok(forward.packets.length <= cells.length);
+  assert.deepEqual(
+    forward.packets.map(({ id }) => id),
+    reverse.packets.map(({ id }) => id),
+  );
+  assert.deepEqual(
+    forward.packets.map(({ vertices }) => [...vertices]),
+    reverse.packets.map(({ vertices }) => [...vertices]),
+  );
+  for (const packet of forward.packets) {
+    assert.equal(packet.type, 'field_mesh');
+    assert.ok(packet.vertices instanceof Float32Array);
+    assert.ok(packet.indices instanceof Uint32Array);
+    assert.equal(packet.vertices.length, packet.blade_count * 40);
+    assert.equal(packet.indices.length, packet.blade_count * 6);
+  }
 });
