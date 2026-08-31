@@ -87,6 +87,28 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "05-checker-texture",
+      "title": "Checker texture",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "texture",
+        "checker"
+      ],
+      "source": "05-checker-texture/app.vkf",
+      "sourceSha256": "0f7b3dc64402244c0522d73e63b26c5708dc067aa6103a9ed6e6b7993bb1d5f0",
+      "media": {
+        "path": "docs/public/images/scene-gallery/05-checker-texture.png",
+        "sha256": "a427d522d68d536e305a75bcbf513135ac2633768135e75277c0cc0f7b585b71"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }
