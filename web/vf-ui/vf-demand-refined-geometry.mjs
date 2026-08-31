@@ -9,6 +9,21 @@ const FACE_SPECS = Object.freeze([
   ['+x', '-y', '-z'],
 ]);
 
+function requireRadii3(radii) {
+  const isTypedArray = ArrayBuffer.isView(radii) && !(radii instanceof DataView);
+  if ((!Array.isArray(radii) && !isTypedArray) || radii.length !== 3) {
+    throw new TypeError('ellipsoid radii must contain exactly three numbers');
+  }
+  for (let index = 0; index < 3; index += 1) {
+    if (typeof radii[index] !== 'number') {
+      throw new TypeError(`ellipsoid radius[${index}] must be a number`);
+    }
+    if (!Number.isFinite(radii[index]) || !(radii[index] > 0)) {
+      throw new RangeError(`ellipsoid radius[${index}] must be finite and positive`);
+    }
+  }
+}
+
 function edgeId(first, second) {
   return `edge:${[first, second].sort().join('|')}`;
 }
@@ -30,6 +45,7 @@ function frozenFace(id, vertices) {
 }
 
 export function createCoarseEllipsoidReference({ radii }) {
+  requireRadii3(radii);
   const vertices = Object.freeze([
     frozenVertex('vertex:+x', [radii[0], 0, 0]),
     frozenVertex('vertex:-x', [-radii[0], 0, 0]),
