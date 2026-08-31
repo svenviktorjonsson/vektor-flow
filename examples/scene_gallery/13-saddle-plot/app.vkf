@@ -1,0 +1,12 @@
+: .ui.display
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])
+frame.set_geom_options(background:[0.01, 0.016, 0.035, 1], unified_renderer:true)
+frame.add_camera(pos:[5.4, -6.8, 4.8], target:[0, 0, 0], up:[0, 0, 1], fov:40)
+frame.add_light(id:"sun", pos:[-3.5, -3.2, 6.4], target:[0, 0, 0], color:[1, 0.82, 0.58, 1], intensity:34, range:20, casts_shadow:true)
+frame.add(
+    x:[[-2, -1, 0, 1, 2], [-2, -1, 0, 1, 2], [-2, -1, 0, 1, 2], [-2, -1, 0, 1, 2], [-2, -1, 0, 1, 2]],
+    y:[[-2, -2, -2, -2, -2], [-1, -1, -1, -1, -1], [0, 0, 0, 0, 0], [1, 1, 1, 1, 1], [2, 2, 2, 2, 2]],
+    z:[[2, 1, 0, -1, -2], [1, 0.5, 0, -0.5, -1], [0, 0, 0, 0, 0], [-1, -0.5, 0, 0.5, 1], [-2, -1, 0, 1, 2]],
+    id:"saddle", color:[0.14, 0.48, 0.96, 1], roughness:0.24, specular_strength:0.78, receives_lighting:true, casts_shadow:true
+)

@@ -267,6 +267,29 @@
         "api": "Page.captureScreenshot",
         "frame": "layered_frame"
       }
+    },
+    {
+      "id": "13-saddle-plot",
+      "title": "Saddle plot",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "plot",
+        "multivector",
+        "lighting"
+      ],
+      "source": "13-saddle-plot/app.vkf",
+      "sourceSha256": "9a9919b1738bb4af6c4e891aefd4957cbe599a4d5a881bfef6d2877b03cf182d",
+      "media": {
+        "path": "docs/public/images/scene-gallery/13-saddle-plot.png",
+        "sha256": "60a872ed9ec718a0df2b68151aac30a3d415b26240cfea5b650f85231a1cd47e"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }
