@@ -1,5 +1,6 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const esbuild = require('esbuild');
 
@@ -170,6 +171,24 @@ async function main() {
       ...(finalResult ?? {}),
       ok: false,
       cleanupError: String(cleanupError?.stack ?? cleanupError),
+    };
+  }
+  if (finalResult?.ok && finalResult.userAgent && finalResult.webgl) {
+    const browserVersion = /Edg\/([0-9.]+)/.exec(finalResult.userAgent)?.[1] ?? 'unknown';
+    finalResult.environment = {
+      operatingSystem: `${os.type()} ${os.release()}`,
+      architecture: os.arch(),
+      cpu: os.cpus()[0]?.model ?? 'unknown',
+      browser: 'Microsoft Edge',
+      browserVersion,
+      browserUserAgent: finalResult.userAgent,
+      gpu: `${finalResult.webgl.vendor}; ${finalResult.webgl.renderer}`,
+      webglVersion: finalResult.webgl.version,
+      webglVendor: finalResult.webgl.vendor,
+      webglRenderer: finalResult.webgl.renderer,
+      viewport: [1280, 720],
+      devicePixelRatio: 1,
+      powerMode: 'not-recorded',
     };
   }
   process.stdout.write(JSON.stringify(finalResult));
