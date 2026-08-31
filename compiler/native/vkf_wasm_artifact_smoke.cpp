@@ -415,6 +415,18 @@ EvaluatedBindingValue evaluate_binding_value(
         out.scalar_value = const_value.is_boolean() ? (const_value.as_boolean() ? 1.0 : 0.0) : const_value.as_number();
         return out;
     }
+    if (kind == "list") {
+        EvaluatedBindingValue out;
+        out.is_array = true;
+        for (const auto& item_value : array_of(field(object, "items", "list"), "list.items")) {
+            const EvaluatedBindingValue item = evaluate_binding_value(item_value, bindings);
+            if (item.is_array) {
+                throw WasmArtifactFailure("wasm computed binding list only supports scalar items");
+            }
+            out.array_values.push_back(item.scalar_value);
+        }
+        return out;
+    }
     if (kind == "axis_align") {
         EvaluatedBindingValue out;
         out.is_array = true;
