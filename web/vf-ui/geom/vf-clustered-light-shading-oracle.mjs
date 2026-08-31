@@ -55,6 +55,19 @@ function dot3(a, b) {
   return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
 }
 
+function subtract3(a, b) {
+  return [
+    finite(a?.[0]) - finite(b?.[0]),
+    finite(a?.[1]) - finite(b?.[1]),
+    finite(a?.[2]) - finite(b?.[2])
+  ];
+}
+
+function cross2(a, b, point) {
+  return ((b[0] - a[0]) * (point[1] - a[1])) -
+    ((b[1] - a[1]) * (point[0] - a[0]));
+}
+
 function smoothstep(edge0, edge1, value) {
   if (edge0 === edge1) return value < edge0 ? 0 : 1;
   const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
@@ -77,6 +90,69 @@ function spotlightFactor(light, pointDirection) {
   const inner = Math.max(finite(light?.innerConeCos, -1), finite(light?.outerConeCos, -1));
   const outer = Math.min(finite(light?.innerConeCos, -1), finite(light?.outerConeCos, -1));
   return smoothstep(outer, inner, dot3(coneDirection, normalize3(pointDirection)));
+}
+
+function edgeOcclusion(side, edgeLength, softness) {
+  const signedDistance = side / Math.max(edgeLength, 1e-6);
+  if (softness <= 1e-6) return signedDistance >= 0 ? 1 : 0;
+  return smoothstep(-softness, softness, signedDistance);
+}
+
+export function projectedApertureFactor(light, worldPosition) {
+  if (finite(light?.kindCode) < 1.5) return 1;
+  const aperture = light?.projectedAperture;
+  const points = Array.isArray(aperture?.points) ? aperture.points.slice(0, 8) : [];
+  if (points.length < 3) return 0;
+
+  const lightPosition = light?.position || [0, 0, 0];
+  const planePoint = aperture?.planePoint || [0, 0, 0];
+  const planeNormal = normalize3(aperture?.planeNormal || [0, 0, 1]);
+  const uAxis = normalize3(aperture?.uAxis || [1, 0, 0]);
+  const vAxis = normalize3(aperture?.vAxis || [0, 1, 0]);
+  const ray = subtract3(worldPosition, lightPosition);
+  const denominator = dot3(planeNormal, ray);
+  if (Math.abs(denominator) <= 1e-6) return 0;
+  const t = dot3(subtract3(planePoint, lightPosition), planeNormal) / denominator;
+  if (t <= 1e-4 || t >= 1 - 1e-4) return 0;
+
+  const hit = [0, 1, 2].map((index) => finite(lightPosition[index]) + (t * ray[index]));
+  const relative = subtract3(hit, planePoint);
+  const local = [dot3(relative, uAxis), dot3(relative, vAxis)];
+  const lightToPlane = Math.max(Math.abs(dot3(subtract3(planePoint, lightPosition), planeNormal)), 1e-4);
+  const lightSide = dot3(subtract3(lightPosition, planePoint), planeNormal);
+  const pointSide = dot3(subtract3(worldPosition, planePoint), planeNormal);
+  const receiverSide = -Math.sign(lightSide) * pointSide;
+  const clipEpsilon = Math.max(0, finite(aperture?.clipEpsilon));
+  if (receiverSide <= clipEpsilon) return 0;
+  const receiverGap = Math.max(0, receiverSide - clipEpsilon);
+  const softness = Math.max(0, finite(light?.sourceRadius)) *
+    (receiverGap / lightToPlane) * Math.max(0, finite(light?.spread, 1));
+
+  if (points.length === 4) {
+    const xs = points.map((point) => finite(point?.[0]));
+    const ys = points.map((point) => finite(point?.[1]));
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const insideX = smoothstep(minX, minX + softness, local[0]) *
+      (1 - smoothstep(maxX - softness, maxX, local[0]));
+    const insideY = smoothstep(minY, minY + softness, local[1]) *
+      (1 - smoothstep(maxY - softness, maxY, local[1]));
+    return insideX * insideY;
+  }
+
+  let positive = 1;
+  let negative = 1;
+  for (let index = 0; index < points.length; index += 1) {
+    const a = points[index].map((value) => finite(value));
+    const b = points[(index + 1) % points.length].map((value) => finite(value));
+    const side = cross2(a, b, local);
+    const edgeLength = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    positive *= edgeOcclusion(side, edgeLength, softness);
+    negative *= edgeOcclusion(-side, edgeLength, softness);
+  }
+  return Math.max(positive, negative);
 }
 
 export function evaluateClusteredDirectLights({
@@ -106,7 +182,6 @@ export function evaluateClusteredDirectLights({
     const id = Number(rawId) >>> 0;
     if (id < skipLightIdsBelow || id >= source.length) continue;
     const light = source[id] || {};
-    if (finite(light.kindCode) >= 1.5) continue;
     const position = light.position || [0, 0, 0];
     const toLight = [
       finite(position[0]) - finite(world[0]),
@@ -117,7 +192,8 @@ export function evaluateClusteredDirectLights({
     const lightDirection = toLight.map((component) => component / distance);
     const attenuation = lightAttenuation(distance, light.intensity, finite(light.range));
     const spot = spotlightFactor(light, lightDirection.map((component) => -component));
-    const scale = attenuation * spot;
+    const aperture = projectedApertureFactor(light, world);
+    const scale = attenuation * spot * aperture;
     const diffuseFactor = Math.max(dot3(normal, lightDirection), 0);
     const halfVector = normalize3([
       lightDirection[0] + view[0],

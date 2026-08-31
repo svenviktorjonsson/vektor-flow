@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   clusterIndexForReceiver,
   evaluateClusteredDirectLights,
+  projectedApertureFactor,
   shadeClusteredReceiver
 } from '../../web/vf-ui/geom/vf-clustered-light-shading-oracle.mjs';
 
@@ -124,6 +125,46 @@ test('additional projected lights without aperture storage do not become point l
   assert.deepEqual(fifthOnly, { diffuse: [0, 0, 0], specular: [0, 0, 0] });
 });
 
+test('a retained fifth projected light is clipped by its packed aperture', () => {
+  const projectedAperture = {
+    planePoint: [0, 0, 1],
+    planeNormal: [0, 0, 1],
+    uAxis: [1, 0, 0],
+    vAxis: [0, 1, 0],
+    points: [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]],
+    clipEpsilon: 0
+  };
+  const light = {
+    position: [0, 0, 2],
+    range: 0,
+    color: [1, 1, 1],
+    intensity: 4,
+    direction: [0, 0, -1],
+    kindCode: 2,
+    sourceRadius: 0,
+    spread: 1,
+    projectedAperture
+  };
+  const receiver = {
+    worldPosition: [0, 0, 0],
+    normal: [0, 0, 1],
+    cameraPosition: [0, 0, 10],
+    baseColor: [1, 1, 1],
+    alpha: 1,
+    specularScale: 1,
+    specularStrength: 1
+  };
+
+  assert.equal(projectedApertureFactor(light, receiver.worldPosition), 1);
+  assert.equal(projectedApertureFactor(light, [2, 0, 0]), 0);
+  assert.deepEqual(evaluateClusteredDirectLights({
+    lights: [{}, {}, {}, {}, light],
+    lightIds: [4],
+    skipLightIdsBelow: 4,
+    receiver
+  }), { diffuse: [1, 1, 1], specular: [0, 0, 0] });
+});
+
 test('transparent and opaque receivers share lighting before premultiplied alpha', () => {
   const lights = Array.from({ length: 5 }, () => ({
     position: [0, 0, 2],
@@ -160,7 +201,10 @@ test('main receiver shader consumes retained clustered lights after the legacy f
   assert.match(rendererSource, /dot\(worldPos - sc\.cam_pos, sc\.depth_params\.yzw\)/);
   assert.match(rendererSource, /if \(lightId < 4u\)\s*\{\s*continue;/);
   assert.match(rendererSource, /retainedCount = min\(end - start, clusteredLightPlan\[3u\]\)/);
-  assert.match(rendererSource, /if \(light\.direction_kind\.w >= 1\.5\)\s*\{\s*continue;/);
+  assert.match(rendererSource, /apertureCount = min\(u32\(light\.aperture_normal_count\.w \+ 0\.5\), 8u\)/);
+  assert.match(rendererSource, /for \(var index: u32 = 0u; index < apertureCount;/);
+  assert.match(rendererSource, /clusteredProjectedApertureFactor\(worldPos, light\)/);
+  assert.doesNotMatch(rendererSource, /if \(light\.direction_kind\.w >= 1\.5\)\s*\{\s*continue;/);
   assert.match(rendererSource, /let clustered = clusteredAdditionalDirectLights[\s\S]*diffuse \+= clustered\.diffuse[\s\S]*specular \+= clustered\.specular/);
 
   // Both opaque and transparent triangle pipelines reach the same receiver
