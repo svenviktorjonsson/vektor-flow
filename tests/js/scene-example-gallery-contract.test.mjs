@@ -32,3 +32,24 @@ test("scene gallery starts with a minimal captured 2D line plot", async () => {
   assert.equal(example.capture.hidden, true);
   assert.equal(example.capture.applicationJavaScript, false);
 });
+
+test("scene gallery captures a minimal illuminated 3D surface", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "02-lit-surface");
+  assert.ok(example);
+  assert.equal(example.dimension, 3);
+  assert.deepEqual(example.features, ["3d", "surface", "lighting"]);
+
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  assert.ok(source.includes(".add_camera("));
+  assert.ok(source.includes(".add_light("));
+  assert.ok(source.includes(".add("));
+  assert.ok(source.split(/\r?\n/u).filter((line) => line.trim()).length <= 20);
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+
+  const mediaPath = path.join(repositoryRoot, example.media.path);
+  const bytes = await readFile(mediaPath);
+  assert.ok((await stat(mediaPath)).size > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+  assert.equal(example.capture.hidden, true);
+});

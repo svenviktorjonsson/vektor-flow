@@ -21,6 +21,28 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "02-lit-surface",
+      "title": "Illuminated surface",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "surface",
+        "lighting"
+      ],
+      "source": "02-lit-surface/app.vkf",
+      "sourceSha256": "5a1c57978787967e551be808df27da4f11db5623132cf5e5f2820c26e0a21c7c",
+      "media": {
+        "path": "docs/public/images/scene-gallery/02-lit-surface.png",
+        "sha256": "3845e20efe24939a7b8c16404aaf3efa581ce3b23865ac6e5a45b1690fa85690"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }

@@ -1,0 +1,12 @@
+: .ui.display
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])
+frame.set_geom_options(background:[0.012, 0.018, 0.038, 1.0], unified_renderer:true)
+frame.add_camera(pos:[4.2, -5.4, 3.5], target:[0, 0, 0.25], up:[0, 0, 1], fov:42)
+frame.add_light(id:"sun", pos:[2.8, -2.6, 5.2], target:[0, 0, 0], color:[1.0, 0.88, 0.68, 1.0], intensity:24, range:18, casts_shadow:true)
+frame.add(
+    x:[[-1.5, 0, 1.5], [-1.5, 0, 1.5], [-1.5, 0, 1.5]],
+    y:[[-1.5, -1.5, -1.5], [0, 0, 0], [1.5, 1.5, 1.5]],
+    z:[[0, 0.25, 0], [0.2, 1.15, 0.35], [0, 0.3, 0.05]],
+    id:"hill", color:[0.12, 0.58, 0.3, 1.0], receives_lighting:true, casts_shadow:true
+)
