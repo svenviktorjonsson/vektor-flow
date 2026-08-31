@@ -123,7 +123,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
                              MathImports math_imports = MathImports::all(),
                              const std::vector<vkf::machine_ir::OutputKind>& sequence_outputs = {},
                              const std::vector<vkf::machine_ir::OutputToken>& output_tokens = {},
-                             bool execute_automatic_cpu_pair = false) {
+                             bool execute_automatic_cpu_threads = false) {
     constexpr std::uint64_t image_base = 0x140000000ull;
     constexpr std::uint32_t file_alignment = 0x200;
     constexpr std::uint32_t section_alignment = 0x1000;
@@ -217,7 +217,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
         {"Sleep", 0},
         {"GetActiveProcessorCount", 0},
     };
-    if (execute_automatic_cpu_pair) {
+    if (execute_automatic_cpu_threads) {
         kernel_imports.push_back({"CreateThread", 0});
         kernel_imports.push_back({"WaitForSingleObject", 0});
         kernel_imports.push_back({"CloseHandle", 0});
@@ -504,7 +504,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     // are otherwise unused by the Windows entry wrapper.
     emit_runtime_import(fopen_iat, 0x138);
     emit_runtime_import(fscanf_iat, 0x140);
-    if (execute_automatic_cpu_pair) {
+    if (execute_automatic_cpu_threads) {
         // Wrapper-private gap before runtime_output_base; these are not
         // target-neutral Machine IR runtime slots.
         emit_runtime_import(create_thread_iat, 0x148);

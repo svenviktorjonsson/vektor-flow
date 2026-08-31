@@ -647,9 +647,9 @@ public:
     MachineX64Emitter(
         const vkf::machine_ir::Module& module,
         vkf::adaptive_optimizer::Policy policy = {},
-        bool execute_automatic_cpu_pair = false
+        std::uint32_t automatic_cpu_group_size = 0u
     ) : module_(module), policy_(std::move(policy)),
-        execute_automatic_cpu_pair_(execute_automatic_cpu_pair) {}
+        automatic_cpu_group_size_(automatic_cpu_group_size) {}
 
     std::vector<unsigned char> emit() {
         offsets_[module_.entry.name] = code_.position();
@@ -658,7 +658,7 @@ public:
             offsets_[function.name] = code_.position();
             emit_function(function, false);
         }
-        if (execute_automatic_cpu_pair_) emit_automatic_cpu_thread_thunk();
+        if (automatic_cpu_group_size_ != 0u) emit_automatic_cpu_thread_thunks();
         for (const auto& patch : calls_) {
             const auto found = offsets_.find(patch.function);
             if (found == offsets_.end()) throw BackendFailure("unknown function " + patch.function);
@@ -669,8 +669,12 @@ public:
 
 private:
     vkf::adaptive_optimizer::Policy policy_;
-    bool execute_automatic_cpu_pair_ = false;
-    std::vector<std::size_t> automatic_cpu_thread_references_;
+    std::uint32_t automatic_cpu_group_size_ = 0u;
+    struct AutomaticCpuThreadReference {
+        std::size_t reference = 0;
+        std::string symbol;
+    };
+    std::vector<AutomaticCpuThreadReference> automatic_cpu_thread_references_;
     struct Frame {
         unsigned local_count = 0;
         unsigned temp_base = 0;
@@ -3022,7 +3026,8 @@ private:
         code_.raw({0x48, 0xc7, 0x44, 0x24, 0x28});
         code_.i32(0);
         code_.raw({0x31, 0xc9, 0x31, 0xd2, 0x4c, 0x8d, 0x05});
-        automatic_cpu_thread_references_.push_back(code_.rel32_placeholder());
+        automatic_cpu_thread_references_.push_back(
+            {code_.rel32_placeholder(), function.instructions[0].symbol});
         code_.raw({0x4c, 0x8d, 0x8d});
         code_.i32(frame.displacement(context_runtime));
         call_private_pe_runtime_slot(37);
@@ -3065,21 +3070,134 @@ private:
 #endif
     }
 
-    void emit_automatic_cpu_thread_thunk() {
-#ifdef _WIN32
-        const auto thunk = code_.position();
-        for (const auto reference : automatic_cpu_thread_references_) {
-            code_.patch_rel32(reference, thunk);
+    void emit_automatic_cpu_group_entry(
+        const vkf::machine_ir::Function& function,
+        Frame frame
+    ) {
+#ifndef _WIN32
+        (void)function;
+        (void)frame;
+        throw BackendFailure("automatic CPU group execution requires the private PE runtime");
+#else
+        using vkf::machine_ir::Opcode;
+        constexpr std::uint32_t worker_count = 3u;
+        constexpr std::uint32_t result_count = 4u;
+        if (function.instructions.size() != 13u || function.locals.size() < result_count ||
+            function.max_stack < result_count ||
+            module_.output_kind != vkf::machine_ir::OutputKind::MultipleF64 ||
+            module_.output_count != result_count ||
+            function.instructions[0].opcode != Opcode::Call ||
+            function.instructions[2].opcode != Opcode::Call ||
+            function.instructions[4].opcode != Opcode::Call ||
+            function.instructions[6].opcode != Opcode::Call) {
+            throw BackendFailure("invalid selected automatic CPU group entry");
         }
-        code_.raw({0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x30,
-                   0x4c, 0x89, 0x65, 0xf8,
-                   0x4c, 0x8b, 0x21,
-                   0x4c, 0x8d, 0x51, 0x08,
-                   0x4c, 0x8d, 0x59, 0x08,
-                   0xe8});
-        calls_.push_back({
-            code_.rel32_placeholder(), module_.entry.instructions[0].symbol});
-        code_.raw({0x4c, 0x8b, 0x65, 0xf8, 0x31, 0xc0, 0xc9, 0xc3});
+
+        const auto private_base = frame.saved_gpr_slot + frame.saved_gpr_slots +
+            (function.may_error ? 3u : 0u);
+        frame.frame_bytes += worker_count * 2u * 8u;
+        prologue(frame);
+        save_runtime_context(frame);
+        for (std::uint32_t worker = 0; worker < worker_count; ++worker) {
+            const auto context_runtime = private_base + worker * 2u + 1u;
+            code_.raw({0x4c, 0x89, 0xa5});
+            code_.i32(frame.displacement(context_runtime));
+        }
+
+        const auto emit_create_thread = [&](std::uint32_t worker) {
+            const auto context_runtime = private_base + worker * 2u + 1u;
+            code_.raw({0x48, 0xc7, 0x44, 0x24, 0x20});
+            code_.i32(0);
+            code_.raw({0x48, 0xc7, 0x44, 0x24, 0x28});
+            code_.i32(0);
+            code_.raw({0x31, 0xc9, 0x31, 0xd2, 0x4c, 0x8d, 0x05});
+            automatic_cpu_thread_references_.push_back({
+                code_.rel32_placeholder(), function.instructions[worker * 2u].symbol});
+            code_.raw({0x4c, 0x8d, 0x8d});
+            code_.i32(frame.displacement(context_runtime));
+            call_private_pe_runtime_slot(37);
+            code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x84});
+            const auto failed = code_.rel32_placeholder();
+            code_.raw({0x48, 0x89, 0x85});
+            code_.i32(frame.displacement(worker));
+            return failed;
+        };
+
+        const auto emit_join_worker = [&](std::uint32_t worker) {
+            code_.raw({0x48, 0x8b, 0x8d});
+            code_.i32(frame.displacement(worker));
+            code_.byte(0xba);
+            code_.i32(-1);
+            call_private_pe_runtime_slot(38);
+            code_.raw({0x85, 0xc0, 0x0f, 0x84});
+            const auto wait_succeeded = code_.rel32_placeholder();
+            emit_abort();
+            code_.patch_rel32(wait_succeeded, code_.position());
+            code_.raw({0x48, 0x8b, 0x8d});
+            code_.i32(frame.displacement(worker));
+            call_private_pe_runtime_slot(39);
+            load_xmm(0, frame.displacement(private_base + worker * 2u));
+            store_xmm(0, frame.displacement(worker));
+        };
+
+        const auto emit_direct_calls = [&](std::uint32_t first) {
+            for (std::uint32_t lane = first; lane < result_count; ++lane) {
+                emit_automatic_cpu_call(
+                    frame, function.instructions[lane * 2u].symbol, lane);
+            }
+        };
+
+        const auto emit_output = [&]() {
+            for (std::uint32_t lane = 0; lane < result_count; ++lane) {
+                load_xmm(0, frame.displacement(lane));
+                code_.raw({0xf2, 0x41, 0x0f, 0x11, 0x84, 0x24});
+                code_.i32(static_cast<std::int32_t>(
+                    vkf::machine_ir::runtime_output_base + lane * 8u));
+            }
+            restore_runtime_context(frame);
+            epilogue();
+        };
+
+        const auto first_failed = emit_create_thread(0u);
+        const auto second_failed = emit_create_thread(1u);
+        const auto third_failed = emit_create_thread(2u);
+        emit_direct_calls(3u);
+        for (std::uint32_t worker = 0; worker < worker_count; ++worker) {
+            emit_join_worker(worker);
+        }
+        emit_output();
+
+        code_.patch_rel32(third_failed, code_.position());
+        emit_direct_calls(2u);
+        emit_join_worker(0u);
+        emit_join_worker(1u);
+        emit_output();
+
+        code_.patch_rel32(second_failed, code_.position());
+        emit_direct_calls(1u);
+        emit_join_worker(0u);
+        emit_output();
+
+        code_.patch_rel32(first_failed, code_.position());
+        emit_direct_calls(0u);
+        emit_output();
+#endif
+    }
+
+    void emit_automatic_cpu_thread_thunks() {
+#ifdef _WIN32
+        for (const auto& thread : automatic_cpu_thread_references_) {
+            const auto thunk = code_.position();
+            code_.patch_rel32(thread.reference, thunk);
+            code_.raw({0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x30,
+                       0x4c, 0x89, 0x65, 0xf8,
+                       0x4c, 0x8b, 0x21,
+                       0x4c, 0x8d, 0x51, 0x08,
+                       0x4c, 0x8d, 0x59, 0x08,
+                       0xe8});
+            calls_.push_back({code_.rel32_placeholder(), thread.symbol});
+            code_.raw({0x4c, 0x8b, 0x65, 0xf8, 0x31, 0xc0, 0xc9, 0xc3});
+        }
 #endif
     }
 
@@ -5971,9 +6089,15 @@ private:
 
     void emit_function(const vkf::machine_ir::Function& function, bool entry) {
         const Frame frame = make_frame(function, entry);
-        if (entry && execute_automatic_cpu_pair_) {
-            emit_automatic_cpu_pair_entry(function, frame);
-            return;
+        if (entry) {
+            if (automatic_cpu_group_size_ == 2u) {
+                emit_automatic_cpu_pair_entry(function, frame);
+                return;
+            }
+            if (automatic_cpu_group_size_ == 4u) {
+                emit_automatic_cpu_group_entry(function, frame);
+                return;
+            }
         }
         if (!entry && policy_.integer_function_tier &&
             is_integer_function_candidate(function)) {
@@ -13907,6 +14031,7 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     bool automatic_cpu_pair = false;
     std::uint32_t automatic_cpu_group_size = 0;
     bool execute_automatic_cpu_pair = false;
+    bool execute_automatic_cpu_group = false;
     try {
         flow_limits = automatic_flow_limits(typed_ir);
         machine_ir = supplied_machine_ir
@@ -13923,6 +14048,9 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         execute_automatic_cpu_pair = automatic_cpu_pair &&
             machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64 &&
             machine_ir.output_count == 2u;
+        execute_automatic_cpu_group = automatic_cpu_group_size == 4u &&
+            machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64 &&
+            machine_ir.output_count == 4u;
 #endif
         if (automatic_cpu_pair && !optimization_decisions.empty()) {
             auto& entry_decision = optimization_decisions.front();
@@ -13965,8 +14093,10 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             code = MachineX64Emitter(machine_ir, selected_policy).emit();
         }
 #ifdef _WIN32
-        if (execute_automatic_cpu_pair) {
-            code = MachineX64Emitter(machine_ir, selected_policy, true).emit();
+        if (execute_automatic_cpu_pair || execute_automatic_cpu_group) {
+            code = MachineX64Emitter(
+                machine_ir, selected_policy,
+                execute_automatic_cpu_group ? 4u : 2u).emit();
         }
 #endif
         tuning.fingerprint = optimizer_fingerprint;
@@ -13989,7 +14119,8 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64
                 ? machine_ir.output_count : 0u,
             vkf::pe::math_imports_for(machine_ir), machine_ir.outputs,
-            machine_ir.output_tokens, execute_automatic_cpu_pair);
+            machine_ir.output_tokens,
+            execute_automatic_cpu_pair || execute_automatic_cpu_group);
         executable = std::move(artifact.bytes);
         is_pe = true;
     } catch (const vkf::pe::WriterFailure& error) {
