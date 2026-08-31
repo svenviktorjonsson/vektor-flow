@@ -421,3 +421,55 @@ test("VKF rejects a fixed-loop body that leaves values at its back edge", () => 
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects a fixed-loop preheader that disagrees with its back edge", () => {
+  const work = makeWork("i72-header-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /            mir_push_f64\(initial_value\),\r?\n            mir_local\("store_local", 1\),\r?\n            mir_branch\("label", 0\),\r?\n            mir_load_local\(1\),\r?\n            mir_push_f64\(entry_value\),\r?\n            mir_simple\("ordered_less_f64"\),\r?\n            mir_branch\("jump_if_false", 1\),\r?\n            mir_load_local\(1\),/,
+      [
+        "            mir_push_f64(initial_value),",
+        "            mir_push_f64(initial_value),",
+        '            mir_branch("label", 0),',
+        "            mir_load_local(1),",
+        "            mir_push_f64(entry_value),",
+        '            mir_simple("ordered_less_f64"),',
+        '            mir_branch("jump_if_false", 1),',
+        '            mir_local("store_local", 1),',
+      ].join("\n"),
+    );
+    assert.notEqual(mutatedMachineIr, originalMachineIr, "loop-header balance mutation did not apply");
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "header-balance.vkf");
+    const artifact = join(work, `header-balance${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_count_to_loop_stack_maxima("count_to", "limit", "value", 3)',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `loop-header balance probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "mismatched fixed-loop header entry produced output");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
