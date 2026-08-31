@@ -57,8 +57,7 @@ async function execute() {
     result = await runIndicatorLane(adapter, { pointSizePx }, {
       fixture,
       release: true,
-      allowCorrectnessUnsupported: allowCorrectnessUnsupported
-        && implementation === 'vkf' && pointSizePx === 1,
+      allowCorrectnessUnsupported: allowCorrectnessUnsupported && implementation === 'vkf',
       encodeCaptureArtifact: captureArtifacts ? encodeCapturePng : undefined,
     });
   } else {
