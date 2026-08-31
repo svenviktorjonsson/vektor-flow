@@ -136,6 +136,26 @@ function requireFiniteVector2(value, name, { nonNegative = false } = {}) {
   }
 }
 
+function sampleDemandBlockU32(node, sample) {
+  const { stream } = requireNode(node);
+  requireSample(sample);
+  return philox4x32_10([
+    stream.counterPrefix[0],
+    stream.counterPrefix[1],
+    sample[0],
+    sample[1],
+  ], stream.key);
+}
+
+function standardNormalPairFromU32(words) {
+  requireSample(words);
+  const radiusUniform = (words[0] + 0.5) / U32_RANGE;
+  const angleUniform = words[1] / U32_RANGE;
+  const radius = Math.sqrt(-2 * Math.log(radiusUniform));
+  const angle = 2 * Math.PI * angleUniform;
+  return [radius * Math.cos(angle), radius * Math.sin(angle)];
+}
+
 export function sampleWeightedCategoricalIndex(node, sample, weights) {
   const { stream } = requireNode(node);
   requireSample(sample);
@@ -155,17 +175,13 @@ export function normalReferenceFromU32(
   words,
   { mean, standardDeviation },
 ) {
-  requireSample(words);
+  const [standard] = standardNormalPairFromU32(words);
   if (!Number.isFinite(mean)) {
     throw new RangeError('normal mean must be finite');
   }
   if (!Number.isFinite(standardDeviation) || standardDeviation < 0) {
     throw new RangeError('normal standard deviation must be finite and non-negative');
   }
-  const radiusUniform = (words[0] + 0.5) / U32_RANGE;
-  const angleUniform = words[1] / U32_RANGE;
-  const standard = Math.sqrt(-2 * Math.log(radiusUniform))
-    * Math.cos(2 * Math.PI * angleUniform);
   return mean + standardDeviation * standard;
 }
 
@@ -173,7 +189,7 @@ export function correlatedNormal2ReferenceFromU32(
   words,
   { mean, standardDeviation, correlation },
 ) {
-  requireSample(words);
+  const [firstStandard, secondStandard] = standardNormalPairFromU32(words);
   requireFiniteVector2(mean, 'correlated normal mean');
   requireFiniteVector2(
     standardDeviation,
@@ -186,12 +202,6 @@ export function correlatedNormal2ReferenceFromU32(
   if (!Number.isFinite(correlation) || correlation < -1 || correlation > 1) {
     throw new RangeError('correlated normal correlation must be finite and in [-1, 1]');
   }
-  const radiusUniform = (words[0] + 0.5) / U32_RANGE;
-  const angleUniform = words[1] / U32_RANGE;
-  const radius = Math.sqrt(-2 * Math.log(radiusUniform));
-  const angle = 2 * Math.PI * angleUniform;
-  const firstStandard = radius * Math.cos(angle);
-  const secondStandard = radius * Math.sin(angle);
   return [
     mean[0] + standardDeviation[0] * firstStandard,
     mean[1] + standardDeviation[1] * (
@@ -206,25 +216,11 @@ export function sampleNormalReference(
   sample,
   { mean, standardDeviation },
 ) {
-  const { stream } = requireNode(node);
-  requireSample(sample);
-  const words = philox4x32_10([
-    stream.counterPrefix[0],
-    stream.counterPrefix[1],
-    sample[0],
-    sample[1],
-  ], stream.key);
+  const words = sampleDemandBlockU32(node, sample);
   return normalReferenceFromU32([words[0], words[1]], { mean, standardDeviation });
 }
 
 export function sampleCorrelatedNormal2Reference(node, sample, options) {
-  const { stream } = requireNode(node);
-  requireSample(sample);
-  const words = philox4x32_10([
-    stream.counterPrefix[0],
-    stream.counterPrefix[1],
-    sample[0],
-    sample[1],
-  ], stream.key);
+  const words = sampleDemandBlockU32(node, sample);
   return correlatedNormal2ReferenceFromU32([words[0], words[1]], options);
 }
