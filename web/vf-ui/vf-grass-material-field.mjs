@@ -491,14 +491,17 @@ export function createGrassRendererGpuBatchPacketsReference(
   requireBladeBudget(bladeBudget);
   const demandedCells = requireDemandedCells(cells);
   const bladesPerCell = 2 ** Math.min(4, detailLevel);
+  const shadowBladesPerCell = 2 ** Math.max(0, Math.min(4, detailLevel) - 1);
   const activeCells = [];
   let bladeCount = 0;
+  let shadowBladeCount = 0;
   for (const [cellX, cellY] of demandedCells) {
     if (bladeCount >= bladeBudget) break;
     const cellBladeCount = Math.min(bladesPerCell, bladeBudget - bladeCount);
     if (cellBladeCount === 0) break;
     activeCells.push({ cellX, cellY, cellBladeCount });
     bladeCount += cellBladeCount;
+    shadowBladeCount += Math.min(cellBladeCount, shadowBladesPerCell);
   }
   if (activeCells.length === 0) {
     return Object.freeze({
@@ -556,6 +559,8 @@ export function createGrassRendererGpuBatchPacketsReference(
     cell_records: cellRecords,
     cell_stride_words: 12,
     blades_per_cell: bladesPerCell,
+    shadow_blades_per_cell: shadowBladesPerCell,
+    shadow_instance_count: shadowBladeCount,
   });
   const packet = Object.freeze({
     id: 'grass:view-batch:v1',

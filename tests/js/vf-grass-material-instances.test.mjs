@@ -159,6 +159,8 @@ test('GPU grass packets upload one deterministic Philox descriptor per cell', ()
   assert.equal(packet.casts_shadow, true);
   assert.equal(packet.grass_gpu.cell_stride_words, 12);
   assert.equal(packet.grass_gpu.blades_per_cell, 16);
+  assert.equal(packet.grass_gpu.shadow_blades_per_cell, 8);
+  assert.equal(packet.grass_gpu.shadow_instance_count, 24);
   assert.ok(packet.grass_gpu.cell_records instanceof Uint32Array);
   assert.equal(packet.grass_gpu.cell_records.length, 3 * 12);
   assert.deepEqual(packet.cell_ids, cpu.packets[0].cell_ids);
@@ -175,5 +177,9 @@ test('GPU grass packets upload one deterministic Philox descriptor per cell', ()
   assert.deepEqual(
     [...recreated.packets[0].grass_gpu.cell_records],
     [...packet.grass_gpu.cell_records],
+  );
+  assert.equal(
+    recreated.packets[0].grass_gpu.shadow_instance_count,
+    packet.grass_gpu.shadow_instance_count,
   );
 });

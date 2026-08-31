@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 import {
   createGrassMaterialFieldReference,
+  createGrassRendererGpuBatchPacketsReference,
   createGrassRendererPacketsReference,
 } from '../../web/vf-ui/vf-grass-material-field.mjs';
 import {
@@ -118,7 +119,7 @@ test('approaching the field appends detail without changing shared cell blades',
     cellBudget: 64,
     bladeBudget: 1024,
   });
-  const farDemand = demandAt(18);
+  const farDemand = demandAt(30);
   const nearDemand = demandAt(3);
   const far = createGrassRendererPacketsReference(field, farDemand);
   const near = createGrassRendererPacketsReference(field, nearDemand);
@@ -136,6 +137,17 @@ test('approaching the field appends detail without changing shared cell blades',
     [...sharedFar.indices],
     [...sharedNear.indices.slice(0, sharedFar.indices.length)],
   );
+
+  const farGpu = createGrassRendererGpuBatchPacketsReference(field, farDemand).packets[0];
+  const nearGpu = createGrassRendererGpuBatchPacketsReference(field, nearDemand).packets[0];
+  assert.equal(farDemand.detailLevel, 1);
+  assert.equal(nearDemand.detailLevel, 4);
+  assert.equal(farGpu.grass_gpu.shadow_blades_per_cell, 1);
+  assert.equal(nearGpu.grass_gpu.shadow_blades_per_cell, 8);
+  assert.equal(farGpu.grass_gpu.shadow_instance_count, 64);
+  assert.equal(nearGpu.grass_gpu.shadow_instance_count, 512);
+  assert.ok(farGpu.grass_gpu.shadow_instance_count < farGpu.instance_count);
+  assert.ok(nearGpu.grass_gpu.shadow_instance_count < nearGpu.instance_count);
 });
 
 test('offscreen fixture renders the cells selected from its camera', async () => {
