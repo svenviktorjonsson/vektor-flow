@@ -69,17 +69,25 @@ test('grass camera demand coalesces revisions before generating retained packets
   assert.equal(applied.status, 'applied');
   assert.equal(applied.revision, 2);
   assert.equal(applied.cells.length, 32);
-  assert.ok(applied.runtime.upload.bytes > 0);
-  assert.equal(runtime.packets().length, 32);
+  assert.deepEqual(applied.runtime.upload, {
+    packets: 1,
+    blades: 256,
+    vertexBytes: 160 + 256 * 64,
+    indexBytes: 24,
+    bytes: 184 + 256 * 64,
+  });
+  assert.equal(runtime.packets().length, 1);
   assert.ok(runtime.packets().every(({ instance_kind: kind }) => (
     kind === 'grass-blade-list'
   )));
+  assert.equal(runtime.packets()[0].id, 'grass:view-batch:v1');
+  assert.equal(runtime.packets()[0].cell_ids.length, 32);
   assert.equal(renders.length, 1);
   assert.deepEqual(controller.status(), {
     scheduled: false,
     pendingRevision: null,
     committedRevision: 2,
-    packetCount: 32,
+    packetCount: 1,
   });
 });
 
@@ -124,7 +132,7 @@ test('steady grass demand is upload-free and preserves retained packet objects',
   });
 });
 
-test('moving the grass view retains shared cells and evicts out-of-view packets', async () => {
+test('moving the grass view replaces one batch while retaining stable cell identities', async () => {
   const jobs = [];
   const runtime = createRetainedGeometryPacketRuntimeReference();
   const controller = createGrassCameraDemandControllerReference({
@@ -143,19 +151,21 @@ test('moving the grass view retains shared cells and evicts out-of-view packets'
   };
 
   await run(1, camera([0, -8, 5]));
-  const initial = runtime.packets();
-  const initialById = new Map(initial.map((packet) => [packet.id, packet]));
+  const initial = runtime.packets()[0];
+  const initialCellIds = new Set(initial.cell_ids);
   const changed = await run(2, camera([2, -8, 5], [2, 0, 0]));
-  const moved = runtime.packets();
-  const shared = moved.filter((packet) => initialById.has(packet.id));
+  const moved = runtime.packets()[0];
+  const sharedCellIds = moved.cell_ids.filter((id) => initialCellIds.has(id));
 
-  assert.ok(changed.runtime.removed.length > 0);
-  assert.ok(changed.runtime.upserted.length > 0);
-  assert.ok(changed.runtime.upload.bytes <= 512 * 184);
-  assert.ok(shared.length > 0);
-  shared.forEach((packet) => {
-    assert.strictEqual(packet, initialById.get(packet.id));
-  });
+  assert.deepEqual(changed.runtime.removed, []);
+  assert.deepEqual(changed.runtime.upserted, ['grass:view-batch:v1']);
+  assert.equal(changed.runtime.upload.indexBytes, 0);
+  assert.equal(changed.runtime.upload.vertexBytes, moved.instances.byteLength);
+  assert.equal(changed.runtime.upload.bytes, moved.instances.byteLength);
+  assert.equal(moved.id, initial.id);
+  assert.notStrictEqual(moved, initial);
+  assert.ok(sharedCellIds.length > 0);
+  assert.notEqual(moved.retained_signature, initial.retained_signature);
 });
 
 test('offscreen fixture coalesces a horizon-clipped zero-light grass view', async () => {

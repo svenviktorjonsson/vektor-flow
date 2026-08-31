@@ -1,5 +1,5 @@
 import {
-  createGrassRendererInstancePacketsReference,
+  createGrassRendererBatchPacketsReference,
 } from './vf-grass-material-field.mjs';
 import {
   selectGrassViewDemandReference,
@@ -29,15 +29,23 @@ function adaptWorkingSet(workingSet, previousById) {
   let indexBytes = 0;
   for (const generated of workingSet.packets) {
     const previous = previousById.get(generated.id);
-    const packet = previous?.blade_count === generated.blade_count
+    const compatible = previous && (
+      generated.retained_signature != null
+        ? previous.retained_signature === generated.retained_signature
+        : previous.blade_count === generated.blade_count
+    );
+    const packet = compatible
       ? previous
       : generated;
     nextById.set(packet.id, packet);
     if (packet !== previous) {
       upsert.push(packet);
       blades += packet.blade_count;
-      vertexBytes += packet.vertices.byteLength + (packet.instances?.byteLength ?? 0);
-      indexBytes += packet.indices.byteLength;
+      const reusesVertexTemplate = previous?.vertices === packet.vertices;
+      const reusesIndexTemplate = previous?.indices === packet.indices;
+      vertexBytes += (reusesVertexTemplate ? 0 : packet.vertices.byteLength)
+        + (packet.instances?.byteLength ?? 0);
+      indexBytes += reusesIndexTemplate ? 0 : packet.indices.byteLength;
     }
   }
   const remove = [];
@@ -127,7 +135,7 @@ export function createGrassCameraDemandControllerReference({
           upload: emptyUpload(),
         });
       } else {
-        const workingSet = createGrassRendererInstancePacketsReference(field, demand);
+        const workingSet = createGrassRendererBatchPacketsReference(field, demand);
         const adapted = adaptWorkingSet(workingSet, packetById);
         packetById = adapted.byId;
         delta = adapted.delta;
