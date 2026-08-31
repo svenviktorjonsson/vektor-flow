@@ -45,6 +45,8 @@ set(VF_UI_NATIVE_SCENE_ASSETS
   "geom/vf-geom-material-arena.js"
   "geom/vf-geom-frame-adapter.js"
   "geom/vf-geom-wgpu.js"
+  "geom/vf-clustered-light-plan.mjs"
+  "geom/vf-light-view-bounds.mjs"
   "shaders/vf-rigid-polygons-2d.wgsl"
   "assets/fonts/NotoSans-Regular-chess-sdf.png"
 )
