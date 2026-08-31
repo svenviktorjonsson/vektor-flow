@@ -280,3 +280,19 @@ test("scene gallery captures a procedural dice texture", async () => {
   assert.ok(bytes.length > 100);
   assert.equal(sha256(bytes), example.media.sha256);
 });
+
+test("scene gallery captures a World through its embedding", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "17-world-embedding");
+  assert.ok(example);
+  assert.deepEqual(example.features, ["2d", "world", "embedding", "markers"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  assert.ok(source.includes("w: World("));
+  assert.ok(source.includes("w.add(Particle("));
+  assert.ok(source.includes("append_world(w, embedding)"));
+  assert.ok(source.includes("s_mode:data"));
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+});
