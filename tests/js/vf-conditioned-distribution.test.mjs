@@ -133,6 +133,42 @@ test('correlated-normal transform rejects malformed or impossible parameters', (
   assert.throws(() => transform({ correlation: -1.0000001 }), RangeError);
 });
 
+test('new distributions remain immutable and order, chunk, and branch independent', () => {
+  const root = createConditionedRoot(ROOT_IDENTITY);
+  const target = conditionChild(root, {
+    segment: 'instance:17',
+    channel: 'appearance',
+  });
+  const unrelated = conditionChild(root, {
+    segment: 'instance:999',
+    channel: 'appearance',
+  });
+  const weights = Object.freeze([1, 3, 6]);
+  const correlated = Object.freeze({
+    mean: Object.freeze([10, -5]),
+    standardDeviation: Object.freeze([2.5, 4]),
+    correlation: 0.75,
+  });
+  const samples = Array.from({ length: 32 }, (_, index) => [index, 7]);
+  const pair = (node, sample) => [
+    sampleWeightedCategoricalIndex(node, sample, weights),
+    sampleCorrelatedNormal2Reference(node, sample, correlated),
+  ];
+  const expected = samples.map((sample) => pair(target, sample));
+
+  [...samples].reverse().forEach((sample) => pair(unrelated, sample));
+  const reversed = new Map(
+    [...samples].reverse().map((sample) => [sample[0], pair(target, sample)]),
+  );
+  assert.deepEqual(samples.map((sample) => reversed.get(sample[0])), expected);
+
+  const chunks = [samples.slice(0, 5), samples.slice(5, 22), samples.slice(22)];
+  assert.deepEqual(chunks.flatMap((chunk) => chunk.map((sample) => pair(target, sample))), expected);
+  assert.ok(Object.isFrozen(root));
+  assert.ok(Object.isFrozen(target));
+  assert.ok(Object.isFrozen(target.hierarchy));
+});
+
 test('stable parent identity conditions children without branch state', () => {
   const makeChild = (identity, segment) => conditionChild(
     createConditionedRoot(identity),
