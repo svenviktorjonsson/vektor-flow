@@ -1,8 +1,8 @@
 # Lazy data comparison tracer
 
 This is a correctness-first, non-gating harness for VKF, Polars, DuckDB, and
-future Vaex/Dask comparisons. It does not contain measured performance results
-and does not time VKF's private CSV scanner.
+future Vaex/Dask comparisons. It contains no published performance claim and
+never times VKF's private CSV scanner.
 
 The workload reads one deterministic wide CSV and observes:
 
@@ -49,7 +49,8 @@ node benchmarks/lazy-data-comparison/run.mjs \
 The readiness step generates a source file from the checked-in VKF template,
 compiles it through public `data.load`, executes the resulting artifact, and
 requires the exact fixture oracle. Only then is VKF `AVAILABLE`. The receipt
-records canonical source and runner hashes but no elapsed time or ratio.
+records canonical source and runner hashes. Readiness alone records no elapsed
+time or ratio.
 
 Polars is the first verified external peer. Install its pinned dependency into
 an ignored repository-local virtual environment, then pass that environment's
@@ -99,13 +100,44 @@ and Dask as `UNAVAILABLE`, retains empty raw-sample and comparison arrays, and
 makes no timing claim. A missing peer is never replaced with pandas, NumPy, the
 private VKF scanner, or another implementation.
 
-Public executable CSV-backed `data.load`, a compatible Vaex runner, and a
-compatible Dask runner are prerequisites for measurement. This environment has
+Compatible Vaex and Dask runners remain prerequisites for the full peer-set
+comparison. This environment has
 not verified a mutually compatible Vaex/Dask/Python dependency set. Polars and
 DuckDB are pinned independently because each passes the exact tiny-fixture
 oracle; the remaining peer set stays `unfrozen_dependencies`.
 Readiness derives peer names from that versioned contract rather than a fixed
 code list, so later peer-set reviews do not require fallback logic.
+
+## Non-gating development samples
+
+After all three implemented peers pass readiness, add `--sample-rounds` to
+collect paired raw development samples:
+
+```sh
+node benchmarks/lazy-data-comparison/run.mjs \
+  --fixture=benchmarks/lazy-data-comparison/.work/fixture.csv \
+  --rows=4096 \
+  --output=benchmarks/lazy-data-comparison/.work/samples.json \
+  --revision=<git-commit> \
+  --sample-rounds=1 \
+  --sample-timeout-ms=60000 \
+  --vkf-runner=<path-to-vkf> \
+  --polars-runner=<path-to-polars-python> \
+  --duckdb-runner=<path-to-duckdb-python>
+```
+
+Every preparation pass is outside timing. Each accepted sample launches a
+fresh process and measures through process exit and exact scalar validation.
+Peer order rotates by round; fresh and warm rows use the same order. Fresh rows
+receive a new empty derived-cache workspace per invocation, while warm rows
+reuse the workspace from one excluded, oracle-checked preparation pass. OS
+cache state remains uncontrolled and is reported as such, so neither row is a
+disk-cold measurement.
+
+The receipt retains all raw samples, including timeouts and oracle failures,
+and deliberately leaves `comparisons` empty. It reports no ratios, memory
+measurements, outlier deletion, release-gate result, or Vaex/Dask timing. The
+tiny command above is development evidence, not a published performance claim.
 
 ## Frozen boundaries
 
@@ -118,10 +150,11 @@ pass. OS cache state is uncontrolled and must be reported, so neither row may
 be described as disk-cold evidence.
 
 Fixture generation, compiler build, and dependency installation are outside
-both timed regions. Future sampling must rotate all available peers on the same
-host, retain every raw sample and timeout, verify the exact scalar first, and
-record all required provenance fields. Peak RSS remains explicitly unavailable
-until a cross-platform process-memory probe is independently validated.
+both timed regions. Sampling rotates the three implemented peers on the same
+host, retains every raw sample and timeout, verifies the exact scalar before an
+elapsed value is accepted as `OK`, and records all required provenance fields.
+Peak RSS remains explicitly unavailable until a cross-platform process-memory
+probe is independently validated.
 
 The ADR 0010 relative goal starts as an aspiration. This row cannot become a
 release gate until it has passed three primary-runner cycles and one independent

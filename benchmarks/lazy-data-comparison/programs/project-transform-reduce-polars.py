@@ -43,14 +43,20 @@ def dependency_sha256() -> str:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: project-transform-reduce-polars.py FIXTURE.csv")
+    sampling = len(sys.argv) == 3 and sys.argv[2] == "--sample"
+    if len(sys.argv) != 2 and not sampling:
+        raise SystemExit(
+            "usage: project-transform-reduce-polars.py FIXTURE.csv [--sample]"
+        )
     result = (
         pl.scan_csv(sys.argv[1])
         .select((((pl.col("x") * 2.0 - pl.col("y")) ** 2).sum()).alias("result"))
         .collect()
         .item()
     )
+    if sampling:
+        print(result)
+        return
     print(
         json.dumps(
             {
