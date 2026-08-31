@@ -169,6 +169,56 @@ test('new distributions remain immutable and order, chunk, and branch independen
   assert.ok(Object.isFrozen(target.hierarchy));
 });
 
+test('new distributions match pinned deterministic population oracles', () => {
+  const root = createConditionedRoot(ROOT_IDENTITY);
+  const categorical = conditionChild(root, {
+    segment: 'population:oracle',
+    channel: 'species',
+  });
+  const correlated = conditionChild(root, {
+    segment: 'population:oracle',
+    channel: 'size-pair',
+  });
+  const count = 65_536;
+  const categoryCounts = [0, 0, 0];
+  let sumX = 0;
+  let sumY = 0;
+  let sumXX = 0;
+  let sumYY = 0;
+  let sumXY = 0;
+
+  for (let index = 0; index < count; index += 1) {
+    categoryCounts[
+      sampleWeightedCategoricalIndex(categorical, [index, 11], [1, 3, 6])
+    ] += 1;
+    const [x, y] = sampleCorrelatedNormal2Reference(correlated, [index, 11], {
+      mean: [10, -5],
+      standardDeviation: [2.5, 4],
+      correlation: 0.75,
+    });
+    sumX += x;
+    sumY += y;
+    sumXX += x * x;
+    sumYY += y * y;
+    sumXY += x * y;
+  }
+
+  const meanX = sumX / count;
+  const meanY = sumY / count;
+  const varianceX = sumXX / count - meanX * meanX;
+  const varianceY = sumYY / count - meanY * meanY;
+  const covariance = sumXY / count - meanX * meanY;
+  const correlation = covariance / Math.sqrt(varianceX * varianceY);
+
+  assert.deepEqual(categoryCounts, [6_613, 19_511, 39_412]);
+  assert.ok(Math.abs(meanX - 10) < 0.025);
+  assert.ok(Math.abs(meanY + 5) < 0.025);
+  assert.ok(Math.abs(varianceX - 6.25) < 0.1);
+  assert.ok(Math.abs(varianceY - 16) < 0.1);
+  assert.ok(Math.abs(covariance - 7.5) < 0.1);
+  assert.ok(Math.abs(correlation - 0.75) < 0.01);
+});
+
 test('stable parent identity conditions children without branch state', () => {
   const makeChild = (identity, segment) => conditionChild(
     createConditionedRoot(identity),
