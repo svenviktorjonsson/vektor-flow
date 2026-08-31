@@ -1,0 +1,31 @@
+ui:.ui
+ui.set_mode("overlay")
+
+native_scene:(
+    kind:"scene_3d",
+    frame_id:"spot_frame",
+    title:"Spot light",
+    rect:[0.08, 0.08, 0.84, 0.84],
+    background:[0.006, 0.009, 0.02, 1],
+    camera:(pos:[5.4, -7.2, 4.8], target:[0, 0.7, 0.7], up:[0, 0, 1], fov:42),
+    plane:(center:[0, 0], size:9, z:0, color:[0.12, 0.16, 0.24, 1]),
+    surfaces:[],
+    cubes:[
+        (id:"subject", center:[0, 1, 1], size:1.8, face_color:[0.8, 0.14, 0.06, 1], roughness:0.28, specular_strength:0.72, casts_shadow:true, receives_shadow:true),
+        (id:"side", center:[2.2, 2, 0.65], size:1.1, face_color:[0.1, 0.35, 0.9, 1], roughness:0.5, casts_shadow:true, receives_shadow:true)
+    ],
+    lights:[(
+        id:"spot",
+        kind:"spot",
+        pos:[-2.8, -2.4, 5.8],
+        target:[0, 1, 0.4],
+        color:[1, 0.84, 0.56, 1],
+        intensity:65,
+        range:18,
+        inner_cone_deg:12,
+        outer_cone_deg:24,
+        casts_shadow:true,
+        source_radius:0.08
+    )],
+    shadow:(enabled:true, color:[0, 0, 0, 0.36], lift:0.002)
+)
