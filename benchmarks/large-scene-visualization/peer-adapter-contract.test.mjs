@@ -144,7 +144,9 @@ test('static resolution diagnostic freezes 1000 dispatches over exact 50/1000 ru
   assert.match(diagnostic, /warmupSamples = 50;/);
   assert.match(diagnostic, /measuredSamples = 1000;/);
   assert.match(diagnostic, /adaptiveBatching !== false/);
+  assert.match(diagnostic, /server\.listen\(0, '127\.0\.0\.1'/);
   assert.doesNotMatch(diagnostic, /while\s*\(/);
+  assert.doesNotMatch(diagnostic, /10020/);
 });
 
 test('failed correctness or a late large point upload withholds all timing', async () => {
