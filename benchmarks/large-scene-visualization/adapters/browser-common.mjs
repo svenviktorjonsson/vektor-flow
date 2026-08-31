@@ -187,7 +187,7 @@ export function createBrowserPeerAdapter(config) {
         throw new Error(`${workload.id} fixture hash ${actualHash}; expected ${workload.fixture.sha256}`);
       }
       await initializeImpl();
-      for (const gl of tracker.contexts) gl.finish();
+      completeGpuContexts(tracker.contexts);
       tracker.markInitialized();
       initialized = true;
     },
@@ -197,8 +197,7 @@ export function createBrowserPeerAdapter(config) {
     },
     async completeGpu() {
       if (tracker.contexts.size === 0) throw new Error('peer adapter created no tracked WebGL context');
-      for (const gl of tracker.contexts) gl.finish();
-      return tracker.contexts.size;
+      return completeGpuContexts(tracker.contexts);
     },
     async capture(frame) {
       const rgba = captureCanvases(host, workload, tracker.contexts);
@@ -233,6 +232,26 @@ export function createBrowserPeerAdapter(config) {
       }
     },
   });
+}
+
+export function completeGpuContexts(contexts) {
+  let count = 0;
+  for (const gl of contexts) {
+    const sync = typeof gl.fenceSync === 'function'
+      ? gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
+      : null;
+    if (typeof gl.fenceSync === 'function' && !sync) {
+      throw new Error('WebGL GPU completion fence could not be created');
+    }
+    gl.flush();
+    try {
+      gl.finish();
+    } finally {
+      if (sync) gl.deleteSync(sync);
+    }
+    count += 1;
+  }
+  return count;
 }
 
 export function prepareHost(host, workload) {

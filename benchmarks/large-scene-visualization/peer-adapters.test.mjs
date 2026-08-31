@@ -15,7 +15,10 @@ import {
   VTK_JS_VERSION,
   vtkXyzPositions,
 } from './adapters/vtk-js.mjs';
-import { cameraRangesForFrame } from './adapters/browser-common.mjs';
+import {
+  cameraRangesForFrame,
+  completeGpuContexts,
+} from './adapters/browser-common.mjs';
 
 const pan = {
   pointCount: 3,
@@ -75,4 +78,31 @@ test('Plotly static markers use the framebuffer-calibrated size only when declar
       },
     },
   }), 2.4);
+});
+
+test('explicit completion submits one GPU fence per context before blocking', () => {
+  const calls = [];
+  const sync = {};
+  const gl = {
+    SYNC_GPU_COMMANDS_COMPLETE: 0x9117,
+    fenceSync(condition, flags) { calls.push(['fence', condition, flags]); return sync; },
+    flush() { calls.push(['flush']); },
+    finish() { calls.push(['finish']); },
+    deleteSync(value) { calls.push(['delete', value]); },
+  };
+  assert.equal(completeGpuContexts(new Set([gl])), 1);
+  assert.deepEqual(calls, [
+    ['fence', gl.SYNC_GPU_COMMANDS_COMPLETE, 0],
+    ['flush'],
+    ['finish'],
+    ['delete', sync],
+  ]);
+
+  calls.length = 0;
+  const webGl1 = {
+    flush() { calls.push(['flush']); },
+    finish() { calls.push(['finish']); },
+  };
+  assert.equal(completeGpuContexts(new Set([webGl1])), 1);
+  assert.deepEqual(calls, [['flush'], ['finish']]);
 });
