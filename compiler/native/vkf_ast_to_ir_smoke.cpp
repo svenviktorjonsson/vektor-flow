@@ -2530,7 +2530,8 @@ private:
                 }
                 if (is_update) env.set(name, environment_type);
                 else env.declare(name, environment_type);
-                if (value_type == "Display<2>" || value_type == "Frame<2>") {
+                if (value_type == "Display<2>" || value_type == "Frame<2>" ||
+                    value_type == "Layer") {
                     const auto& handle = object_of(value, "UI handle");
                     const auto& raw_handle = field(handle, "value", "UI handle");
                     if (string_field(handle, "kind", "UI handle") != "const" ||
@@ -2538,7 +2539,8 @@ private:
                         throw IRFailure("retained UI handle must be a non-negative constant");
                     }
                     ui_handle_bindings_[name] = UiHandleRef{
-                        value_type == "Display<2>" ? "display" : "frame",
+                        value_type == "Display<2>" ? "display" :
+                        value_type == "Frame<2>" ? "frame" : "layer",
                         static_cast<std::uint64_t>(raw_handle.as_number())
                     };
                 }
@@ -3741,6 +3743,94 @@ private:
                         lookup["id"] = args.front();
                         lookup["type"] = vf::JsonValue(ui_owner_lookup_type(args.front()));
                         return vf::JsonValue(std::move(lookup));
+                    }
+                    if (spilled_ui_display && queue_type == "Frame<2>" &&
+                        (method == "set_geom_options" || method == "add_camera" ||
+                         method == "add_light" || method == "add")) {
+                        if (!args.empty() || !spread_args.empty()) {
+                            throw IRFailure("Frame." + method + " accepts named arguments only");
+                        }
+                        const auto target = ui_handle_bindings_.find(queue_name);
+                        if (target == ui_handle_bindings_.end() ||
+                            target->second.kind != "frame") {
+                            throw IRFailure("Frame." + method + " requires a retained Frame binding");
+                        }
+                        static const std::map<std::string, std::set<std::string>> supported{
+                            {"set_geom_options", {
+                                "background", "unified_renderer", "combine_transparent"
+                            }},
+                            {"add_camera", {
+                                "pos", "target", "up", "fov", "projection", "ortho_scale"
+                            }},
+                            {"add_light", {
+                                "id", "kind", "pos", "target", "color", "intensity",
+                                "range", "casts_shadow", "model", "source_radius", "spread",
+                                "show_marker"
+                            }},
+                            {"add", {
+                                "x", "y", "z", "id", "color", "representation", "render_mode",
+                                "texture", "specular_strength", "roughness", "reflectivity", "alpha",
+                                "transparent", "depth_write", "receives_lighting", "no_lighting",
+                                "casts_shadow", "receives_shadow", "surface_system", "interpolation",
+                                "visible"
+                            }}
+                        };
+                        vf::JsonValue::Object properties;
+                        for (const auto& raw_named : named_args) {
+                            const auto& named = object_of(
+                                raw_named, "Frame." + method + " argument");
+                            const std::string name = string_field(
+                                named, "name", "Frame." + method + " argument");
+                            if (supported.at(method).find(name) == supported.at(method).end()) {
+                                throw IRFailure(
+                                    "Frame." + method + " does not support `" + name + "`");
+                            }
+                            if (properties.find(name) != properties.end()) {
+                                throw IRFailure(
+                                    "Frame." + method + " received duplicate `" + name + "`");
+                            }
+                            properties[name] = field(
+                                named, "value", "Frame." + method + " argument");
+                        }
+                        if (method == "add_camera" &&
+                            (properties.find("pos") == properties.end() ||
+                             properties.find("target") == properties.end())) {
+                            throw IRFailure("Frame.add_camera requires `pos:` and `target:`");
+                        }
+                        if (method == "add_light" &&
+                            (properties.find("id") == properties.end() ||
+                             properties.find("pos") == properties.end())) {
+                            throw IRFailure("Frame.add_light requires `id:` and `pos:`");
+                        }
+                        if (method == "add" &&
+                            (properties.find("x") == properties.end() ||
+                             properties.find("y") == properties.end() ||
+                             properties.find("z") == properties.end() ||
+                             properties.find("id") == properties.end() ||
+                             properties.find("color") == properties.end())) {
+                            throw IRFailure(
+                                "Frame.add material surface requires `x:`, `y:`, `z:`, `id:`, and `color:`");
+                        }
+                        vf::JsonValue::Object operation;
+                        operation["kind"] = vf::JsonValue(method);
+                        operation["frame_id"] = vf::JsonValue(
+                            static_cast<double>(target->second.id));
+                        operation["properties"] = vf::JsonValue(std::move(properties));
+                        if (method == "add") {
+                            const std::uint64_t layer_id = next_ui_layer_++;
+                            operation["layer_id"] = vf::JsonValue(
+                                static_cast<double>(layer_id));
+                            ui_operations_.emplace_back(std::move(operation));
+                            ui_result_type_ = "Layer";
+                            vf::JsonValue layer = num_const(static_cast<double>(layer_id));
+                            layer.as_object()["type"] = vf::JsonValue("Layer");
+                            return layer;
+                        }
+                        ui_operations_.emplace_back(std::move(operation));
+                        auto result = node("const");
+                        result["type"] = vf::JsonValue("null");
+                        result["value"] = vf::JsonValue(nullptr);
+                        return vf::JsonValue(std::move(result));
                     }
                     if (spilled_physics && queue_type == "World<2>" && method == "add") {
                         if (args.size() != 1 || !named_args.empty() || !spread_args.empty()) {
@@ -7072,6 +7162,7 @@ private:
     bool has_static_html_load_ = false;
     std::uint64_t next_lambda_local_ = 0;
     std::uint64_t next_ui_frame_ = 0;
+    std::uint64_t next_ui_layer_ = 0;
 };
 
 double require_const_number(const vf::JsonValue& value, const std::string& context) {
