@@ -45,6 +45,9 @@ function assertCorrectness(workload, lane, phase) {
     || correctness.checkpoints?.length !== workload.correctness.checkpoints.length) {
     throw new Error(`${phase} failed for ${laneKey(lane)}`);
   }
+  if (correctness.gpuCompletionCalls !== workload.correctness.checkpoints.length) {
+    throw new Error(`${phase} correctness GPU completions must equal checkpoint count for ${laneKey(lane)}`);
+  }
   if (clock?.crossOriginIsolated !== true
     || !Number.isFinite(clock.minimumPositiveDeltaMs)
     || clock.minimumPositiveDeltaMs <= 0
@@ -174,8 +177,14 @@ export function buildTimingEvidence(manifest, options) {
     assertCorrectness(workload, lane, 'timing phase');
     const result = lane.result.timing;
     if (!Array.isArray(result?.samplesMs)
-      || result.samplesMs.length < manifest.measurement.minimumMeasuredFrames) {
-      throw new Error(`${laneKey(lane)} requires at least ${manifest.measurement.minimumMeasuredFrames} measured frames`);
+      || result.samplesMs.length !== manifest.measurement.minimumMeasuredFrames) {
+      throw new Error(`${laneKey(lane)} requires exactly ${manifest.measurement.minimumMeasuredFrames} measured samples`);
+    }
+    if (result.warmupFrames !== manifest.measurement.minimumWarmupFrames) {
+      throw new Error(`${laneKey(lane)} requires exactly ${manifest.measurement.minimumWarmupFrames} warmup frames`);
+    }
+    if (result.measuredFrames !== manifest.measurement.minimumMeasuredFrames) {
+      throw new Error(`${laneKey(lane)} requires exactly ${manifest.measurement.minimumMeasuredFrames} measured frames`);
     }
     if (result.measuredGpuFrames !== result.samplesMs.length) {
       throw new Error(`${laneKey(lane)} must use exactly one completed GPU frame per timing sample`);
@@ -183,8 +192,8 @@ export function buildTimingEvidence(manifest, options) {
     const requiredCompletions = workload.correctness.checkpoints.length
       + manifest.measurement.minimumWarmupFrames
       + result.samplesMs.length;
-    if (result.gpuCompletionCalls < requiredCompletions) {
-      throw new Error(`${laneKey(lane)} did not explicitly complete every GPU frame`);
+    if (result.gpuCompletionCalls !== requiredCompletions) {
+      throw new Error(`${laneKey(lane)} requires exactly ${requiredCompletions} GPU completions`);
     }
   }
   assertEnvironment([...preflight, ...timing], environment);
