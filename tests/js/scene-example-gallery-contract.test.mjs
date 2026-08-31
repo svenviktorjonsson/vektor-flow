@@ -113,3 +113,18 @@ test("scene gallery captures a cast and received shadow", async () => {
   assert.ok(bytes.length > 100);
   assert.equal(sha256(bytes), example.media.sha256);
 });
+
+test("scene gallery captures warm and cool lights together", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "07-multiple-lights");
+  assert.ok(example);
+  assert.deepEqual(example.features, ["3d", "lighting", "multiple-lights"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  assert.ok(source.match(/\.add_light\(/gu)?.length >= 2);
+  assert.ok(source.includes('id:"warm"'));
+  assert.ok(source.includes('id:"cool"'));
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+});
