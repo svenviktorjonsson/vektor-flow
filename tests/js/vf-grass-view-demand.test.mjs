@@ -82,3 +82,34 @@ test('a billion-unit view selects its nearest bounded working set without scanni
   assert.ok(demand.scannedCellCount <= 65536);
   assert.ok(demand.cells.every(([x, y]) => Math.abs(x) <= 4 && Math.abs(y) <= 4));
 });
+
+test('approaching the field appends detail without changing shared cell blades', () => {
+  const field = createGrassMaterialFieldReference(IDENTITY);
+  const demandAt = (distance) => selectGrassViewDemandReference({
+    camera: {
+      ...CAMERA,
+      eye: [0, -distance, distance],
+    },
+    planeZ: 0,
+    cellBudget: 64,
+    bladeBudget: 1024,
+  });
+  const farDemand = demandAt(18);
+  const nearDemand = demandAt(3);
+  const far = createGrassRendererPacketsReference(field, farDemand);
+  const near = createGrassRendererPacketsReference(field, nearDemand);
+  const nearById = new Map(near.packets.map((packet) => [packet.id, packet]));
+  const sharedFar = far.packets.find((packet) => nearById.has(packet.id));
+  const sharedNear = nearById.get(sharedFar.id);
+
+  assert.ok(nearDemand.detailLevel > farDemand.detailLevel);
+  assert.ok(sharedNear.blade_count > sharedFar.blade_count);
+  assert.deepEqual(
+    [...sharedFar.vertices],
+    [...sharedNear.vertices.slice(0, sharedFar.vertices.length)],
+  );
+  assert.deepEqual(
+    [...sharedFar.indices],
+    [...sharedNear.indices.slice(0, sharedFar.indices.length)],
+  );
+});
