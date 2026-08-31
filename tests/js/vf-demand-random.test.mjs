@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { philox4x32_10 } from '../../web/vf-ui/vf-demand-random.mjs';
+import {
+  encodeDemandIdentity,
+  philox4x32_10,
+} from '../../web/vf-ui/vf-demand-random.mjs';
 
 test('Philox4x32-10 matches the Random123 known-answer vectors', () => {
   const vectors = [
@@ -25,4 +28,44 @@ test('Philox4x32-10 matches the Random123 known-answer vectors', () => {
   for (const vector of vectors) {
     assert.deepEqual(philox4x32_10(vector.counter, vector.key), vector.expected);
   }
+});
+
+test('demand identity uses a pinned length-framed hierarchy encoding', () => {
+  const encoded = encodeDemandIdentity({
+    generator: 'p',
+    version: 2,
+    seed: [3, 4],
+    domain: 'd',
+    hierarchy: ['ab', 'c'],
+    lod: 5,
+    channel: 'x',
+    sample: [6, 7],
+  });
+
+  assert.equal(
+    Buffer.from(encoded).toString('hex'),
+    [
+      '564b464401000000',
+      '010100000070',
+      '020400000002000000',
+      '03080000000300000004000000',
+      '040100000064',
+      '050f000000020000000200000061620100000063',
+      '060400000005000000',
+      '070100000078',
+      '08080000000600000007000000',
+    ].join(''),
+  );
+
+  const differentBoundary = encodeDemandIdentity({
+    generator: 'p',
+    version: 2,
+    seed: [3, 4],
+    domain: 'd',
+    hierarchy: ['a', 'bc'],
+    lod: 5,
+    channel: 'x',
+    sample: [6, 7],
+  });
+  assert.notDeepEqual(encoded, differentBoundary);
 });
