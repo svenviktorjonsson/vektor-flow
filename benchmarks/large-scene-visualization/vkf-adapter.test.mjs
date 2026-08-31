@@ -7,6 +7,7 @@ import { generatePointFixture } from './materialize-fixtures.mjs';
 import {
   compareRegionStats,
   idealDiscRegionStats,
+  opaqueFramebufferRegionStats,
 } from './point-frame-oracle.mjs';
 import {
   cameraOffsetForFrame,
@@ -47,6 +48,21 @@ test('ideal-disc region oracle passes identical retained output and detects a wr
   assert.deepEqual(exact, { passed: true, maxRegionError: 0 });
   assert.equal(wrongCamera.passed, false);
   assert.ok(wrongCamera.maxRegionError > workload.correctness.maxRegionError);
+});
+
+test('opaque peer readback derives foreground coverage from the frozen colors', () => {
+  const { workload } = smallWorkload();
+  workload.viewport = [2, 1];
+  workload.correctness.grid = [2, 1];
+  const rgba = new Uint8Array([
+    ...workload.backgroundRgba,
+    ...workload.pointRgba,
+  ]);
+  const stats = opaqueFramebufferRegionStats(rgba, workload, 0);
+  assert.ok(stats.regions[0][0] < 1e-12);
+  assert.ok(Math.abs(stats.regions[1][0] - 1) < 1e-12);
+  assert.ok(Math.abs(stats.regions[1][1] - workload.pointRgba[0] / 255) < 1e-12);
+  assert.equal(stats.regions[0][4], 1);
 });
 
 test('VKF benchmark adapter retains exact generated x/y bytes while changing only camera uniforms', async () => {
