@@ -1059,6 +1059,7 @@ struct Vin {
   @location(1) normal: vec3<f32>,
   @location(2) color : vec4<f32>,
 }
+
 struct RockMaterialVin {
   @location(0) pos   : vec3<f32>,
   @location(1) normal: vec3<f32>,
@@ -3422,6 +3423,26 @@ struct Vin {
   @location(2) color : vec4<f32>,
 }
 
+struct GrassShadowVin {
+  @location(0) pos : vec3<f32>,
+  @location(1) _normal : vec3<f32>,
+  @location(2) _baseColor : vec4<f32>,
+  @location(3) originHeight : vec4<f32>,
+  @location(4) directionWidthRoughness : vec4<f32>,
+  @location(5) leanPad : vec4<f32>,
+  @location(6) _instColor : vec4<f32>,
+}
+
+fn grass_shadow_position(v: GrassShadowVin) -> vec3<f32> {
+  let direction = v.directionWidthRoughness.xy;
+  let halfWidth = v.directionWidthRoughness.z;
+  return vec3<f32>(
+    v.originHeight.x + (direction.x * halfWidth * v.pos.x) + (v.leanPad.x * v.pos.z),
+    v.originHeight.y + (direction.y * halfWidth * v.pos.x) + (v.leanPad.y * v.pos.z),
+    v.originHeight.z + (v.originHeight.w * v.pos.z)
+  );
+}
+
 @vertex
 fn vs_shadow0(v: Vin) -> @builtin(position) vec4<f32> {
   let wp = (sc.model * vec4<f32>(v.pos, 1.0)).xyz;
@@ -3431,6 +3452,18 @@ fn vs_shadow0(v: Vin) -> @builtin(position) vec4<f32> {
 @vertex
 fn vs_shadow1(v: Vin) -> @builtin(position) vec4<f32> {
   let wp = (sc.model * vec4<f32>(v.pos, 1.0)).xyz;
+  return sc.shadow_vp1 * vec4<f32>(wp, 1.0);
+}
+
+@vertex
+fn vs_grass_shadow0(v: GrassShadowVin) -> @builtin(position) vec4<f32> {
+  let wp = (sc.model * vec4<f32>(grass_shadow_position(v), 1.0)).xyz;
+  return sc.shadow_vp0 * vec4<f32>(wp, 1.0);
+}
+
+@vertex
+fn vs_grass_shadow1(v: GrassShadowVin) -> @builtin(position) vec4<f32> {
+  let wp = (sc.model * vec4<f32>(grass_shadow_position(v), 1.0)).xyz;
   return sc.shadow_vp1 * vec4<f32>(wp, 1.0);
 }
 `;
@@ -3938,7 +3971,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           return d;
         };
 
-        var pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive, pipeRockTri, pipeRockTriCull, pipeRockTriAlpha, pipeRockTriAlphaCull, pipeRockTriAlphaDepth, pipeSphereInst, pipeCylinderInst, pipeGrassBladeInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, pipeShadow0, pipeShadow1;
+        var pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive, pipeRockTri, pipeRockTriCull, pipeRockTriAlpha, pipeRockTriAlphaCull, pipeRockTriAlphaDepth, pipeSphereInst, pipeCylinderInst, pipeGrassBladeInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, pipeShadow0, pipeShadow1, pipeGrassShadow0, pipeGrassShadow1;
         pipeTri  = device.createRenderPipeline(makeDesc("triangle-list"));
         pipeTriCull = device.createRenderPipeline(makeDesc("triangle-list", "back"));
         pipeLine = device.createRenderPipeline(makeDesc("line-list"));
@@ -4031,6 +4064,32 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         pipeShadow1 = device.createRenderPipeline({
           layout: shadowPlLayout,
           vertex: { module: shadowMod, entryPoint: "vs_shadow1", buffers: [vbufDesc] },
+          primitive: { topology: "triangle-list", cullMode: "none" },
+          depthStencil: {
+            depthWriteEnabled: true,
+            depthCompare: "less",
+            format: "depth32float",
+            depthBias: 3,
+            depthBiasSlopeScale: 1.5,
+            depthBiasClamp: 0.0
+          }
+        });
+        pipeGrassShadow0 = device.createRenderPipeline({
+          layout: shadowPlLayout,
+          vertex: { module: shadowMod, entryPoint: "vs_grass_shadow0", buffers: [vbufDesc, grassBladeInstDesc] },
+          primitive: { topology: "triangle-list", cullMode: "none" },
+          depthStencil: {
+            depthWriteEnabled: true,
+            depthCompare: "less",
+            format: "depth32float",
+            depthBias: 3,
+            depthBiasSlopeScale: 1.5,
+            depthBiasClamp: 0.0
+          }
+        });
+        pipeGrassShadow1 = device.createRenderPipeline({
+          layout: shadowPlLayout,
+          vertex: { module: shadowMod, entryPoint: "vs_grass_shadow1", buffers: [vbufDesc, grassBladeInstDesc] },
           primitive: { topology: "triangle-list", cullMode: "none" },
           depthStencil: {
             depthWriteEnabled: true,
@@ -4140,7 +4199,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           pipeSphereInst, pipeCylinderInst, pipeGrassBladeInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, flareQuadBuf,
           surfaceSampler, defaultSurfaceView, fontSampler, chessFontAtlas, shadowSampler, defaultShadowView,
           clusteredLightBindLayout,
-          pipeShadow0, pipeShadow1, shadowBindLayout,
+          pipeShadow0, pipeShadow1, pipeGrassShadow0, pipeGrassShadow1, shadowBindLayout,
           pipePick, pickBindLayout,
           frameBlitBindLayout, pipeFrameBlit,
           pipeGrassBladeCompute, grassBladeComputeBindLayout
@@ -6145,10 +6204,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var part = parts[i];
       var mesh = part && part.mesh;
       if (!mesh || part.topology !== "triangle-list") { continue; }
+      var isGrassCaster = mesh.casts_shadow === true && part.instanceKind === "grass-blade-list";
       if (mesh.visible === false) { continue; }
       if (mesh.casts_shadow === false) { continue; }
       if (!allowScreenCasters && isPlanarScreenShadowSurface(mesh)) { continue; }
-      if (mesh.pickable === false && mesh.no_lighting === true) { continue; }
+      if (!isGrassCaster && mesh.pickable === false && mesh.no_lighting === true) { continue; }
       if (String(mesh.blend_mode || "") === "additive") { continue; }
       out.push(part);
     }
@@ -6232,10 +6292,51 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         String(mesh.kind || "") + ":" +
         String((mesh.vertices && mesh.vertices.length) || 0) + ":" +
         String((part && part.ibCount) || 0) + ":" +
+        String(mesh.retained_signature || "") + ":" +
         modelSig
       );
     }
     return chunks.join("|");
+  }
+
+  function grassShadowWorldBounds(part, model) {
+    var mesh = part && part.mesh;
+    var grassGpu = mesh && mesh.grass_gpu;
+    var records = grassGpu && grassGpu.cell_records;
+    if (!mesh || part.instanceKind !== "grass-blade-list" || !records || records.length < 12) {
+      return null;
+    }
+    var signed = new Int32Array(records.buffer, records.byteOffset, records.length);
+    var floats = new Float32Array(records.buffer, records.byteOffset, records.length);
+    var minX = Infinity;
+    var minY = Infinity;
+    var minZ = 0.0;
+    var maxX = -Infinity;
+    var maxY = -Infinity;
+    var maxZ = 0.0;
+    for (var offset = 0; offset + 11 < records.length; offset += 12) {
+      var bladeHeight = Math.max(0.0, Number(floats[offset + 6] || 0.0));
+      var margin = (bladeHeight * 0.16) + 0.028;
+      minX = Math.min(minX, Number(signed[offset]) + 0.08 - margin);
+      minY = Math.min(minY, Number(signed[offset + 1]) + 0.08 - margin);
+      maxX = Math.max(maxX, Number(signed[offset]) + 0.92 + margin);
+      maxY = Math.max(maxY, Number(signed[offset + 1]) + 0.92 + margin);
+      maxZ = Math.max(maxZ, bladeHeight * 1.28);
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      return null;
+    }
+    var corners = [
+      [minX, minY, minZ], [maxX, minY, minZ],
+      [minX, maxY, minZ], [maxX, maxY, minZ],
+      [minX, minY, maxZ], [maxX, minY, maxZ],
+      [minX, maxY, maxZ], [maxX, maxY, maxZ]
+    ];
+    var transformed = [];
+    for (var ci = 0; ci < corners.length; ci += 1) {
+      transformed.push(transformPointMat4(model, corners[ci]));
+    }
+    return transformed;
   }
 
   function collectShadowWorldPoints(parts, t, MmLocal) {
@@ -6245,8 +6346,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var part = parts[i];
       var mesh = part && part.mesh;
       if (!mesh || part.topology !== "triangle-list") { continue; }
+      var isGrassCaster = mesh.casts_shadow === true && part.instanceKind === "grass-blade-list";
       if (mesh.visible === false) { continue; }
-      if (mesh.pickable === false && mesh.no_lighting === true) { continue; }
+      if (!isGrassCaster && mesh.pickable === false && mesh.no_lighting === true) { continue; }
       if (String(mesh.blend_mode || "") === "additive") { continue; }
       var model = resolveAnimatedModelMatrix(
         mesh,
@@ -6257,6 +6359,19 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         MmLocal
       ) || (mesh._modelMatrix || MmLocal.mat4Identity());
       var modelSig = modelMatrixSignature(model);
+      var retainedSig = String(mesh.retained_signature || "");
+      var boundsSig = modelSig + "|" + retainedSig;
+      var grassBounds = isGrassCaster ? grassShadowWorldBounds(part, model) : null;
+      if (grassBounds) {
+        if (part._shadowWorldPointsModelSig === boundsSig && Array.isArray(part._shadowWorldPointsCache) && part._shadowWorldPointsCache.length) {
+          Array.prototype.push.apply(points, part._shadowWorldPointsCache);
+          continue;
+        }
+        part._shadowWorldPointsModelSig = boundsSig;
+        part._shadowWorldPointsCache = grassBounds;
+        Array.prototype.push.apply(points, grassBounds);
+        continue;
+      }
       var verts = mesh.vertices;
       if (!verts || verts.length < 30) { continue; }
       if (part._shadowWorldPointsModelSig === modelSig && Array.isArray(part._shadowWorldPointsCache) && part._shadowWorldPointsCache.length) {
@@ -7619,7 +7734,6 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             depthStoreOp: "store"
           }
         });
-        pass.setPipeline(pipe);
         var shadowLight = activeLights[slot] || null;
         var excludeApertureCaster = normalizeLightKind(shadowLight && shadowLight.kind) === "projected";
         var apertureCasterId = excludeApertureCaster && shadowLight && shadowLight.projected_aperture && shadowLight.projected_aperture.mesh_id
@@ -7629,6 +7743,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           var part = partsForShadow[i];
           var partMesh = part && part.mesh;
           if (apertureCasterId && String(partMesh.id || "") === apertureCasterId) { continue; }
+          var isGrassShadow = part.instanceKind === "grass-blade-list" && part.instanceBuf && Number(part.instanceCount || 0) > 0;
+          var partPipe = isGrassShadow
+            ? (slot === 1 ? sharedWgpu.pipeGrassShadow1 : sharedWgpu.pipeGrassShadow0)
+            : pipe;
+          if (!partPipe) { continue; }
+          pass.setPipeline(partPipe);
           var model = resolveAnimatedModelMatrix(
             partMesh,
             t,
@@ -7654,8 +7774,13 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           renderer._ensurePartShadowBindGroup(part, slot);
           pass.setBindGroup(0, part["shadowBindGroup" + String(Math.max(0, Math.min(3, Number(slot) | 0)))]);
           pass.setVertexBuffer(0, part.vb);
+          if (isGrassShadow) { pass.setVertexBuffer(1, part.instanceBuf); }
           pass.setIndexBuffer(part.ib, "uint32");
-          pass.drawIndexed(part.ibCount, 1, 0, 0, 0);
+          if (isGrassShadow) {
+            pass.drawIndexed(part.ibCount, Math.max(1, Number(part.instanceCount || 0)), 0, 0, 0);
+          } else {
+            pass.drawIndexed(part.ibCount, 1, 0, 0, 0);
+          }
           drawCount += 1;
         }
         pass.end();
