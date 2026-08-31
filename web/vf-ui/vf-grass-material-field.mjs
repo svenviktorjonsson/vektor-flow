@@ -11,6 +11,7 @@ import {
 const fieldState = new WeakMap();
 const MAX_OCTAVES = 6;
 const MAX_DEMANDED_CELLS = 4096;
+const MAX_CACHED_CELL_MATERIALS = MAX_DEMANDED_CELLS;
 const MAX_BLADE_BUDGET = 65536;
 const DRY_COLOR = Object.freeze([0.24, 0.31, 0.08]);
 const LUSH_COLOR = Object.freeze([0.16, 0.48, 0.09]);
@@ -98,6 +99,7 @@ export function createGrassMaterialFieldReference(identity) {
       segment: 'grass:blade-surface:v1',
       channel: 'blade-surface-variation',
     }),
+    cellMaterialCache: new Map(),
   });
   return field;
 }
@@ -149,6 +151,35 @@ export function sampleGrassMaterialReference(
       1,
     ]),
   });
+}
+
+function realizeGrassCellMaterial(field, state, cellX, cellY) {
+  const cacheKey = `${cellX}:${cellY}`;
+  const cached = state.cellMaterialCache.get(cacheKey);
+  if (cached) {
+    state.cellMaterialCache.delete(cacheKey);
+    state.cellMaterialCache.set(cacheKey, cached);
+    return cached;
+  }
+  const cellNode = conditionChild(state.detailNode, {
+    segment: `grass:cell:${cellX}:${cellY}`,
+    channel: 'blade-traits',
+  });
+  const realized = Object.freeze({
+    cellNode,
+    stream: conditionedNodeStreamReference(cellNode),
+    material: sampleGrassMaterialReference(
+      field,
+      [cellX + 0.5, cellY + 0.5],
+      { detailLevel: 0, footprint: 0 },
+    ),
+  });
+  state.cellMaterialCache.set(cacheKey, realized);
+  if (state.cellMaterialCache.size > MAX_CACHED_CELL_MATERIALS) {
+    const oldestKey = state.cellMaterialCache.keys().next().value;
+    state.cellMaterialCache.delete(oldestKey);
+  }
+  return realized;
 }
 
 function requireDemandedCells(cells) {
@@ -275,14 +306,8 @@ export function createGrassRendererPacketsReference(
     if (bladeCount >= bladeBudget) break;
     const cellBladeCount = Math.min(bladesPerCell, bladeBudget - bladeCount);
     if (cellBladeCount === 0) break;
-    const cellNode = conditionChild(state.detailNode, {
-      segment: `grass:cell:${cellX}:${cellY}`,
-      channel: 'blade-traits',
-    });
-    const material = sampleGrassMaterialReference(
-      field,
-      [cellX + 0.5, cellY + 0.5],
-      { detailLevel: 0, footprint: 0 },
+    const { cellNode, material } = realizeGrassCellMaterial(
+      field, state, cellX, cellY,
     );
     const vertexValues = [];
     const indexValues = [];
@@ -341,14 +366,8 @@ export function createGrassRendererInstancePacketsReference(
     if (bladeCount >= bladeBudget) break;
     const cellBladeCount = Math.min(bladesPerCell, bladeBudget - bladeCount);
     if (cellBladeCount === 0) break;
-    const cellNode = conditionChild(state.detailNode, {
-      segment: `grass:cell:${cellX}:${cellY}`,
-      channel: 'blade-traits',
-    });
-    const material = sampleGrassMaterialReference(
-      field,
-      [cellX + 0.5, cellY + 0.5],
-      { detailLevel: 0, footprint: 0 },
+    const { cellNode, material } = realizeGrassCellMaterial(
+      field, state, cellX, cellY,
     );
     const instances = new Float32Array(cellBladeCount * 16);
     for (let bladeIndex = 0; bladeIndex < cellBladeCount; bladeIndex += 1) {
@@ -524,15 +543,8 @@ export function createGrassRendererGpuBatchPacketsReference(
   const cellInstanceRanges = [];
   let instanceOffset = 0;
   activeCells.forEach(({ cellX, cellY, cellBladeCount }, cellIndex) => {
-    const cellNode = conditionChild(state.detailNode, {
-      segment: `grass:cell:${cellX}:${cellY}`,
-      channel: 'blade-traits',
-    });
-    const stream = conditionedNodeStreamReference(cellNode);
-    const material = sampleGrassMaterialReference(
-      field,
-      [cellX + 0.5, cellY + 0.5],
-      { detailLevel: 0, footprint: 0 },
+    const { stream, material } = realizeGrassCellMaterial(
+      field, state, cellX, cellY,
     );
     const wordOffset = cellIndex * 12;
     cellRecords[wordOffset] = cellX;
