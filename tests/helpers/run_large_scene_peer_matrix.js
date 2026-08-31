@@ -83,7 +83,7 @@ function main() {
     performanceClaim: false,
     status: allCorrect ? 'correctness-passed-timing-not-run' : 'withheld-peer-correctness-failed',
     globalGate: {
-      allEightCorrect: allCorrect,
+      allRequiredCorrect: allCorrect,
       timingStarted: false,
       validCorrectnessRows: requiredLanes.filter(({ passed }) => passed).length,
       requiredCorrectnessRows: requiredLanes.length,
