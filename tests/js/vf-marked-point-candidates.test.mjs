@@ -251,3 +251,64 @@ test('worker partitions reproduce candidate identities, positions, and marks', a
   ));
   assert.deepEqual(records, expected);
 });
+
+test('marked-point population matches pinned spatial and mark statistics', () => {
+  const node = createPointNode();
+  const options = {
+    cellSize: 5,
+    maxCandidates: 16,
+    baseProbability: 0.5,
+    correlationLength: 40,
+    spatialStrength: 0.9,
+  };
+  const cellCount = 48 * 48;
+  let total = 0;
+  let weightSum = 0;
+  let cosineSum = 0;
+  let sineSum = 0;
+  const nearby = { a: 0, b: 0, aa: 0, bb: 0, ab: 0 };
+  const distant = { a: 0, b: 0, aa: 0, bb: 0, ab: 0 };
+  const countAt = (x, y) => sampleMarkedPointCell2Reference(node, [x, y], options).length;
+  const accumulatePair = (moments, a, b) => {
+    moments.a += a;
+    moments.b += b;
+    moments.aa += a * a;
+    moments.bb += b * b;
+    moments.ab += a * b;
+  };
+
+  for (let y = -24; y < 24; y += 1) {
+    for (let x = -24; x < 24; x += 1) {
+      const points = sampleMarkedPointCell2Reference(node, [x, y], options);
+      const count = points.length;
+      total += count;
+      for (const point of points) {
+        weightSum += point.marks.weight;
+        cosineSum += Math.cos(point.marks.angle);
+        sineSum += Math.sin(point.marks.angle);
+      }
+      accumulatePair(nearby, count, countAt(x + 1, y));
+      accumulatePair(distant, count, countAt(x + 47, y + 31));
+    }
+  }
+
+  const correlation = ({ a, b, aa, bb, ab }) => {
+    const meanA = a / cellCount;
+    const meanB = b / cellCount;
+    const varianceA = aa / cellCount - meanA * meanA;
+    const varianceB = bb / cellCount - meanB * meanB;
+    const covariance = ab / cellCount - meanA * meanB;
+    return covariance / Math.sqrt(varianceA * varianceB);
+  };
+  const nearbyCorrelation = correlation(nearby);
+  const distantCorrelation = correlation(distant);
+
+  assert.equal(total, 18_365);
+  assert.ok(Math.abs(weightSum / total - 0.4989402512780761) < 1e-12);
+  assert.ok(Math.abs(cosineSum / total - 0.007599462732954929) < 1e-12);
+  assert.ok(Math.abs(sineSum / total - (-0.00263045433517926)) < 1e-12);
+  assert.ok(Math.abs(nearbyCorrelation - 0.7716081897797222) < 1e-12);
+  assert.ok(Math.abs(distantCorrelation - (-0.03629859300415917)) < 1e-12);
+  assert.ok(nearbyCorrelation > 0.7);
+  assert.ok(Math.abs(distantCorrelation) < 0.08);
+});
