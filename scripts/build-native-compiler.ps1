@@ -19,11 +19,11 @@ if (-not $outputRoot.StartsWith($repoPrefix, [System.StringComparison]::OrdinalI
 $clang = (Get-Command clang++ -ErrorAction Stop).Source
 $jsonSource = Join-Path $repoRoot "native/VfOverlay/vf/json.cpp"
 $targetDefinitions = @(
-    @{ Name = "vkf"; Source = "compiler/native/vkf_driver_artifact_smoke.cpp"; ExtraSources = @("compiler/native/vkf_x64_artifact.cpp", "compiler/native/vkf_lexer_cursor_smoke.cpp", "compiler/native/vkf_parser_token_stream_smoke.cpp", "compiler/native/vkf_ast_to_ir_smoke.cpp"); Defines = @("-DVKF_X64_BACKEND_LIBRARY", "-DVKF_NATIVE_FRONTEND_LIBRARY"); Json = $true },
-    @{ Name = "vkf-strict"; Source = "compiler/native/vkf_driver_artifact_smoke.cpp"; ExtraSources = @("compiler/native/vkf_x64_artifact.cpp", "compiler/native/vkf_lexer_cursor_smoke.cpp", "compiler/native/vkf_parser_token_stream_smoke.cpp", "compiler/native/vkf_ast_to_ir_smoke.cpp"); Defines = @("-DVKF_X64_BACKEND_LIBRARY", "-DVKF_NATIVE_FRONTEND_LIBRARY", "-DVKF_STRICT_DIRECT_ONLY"); Json = $true },
+    @{ Name = "vkf"; Source = "compiler/native/vkf_driver_artifact_smoke.cpp"; ExtraSources = @("compiler/native/vkf_x64_artifact.cpp", "compiler/native/vkf_lexer_cursor_smoke.cpp", "compiler/native/vkf_parser_token_stream_smoke.cpp", "compiler/native/vkf_ast_to_ir_smoke.cpp", "compiler/native/vkf_csv_demand_source_scanner.cpp"); Defines = @("-DVKF_X64_BACKEND_LIBRARY", "-DVKF_NATIVE_FRONTEND_LIBRARY"); Json = $true },
+    @{ Name = "vkf-strict"; Source = "compiler/native/vkf_driver_artifact_smoke.cpp"; ExtraSources = @("compiler/native/vkf_x64_artifact.cpp", "compiler/native/vkf_lexer_cursor_smoke.cpp", "compiler/native/vkf_parser_token_stream_smoke.cpp", "compiler/native/vkf_ast_to_ir_smoke.cpp", "compiler/native/vkf_csv_demand_source_scanner.cpp"); Defines = @("-DVKF_X64_BACKEND_LIBRARY", "-DVKF_NATIVE_FRONTEND_LIBRARY", "-DVKF_STRICT_DIRECT_ONLY"); Json = $true },
     @{ Name = "vkf_lexer_cursor_smoke"; Source = "compiler/native/vkf_lexer_cursor_smoke.cpp"; Json = $false },
     @{ Name = "vkf_parser_token_stream_smoke"; Source = "compiler/native/vkf_parser_token_stream_smoke.cpp"; Json = $true },
-    @{ Name = "vkf_ast_to_ir_smoke"; Source = "compiler/native/vkf_ast_to_ir_smoke.cpp"; Json = $true },
+    @{ Name = "vkf_ast_to_ir_smoke"; Source = "compiler/native/vkf_ast_to_ir_smoke.cpp"; ExtraSources = @("compiler/native/vkf_csv_demand_source_scanner.cpp"); Json = $true },
     @{ Name = "vkf_compiler_artifact_smoke"; Source = "compiler/native/vkf_compiler_artifact_smoke.cpp"; Json = $true },
     @{ Name = "vkf_cpp_aot_artifact"; Source = "compiler/native/vkf_cpp_aot_artifact.cpp"; Json = $true },
     @{ Name = "vkf_x64_artifact"; Source = "compiler/native/vkf_x64_artifact.cpp"; Json = $true },
