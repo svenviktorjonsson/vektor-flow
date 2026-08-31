@@ -405,5 +405,8 @@ test installed_test() -> bit:
 Compress-Archive -Path (Join-Path $stageRoot "*") -DestinationPath $archivePath -CompressionLevel Optimal
 $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $(Split-Path $archivePath -Leaf)" | Set-Content -LiteralPath "$archivePath.sha256" -Encoding ascii
+& (Join-Path $PSScriptRoot "test-windows-portable-archive.ps1") `
+    -ArchivePath $archivePath `
+    -Json | Out-Null
 Write-Output $stageRoot
 Write-Output $archivePath
