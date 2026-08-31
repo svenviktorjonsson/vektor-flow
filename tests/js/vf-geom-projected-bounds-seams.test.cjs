@@ -8,10 +8,10 @@ const source = fs.readFileSync(
 );
 
 assert.match(source, /_prepareShadowMapsForScene:\s*function \(enc, mesh, t, frameWidth, frameHeight, clusteredCamera\)/);
-assert.match(source, /this\._planClusteredLightsForFrame\(sceneLights, clusteredCamera\);/);
+assert.match(source, /this\._planClusteredLightsForFrame\(this\._clusteredLightsForScene\(sceneLights, mesh\), clusteredCamera\);/);
 assert.match(source, /var clusteredCameraBatch = this\._clusteredCameraForBatchScene\(mesh, t, aspBatch\);/);
 assert.match(source, /this\._prepareShadowMapsForScene\(shadowEncBatch, mesh, t, wBatch, hBatch, clusteredCameraBatch\)/);
-assert.match(source, /this\._planClusteredLightsForFrame\(lightsNorm,\s*clusteredCameraFromMatrices\(\s*viewMat,\s*projMat,/);
+assert.match(source, /this\._planClusteredLightsForFrame\(this\._clusteredLightsForScene\(lightsNorm, mesh\),\s*clusteredCameraFromMatrices\(\s*viewMat,\s*projMat,/);
 assert.doesNotMatch(source, /this\._planClusteredLightsForFrame\(sceneLights\);/);
 assert.doesNotMatch(source, /this\._planClusteredLightsForFrame\(lightsNorm\);/);
 
