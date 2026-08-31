@@ -21,12 +21,11 @@
     "compiler/native/vkf_retained_scene_packet.hpp": "f1c56f9502f4c953c0b528fc3f46d708626e9895929df4e83e8726c0fe5cd2de",
     "compiler/native/vkf_native_scene_artifact_stager.cpp": "a2d6c0de42a67c276657bd0a1c3203ad8a53b054b9c964695048da68beb350fd",
     "web/vf-ui/vf-runtime-packet-contract.js": "b2081b36b47e997a42659396c092400b603835ab308f53a19c98ab8ab411e760",
-    "web/vf-ui/vf-retained-event-adapter.js": "2cb7091ca02187384d740c7c412dc342e7d00e8439486f006928e537da911faa",
-    "web/vf-ui/vf-static-html-loader.js": "a34a31fc2053d17e6fa3511019edb9dfc842cf137dcec7ef30d548ce6d08592d",
-    "tests/helpers/capture_mirror_scene.js": "3e8c6aa21608f64aef8ecd15bbeee660f7254b737eca7c8116e4950c627364f2",
-    "tests/helpers/capture_material_ui_gallery.js": "3f8de4751bac9fb137c45035d6bb701248a4493bf0ce20c4d8b7c63073e2b171",
+    "web/vf-ui/vf-retained-event-adapter.js": "b7082ab7a277ece450781deb5e4a56f8e3dd33ef5f78c4a921fc47dfae2f001b",
+    "web/vf-ui/vf-static-html-loader.js": "71bd12c268b023dab13be48d05caa6ee03048f0cddc761ddfc67c11390340775",
+    "tests/helpers/capture_material_ui_gallery.js": "e3c36ae21208bf5015a08a612f2f727c43d907ddba86bde4a36ace8f2f6ba6c6",
     "tools/build_material_ui_gallery_gif.py": "a95090699456b8bea9d56e783a03a45662e54292c8e00c3a317d23e99a6567c1",
-    "scripts/build-material-ui-gallery-media.mjs": "30fdad78e78ef6f552b16194fb54fe9aec14ff83e07c929c2fb7bd5694b12d0d"
+    "scripts/build-material-ui-gallery-media.mjs": "a69ae605e67b2cef18f3cb499370952b40de2f5a94940f4629a784530ca1aec9"
   },
   "media": {
     "docs/public/images/readme-ui/material-ui-gallery.png": {
