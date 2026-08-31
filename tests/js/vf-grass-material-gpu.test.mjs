@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   conditionChild,
@@ -105,4 +106,17 @@ test('grass material parity fixture packs the pinned stream and bounded CPU orac
     actual: corrupted[4],
     tolerance: 0.000002,
   });
+});
+
+test('headless fixture executes filtered grass material through WebGPU', async () => {
+  const html = await readFile(
+    new URL('../fixtures/grass-material-gpu-parity-smoke.html', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(html, /createComputePipelineAsync/);
+  assert.match(html, /vf_grass_material_parity_main/);
+  assert.match(html, /mapAsync\(GPUMapMode\.READ\)/);
+  assert.match(html, /verifyGrassMaterialLodGpuParity/);
+  assert.match(html, /__grassMaterialGpuParityEvidence/);
 });
