@@ -543,3 +543,50 @@ test("VKF rejects a fixed conditional whose false edge is not a conditional bran
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects a fixed conditional whose then arm is not terminated by a return", () => {
+  const work = makeWork("i81-then-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /            mir_push_f64\(then_return\.value\.value\),\r?\n            mir_return_f64\(\),\r?\n            mir_branch\("label", 1\),/,
+      [
+        "            mir_push_f64(then_return.value.value),",
+        '            mir_local("store_local", 0),',
+        '            mir_branch("label", 1),',
+      ].join("\n"),
+    );
+    assert.notEqual(mutatedMachineIr, originalMachineIr, "then-arm terminator mutation did not apply");
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "then-terminator.vkf");
+    const artifact = join(work, `then-terminator${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_positive_conditional_stack_maxima("positive", "x")',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `then-arm terminator probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "unterminated fixed-conditional then arm produced output");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
