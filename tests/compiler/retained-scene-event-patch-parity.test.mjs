@@ -10,6 +10,7 @@ const nativeBin = process.env.VKF_NATIVE_COMPILER_BIN;
 const nativeSceneStager = process.env.VKF_NATIVE_SCENE_STAGER;
 const require = createRequire(import.meta.url);
 const runtimeBridge = require("../../web/vf-ui/vf-compiled-runtime-bridge.js");
+const runtimeContract = require("../../web/vf-ui/vf-runtime-packet-contract.js");
 const workRoot = path.join(repositoryRoot, ".w", `g01n-events-${process.pid}`);
 
 after(() => rm(workRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
@@ -106,4 +107,21 @@ test("compiled Button and Slider arms export identical retained layer patches", 
     kind: "event_field",
     field: "value",
   });
+
+  const execution = runtimeContract.createInternalRetainedEventProgramExecution(wasmProgram);
+  const buttonPacket = execution.dispatch({
+    event: "ButtonClicked",
+    widget_id: "show-glass",
+    frame_id: "frame_1",
+  });
+  assert.equal(buttonPacket.kind, "display.replace");
+  assert.equal(buttonPacket.payload.display.geom.frame_0.meshes[0].visible, true);
+  const sliderPacket = execution.dispatch({
+    event: "SliderValueChanged",
+    widget_id: "opacity",
+    frame_id: "frame_1",
+    value: 0.72,
+  });
+  assert.equal(sliderPacket.payload.display.geom.frame_0.meshes[0].alpha, 0.72);
+  assert.equal(sliderPacket.payload.display.geom.frame_0.meshes[0].visible, true);
 });
