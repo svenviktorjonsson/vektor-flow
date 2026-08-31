@@ -73,7 +73,7 @@ castle_rights_score(state:GameState, perspective:num) -> num:
     state.white_can_castle_queen? .white_score: white_score + 12
     black_score: 0
     state.black_can_castle_king? .black_score: black_score + 18
-    state.black_can_castle_queen? black_score: black_score + 12
+    state.black_can_castle_queen? .black_score: black_score + 12
     perspective = Side.white? @: white_score - black_score
     @: black_score - white_score
 
