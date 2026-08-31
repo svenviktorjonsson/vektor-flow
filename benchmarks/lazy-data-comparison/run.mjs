@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { arch, cpus, platform, release, totalmem } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -94,6 +94,100 @@ export function validateCandidateSamples(samples, fixtureManifest, contract = lo
     }
   }
   return samples;
+}
+
+function runSampleProcess({ specification, boundary, phase, cwd, timeoutMs, expected }) {
+  const started = performance.now();
+  const executed = spawnSync(
+    specification.command,
+    specification.args ?? [],
+    {
+      cwd,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ...specification.env,
+        VKF_BENCHMARK_BOUNDARY: boundary,
+        VKF_BENCHMARK_PHASE: phase,
+      },
+      timeout: timeoutMs,
+      windowsHide: true,
+    },
+  );
+  const rendered = String(executed.stdout ?? '').trim();
+  const result = rendered === '' ? null : Number(rendered);
+  const elapsedWallMs = performance.now() - started;
+  if (executed.error?.code === 'ETIMEDOUT') {
+    return Object.freeze({ status: 'TIMEOUT', result: null, elapsed_wall_ms: elapsedWallMs });
+  }
+  if (executed.error || executed.status !== 0) {
+    return Object.freeze({ status: 'ERROR', result, elapsed_wall_ms: elapsedWallMs });
+  }
+  if (!Number.isFinite(result) || result !== expected) {
+    return Object.freeze({ status: 'ORACLE_MISMATCH', result, elapsed_wall_ms: elapsedWallMs });
+  }
+  return Object.freeze({ status: 'OK', result, elapsed_wall_ms: elapsedWallMs });
+}
+
+export function collectPairedSamples({
+  peers,
+  fixtureManifest,
+  rounds,
+  timeoutMs,
+  preparationTimeoutMs = 60_000,
+  workRoot,
+}) {
+  if (!Number.isSafeInteger(rounds) || rounds < 1) throw new Error('rounds must be positive');
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new Error('timeoutMs must be a positive safe integer');
+  }
+  if (!Number.isSafeInteger(preparationTimeoutMs) || preparationTimeoutMs < 1) {
+    throw new Error('preparationTimeoutMs must be a positive safe integer');
+  }
+  const peerNames = Object.keys(peers);
+  if (peerNames.length === 0) throw new Error('at least one sampling peer is required');
+  mkdirSync(workRoot, { recursive: true });
+  const warmRoots = Object.fromEntries(peerNames.map((peer) => {
+    const root = join(workRoot, 'warm', peer);
+    mkdirSync(root, { recursive: true });
+    return [peer, root];
+  }));
+  for (const peer of peerNames) {
+    const prepared = runSampleProcess({
+      specification: peers[peer],
+      boundary: 'warm_source_e2e',
+      phase: 'preparation',
+      cwd: warmRoots[peer],
+      timeoutMs: preparationTimeoutMs,
+      expected: fixtureManifest.expected_sum,
+    });
+    if (prepared.status !== 'OK') {
+      throw new Error(`${peer} warm preparation failed: ${prepared.status}`);
+    }
+  }
+
+  const samples = [];
+  for (let round = 0; round < rounds; ++round) {
+    const rotated = peerNames.map((_, index) => peerNames[(round + index) % peerNames.length]);
+    for (const boundary of ['fresh_source_e2e', 'warm_source_e2e']) {
+      for (let order = 0; order < rotated.length; ++order) {
+        const peer = rotated[order];
+        const cwd = boundary === 'fresh_source_e2e'
+          ? mkdtempSync(join(workRoot, `fresh-${round}-${peer}-`))
+          : warmRoots[peer];
+        const observed = runSampleProcess({
+          specification: peers[peer],
+          boundary,
+          phase: 'sample',
+          cwd,
+          timeoutMs,
+          expected: fixtureManifest.expected_sum,
+        });
+        samples.push(Object.freeze({ peer, boundary, round, order, ...observed }));
+      }
+    }
+  }
+  return Object.freeze(samples);
 }
 
 function vkfSourceForFixture(fixturePath) {
@@ -413,10 +507,91 @@ export function buildReadinessReceipt({
   });
 }
 
+export function buildSamplingReceipt({
+  fixturePath,
+  fixtureManifest,
+  runners,
+  revision,
+  rounds,
+  timeoutMs,
+  workRoot = join(dirname(fixturePath), 'runner-work'),
+}) {
+  const readinessWorkRoot = join(workRoot, 'readiness');
+  const readiness = buildReadinessReceipt({
+    fixturePath,
+    fixtureManifest,
+    runners,
+    revision,
+    workRoot: readinessWorkRoot,
+  });
+  const peerOrder = ['vkf', 'polars', 'duckdb'];
+  const unavailable = peerOrder.find((peer) => readiness.peers[peer]?.status !== 'AVAILABLE');
+  if (unavailable) {
+    throw new Error(`${unavailable} is not ready for paired sampling`);
+  }
+  const vkfArtifact = join(
+    readinessWorkRoot,
+    'vkf',
+    `project-transform-reduce${process.platform === 'win32' ? '.exe' : ''}`,
+  );
+  if (!existsSync(vkfArtifact)) throw new Error('verified VKF sampling artifact is missing');
+  const peers = {
+    vkf: Object.freeze({ command: vkfArtifact }),
+    polars: Object.freeze({
+      command: resolve(runners.polars),
+      args: [polarsSourcePath, resolve(fixturePath), '--sample'],
+      env: {
+        POLARS_MAX_THREADS: String(loadContract().workload.threads),
+        PYTHONDONTWRITEBYTECODE: '1',
+      },
+    }),
+    duckdb: Object.freeze({
+      command: resolve(runners.duckdb),
+      args: [
+        duckdbSourcePath,
+        resolve(fixturePath),
+        String(loadContract().workload.threads),
+        '--sample',
+      ],
+      env: { PYTHONDONTWRITEBYTECODE: '1', PYTHONUTF8: '1' },
+    }),
+  };
+  const samples = collectPairedSamples({
+    peers,
+    fixtureManifest,
+    rounds,
+    timeoutMs,
+    workRoot: join(workRoot, 'samples'),
+  });
+  return Object.freeze({
+    ...readiness,
+    status: 'sampled_non_gating',
+    samples,
+    comparisons: Object.freeze([]),
+    provenance: Object.freeze({
+      ...readiness.provenance,
+      peer_version: Object.freeze({
+        vkf: null,
+        polars: readiness.peers.polars.peer_version,
+        duckdb: readiness.peers.duckdb.peer_version,
+      }),
+    }),
+    sampling: Object.freeze({
+      rounds,
+      timeout_ms: timeoutMs,
+      peer_order: Object.freeze(peerOrder),
+      order: 'paired_rotating_same_host',
+      outliers: 'retain_all',
+      os_cache: 'uncontrolled_reported',
+    }),
+  });
+}
+
 function parseArguments(argv) {
   const peers = loadContract().peer_set.members;
   const allowed = new Set([
-    'fixture', 'rows', 'output', 'revision', ...peers.map((peer) => `${peer}-runner`),
+    'fixture', 'rows', 'output', 'revision', 'sample-rounds', 'sample-timeout-ms',
+    ...peers.map((peer) => `${peer}-runner`),
   ]);
   const values = new Map();
   for (const argument of argv) {
@@ -431,12 +606,22 @@ function parseArguments(argv) {
   if (!Number.isSafeInteger(rows) || rows < 1) throw new Error('--rows must be positive');
   const revision = values.get('revision');
   if (!revision) throw new Error('--revision is required');
+  const sampleRounds = Number(values.get('sample-rounds') ?? 0);
+  if (!Number.isSafeInteger(sampleRounds) || sampleRounds < 0) {
+    throw new Error('--sample-rounds must be a nonnegative safe integer');
+  }
+  const sampleTimeoutMs = Number(values.get('sample-timeout-ms') ?? 60_000);
+  if (!Number.isSafeInteger(sampleTimeoutMs) || sampleTimeoutMs < 1) {
+    throw new Error('--sample-timeout-ms must be a positive safe integer');
+  }
   const workRoot = join(benchmarkRoot, '.work');
   return {
     fixture: resolve(values.get('fixture') ?? join(workRoot, 'fixture.csv')),
     rows,
     output: resolve(values.get('output') ?? join(workRoot, 'readiness.json')),
     revision,
+    sampleRounds,
+    sampleTimeoutMs,
     runners: Object.fromEntries(peers
       .filter((peer) => values.has(`${peer}-runner`))
       .map((peer) => [peer, resolve(values.get(`${peer}-runner`))])),
@@ -449,12 +634,21 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     mkdirSync(dirname(options.fixture), { recursive: true });
     mkdirSync(dirname(options.output), { recursive: true });
     const fixtureManifest = writeFixture(options.fixture, { rows: options.rows });
-    const receipt = buildReadinessReceipt({
-      fixturePath: options.fixture,
-      fixtureManifest,
-      runners: options.runners,
-      revision: options.revision,
-    });
+    const receipt = options.sampleRounds > 0
+      ? buildSamplingReceipt({
+        fixturePath: options.fixture,
+        fixtureManifest,
+        runners: options.runners,
+        revision: options.revision,
+        rounds: options.sampleRounds,
+        timeoutMs: options.sampleTimeoutMs,
+      })
+      : buildReadinessReceipt({
+        fixturePath: options.fixture,
+        fixtureManifest,
+        runners: options.runners,
+        revision: options.revision,
+      });
     writeFileSync(options.output, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
     process.stdout.write(`${options.output}\n`);
   } catch (error) {

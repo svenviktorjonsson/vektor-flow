@@ -61,24 +61,32 @@ def csv_projection(plan: object) -> list[str]:
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: project-transform-reduce-duckdb.py FIXTURE.csv THREADS")
+    sampling = len(sys.argv) == 4 and sys.argv[3] == "--sample"
+    if len(sys.argv) != 3 and not sampling:
+        raise SystemExit(
+            "usage: project-transform-reduce-duckdb.py FIXTURE.csv THREADS [--sample]"
+        )
     threads = int(sys.argv[2])
     if threads < 1:
         raise RuntimeError("DuckDB threads must be positive")
     connection = duckdb.connect(":memory:", config={"threads": str(threads)})
     try:
-        _, encoded_plan = connection.execute(
-            f"EXPLAIN (FORMAT JSON) {QUERY}",
-            [sys.argv[1]],
-        ).fetchone()
-        projected_columns = csv_projection(json.loads(encoded_plan))
+        if not sampling:
+            _, encoded_plan = connection.execute(
+                f"EXPLAIN (FORMAT JSON) {QUERY}",
+                [sys.argv[1]],
+            ).fetchone()
+            projected_columns = csv_projection(json.loads(encoded_plan))
         result = connection.execute(QUERY, [sys.argv[1]]).fetchone()[0]
-        configured_threads = connection.execute(
-            "SELECT current_setting('threads')"
-        ).fetchone()[0]
+        if not sampling:
+            configured_threads = connection.execute(
+                "SELECT current_setting('threads')"
+            ).fetchone()[0]
     finally:
         connection.close()
+    if sampling:
+        print(result)
+        return
     print(
         json.dumps(
             {
