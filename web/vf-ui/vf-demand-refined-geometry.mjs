@@ -72,3 +72,36 @@ export function createCoarseEllipsoidReference({ radii }) {
     faces,
   });
 }
+
+export function refineEllipsoidFaceReference(shape, faceId) {
+  const face = shape.faces.find(({ id }) => id === faceId);
+  const positions = new Map(shape.vertices.map(({ id, position }) => [id, position]));
+  const average = [0, 1, 2].map((axis) => (
+    face.vertices.reduce((sum, vertex) => sum + positions.get(vertex)[axis], 0) / 3
+  ));
+  const centerId = `vertex:${faceId}/refine:1/center`;
+  const center = frozenVertex(
+    centerId,
+    average.map((value, axis) => (
+      Math.sign(value) * shape.radii[axis] / Math.sqrt(3)
+    )),
+  );
+  const children = Object.freeze(face.vertices.map((vertex, index) => frozenFace(
+    `${faceId}/refine:1/child:${index}`,
+    [vertex, face.vertices[(index + 1) % 3], centerId],
+  )));
+  const faces = Object.freeze(shape.faces.flatMap((candidate) => (
+    candidate.id === faceId ? children : [candidate]
+  )));
+  return Object.freeze({
+    ...shape,
+    vertices: Object.freeze([...shape.vertices, center]),
+    faces,
+    refinement: Object.freeze({
+      face: faceId,
+      center: centerId,
+      children: Object.freeze(children.map(({ id }) => id)),
+      boundary: face.boundary,
+    }),
+  });
+}

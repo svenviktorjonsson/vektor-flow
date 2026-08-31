@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createCoarseEllipsoidReference,
+  refineEllipsoidFaceReference,
 } from '../../web/vf-ui/vf-demand-refined-geometry.mjs';
 
 test('coarse ellipsoid has pinned stable vertices and face identities', () => {
@@ -71,4 +72,27 @@ test('coarse topology is a closed outward-oriented sphere', () => {
   assert.equal(shape.faces.length, 8);
   assert.ok([...incidence.values()].every((count) => count === 2));
   assert.equal(shape.vertices.length - incidence.size + shape.faces.length, 2);
+});
+
+test('one demanded face receives pinned stable refinement identities', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const refined = refineEllipsoidFaceReference(coarse, 'face:+x:+y:+z');
+  const center = refined.vertices.find(({ id }) => (
+    id === 'vertex:face:+x:+y:+z/refine:1/center'
+  ));
+
+  assert.deepEqual(center, {
+    id: 'vertex:face:+x:+y:+z/refine:1/center',
+    position: [1.7320508075688774, 1.1547005383792517, 0.8660254037844387],
+  });
+  assert.deepEqual(
+    refined.faces.filter(({ id }) => id.includes('/refine:1/')).map(({ id }) => id),
+    [
+      'face:+x:+y:+z/refine:1/child:0',
+      'face:+x:+y:+z/refine:1/child:1',
+      'face:+x:+y:+z/refine:1/child:2',
+    ],
+  );
+  assert.equal(refined.vertices.length, 7);
+  assert.equal(refined.faces.length, 10);
 });
