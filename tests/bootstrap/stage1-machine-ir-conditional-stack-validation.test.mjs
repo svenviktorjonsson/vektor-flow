@@ -590,3 +590,50 @@ test("VKF rejects a fixed conditional whose then arm is not terminated by a retu
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects a fixed conditional whose false arm is not terminated by a return", () => {
+  const work = makeWork("i82-false-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /            mir_branch\("label", 1\),\r?\n            mir_push_f64\(final_return\.value\.value\),\r?\n            mir_return_f64\(\)/,
+      [
+        '            mir_branch("label", 1),',
+        "            mir_push_f64(final_return.value.value),",
+        '            mir_local("store_local", 0)',
+      ].join("\n"),
+    );
+    assert.notEqual(mutatedMachineIr, originalMachineIr, "false-arm terminator mutation did not apply");
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "false-terminator.vkf");
+    const artifact = join(work, `false-terminator${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_positive_conditional_stack_maxima("positive", "x")',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `false-arm terminator probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "unterminated fixed-conditional false arm produced output");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
