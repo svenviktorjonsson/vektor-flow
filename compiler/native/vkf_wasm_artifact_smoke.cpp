@@ -1,5 +1,6 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
+#include "vkf_retained_scene_packet.hpp"
 #include "vkf_static_html_bundle.hpp"
 #include "vkf_world_mesh_packet.hpp"
 
@@ -899,6 +900,24 @@ void flatten_retained_html_numeric_value(
     throw WasmArtifactFailure("retained HTML Frame geometry must be numeric");
 }
 
+bool collect_retained_scene_packet_binding(
+    const vf::JsonValue& root,
+    WasmModulePlan& plan
+) {
+    try {
+        const auto packets = vkf::retained_scene::compile_packets(root);
+        if (!packets.has_value()) return false;
+        WasmBinding packet_binding;
+        packet_binding.name = "$ui$compiled$packets";
+        packet_binding.kind = WasmBinding::Kind::String;
+        packet_binding.string_value = vf::json_stringify(*packets, -1);
+        plan.bindings.push_back(std::move(packet_binding));
+        return true;
+    } catch (const vkf::retained_scene::Error& error) {
+        throw WasmArtifactFailure(error.what());
+    }
+}
+
 void collect_retained_html_packet_binding(
     const vf::JsonValue& root_value,
     const std::filesystem::path& source_path,
@@ -1692,7 +1711,9 @@ WasmModulePlan collect_module_plan(
         }
         throw WasmArtifactFailure("unsupported typed IR module item for wasm artifact emission");
     }
-    collect_retained_html_packet_binding(root, source_path, plan);
+    if (!collect_retained_scene_packet_binding(root, plan)) {
+        collect_retained_html_packet_binding(root, source_path, plan);
+    }
     collect_owner_event_poll_binding(root, plan);
     collect_owner_event_loop_binding(root, plan);
     return plan;

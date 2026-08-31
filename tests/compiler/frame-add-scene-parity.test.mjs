@@ -10,7 +10,7 @@ const nativeBin = process.env.VKF_NATIVE_COMPILER_BIN;
 const nativeSceneStager = process.env.VKF_NATIVE_SCENE_STAGER;
 const require = createRequire(import.meta.url);
 const runtimeBridge = require("../../web/vf-ui/vf-compiled-runtime-bridge.js");
-const workRoot = path.join(repositoryRoot, ".work", `040-g01n-add-scene-${process.pid}`);
+const workRoot = path.join(repositoryRoot, ".w", `g01n-${process.pid}`);
 
 after(() => rm(workRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
 
