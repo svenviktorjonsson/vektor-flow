@@ -61,6 +61,16 @@ test('u32 identity and counter words reject truncating inputs', () => {
   );
 });
 
+test('demand streams require explicit typed identity fields', () => {
+  const withoutChannel = { ...DEMAND_VECTOR };
+  delete withoutChannel.channel;
+  assert.throws(() => deriveDemandStream(withoutChannel), /channel.*string/);
+  assert.throws(
+    () => deriveDemandStream({ ...DEMAND_VECTOR, hierarchy: ['world', 7] }),
+    /hierarchy\[1\].*string/,
+  );
+});
+
 test('identity digest matches the FIPS 180-4 SHA-256 vectors', () => {
   const vectors = [
     ['', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'],

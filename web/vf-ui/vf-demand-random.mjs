@@ -61,6 +61,13 @@ function requireWordArray(words, expectedLength, label) {
   }
 }
 
+function requireString(value, label) {
+  if (typeof value !== 'string') {
+    throw new TypeError(`${label} must be a string`);
+  }
+  return value;
+}
+
 function wordPairBytes(pair, label) {
   requireWordArray(pair, 2, label);
   return concatBytes([
@@ -70,7 +77,12 @@ function wordPairBytes(pair, label) {
 }
 
 function hierarchyBytes(segments) {
-  const encoded = segments.map((segment) => textEncoder.encode(segment));
+  if (!Array.isArray(segments)) {
+    throw new TypeError('hierarchy must be an array of strings');
+  }
+  const encoded = segments.map((segment, index) => (
+    textEncoder.encode(requireString(segment, `hierarchy[${index}]`))
+  ));
   return concatBytes([
     u32Bytes(encoded.length),
     ...encoded.flatMap((segment) => [u32Bytes(segment.length), segment]),
@@ -81,13 +93,13 @@ function encodeDemandStreamIdentity(identity) {
   return concatBytes([
     Uint8Array.of(0x56, 0x4b, 0x46, 0x44),
     u32Bytes(1),
-    frame(1, textEncoder.encode(identity.generator)),
+    frame(1, textEncoder.encode(requireString(identity.generator, 'generator'))),
     frame(2, u32Bytes(identity.version, 'version')),
     frame(3, wordPairBytes(identity.seed, 'seed')),
-    frame(4, textEncoder.encode(identity.domain)),
+    frame(4, textEncoder.encode(requireString(identity.domain, 'domain'))),
     frame(5, hierarchyBytes(identity.hierarchy)),
     frame(6, u32Bytes(identity.lod, 'lod')),
-    frame(7, textEncoder.encode(identity.channel)),
+    frame(7, textEncoder.encode(requireString(identity.channel, 'channel'))),
   ]);
 }
 
