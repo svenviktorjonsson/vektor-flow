@@ -143,3 +143,26 @@ test("scene gallery captures the shader grass material", async () => {
   assert.ok(bytes.length > 100);
   assert.equal(sha256(bytes), example.media.sha256);
 });
+
+test("scene gallery captures static HTML and CSS controls with VKF events", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "09-html-controls");
+  assert.ok(example);
+  assert.deepEqual(example.features, ["3d", "html", "css", "events"]);
+  const exampleRoot = path.join(galleryRoot, path.dirname(example.source));
+  const [source, html, css] = await Promise.all([
+    readFile(path.join(galleryRoot, example.source), "utf8"),
+    readFile(path.join(exampleRoot, "ui/main.html"), "utf8"),
+    readFile(path.join(exampleRoot, "ui/gallery.css"), "utf8"),
+  ]);
+  assert.ok(source.includes('.load("ui/main.html")'));
+  assert.ok(source.includes(".events.get()"));
+  assert.match(html, /<button\b/u);
+  assert.match(html, /<input\b/u);
+  assert.doesNotMatch(html, /<script\b/iu);
+  assert.ok(css.length > 100);
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+});

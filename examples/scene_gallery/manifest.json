@@ -175,6 +175,29 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "09-html-controls",
+      "title": "HTML controls",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "html",
+        "css",
+        "events"
+      ],
+      "source": "09-html-controls/app.vkf",
+      "sourceSha256": "71608452917292364f05d24dd0b8fee966c9a5ece60ccadbd1fe88baefc068ba",
+      "media": {
+        "path": "docs/public/images/scene-gallery/09-html-controls.png",
+        "sha256": "07693c29ac1e787420e57f416c27a0b7cd2cce3b4e28ebfa7601430c75244d62"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }
