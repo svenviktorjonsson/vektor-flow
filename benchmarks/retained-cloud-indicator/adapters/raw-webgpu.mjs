@@ -45,6 +45,20 @@ struct VertexOutput {
   return output;
 }
 
+@vertex fn pointVertexMain(instance: Instance) -> VertexOutput {
+  let cosine = orbit.basis_radius.x;
+  let sine = orbit.basis_radius.y;
+  let x = (cosine * instance.position.x - sine * instance.position.z)
+    / (orbit.projection.x * orbit.projection.y);
+  let y = instance.position.y / orbit.projection.x;
+  let cameraDepth = sine * instance.position.x + cosine * instance.position.z;
+  var output: VertexOutput;
+  output.clip = vec4<f32>(x, y, 0.5 - cameraDepth * 0.24, 1.0);
+  output.local = vec2<f32>(0.0);
+  output.color = instance.color;
+  return output;
+}
+
 @fragment fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let radial = length(input.local);
   let edge = max(fwidth(radial), 1e-4);
@@ -52,7 +66,15 @@ struct VertexOutput {
   if (mask <= 1e-4) { discard; }
   return vec4<f32>(input.color.rgb * mask, mask);
 }
+
+@fragment fn pointFragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
+  return input.color;
+}
 `;
+
+export function rawPrimitiveForPointSize(pointSizePx) {
+  return pointSizePx === 1 ? 'point-list' : 'analytic-quad';
+}
 
 export function rawOrbitUniform(frame, pointSizePx, viewport) {
   const angle = 2 * Math.PI * frame / INDICATOR_PROTOCOL.orbitFrames;
@@ -76,7 +98,9 @@ export function createRawWebGpuAdapter(host, fixture, options = {}) {
   let context;
   let format;
   let pipeline;
+  let pointPipeline;
   let bindGroup;
+  let pointBindGroup;
   let fixtureBuffer;
   let uniformBuffer;
   let colorTexture;
@@ -121,10 +145,11 @@ export function createRawWebGpuAdapter(host, fixture, options = {}) {
       },
       timestampWrites,
     });
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup);
+    const pointList = rawPrimitiveForPointSize(lane.pointSizePx) === 'point-list';
+    pass.setPipeline(pointList ? pointPipeline : pipeline);
+    pass.setBindGroup(0, pointList ? pointBindGroup : bindGroup);
     pass.setVertexBuffer(0, fixtureBuffer);
-    pass.draw(6, fixture.pointCount);
+    pass.draw(pointList ? 1 : 6, fixture.pointCount);
     pass.end();
     device.queue.submit([encoder.finish()]);
   }
@@ -179,6 +204,34 @@ export function createRawWebGpuAdapter(host, fixture, options = {}) {
           depthCompare: 'less',
         },
       });
+      pointPipeline = device.createRenderPipeline({
+        label: 'raw-retained-cloud-1px-points',
+        layout: 'auto',
+        vertex: {
+          module,
+          entryPoint: 'pointVertexMain',
+          buffers: [{
+            arrayStride: INDICATOR_PROTOCOL.strideBytes,
+            stepMode: 'instance',
+            attributes: [
+              { shaderLocation: 0, format: 'float32x3', offset: 0 },
+              { shaderLocation: 1, format: 'unorm8x4', offset: 12 },
+            ],
+          }],
+        },
+        fragment: {
+          module,
+          entryPoint: 'pointFragmentMain',
+          targets: [{ format }],
+        },
+        primitive: { topology: 'point-list' },
+        multisample: { count: INDICATOR_PROTOCOL.renderState.sampleCount },
+        depthStencil: {
+          format: 'depth24plus',
+          depthWriteEnabled: true,
+          depthCompare: 'less',
+        },
+      });
       fixtureBuffer = device.createBuffer({
         label: 'raw-retained-cloud-fixture',
         size: fixture.byteLength,
@@ -192,6 +245,10 @@ export function createRawWebGpuAdapter(host, fixture, options = {}) {
       });
       bindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+      });
+      pointBindGroup = device.createBindGroup({
+        layout: pointPipeline.getBindGroupLayout(0),
         entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
       });
       colorTexture = device.createTexture({
