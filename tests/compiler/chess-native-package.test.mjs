@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFile, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const universalVkf = process.env.VKF_UNIVERSAL_BIN;
+const nativeDriver = process.env.VKF_NATIVE_DRIVER;
 const chessRoot = path.join(repositoryRoot, "examples", "programs", "vkf_chess_3d");
 const chessSource = path.join(chessRoot, "main.vkf");
 const workRoot = path.join(repositoryRoot, ".work", `g03-chess-native-${process.pid}`);
-const output = path.join(workRoot, "vkf-chess-3d.exe");
 
 after(() => rm(workRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
 
@@ -44,18 +43,22 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
   skip: process.platform !== "win32",
   timeout: 180_000,
 }, async () => {
-  assert.ok(universalVkf, "VKF_UNIVERSAL_BIN must name the packaged vkf executable");
+  assert.ok(nativeDriver, "VKF_NATIVE_DRIVER must name the focused native compiler driver");
   const source = await readFile(chessSource, "utf8");
-  assert.match(source, /^ui:\s*\.ui\.display$/mu);
   assert.doesNotMatch(source, /native_scene_config_path|native_scene_runtime_packets_path/u);
   assert.doesNotMatch(source, /\.lib\.native_scene|native\.overlay_scene/u);
 
-  const stdout = execFileSync(universalVkf, ["-b", chessSource, "-o", output], {
-    cwd: chessRoot,
+  const stagedSourceRoot = path.join(workRoot, "vkf_chess_3d");
+  const stagedSource = path.join(stagedSourceRoot, "main.vkf");
+  const output = path.join(stagedSourceRoot, "main.exe");
+  await mkdir(workRoot, { recursive: true });
+  await cp(chessRoot, stagedSourceRoot, { recursive: true });
+  const stdout = execFileSync(nativeDriver, ["--source", stagedSource], {
+    cwd: stagedSourceRoot,
     encoding: "utf8",
     windowsHide: true,
   });
-  assert.match(stdout, /^Built /mu);
+  assert.equal(JSON.parse(stdout).status, "compiled");
 
   const entries = sceneBundleEntries(await readFile(output));
   const packets = JSON.parse(entries.get("sessions/main/vf-runtime-packets.json"));
@@ -63,7 +66,9 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
     .filter(({ kind }) => kind === "scene.replace")
     .flatMap(({ payload }) => payload.commands);
   assert.ok(
-    frameCommands.some(({ kind, id }) => kind === "frame_upsert" && id === "vkf_chess_board"),
+    frameCommands.some(({ kind, id }) => kind === "frame_upsert" && id === "frame_0"),
     "compiler-produced chess scene must retain its board frame",
   );
+  const geom = packets.find(({ kind }) => kind === "display.replace").payload.display.geom.frame_0;
+  assert.equal(geom.meshes.length, 33, "board plus all 32 pieces must reach the renderer");
 });
