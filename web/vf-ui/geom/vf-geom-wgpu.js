@@ -266,14 +266,15 @@
 
   function packClusteredLightRecords(lights) {
     var source = Array.isArray(lights) ? lights : [];
-    var packed = new Float32Array(Math.max(4, source.length * 16));
+    var recordFloats = 48;
+    var packed = new Float32Array(Math.max(recordFloats, source.length * recordFloats));
     function component(values, index, fallback) {
       var value = Number(values && values[index]);
       return Number.isFinite(value) ? value : fallback;
     }
     for (var i = 0; i < source.length; i += 1) {
       var light = source[i] || {};
-      var base = i * 16;
+      var base = i * recordFloats;
       packed[base + 0] = component(light.pos, 0, 0.0);
       packed[base + 1] = component(light.pos, 1, 0.0);
       packed[base + 2] = component(light.pos, 2, 0.0);
@@ -290,6 +291,31 @@
       packed[base + 13] = Number(light.outer_cone_cos == null ? -1.0 : light.outer_cone_cos) || -1.0;
       packed[base + 14] = Math.max(0.0, Number(light.source_radius || 0.0) || 0.0);
       packed[base + 15] = Math.max(0.0, Number(light.spread == null ? 1.0 : light.spread) || 0.0);
+      if (packed[base + 11] >= 1.5 && light.projected_aperture) {
+        var aperture = light.projected_aperture;
+        var packet = requirePlanarPacket(aperture, "clustered projected aperture");
+        var count = Math.min(MAX_LIGHT_APERTURE_POINTS, packet.points.length);
+        packed[base + 16] = component(packet.planePoint, 0, 0.0);
+        packed[base + 17] = component(packet.planePoint, 1, 0.0);
+        packed[base + 18] = component(packet.planePoint, 2, 0.0);
+        packed[base + 19] = Math.max(0.0, Number(aperture.clip_epsilon || 0.0) || 0.0);
+        packed[base + 20] = component(packet.planeNormal, 0, 0.0);
+        packed[base + 21] = component(packet.planeNormal, 1, 0.0);
+        packed[base + 22] = component(packet.planeNormal, 2, 1.0);
+        packed[base + 23] = count;
+        packed[base + 24] = component(packet.uAxis, 0, 0.0);
+        packed[base + 25] = component(packet.uAxis, 1, 0.0);
+        packed[base + 26] = component(packet.uAxis, 2, 0.0);
+        packed[base + 27] = Math.max(0.0, Number(light.source_radius || 0.0) || 0.0);
+        packed[base + 28] = component(packet.vAxis, 0, 0.0);
+        packed[base + 29] = component(packet.vAxis, 1, 0.0);
+        packed[base + 30] = component(packet.vAxis, 2, 0.0);
+        packed[base + 31] = Math.max(0.0, Number(light.spread == null ? 1.0 : light.spread) || 0.0);
+        for (var pointIndex = 0; pointIndex < count; pointIndex += 1) {
+          packed[base + 32 + (pointIndex * 2)] = component(packet.points[pointIndex], 0, 0.0);
+          packed[base + 33 + (pointIndex * 2)] = component(packet.points[pointIndex], 1, 0.0);
+        }
+      }
     }
     return packed;
   }
@@ -1108,6 +1134,14 @@ struct ClusteredLightRecord {
   color_intensity: vec4<f32>,
   direction_kind: vec4<f32>,
   spot: vec4<f32>,
+  aperture_plane_clip: vec4<f32>,
+  aperture_normal_count: vec4<f32>,
+  aperture_u_radius: vec4<f32>,
+  aperture_v_spread: vec4<f32>,
+  aperture_points01: vec4<f32>,
+  aperture_points23: vec4<f32>,
+  aperture_points45: vec4<f32>,
+  aperture_points67: vec4<f32>,
 }
 @group(1) @binding(0) var<storage, read> clusteredLightPlan: array<u32>;
 @group(1) @binding(1) var<storage, read> clusteredLightRecords: array<ClusteredLightRecord>;
@@ -1251,6 +1285,82 @@ struct ClusteredDirectLightSum {
   specular: vec3<f32>,
 }
 
+fn clusteredAperturePoint(light: ClusteredLightRecord, index: u32) -> vec2<f32> {
+  if (index == 0u) { return light.aperture_points01.xy; }
+  if (index == 1u) { return light.aperture_points01.zw; }
+  if (index == 2u) { return light.aperture_points23.xy; }
+  if (index == 3u) { return light.aperture_points23.zw; }
+  if (index == 4u) { return light.aperture_points45.xy; }
+  if (index == 5u) { return light.aperture_points45.zw; }
+  if (index == 6u) { return light.aperture_points67.xy; }
+  return light.aperture_points67.zw;
+}
+
+fn clusteredProjectedApertureFactor(worldPos: vec3<f32>, light: ClusteredLightRecord) -> f32 {
+  if (light.direction_kind.w < 1.5) {
+    return 1.0;
+  }
+  let apertureCount = min(u32(light.aperture_normal_count.w + 0.5), 8u);
+  if (apertureCount < 3u) {
+    return 0.0;
+  }
+  let lightPos = light.position_range.xyz;
+  let planePoint = light.aperture_plane_clip.xyz;
+  let planeNormal = normalize(light.aperture_normal_count.xyz);
+  let ray = worldPos - lightPos;
+  let denom = dot(planeNormal, ray);
+  if (abs(denom) <= 1e-6) {
+    return 0.0;
+  }
+  let t = dot(planePoint - lightPos, planeNormal) / denom;
+  if (t <= 1e-4 || t >= (1.0 - 1e-4)) {
+    return 0.0;
+  }
+  let hit = lightPos + (t * ray);
+  let rel = hit - planePoint;
+  let local = vec2<f32>(
+    dot(rel, normalize(light.aperture_u_radius.xyz)),
+    dot(rel, normalize(light.aperture_v_spread.xyz))
+  );
+  let lightToPlane = max(abs(dot(planePoint - lightPos, planeNormal)), 1e-4);
+  let lightSide = dot(lightPos - planePoint, planeNormal);
+  let pointSide = dot(worldPos - planePoint, planeNormal);
+  let receiverSide = -sign(lightSide) * pointSide;
+  let clipEpsilon = light.aperture_plane_clip.w;
+  if (receiverSide <= clipEpsilon) {
+    return 0.0;
+  }
+  let receiverGap = max(0.0, receiverSide - clipEpsilon);
+  let softness = light.aperture_u_radius.w * (receiverGap / lightToPlane) * light.aperture_v_spread.w;
+  if (apertureCount == 4u) {
+    var minX = 1e9;
+    var maxX = -1e9;
+    var minY = 1e9;
+    var maxY = -1e9;
+    for (var qi: u32 = 0u; qi < apertureCount; qi = qi + 1u) {
+      let p = clusteredAperturePoint(light, qi);
+      minX = min(minX, p.x);
+      maxX = max(maxX, p.x);
+      minY = min(minY, p.y);
+      maxY = max(maxY, p.y);
+    }
+    let insideX = smoothstep(minX, minX + softness, local.x) * (1.0 - smoothstep(maxX - softness, maxX, local.x));
+    let insideY = smoothstep(minY, minY + softness, local.y) * (1.0 - smoothstep(maxY - softness, maxY, local.y));
+    return insideX * insideY;
+  }
+  var occPos = 1.0;
+  var occNeg = 1.0;
+  for (var index: u32 = 0u; index < apertureCount; index = index + 1u) {
+    let a = clusteredAperturePoint(light, index);
+    let b = clusteredAperturePoint(light, (index + 1u) % apertureCount);
+    let side = cross2(a, b, local);
+    let edgeLen = length(b - a);
+    occPos = occPos * edgeOcclusion(side, edgeLen, softness);
+    occNeg = occNeg * edgeOcclusion(-side, edgeLen, softness);
+  }
+  return max(occPos, occNeg);
+}
+
 fn clusteredReceiverIndex(worldPos: vec3<f32>) -> u32 {
   let xSlices = max(clusteredLightPlan[0u], 1u);
   let ySlices = max(clusteredLightPlan[1u], 1u);
@@ -1297,15 +1407,13 @@ fn clusteredAdditionalDirectLights(
       continue;
     }
     let light = clusteredLightRecords[lightId];
-    if (light.direction_kind.w >= 1.5) {
-      continue;
-    }
     let toLight = light.position_range.xyz - worldPos;
     let distance = max(length(toLight), 1e-6);
     let L = toLight / distance;
     let attenuation = lightAttenuation(distance, light.color_intensity.w, light.position_range.w);
     let spot = spotlightFactor(light.direction_kind.xyz, -L, light.spot.x, light.spot.y, light.direction_kind.w);
-    let litScale = attenuation * spot;
+    let projected = clusteredProjectedApertureFactor(worldPos, light);
+    let litScale = attenuation * spot * projected;
     let diffuseFactor = max(dot(N, L), 0.0);
     result.diffuse += (litScale * diffuseFactor) * light.color_intensity.rgb * base;
     if (light.direction_kind.w < 1.5) {
@@ -6725,7 +6833,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._device.queue.writeBuffer(this._clusteredLightClusterBuffer, 0, clusterData);
       this._device.queue.writeBuffer(this._clusteredLightRecordBuffer, 0, recordData);
       this._clusteredLightStorageBytes = clusterBytes;
-      this._clusteredLightRecordStorageBytes = lightCount * 16 * Float32Array.BYTES_PER_ELEMENT;
+      this._clusteredLightRecordStorageBytes = lightCount * 48 * Float32Array.BYTES_PER_ELEMENT;
       if (rebuilt || !this._clusteredLightBindGroup) {
         this._clusteredLightBindGroup = this._device.createBindGroup({
           layout: this._clusteredLightBindLayout,

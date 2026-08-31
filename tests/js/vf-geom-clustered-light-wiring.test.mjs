@@ -252,7 +252,21 @@ test('uploads clustered plans and light records into a bound GPU storage group',
   };
   renderer._clusteredLightMaxLightsPerCluster = 4;
 
-  renderer._planClusteredLightsForFrame(Array.from({ length: 6 }, (_, index) => normalizedLight(index)));
+  const lights = Array.from({ length: 6 }, (_, index) => normalizedLight(index));
+  lights[5] = {
+    ...lights[5],
+    source_radius: 0.25,
+    spread: 0.75,
+    projected_aperture: {
+      plane_point: [5, 2, 2],
+      plane_normal: [0, 0, 1],
+      u_axis: [1, 0, 0],
+      v_axis: [0, 1, 0],
+      clip_epsilon: 0.02,
+      points: [[-2, -1], [2, -1], [2, 1], [-2, 1]]
+    }
+  };
+  renderer._planClusteredLightsForFrame(lights);
 
   assert.equal(createdBuffers.length, 2);
   assert.ok((createdBuffers[0].descriptor.usage & 128) !== 0);
@@ -263,7 +277,26 @@ test('uploads clustered plans and light records into a bound GPU storage group',
   assert.ok(Math.abs(clusterHeaderFloats[8] - 0.05) < 1e-6);
   assert.equal(clusterHeaderFloats[9], 500);
   assert.equal(writes[0].data.byteLength, 64);
-  assert.equal(writes[1].data.byteLength, 384);
+  assert.equal(writes[1].data.byteLength, 1152);
+  const projectedRecordBase = 5 * 48;
+  assert.deepEqual([...writes[1].data.slice(projectedRecordBase, projectedRecordBase + 16)]
+    .map((value) => Math.round(value * 100) / 100), [
+    5, 2, 3, 12,
+    1, 0.5, 0.25, 25,
+    0, 0, -1, 2,
+    0.95, 0.8, 0.25, 0.75
+  ]);
+  assert.deepEqual([...writes[1].data.slice(projectedRecordBase + 16, projectedRecordBase + 32)], [
+    5, 2, 2, writes[1].data[projectedRecordBase + 19],
+    0, 0, 1, 4,
+    1, 0, 0, 0.25,
+    0, 1, 0, 0.75
+  ]);
+  assert.ok(Math.abs(writes[1].data[projectedRecordBase + 19] - 0.02) < 1e-6);
+  assert.deepEqual([...writes[1].data.slice(projectedRecordBase + 32, projectedRecordBase + 40)], [
+    -2, -1, 2, -1, 2, 1, -2, 1
+  ]);
+  assert.deepEqual([...writes[1].data.slice(projectedRecordBase + 40, projectedRecordBase + 48)], [0, 0, 0, 0, 0, 0, 0, 0]);
   assert.equal(bindGroups.length, 1);
   assert.deepEqual([...bindGroups[0].descriptor.entries].map((entry) => entry.binding), [0, 1]);
   assert.equal(bindGroups[0].descriptor.entries[0].resource.buffer, createdBuffers[0]);
@@ -272,5 +305,5 @@ test('uploads clustered plans and light records into a bound GPU storage group',
   renderer._bindClusteredLightStorage({ setBindGroup(index, group) { bound.push({ index, group }); } });
   assert.deepEqual(bound, [{ index: 1, group: bindGroups[0] }]);
   assert.equal(renderer._debugRenderEvidence().lightClusterStorageBytes, 64);
-  assert.equal(renderer._debugRenderEvidence().lightRecordStorageBytes, 384);
+  assert.equal(renderer._debugRenderEvidence().lightRecordStorageBytes, 1152);
 });
