@@ -59,10 +59,8 @@ test("material UI gallery is one executable VKF scene with script-free HTML/CSS 
   const source = path.join(root, "app.vkf");
   const typedIrPath = path.join(root, "app.typed-ir.json");
   const overlayWeb = path.join(root, "vf-ui");
-  await Promise.all([
-    cp(galleryRoot, root, { recursive: true }),
-    cp(path.join(repositoryRoot, "web", "vf-ui"), overlayWeb, { recursive: true }),
-  ]);
+  await cp(galleryRoot, root, { recursive: true });
+  await cp(path.join(repositoryRoot, "web", "vf-ui"), overlayWeb, { recursive: true });
   await writeFile(typedIrPath, `${JSON.stringify(typedIr)}\n`, "utf8");
 
   const nativeSummary = JSON.parse(run(nativeSceneStager, [
