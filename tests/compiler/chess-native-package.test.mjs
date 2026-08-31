@@ -6,7 +6,7 @@ import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const nativeDriver = process.env.VKF_NATIVE_DRIVER;
+const universalVkf = process.env.VKF_UNIVERSAL_BIN;
 const chessRoot = path.join(repositoryRoot, "examples", "programs", "vkf_chess_3d");
 const chessSource = path.join(chessRoot, "main.vkf");
 const workRoot = path.join(repositoryRoot, ".work", `g03-chess-native-${process.pid}`);
@@ -43,7 +43,7 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
   skip: process.platform !== "win32",
   timeout: 180_000,
 }, async () => {
-  assert.ok(nativeDriver, "VKF_NATIVE_DRIVER must name the focused native compiler driver");
+  assert.ok(universalVkf, "VKF_UNIVERSAL_BIN must name the packaged vkf executable");
   const source = await readFile(chessSource, "utf8");
   assert.doesNotMatch(source, /native_scene_config_path|native_scene_runtime_packets_path/u);
   assert.doesNotMatch(source, /\.lib\.native_scene|native\.overlay_scene/u);
@@ -53,12 +53,12 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
   const output = path.join(stagedSourceRoot, "main.exe");
   await mkdir(workRoot, { recursive: true });
   await cp(chessRoot, stagedSourceRoot, { recursive: true });
-  const stdout = execFileSync(nativeDriver, ["--source", stagedSource], {
+  const stdout = execFileSync(universalVkf, ["-b", stagedSource, "-o", output], {
     cwd: stagedSourceRoot,
     encoding: "utf8",
     windowsHide: true,
   });
-  assert.equal(JSON.parse(stdout).status, "compiled");
+  assert.match(stdout, /^Built /mu);
 
   const entries = sceneBundleEntries(await readFile(output));
   for (const runtimeAsset of [
