@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   conditionChild,
   createConditionedRoot,
+  normalReferenceFromU32,
   sampleBoundedUniform,
   sampleNormalReference,
 } from '../../web/vf-ui/vf-conditioned-distribution.mjs';
@@ -27,6 +28,13 @@ test('normal reference transform matches a pinned Box-Muller oracle', () => {
 
   assert.equal(
     sampleNormalReference(child, [3, 0], { mean: 10, standardDeviation: 2.5 }),
+    8.875981430658127,
+  );
+  assert.equal(
+    normalReferenceFromU32(
+      [0x8a27a5d3, 0x50fb04ea],
+      { mean: 10, standardDeviation: 2.5 },
+    ),
     8.875981430658127,
   );
 });
