@@ -1012,6 +1012,15 @@ struct Scene {
 @group(0) @binding(8) var fontSampler: sampler;
 @group(0) @binding(9) var fontAtlas: texture_2d<f32>;
 
+struct ClusteredLightRecord {
+  position_range: vec4<f32>,
+  color_intensity: vec4<f32>,
+  direction_kind: vec4<f32>,
+  spot: vec4<f32>,
+}
+@group(1) @binding(0) var<storage, read> clusteredLightPlan: array<u32>;
+@group(1) @binding(1) var<storage, read> clusteredLightRecords: array<ClusteredLightRecord>;
+
 struct Vin {
   @location(0) pos   : vec3<f32>,
   @location(1) normal: vec3<f32>,
@@ -1144,6 +1153,75 @@ fn spotlightFactor(coneDir: vec3<f32>, pointDir: vec3<f32>, innerCos: f32, outer
   let inner = max(innerCos, outerCos);
   let outer = min(innerCos, outerCos);
   return smoothstep(outer, inner, c);
+}
+
+struct ClusteredDirectLightSum {
+  diffuse: vec3<f32>,
+  specular: vec3<f32>,
+}
+
+fn clusteredReceiverIndex(worldPos: vec3<f32>) -> u32 {
+  let xSlices = max(clusteredLightPlan[0u], 1u);
+  let ySlices = max(clusteredLightPlan[1u], 1u);
+  let depthSlices = max(clusteredLightPlan[2u], 1u);
+  let rawClip = sc.mvp * vec4<f32>(worldPos, 1.0);
+  let ndc = rawClip.xy / max(abs(rawClip.w), 1e-6);
+  let x = u32(clamp(floor(((ndc.x * 0.5) + 0.5) * f32(xSlices)), 0.0, f32(xSlices - 1u)));
+  let y = u32(clamp(floor(((ndc.y * 0.5) + 0.5) * f32(ySlices)), 0.0, f32(ySlices - 1u)));
+  let nearDepth = max(bitcast<f32>(clusteredLightPlan[8u]), 1e-6);
+  let farDepth = max(bitcast<f32>(clusteredLightPlan[9u]), nearDepth + 1e-6);
+  let viewDepth = clamp(dot(worldPos - sc.cam_pos, sc.depth_params.yzw), nearDepth, farDepth);
+  let logarithmicDepth = log(viewDepth / nearDepth) / max(log(farDepth / nearDepth), 1e-6);
+  let z = u32(clamp(floor(logarithmicDepth * f32(depthSlices)), 0.0, f32(depthSlices - 1u)));
+  return ((z * ySlices) + y) * xSlices + x;
+}
+
+fn clusteredAdditionalDirectLights(
+  base: vec3<f32>,
+  alpha: f32,
+  worldPos: vec3<f32>,
+  N: vec3<f32>,
+  V: vec3<f32>,
+  specularScale: f32
+) -> ClusteredDirectLightSum {
+  var result: ClusteredDirectLightSum;
+  result.diffuse = vec3<f32>(0.0);
+  result.specular = vec3<f32>(0.0);
+  let clusterCount = clusteredLightPlan[4u];
+  if (clusterCount == 0u || clusteredLightPlan[7u] <= 4u) {
+    return result;
+  }
+  let clusterIndex = min(clusteredReceiverIndex(worldPos), clusterCount - 1u);
+  let offsetsBase = 10u;
+  let start = clusteredLightPlan[offsetsBase + clusterIndex];
+  let end = clusteredLightPlan[offsetsBase + clusterIndex + 1u];
+  let retainedCount = min(end - start, clusteredLightPlan[3u]);
+  let lightIdsBase = offsetsBase + clusterCount + 1u;
+  for (var retainedIndex = 0u; retainedIndex < retainedCount; retainedIndex = retainedIndex + 1u) {
+    let lightId = clusteredLightPlan[lightIdsBase + start + retainedIndex];
+    if (lightId < 4u) {
+      continue;
+    }
+    if (lightId >= clusteredLightPlan[7u]) {
+      continue;
+    }
+    let light = clusteredLightRecords[lightId];
+    let toLight = light.position_range.xyz - worldPos;
+    let distance = max(length(toLight), 1e-6);
+    let L = toLight / distance;
+    let attenuation = lightAttenuation(distance, light.color_intensity.w, light.position_range.w);
+    let spot = spotlightFactor(light.direction_kind.xyz, -L, light.spot.x, light.spot.y, light.direction_kind.w);
+    let litScale = attenuation * spot;
+    let diffuseFactor = max(dot(N, L), 0.0);
+    result.diffuse += (litScale * diffuseFactor) * light.color_intensity.rgb * base;
+    if (light.direction_kind.w < 1.5) {
+      let H = normalize(L + V);
+      let specularFactor = pow(max(dot(N, H), 0.0), 40.0);
+      result.specular += (litScale * specularFactor) * light.color_intensity.rgb *
+        (1.8 * specularScale * alpha * sc.specular_strength);
+    }
+  }
+  return result;
 }
 
 fn projectedApertureFactor0(worldPos: vec3<f32>, lightPos: vec3<f32>, kindCode: f32) -> f32 {
@@ -2790,6 +2868,11 @@ fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNor
       specular += (litScale3 * spec3) * lc3 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
+  if (!suppressBackfaceLighting && clusteredLightPlan[7u] > 4u) {
+    let clustered = clusteredAdditionalDirectLights(base, a, worldPos, N, V, specularScale);
+    diffuse += clustered.diffuse;
+    specular += clustered.specular;
+  }
   if (sc.light_count == 0u) {
     return vec4f(base, a);
   }
@@ -3883,7 +3966,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   // ---------------------------------------------------------------------------
   // Build scene uniform buffer (560 bytes)
   // ---------------------------------------------------------------------------
-  function buildUniform(mvp, model, camera, lights, lightModel, alphaMul, meshLike) {
+  function buildUniform(mvp, model, camera, lights, lightModel, alphaMul, meshLike, cameraForward) {
     var buf = new ArrayBuffer(UB_SIZE);
     var f32 = new Float32Array(buf);
     var u32 = new Uint32Array(buf);
@@ -4333,6 +4416,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       ? authoredDepthOffset
       : (Number.isFinite(automaticDepthOffset) ? automaticDepthOffset : 0.0);
     f32[depthParamsBase + 0] = Math.max(-0.001, Math.min(0.001, depthOffset));
+    var clusteredCameraForward = normalizeVec3(cameraForward, [0.0, 0.0, -1.0]);
+    f32[depthParamsBase + 1] = clusteredCameraForward[0];
+    f32[depthParamsBase + 2] = clusteredCameraForward[1];
+    f32[depthParamsBase + 3] = clusteredCameraForward[2];
 
     return f32;
   }
@@ -7465,7 +7552,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         meshForUniform = meshForUniform === partMesh ? Object.assign({}, partMesh) : meshForUniform;
         meshForUniform._depthOrderOffset = autoDepthOffset;
       }
-      var ubPart = buildUniform(mvpPart, modelMatPart, posPart, lightsNormPart, lmIntPart, resolveAlphaMul(partMesh), meshForUniform);
+      var cameraForwardPart = normalizeVec3(subVec3(targetPart, posPart), [0.0, 0.0, -1.0]);
+      var ubPart = buildUniform(mvpPart, modelMatPart, posPart, lightsNormPart, lmIntPart, resolveAlphaMul(partMesh), meshForUniform, cameraForwardPart);
       this._device.queue.writeBuffer(part.uniformBuf, 0, ubPart);
       this._ensurePartBindGroup(part);
       var partBlendMode = String(partMesh.blend_mode || "");
@@ -8705,7 +8793,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var lmInt  = LIGHT_MODELS[lmName] !== undefined ? LIGHT_MODELS[lmName] : 2;
 
       // --- Build + upload uniform ---
-      var ub = buildUniform(mvp, modelMat, pos, lightsNorm, lmInt, resolveAlphaMul(mesh), mesh);
+      var cameraForward = normalizeVec3(subVec3(target, pos), [0.0, 0.0, -1.0]);
+      var ub = buildUniform(mvp, modelMat, pos, lightsNorm, lmInt, resolveAlphaMul(mesh), mesh, cameraForward);
       this._device.queue.writeBuffer(this._uniformBuf, 0, ub);
       // --- Draw ---
       this._ensureDepth();
