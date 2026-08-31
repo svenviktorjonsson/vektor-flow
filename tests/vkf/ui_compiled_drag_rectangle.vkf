@@ -1,0 +1,8 @@
+vkf_update(
+    state:(x:num, y:num),
+    input:(pointer_x:num, pointer_y:num, anchor_x:num, anchor_y:num)
+) -> (x:num, y:num):
+    @: (
+        x: input.pointer_x - input.anchor_x,
+        y: input.pointer_y - input.anchor_y
+    )

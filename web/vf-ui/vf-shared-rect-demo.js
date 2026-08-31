@@ -18,58 +18,6 @@
   var PRIMARY_RECT_SLOT = 0;
   var COMPILED_RECT_SLOTS = [0, 1, 2];
 
-  function encodeU32(value, bytes) {
-    value >>>= 0;
-    do {
-      var byte = value & 0x7f;
-      value >>>= 7;
-      if (value !== 0) {
-        byte |= 0x80;
-      }
-      bytes.push(byte);
-    } while (value !== 0);
-  }
-
-  function encodeI32(value, bytes) {
-    value |= 0;
-    var more = true;
-    while (more) {
-      var byte = value & 0x7f;
-      value >>= 7;
-      var signBit = (byte & 0x40) !== 0;
-      more = !((value === 0 && !signBit) || (value === -1 && signBit));
-      if (more) {
-        byte |= 0x80;
-      }
-      bytes.push(byte);
-    }
-  }
-
-  function encodeString(text, bytes) {
-    var utf8 = new TextEncoder().encode(text);
-    encodeU32(utf8.length, bytes);
-    for (var i = 0; i < utf8.length; i += 1) {
-      bytes.push(utf8[i]);
-    }
-  }
-
-  function makeSection(id, content, bytes) {
-    bytes.push(id);
-    encodeU32(content.length, bytes);
-    for (var i = 0; i < content.length; i += 1) {
-      bytes.push(content[i]);
-    }
-  }
-
-  function i32ConstBody(value) {
-    var body = [];
-    encodeU32(0, body);
-    body.push(0x41);
-    encodeI32(value, body);
-    body.push(0x0b);
-    return body;
-  }
-
   function createInputSnapshot(sample) {
     sample = sample || {};
     return {
@@ -85,144 +33,67 @@
     };
   }
 
-  function createCompiledRectRuntimeModuleBytes() {
-    var bytes = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-
-    var typeSection = [];
-    encodeU32(2, typeSection);
-    typeSection.push(0x60); encodeU32(0, typeSection); encodeU32(0, typeSection);
-    typeSection.push(0x60); encodeU32(0, typeSection); encodeU32(1, typeSection); typeSection.push(0x7f);
-    makeSection(1, typeSection, bytes);
-
-    var functionSection = [];
-    encodeU32(7, functionSection);
-    encodeU32(0, functionSection);
-    encodeU32(0, functionSection);
-    encodeU32(0, functionSection);
-    encodeU32(1, functionSection);
-    encodeU32(1, functionSection);
-    encodeU32(1, functionSection);
-    encodeU32(1, functionSection);
-    makeSection(3, functionSection, bytes);
-
-    var memorySection = [];
-    encodeU32(1, memorySection);
-    memorySection.push(0x00);
-    encodeU32(1, memorySection);
-    makeSection(5, memorySection, bytes);
-
-    var exportSection = [];
-    encodeU32(8, exportSection);
-    encodeString("memory", exportSection); exportSection.push(0x02); encodeU32(0, exportSection);
-    ["vkf_init", "vkf_update", "vkf_shutdown", "vkf_state_ptr", "vkf_state_size", "vkf_input_ptr", "vkf_input_size"].forEach(function(name, index) {
-      encodeString(name, exportSection);
-      exportSection.push(0x00);
-      encodeU32(index, exportSection);
-    });
-    makeSection(7, exportSection, bytes);
-
-    var codeSection = [];
-    encodeU32(7, codeSection);
-
-    var initBody = [];
-    encodeU32(0, initBody);
-    [0, 4, 8, 12, 16, 20, 24, 28, 32, 36].forEach(function(offset) {
-      initBody.push(0x41); encodeI32(offset, initBody);
-      initBody.push(0x41); encodeI32(0, initBody);
-      initBody.push(0x36); encodeU32(2, initBody); encodeU32(0, initBody);
-    });
-    initBody.push(0x0b);
-    encodeU32(initBody.length, codeSection); initBody.forEach(function(byte) { codeSection.push(byte); });
-
-    var updateBody = [];
-    encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(0, updateBody);
-    updateBody.push(0x41); encodeI32(24, updateBody);
-    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(32, updateBody);
-    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x6b);
-    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
-
-    updateBody.push(0x41); encodeI32(4, updateBody);
-    updateBody.push(0x41); encodeI32(28, updateBody);
-    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(36, updateBody);
-    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x6b);
-    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(8, updateBody);
-    updateBody.push(0x41); encodeI32(0, updateBody);
-    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(40, updateBody);
-    updateBody.push(0x6a);
-    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(12, updateBody);
-    updateBody.push(0x41); encodeI32(4, updateBody);
-    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(38, updateBody);
-    updateBody.push(0x6a);
-    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(16, updateBody);
-    updateBody.push(0x41); encodeI32(0, updateBody);
-    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(78, updateBody);
-    updateBody.push(0x6a);
-    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(20, updateBody);
-    updateBody.push(0x41); encodeI32(4, updateBody);
-    updateBody.push(0x28); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x41); encodeI32(64, updateBody);
-    updateBody.push(0x6a);
-    updateBody.push(0x36); encodeU32(2, updateBody); encodeU32(0, updateBody);
-    updateBody.push(0x0b);
-    encodeU32(updateBody.length, codeSection); updateBody.forEach(function(byte) { codeSection.push(byte); });
-
-    var noopBody = [0x00, 0x0b];
-    encodeU32(noopBody.length, codeSection); noopBody.forEach(function(byte) { codeSection.push(byte); });
-
-    [0, 24, 24, 16].forEach(function(value) {
-      var body = i32ConstBody(value);
-      encodeU32(body.length, codeSection);
-      body.forEach(function(byte) { codeSection.push(byte); });
-    });
-
-    makeSection(10, codeSection, bytes);
-    return new Uint8Array(bytes);
+  function hasNumericLayout(fields, names) {
+    if (!Array.isArray(fields) || fields.length !== names.length) {
+      return false;
+    }
+    for (var i = 0; i < names.length; i += 1) {
+      if (!fields[i] || fields[i].name !== names[i] || fields[i].offset !== i * 4 || fields[i].type !== "num") {
+        return false;
+      }
+    }
+    return true;
   }
 
-  function createCompiledRectRuntime(uiRuntime) {
+  function validateCompiledRectArtifact(artifact) {
+    if (!artifact || typeof artifact !== "object") {
+      throw new Error("shared rectangle requires a compiler-emitted artifact");
+    }
+    var manifest = artifact.manifest;
+    if (!manifest || typeof manifest !== "object") {
+      throw new Error("compiled rectangle artifact is missing its manifest");
+    }
+    if (typeof manifest.source_sha256 !== "string" || !manifest.source_sha256) {
+      throw new Error("compiled rectangle manifest is missing source provenance");
+    }
+    if (typeof manifest.typed_ir_sha256 !== "string" || !manifest.typed_ir_sha256) {
+      throw new Error("compiled rectangle manifest is missing typed-IR provenance");
+    }
+    var surface = manifest.runtime_surface;
+    if (!surface || typeof surface !== "object" || !Array.isArray(surface.exports)) {
+      throw new Error("compiled rectangle manifest is missing its runtime surface");
+    }
+    if (surface.update_mode !== "record" || !hasNumericLayout(surface.state_fields, ["x", "y"])) {
+      throw new Error("compiled rectangle manifest has an invalid state layout");
+    }
+    if (!hasNumericLayout(surface.input_fields, ["pointer_x", "pointer_y", "anchor_x", "anchor_y"])) {
+      throw new Error("compiled rectangle manifest has an invalid input layout");
+    }
+    var requiredExports = [
+      "vkf_init",
+      "vkf_update",
+      "vkf_shutdown",
+      "vkf_state_ptr",
+      "vkf_state_size",
+      "vkf_input_ptr",
+      "vkf_input_size"
+    ];
+    for (var i = 0; i < requiredExports.length; i += 1) {
+      if (surface.exports.indexOf(requiredExports[i]) < 0) {
+        throw new Error("compiled rectangle manifest is missing export " + requiredExports[i]);
+      }
+    }
+    if (!(artifact.bytes instanceof Uint8Array) && !(artifact.bytes instanceof ArrayBuffer)) {
+      throw new Error("compiled rectangle artifact is missing wasm bytes");
+    }
+    return artifact;
+  }
+
+  function createCompiledRectRuntime(uiRuntime, artifact) {
     if (!uiRuntime || !uiRuntime.ui || !uiRuntime.ui.compiled || typeof uiRuntime.ui.compiled.load_wasm_runtime !== "function") {
       return null;
     }
-    return uiRuntime.ui.compiled.load_wasm_runtime({
-      manifest: {
-        runtime_surface: {
-          state_ptr_export: "vkf_state_ptr",
-          state_size_export: "vkf_state_size",
-          input_ptr_export: "vkf_input_ptr",
-          input_size_export: "vkf_input_size",
-          init_export: "vkf_init",
-          update_export: "vkf_update",
-          shutdown_export: "vkf_shutdown",
-          state_fields: [
-            { name: "x", offset: 0, type: "num" },
-            { name: "y", offset: 4, type: "num" },
-            { name: "x1", offset: 8, type: "num" },
-            { name: "y1", offset: 12, type: "num" },
-            { name: "x2", offset: 16, type: "num" },
-            { name: "y2", offset: 20, type: "num" }
-          ],
-          input_fields: [
-            { name: "pointer_x", offset: 0, type: "num" },
-            { name: "pointer_y", offset: 4, type: "num" },
-            { name: "anchor_x", offset: 8, type: "num" },
-            { name: "anchor_y", offset: 12, type: "num" }
-          ]
-        }
-      },
-      bytes: createCompiledRectRuntimeModuleBytes()
-    });
+    return uiRuntime.ui.compiled.load_wasm_runtime(artifact);
   }
 
   function rgba(color) {
@@ -314,7 +185,9 @@
     }
   }
 
-  function createBrowserDemo() {
+  function createBrowserDemo(options) {
+    options = options || {};
+    var compiledArtifact = validateCompiledRectArtifact(options.compiledArtifact);
     var transformArena = shared.createTransformArena(12);
     var eventArena = shared.createEventArena(8);
     var uiRuntime = vkfUiRuntimeModule && typeof vkfUiRuntimeModule.createVkfUiRuntime === "function"
@@ -385,7 +258,7 @@
     var meshes = meshRects.map(function(rect, slot) {
       return makeRectMesh(slot, rect);
     });
-    var compiledRuntime = createCompiledRectRuntime(uiRuntime);
+    var compiledRuntime = createCompiledRectRuntime(uiRuntime, compiledArtifact);
     var compiledController = null;
     var compiledRectObjects = uiFrame ? COMPILED_RECT_SLOTS.map(function(slot) {
       return uiFrame.add_rect(
@@ -629,7 +502,7 @@
       if (!canvas) { return; }
       canvas.width = canvas.clientWidth || 960;
       canvas.height = canvas.clientHeight || 540;
-      demoApi = createBrowserDemo();
+      demoApi = createBrowserDemo({ compiledArtifact: global.__vfSharedRectCompiledArtifact });
       demoApi.bindCanvas(canvas);
       global.__vfSharedRectDemo = demoApi;
     }, { once: true });
