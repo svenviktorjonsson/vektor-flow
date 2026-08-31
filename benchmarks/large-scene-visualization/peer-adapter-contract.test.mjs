@@ -61,6 +61,7 @@ test('correctness checkpoints and GPU completion finish before timing begins', a
     now: (() => { let value = 0; return () => ++value; })(),
   });
   assert.equal(result.correctness.passed, true);
+  assert.equal(Number.isFinite(result.preparationMs), true);
   assert.equal(result.correctness.completedAtSequence < result.timing.startedAtSequence, true);
   assert.equal(result.correctness.gpuCompletionCalls, 2);
   assert.equal(result.timing.gpuCompletionCalls, 7);

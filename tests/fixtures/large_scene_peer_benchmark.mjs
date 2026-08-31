@@ -85,6 +85,7 @@ async function execute() {
     workload: workload.id,
     pointCount: workload.pointCount,
     adapterVersion: result.version,
+    preparationMs: result.preparationMs,
     userAgent: navigator.userAgent,
     webgl: rendererInfo(gl),
     clock,
