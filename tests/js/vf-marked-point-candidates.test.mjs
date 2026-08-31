@@ -312,3 +312,31 @@ test('marked-point population matches pinned spatial and mark statistics', () =>
   assert.ok(nearbyCorrelation > 0.7);
   assert.ok(Math.abs(distantCorrelation) < 0.08);
 });
+
+test('distant cell demand does not generate an intervening world population', () => {
+  const candidates = sampleMarkedPointCell2Reference(
+    createPointNode(),
+    [2_000_000_000, -2_000_000_000],
+    {
+      cellSize: 1,
+      maxCandidates: 2,
+      baseProbability: 1,
+      correlationLength: 2,
+      spatialStrength: 0,
+    },
+  );
+
+  assert.deepEqual(
+    candidates.map(({ id, position }) => ({ id, position })),
+    [
+      {
+        id: 'candidate:v1:e4a118ff:a01104ef',
+        position: [2_000_000_000.6923192, -1_999_999_999.1287613],
+      },
+      {
+        id: 'candidate:v1:41f7cfb6:9c1b8b5b',
+        position: [2_000_000_000.8670542, -1_999_999_999.745709],
+      },
+    ],
+  );
+});
