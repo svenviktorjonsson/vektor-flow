@@ -14,6 +14,26 @@ function compareDemandPriority(first, second) {
     || binaryCompare(first.face, second.face);
 }
 
+function requireUniqueDemands(coarse, demands) {
+  if (!Array.isArray(demands)) {
+    throw new TypeError('ellipsoid refinement demands must be an array');
+  }
+  const available = new Set(coarse.faces.map(({ id }) => id));
+  const seen = new Set();
+  for (const activeDemand of demands) {
+    if (!activeDemand || typeof activeDemand !== 'object') {
+      throw new TypeError('ellipsoid refinement demand must be an object');
+    }
+    if (!available.has(activeDemand.face)) {
+      throw new RangeError(`ellipsoid coarse face is unavailable: ${activeDemand.face}`);
+    }
+    if (seen.has(activeDemand.face)) {
+      throw new RangeError(`ellipsoid refinement demand is duplicated: ${activeDemand.face}`);
+    }
+    seen.add(activeDemand.face);
+  }
+}
+
 function generateEntry(coarse, activeDemand) {
   const refined = refineEllipsoidFaceReference(coarse, activeDemand.face);
   return Object.freeze({
@@ -30,6 +50,7 @@ export function updateEllipsoidRefinementWorkingSetReference(coarse, previous, {
   vertexBudget,
   faceBudget,
 }) {
+  requireUniqueDemands(coarse, demands);
   const capacity = Math.min(vertexBudget, Math.floor(faceBudget / 3));
   const selected = [...demands].sort(compareDemandPriority).slice(0, capacity);
   const previousByFace = new Map(
