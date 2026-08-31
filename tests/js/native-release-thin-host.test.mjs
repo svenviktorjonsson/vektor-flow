@@ -36,5 +36,21 @@ test("thin release host maps packaged resources without legacy semantic transpor
   const source = readFileSync(hostPath, "utf8");
   assert.match(source, /SetVirtualHostNameToFolderMapping/);
   assert.match(source, /CreateCoreWebView2Controller/);
+  assert.match(source, /WM_NCHITTEST/);
+  assert.match(source, /HTTRANSPARENT/);
+  assert.match(source, /ApplyHitRegionAdapterMessage/);
+  assert.match(source, /PushOpaqueEvent/);
+  assert.match(source, /CreateSharedBuffer/);
+  assert.match(source, /PostSharedBufferToScript/);
   assert.doesNotMatch(source, /localhost|\bHTTP\b|cJSON|runtime.packet|compiled.ui|geometry.ledger/i);
+});
+
+test("release hit regions and events use a semantics-free internal adapter", () => {
+  const adapter = readFileSync(
+    path.join(root, "native", "VfOverlay", "vf", "release_host_adapter.cpp"),
+    "utf8",
+  );
+  assert.match(adapter, /vf_host_hit_regions_v1/);
+  assert.match(adapter, /PushOpaqueEvent/);
+  assert.doesNotMatch(adapter, /ButtonClicked|SliderValueChanged|FrameEvent|SliderEvent/);
 });
