@@ -19,12 +19,12 @@
     },
     {
       "path": "compiler/self_hosted/typed_ir.vkf",
-      "source_sha256": "12b64f13a0f76a28063db0a439e3d841857472d6c238216e7ff7a623d996251f",
+      "source_sha256": "94d21d3000cca25c508624e6d41466bd6340f3ed994fdf33c100c884295bc688",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/machine_ir.vkf",
-      "source_sha256": "28482fcbc01ba9fc06178ebc6df1e616586208610f000fab277e272ad525435c",
+      "source_sha256": "f832405d813ebb4c090ca02b847e10d877e456bec5452271ccab9ac83c2bf1b8",
       "parsed_with_native_parser": true
     },
     {
@@ -44,17 +44,17 @@
     },
     {
       "path": "compiler/self_hosted/stdlib.vkf",
-      "source_sha256": "0884563f1ef6ed9ed6756ab627f32168178d9062572f8598f3a7001f29b0d63e",
+      "source_sha256": "43ee8d977ac0ddcc4e4c9492725e5a1948d8dced5bac36697af0500ea9fdb970",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/stdlib/math.vkf",
-      "source_sha256": "791697f04e96d8361ee1cdf77570daad99b11ff3088354468d6ca0c1f832a0fb",
+      "source_sha256": "ca670afda7c9edc010ca25428f61f79c0fb45bdf5655a4a240d2162e744a2f3f",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/stdlib/io.vkf",
-      "source_sha256": "ebd2878251589bbf3a0d62b5c0ef9084950c8aaafe64d4f621358f4a3855b414",
+      "source_sha256": "0df4f64fa1597f619743fb0ff01105f59c1e7883e19bc095f00ba48e9a3e7d80",
       "parsed_with_native_parser": true
     }
   ],
@@ -71,5 +71,5 @@
     "compiler/self_hosted/stdlib/io.vkf"
   ],
   "source_count": 10,
-  "bundle_sha256": "d301a5a6dbc1dfc45517464817700a1d326d88dd03647c1ece4ef7de0cdfb056"
+  "bundle_sha256": "f57507492c76672696bb7339293492cfa747d2ab0d462f5c34a8966e86ab9aec"
 }
