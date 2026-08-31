@@ -1,0 +1,12 @@
+: .ui.display
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])
+frame.set_geom_options(background:[0.22, 0.48, 0.78, 1], unified_renderer:true)
+frame.add_camera(pos:[0, -5.6, 2.0], target:[0, 2.5, 0], up:[0, 0, 1], fov:60)
+frame.add_light(id:"sun", kind:"point", pos:[0, 50, 35], target:[0, 0, 0], color:[1, 0.98, 0.82, 1], intensity:2800, range:140, casts_shadow:true)
+frame.add(
+    x:[[-9, 9], [-9, 9]], y:[[-2, -2], [14, 14]], z:[[0, 0], [0, 0]],
+    id:"grass", color:[1, 1, 1, 1],
+    texture:(kind:"grass", scale:[7, 7], color_a:[0.025, 0.13, 0.02, 1], color_b:[0.28, 0.54, 0.09, 1], roughness:0.99, blade_length:1.1, clump_density:1.2, micro_shadow:0.52),
+    specular_strength:0, casts_shadow:true, receives_shadow:true, receives_lighting:true
+)
