@@ -3800,6 +3800,24 @@ inline ValueLayout layout_from_builder_expression_shape(
                 environment[name->second.as_string()] = *layout;
             }
         }
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "scope_identity") {
+            const auto type = object.find("type");
+            if (type != object.end() && type->second.is_string()) {
+                const std::string surface = type->second.as_string();
+                if (surface.rfind("record{", 0) == 0 && !surface.empty() && surface.back() == '}') {
+                    for (const auto& field_surface : split_top_level(
+                             surface.substr(7, surface.size() - 8), ',')) {
+                        const auto colon = find_top_level(field_surface, ':');
+                        if (colon == std::string::npos) continue;
+                        const std::string field_name = trim(field_surface.substr(0, colon));
+                        if (const auto* layout = builder.find_layout(field_name)) {
+                            environment[field_name] = *layout;
+                        }
+                    }
+                }
+            }
+        }
         for (const auto& [field_name, child] : object) {
             if (field_name != "callee") self(self, child);
         }
@@ -7688,7 +7706,7 @@ inline ValueLayout lower_expression(
     }
     if (kind == "block_expr") {
         const auto& body = array_of(field(expression, "body", "block expression"), "block expression body");
-        const ValueLayout result = layout_from_expression_shape(expression, signatures);
+        const ValueLayout result = layout_from_builder_expression_shape(expression, builder, signatures);
         builder.begin_scope();
         const auto result_local = builder.add_scoped_local("$block_result", result);
         emit_default_value(builder, result, strings);
