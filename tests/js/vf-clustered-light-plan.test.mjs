@@ -94,3 +94,20 @@ test('keeps zero-volume bounds that lie exactly on cluster boundaries', () => {
   assert.deepEqual(occupiedClusters(plan), [5]);
   assert.deepEqual([...plan.lightIds], [9]);
 });
+
+test('rejects an unsafe cluster count before allocating cluster storage', () => {
+  assert.throws(
+    () => planClusteredLights({
+      grid: {
+        xSlices: 1025,
+        ySlices: 1024,
+        depthSlices: 1,
+        nearDepth: 1,
+        farDepth: 100
+      },
+      lights: [],
+      maxLightsPerCluster: 1
+    }),
+    /cluster count 1049600 exceeds internal limit 1048576/
+  );
+});

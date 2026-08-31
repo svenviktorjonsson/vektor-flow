@@ -5,12 +5,19 @@
  * depth. Cluster storage is x-fastest, then y, then logarithmic depth.
  */
 
+// Keeps cluster offsets Uint32-representable while bounding the planner's
+// fixed per-cluster bookkeeping well below an allocation-hostile size.
+const MAX_SAFE_CLUSTER_COUNT = 1_048_576;
+
 export function planClusteredLights({ grid, lights, maxLightsPerCluster }) {
   const normalizedGrid = normalizeGrid(grid);
   const capacity = positiveInteger(maxLightsPerCluster, 'maxLightsPerCluster');
   if (!Array.isArray(lights)) throw new TypeError('lights must be an array');
 
   const clusterCount = normalizedGrid.xSlices * normalizedGrid.ySlices * normalizedGrid.depthSlices;
+  if (!Number.isSafeInteger(clusterCount) || clusterCount > MAX_SAFE_CLUSTER_COUNT) {
+    throw new RangeError(`cluster count ${clusterCount} exceeds internal limit ${MAX_SAFE_CLUSTER_COUNT}`);
+  }
   const clusterLightIds = Array.from({ length: clusterCount }, () => []);
   const overflowCounts = new Uint32Array(clusterCount);
   const orderedLights = lights.map(normalizeLight).sort((left, right) => left.id - right.id);
