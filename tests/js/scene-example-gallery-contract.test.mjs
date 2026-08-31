@@ -331,3 +331,21 @@ test("scene gallery captures a wireframe from explicit 3D point data", async () 
   assert.equal(sha256(bytes), example.media.sha256);
   assert.equal(example.capture.hidden, true);
 });
+
+test("scene gallery captures a native rigid-body animation snapshot", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "20-rigid-body-snapshot");
+  assert.ok(example);
+  assert.equal(example.dimension, 2);
+  assert.deepEqual(example.features, ["2d", "physics", "rigid-body", "animation"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  for (const field of ["rigid_world_2d:(", "rigid_bodies_2d:[", "velocity:[", "angular_velocity:", "timing:("]) {
+    assert.ok(source.includes(field), `missing ${field}`);
+  }
+  assert.ok(source.split(/\r?\n/u).filter((line) => line.trim()).length <= 20);
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+  assert.equal(example.capture.hidden, true);
+});

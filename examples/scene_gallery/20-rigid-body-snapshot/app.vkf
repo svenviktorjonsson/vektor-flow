@@ -1,0 +1,12 @@
+native_scene:(
+    frame_id:"rigid_snapshot", title:"Rigid-body snapshot",
+    rect:[0.08, 0.08, 0.84, 0.84], background:[0.008, 0.018, 0.04, 1],
+    camera:(pos:[0, 0, 12], target:[0, 0, 0], up:[0, 1, 0], projection:"orthographic", ortho_scale:6),
+    lights:[(id:"key", kind:"point", pos:[-3, -3, 8], color:[1, 0.94, 0.82, 1], intensity:32, range:24)],
+    timing:(fps:60, duration_seconds:8, boundary:"repeat"),
+    rigid_world_2d:(width:10, height:6, gravity:[0, -3], solver_iterations:10, step_dt:0.008333, max_substeps:8),
+    rigid_bodies_2d:[
+        (id:"floor", contours:[[[-4, -0.3], [4, -0.3], [4, 0.3], [-4, 0.3]]], position:[0, -2.2], static:true, color:[0.12, 0.58, 0.92, 1]),
+        (id:"spinner", contours:[[[0, 0.72], [0.62, 0], [0, -0.72], [-0.62, 0]]], position:[-2, 1.4], velocity:[2.4, 0], angular_velocity:2.8, density:1, e_n:0.86, color:[1, 0.38, 0.12, 1])
+    ]
+)
