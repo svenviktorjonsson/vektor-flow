@@ -15,6 +15,7 @@ set(VF_UI_NATIVE_SCENE_ASSETS
   "vf-log.js"
   "vf-runtime-shell.js"
   "vf-runtime-packet-contract.js"
+  "vf-retained-event-adapter.js"
   "vf-runtime-source.js"
   "vf-html-components.js"
   "vf-runtime-scene.js"

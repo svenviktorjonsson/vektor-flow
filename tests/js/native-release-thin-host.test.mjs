@@ -6,6 +6,14 @@ import { test } from "node:test";
 const root = process.cwd();
 const cmake = readFileSync(path.join(root, "native", "VfOverlay", "CMakeLists.txt"), "utf8");
 const hostPath = path.join(root, "native", "VfOverlay", "vf", "release_overlay_host.cpp");
+const launcher = readFileSync(
+  path.join(root, "native", "VfOverlay", "vkf_launcher.cpp"),
+  "utf8",
+);
+const embeddedAssets = readFileSync(
+  path.join(root, "native", "VfOverlay", "tools", "generate_embedded_vf_ui_assets.cmake"),
+  "utf8",
+);
 
 const forbiddenObjects = [
   "compiled_ui_bootstrap_host",
@@ -62,6 +70,11 @@ test("browser runtime maps the opaque host event arena without UI semantics", ()
   );
   assert.match(runtime, /vf_host_event_arena_v1/);
   assert.match(runtime, /__vfHostEventArena/);
+});
+
+test("packaged UI runtime carries the retained event adapter", () => {
+  assert.match(embeddedAssets, /"vf-retained-event-adapter\.js"/);
+  assert.match(launcher, /L"vf-retained-event-adapter\.js"/);
 });
 
 test("release package builds the retained scene stager with repository headers", () => {
