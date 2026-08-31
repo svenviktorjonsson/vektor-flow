@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   conditionChild,
+  correlatedNormal2ReferenceFromU32,
   createConditionedRoot,
   normalReferenceFromU32,
   sampleBoundedUniform,
@@ -76,6 +77,20 @@ test('normal reference transform matches a pinned Box-Muller oracle', () => {
       { mean: 10, standardDeviation: 2.5 },
     ),
     8.875981430658127,
+  );
+});
+
+test('correlated-normal transform matches a pinned two-dimensional oracle', () => {
+  assert.deepEqual(
+    correlatedNormal2ReferenceFromU32(
+      [0xf4d2fe28, 0x9ffe0525],
+      {
+        mean: [10, -5],
+        standardDeviation: [2.5, 4],
+        correlation: 0.75,
+      },
+    ),
+    [9.471712514179357, -6.192819693750724],
   );
 });
 
