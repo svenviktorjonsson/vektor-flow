@@ -68,5 +68,12 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "devDependencies": {
+    "@deck.gl/core": "9.3.11",
+    "@deck.gl/layers": "9.3.11",
+    "@kitware/vtk.js": "36.10.0",
+    "esbuild": "0.25.9",
+    "plotly.js-dist-min": "4.0.0"
+  }
 }
