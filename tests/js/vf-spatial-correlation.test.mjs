@@ -60,3 +60,32 @@ test('spatial correlation rejects unbounded or malformed queries', () => {
     10,
   );
 });
+
+test('spatial field identity is hierarchical and scale-stable', () => {
+  const target = createFieldNode();
+  const recreated = createFieldNode();
+  const sibling = conditionChild(createConditionedRoot(ROOT_IDENTITY), {
+    segment: 'patch:8',
+    channel: 'moisture-field',
+  });
+  const options = { correlationLength: 2, mean: 10, amplitude: 3 };
+  const value = sampleSpatialCorrelation2Reference(target, [3.25, -1.5], options);
+
+  assert.equal(
+    value,
+    sampleSpatialCorrelation2Reference(recreated, [3.25, -1.5], options),
+  );
+  assert.equal(
+    value,
+    sampleSpatialCorrelation2Reference(target, [6.5, -3], {
+      ...options,
+      correlationLength: 4,
+    }),
+  );
+  assert.notEqual(
+    value,
+    sampleSpatialCorrelation2Reference(sibling, [3.25, -1.5], options),
+  );
+  assert.ok(Object.isFrozen(target));
+  assert.ok(Object.isFrozen(target.hierarchy));
+});
