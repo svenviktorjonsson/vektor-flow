@@ -306,7 +306,7 @@ const outputs = [
 if (process.argv.includes("--check")) {
   for (const [outputPath, expected] of outputs) {
     const actual = await readFile(outputPath, "utf8").catch(() => "");
-    if (actual !== expected) {
+    if (actual.replace(/\r\n?/g, "\n") !== expected) {
       throw new Error(`${path.relative(repositoryRoot, outputPath)} is not generated from ${path.relative(repositoryRoot, catalogPath)}`);
     }
   }
