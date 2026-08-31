@@ -86,10 +86,11 @@ and [CSS](examples/material_ui_gallery/ui/gallery.css); compiled VKF
 `ButtonClicked` and `SliderValueChanged` branches change the retained scene.
 There is no application JavaScript.
 
-The renderer-only capture below replays the four compiled view buttons and a
+The full-compositor capture below replays the four compiled view buttons and a
 live glass-alpha change. Both images are regenerated in a fully headless Edge
-session; the still above is the composited HTML/CSS, frame chrome, and WebGPU
-viewport, while the animation is captured from VKF's frame-texture API.
+session and contain the static HTML/CSS, frame chrome, and WebGPU viewport.
+Each state is also captured independently through VKF's frame-texture API as a
+[renderer-only oracle](docs/public/images/readme-ui/material-ui-gallery-renderer.gif).
 
 ![VKF material gallery view changes](docs/public/images/readme-ui/material-ui-gallery.gif)
 
