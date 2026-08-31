@@ -75,4 +75,5 @@ test("release package builds the retained scene stager with repository headers",
   );
   assert.ok(target, "retained scene stager is missing private include roots");
   assert.match(target[1], /VF_REPO_ROOT/);
+  assert.match(target[1], /CMAKE_CURRENT_SOURCE_DIR/);
 });
