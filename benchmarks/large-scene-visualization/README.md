@@ -64,10 +64,14 @@ scaffolds. This packet does not change the renderer or any public VKF API.
 ## Correctness before timing
 
 Every publishable lane must first render every declared camera checkpoint and
-read back its framebuffer. `sampled-frame-regions-v1` partitions the image into
-the manifest's 16×9 grid and compares foreground coverage plus premultiplied
-RGBA means with the shared deterministic point reference. The maximum normalized
-region error must stay at or below the predeclared limit. A report records the
+read back its framebuffer. The camera formula is manifest data: the pan uses
+`phase = 2*pi*frame/frames` and the same sine/cosine offsets in every lane.
+`sampled-frame-regions-v1` partitions the image into the manifest's 16×9 grid.
+Its `ideal-disc-source-over-v1` reference maps each `x,y` through the declared
+orthographic range, rasterizes the two-pixel disc with an 8×8 fixed subpixel
+grid, source-over composites in fixture order, and calculates foreground
+coverage plus premultiplied RGBA means for each region. The maximum normalized
+component error must stay at or below the predeclared limit. A report records the
 captured artifact SHA-256, dataset SHA-256, workload-contract SHA-256, error, and
 the sequence proving correctness completed before timing began.
 

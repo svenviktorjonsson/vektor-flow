@@ -52,11 +52,21 @@
       "cameraPath": {
         "kind": "fixed",
         "frames": 1,
+        "formula": "offset=[0,0]",
         "xRange": [-1, 1],
         "yRange": [-1, 1]
       },
       "correctness": {
         "oracle": "sampled-frame-regions-v1",
+        "reference": "ideal-disc-source-over-v1",
+        "subpixelsPerAxis": 8,
+        "regionChannels": [
+          "foreground-coverage",
+          "premultiplied-r",
+          "premultiplied-g",
+          "premultiplied-b",
+          "alpha"
+        ],
         "checkpoints": [0],
         "grid": [16, 9],
         "maxRegionError": 0.08,
@@ -84,6 +94,7 @@
       "cameraPath": {
         "kind": "sinusoidal-pan",
         "frames": 240,
+        "formula": "phase=2*pi*frame/frames; offset=[xAmplitude*sin(phase),yAmplitude*cos(phase)]",
         "xRange": [-1, 1],
         "yRange": [-1, 1],
         "xAmplitude": 0.2,
@@ -91,6 +102,15 @@
       },
       "correctness": {
         "oracle": "sampled-frame-regions-v1",
+        "reference": "ideal-disc-source-over-v1",
+        "subpixelsPerAxis": 8,
+        "regionChannels": [
+          "foreground-coverage",
+          "premultiplied-r",
+          "premultiplied-g",
+          "premultiplied-b",
+          "alpha"
+        ],
         "checkpoints": [0, 60, 120, 180, 239],
         "grid": [16, 9],
         "maxRegionError": 0.08,

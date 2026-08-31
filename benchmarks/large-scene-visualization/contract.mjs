@@ -63,6 +63,14 @@ export function validateManifest(manifest) {
       throw new Error(`${workload.id} must keep identical position buffers after setup`);
     }
     requiredString(workload.perFrameOperation, `${workload.id} per-frame operation`);
+    const expectedCameraFormula = workload.cameraPath?.kind === 'fixed'
+      ? 'offset=[0,0]'
+      : workload.cameraPath?.kind === 'sinusoidal-pan'
+        ? 'phase=2*pi*frame/frames; offset=[xAmplitude*sin(phase),yAmplitude*cos(phase)]'
+        : null;
+    if (!expectedCameraFormula || workload.cameraPath.formula !== expectedCameraFormula) {
+      throw new Error(`${workload.id} camera path formula is invalid`);
+    }
     if (!Array.isArray(workload.viewport) || workload.viewport.length !== 2
       || workload.viewport.some((value) => !Number.isSafeInteger(value) || value < 1)) {
       throw new Error(`${workload.id} viewport is invalid`);
@@ -73,6 +81,19 @@ export function validateManifest(manifest) {
     }
     exactSha(workload.fixture?.sha256, `${workload.id} fixture hash`);
     requiredString(workload.correctness?.oracle, `${workload.id} correctness oracle`);
+    if (workload.correctness.reference !== 'ideal-disc-source-over-v1'
+      || workload.correctness.subpixelsPerAxis !== 8) {
+      throw new Error(`${workload.id} correctness reference is not reproducible`);
+    }
+    if (canonical(workload.correctness.regionChannels) !== canonical([
+      'foreground-coverage',
+      'premultiplied-r',
+      'premultiplied-g',
+      'premultiplied-b',
+      'alpha',
+    ])) {
+      throw new Error(`${workload.id} correctness region channels are invalid`);
+    }
     if (!(workload.correctness.maxRegionError >= 0 && workload.correctness.maxRegionError < 1)) {
       throw new Error(`${workload.id} correctness tolerance is invalid`);
     }

@@ -90,8 +90,14 @@ test('pins equivalent large point workloads and current peer adapter contracts',
     assert.equal(workload.primitive, 'screen-space circular point');
     assert.equal(workload.projection, 'orthographic');
     assert.equal(workload.dataMutation, 'none');
+    assert.equal(workload.correctness.reference, 'ideal-disc-source-over-v1');
+    assert.equal(workload.correctness.subpixelsPerAxis, 8);
   }
   assert.equal(manifest.workloads[1].perFrameOperation, 'camera-only pan; position buffers remain unchanged');
+  assert.equal(
+    manifest.workloads[1].cameraPath.formula,
+    'phase=2*pi*frame/frames; offset=[xAmplitude*sin(phase),yAmplitude*cos(phase)]',
+  );
   assert.match(manifest.peers.find(({ id }) => id === 'vtk-js').adapterContract, /SphereMapper/);
   assert.equal(manifest.measurement.minimumMeasuredFrames, 120);
   assert.deepEqual(manifest.releaseGates['0.4.0'], {
