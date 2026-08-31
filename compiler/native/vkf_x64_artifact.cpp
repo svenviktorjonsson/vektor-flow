@@ -13905,6 +13905,7 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     vkf::adaptive_optimizer::AutomaticFlowLimits flow_limits;
     TuningResult tuning;
     bool automatic_cpu_pair = false;
+    std::uint32_t automatic_cpu_group_size = 0;
     bool execute_automatic_cpu_pair = false;
     try {
         flow_limits = automatic_flow_limits(typed_ir);
@@ -13916,6 +13917,8 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
         automatic_cpu_pair = vkf::adaptive_optimizer::select_automatic_cpu_pair(
             machine_ir, flow_limits, std::max(1u, std::thread::hardware_concurrency()));
+        automatic_cpu_group_size = vkf::adaptive_optimizer::select_automatic_cpu_group(
+            machine_ir, flow_limits, std::max(1u, std::thread::hardware_concurrency()));
 #ifdef _WIN32
         execute_automatic_cpu_pair = automatic_cpu_pair &&
             machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64 &&
@@ -13925,6 +13928,13 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             auto& entry_decision = optimization_decisions.front();
             vkf::adaptive_optimizer::append_unique(
                 entry_decision.strategies, "automatic-cpu-pair-selected");
+            entry_decision.fingerprint =
+                vkf::adaptive_optimizer::decision_fingerprint(entry_decision);
+        }
+        if (automatic_cpu_group_size != 0u && !optimization_decisions.empty()) {
+            auto& entry_decision = optimization_decisions.front();
+            vkf::adaptive_optimizer::append_unique(
+                entry_decision.strategies, "automatic-cpu-group-selected");
             entry_decision.fingerprint =
                 vkf::adaptive_optimizer::decision_fingerprint(entry_decision);
         }

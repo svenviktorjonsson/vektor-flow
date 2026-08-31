@@ -414,6 +414,61 @@ inline bool select_automatic_cpu_pair(
     return plan.concurrent();
 }
 
+// The first wider generated-artifact tracer is deliberately capped at four
+// retained scalar demands. The source entry must be the canonical sequence of
+// independent call/store pairs followed by source-order loads and one return.
+// This remains private target selection; VKF source has no worker primitive.
+inline std::uint32_t select_automatic_cpu_group(
+    const machine_ir::Module& module,
+    const AutomaticFlowLimits& limits,
+    std::uint32_t available_cores
+) {
+    using machine_ir::Opcode;
+    constexpr std::uint32_t demand_count = 4u;
+    const auto& entry = module.entry.instructions;
+    if (entry.size() != demand_count * 3u + 1u ||
+        entry.back().opcode != Opcode::ReturnValues ||
+        entry.back().result_count != demand_count) {
+        return 0u;
+    }
+    if (automatic_cpu_partition_limit(limits, std::max(1u, available_cores)) <
+        demand_count) {
+        return 0u;
+    }
+    const auto function_named = [&](const std::string& name) {
+        return std::find_if(
+            module.functions.begin(), module.functions.end(),
+            [&](const auto& function) { return function.name == name; });
+    };
+    std::vector<std::string> symbols;
+    std::vector<std::uint32_t> locals;
+    symbols.reserve(demand_count);
+    locals.reserve(demand_count);
+    for (std::uint32_t index = 0; index < demand_count; ++index) {
+        const auto& call = entry[index * 2u];
+        const auto& store = entry[index * 2u + 1u];
+        const auto& load = entry[demand_count * 2u + index];
+        if (call.opcode != Opcode::Call || call.argument_count != 0u ||
+            call.result_count != 1u || call.may_error ||
+            store.opcode != Opcode::StoreLocal || load.opcode != Opcode::LoadLocal ||
+            load.index != store.index ||
+            std::find(symbols.begin(), symbols.end(), call.symbol) != symbols.end() ||
+            std::find(locals.begin(), locals.end(), store.index) != locals.end()) {
+            return 0u;
+        }
+        const auto function = function_named(call.symbol);
+        if (function == module.functions.end() || !function->parameters.empty() ||
+            !function->result_is_numeric_scalar ||
+            automatic_static_loop_work(*function) < automatic_cpu_minimum_branch_work ||
+            !automatic_flow_safety(*function).partition_candidate) {
+            return 0u;
+        }
+        symbols.push_back(call.symbol);
+        locals.push_back(store.index);
+    }
+    return demand_count;
+}
+
 inline void append_unique(std::vector<std::string>& values, std::string value) {
     if (std::find(values.begin(), values.end(), value) == values.end()) {
         values.push_back(std::move(value));
