@@ -131,7 +131,7 @@ else()
   set(TRANSPARENT_OVERLAY_HOST_EXE "${_vf_overlay_host}")
 endif()
 
-set(VF_OVERLAY_HOST_SOURCES
+set(VF_OVERLAY_COMPAT_HOST_SOURCES
   main.cpp
   overlay_geometry_ledger_runtime.cpp
   overlay_packet_runtime.cpp
@@ -145,6 +145,11 @@ set(VF_OVERLAY_HOST_SOURCES
   vf/geom_ledger_contract.cpp
   vf/json.cpp
   vf/ui_runtime_contract.cpp
+)
+
+set(VF_OVERLAY_RELEASE_HOST_SOURCES
+  vf/release_overlay_host.cpp
+  vf/crash_diagnostics.cpp
 )
 
 set(VF_OVERLAY_HOST_LIBS
@@ -169,7 +174,7 @@ set(VF_OVERLAY_HOST_LIBS
 )
 
 add_library(VfOverlay SHARED
-  ${VF_OVERLAY_HOST_SOURCES}
+  ${VF_OVERLAY_COMPAT_HOST_SOURCES}
 )
 target_include_directories(VfOverlay PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -187,7 +192,7 @@ if(MSVC)
 endif()
 
 add_executable(vf-overlay WIN32
-  ${VF_OVERLAY_HOST_SOURCES}
+  ${VF_OVERLAY_RELEASE_HOST_SOURCES}
 )
 target_include_directories(vf-overlay PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -249,7 +254,7 @@ add_custom_target(vkf-embedded-vf-ui-assets
 
 add_executable(vkf-ui-package
   vkf_launcher.cpp
-  ${VF_OVERLAY_HOST_SOURCES}
+  ${VF_OVERLAY_RELEASE_HOST_SOURCES}
   "${VF_EMBEDDED_VF_UI_CPP}"
   "${VF_EMBEDDED_VF_UI_RC}"
 )
@@ -277,7 +282,7 @@ add_dependencies(vkf-ui-package vkf-embedded-vf-ui-assets)
 
 add_executable(vkf-runner WIN32
   vkf_launcher.cpp
-  ${VF_OVERLAY_HOST_SOURCES}
+  ${VF_OVERLAY_RELEASE_HOST_SOURCES}
   "${VF_EMBEDDED_VF_UI_CPP}"
   "${VF_EMBEDDED_VF_UI_RC}"
 )
