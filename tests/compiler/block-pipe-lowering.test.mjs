@@ -139,9 +139,13 @@ test("the foldered chess bot advances through the next rebinding gate", {
     diagnostic,
     /in function __vkf_module_state__direction_has_legal_move: Cannot declare existing name found; update it with \.found:value/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     diagnostic,
     /in function __vkf_module_state__direction_has_legal_move: Cannot declare existing name f; update it with \.f:value/u,
+  );
+  assert.match(
+    diagnostic,
+    /in function __vkf_module_state__direction_has_legal_move: Cannot declare existing name r; update it with \.r:value/u,
   );
   await assert.rejects(access(artifact));
 });

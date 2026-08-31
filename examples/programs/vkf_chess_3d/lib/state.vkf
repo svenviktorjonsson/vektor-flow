@@ -450,7 +450,7 @@ direction_has_legal_move(state:GameState, piece:Piece, df:num, dr:num) -> bit:
             piece_at(state.board, f, r).side ~= Side.none?
                 .done: true
         done = false?
-            f: f + df
+            .f: f + df
             r: r + dr
     @: found
 
