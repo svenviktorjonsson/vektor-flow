@@ -78,14 +78,19 @@ export function installWebGlFixtureTracker(minimumFixtureBytes, globals = global
         const bytes = byteLength(method === 'bufferData' ? rest[0] : rest[1]);
         const buffer = boundBuffers.get(this)?.get(target) ?? null;
         if (buffer && bytes >= minimumFixtureBytes) {
+          const allocationOnly = method === 'bufferData' && typeof rest[0] === 'number';
           if (initialized) {
-            fixtureBufferWritesAfterInitialize += 1;
-            fixtureBufferBytesAfterInitialize += bytes;
             if (method === 'bufferData') fixtureBufferReallocationsAfterInitialize += 1;
+            if (!allocationOnly) {
+              fixtureBufferWritesAfterInitialize += 1;
+              fixtureBufferBytesAfterInitialize += bytes;
+            }
           } else {
             fixtureBuffers.add(buffer);
-            initialFixtureBufferWrites += 1;
-            initialFixtureBufferBytes += bytes;
+            if (!allocationOnly) {
+              initialFixtureBufferWrites += 1;
+              initialFixtureBufferBytes += bytes;
+            }
           }
         }
         return original.call(this, target, ...rest);
