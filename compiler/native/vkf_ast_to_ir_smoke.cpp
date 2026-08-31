@@ -5616,10 +5616,18 @@ private:
             const bool vector_object = starts_with(object_type, "list<") ||
                 (object_type.size() >= 2 && object_type.front() == '[' && object_type.back() == ']');
             const bool length_object = vector_object || symbolic_expression_type(object_type);
-            if (vector_object && field_name == "shape") {
+            if (vector_object && (field_name == "shape" || field_name == "ndim")) {
                 const auto dimensions = fixed_rectangular_vector_dimensions(object_type);
                 if (!dimensions) {
-                    throw IRFailure("vector shape requires a fixed rectangular vector");
+                    throw IRFailure(
+                        "vector " + field_name + " requires a fixed rectangular vector");
+                }
+                if (field_name == "ndim") {
+                    auto rank = node("const");
+                    rank["type"] = vf::JsonValue("int");
+                    rank["value"] = vf::JsonValue(
+                        static_cast<double>(dimensions->size()));
+                    return vf::JsonValue(std::move(rank));
                 }
                 vf::JsonValue::Array items;
                 items.reserve(dimensions->size());
