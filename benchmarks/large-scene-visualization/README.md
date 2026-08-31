@@ -7,10 +7,11 @@ generator, report validator, and release ratchet. It contains **no measured peer
 results**. `results/scaffold.json` is deliberately marked `scaffold`; running it
 prints `no performance claim`.
 
-Browser adapters and captured correctness artifacts are still required before a
-row can change from `scaffold` to `published`. They must run headless, or in the
-repository's explicitly hidden/off-screen hardware mode. A visible browser is
-not permitted for this suite.
+The internal VKF adapter and a correctness-only headless WebGL capture now exist.
+Equivalent deck.gl, VTK.js, and Plotly adapters are still required before a row
+can change from `scaffold` to `published`. Browser work must run headless, or in
+the repository's explicitly hidden/off-screen hardware mode. A visible browser
+is not permitted for this suite.
 
 ## Why these peers
 
@@ -56,10 +57,12 @@ during preparation and remain unchanged during measured frames. An adapter that
 rebuilds or reuploads point data during the one-million-point pan is not
 comparable and cannot publish a row.
 
-The existing VKF point renderer currently needs a benchmark-internal camera
-uniform seam to honor that camera-only rule without calling its data-upload path.
-Until that internal seam and every peer adapter exist, all lanes remain
-scaffolds. This packet does not change the renderer or any public VKF API.
+The VKF adapter uploads the exact packed `x,y` fixture once through a private
+retained-data marker. Its later pan frames change projection uniforms and redraw
+without reallocating, rewriting, or changing the WebGL point buffer. Ordinary
+renderer calls keep their previous mutable-buffer behavior and still upload when
+called again; no public VKF API changed. Until every peer adapter exists, all
+lanes remain scaffolds.
 
 ## Correctness before timing
 
@@ -105,11 +108,16 @@ by the 0.4.0 validator.
 ```powershell
 npm run test:large-scene-benchmark-harness
 node benchmarks/large-scene-visualization/run.mjs
+npm run capture:retained-point-camera
 ```
 
 The second command validates generated fixture hashes and the checked-in
-unmeasured report. It must say that there are zero published comparisons. A
-future measurement command passes an evidence report explicitly:
+unmeasured report. It must say that there are zero published comparisons. The
+capture command uses `--headless=new` plus SwiftShader strictly as a correctness
+oracle: it proves one eight-megabyte million-point upload, changed pixels after
+camera pan, and bounded region error. It records no timing and sets
+`performanceClaim: false`. A future measurement command passes an evidence
+report explicitly:
 
 ```powershell
 node benchmarks/large-scene-visualization/run.mjs --report=path/to/measured-report.json
