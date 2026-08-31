@@ -1,6 +1,6 @@
 // Internal deterministic-random reference. Philox constants and round layout
 // follow Random123's BSD-licensed reference implementation:
-// https://github.com/DEShawResearch/random123/blob/main/include/Random123/philox.h
+// https://github.com/DEShawResearch/random123/blob/v1.14.0/include/Random123/philox.h
 
 const PHILOX_M0 = 0xd2511f53;
 const PHILOX_M1 = 0xcd9e8d57;
@@ -262,6 +262,7 @@ export function sampleDemandStreamU32(stream, sample) {
 }
 
 export function deriveDemandKey(identity) {
+  requireWordArray(identity.sample, 2, 'sample');
   const stream = deriveDemandStream(identity);
   return {
     key: [...stream.key],
