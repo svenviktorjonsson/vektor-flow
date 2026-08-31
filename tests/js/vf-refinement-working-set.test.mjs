@@ -175,3 +175,44 @@ test('working-set selection is traversal and chunk independent', () => {
     RangeError,
   );
 });
+
+test('working set rejects invalid budgets, priorities, and predecessor state', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const valid = demand('face:+x:+y:+z', { projectedErrorPixels: 10 });
+  const update = (
+    overrides = {},
+    previous = null,
+    candidateCoarse = coarse,
+  ) => updateEllipsoidRefinementWorkingSetReference(candidateCoarse, previous, {
+    demands: [valid],
+    vertexBudget: 1,
+    faceBudget: 3,
+    ...overrides,
+  });
+
+  assert.throws(() => update({ vertexBudget: -1 }), RangeError);
+  assert.throws(() => update({ vertexBudget: 1.5 }), RangeError);
+  assert.throws(() => update({ vertexBudget: '1' }), TypeError);
+  assert.throws(() => update({ faceBudget: -1 }), RangeError);
+  assert.throws(() => update({ faceBudget: 3.5 }), RangeError);
+  assert.throws(() => update({ faceBudget: '3' }), TypeError);
+  assert.throws(() => update({ demands: [
+    { ...valid, silhouette: 1 },
+  ] }), TypeError);
+  assert.throws(() => update({ demands: [
+    { ...valid, projectedErrorPixels: NaN },
+  ] }), RangeError);
+  assert.throws(() => update({ demands: [
+    { ...valid, errorBoundPixels: -1 },
+  ] }), RangeError);
+  assert.throws(() => update({}, {}), TypeError);
+
+  const otherCoarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const otherState = updateEllipsoidRefinementWorkingSetReference(otherCoarse, null, {
+    demands: [valid],
+    vertexBudget: 1,
+    faceBudget: 3,
+  });
+  assert.throws(() => update({}, otherState), RangeError);
+  assert.throws(() => update({}, null, {}), TypeError);
+});
