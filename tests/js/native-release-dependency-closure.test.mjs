@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 const repositoryRoot = process.cwd();
 const verifier = path.join(repositoryRoot, "tools", "verify-windows-release-closure.mjs");
+const moduleTracer = path.join(repositoryRoot, "scripts", "trace-native-release-modules.ps1");
 const testWorkRoot = path.join(repositoryRoot, "build", "native-release-closure-tests");
 mkdirSync(testWorkRoot, { recursive: true });
 
@@ -146,3 +147,13 @@ test(
     }
   },
 );
+
+test("Windows release module trace uses valid helper execution paths", () => {
+  const source = readFileSync(moduleTracer, "utf8");
+  assert.match(source, /Trace-HiddenProcess\s+"toolchain-free-ui-compile"/);
+  assert.match(source, /Trace-HiddenProcess\s+"native-scene-artifact-stage"/);
+  assert.doesNotMatch(source, /Trace-HiddenProcess\s+"vkf-(?:runner|ui-package|native-scene-artifact-stager)"/);
+  assert.match(source, /VektorFlowModuleTrace-/);
+  assert.match(source, /windows-network-provider-extension/);
+  assert.match(source, /NameSpace_Catalog5/);
+});
