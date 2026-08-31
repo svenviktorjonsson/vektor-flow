@@ -108,6 +108,8 @@ fn vf_grass_write_instance(instance_index: u32, blades_per_cell: u32) {
   let blade_direction = vf_grass_bounded(cell, blade_index, 4u, 0.0, 3.141592653589793);
   let lean_direction = vf_grass_bounded(cell, blade_index, 5u, 0.0, 6.283185307179586);
   let color_shift = vf_grass_bounded(cell, blade_index, 6u, -0.035, 0.035);
+  let material_detail = vf_grass_bounded(cell, blade_index, 8u, -1.0, 1.0)
+    * cell.color.w;
   let lean_amount = cell.material.x
     * vf_grass_bounded(cell, blade_index, 7u, 0.02, 0.16);
   vf_grass_blade_instances[instance_index] = VfGrassBladeInstance(
@@ -121,7 +123,7 @@ fn vf_grass_write_instance(instance_index: u32, blades_per_cell: u32) {
       cos(blade_direction),
       sin(blade_direction),
       vf_grass_bounded(cell, blade_index, 3u, 0.012, 0.028),
-      cell.material.y,
+      clamp(cell.material.y + material_detail * 0.025, 0.72, 0.98),
     ),
     vec4<f32>(
       cos(lean_direction) * lean_amount,
@@ -130,10 +132,10 @@ fn vf_grass_write_instance(instance_index: u32, blades_per_cell: u32) {
       0.0,
     ),
     vec4<f32>(
-      clamp(cell.color.x + color_shift * 0.4, 0.0, 1.0),
-      clamp(cell.color.y + color_shift, 0.0, 1.0),
-      clamp(cell.color.z + color_shift * 0.2, 0.0, 1.0),
-      cell.color.w,
+      clamp(cell.color.x + color_shift * 0.4 + material_detail * 0.018, 0.0, 1.0),
+      clamp(cell.color.y + color_shift + material_detail * 0.036, 0.0, 1.0),
+      clamp(cell.color.z + color_shift * 0.2 + material_detail * 0.012, 0.0, 1.0),
+      1.0,
     ),
   );
 }
@@ -190,6 +192,7 @@ export function reconstructGrassBladeGpuInstancesReference(grassGpu, instanceCou
     const bladeDirection = bounded(4, 0, Math.PI);
     const leanDirection = bounded(5, 0, Math.PI * 2);
     const colorShift = bounded(6, -0.035, 0.035);
+    const materialDetail = bounded(8, -1, 1) * floats[base + 11];
     const leanAmount = bladeHeight * bounded(7, 0.02, 0.16);
     output.set([
       signed[base] + bounded(0, 0.08, 0.92),
@@ -199,15 +202,15 @@ export function reconstructGrassBladeGpuInstancesReference(grassGpu, instanceCou
       Math.cos(bladeDirection),
       Math.sin(bladeDirection),
       bounded(3, 0.012, 0.028),
-      floats[base + 7],
+      Math.max(0.72, Math.min(0.98, floats[base + 7] + materialDetail * 0.025)),
       Math.cos(leanDirection) * leanAmount,
       Math.sin(leanDirection) * leanAmount,
       0,
       0,
-      Math.max(0, Math.min(1, floats[base + 8] + colorShift * 0.4)),
-      Math.max(0, Math.min(1, floats[base + 9] + colorShift)),
-      Math.max(0, Math.min(1, floats[base + 10] + colorShift * 0.2)),
-      floats[base + 11],
+      Math.max(0, Math.min(1, floats[base + 8] + colorShift * 0.4 + materialDetail * 0.018)),
+      Math.max(0, Math.min(1, floats[base + 9] + colorShift + materialDetail * 0.036)),
+      Math.max(0, Math.min(1, floats[base + 10] + colorShift * 0.2 + materialDetail * 0.012)),
+      1,
     ], instanceIndex * 16);
   }
   return output;
