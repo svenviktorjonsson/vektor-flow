@@ -183,7 +183,7 @@ function spotEnvelope(light) {
   };
 }
 
-function geometryEnvelope(light) {
+function geometryEnvelope(light, includeInfluenceRange = false) {
   if (!Array.isArray(light.points)) throw new TypeError('light.points must be an array');
   if (light.points.length === 0) throw new RangeError('light.points must not be empty');
   const points = light.points.map((point, index) => vector3(point, `light.points[${index}]`));
@@ -204,6 +204,9 @@ function geometryEnvelope(light) {
       point[2] - position[2]
     ));
   }
+  if (includeInfluenceRange && light.range !== undefined) {
+    radius += nonNegativeFinite(light.range, 'light.range');
+  }
   return { position, radius };
 }
 
@@ -219,7 +222,7 @@ export function projectLightViewBounds(light, cameraInput) {
   } else if (light.kind === 'spot') {
     envelope = spotEnvelope(light);
   } else if (light.kind === 'projected' || light.kind === 'geometry') {
-    envelope = geometryEnvelope(light);
+    envelope = geometryEnvelope(light, light.kind === 'geometry');
   } else {
     throw new TypeError('light.kind must be point, spot, projected, or geometry');
   }

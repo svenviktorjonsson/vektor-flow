@@ -26,6 +26,8 @@
     farDepth: 500
   });
   var DEFAULT_CLUSTERED_LIGHT_CAP = 64;
+  var MAX_INTERNAL_GEOMETRY_EMITTERS = 32;
+  var MAX_INTERNAL_GEOMETRY_POINTS = 8;
 
   function wlog(level, text) {
     var s = "[vf-geom-wgpu] " + String(text);
@@ -188,7 +190,8 @@
     var out = new Array(source.length);
     for (var i = 0; i < source.length; i += 1) {
       var light = source[i] || {};
-      var kind = normalizeLightKind(light.kind);
+      var isGeometry = light.kind === "geometry" && Array.isArray(light.geometry_points);
+      var kind = isGeometry ? "geometry" : normalizeLightKind(light.kind);
       var range = Number(light.range);
       var position = light.pos;
       if (!Array.isArray(position) || position.length < 3 ||
@@ -203,7 +206,16 @@
         range: range
       };
       if (!projected.position.every(Number.isFinite)) { return null; }
-      if (kind === "projected") {
+      if (kind === "geometry") {
+        projected.points = light.geometry_points.map(function (point) {
+          return [Number(point[0]), Number(point[1]), Number(point[2])];
+        });
+        if (projected.points.length < 3 || !projected.points.every(function (point) {
+          return point.every(Number.isFinite);
+        })) { return null; }
+        delete projected.position;
+        delete projected.radius;
+      } else if (kind === "projected") {
         projected.points = projectedApertureEnvelopePoints(light, projected.position, range);
         if (!projected.points) { return null; }
         delete projected.position;
@@ -291,6 +303,12 @@
       packed[base + 13] = Number(light.outer_cone_cos == null ? -1.0 : light.outer_cone_cos) || -1.0;
       packed[base + 14] = Math.max(0.0, Number(light.source_radius || 0.0) || 0.0);
       packed[base + 15] = Math.max(0.0, Number(light.spread == null ? 1.0 : light.spread) || 0.0);
+      if (packed[base + 11] >= 2.5) {
+        packed[base + 12] = Math.max(0.0, Number(light.geometry_area || 0.0) || 0.0);
+        packed[base + 13] = Math.max(0.0, Number(light.geometry_radius || 0.0) || 0.0);
+        packed[base + 14] = light.geometry_two_sided === true ? 1.0 : 0.0;
+        packed[base + 15] = 0.0;
+      }
       if (packed[base + 11] >= 1.5 && light.projected_aperture) {
         var aperture = light.projected_aperture;
         var packet = requirePlanarPacket(aperture, "clustered projected aperture");
@@ -1297,7 +1315,7 @@ fn clusteredAperturePoint(light: ClusteredLightRecord, index: u32) -> vec2<f32> 
 }
 
 fn clusteredProjectedApertureFactor(worldPos: vec3<f32>, light: ClusteredLightRecord) -> f32 {
-  if (light.direction_kind.w < 1.5) {
+  if (light.direction_kind.w < 1.5 || light.direction_kind.w >= 2.5) {
     return 1.0;
   }
   let apertureCount = min(u32(light.aperture_normal_count.w + 0.5), 8u);
@@ -1361,6 +1379,15 @@ fn clusteredProjectedApertureFactor(worldPos: vec3<f32>, light: ClusteredLightRe
   return max(occPos, occNeg);
 }
 
+fn clusteredGeometryEmitterFactor(light: ClusteredLightRecord, L: vec3<f32>) -> f32 {
+  if (light.direction_kind.w < 2.5) {
+    return 1.0;
+  }
+  let rawFacing = dot(normalize(light.direction_kind.xyz), -L);
+  let facing = select(max(rawFacing, 0.0), abs(rawFacing), light.spot.z >= 0.5);
+  return max(light.spot.x, 0.0) * facing;
+}
+
 fn clusteredReceiverIndex(worldPos: vec3<f32>) -> u32 {
   let xSlices = max(clusteredLightPlan[0u], 1u);
   let ySlices = max(clusteredLightPlan[1u], 1u);
@@ -1413,7 +1440,8 @@ fn clusteredAdditionalDirectLights(
     let attenuation = lightAttenuation(distance, light.color_intensity.w, light.position_range.w);
     let spot = spotlightFactor(light.direction_kind.xyz, -L, light.spot.x, light.spot.y, light.direction_kind.w);
     let projected = clusteredProjectedApertureFactor(worldPos, light);
-    let litScale = attenuation * spot * projected;
+    let geometry = clusteredGeometryEmitterFactor(light, L);
+    let litScale = attenuation * spot * projected * geometry;
     let diffuseFactor = max(dot(N, L), 0.0);
     result.diffuse += (litScale * diffuseFactor) * light.color_intensity.rgb * base;
     if (light.direction_kind.w < 1.5) {
@@ -5446,6 +5474,103 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     return raw;
   }
 
+  function normalizeInternalGeometryEmitter(emitter, index) {
+    if (!emitter || typeof emitter !== "object") { return null; }
+    var sourcePoints = Array.isArray(emitter.points) ? emitter.points : [];
+    if (sourcePoints.length < 3 || sourcePoints.length > MAX_INTERNAL_GEOMETRY_POINTS) { return null; }
+    var points = [];
+    for (var pointIndex = 0; pointIndex < sourcePoints.length; pointIndex += 1) {
+      var sourcePoint = sourcePoints[pointIndex];
+      if (!Array.isArray(sourcePoint) || sourcePoint.length < 3) { return null; }
+      var point = [Number(sourcePoint[0]), Number(sourcePoint[1]), Number(sourcePoint[2])];
+      if (!point.every(Number.isFinite)) { return null; }
+      points.push(point);
+    }
+    var center = [0.0, 0.0, 0.0];
+    for (var centerIndex = 0; centerIndex < points.length; centerIndex += 1) {
+      center[0] += points[centerIndex][0];
+      center[1] += points[centerIndex][1];
+      center[2] += points[centerIndex][2];
+    }
+    center = center.map(function (value) { return value / points.length; });
+    var newell = [0.0, 0.0, 0.0];
+    for (var normalIndex = 0; normalIndex < points.length; normalIndex += 1) {
+      var current = points[normalIndex];
+      var next = points[(normalIndex + 1) % points.length];
+      newell[0] += (current[1] - next[1]) * (current[2] + next[2]);
+      newell[1] += (current[2] - next[2]) * (current[0] + next[0]);
+      newell[2] += (current[0] - next[0]) * (current[1] + next[1]);
+    }
+    var newellLength = Math.sqrt(dotVec3(newell, newell));
+    if (!(newellLength > 1e-9) || !Number.isFinite(newellLength)) { return null; }
+    var normal = scaleVec3(newell, 1.0 / newellLength);
+    var area = 0.0;
+    for (var triangleIndex = 1; triangleIndex + 1 < points.length; triangleIndex += 1) {
+      var edgeA = subVec3(points[triangleIndex], points[0]);
+      var edgeB = subVec3(points[triangleIndex + 1], points[0]);
+      var triangleCross = crossVec3(edgeA, edgeB);
+      area += 0.5 * Math.sqrt(dotVec3(triangleCross, triangleCross));
+    }
+    var radius = 0.0;
+    for (var radiusIndex = 0; radiusIndex < points.length; radiusIndex += 1) {
+      var offset = subVec3(points[radiusIndex], center);
+      radius = Math.max(radius, Math.sqrt(dotVec3(offset, offset)));
+    }
+    var range = Number(emitter.range);
+    var intensity = Number(emitter.intensity);
+    var colorInput = Array.isArray(emitter.color_f32) ? emitter.color_f32 : [];
+    var color = [Number(colorInput[0]), Number(colorInput[1]), Number(colorInput[2]), Number(colorInput[3])];
+    if (!(area > 1e-9) || !Number.isFinite(area) ||
+        !(range > 0.0) || !Number.isFinite(range) ||
+        !(intensity >= 0.0) || !Number.isFinite(intensity) ||
+        !color.slice(0, 3).every(Number.isFinite)) {
+      return null;
+    }
+    if (!Number.isFinite(color[3])) { color[3] = 1.0; }
+    return {
+      id: String(emitter.id || ("geometry-emitter-" + String(index))),
+      kind: "geometry",
+      kind_code: 3.0,
+      pos: center,
+      direction_f32: normal,
+      color_f32: color,
+      intensity: intensity,
+      range: range,
+      inner_cone_cos: -1.0,
+      outer_cone_cos: -1.0,
+      source_radius: 0.0,
+      spread: 1.0,
+      casts_shadow: false,
+      show_marker: false,
+      geometry_points: points,
+      geometry_area: area,
+      geometry_radius: radius,
+      geometry_two_sided: emitter.two_sided === true
+    };
+  }
+
+  function appendInternalGeometryEmitters(lights, meshLike) {
+    var source = Array.isArray(lights) ? lights : [];
+    var emitters = Array.isArray(meshLike && meshLike._geometry_emitters)
+      ? meshLike._geometry_emitters
+      : [];
+    if (!emitters.length) { return source; }
+    var out = source.slice();
+    while (out.length < 4) {
+      out.push({
+        id: "", kind: "point", kind_code: 0.0, pos: [0, 0, 0],
+        direction_f32: [0, 0, -1], color_f32: [0, 0, 0, 1],
+        intensity: 0.0, range: 0.0, inner_cone_cos: -1.0, outer_cone_cos: -1.0
+      });
+    }
+    var retained = Math.min(MAX_INTERNAL_GEOMETRY_EMITTERS, emitters.length);
+    for (var i = 0; i < retained; i += 1) {
+      var normalized = normalizeInternalGeometryEmitter(emitters[i], i);
+      if (normalized) { out.push(normalized); }
+    }
+    return out;
+  }
+
   function radiansFromDegrees(value, fallbackDeg) {
     var deg = Number(value);
     if (!Number.isFinite(deg)) { deg = fallbackDeg; }
@@ -6758,6 +6883,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       };
     },
 
+    _clusteredLightsForScene: function (lights, meshLike) {
+      return appendInternalGeometryEmitters(lights, meshLike);
+    },
+
     _planClusteredLightsForFrame: function (lights, camera) {
       var planner = this._clusteredLightPlanner || clusteredLightPlannerFrom(global.VfClusteredLightPlan);
       if (!planner || typeof planner.planClusteredLights !== "function") {
@@ -7456,7 +7585,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
         t
       );
-      this._planClusteredLightsForFrame(sceneLights, clusteredCamera);
+      this._planClusteredLightsForFrame(this._clusteredLightsForScene(sceneLights, mesh), clusteredCamera);
       this._lastActiveLightCount = Math.min(4, sceneLights.length);
       maybeLogResolvedLights(this, "shadow_prepare", sceneLights);
       var activeLights = [];
@@ -9055,7 +9184,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       // --- Lights ---
       var rawLights = mesh.no_lighting === true ? [] : lightsForMesh((mesh.lights || []), this._offscreenFrame === true, mesh);
       var lightsNorm = resolveSceneLights(rawLights, sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution), t);
-      this._planClusteredLightsForFrame(lightsNorm, clusteredCameraFromMatrices(
+      this._planClusteredLightsForFrame(this._clusteredLightsForScene(lightsNorm, mesh), clusteredCameraFromMatrices(
         viewMat,
         projMat,
         this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID

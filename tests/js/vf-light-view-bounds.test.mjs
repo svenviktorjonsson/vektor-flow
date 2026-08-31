@@ -167,6 +167,25 @@ test('projects finite geometry-light points and culls off-frustum geometry', () 
   }, CAMERA), null);
 });
 
+test('expands geometry emitters by their finite influence range only', () => {
+  const points = [
+    [-0.5, -0.5, -5], [0.5, -0.5, -5], [0.5, 0.5, -5], [-0.5, 0.5, -5]
+  ];
+  const sourceOnly = projectLightViewBounds({ kind: 'geometry', points }, CAMERA);
+  const influenced = projectLightViewBounds({ kind: 'geometry', points, range: 2 }, CAMERA);
+  const projected = projectLightViewBounds({ kind: 'projected', points, range: 2 }, CAMERA);
+
+  assert.ok(influenced.minX < sourceOnly.minX);
+  assert.ok(influenced.maxX > sourceOnly.maxX);
+  assert.ok(influenced.minDepth < sourceOnly.minDepth);
+  assert.ok(influenced.maxDepth > sourceOnly.maxDepth);
+  assert.deepEqual(projected, sourceOnly);
+  assert.throws(
+    () => projectLightViewBounds({ kind: 'geometry', points, range: Infinity }, CAMERA),
+    /light.range must be non-negative and finite/
+  );
+});
+
 test('keeps projected geometry intersecting the near plane finite', () => {
   const result = projectLightViewBounds({
     kind: 'projected',

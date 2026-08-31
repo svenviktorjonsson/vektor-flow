@@ -99,7 +99,8 @@ function edgeOcclusion(side, edgeLength, softness) {
 }
 
 export function projectedApertureFactor(light, worldPosition) {
-  if (finite(light?.kindCode) < 1.5) return 1;
+  const kindCode = finite(light?.kindCode);
+  if (kindCode < 1.5 || kindCode >= 2.5) return 1;
   const aperture = light?.projectedAperture;
   const points = Array.isArray(aperture?.points) ? aperture.points.slice(0, 8) : [];
   if (points.length < 3) return 0;
@@ -155,6 +156,13 @@ export function projectedApertureFactor(light, worldPosition) {
   return Math.max(positive, negative);
 }
 
+function geometryEmitterFactor(light, lightDirection) {
+  if (finite(light?.kindCode) < 2.5) return 1;
+  const facing = dot3(normalize3(light?.direction), lightDirection.map(component => -component));
+  const sided = light?.geometryTwoSided === true ? Math.abs(facing) : Math.max(facing, 0);
+  return Math.max(0, finite(light?.geometryArea)) * sided;
+}
+
 export function evaluateClusteredDirectLights({
   lights,
   receiver,
@@ -193,7 +201,8 @@ export function evaluateClusteredDirectLights({
     const attenuation = lightAttenuation(distance, light.intensity, finite(light.range));
     const spot = spotlightFactor(light, lightDirection.map((component) => -component));
     const aperture = projectedApertureFactor(light, world);
-    const scale = attenuation * spot * aperture;
+    const geometry = geometryEmitterFactor(light, lightDirection);
+    const scale = attenuation * spot * aperture * geometry;
     const diffuseFactor = Math.max(dot3(normal, lightDirection), 0);
     const halfVector = normalize3([
       lightDirection[0] + view[0],
