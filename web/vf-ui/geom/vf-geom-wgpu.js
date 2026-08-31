@@ -6361,12 +6361,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var modelSig = modelMatrixSignature(model);
       var retainedSig = String(mesh.retained_signature || "");
       var boundsSig = modelSig + "|" + retainedSig;
+      if (isGrassCaster && part._shadowWorldPointsModelSig === boundsSig && Array.isArray(part._shadowWorldPointsCache) && part._shadowWorldPointsCache.length) {
+        Array.prototype.push.apply(points, part._shadowWorldPointsCache);
+        continue;
+      }
       var grassBounds = isGrassCaster ? grassShadowWorldBounds(part, model) : null;
       if (grassBounds) {
-        if (part._shadowWorldPointsModelSig === boundsSig && Array.isArray(part._shadowWorldPointsCache) && part._shadowWorldPointsCache.length) {
-          Array.prototype.push.apply(points, part._shadowWorldPointsCache);
-          continue;
-        }
         part._shadowWorldPointsModelSig = boundsSig;
         part._shadowWorldPointsCache = grassBounds;
         Array.prototype.push.apply(points, grassBounds);

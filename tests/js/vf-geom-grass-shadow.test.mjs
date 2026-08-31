@@ -28,4 +28,9 @@ test('grass shadow fitting follows retained cell descriptors and revisions', () 
   assert.match(source, /grassShadowWorldBounds/);
   assert.match(source, /mesh\.retained_signature/);
   assert.match(source, /mesh\.casts_shadow === true && part\.instanceKind === "grass-blade-list"/);
+  assert.ok(
+    source.indexOf('if (isGrassCaster && part._shadowWorldPointsModelSig === boundsSig')
+      < source.indexOf('var grassBounds = isGrassCaster ? grassShadowWorldBounds'),
+    'unchanged grass demand must reuse cached bounds before scanning cell descriptors',
+  );
 });
