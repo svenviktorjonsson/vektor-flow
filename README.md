@@ -75,6 +75,24 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
+## Native Material UI Gallery (0.4 Work in Progress)
+
+![VKF material and UI gallery](docs/public/images/readme-ui/material-ui-gallery.png)
+
+The [gallery program](examples/material_ui_gallery/app.vkf) builds the lit,
+shadowed, reflective, textured, and tinted-glass scene with `Frame.add(...)`.
+Its controls are separate static [HTML](examples/material_ui_gallery/ui/main.html)
+and [CSS](examples/material_ui_gallery/ui/gallery.css); compiled VKF
+`ButtonClicked` and `SliderValueChanged` branches change the retained scene.
+There is no application JavaScript.
+
+The renderer-only capture below replays the four compiled view buttons and a
+live glass-alpha change. Both images are regenerated in a fully headless Edge
+session; the still above is the composited HTML/CSS, frame chrome, and WebGPU
+viewport, while the animation is captured from VKF's frame-texture API.
+
+![VKF material gallery view changes](docs/public/images/readme-ui/material-ui-gallery.gif)
+
 ## Install VKF 0.3.0
 
 Download the [0.3.0 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.3.0).

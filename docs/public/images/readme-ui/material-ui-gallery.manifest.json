@@ -1,0 +1,45 @@
+{
+  "schema": "vkf-media-freshness/1",
+  "capture": {
+    "api": "VfDisplay.__test.captureGeomFrameDataUrl",
+    "composite_api": "Page.captureScreenshot",
+    "execution": "headless Edge WebGPU",
+    "fixture": "examples/material_ui_gallery/app.vkf",
+    "frame_id": "frame_0",
+    "interactions": [
+      "view-lighting",
+      "view-mirror",
+      "view-glass",
+      "view-all",
+      "glass-alpha=0.72"
+    ]
+  },
+  "sources": {
+    "examples/material_ui_gallery/app.vkf": "8a20affff3cc692ec0126e285fc6e29742ad1f692c5c531516b8222f17d953b7",
+    "examples/material_ui_gallery/ui/main.html": "a12423a7c3e026b9897d5859895c73ad23f578034896ddd28633e2fc2e02548e",
+    "examples/material_ui_gallery/ui/gallery.css": "9ea69c0983e62a3eebaf7d5540dc8cd4b3543a54d07122a17b79585a2990227c",
+    "compiler/native/vkf_retained_scene_packet.hpp": "f1c56f9502f4c953c0b528fc3f46d708626e9895929df4e83e8726c0fe5cd2de",
+    "compiler/native/vkf_native_scene_artifact_stager.cpp": "a2d6c0de42a67c276657bd0a1c3203ad8a53b054b9c964695048da68beb350fd",
+    "web/vf-ui/vf-runtime-packet-contract.js": "b2081b36b47e997a42659396c092400b603835ab308f53a19c98ab8ab411e760",
+    "web/vf-ui/vf-retained-event-adapter.js": "2cb7091ca02187384d740c7c412dc342e7d00e8439486f006928e537da911faa",
+    "web/vf-ui/vf-static-html-loader.js": "a34a31fc2053d17e6fa3511019edb9dfc842cf137dcec7ef30d548ce6d08592d",
+    "tests/helpers/capture_mirror_scene.js": "3e8c6aa21608f64aef8ecd15bbeee660f7254b737eca7c8116e4950c627364f2",
+    "tests/helpers/capture_material_ui_gallery.js": "3f8de4751bac9fb137c45035d6bb701248a4493bf0ce20c4d8b7c63073e2b171",
+    "tools/build_material_ui_gallery_gif.py": "a95090699456b8bea9d56e783a03a45662e54292c8e00c3a317d23e99a6567c1",
+    "scripts/build-material-ui-gallery-media.mjs": "30fdad78e78ef6f552b16194fb54fe9aec14ff83e07c929c2fb7bd5694b12d0d"
+  },
+  "media": {
+    "docs/public/images/readme-ui/material-ui-gallery.png": {
+      "sha256": "3545f6fba28e14e7b238f3418add048884535335ce61610fd0f77b2d15763d17",
+      "width": 1376,
+      "height": 861
+    },
+    "docs/public/images/readme-ui/material-ui-gallery.gif": {
+      "sha256": "2f991d9f9a55c03981911de56ad7aac4a8cd32ff064fd2fec36425026655a16a",
+      "width": 1002,
+      "height": 708,
+      "frames": 5,
+      "loop": true
+    }
+  }
+}
