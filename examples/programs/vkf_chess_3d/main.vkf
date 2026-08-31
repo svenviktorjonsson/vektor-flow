@@ -1,70 +1,49 @@
-ui:.ui
-types: .lib.types
-: .lib.types
-state: .lib.state
-events: .lib.events
-scene: .lib.scene
-native: .lib.native_scene
+: .ui.display
 
-"""VKF-only chess program entrypoint.
+"""VKF-only chess visual entrypoint.
 
-The top level exposes a native overlay scene contract, builds the visual scene,
-and runs a bounded smoke path. A host can drive `events.poll_chess_events`
-repeatedly for the full interactive loop.
+The retained board is authored directly through the current Display/Frame
+contract. Rules, state, event reduction, and bot modules remain under `lib/`.
 """
 
-# Native launcher cache: generated from native.overlay_scene() for the no-Python stager.
-native_scene_config_path: "native_scene_config.json"
-native_scene_runtime_packets_path: "runtime-packets/main.vf-runtime-packets.json"
-native_scene: native.overlay_scene()
-d: scene.build_chess_scene()
-mat: state.board_material()
-start_camera: (theta:45, phi:35, radius:10)
-mouse_kind: events.event_kind(ui.MOUSE_DOWN)
-button_kind: events.event_kind(ui.BUTTON_PRESSED)
-target_e2: events.click_target_from_object_id(78)
-state0: state.initial_state()
-selected_e2: events.reduce_click(state0, target_e2, true, true)
-target_e4: (kind:TargetKind.square, file:5, rank:4, piece_side:Side.none, piece_role:PieceRole.none)
-move_e4: events.reduce_click(selected_e2.state, target_e4, true, true)
-anim_e4: state.move_animation(move_e4.intent)
-hover_e4_after_select: state.hover_square_intent(selected_e2.state, 5, 4)
-hover_e5_after_select: state.hover_square_intent(selected_e2.state, 5, 5)
-castle_start: state.select_piece(state0, (side:Side.white, role:PieceRole.king, file:5, rank:1, captured:false, tray_rank:0, has_moved:false))
-castle_kingside: state.try_move_selected_ext(castle_start, 7, 1, Side.none, true, true, true, true, "none")
-castle_blocked_through_check: state.try_move_selected_ext(castle_start, 7, 1, Side.none, true, true, false, true, "none")
-black_double_start: state.select_piece(state.game_state(Side.black, 0, "", Side.none, PieceRole.none, 0, 0, false, "ready", true, true, true, true, Side.none, 0, 0, state.initial_board()), (side:Side.black, role:PieceRole.pawn, file:4, rank:7, captured:false, tray_rank:0, has_moved:false))
-black_double_d5: state.try_move_selected_ext(black_double_start, 4, 5, Side.none, true, true, false, false, "none")
-white_ep_start: state.select_piece(black_double_d5.state, (side:Side.white, role:PieceRole.pawn, file:5, rank:5, captured:false, tray_rank:0, has_moved:false))
-white_en_passant: state.try_move_selected_ext(white_ep_start, 4, 6, Side.none, true, true, false, false, "none")
-checking_start: state.select_piece_unchecked(state0, (side:Side.white, role:PieceRole.rook, file:1, rank:1, captured:false, tray_rank:0, has_moved:false))
-checking_move: state.try_move_selected_ext(checking_start, 1, 8, Side.none, true, true, false, false, "check")
-mate_move: state.try_move_selected_ext(checking_start, 1, 8, Side.none, true, true, false, false, "checkmate")
-camera_after_arrow: state.apply_arrow(start_camera, "theta_right")
-reset_state: events.reduce_button(move_e4.state, camera_after_arrow, "new_game")
-loop_probe: events.poll_chess_events(state0, start_camera, 0)
+display: Display(dim:2)
+board: display.add_frame(pos:[0.04, 0.06], size:[0.72, 0.84])
+board.set_geom_options(background:[0.012, 0.014, 0.018, 1.0], unified_renderer:true)
+board.add_camera(pos:[6.8, -7.6, 8.2], target:[0.0, 0.0, 0.2], up:[0.0, 0.0, 1.0], fov:46.0)
+board.add_light(id:"key", kind:"point", pos:[-4.8, -5.4, 6.8], target:[0.0, 0.0, 0.3], color:[1.0, 0.94, 0.78, 1.0], intensity:34.0, range:18.0, casts_shadow:true, model:"blinn_phong", source_radius:0.28)
+board.add_light(id:"fill", kind:"point", pos:[4.6, 3.8, 3.2], target:[0.0, 0.0, 0.3], color:[0.36, 0.43, 0.62, 1.0], intensity:9.0, range:16.0, casts_shadow:false, model:"blinn_phong")
+board.add(id:"board", x:[[-4.3,4.3],[-4.3,4.3]], y:[[-4.3,-4.3],[4.3,4.3]], z:[[0.0,0.0],[0.0,0.0]], color:[0.18,0.11,0.07,1.0], texture:(kind:"checker", scale:[8.0,8.0], color_a:[0.18,0.11,0.07,1.0], color_b:[0.92,0.80,0.58,1.0]), receives_shadow:true)
 
-:: mouse_kind
-:: button_kind
-:: mat.mirror_weight
-:: target_e2.kind
-:: target_e2.piece_side
-:: target_e2.piece_role
-:: selected_e2.state.status
-:: move_e4.ok
-:: move_e4.intent.notation
-:: hover_e4_after_select.state
-:: hover_e5_after_select.state
-:: castle_kingside.intent.notation
-:: castle_blocked_through_check.ok
-:: white_en_passant.intent.notation
-:: white_en_passant.intent.en_passant
-:: checking_move.intent.notation
-:: mate_move.intent.notation
-:: move_e4.state.turn
-:: anim_e4.kind
-:: anim_e4.duration_ms
-:: camera_after_arrow.theta
-:: reset_state.turn
-:: reset_state.move_count
-:: loop_probe.status
+board.add(id:"white_rook_a1", x:[[-3.79,-3.21],[-3.79,-3.21]], y:[[-3.5,-3.5],[-3.5,-3.5]], z:[[0.0,0.0],[0.84,0.84]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_knight_b1", x:[[-2.75,-2.25],[-2.75,-2.25]], y:[[-3.5,-3.5],[-3.5,-3.5]], z:[[0.0,0.0],[0.92,0.92]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_bishop_c1", x:[[-1.77,-1.23],[-1.77,-1.23]], y:[[-3.5,-3.5],[-3.5,-3.5]], z:[[0.0,0.0],[1.00,1.00]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_queen_d1", x:[[-0.81,-0.19],[-0.81,-0.19]], y:[[-3.5,-3.5],[-3.5,-3.5]], z:[[0.0,0.0],[1.16,1.16]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_king_e1", x:[[0.20,0.80],[0.20,0.80]], y:[[-3.5,-3.5],[-3.5,-3.5]], z:[[0.0,0.0],[1.24,1.24]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_bishop_f1", x:[[1.23,1.77],[1.23,1.77]], y:[[-3.5,-3.5],[-3.5,-3.5]], z:[[0.0,0.0],[1.00,1.00]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_knight_g1", x:[[2.25,2.75],[2.25,2.75]], y:[[-3.5,-3.5],[-3.5,-3.5]], z:[[0.0,0.0],[0.92,0.92]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_rook_h1", x:[[3.21,3.79],[3.21,3.79]], y:[[-3.5,-3.5],[-3.5,-3.5]], z:[[0.0,0.0],[0.84,0.84]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_pawn_a2", x:[[-3.73,-3.27],[-3.73,-3.27]], y:[[-2.5,-2.5],[-2.5,-2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_pawn_b2", x:[[-2.73,-2.27],[-2.73,-2.27]], y:[[-2.5,-2.5],[-2.5,-2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_pawn_c2", x:[[-1.73,-1.27],[-1.73,-1.27]], y:[[-2.5,-2.5],[-2.5,-2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_pawn_d2", x:[[-0.73,-0.27],[-0.73,-0.27]], y:[[-2.5,-2.5],[-2.5,-2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_pawn_e2", x:[[0.27,0.73],[0.27,0.73]], y:[[-2.5,-2.5],[-2.5,-2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_pawn_f2", x:[[1.27,1.73],[1.27,1.73]], y:[[-2.5,-2.5],[-2.5,-2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_pawn_g2", x:[[2.27,2.73],[2.27,2.73]], y:[[-2.5,-2.5],[-2.5,-2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[1.00,0.96,0.78,1.0])
+board.add(id:"white_pawn_h2", x:[[3.27,3.73],[3.27,3.73]], y:[[-2.5,-2.5],[-2.5,-2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[1.00,0.96,0.78,1.0])
+
+board.add(id:"black_rook_a8", x:[[-3.79,-3.21],[-3.79,-3.21]], y:[[3.5,3.5],[3.5,3.5]], z:[[0.0,0.0],[0.84,0.84]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_knight_b8", x:[[-2.75,-2.25],[-2.75,-2.25]], y:[[3.5,3.5],[3.5,3.5]], z:[[0.0,0.0],[0.92,0.92]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_bishop_c8", x:[[-1.77,-1.23],[-1.77,-1.23]], y:[[3.5,3.5],[3.5,3.5]], z:[[0.0,0.0],[1.00,1.00]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_queen_d8", x:[[-0.81,-0.19],[-0.81,-0.19]], y:[[3.5,3.5],[3.5,3.5]], z:[[0.0,0.0],[1.16,1.16]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_king_e8", x:[[0.20,0.80],[0.20,0.80]], y:[[3.5,3.5],[3.5,3.5]], z:[[0.0,0.0],[1.24,1.24]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_bishop_f8", x:[[1.23,1.77],[1.23,1.77]], y:[[3.5,3.5],[3.5,3.5]], z:[[0.0,0.0],[1.00,1.00]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_knight_g8", x:[[2.25,2.75],[2.25,2.75]], y:[[3.5,3.5],[3.5,3.5]], z:[[0.0,0.0],[0.92,0.92]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_rook_h8", x:[[3.21,3.79],[3.21,3.79]], y:[[3.5,3.5],[3.5,3.5]], z:[[0.0,0.0],[0.84,0.84]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_pawn_a7", x:[[-3.73,-3.27],[-3.73,-3.27]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_pawn_b7", x:[[-2.73,-2.27],[-2.73,-2.27]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_pawn_c7", x:[[-1.73,-1.27],[-1.73,-1.27]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_pawn_d7", x:[[-0.73,-0.27],[-0.73,-0.27]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_pawn_e7", x:[[0.27,0.73],[0.27,0.73]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_pawn_f7", x:[[1.27,1.73],[1.27,1.73]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_pawn_g7", x:[[2.27,2.73],[2.27,2.73]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
+board.add(id:"black_pawn_h7", x:[[3.27,3.73],[3.27,3.73]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
