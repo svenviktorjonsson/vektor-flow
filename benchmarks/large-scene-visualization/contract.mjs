@@ -219,6 +219,11 @@ export function evaluateReport(manifest, report) {
     if (medians.size === 1 && medians.has('vkf')) {
       throw new Error(`${workload.id} has VKF timing without a peer comparison`);
     }
+    if (medians.size > 0 && medians.size !== manifest.implementations.length) {
+      throw new Error(
+        `${workload.id} must publish ${manifest.implementations.join(', ')} together`,
+      );
+    }
     const vkfMedianMs = medians.get('vkf');
     if (vkfMedianMs !== undefined) {
       for (const peer of manifest.peers) {
@@ -243,6 +248,9 @@ export function evaluateReport(manifest, report) {
     }
   }
   const hasPublishedClaims = publishedCount > 0;
+  if (hasPublishedClaims && seenWorkloads.size !== manifest.workloads.length) {
+    throw new Error('measured reports must include every frozen workload');
+  }
   if (hasPublishedClaims && report.status !== 'measured') throw new Error('published rows require measured report status');
   if (!hasPublishedClaims && report.status !== 'scaffold') throw new Error('unmeasured reports must be scaffold status');
   return { gate, hasPublishedClaims, rows };
