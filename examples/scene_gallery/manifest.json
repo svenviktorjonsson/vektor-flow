@@ -359,6 +359,29 @@
         "api": "Page.captureScreenshot",
         "frame": "dice_frame"
       }
+    },
+    {
+      "id": "17-world-embedding",
+      "title": "World embedding",
+      "dimension": 2,
+      "features": [
+        "2d",
+        "world",
+        "embedding",
+        "markers"
+      ],
+      "source": "17-world-embedding/app.vkf",
+      "sourceSha256": "c67bf4eec04d5639c948ef0ad9f5ee836b25a4c208cc13c4672a5a9d2dff4b7f",
+      "media": {
+        "path": "docs/public/images/scene-gallery/17-world-embedding.png",
+        "sha256": "1f51349d30a98e2021588d6fce0f79fccbdef1c42be875d78a20e0f45cc9b17e"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "world_0_view_0"
+      }
     }
   ]
 }
