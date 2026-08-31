@@ -41,6 +41,22 @@ test('matches repository column-major WebGPU projection and positive view depth'
   assert.ok(Math.abs(right.ndc[0] - 1) < 1e-12);
 });
 
+test('rejects an OpenGL minus-one-to-one depth projection', () => {
+  const openGlPerspective = [
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, -11 / 9, -1,
+    0, 0, -20 / 9, 0
+  ];
+  assert.throws(
+    () => projectWorldPointToCamera([0, 0, -5], {
+      ...CAMERA,
+      projectionMatrix: openGlPerspective
+    }),
+    /camera.projectionMatrix must use WebGPU z in \[0, 1\]/
+  );
+});
+
 test('projects a point-light sphere into conservative NDC and positive view depth', () => {
   assert.deepEqual(projectLightViewBounds({
     kind: 'point',
@@ -125,6 +141,13 @@ test('projects a spot cone through a conservative finite sphere envelope', () =>
   assert.ok(result.minY <= -0.8 && result.maxY >= 0.8);
   assert.ok(result.minDepth < 3 && result.maxDepth > 7);
   assert.equal(Object.values(result).every(Number.isFinite), true);
+  assert.equal(projectLightViewBounds({
+    kind: 'spot',
+    position: [20, 0, -4],
+    direction: [0, 0, -1],
+    range: 2,
+    outerConeCos: Math.SQRT1_2
+  }, CAMERA), null);
 });
 
 test('projects finite geometry-light points and culls off-frustum geometry', () => {

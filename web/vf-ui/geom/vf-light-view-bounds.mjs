@@ -26,9 +26,22 @@ function normalizeCamera(camera) {
   const farDepth = finiteNumber(camera.farDepth, 'camera.farDepth');
   if (!(nearDepth > 0)) throw new RangeError('camera.nearDepth must be positive');
   if (!(farDepth > nearDepth)) throw new RangeError('camera.farDepth must exceed camera.nearDepth');
+  const viewMatrix = matrix4(camera.viewMatrix, 'camera.viewMatrix');
+  const projectionMatrix = matrix4(camera.projectionMatrix, 'camera.projectionMatrix');
+  if (Math.abs(viewMatrix[3]) > 1e-12 || Math.abs(viewMatrix[7]) > 1e-12
+      || Math.abs(viewMatrix[11]) > 1e-12 || Math.abs(viewMatrix[15] - 1) > 1e-12) {
+    throw new RangeError('camera.viewMatrix must be affine column-major');
+  }
+  const projectedNear = projectViewPoint([0, 0, -nearDepth], projectionMatrix);
+  const projectedFar = projectViewPoint([0, 0, -farDepth], projectionMatrix);
+  if (projectedNear.clipW <= 0 || projectedFar.clipW <= 0
+      || Math.abs(projectedNear.ndc[2]) > 1e-5
+      || Math.abs(projectedFar.ndc[2] - 1) > 1e-5) {
+    throw new RangeError('camera.projectionMatrix must use WebGPU z in [0, 1] with positive clip W');
+  }
   return {
-    viewMatrix: matrix4(camera.viewMatrix, 'camera.viewMatrix'),
-    projectionMatrix: matrix4(camera.projectionMatrix, 'camera.projectionMatrix'),
+    viewMatrix,
+    projectionMatrix,
     nearDepth,
     farDepth
   };
