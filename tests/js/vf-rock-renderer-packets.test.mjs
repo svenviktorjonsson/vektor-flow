@@ -236,3 +236,61 @@ test('adapter rejects malformed and cross-shape retained states', () => {
     RangeError,
   );
 });
+
+test('field-mesh packing pins positions, normals, colors, and triangle winding', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const working = updateEllipsoidRefinementWorkingSetReference(coarse, null, {
+    demands: [demand('face:+x:+y:+z', 40)],
+    vertexBudget: 1,
+    faceBudget: 3,
+  });
+  const { packets: [coarsePacket, detailPacket] } = (
+    adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(working, null)
+  );
+
+  assert.deepEqual(Array.from(coarsePacket.vertices.slice(0, 10)), [
+    3, 0, 0,
+    1, 0, 0,
+    0.46000000834465027,
+    0.41999998688697815,
+    0.36000001430511475,
+    1,
+  ]);
+  assert.deepEqual(Array.from(coarsePacket.indices), [
+    0, 2, 4,
+    1, 4, 2,
+    1, 3, 4,
+    0, 4, 3,
+    0, 5, 2,
+    1, 2, 5,
+    1, 5, 3,
+    0, 3, 5,
+  ]);
+  assert.deepEqual(Array.from(detailPacket.vertices.slice(30, 40)), [
+    1.7320507764816284,
+    1.154700517654419,
+    0.8660253882408142,
+    0.3713906705379486,
+    0.5570859909057617,
+    0.7427813410758972,
+    0.46000000834465027,
+    0.41999998688697815,
+    0.36000001430511475,
+    1,
+  ]);
+  assert.deepEqual(Array.from(detailPacket.indices), [
+    0, 1, 3,
+    1, 2, 3,
+    2, 0, 3,
+  ]);
+  for (const packet of [coarsePacket, detailPacket]) {
+    assert.equal(packet.topology, 'triangle-list');
+    assert.equal(packet.mode3d, true);
+    assert.equal(packet.static_vertices, true);
+    assert.equal(packet.static_indices, true);
+    assert.equal(packet.receives_lighting, true);
+    assert.equal(packet.casts_shadow, true);
+    assert.equal(packet.receives_shadow, true);
+    assert.ok([...packet.vertices].every(Number.isFinite));
+  }
+});
