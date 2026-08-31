@@ -34,8 +34,8 @@ const DEMAND = Object.freeze({
   bladeBudget: 4,
 });
 
-test('grass keeps one bounded LRU of realized demanded cell material', () => {
-  assert.match(source, /const MAX_CACHED_CELL_MATERIALS = MAX_DEMANDED_CELLS/);
+test('grass keeps two bounded adjacent views of realized cell material', () => {
+  assert.match(source, /const MAX_CACHED_CELL_MATERIALS = MAX_DEMANDED_CELLS \* 2/);
   assert.match(source, /cellMaterialCache: new Map\(\)/);
   assert.match(source, /cellMaterialCache\.keys\(\)\.next\(\)\.value/);
   assert.match(source, /cellMaterialCache\.size > MAX_CACHED_CELL_MATERIALS/);

@@ -11,7 +11,7 @@ import {
 const fieldState = new WeakMap();
 const MAX_OCTAVES = 6;
 const MAX_DEMANDED_CELLS = 4096;
-const MAX_CACHED_CELL_MATERIALS = MAX_DEMANDED_CELLS;
+const MAX_CACHED_CELL_MATERIALS = MAX_DEMANDED_CELLS * 2;
 const MAX_BLADE_BUDGET = 65536;
 const DRY_COLOR = Object.freeze([0.24, 0.31, 0.08]);
 const LUSH_COLOR = Object.freeze([0.16, 0.48, 0.09]);
