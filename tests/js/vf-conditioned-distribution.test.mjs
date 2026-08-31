@@ -7,6 +7,7 @@ import {
   createConditionedRoot,
   normalReferenceFromU32,
   sampleBoundedUniform,
+  sampleCorrelatedNormal2Reference,
   sampleNormalReference,
   sampleWeightedCategoricalIndex,
 } from '../../web/vf-ui/vf-conditioned-distribution.mjs';
@@ -90,6 +91,22 @@ test('correlated-normal transform matches a pinned two-dimensional oracle', () =
         correlation: 0.75,
       },
     ),
+    [9.471712514179357, -6.192819693750724],
+  );
+});
+
+test('demand-keyed correlated normal reaches the same pinned oracle', () => {
+  const child = conditionChild(createConditionedRoot(ROOT_IDENTITY), {
+    segment: 'instance:17',
+    channel: 'blade-height',
+  });
+
+  assert.deepEqual(
+    sampleCorrelatedNormal2Reference(child, [3, 0], {
+      mean: [10, -5],
+      standardDeviation: [2.5, 4],
+      correlation: 0.75,
+    }),
     [9.471712514179357, -6.192819693750724],
   );
 });
