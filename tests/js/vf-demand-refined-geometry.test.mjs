@@ -387,3 +387,28 @@ test('hierarchical demand is order and chunk independent with bounded repair wor
     )));
   }
 });
+
+test('neighbor demands derive the same shared hierarchical midpoint', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const levelOne = refineEllipsoidFaceReference(coarse, 'face:+x:+y:+z');
+  const firstId = 'face:+x:+y:+z/refine:1/child:0';
+  const secondId = 'face:+x:+y:+z/refine:1/child:1';
+  const first = refineEllipsoidChildFaceReference(levelOne, firstId);
+  const second = refineEllipsoidChildFaceReference(levelOne, secondId);
+  const firstRepair = first.refinement.repairs.find(({ face }) => face === secondId);
+  const secondRepair = second.refinement.repairs.find(({ face }) => face === firstId);
+  const firstMidpoint = first.vertices.find(({ id }) => id === firstRepair.midpoint);
+  const secondMidpoint = second.vertices.find(({ id }) => id === secondRepair.midpoint);
+
+  assert.equal(
+    firstRepair.edge,
+    'edge:vertex:+y|vertex:face:+x:+y:+z/refine:1/center',
+  );
+  assert.equal(firstRepair.edge, secondRepair.edge);
+  assert.equal(firstRepair.midpoint, secondRepair.midpoint);
+  assert.deepEqual(firstMidpoint, secondMidpoint);
+  assert.deepEqual(firstMidpoint, {
+    id: 'vertex:midpoint:2:edge:vertex:+y|vertex:face:+x:+y:+z/refine:1/center',
+    position: [0.9751727510156044, 1.7761476679542303, 0.4875863755078022],
+  });
+});
