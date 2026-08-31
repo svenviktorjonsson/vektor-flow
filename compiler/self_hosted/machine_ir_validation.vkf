@@ -95,6 +95,7 @@ machine_ir_numeric_positive_conditional_stack_maxima(
         parameter_name
     )
     module: mir.mir_lower_numeric_positive_conditional_typed_module(application)
+    (module.functions.1.instructions.3.label = module.functions.1.instructions.6.label)?!
     [num:3] maxima: [0, 0, 0]
     depth: 0
     maximum: 0
