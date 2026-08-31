@@ -614,3 +614,50 @@ test("VKF rejects a fixed loop whose exit edge targets a non-label instruction",
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects a fixed loop whose back edge is not a jump", () => {
+  const work = makeWork("i79-back-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /            mir_local\("store_local", 1\),\r?\n            mir_branch\("jump", 0\),\r?\n            mir_branch\("label", 1\),/,
+      [
+        '            mir_local("store_local", 1),',
+        '            mir_branch("label", 0),',
+        '            mir_branch("label", 1),',
+      ].join("\n"),
+    );
+    assert.notEqual(mutatedMachineIr, originalMachineIr, "loop-backedge kind mutation did not apply");
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "backedge-kind.vkf");
+    const artifact = join(work, `backedge-kind${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_count_to_loop_stack_maxima("count_to", "limit", "value", 3)',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `loop-backedge kind probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "non-jump fixed-loop back edge produced output");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
