@@ -31,7 +31,18 @@ test("transparent overlay README capture remains tied to its executable sources"
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   assert.equal(manifest.schema, "vkf-media-freshness/1");
   assert.equal(manifest.capture.api, "VfDisplay.__test.captureGeomFrameDataUrl");
+  assert.equal(manifest.capture.composite_api, "Page.captureScreenshot");
   assert.equal(manifest.capture.execution, "headless Edge WebGPU");
+  assert.equal(manifest.capture.fixture, "examples/material_ui_gallery/app.vkf");
+  assert.equal(manifest.capture.pairs.length, 5);
+  for (const pair of manifest.capture.pairs) {
+    assert.match(pair.renderer_sha256, /^[a-f0-9]{64}$/u);
+    assert.match(pair.composite_sha256, /^[a-f0-9]{64}$/u);
+    assert.notEqual(pair.renderer_sha256, pair.composite_sha256);
+    assert.equal(pair.static_html, true);
+    assert.equal(pair.frame_chrome, true);
+    assert.equal(pair.webgpu_canvas, true);
+  }
 
   for (const [relativePath, expected] of Object.entries(manifest.sources)) {
     assert.equal(
@@ -51,6 +62,17 @@ test("transparent overlay README capture remains tied to its executable sources"
   assert.equal(png.readUInt32BE(16), pngSpec.width);
   assert.equal(png.readUInt32BE(20), pngSpec.height);
 
+  const rendererPngSpec = manifest.media[
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.png"
+  ];
+  const rendererPng = await readFile(path.join(
+    repoRoot, "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.png",
+  ));
+  assert.deepEqual([...rendererPng.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.equal(rendererPng.readUInt32BE(16), rendererPngSpec.width);
+  assert.equal(rendererPng.readUInt32BE(20), rendererPngSpec.height);
+  assert.notEqual(rendererPngSpec.sha256, pngSpec.sha256);
+
   const gifSpec = manifest.media["docs/public/images/readme-ui/ui-transparent-overlay-offscreen.gif"];
   const gif = await readFile(path.join(repoRoot, "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.gif"));
   assert.equal(gif.subarray(0, 6).toString("ascii"), "GIF89a");
@@ -64,4 +86,16 @@ test("transparent overlay README capture remains tied to its executable sources"
     }
   }
   assert.equal(graphicControlBlocks, gifSpec.frames);
+
+  const rendererGifSpec = manifest.media[
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.gif"
+  ];
+  const rendererGif = await readFile(path.join(
+    repoRoot, "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.gif",
+  ));
+  assert.equal(rendererGif.subarray(0, 6).toString("ascii"), "GIF89a");
+  assert.equal(littleEndianU16(rendererGif, 6), rendererGifSpec.width);
+  assert.equal(littleEndianU16(rendererGif, 8), rendererGifSpec.height);
+  assert.equal(rendererGifSpec.frames, manifest.capture.pairs.length);
+  assert.notEqual(rendererGifSpec.sha256, gifSpec.sha256);
 });
