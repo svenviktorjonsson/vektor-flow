@@ -208,20 +208,32 @@ function digestWord(digest, offset) {
   ) >>> 0;
 }
 
-export function deriveDemandKey(identity) {
+export function deriveDemandStream(identity) {
   const digest = sha256Bytes(encodeDemandStreamIdentity(identity));
+  return Object.freeze({
+    key: Object.freeze([digestWord(digest, 0), digestWord(digest, 4)]),
+    counterPrefix: Object.freeze([digestWord(digest, 8), digestWord(digest, 12)]),
+  });
+}
+
+export function sampleDemandStreamU32(stream, sample) {
+  const counter = [
+    stream.counterPrefix[0],
+    stream.counterPrefix[1],
+    sample[0] >>> 0,
+    sample[1] >>> 0,
+  ];
+  return philox4x32_10(counter, stream.key)[0];
+}
+
+export function deriveDemandKey(identity) {
+  const stream = deriveDemandStream(identity);
   return {
-    key: [digestWord(digest, 0), digestWord(digest, 4)],
-    counter: [
-      digestWord(digest, 8),
-      digestWord(digest, 12),
-      identity.sample[0] >>> 0,
-      identity.sample[1] >>> 0,
-    ],
+    key: [...stream.key],
+    counter: [...stream.counterPrefix, identity.sample[0] >>> 0, identity.sample[1] >>> 0],
   };
 }
 
 export function demandU32(identity) {
-  const { counter, key } = deriveDemandKey(identity);
-  return philox4x32_10(counter, key)[0];
+  return sampleDemandStreamU32(deriveDemandStream(identity), identity.sample);
 }
