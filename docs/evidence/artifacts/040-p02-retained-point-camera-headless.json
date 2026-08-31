@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "mode": "headless-webgl2-correctness-only",
+  "performanceClaim": false,
+  "webgl": {
+    "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+    "vendor": "Google Inc. (Google)",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+  },
+  "million": {
+    "pointCount": 1000000,
+    "sourceBytes": 8000000,
+    "bufferWrites": 1,
+    "bufferAllocations": 1,
+    "createdBuffers": 1,
+    "draws": 2,
+    "frame0Sha256": "9ce05c2fd296832b348e8fb41a39dba22bcd0355d2d9784cb98b8531ba49f124",
+    "frame60Sha256": "1989b73b73475e2c61be501ffea364e51b770cb83da29569890e08ee8c84b7de",
+    "frame0": {
+      "pixels": 843579,
+      "centroid": [598.5893104796327, 319.9775460433765]
+    },
+    "frame60": {
+      "pixels": 798840,
+      "centroid": [538.9310487019904, 336.62605840723955]
+    }
+  },
+  "oracle": {
+    "pointCount": 4096,
+    "frame0": {
+      "passed": true,
+      "maxRegionError": 0.04578751525769828
+    },
+    "frame60": {
+      "passed": true,
+      "maxRegionError": 0.047167129032492344
+    },
+    "bufferWrites": 1
+  }
+}
