@@ -354,3 +354,51 @@ test("VKF rejects a fixed-conditional helper that leaves values on its terminal 
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects a fixed-conditional then arm that leaves values on its terminal stack", () => {
+  const work = makeWork("i70-then-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /            mir_push_f64\(then_return\.value\.value\),\r?\n            mir_return_f64\(\),\r?\n            mir_branch\("label", 1\),\r?\n            mir_push_f64\(final_return\.value\.value\),/,
+      [
+        "            mir_push_f64(then_return.value.value),",
+        "            mir_push_f64(then_return.value.value),",
+        '            mir_branch("label", 1),',
+        '            mir_simple("store_local"),',
+      ].join("\n"),
+    );
+    assert.notEqual(mutatedMachineIr, originalMachineIr, "then-arm mutation did not apply");
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "then-arm.vkf");
+    const artifact = join(work, `then-arm${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_positive_conditional_stack_maxima("positive", "x")',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `then-arm probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "unbalanced fixed-conditional then arm produced output");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
