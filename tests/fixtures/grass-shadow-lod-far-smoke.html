@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>instanced grass shadow smoke</title>
+    <title>far grass shadow LOD smoke</title>
     <style>
       html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #91b8d0; }
       #layer { position: fixed; inset: 0; }
@@ -18,8 +18,8 @@
       import { createGrassCameraDemandControllerReference } from '../../web/vf-ui/vf-grass-camera-demand-runtime.mjs';
       import { createRetainedGeometryPacketRuntimeReference } from '../../web/vf-ui/vf-rock-camera-demand-runtime.mjs';
 
-      const frameId = 'grass_instanced_shadow_frame';
-      const displayCamera = { pos: [7, -8, 5], target: [0, 5, 0.35], up: [0, 0, 1], fov: 48 };
+      const frameId = 'grass_shadow_lod_far_frame';
+      const displayCamera = { pos: [16, -28, 18], target: [0, 5, 0.35], up: [0, 0, 1], fov: 48 };
       const demandCamera = {
         eye: displayCamera.pos,
         target: displayCamera.target,
@@ -32,7 +32,7 @@
         await window.VfRuntimeShell.ensureSceneDependencies();
         const panel = window.VfFrame.mount(document.getElementById('layer'), {
           id: frameId,
-          title: 'Instanced grass shadows',
+          title: 'Far grass shadow LOD',
           draggable: false,
           dockable: false,
           resizable: false,
@@ -44,7 +44,7 @@
         panel.root.style.height = '90%';
 
         const ground = Object.freeze({
-          id: 'grass:shadow:ground',
+          id: 'grass:shadow-lod:far:ground',
           type: 'field_mesh',
           vertices: new Float32Array([
             -20, -6, -0.01, 0, 0, 1, 0.32, 0.39, 0.20, 1,
@@ -63,13 +63,13 @@
           meshes: [ground, ...packets],
           camera: displayCamera,
           lights: [{
-            id: 'grass_shadow_key',
+            id: 'grass_shadow_lod_far_key',
             kind: 'point',
             pos: [-4, -3, 8],
             target: [0, 5, 0],
             color: [1, 0.95, 0.82, 1],
             intensity: 22,
-            range: 35,
+            range: 45,
             casts_shadow: true,
           }],
           background: [0.30, 0.50, 0.66, 1],
@@ -93,13 +93,13 @@
           }),
           runtime,
           planeZ: 0,
-          maximumDistance: 24,
+          maximumDistance: 45,
           cellBudget: 96,
           bladeBudget: 1024,
         });
         const applied = await controller.request({ revision: 1, camera: demandCamera });
         const grassGpu = runtime.packets()[0]?.grass_gpu ?? null;
-        window.__grassInstancedShadowEvidence = {
+        window.__grassShadowLodFarEvidence = {
           revision: applied.revision,
           cellCount: applied.cells.length,
           packetCount: runtime.packets().length,
