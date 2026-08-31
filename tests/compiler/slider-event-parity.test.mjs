@@ -87,6 +87,27 @@ test("Input range owners expose SliderEvent and SliderValueChanged specificity",
   }), null);
 });
 
+test("the script-free overlay fixture compiles both component event loops", async () => {
+  const source = await readFile(path.join(
+    repositoryRoot,
+    "tests",
+    "fixtures",
+    "transparent-overlay-acceptance",
+    "app.vkf",
+  ), "utf8");
+  const typedIr = compileSource(source);
+  const loops = typedIr.body
+    .filter(({ kind, expr }) => kind === "expr_stmt" && expr?.kind === "ui_owner_event_loop")
+    .map(({ expr }) => ({
+      owner: expr.poll.owner_kind,
+      events: expr.arms.map(({ event_type: eventType }) => eventType),
+    }));
+  assert.deepEqual(loops, [
+    { owner: "Button", events: ["ButtonEvent", "ButtonClicked"] },
+    { owner: "Input", events: ["SliderEvent", "SliderValueChanged"] },
+  ]);
+});
+
 test("WASM exports the target-neutral Slider event poll and loop", async () => {
   await mkdir(workRoot, { recursive: true });
   const sourceText = [

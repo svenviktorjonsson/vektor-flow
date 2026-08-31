@@ -120,6 +120,47 @@
     for (const asset of prepared.assets) await fetchAsset(asset);
   }
 
+  function emitVfEvent(event) {
+    const message = global.Object.assign({ type: "vf_event" }, event);
+    try {
+      if (global.chrome && global.chrome.webview &&
+          typeof global.chrome.webview.postMessage === "function") {
+        global.chrome.webview.postMessage(message);
+        return;
+      }
+    } catch (_) {}
+    if (typeof global.fetch === "function") {
+      global.fetch("/api/enqueue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ line: JSON.stringify(message) }),
+        cache: "no-store",
+      }).catch(function () {});
+    }
+  }
+
+  function bindRetainedEvents(root, frameId) {
+    for (const button of root.querySelectorAll("button[id]")) {
+      button.addEventListener("click", function () {
+        emitVfEvent({
+          event: "ButtonClicked",
+          widget_id: button.id,
+          frame_id: frameId,
+        });
+      });
+    }
+    for (const input of root.querySelectorAll('input[type="range"][id]')) {
+      input.addEventListener("input", function () {
+        emitVfEvent({
+          event: "SliderValueChanged",
+          widget_id: input.id,
+          frame_id: frameId,
+          value: Number(input.value),
+        });
+      });
+    }
+  }
+
   async function mountFrameHtml(frameRoot, resourcePath) {
     if (!(frameRoot instanceof global.Element)) {
       throw new Error("static HTML requires a Frame root");
@@ -154,6 +195,7 @@
         throw new Error("static HTML retained lookup runtime is unavailable");
       }
       global.VfHtmlComponents.__internal.adoptTree(frameRoot, [root]);
+      bindRetainedEvents(root, String(frameRoot.dataset.vfFrameId || ""));
     } catch (error) {
       frameBody.removeChild(root);
       throw error;
