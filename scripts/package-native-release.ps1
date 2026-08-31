@@ -155,7 +155,7 @@ try {
 display: Display(dim:2)
 frame: display.add_frame(pos:[0.1, 0.2], size:[0.5, 0.6])
 frame.load("ui/main.html")
-glass: frame.add(x:[[-1.5, 1.5], [-1.5, 1.5]], y:[[0.0, 0.0], [2.0, 2.0]], z:[[0.0, 0.0], [0.0, 0.0]], id:"release-glass", alpha:0.5, transparent:true)
+glass: frame.add(x:[[-1.5, 1.5], [-1.5, 1.5]], y:[[0.0, 0.0], [2.0, 2.0]], z:[[0.0, 0.0], [0.0, 0.0]], id:"release-glass", color:[0.28, 0.82, 0.94, 0.5], alpha:0.5, transparent:true)
 release_button: Button(id:"release-button")
 release_slider: Input(id:"release-slider")
 (button_event: release_button.events.get())??>
