@@ -71,6 +71,9 @@ test('grass camera demand coalesces revisions before generating retained packets
   assert.equal(applied.cells.length, 32);
   assert.ok(applied.runtime.upload.bytes > 0);
   assert.equal(runtime.packets().length, 32);
+  assert.ok(runtime.packets().every(({ instance_kind: kind }) => (
+    kind === 'grass-blade-list'
+  )));
   assert.equal(renders.length, 1);
   assert.deepEqual(controller.status(), {
     scheduled: false,

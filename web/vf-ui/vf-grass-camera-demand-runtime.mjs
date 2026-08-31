@@ -1,5 +1,5 @@
 import {
-  createGrassRendererPacketsReference,
+  createGrassRendererInstancePacketsReference,
 } from './vf-grass-material-field.mjs';
 import {
   selectGrassViewDemandReference,
@@ -36,7 +36,7 @@ function adaptWorkingSet(workingSet, previousById) {
     if (packet !== previous) {
       upsert.push(packet);
       blades += packet.blade_count;
-      vertexBytes += packet.vertices.byteLength;
+      vertexBytes += packet.vertices.byteLength + (packet.instances?.byteLength ?? 0);
       indexBytes += packet.indices.byteLength;
     }
   }
@@ -127,7 +127,7 @@ export function createGrassCameraDemandControllerReference({
           upload: emptyUpload(),
         });
       } else {
-        const workingSet = createGrassRendererPacketsReference(field, demand);
+        const workingSet = createGrassRendererInstancePacketsReference(field, demand);
         const adapted = adaptWorkingSet(workingSet, packetById);
         packetById = adapted.byId;
         delta = adapted.delta;
