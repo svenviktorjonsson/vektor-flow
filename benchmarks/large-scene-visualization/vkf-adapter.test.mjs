@@ -1,0 +1,77 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+import { generatePointFixture } from './materialize-fixtures.mjs';
+import {
+  compareRegionStats,
+  idealDiscRegionStats,
+} from './point-frame-oracle.mjs';
+import {
+  cameraOffsetForFrame,
+  createVkfLargeSceneAdapter,
+} from './adapters/vkf.mjs';
+
+const manifest = JSON.parse(readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'));
+
+function smallWorkload() {
+  const workload = structuredClone(manifest.workloads[1]);
+  workload.pointCount = 32;
+  workload.viewport = [64, 64];
+  workload.correctness.grid = [8, 8];
+  const fixture = generatePointFixture(workload.fixture, workload.pointCount);
+  workload.fixture.sha256 = createHash('sha256').update(fixture).digest('hex');
+  return { workload, fixture };
+}
+
+test('VKF adapter follows the exact manifest camera path', () => {
+  const workload = manifest.workloads[1];
+  assert.deepEqual(cameraOffsetForFrame(workload, 0), [0, 0.1]);
+  assert.ok(Math.abs(cameraOffsetForFrame(workload, 60)[0] - 0.2) < 1e-12);
+  assert.ok(Math.abs(cameraOffsetForFrame(workload, 60)[1]) < 1e-12);
+  assert.ok(Math.abs(cameraOffsetForFrame(workload, 120)[0]) < 1e-12);
+  assert.ok(Math.abs(cameraOffsetForFrame(workload, 120)[1] + 0.1) < 1e-12);
+});
+
+test('ideal-disc region oracle passes identical retained output and detects a wrong camera', () => {
+  const { workload, fixture } = smallWorkload();
+  const points = new Float32Array(Uint8Array.from(fixture).buffer);
+  const frame0 = idealDiscRegionStats(points, workload, 0);
+  const exact = compareRegionStats(frame0, structuredClone(frame0), workload.correctness.maxRegionError);
+  const wrongCamera = compareRegionStats(
+    frame0,
+    idealDiscRegionStats(points, workload, 60),
+    workload.correctness.maxRegionError,
+  );
+  assert.deepEqual(exact, { passed: true, maxRegionError: 0 });
+  assert.equal(wrongCamera.passed, false);
+  assert.ok(wrongCamera.maxRegionError > workload.correctness.maxRegionError);
+});
+
+test('VKF benchmark adapter retains exact generated x/y bytes while changing only camera uniforms', async () => {
+  const { workload, fixture } = smallWorkload();
+  const calls = [];
+  const renderer = {
+    async initialize() { return 'test'; },
+    setWorldPoints(points, projection, options) { calls.push({ points, projection, options }); },
+    destroy() {},
+  };
+  const adapter = createVkfLargeSceneAdapter({}, workload, {
+    fixtureBytes: fixture,
+    rendererFactory: () => renderer,
+  });
+  await adapter.initialize();
+  adapter.renderFrame(60);
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].points, calls[1].points);
+  assert.equal(calls[0].points.byteLength, fixture.byteLength);
+  assert.equal(
+    createHash('sha256').update(new Uint8Array(calls[0].points.buffer)).digest('hex'),
+    workload.fixture.sha256,
+  );
+  assert.notDeepEqual(calls[0].projection.worldOrigin, calls[1].projection.worldOrigin);
+  assert.equal(calls[0].options.count, workload.pointCount);
+  assert.equal(calls[0].options.pointSize, workload.pointDiameterPixels);
+});
