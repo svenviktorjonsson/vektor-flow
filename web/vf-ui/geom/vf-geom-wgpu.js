@@ -17,6 +17,15 @@
   var _vfGeomLastLogTime = 0;
   var _vfGeomSuppressedCount = 0;
   var _vfGeomLogThrottleMs = 250;
+  var clusteredLightPlannerPromise = null;
+  var DEFAULT_CLUSTERED_LIGHT_GRID = Object.freeze({
+    xSlices: 16,
+    ySlices: 9,
+    depthSlices: 24,
+    nearDepth: 0.05,
+    farDepth: 500
+  });
+  var DEFAULT_CLUSTERED_LIGHT_CAP = 64;
 
   function wlog(level, text) {
     var s = "[vf-geom-wgpu] " + String(text);
@@ -98,6 +107,50 @@
       return new URL(rel, GEOM_SCRIPT_URL).toString();
     }
     return rel;
+  }
+
+  function clusteredLightPlannerFrom(value) {
+    if (typeof value === "function") { return value; }
+    if (value && typeof value.planClusteredLights === "function") {
+      return value.planClusteredLights;
+    }
+    return null;
+  }
+
+  function loadClusteredLightPlanner() {
+    var injected = clusteredLightPlannerFrom(global.VfClusteredLightPlan);
+    if (injected) { return Promise.resolve(injected); }
+    if (!clusteredLightPlannerPromise) {
+      clusteredLightPlannerPromise = import(runtimeAssetUrl("vf-clustered-light-plan.mjs")).then(function (moduleApi) {
+        var planner = clusteredLightPlannerFrom(moduleApi);
+        if (!planner) {
+          throw new Error("clustered-light module does not export planClusteredLights");
+        }
+        return planner;
+      });
+    }
+    return clusteredLightPlannerPromise;
+  }
+
+  function conservativeClusteredLightInputs(lights, grid) {
+    var source = Array.isArray(lights) ? lights : [];
+    var out = new Array(source.length);
+    for (var i = 0; i < source.length; i += 1) {
+      var light = source[i] || {};
+      out[i] = {
+        id: i,
+        kind: normalizeLightKind(light.kind),
+        bounds: {
+          minX: -1,
+          maxX: 1,
+          minY: -1,
+          maxY: 1,
+          minDepth: Number(grid.nearDepth),
+          maxDepth: Number(grid.farDepth)
+        }
+      };
+    }
+    return out;
   }
 
   async function createChessFontAtlas(device) {
@@ -6294,6 +6347,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._lastShadowDrawCount = 0;
     this._lastShadowCacheHitCount = 0;
     this._lastActiveLightCount = 0;
+    this._clusteredLightPlanner = clusteredLightPlannerFrom(global.VfClusteredLightPlan);
+    this._clusteredLightGrid = Object.assign({}, DEFAULT_CLUSTERED_LIGHT_GRID);
+    this._clusteredLightMaxLightsPerCluster = DEFAULT_CLUSTERED_LIGHT_CAP;
+    this._clusteredLightPlan = null;
+    this._lastPlannedLightCount = 0;
   }
 
   VfGeomWgpu.prototype = {
@@ -6320,8 +6378,34 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         surfaceTargetBytes: targetBytes,
         shadowDraws: Math.max(0, Number(this._lastShadowDrawCount || 0) || 0),
         shadowCacheHits: Math.max(0, Number(this._lastShadowCacheHitCount || 0) || 0),
-        activeLights: Math.max(0, Number(this._lastActiveLightCount || 0) || 0)
+        activeLights: Math.max(0, Number(this._lastActiveLightCount || 0) || 0),
+        plannedLights: Math.max(0, Number(this._lastPlannedLightCount || 0) || 0),
+        lightClusters: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.clusterCount || 0) || 0),
+        lightClusterAssignments: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.assignmentCount || 0) || 0),
+        lightClusterOverflowAssignments: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.overflowAssignmentCount || 0) || 0),
+        lightClusterOverflowClusters: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.overflowClusterCount || 0) || 0),
+        lightClusterCap: Math.max(0, Number(this._clusteredLightMaxLightsPerCluster || 0) || 0)
       };
+    },
+
+    _planClusteredLightsForFrame: function (lights) {
+      var planner = this._clusteredLightPlanner || clusteredLightPlannerFrom(global.VfClusteredLightPlan);
+      if (!planner) {
+        this._clusteredLightPlan = null;
+        this._lastPlannedLightCount = 0;
+        return null;
+      }
+      this._clusteredLightPlanner = planner;
+      var grid = this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID;
+      var inputs = conservativeClusteredLightInputs(lights, grid);
+      var plan = planner({
+        grid: grid,
+        lights: inputs,
+        maxLightsPerCluster: this._clusteredLightMaxLightsPerCluster || DEFAULT_CLUSTERED_LIGHT_CAP
+      });
+      this._clusteredLightPlan = plan;
+      this._lastPlannedLightCount = inputs.length;
+      return plan;
     },
 
     _markPresentedFirstFrame: function () {
@@ -6883,6 +6967,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
         t
       );
+      this._planClusteredLightsForFrame(sceneLights);
       this._lastActiveLightCount = Math.min(4, sceneLights.length);
       maybeLogResolvedLights(this, "shadow_prepare", sceneLights);
       var activeLights = [];
@@ -8478,6 +8563,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       // --- Lights ---
       var rawLights = mesh.no_lighting === true ? [] : lightsForMesh((mesh.lights || []), this._offscreenFrame === true, mesh);
       var lightsNorm = resolveSceneLights(rawLights, sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution), t);
+      this._planClusteredLightsForFrame(lightsNorm);
       maybeLogResolvedLights(this, "main", lightsNorm);
       var lmName = mesh.light_model || (lightsNorm[0] && lightsNorm[0].model) || "blinn_phong";
       var lmInt  = LIGHT_MODELS[lmName] !== undefined ? LIGHT_MODELS[lmName] : 2;
@@ -8814,6 +8900,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   VfGeomWgpu.prototype.init = async function () {
     var c = this._canvas;
     var sg;
+    try { this._clusteredLightPlanner = await loadClusteredLightPlanner(); }
+    catch (plannerError) {
+      wlog("error", "init clustered lights: " + (plannerError && plannerError.message ? plannerError.message : plannerError));
+      return false;
+    }
     try { sg = await getSharedWgpu(); }
     catch (e) { wlog("error", "init: " + (e && e.message ? e.message : e)); return false; }
     if (!sg) { return false; }
