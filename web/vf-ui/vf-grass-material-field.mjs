@@ -460,6 +460,7 @@ export function createGrassRendererBatchPacketsReference(field, demand) {
     no_cull: true,
     no_lighting: true,
     pickable: false,
+    casts_shadow: true,
     specular_strength: 0.02,
   });
   const templateVertexBytes = packet.vertices.byteLength;
@@ -575,6 +576,7 @@ export function createGrassRendererGpuBatchPacketsReference(
     no_cull: true,
     no_lighting: true,
     pickable: false,
+    casts_shadow: true,
     specular_strength: 0.02,
   });
   const templateVertexBytes = packet.vertices.byteLength;

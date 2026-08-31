@@ -46,6 +46,8 @@ const spec = {
   static_vertices: true,
   static_indices: true,
   static_instances: false,
+  casts_shadow: true,
+  retained_signature: "grass:cell:2:-1:2|grass:cell:3:-1:2",
 };
 
 const built = context.VfDisplay.__test.buildSingleMesh(spec, null, []);
@@ -56,6 +58,8 @@ assert.equal(built.instance_count, spec.instance_count);
 assert.equal(built.instances, undefined);
 assert.equal(built.grass_gpu, grassGpu);
 assert.equal(built.static_instances, false);
+assert.equal(built.casts_shadow, true);
+assert.equal(built.retained_signature, spec.retained_signature);
 assert.equal(built.vertices, spec.vertices);
 assert.equal(built.indices, spec.indices);
 

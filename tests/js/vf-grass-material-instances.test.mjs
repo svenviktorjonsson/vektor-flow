@@ -156,6 +156,7 @@ test('GPU grass packets upload one deterministic Philox descriptor per cell', ()
   assert.equal(packet.instance_count, 48);
   assert.equal(packet.instances, undefined);
   assert.equal(packet.grass_gpu.kind, 'grass-blade-philox:v1');
+  assert.equal(packet.casts_shadow, true);
   assert.equal(packet.grass_gpu.cell_stride_words, 12);
   assert.equal(packet.grass_gpu.blades_per_cell, 16);
   assert.ok(packet.grass_gpu.cell_records instanceof Uint32Array);

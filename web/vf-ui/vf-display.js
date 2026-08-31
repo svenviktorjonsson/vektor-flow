@@ -2611,6 +2611,7 @@
           instance_count: Math.max(0, Number(spec.instance_count || 0) | 0),
           instance_kind: String(spec.instance_kind || ""),
           grass_gpu: spec.grass_gpu && typeof spec.grass_gpu === "object" ? spec.grass_gpu : undefined,
+          retained_signature: String(spec.retained_signature || ""),
           static_vertices: spec.static_vertices === true,
           static_indices: spec.static_indices === true,
           static_instances: spec.static_instances === true
