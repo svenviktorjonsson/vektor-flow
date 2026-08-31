@@ -62,6 +62,9 @@ function requireCamera(camera) {
   requireVector3(camera.up, 'grass view camera up');
   requirePositiveNumber(camera.viewportWidth, 'grass view viewport width');
   requirePositiveNumber(camera.viewportHeight, 'grass view viewport height');
+  if (camera.maximumDistance != null) {
+    requirePositiveNumber(camera.maximumDistance, 'grass view maximum distance');
+  }
   if (
     typeof camera.verticalFovRadians !== 'number'
     || !Number.isFinite(camera.verticalFovRadians)
@@ -100,15 +103,26 @@ function cameraBasis(camera) {
   };
 }
 
-function planeIntersection(camera, direction, planeZ) {
+function boundedPlaneIntersection(camera, direction, planeZ, maximumDistance) {
+  const distance = Math.abs(direction[2]) <= 1e-12
+    ? Infinity
+    : (planeZ - camera.eye[2]) / direction[2];
+  if (distance > 0 && Number.isFinite(distance) && distance <= maximumDistance) {
+    return Object.freeze({
+      point: addScaled(camera.eye, direction, distance),
+      farClipped: false,
+    });
+  }
+  if (Number.isFinite(maximumDistance)) {
+    return Object.freeze({
+      point: addScaled(camera.eye, direction, maximumDistance),
+      farClipped: true,
+    });
+  }
   if (Math.abs(direction[2]) <= 1e-12) {
     throw new RangeError('grass view frustum must not be parallel to the grass plane');
   }
-  const distance = (planeZ - camera.eye[2]) / direction[2];
-  if (!(distance > 0) || !Number.isFinite(distance)) {
-    throw new RangeError('grass view frustum must face the grass plane');
-  }
-  return addScaled(camera.eye, direction, distance);
+  throw new RangeError('grass view frustum must face the grass plane');
 }
 
 function viewRay(basis, x, y) {
@@ -191,17 +205,26 @@ export function selectGrassViewDemandReference({
   requireBudget(cellBudget, 'grass view cellBudget', MAX_CELL_BUDGET);
   requireBudget(bladeBudget, 'grass view bladeBudget', MAX_BLADE_BUDGET);
   const basis = cameraBasis(camera);
-  const footprint = [
+  const maximumDistance = camera.maximumDistance ?? Infinity;
+  const cornerIntersections = [
     [-1, -1],
     [1, -1],
     [1, 1],
     [-1, 1],
-  ].map(([x, y]) => planeIntersection(
+  ].map(([x, y]) => boundedPlaneIntersection(
     camera,
     viewRay(basis, x, y),
     planeZ,
-  ).slice(0, 2));
-  const centerPoint = planeIntersection(camera, basis.forward, planeZ);
+    maximumDistance,
+  ));
+  const footprint = cornerIntersections.map(({ point }) => point.slice(0, 2));
+  const centerIntersection = boundedPlaneIntersection(
+    camera,
+    basis.forward,
+    planeZ,
+    maximumDistance,
+  );
+  const centerPoint = centerIntersection.point;
   const minimumX = Math.min(...footprint.map(([x]) => x));
   const maximumX = Math.max(...footprint.map(([x]) => x));
   const minimumY = Math.min(...footprint.map(([, y]) => y));
@@ -280,5 +303,8 @@ export function selectGrassViewDemandReference({
     cellBudget,
     scannedCellCount,
     truncated: !canScanAll || intersectingCount > cellBudget,
+    farClipped: centerIntersection.farClipped
+      || cornerIntersections.some(({ farClipped }) => farClipped),
+    maximumDistance: Number.isFinite(maximumDistance) ? maximumDistance : null,
   });
 }

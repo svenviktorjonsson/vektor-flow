@@ -84,6 +84,29 @@ test('a billion-unit view selects its nearest bounded working set without scanni
   assert.ok(demand.cells.every(([x, y]) => Math.abs(x) <= 4 && Math.abs(y) <= 4));
 });
 
+test('a horizon-facing camera clips grass demand to its finite view distance', () => {
+  const demand = selectGrassViewDemandReference({
+    camera: {
+      eye: [0, -4, 2],
+      target: [0, 40, 2],
+      up: [0, 0, 1],
+      verticalFovRadians: Math.PI / 3,
+      viewportWidth: 1280,
+      viewportHeight: 720,
+      maximumDistance: 50,
+    },
+    planeZ: 0,
+    cellBudget: 64,
+    bladeBudget: 512,
+  });
+
+  assert.equal(demand.farClipped, true);
+  assert.equal(demand.maximumDistance, 50);
+  assert.equal(demand.cells.length, 64);
+  assert.ok(demand.scannedCellCount <= 65536);
+  assert.ok(demand.cells.every(([x, y]) => Math.hypot(x, y + 4) <= 52));
+});
+
 test('approaching the field appends detail without changing shared cell blades', () => {
   const field = createGrassMaterialFieldReference(IDENTITY);
   const demandAt = (distance) => selectGrassViewDemandReference({
