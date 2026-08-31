@@ -37,6 +37,24 @@ test('receiver depth uses logarithmic positive view depth rather than radial dis
   assert.equal(index, 2);
 });
 
+test('receiver depth normalizes the camera forward vector', () => {
+  const index = clusterIndexForReceiver({
+    ndc: [0, 0],
+    worldPosition: [0, 0, 4],
+    cameraPosition: [0, 0, 0],
+    cameraForward: [0, 0, 2],
+    grid: {
+      xSlices: 1,
+      ySlices: 1,
+      depthSlices: 4,
+      nearDepth: 1,
+      farDepth: 16
+    }
+  });
+
+  assert.equal(index, 2);
+});
+
 test('a retained fifth light contributes without changing the first-four direct sum', () => {
   const light = {
     position: [0, 0, 2],

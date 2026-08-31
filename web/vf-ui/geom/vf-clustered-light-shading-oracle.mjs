@@ -7,9 +7,14 @@ function positiveViewDepth(worldPosition, cameraPosition, cameraForward) {
   const dx = finite(worldPosition?.[0]) - finite(cameraPosition?.[0]);
   const dy = finite(worldPosition?.[1]) - finite(cameraPosition?.[1]);
   const dz = finite(worldPosition?.[2]) - finite(cameraPosition?.[2]);
-  return (dx * finite(cameraForward?.[0])) +
-    (dy * finite(cameraForward?.[1])) +
-    (dz * finite(cameraForward?.[2], 1));
+  const fx = finite(cameraForward?.[0]);
+  const fy = finite(cameraForward?.[1]);
+  const fz = finite(cameraForward?.[2], 1);
+  const forwardLength = Math.hypot(fx, fy, fz);
+  const inverseLength = forwardLength > 1e-6 ? 1 / forwardLength : 1;
+  return (dx * fx * inverseLength) +
+    (dy * fy * inverseLength) +
+    (dz * (forwardLength > 1e-6 ? fz * inverseLength : 1));
 }
 
 function sliceCoordinate(value, minimum, maximum, count) {
