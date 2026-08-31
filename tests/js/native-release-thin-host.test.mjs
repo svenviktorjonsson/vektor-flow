@@ -54,3 +54,12 @@ test("release hit regions and events use a semantics-free internal adapter", () 
   assert.match(adapter, /PushOpaqueEvent/);
   assert.doesNotMatch(adapter, /ButtonClicked|SliderValueChanged|FrameEvent|SliderEvent/);
 });
+
+test("browser runtime maps the opaque host event arena without UI semantics", () => {
+  const runtime = readFileSync(
+    path.join(root, "web", "vf-ui", "vf-runtime-shell.js"),
+    "utf8",
+  );
+  assert.match(runtime, /vf_host_event_arena_v1/);
+  assert.match(runtime, /__vfHostEventArena/);
+});
