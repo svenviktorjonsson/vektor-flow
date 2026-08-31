@@ -143,6 +143,10 @@ test('static real-render diagnostic reuses the frozen 1M fixture for exact 100 r
   assert.equal(diagnosticWorkload.fixture.sha256, source.fixture.sha256);
   assert.equal(diagnosticWorkload.cameraPath.kind, 'fixed');
   assert.deepEqual(diagnosticWorkload.correctness.checkpoints, [0]);
+  assert.equal(
+    diagnosticWorkload.adapterCalibration['plotly-scattergl'].markerSizePixels,
+    2.4,
+  );
   assert.equal(STATIC_DISPATCH_PROTOCOL.measuredSamples, 100);
   assert.equal(STATIC_DISPATCH_PROTOCOL.measuredOperation,
     'one real retained draw plus one explicit GPU completion');
