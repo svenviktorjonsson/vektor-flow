@@ -27,7 +27,7 @@ import {
 } from './adapters/vkf-marker-impostor.mjs';
 import { rawOrbitUniform, rawPrimitiveForPointSize } from './adapters/raw-webgpu.mjs';
 import { threeOrbitPosition, threePrimitiveForPointSize } from './adapters/three.mjs';
-import { deckOrbitViewState } from './adapters/deck-gl.mjs';
+import { deckOrbitViewState, deckPrimitiveForPointSize } from './adapters/deck-gl.mjs';
 import {
   SUITE_IMPLEMENTATIONS,
   SUITE_REPEATS,
@@ -411,6 +411,8 @@ test('deck.gl peer receives the exact deterministic orbit state', () => {
   assert.equal(quarter.rotationOrbit, -90);
   assert.equal(frame0.rotationX, 0);
   assert.ok(Math.abs(2 ** frame0.zoom - 720 / 2.2) < 1e-10);
+  assert.equal(deckPrimitiveForPointSize(1), 'custom-discrete-point-layer');
+  assert.equal(deckPrimitiveForPointSize(4), 'scatterplot-layer');
 });
 
 test('suite requires both sizes, every implementation, repeated runs, and one environment', () => {
