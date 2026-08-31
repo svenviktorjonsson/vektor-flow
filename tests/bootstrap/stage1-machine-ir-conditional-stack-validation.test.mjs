@@ -264,3 +264,50 @@ test("VKF rejects a fixed conditional that leaves values on its terminal stack",
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects a fixed-conditional entry that leaves values on its terminal stack", () => {
+  const work = makeWork("i65-conditional-entry-terminal-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /            _mir_call_no_handler\("__vkf_module_system__cpu_count", 0, 1, 0\),\r?\n            _mir_call_no_handler\(function_name, 1, 1, 1\),\r?\n            mir_return_f64\(\)/,
+      [
+        '            _mir_call_no_handler("__vkf_module_system__cpu_count", 0, 1, 0),',
+        "            _mir_call_no_handler(function_name, 1, 1, 1),",
+        "            mir_push_f64(0)",
+      ].join("\n"),
+    );
+    assert.notEqual(mutatedMachineIr, originalMachineIr, "entry-stack mutation did not apply");
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "conditional-entry-terminal.vkf");
+    const artifact = join(work, `conditional-entry-terminal${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_positive_conditional_stack_maxima("positive", "x")',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `entry-stack probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "unbalanced fixed-conditional entry produced output");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
