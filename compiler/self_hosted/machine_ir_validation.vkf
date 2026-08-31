@@ -231,6 +231,7 @@ machine_ir_numeric_count_to_loop_stack_maxima(
     .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.6.kind)
     depth > maximum?
         .maximum: depth
+    (depth = 0)?!
     .depth: machine_ir_numeric_stack_depth(depth, module.functions.0.instructions.7.kind)
     depth > maximum?
         .maximum: depth
