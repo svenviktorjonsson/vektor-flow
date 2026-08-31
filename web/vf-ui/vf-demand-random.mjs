@@ -6,6 +6,53 @@ const PHILOX_M0 = 0xd2511f53;
 const PHILOX_M1 = 0xcd9e8d57;
 const PHILOX_W0 = 0x9e3779b9;
 const PHILOX_W1 = 0xbb67ae85;
+const textEncoder = new TextEncoder();
+
+function concatBytes(parts) {
+  const result = new Uint8Array(parts.reduce((size, part) => size + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.length;
+  }
+  return result;
+}
+
+function u32Bytes(value) {
+  const word = value >>> 0;
+  return Uint8Array.of(word, word >>> 8, word >>> 16, word >>> 24);
+}
+
+function frame(tag, payload) {
+  return concatBytes([Uint8Array.of(tag), u32Bytes(payload.length), payload]);
+}
+
+function wordPairBytes(pair) {
+  return concatBytes([u32Bytes(pair[0]), u32Bytes(pair[1])]);
+}
+
+function hierarchyBytes(segments) {
+  const encoded = segments.map((segment) => textEncoder.encode(segment));
+  return concatBytes([
+    u32Bytes(encoded.length),
+    ...encoded.flatMap((segment) => [u32Bytes(segment.length), segment]),
+  ]);
+}
+
+export function encodeDemandIdentity(identity) {
+  return concatBytes([
+    Uint8Array.of(0x56, 0x4b, 0x46, 0x44),
+    u32Bytes(1),
+    frame(1, textEncoder.encode(identity.generator)),
+    frame(2, u32Bytes(identity.version)),
+    frame(3, wordPairBytes(identity.seed)),
+    frame(4, textEncoder.encode(identity.domain)),
+    frame(5, hierarchyBytes(identity.hierarchy)),
+    frame(6, u32Bytes(identity.lod)),
+    frame(7, textEncoder.encode(identity.channel)),
+    frame(8, wordPairBytes(identity.sample)),
+  ]);
+}
 
 function multiplyHighLowU32(left, right) {
   const leftLow = left & 0xffff;
