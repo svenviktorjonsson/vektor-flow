@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Worker } from 'node:worker_threads';
 
 import {
   conditionChild,
@@ -206,4 +207,47 @@ test('candidate identities and marks are traversal, chunk, and branch independen
 
   const ids = cells.flatMap((cell) => expected.get(key(cell)).map(({ id }) => id));
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test('worker partitions reproduce candidate identities, positions, and marks', async () => {
+  const cells = Array.from({ length: 32 }, (_, index) => [
+    index - 16,
+    (index * 7 % 19) - 9,
+  ]);
+  const options = {
+    cellSize: 5,
+    maxCandidates: 4,
+    baseProbability: 0.55,
+    correlationLength: 25,
+    spatialStrength: 0.7,
+  };
+  const expected = cells.map((cell) => ({
+    cell,
+    candidates: sampleMarkedPointCell2Reference(createPointNode(), cell, options),
+  }));
+  const partitions = Array.from({ length: 3 }, () => []);
+  cells.forEach((cell, index) => partitions[index % partitions.length].push(cell));
+  const runWorker = (workerCells) => new Promise((resolve, reject) => {
+    const worker = new Worker(
+      new URL('../fixtures/vf-marked-point-worker.mjs', import.meta.url),
+      {
+        workerData: {
+          identity: ROOT_IDENTITY,
+          child: { segment: 'forest:7', channel: 'trees' },
+          cells: workerCells,
+          options,
+        },
+      },
+    );
+    worker.once('message', resolve);
+    worker.once('error', reject);
+  });
+
+  const records = (await Promise.all(partitions.map(runWorker))).flat();
+  records.sort((first, second) => cells.findIndex(
+    (cell) => cell[0] === first.cell[0] && cell[1] === first.cell[1],
+  ) - cells.findIndex(
+    (cell) => cell[0] === second.cell[0] && cell[1] === second.cell[1],
+  ));
+  assert.deepEqual(records, expected);
 });
