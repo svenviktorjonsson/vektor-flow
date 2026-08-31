@@ -1040,6 +1040,7 @@ vf::JsonValue::Object dispatch_internal_stage_component(
 ) {
     if (component.empty()) throw DriverFailure("stage component name is empty");
     if (component != "machine_ir.numeric_parameter_multiply.stack_validation" &&
+        component != "machine_ir.numeric_positive_conditional.stack_validation" &&
         component != "machine_ir.numeric_parameter_multiply.module_lowering"
 #ifdef VKF_X64_BACKEND_LIBRARY
         && component != kTypedModulePipelineComponent
