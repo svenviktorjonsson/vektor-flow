@@ -188,3 +188,15 @@ export function sampleNormalReference(
   ], stream.key);
   return normalReferenceFromU32([words[0], words[1]], { mean, standardDeviation });
 }
+
+export function sampleCorrelatedNormal2Reference(node, sample, options) {
+  const { stream } = requireNode(node);
+  requireSample(sample);
+  const words = philox4x32_10([
+    stream.counterPrefix[0],
+    stream.counterPrefix[1],
+    sample[0],
+    sample[1],
+  ], stream.key);
+  return correlatedNormal2ReferenceFromU32([words[0], words[1]], options);
+}
