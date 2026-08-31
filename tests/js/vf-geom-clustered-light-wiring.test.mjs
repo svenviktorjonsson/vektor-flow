@@ -20,6 +20,7 @@ function createRenderer() {
     setTimeout,
     clearTimeout,
     GPUTextureUsage: { COPY_SRC: 1, RENDER_ATTACHMENT: 2, TEXTURE_BINDING: 4 },
+    GPUBufferUsage: { COPY_DST: 8, STORAGE: 128 },
     VfGeomMath: {},
     VfClusteredLightPlan: { planClusteredLights }
   });
@@ -63,4 +64,56 @@ test('renderer evidence exposes more than four planned lights with bounded overf
   assert.equal(evidence.lightClusterOverflowAssignments, 8);
   assert.equal(evidence.lightClusterOverflowClusters, 4);
   assert.equal(evidence.lightClusterCap, 4);
+});
+
+test('uploads clustered plans and light records into a bound GPU storage group', () => {
+  const renderer = createRenderer();
+  const createdBuffers = [];
+  const writes = [];
+  const bindGroups = [];
+  renderer._device = {
+    createBuffer(descriptor) {
+      const buffer = { descriptor, destroy() {} };
+      createdBuffers.push(buffer);
+      return buffer;
+    },
+    createBindGroup(descriptor) {
+      const group = { descriptor };
+      bindGroups.push(group);
+      return group;
+    },
+    queue: {
+      writeBuffer(buffer, offset, data) {
+        writes.push({ buffer, offset, data: new data.constructor(data) });
+      }
+    }
+  };
+  renderer._clusteredLightBindLayout = { label: 'clustered-light-layout' };
+  renderer._clusteredLightGrid = {
+    xSlices: 1,
+    ySlices: 1,
+    depthSlices: 1,
+    nearDepth: 0.05,
+    farDepth: 500
+  };
+  renderer._clusteredLightMaxLightsPerCluster = 4;
+
+  renderer._planClusteredLightsForFrame(Array.from({ length: 6 }, (_, index) => normalizedLight(index)));
+
+  assert.equal(createdBuffers.length, 2);
+  assert.ok((createdBuffers[0].descriptor.usage & 128) !== 0);
+  assert.ok((createdBuffers[1].descriptor.usage & 128) !== 0);
+  assert.equal(writes.length, 2);
+  assert.deepEqual([...writes[0].data.slice(0, 8)], [1, 1, 1, 4, 1, 4, 2, 6]);
+  assert.equal(writes[0].data.byteLength, 56);
+  assert.equal(writes[1].data.byteLength, 384);
+  assert.equal(bindGroups.length, 1);
+  assert.deepEqual([...bindGroups[0].descriptor.entries].map((entry) => entry.binding), [0, 1]);
+  assert.equal(bindGroups[0].descriptor.entries[0].resource.buffer, createdBuffers[0]);
+  assert.equal(bindGroups[0].descriptor.entries[1].resource.buffer, createdBuffers[1]);
+  const bound = [];
+  renderer._bindClusteredLightStorage({ setBindGroup(index, group) { bound.push({ index, group }); } });
+  assert.deepEqual(bound, [{ index: 1, group: bindGroups[0] }]);
+  assert.equal(renderer._debugRenderEvidence().lightClusterStorageBytes, 56);
+  assert.equal(renderer._debugRenderEvidence().lightRecordStorageBytes, 384);
 });

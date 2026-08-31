@@ -153,6 +153,59 @@
     return out;
   }
 
+  function packClusteredLightPlan(plan, grid, cap, lightCount) {
+    var offsets = plan && plan.clusterOffsets ? plan.clusterOffsets : new Uint32Array(0);
+    var lightIds = plan && plan.lightIds ? plan.lightIds : new Uint32Array(0);
+    var packed = new Uint32Array(8 + offsets.length + lightIds.length);
+    packed[0] = Math.max(0, Number(grid && grid.xSlices || 0) || 0) >>> 0;
+    packed[1] = Math.max(0, Number(grid && grid.ySlices || 0) || 0) >>> 0;
+    packed[2] = Math.max(0, Number(grid && grid.depthSlices || 0) || 0) >>> 0;
+    packed[3] = Math.max(0, Number(cap || 0) || 0) >>> 0;
+    packed[4] = Math.max(0, Number(plan && plan.clusterCount || 0) || 0) >>> 0;
+    packed[5] = Math.max(0, Number(plan && plan.assignmentCount || 0) || 0) >>> 0;
+    packed[6] = Math.max(0, Number(plan && plan.overflowAssignmentCount || 0) || 0) >>> 0;
+    packed[7] = Math.max(0, Number(lightCount || 0) || 0) >>> 0;
+    packed.set(offsets, 8);
+    packed.set(lightIds, 8 + offsets.length);
+    return packed;
+  }
+
+  function packClusteredLightRecords(lights) {
+    var source = Array.isArray(lights) ? lights : [];
+    var packed = new Float32Array(Math.max(4, source.length * 16));
+    function component(values, index, fallback) {
+      var value = Number(values && values[index]);
+      return Number.isFinite(value) ? value : fallback;
+    }
+    for (var i = 0; i < source.length; i += 1) {
+      var light = source[i] || {};
+      var base = i * 16;
+      packed[base + 0] = component(light.pos, 0, 0.0);
+      packed[base + 1] = component(light.pos, 1, 0.0);
+      packed[base + 2] = component(light.pos, 2, 0.0);
+      packed[base + 3] = Math.max(0.0, Number(light.range || 0.0) || 0.0);
+      packed[base + 4] = component(light.color_f32, 0, 0.0);
+      packed[base + 5] = component(light.color_f32, 1, 0.0);
+      packed[base + 6] = component(light.color_f32, 2, 0.0);
+      packed[base + 7] = Math.max(0.0, Number(light.intensity || 0.0) || 0.0);
+      packed[base + 8] = component(light.direction_f32, 0, 0.0);
+      packed[base + 9] = component(light.direction_f32, 1, 0.0);
+      packed[base + 10] = component(light.direction_f32, 2, -1.0);
+      packed[base + 11] = Math.max(0.0, Number(light.kind_code || 0.0) || 0.0);
+      packed[base + 12] = Number(light.inner_cone_cos == null ? -1.0 : light.inner_cone_cos) || -1.0;
+      packed[base + 13] = Number(light.outer_cone_cos == null ? -1.0 : light.outer_cone_cos) || -1.0;
+      packed[base + 14] = Math.max(0.0, Number(light.source_radius || 0.0) || 0.0);
+      packed[base + 15] = Math.max(0.0, Number(light.spread == null ? 1.0 : light.spread) || 0.0);
+    }
+    return packed;
+  }
+
+  function nextStorageCapacity(requiredBytes) {
+    var capacity = 16;
+    while (capacity < requiredBytes) { capacity *= 2; }
+    return capacity;
+  }
+
   async function createChessFontAtlas(device) {
     if (!global.fetch || !global.createImageBitmap) {
       failFast("chess_board texture font requires fetch and createImageBitmap");
@@ -3566,7 +3619,21 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             }
           ],
         });
-        var plLayout = device.createPipelineLayout({ bindGroupLayouts: [bindLayout] });
+        var clusteredLightBindLayout = device.createBindGroupLayout({
+          entries: [
+            {
+              binding: 0,
+              visibility: GPUShaderStage.FRAGMENT,
+              buffer: { type: "read-only-storage" }
+            },
+            {
+              binding: 1,
+              visibility: GPUShaderStage.FRAGMENT,
+              buffer: { type: "read-only-storage" }
+            }
+          ]
+        });
+        var plLayout = device.createPipelineLayout({ bindGroupLayouts: [bindLayout, clusteredLightBindLayout] });
         var shadowBindLayout = device.createBindGroupLayout({
           entries: [{
             binding: 0,
@@ -3793,6 +3860,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive,
           pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, flareQuadBuf,
           surfaceSampler, defaultSurfaceView, fontSampler, chessFontAtlas, shadowSampler, defaultShadowView,
+          clusteredLightBindLayout,
           pipeShadow0, pipeShadow1, shadowBindLayout,
           pipePick, pickBindLayout,
           frameBlitBindLayout, pipeFrameBlit
@@ -6352,6 +6420,14 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._clusteredLightMaxLightsPerCluster = DEFAULT_CLUSTERED_LIGHT_CAP;
     this._clusteredLightPlan = null;
     this._lastPlannedLightCount = 0;
+    this._clusteredLightBindLayout = null;
+    this._clusteredLightBindGroup = null;
+    this._clusteredLightClusterBuffer = null;
+    this._clusteredLightRecordBuffer = null;
+    this._clusteredLightClusterCapacity = 0;
+    this._clusteredLightRecordCapacity = 0;
+    this._clusteredLightStorageBytes = 0;
+    this._clusteredLightRecordStorageBytes = 0;
   }
 
   VfGeomWgpu.prototype = {
@@ -6384,7 +6460,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         lightClusterAssignments: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.assignmentCount || 0) || 0),
         lightClusterOverflowAssignments: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.overflowAssignmentCount || 0) || 0),
         lightClusterOverflowClusters: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.overflowClusterCount || 0) || 0),
-        lightClusterCap: Math.max(0, Number(this._clusteredLightMaxLightsPerCluster || 0) || 0)
+        lightClusterCap: Math.max(0, Number(this._clusteredLightMaxLightsPerCluster || 0) || 0),
+        lightClusterStorageBytes: Math.max(0, Number(this._clusteredLightStorageBytes || 0) || 0),
+        lightRecordStorageBytes: Math.max(0, Number(this._clusteredLightRecordStorageBytes || 0) || 0)
       };
     },
 
@@ -6405,7 +6483,61 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       });
       this._clusteredLightPlan = plan;
       this._lastPlannedLightCount = inputs.length;
+      if (this._device) {
+        this._uploadClusteredLightStorage(plan, lights);
+      }
       return plan;
+    },
+
+    _uploadClusteredLightStorage: function (plan, lights) {
+      if (!this._device || !this._clusteredLightBindLayout) { return; }
+      var grid = this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID;
+      var cap = this._clusteredLightMaxLightsPerCluster || DEFAULT_CLUSTERED_LIGHT_CAP;
+      var lightCount = Array.isArray(lights) ? lights.length : 0;
+      var clusterData = packClusteredLightPlan(plan, grid, cap, lightCount);
+      var recordData = packClusteredLightRecords(lights);
+      var clusterBytes = clusterData.byteLength;
+      var recordBytes = recordData.byteLength;
+      var rebuilt = false;
+      if (!this._clusteredLightClusterBuffer || this._clusteredLightClusterCapacity < clusterBytes) {
+        if (this._clusteredLightClusterBuffer) { try { this._clusteredLightClusterBuffer.destroy(); } catch (_) {} }
+        this._clusteredLightClusterCapacity = nextStorageCapacity(clusterBytes);
+        this._clusteredLightClusterBuffer = this._device.createBuffer({
+          label: "vf-clustered-light-plan",
+          size: this._clusteredLightClusterCapacity,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        rebuilt = true;
+      }
+      if (!this._clusteredLightRecordBuffer || this._clusteredLightRecordCapacity < recordBytes) {
+        if (this._clusteredLightRecordBuffer) { try { this._clusteredLightRecordBuffer.destroy(); } catch (_) {} }
+        this._clusteredLightRecordCapacity = nextStorageCapacity(recordBytes);
+        this._clusteredLightRecordBuffer = this._device.createBuffer({
+          label: "vf-clustered-light-records",
+          size: this._clusteredLightRecordCapacity,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        rebuilt = true;
+      }
+      this._device.queue.writeBuffer(this._clusteredLightClusterBuffer, 0, clusterData);
+      this._device.queue.writeBuffer(this._clusteredLightRecordBuffer, 0, recordData);
+      this._clusteredLightStorageBytes = clusterBytes;
+      this._clusteredLightRecordStorageBytes = lightCount * 16 * Float32Array.BYTES_PER_ELEMENT;
+      if (rebuilt || !this._clusteredLightBindGroup) {
+        this._clusteredLightBindGroup = this._device.createBindGroup({
+          layout: this._clusteredLightBindLayout,
+          entries: [
+            { binding: 0, resource: { buffer: this._clusteredLightClusterBuffer } },
+            { binding: 1, resource: { buffer: this._clusteredLightRecordBuffer } }
+          ]
+        });
+      }
+    },
+
+    _bindClusteredLightStorage: function (pass) {
+      if (pass && this._clusteredLightBindGroup && typeof pass.setBindGroup === "function") {
+        pass.setBindGroup(1, this._clusteredLightBindGroup);
+      }
     },
 
     _markPresentedFirstFrame: function () {
@@ -7367,6 +7499,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           );
       pass.setPipeline(pipePart);
       pass.setBindGroup(0, part.bindGroup);
+      this._bindClusteredLightStorage(pass);
       pass.setVertexBuffer(0, part.vb);
       if (part.instanceBuf && part.instanceCount > 0) {
         pass.setVertexBuffer(1, part.instanceBuf);
@@ -8610,6 +8743,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           );
       pass.setPipeline(pipe);
       pass.setBindGroup(0, this._bindGroup);
+      this._bindClusteredLightStorage(pass);
       pass.setVertexBuffer(0, this._vb);
       pass.setIndexBuffer(this._ib, "uint32");
       pass.drawIndexed(this._ibCount, 1, 0, 0, 0);
@@ -8869,6 +9003,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._frameBlitBindGroup = null;
       this._frameBlitSourceView = null;
       if (this._uniformBuf){ try { this._uniformBuf.destroy(); } catch(_){} this._uniformBuf = null; }
+      if (this._clusteredLightClusterBuffer) { try { this._clusteredLightClusterBuffer.destroy(); } catch(_){} this._clusteredLightClusterBuffer = null; }
+      if (this._clusteredLightRecordBuffer) { try { this._clusteredLightRecordBuffer.destroy(); } catch(_){} this._clusteredLightRecordBuffer = null; }
+      this._clusteredLightBindGroup = null;
+      this._clusteredLightStorageBytes = 0;
+      this._clusteredLightRecordStorageBytes = 0;
       if (this._flareInstBuf){ try { this._flareInstBuf.destroy(); } catch(_){} this._flareInstBuf = null; this._flareInstBufSize = 0; }
       if (this._shadowDepthTex0) { try { this._shadowDepthTex0.destroy(); } catch(_){} this._shadowDepthTex0 = null; }
       if (this._shadowDepthTex1) { try { this._shadowDepthTex1.destroy(); } catch(_){} this._shadowDepthTex1 = null; }
@@ -8911,6 +9050,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._device     = sg.device;
     this._format     = sg.format;
     this._bindLayout = sg.bindLayout;
+    this._clusteredLightBindLayout = sg.clusteredLightBindLayout;
     this._pipeTri    = sg.pipeTri;
     this._pipeLine   = sg.pipeLine;
     this._pipeTriAlpha = sg.pipeTriAlpha || null;
@@ -8932,6 +9072,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       return false;
     }
     try {
+      this._uploadClusteredLightStorage(null, []);
       this._uniformBuf = this._device.createBuffer({
         size: UB_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
