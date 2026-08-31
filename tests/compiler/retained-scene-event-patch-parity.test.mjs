@@ -94,6 +94,10 @@ test("compiled Button and Slider arms export identical retained layer patches", 
   const wasmProgram = JSON.parse(runtimeBridge.instantiateWasmRuntime({ bytes, manifest })
     .readBinding("$ui$compiled$event_program"));
   assert.deepEqual(wasmProgram, nativeProgram);
+  assert.deepEqual(
+    JSON.parse(await readFile(path.join(path.dirname(wasmSummary.artifact_path), "vf-event-program.json"), "utf8")),
+    nativeProgram,
+  );
   assert.equal(nativeProgram.schema, "vektor-flow/retained-event-program");
   assert.deepEqual(nativeProgram.rules.map(({ event, widget_id: widgetId }) => ({ event, widgetId })), [
     { event: "ButtonClicked", widgetId: "show-glass" },
