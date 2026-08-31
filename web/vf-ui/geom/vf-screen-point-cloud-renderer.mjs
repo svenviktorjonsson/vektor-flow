@@ -53,6 +53,14 @@ export function createScreenSpacePointCloudRenderer(canvas) {
   let count = 0;
   let pointSize = 4;
   let color = [...DEFAULT_COLOR];
+  const projectionScratch = {
+    worldOrigin: new Float64Array(3),
+    screenOrigin: new Float64Array(2),
+    xAxis: new Float64Array(2),
+    yAxis: new Float64Array(2),
+    zAxis: new Float64Array(2)
+  };
+  const colorScratch = new Float64Array(4);
   let capacityBytes = 0;
   let pointDataDirty = false;
   let destroyed = false;
@@ -117,13 +125,13 @@ export function createScreenSpacePointCloudRenderer(canvas) {
       || components !== nextComponents
       || !worldMode
       || count !== nextCount;
-    const normalizedProjection = normalizeProjection(nextProjection);
+    const normalizedProjection = normalizeProjection(nextProjection, projection, projectionScratch);
     const nextPointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
-    const nextColor = normalizeColor(options.color ?? color);
+    const nextColor = normalizeColor(options.color ?? color, color, colorScratch);
     if (!nextPointDataDirty
-      && sameProjection(projection, normalizedProjection)
+      && projection === normalizedProjection
       && pointSize === nextPointSize
-      && sameVector(color, nextColor)) {
+      && color === nextColor) {
       return;
     }
     pointDataDirty = nextPointDataDirty;
@@ -201,27 +209,35 @@ export function createScreenSpacePointCloudRenderer(canvas) {
   return Object.freeze({ initialize, setPoints, setWorldPoints, resize, destroy, get backend() { return gl ? 'webgl2-points' : null; } });
 }
 
-function normalizeProjection(value) {
-  return Object.freeze({
-    worldOrigin: Object.freeze(finiteVector(value?.worldOrigin, 3, 'worldOrigin')),
-    screenOrigin: Object.freeze(finiteVector(value?.screenOrigin, 2, 'screenOrigin')),
-    xAxis: Object.freeze(finiteVector(value?.xAxis, 2, 'xAxis')),
-    yAxis: Object.freeze(finiteVector(value?.yAxis, 2, 'yAxis')),
-    zAxis: Object.freeze(finiteVector(value?.zAxis, 2, 'zAxis'))
-  });
+function normalizeProjection(value, current, scratch) {
+  const worldOrigin = normalizeVector(value?.worldOrigin, 3, 'worldOrigin', current?.worldOrigin, scratch.worldOrigin);
+  const screenOrigin = normalizeVector(value?.screenOrigin, 2, 'screenOrigin', current?.screenOrigin, scratch.screenOrigin);
+  const xAxis = normalizeVector(value?.xAxis, 2, 'xAxis', current?.xAxis, scratch.xAxis);
+  const yAxis = normalizeVector(value?.yAxis, 2, 'yAxis', current?.yAxis, scratch.yAxis);
+  const zAxis = normalizeVector(value?.zAxis, 2, 'zAxis', current?.zAxis, scratch.zAxis);
+  if (current
+    && worldOrigin === current.worldOrigin
+    && screenOrigin === current.screenOrigin
+    && xAxis === current.xAxis
+    && yAxis === current.yAxis
+    && zAxis === current.zAxis) {
+    return current;
+  }
+  return Object.freeze({ worldOrigin, screenOrigin, xAxis, yAxis, zAxis });
 }
 
-function sameProjection(left, right) {
-  return left != null
-    && sameVector(left.worldOrigin, right.worldOrigin)
-    && sameVector(left.screenOrigin, right.screenOrigin)
-    && sameVector(left.xAxis, right.xAxis)
-    && sameVector(left.yAxis, right.yAxis)
-    && sameVector(left.zAxis, right.zAxis);
-}
-
-function sameVector(left, right) {
-  return left?.length === right?.length && left.every((value, index) => value === right[index]);
+function normalizeVector(value, length, name, current, scratch) {
+  if (!Array.isArray(value) || value.length < length) throw new TypeError(`${name} must contain ${length} values`);
+  for (let index = 0; index < length; index += 1) scratch[index] = Number(value[index]);
+  for (let index = 0; index < length; index += 1) {
+    if (!Number.isFinite(scratch[index])) throw new TypeError(`${name} values must be finite`);
+  }
+  if (current?.length === length) {
+    let unchanged = true;
+    for (let index = 0; index < length; index += 1) unchanged &&= current[index] === scratch[index];
+    if (unchanged) return current;
+  }
+  return Object.freeze(Array.from(scratch));
 }
 
 function finiteVector(value, length, name) {
@@ -231,9 +247,17 @@ function finiteVector(value, length, name) {
   return result;
 }
 
-function normalizeColor(value) {
-  if (!Array.isArray(value) && !ArrayBuffer.isView(value)) return [...DEFAULT_COLOR];
-  return [0, 1, 2, 3].map((index) => Math.max(0, Math.min(1, Number(value[index] ?? (index === 3 ? 1 : 0)) || 0)));
+function normalizeColor(value, current = null, scratch = new Float64Array(4)) {
+  const source = Array.isArray(value) || ArrayBuffer.isView(value) ? value : DEFAULT_COLOR;
+  for (let index = 0; index < 4; index += 1) {
+    scratch[index] = Math.max(0, Math.min(1, Number(source[index] ?? (index === 3 ? 1 : 0)) || 0));
+  }
+  if (current?.length === 4) {
+    let unchanged = true;
+    for (let index = 0; index < 4; index += 1) unchanged &&= current[index] === scratch[index];
+    if (unchanged) return current;
+  }
+  return Array.from(scratch);
 }
 
 function growCapacity(current, required) {
