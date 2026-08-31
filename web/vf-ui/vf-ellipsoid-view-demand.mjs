@@ -22,6 +22,66 @@ function normalize(vector) {
   return vector.map((value) => value / length);
 }
 
+function requireVector3(value, name) {
+  const isTypedArray = ArrayBuffer.isView(value) && !(value instanceof DataView);
+  if ((!Array.isArray(value) && !isTypedArray) || value.length !== 3) {
+    throw new TypeError(`${name} must contain exactly three numbers`);
+  }
+  for (let axis = 0; axis < 3; axis += 1) {
+    if (typeof value[axis] !== 'number') {
+      throw new TypeError(`${name}[${axis}] must be a number`);
+    }
+    if (!Number.isFinite(value[axis])) {
+      throw new RangeError(`${name}[${axis}] must be finite`);
+    }
+  }
+}
+
+function requireShape(shape) {
+  if (
+    !shape
+    || typeof shape !== 'object'
+    || shape.kind !== 'ellipsoid-octahedron:v1'
+    || !Array.isArray(shape.radii)
+    || !Array.isArray(shape.vertices)
+    || !Array.isArray(shape.faces)
+  ) {
+    throw new TypeError('coarse ellipsoid reference shape is required');
+  }
+}
+
+function requireCamera(camera) {
+  if (!camera || typeof camera !== 'object') {
+    throw new TypeError('ellipsoid view camera is required');
+  }
+  requireVector3(camera.eye, 'ellipsoid view camera eye');
+  requireVector3(camera.target, 'ellipsoid view camera target');
+  requireVector3(camera.up, 'ellipsoid view camera up');
+  if (typeof camera.verticalFovRadians !== 'number') {
+    throw new TypeError('ellipsoid view vertical FOV must be a number');
+  }
+  if (
+    !Number.isFinite(camera.verticalFovRadians)
+    || !(camera.verticalFovRadians > 0)
+    || !(camera.verticalFovRadians < Math.PI)
+  ) {
+    throw new RangeError('ellipsoid view vertical FOV must be between 0 and pi');
+  }
+  if (typeof camera.viewportHeight !== 'number') {
+    throw new TypeError('ellipsoid view viewport height must be a number');
+  }
+  if (!Number.isFinite(camera.viewportHeight) || !(camera.viewportHeight > 0)) {
+    throw new RangeError('ellipsoid view viewport height must be finite and positive');
+  }
+  const forward = subtract(camera.target, camera.eye);
+  if (!(dot(forward, forward) > 0)) {
+    throw new RangeError('ellipsoid view camera eye and target must differ');
+  }
+  if (!(dot(cross(forward, camera.up), cross(forward, camera.up)) > 1e-24)) {
+    throw new RangeError('ellipsoid view camera up must not be parallel to its view');
+  }
+}
+
 function cameraBasis(camera) {
   const forward = normalize(subtract(camera.target, camera.eye));
   const right = normalize(cross(forward, camera.up));
@@ -83,6 +143,7 @@ export function selectEllipsoidViewDemandReference(shape, {
   budget,
   traversalChunks,
 }) {
+  requireShape(shape);
   if (typeof budget !== 'number') {
     throw new TypeError('ellipsoid view refinement budget must be a number');
   }
@@ -95,6 +156,13 @@ export function selectEllipsoidViewDemandReference(shape, {
       `ellipsoid view refinement budget must be an integer from 0 to ${MAX_REFINEMENT_BUDGET}`,
     );
   }
+  if (typeof maxErrorPixels !== 'number') {
+    throw new TypeError('ellipsoid view maximum error must be a number');
+  }
+  if (!Number.isFinite(maxErrorPixels) || maxErrorPixels < 0) {
+    throw new RangeError('ellipsoid view maximum error must be finite and non-negative');
+  }
+  requireCamera(camera);
   const visitedFaces = traversalFaces(shape, traversalChunks);
   const positions = new Map(shape.vertices.map(({ id, position }) => [id, position]));
   const basis = cameraBasis(camera);
@@ -121,6 +189,9 @@ export function selectEllipsoidViewDemandReference(shape, {
     sum + (radius * basis.right[axis]) ** 2
   ), 0));
   const minimumDepth = centerDepth - supportDepth;
+  if (!(minimumDepth > 0)) {
+    throw new RangeError('ellipsoid must be wholly in front of the view camera');
+  }
   const maximumRadius = Math.max(...shape.radii);
   const culled = [];
   const candidates = [];

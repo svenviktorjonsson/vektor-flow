@@ -150,3 +150,38 @@ test('face demands are stable across traversal order and chunks', () => {
   assert.throws(() => select([[ids[0], ...ids]]), RangeError);
   assert.throws(() => select([[...ids.slice(0, -1), 'face:missing']]), RangeError);
 });
+
+test('view demand rejects unsafe or degenerate projection inputs', () => {
+  const shape = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const select = (overrides = {}, candidateShape = shape) => (
+    selectEllipsoidViewDemandReference(candidateShape, {
+      camera,
+      maxErrorPixels: 0,
+      budget: 2,
+      ...overrides,
+    })
+  );
+
+  assert.throws(() => select({}, {}), TypeError);
+  assert.throws(() => select({ maxErrorPixels: '0' }), TypeError);
+  assert.throws(() => select({ maxErrorPixels: -1 }), RangeError);
+  assert.throws(() => select({ maxErrorPixels: Infinity }), RangeError);
+  assert.throws(() => select({
+    camera: { ...camera, eye: [0, 0, 0], target: [0, 0, 0] },
+  }), RangeError);
+  assert.throws(() => select({
+    camera: { ...camera, eye: [8, 0, 0], up: [1, 0, 0] },
+  }), RangeError);
+  assert.throws(() => select({
+    camera: { ...camera, verticalFovRadians: 0 },
+  }), RangeError);
+  assert.throws(() => select({
+    camera: { ...camera, verticalFovRadians: Math.PI },
+  }), RangeError);
+  assert.throws(() => select({
+    camera: { ...camera, viewportHeight: 0 },
+  }), RangeError);
+  assert.throws(() => select({
+    camera: { ...camera, eye: [2, 0, 0] },
+  }), RangeError);
+});
