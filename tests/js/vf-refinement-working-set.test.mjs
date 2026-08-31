@@ -66,3 +66,32 @@ test('working set retains only highest-priority detail within both budgets', () 
   assert.ok(Object.isFrozen(state));
   assert.ok(Object.isFrozen(state.entries));
 });
+
+test('unchanged active demand reaches a retained steady state', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const demands = [
+    demand('face:+x:+y:+z', {
+      silhouette: true,
+      silhouetteErrorPixels: 40,
+      projectedErrorPixels: 40,
+    }),
+    demand('face:+x:+y:-z', {
+      silhouette: true,
+      silhouetteErrorPixels: 20,
+      projectedErrorPixels: 20,
+    }),
+  ];
+  const options = { demands, vertexBudget: 2, faceBudget: 6 };
+  const first = updateEllipsoidRefinementWorkingSetReference(coarse, null, options);
+  const second = updateEllipsoidRefinementWorkingSetReference(coarse, first, options);
+
+  assert.strictEqual(second.coarse, coarse);
+  assert.strictEqual(second.entries[0], first.entries[0]);
+  assert.strictEqual(second.entries[1], first.entries[1]);
+  assert.deepEqual(second.usage, first.usage);
+  assert.deepEqual(second.changes, {
+    retained: ['face:+x:+y:+z', 'face:+x:+y:-z'],
+    created: [],
+    evicted: [],
+  });
+});

@@ -18,7 +18,6 @@ function generateEntry(coarse, activeDemand) {
   const refined = refineEllipsoidFaceReference(coarse, activeDemand.face);
   return Object.freeze({
     face: activeDemand.face,
-    demand: activeDemand,
     vertices: Object.freeze(refined.vertices.slice(coarse.vertices.length)),
     faces: Object.freeze(refined.faces.filter(({ id }) => (
       id.startsWith(`${activeDemand.face}/refine:1/`)
@@ -33,15 +32,24 @@ export function updateEllipsoidRefinementWorkingSetReference(coarse, previous, {
 }) {
   const capacity = Math.min(vertexBudget, Math.floor(faceBudget / 3));
   const selected = [...demands].sort(compareDemandPriority).slice(0, capacity);
+  const previousByFace = new Map(
+    (previous?.coarse === coarse ? previous.entries : []).map((entry) => [entry.face, entry]),
+  );
   const entries = Object.freeze(selected.map((activeDemand) => (
-    generateEntry(coarse, activeDemand)
+    previousByFace.get(activeDemand.face) ?? generateEntry(coarse, activeDemand)
   )));
-  const created = entries.map(({ face }) => face);
+  const retained = entries
+    .map(({ face }) => face)
+    .filter((face) => previousByFace.has(face));
+  const created = entries
+    .map(({ face }) => face)
+    .filter((face) => !previousByFace.has(face));
+  const selectedFaces = new Set(entries.map(({ face }) => face));
   const evicted = previous === null
     ? []
     : previous.entries
       .map(({ face }) => face)
-      .filter((face) => !created.includes(face));
+      .filter((face) => !selectedFaces.has(face));
   return Object.freeze({
     coarse,
     entries,
@@ -54,7 +62,7 @@ export function updateEllipsoidRefinementWorkingSetReference(coarse, previous, {
       faces: faceBudget,
     }),
     changes: Object.freeze({
-      retained: Object.freeze([]),
+      retained: Object.freeze(retained),
       created: Object.freeze(created),
       evicted: Object.freeze(evicted),
     }),
