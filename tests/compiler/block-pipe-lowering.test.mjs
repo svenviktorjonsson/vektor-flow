@@ -155,9 +155,13 @@ test("the foldered chess bot advances through the next rebinding gate", {
     diagnostic,
     /in function __vkf_module_bot__castle_rights_score: Cannot declare existing name black_score; update it with \.black_score:value/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     diagnostic,
     /in function __vkf_module_bot__evaluate_state: Cannot declare existing name score; update it with \.score:value/u,
+  );
+  assert.match(
+    diagnostic,
+    /in function __vkf_module_bot__evaluate_state: Cannot declare existing name i; update it with \.i:value/u,
   );
   await assert.rejects(access(artifact));
 });
