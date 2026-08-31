@@ -1507,12 +1507,16 @@ void collect_owner_event_poll_binding(
         }
         const auto& owner = object_of(
             field(value, "owner", "owner event poll"), "owner event poll owner");
-        if (string_field(value, "owner_kind", "owner event poll") != "Button" ||
-            string_field(value, "type", "owner event poll") != "ButtonEvent|null" ||
-            string_field(owner, "kind", "owner event poll owner") != "load" ||
-            string_field(owner, "type", "owner event poll owner") !=
-                "ui_component<Button>") {
-            throw WasmArtifactFailure("malformed internal Button owner event poll");
+        const std::string owner_kind = string_field(value, "owner_kind", "owner event poll");
+        const std::string poll_type = string_field(value, "type", "owner event poll");
+        const std::string owner_type = string_field(owner, "type", "owner event poll owner");
+        const bool button_poll = owner_kind == "Button" &&
+            poll_type == "ButtonEvent|null" && owner_type == "ui_component<Button>";
+        const bool slider_poll = owner_kind == "Input" &&
+            poll_type == "SliderEvent|null" && owner_type == "ui_component<Input>";
+        if ((!button_poll && !slider_poll) ||
+            string_field(owner, "kind", "owner event poll owner") != "load") {
+            throw WasmArtifactFailure("malformed internal component owner event poll");
         }
         vf::JsonValue::Object descriptor;
         descriptor["binding"] = field(statement, "name", "owner event poll binding");
@@ -1581,11 +1585,13 @@ void collect_owner_event_loop_binding(
             owner, "type", "owner event loop owner");
         const bool button_poll = owner_kind == "Button" &&
             poll_type == "ButtonEvent|null" && owner_type == "ui_component<Button>";
+        const bool slider_poll = owner_kind == "Input" &&
+            poll_type == "SliderEvent|null" && owner_type == "ui_component<Input>";
         const bool display_poll = owner_kind == "Display" &&
             poll_type == "DisplayEvent|null" && owner_type == "Display<2>";
         if (string_field(poll, "kind", "owner event loop poll") != "ui_owner_event_get" ||
             string_field(owner, "kind", "owner event loop owner") != "load" ||
-            (!button_poll && !display_poll)) {
+            (!button_poll && !slider_poll && !display_poll)) {
             throw WasmArtifactFailure("malformed internal owner event loop poll");
         }
 
@@ -1601,7 +1607,8 @@ void collect_owner_event_loop_binding(
                 arm, "event_type", "owner event loop arm");
             if (string_field(arm, "kind", "owner event loop arm") !=
                     "ui_owner_event_arm" ||
-                (event_type != "ButtonEvent" && event_type != "ButtonClicked") ||
+                (event_type != "ButtonEvent" && event_type != "ButtonClicked" &&
+                 event_type != "SliderEvent" && event_type != "SliderValueChanged") ||
                 !field(arm, "body", "owner event loop arm").is_object()) {
                 throw WasmArtifactFailure("malformed internal owner event loop arm");
             }

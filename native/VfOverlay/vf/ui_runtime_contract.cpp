@@ -976,22 +976,36 @@ InternalButtonClickedOwnerQueues::InternalButtonClickedOwnerQueues(
     : InternalButtonClickedOwnerQueues(
           std::move(button_id),
           std::vector<std::string>{std::move(frame_id)},
-          std::move(display_id)) {}
+          std::move(display_id),
+          "ButtonClicked") {}
 
 InternalButtonClickedOwnerQueues::InternalButtonClickedOwnerQueues(
     std::string button_id,
     std::vector<std::string> frame_ids,
     std::string display_id)
-    : button_id_(std::move(button_id)),
+    : InternalButtonClickedOwnerQueues(
+          std::move(button_id),
+          std::move(frame_ids),
+          std::move(display_id),
+          "ButtonClicked") {}
+
+InternalButtonClickedOwnerQueues::InternalButtonClickedOwnerQueues(
+    std::string component_id,
+    std::vector<std::string> frame_ids,
+    std::string display_id,
+    std::string expected_event)
+    : component_id_(std::move(component_id)),
+      expected_event_(std::move(expected_event)),
       frame_ids_(std::move(frame_ids)),
       display_id_(std::move(display_id)),
       frames_(frame_ids_.size()) {
-    if (button_id_.empty() || frame_ids_.empty() || display_id_.empty()) {
-        throw std::runtime_error("internal ButtonClicked owner ids must not be empty");
+    if (component_id_.empty() || expected_event_.empty() ||
+        frame_ids_.empty() || display_id_.empty()) {
+        throw std::runtime_error("internal component owner ids and event must not be empty");
     }
     for (const std::string& frame_id : frame_ids_) {
         if (frame_id.empty()) {
-            throw std::runtime_error("internal ButtonClicked owner ids must not be empty");
+            throw std::runtime_error("internal component owner ids must not be empty");
         }
     }
     button_.ledger_ = this;
@@ -1015,10 +1029,11 @@ void InternalButtonClickedOwnerQueues::ConsumeRuntimePacket(const UiRuntimePacke
     }
     const std::optional<std::string> widget_id = GetInputEventWidgetId(*payload);
     const std::optional<std::string> frame_id = GetInputEventFrameId(*payload);
-    if (GetInputEventName(*payload) != "ButtonClicked" ||
-        !widget_id.has_value() || *widget_id != button_id_ ||
+    if (GetInputEventName(*payload) != expected_event_ ||
+        !widget_id.has_value() || *widget_id != component_id_ ||
         !frame_id.has_value() || *frame_id != frame_ids_.front()) {
-        throw std::runtime_error("ButtonClicked owner event does not match its bound owners");
+        throw std::runtime_error(expected_event_ +
+            " owner event does not match its bound owners");
     }
 
     const std::size_t owner_count = frames_.size() + 2;
@@ -1035,6 +1050,29 @@ void InternalButtonClickedOwnerQueues::ConsumeRuntimePacket(const UiRuntimePacke
 
 InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Button() noexcept {
     return button_;
+}
+
+InternalSliderValueChangedOwnerQueues::InternalSliderValueChangedOwnerQueues(
+    std::string input_id,
+    std::string frame_id,
+    std::string display_id)
+    : InternalSliderValueChangedOwnerQueues(
+          std::move(input_id),
+          std::vector<std::string>{std::move(frame_id)},
+          std::move(display_id)) {}
+
+InternalSliderValueChangedOwnerQueues::InternalSliderValueChangedOwnerQueues(
+    std::string input_id,
+    std::vector<std::string> frame_ids,
+    std::string display_id)
+    : InternalButtonClickedOwnerQueues(
+          std::move(input_id),
+          std::move(frame_ids),
+          std::move(display_id),
+          "SliderValueChanged") {}
+
+InternalOwnerEventQueue& InternalSliderValueChangedOwnerQueues::Input() noexcept {
+    return Button();
 }
 
 InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Frame() noexcept {

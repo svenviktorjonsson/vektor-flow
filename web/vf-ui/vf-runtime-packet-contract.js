@@ -115,9 +115,12 @@
     return value;
   }
 
-  function createInternalButtonClickedOwnerQueues(options) {
+  function createInternalComponentOwnerQueues(options) {
     options = options || {};
-    var buttonId = requireOwnerId(options.buttonId, "buttonId");
+    var componentKind = requireOwnerId(options.componentKind, "componentKind");
+    var componentId = requireOwnerId(options.componentId, "componentId");
+    var expectedEvent = requireOwnerId(options.expectedEvent, "expectedEvent");
+    var componentKey = String(options.componentKey || "component");
     var frameIds = Array.isArray(options.frameIds)
       ? options.frameIds.map(function(id) { return requireOwnerId(id, "frameIds"); })
       : [requireOwnerId(options.frameId, "frameId")];
@@ -211,11 +214,10 @@
       return value;
     }
 
-    var buttonOwner = owner("Button", buttonId);
+    var componentOwner = owner(componentKind, componentId);
     var frameOwners = frameIds.map(function(id) { return owner("Frame", id); });
     var displayOwner = owner("Display", displayId);
     var queues = {
-      button: buttonOwner,
       frame: frameOwners[0],
       frames: Object.freeze(frameOwners.slice()),
       display: displayOwner,
@@ -254,8 +256,8 @@
           throw new TypeError(payloadError);
         }
         var event = packet.payload.event;
-        if (event.event !== "ButtonClicked" || event.widget_id !== buttonId || event.frame_id !== frameId) {
-          throw new TypeError("ButtonClicked owner event does not match its bound owners");
+        if (event.event !== expectedEvent || event.widget_id !== componentId || event.frame_id !== frameId) {
+          throw new TypeError(expectedEvent + " owner event does not match its bound owners");
         }
 
         var interactionEvent = Object.freeze(Object.assign({}, event));
@@ -275,7 +277,34 @@
         return events[0];
       }
     };
+    queues[componentKey] = componentOwner;
     return Object.freeze(queues);
+  }
+
+  function createInternalButtonClickedOwnerQueues(options) {
+    options = options || {};
+    return createInternalComponentOwnerQueues({
+      componentKind: "Button",
+      componentId: requireOwnerId(options.buttonId, "buttonId"),
+      componentKey: "button",
+      expectedEvent: "ButtonClicked",
+      frameId: options.frameId,
+      frameIds: options.frameIds,
+      displayId: options.displayId
+    });
+  }
+
+  function createInternalSliderValueChangedOwnerQueues(options) {
+    options = options || {};
+    return createInternalComponentOwnerQueues({
+      componentKind: "Input",
+      componentId: requireOwnerId(options.inputId, "inputId"),
+      componentKey: "input",
+      expectedEvent: "SliderValueChanged",
+      frameId: options.frameId,
+      frameIds: options.frameIds,
+      displayId: options.displayId
+    });
   }
 
   function requireLayerId(value) {
@@ -357,9 +386,11 @@
     var boundOwner = owner && owners && owners[owner.name];
     var buttonPoll = poll && poll.owner_kind === "Button" &&
       poll.type === "ButtonEvent|null" && owner && owner.type === "ui_component<Button>";
+    var sliderPoll = poll && poll.owner_kind === "Input" &&
+      poll.type === "SliderEvent|null" && owner && owner.type === "ui_component<Input>";
     var displayPoll = poll && poll.owner_kind === "Display" &&
       poll.type === "DisplayEvent|null" && owner && owner.type === "Display<2>";
-    if (!poll || poll.kind !== "ui_owner_event_get" || (!buttonPoll && !displayPoll) ||
+    if (!poll || poll.kind !== "ui_owner_event_get" || (!buttonPoll && !sliderPoll && !displayPoll) ||
         !owner || owner.kind !== "load" ||
         !boundOwner || boundOwner.kind !== poll.owner_kind || !boundOwner.events ||
         typeof boundOwner.events.get !== "function") {
@@ -379,7 +410,8 @@
     var eventTypes = plan && plan.event_types;
     var validEventTypes = Array.isArray(eventTypes) && eventTypes.length > 0 &&
       eventTypes.every(function(eventType) {
-        return eventType === "ButtonEvent" || eventType === "ButtonClicked";
+        return eventType === "ButtonEvent" || eventType === "ButtonClicked" ||
+          eventType === "SliderEvent" || eventType === "SliderValueChanged";
       });
     if (!plan || planKeys.length !== 3 ||
         planKeys.some(function(key) {
@@ -414,6 +446,9 @@
         if (branchIndex < 0 && eventType === "ButtonClicked") {
           branchIndex = eventTypes.indexOf("ButtonEvent");
         }
+        if (branchIndex < 0 && eventType === "SliderValueChanged") {
+          branchIndex = eventTypes.indexOf("SliderEvent");
+        }
         return Object.freeze({
           binding: plan.binding,
           event_type: eventType,
@@ -436,6 +471,7 @@
     BOOTSTRAP_COALESCE_KINDS: BOOTSTRAP_COALESCE_KINDS,
     validatePacketPayload: validatePacketPayload,
     createInternalButtonClickedOwnerQueues: createInternalButtonClickedOwnerQueues,
+    createInternalSliderValueChangedOwnerQueues: createInternalSliderValueChangedOwnerQueues,
     createInternalGeometryPickOwnerQueues: createInternalGeometryPickOwnerQueues,
     executeInternalOwnerEventPoll: executeInternalOwnerEventPoll,
     createInternalOwnerEventLoopExecution: createInternalOwnerEventLoopExecution

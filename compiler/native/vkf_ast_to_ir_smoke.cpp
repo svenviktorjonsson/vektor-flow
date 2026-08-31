@@ -3693,17 +3693,20 @@ private:
                         const std::string owner_type = env.get(owner_name);
                         if (args.empty() && named_args.empty() && spread_args.empty() &&
                             (owner_type == "ui_component<Button>" ||
+                             owner_type == "ui_component<Input>" ||
                              owner_type == "Display<2>")) {
                             const bool button_owner = owner_type == "ui_component<Button>";
+                            const bool slider_owner = owner_type == "ui_component<Input>";
                             auto owner = node("load");
                             owner["name"] = vf::JsonValue(owner_name);
                             owner["type"] = vf::JsonValue(owner_type);
                             auto poll = node("ui_owner_event_get");
                             poll["owner"] = vf::JsonValue(std::move(owner));
                             poll["owner_kind"] = vf::JsonValue(
-                                button_owner ? "Button" : "Display");
+                                button_owner ? "Button" : slider_owner ? "Input" : "Display");
                             poll["type"] = vf::JsonValue(
-                                button_owner ? "ButtonEvent|null" : "DisplayEvent|null");
+                                button_owner ? "ButtonEvent|null" :
+                                slider_owner ? "SliderEvent|null" : "DisplayEvent|null");
                             return vf::JsonValue(std::move(poll));
                         }
                     }
@@ -6069,7 +6072,8 @@ private:
                         object_of(condition, "match arm condition"),
                         "name", "match arm condition");
                     supported = supported &&
-                        (event_type == "ButtonEvent" || event_type == "ButtonClicked");
+                        (event_type == "ButtonEvent" || event_type == "ButtonClicked" ||
+                         event_type == "SliderEvent" || event_type == "SliderValueChanged");
                 }
                 if (supported) {
                     vf::JsonValue::Array arms;
@@ -6100,7 +6104,8 @@ private:
                     return vf::JsonValue(std::move(out));
                 }
                 throw IRFailure(
-                    "owner event loop currently supports ButtonEvent and ButtonClicked branches");
+                    "owner event loop currently supports ButtonEvent, ButtonClicked, "
+                    "SliderEvent, and SliderValueChanged branches");
             }
             vf::JsonValue::Array arms;
             for (const auto& arm_value : array_of(field(object, "arms", "match_stmt"), "match_stmt.arms")) {

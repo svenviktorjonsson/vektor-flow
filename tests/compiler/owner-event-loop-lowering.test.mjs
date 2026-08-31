@@ -260,7 +260,7 @@ test("unsupported typed arms reject instead of silently dropping the runtime loo
   assert.equal(compileResult.stdout, "");
   assert.match(
     compileResult.stderr,
-    /^<ast-to-ir>:1:1: owner event loop currently supports ButtonEvent and ButtonClicked branches\r?\n$/u,
+    /^<ast-to-ir>:1:1: owner event loop currently supports ButtonEvent, ButtonClicked, SliderEvent, and SliderValueChanged branches\r?\n$/u,
   );
 
   // Stale typed IR from before this diagnostic must also fail atomically in the
