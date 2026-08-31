@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   createGrassMaterialFieldReference,
@@ -112,4 +113,16 @@ test('approaching the field appends detail without changing shared cell blades',
     [...sharedFar.indices],
     [...sharedNear.indices.slice(0, sharedFar.indices.length)],
   );
+});
+
+test('offscreen fixture renders the cells selected from its camera', async () => {
+  const html = await readFile(
+    new URL('../fixtures/grass-view-demand-smoke.html', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(html, /selectGrassViewDemandReference/);
+  assert.match(html, /createGrassRendererPacketsReference/);
+  assert.match(html, /mountDynamicGeomFrame/);
+  assert.match(html, /__grassViewDemandEvidence/);
 });
