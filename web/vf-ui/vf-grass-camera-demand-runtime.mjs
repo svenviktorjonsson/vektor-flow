@@ -1,5 +1,5 @@
 import {
-  createGrassRendererBatchPacketsReference,
+  createGrassRendererGpuBatchPacketsReference,
 } from './vf-grass-material-field.mjs';
 import {
   selectGrassViewDemandReference,
@@ -43,8 +43,12 @@ function adaptWorkingSet(workingSet, previousById) {
       blades += packet.blade_count;
       const reusesVertexTemplate = previous?.vertices === packet.vertices;
       const reusesIndexTemplate = previous?.indices === packet.indices;
+      const grassGpuBytes = packet.grass_gpu
+        ? packet.grass_gpu.cell_records.byteLength + 16
+        : 0;
       vertexBytes += (reusesVertexTemplate ? 0 : packet.vertices.byteLength)
-        + (packet.instances?.byteLength ?? 0);
+        + (packet.instances?.byteLength ?? 0)
+        + grassGpuBytes;
       indexBytes += reusesIndexTemplate ? 0 : packet.indices.byteLength;
     }
   }
@@ -135,7 +139,7 @@ export function createGrassCameraDemandControllerReference({
           upload: emptyUpload(),
         });
       } else {
-        const workingSet = createGrassRendererBatchPacketsReference(field, demand);
+        const workingSet = createGrassRendererGpuBatchPacketsReference(field, demand);
         const adapted = adaptWorkingSet(workingSet, packetById);
         packetById = adapted.byId;
         delta = adapted.delta;

@@ -72,9 +72,9 @@ test('grass camera demand coalesces revisions before generating retained packets
   assert.deepEqual(applied.runtime.upload, {
     packets: 1,
     blades: 256,
-    vertexBytes: 160 + 256 * 64,
+    vertexBytes: 160 + 32 * 48 + 16,
     indexBytes: 24,
-    bytes: 184 + 256 * 64,
+    bytes: 184 + 32 * 48 + 16,
   });
   assert.equal(runtime.packets().length, 1);
   assert.ok(runtime.packets().every(({ instance_kind: kind }) => (
@@ -82,6 +82,8 @@ test('grass camera demand coalesces revisions before generating retained packets
   )));
   assert.equal(runtime.packets()[0].id, 'grass:view-batch:v1');
   assert.equal(runtime.packets()[0].cell_ids.length, 32);
+  assert.equal(runtime.packets()[0].instances, undefined);
+  assert.equal(runtime.packets()[0].grass_gpu.kind, 'grass-blade-philox:v1');
   assert.equal(renders.length, 1);
   assert.deepEqual(controller.status(), {
     scheduled: false,
@@ -160,8 +162,8 @@ test('moving the grass view replaces one batch while retaining stable cell ident
   assert.deepEqual(changed.runtime.removed, []);
   assert.deepEqual(changed.runtime.upserted, ['grass:view-batch:v1']);
   assert.equal(changed.runtime.upload.indexBytes, 0);
-  assert.equal(changed.runtime.upload.vertexBytes, moved.instances.byteLength);
-  assert.equal(changed.runtime.upload.bytes, moved.instances.byteLength);
+  assert.equal(changed.runtime.upload.vertexBytes, moved.grass_gpu.cell_records.byteLength + 16);
+  assert.equal(changed.runtime.upload.bytes, moved.grass_gpu.cell_records.byteLength + 16);
   assert.equal(moved.id, initial.id);
   assert.notStrictEqual(moved, initial);
   assert.ok(sharedCellIds.length > 0);
