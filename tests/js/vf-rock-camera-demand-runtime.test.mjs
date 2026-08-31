@@ -170,3 +170,30 @@ test('camera changes upload one bounded detail and regenerate evicted packets ex
   assert.notStrictEqual(regenerated[1], initial[1]);
   assert.strictEqual(regenerated[2], initial[2]);
 });
+
+test('default camera demand scheduling yields before renderer work', async () => {
+  const order = [];
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const runtime = createRetainedGeometryPacketRuntimeReference({
+    requestRender: () => order.push('render'),
+  });
+  const controller = createEllipsoidCameraDemandControllerReference({
+    coarse,
+    runtime,
+    maxErrorPixels: 0,
+    refinementBudget: 4,
+    vertexBudget: 2,
+    faceBudget: 6,
+  });
+
+  const completion = controller.request({
+    revision: 1,
+    camera: camera([8, 0, 0]),
+  });
+  order.push('request-returned');
+
+  assert.deepEqual(order, ['request-returned']);
+  assert.equal(controller.status().scheduled, true);
+  assert.equal((await completion).status, 'applied');
+  assert.deepEqual(order, ['request-returned', 'render']);
+});
