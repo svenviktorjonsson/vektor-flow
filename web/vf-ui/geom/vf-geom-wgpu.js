@@ -1206,6 +1206,9 @@ fn clusteredAdditionalDirectLights(
       continue;
     }
     let light = clusteredLightRecords[lightId];
+    if (light.direction_kind.w >= 1.5) {
+      continue;
+    }
     let toLight = light.position_range.xyz - worldPos;
     let distance = max(length(toLight), 1e-6);
     let L = toLight / distance;
