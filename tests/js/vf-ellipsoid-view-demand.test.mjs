@@ -95,3 +95,38 @@ test('camera projection pins conservative edge-error bounds and thresholds', () 
   assert.equal(select(16, 72).demands.length, 4);
   assert.equal(select(16, 73).demands.length, 0);
 });
+
+test('silhouette candidates outrank a visible interior face', () => {
+  const shape = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const select = (budget) => selectEllipsoidViewDemandReference(shape, {
+    camera: { ...camera, eye: [8, 8, 8] },
+    maxErrorPixels: 0,
+    budget,
+  });
+  const selection = select(3);
+
+  assert.deepEqual(selection.demands, [
+    'face:-x:+y:+z',
+    'face:+x:-y:+z',
+    'face:+x:+y:-z',
+  ]);
+  assert.ok(selection.candidates.slice(0, 3).every(({ silhouette }) => silhouette));
+  assert.deepEqual(selection.candidates[3], {
+    face: 'face:+x:+y:+z',
+    silhouette: false,
+    silhouetteEdges: [],
+    silhouetteErrorPixels: 0,
+    projectedErrorPixels: 38.242090004204954,
+    errorBoundPixels: 86.40356475624637,
+  });
+  assert.deepEqual(selection.culled, [
+    'face:-x:-y:+z',
+    'face:-x:+y:-z',
+    'face:-x:-y:-z',
+    'face:+x:-y:-z',
+  ]);
+  assert.deepEqual(select(4).demands, [
+    ...selection.demands,
+    'face:+x:+y:+z',
+  ]);
+});
