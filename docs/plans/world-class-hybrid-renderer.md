@@ -20,7 +20,9 @@ cannot be reconstructed reliably from cheaper information.
 This roadmap must not make the 0.4 useful-UI release wait for a complete game
 engine. It strengthens the existing renderer behind retained contracts. The
 0.5 self-hosting program later migrates proven target-independent policy and
-material semantics into VKF without changing behavior.
+material semantics into VKF without changing behavior. The
+[0.6 procedural material and geometry release](0.6.0.md) then builds researched,
+demand-generated natural objects and surfaces on this renderer foundation.
 
 ## Architecture decision
 
