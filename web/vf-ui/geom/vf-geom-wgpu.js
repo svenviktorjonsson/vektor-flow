@@ -8443,8 +8443,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       for (var i = 0; i < scene.parts.length; i++) {
         var mesh = scene.parts[i];
         if (!mesh) { continue; }
-        var existing = previousParts[i];
-        if (this._canReuseScenePart(existing, mesh, i)) {
+        var existing = null;
+        var existingIndex = -1;
+        for (var previousIndex = 0; previousIndex < previousParts.length; previousIndex++) {
+          var candidate = previousParts[previousIndex];
+          if (candidate && this._canReuseScenePart(candidate, mesh, i)) {
+            existing = candidate;
+            existingIndex = previousIndex;
+            break;
+          }
+        }
+        if (existing) {
           existing.depthOrder = i;
           if (!mesh.instance_kind) {
             if (!existing.staticVertices) {
@@ -8467,12 +8476,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           existing.topology = mesh.topology || "triangle-list";
           existing.objectId = Number(mesh.object_id || (i + 1)) || (i + 1);
           nextParts[i] = existing;
-          previousParts[i] = null;
+          previousParts[existingIndex] = null;
           continue;
-        }
-        if (existing) {
-          this._destroyPart(existing);
-          previousParts[i] = null;
         }
         nextParts[i] = this._createScenePart(mesh, i);
         this._ensurePartBindGroup(nextParts[i]);
