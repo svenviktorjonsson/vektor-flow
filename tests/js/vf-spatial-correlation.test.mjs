@@ -89,3 +89,44 @@ test('spatial field identity is hierarchical and scale-stable', () => {
   assert.ok(Object.isFrozen(target));
   assert.ok(Object.isFrozen(target.hierarchy));
 });
+
+test('nearby field queries share correlation while distant queries do not', () => {
+  const node = createFieldNode();
+  const options = { correlationLength: 1, mean: 0, amplitude: 1 };
+  const count = 8_192;
+  const measureCorrelation = (offsetX, offsetY) => {
+    let sumA = 0;
+    let sumB = 0;
+    let sumAA = 0;
+    let sumBB = 0;
+    let sumAB = 0;
+    for (let index = 0; index < count; index += 1) {
+      const x = (index * 0.7548776662466927) % 256;
+      const y = (index * 0.5698402909980532) % 256;
+      const a = sampleSpatialCorrelation2Reference(node, [x, y], options);
+      const b = sampleSpatialCorrelation2Reference(
+        node,
+        [x + offsetX, y + offsetY],
+        options,
+      );
+      sumA += a;
+      sumB += b;
+      sumAA += a * a;
+      sumBB += b * b;
+      sumAB += a * b;
+    }
+    const meanA = sumA / count;
+    const meanB = sumB / count;
+    const varianceA = sumAA / count - meanA * meanA;
+    const varianceB = sumBB / count - meanB * meanB;
+    const covariance = sumAB / count - meanA * meanB;
+    return covariance / Math.sqrt(varianceA * varianceB);
+  };
+
+  const nearby = measureCorrelation(0.05, 0.02);
+  const distant = measureCorrelation(37.5, 19.25);
+  assert.ok(Math.abs(nearby - 0.9947067344658742) < 1e-12);
+  assert.ok(Math.abs(distant - (-0.001725963388763766)) < 1e-12);
+  assert.ok(nearby > 0.99);
+  assert.ok(Math.abs(distant) < 0.02);
+});
