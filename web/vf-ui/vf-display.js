@@ -2598,18 +2598,24 @@
       var inds = spec.indices || [];
       var topology = String(spec.topology || "");
       var renderMode = fieldMeshRenderMode(spec);
-      if (spec.instance_kind && spec.instances && Number(spec.instance_count || 0) > 0) {
+      if (spec.instance_kind && (spec.instances || spec.grass_gpu) && Number(spec.instance_count || 0) > 0) {
         mesh = {
           id: spec.id || "field_mesh",
           mode3d: spec.mode3d === false ? false : true,
           label: spec.id || "field_mesh",
           vertices: (verts instanceof Float32Array) ? verts : new Float32Array(verts),
           indices: (inds instanceof Uint32Array) ? inds : new Uint32Array(inds),
-          instances: (spec.instances instanceof Float32Array) ? spec.instances : new Float32Array(spec.instances),
+          instances: spec.instances
+            ? ((spec.instances instanceof Float32Array) ? spec.instances : new Float32Array(spec.instances))
+            : undefined,
           instance_count: Math.max(0, Number(spec.instance_count || 0) | 0),
           instance_kind: String(spec.instance_kind || ""),
+          grass_gpu: spec.grass_gpu && typeof spec.grass_gpu === "object" ? spec.grass_gpu : undefined,
           static_vertices: spec.static_vertices === true,
           static_indices: spec.static_indices === true,
+          static_instances: spec.static_instances === true
+            ? true
+            : (spec.static_instances === false ? false : undefined),
           topology: spec.topology || "triangle-list",
           transparent: spec.transparent === true,
           depth_write: spec.depth_write === true,
