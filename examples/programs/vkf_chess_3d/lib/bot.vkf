@@ -69,7 +69,7 @@ piece_score(board:any, piece:Piece, perspective:num) -> num:
 
 castle_rights_score(state:GameState, perspective:num) -> num:
     white_score: 0
-    state.white_can_castle_king? white_score: white_score + 18
+    state.white_can_castle_king? .white_score: white_score + 18
     state.white_can_castle_queen? white_score: white_score + 12
     black_score: 0
     state.black_can_castle_king? black_score: black_score + 18
