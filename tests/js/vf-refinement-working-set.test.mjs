@@ -5,6 +5,9 @@ import {
   createCoarseEllipsoidReference,
 } from '../../web/vf-ui/vf-demand-refined-geometry.mjs';
 import {
+  selectEllipsoidViewDemandReference,
+} from '../../web/vf-ui/vf-ellipsoid-view-demand.mjs';
+import {
   updateEllipsoidRefinementWorkingSetReference,
 } from '../../web/vf-ui/vf-refinement-working-set.mjs';
 
@@ -215,4 +218,59 @@ test('working set rejects invalid budgets, priorities, and predecessor state', (
   });
   assert.throws(() => update({}, otherState), RangeError);
   assert.throws(() => update({}, null, {}), TypeError);
+});
+
+test('opposite camera demands converge to a bounded steady state', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const camera = {
+    eye: [8, 0, 0],
+    target: [0, 0, 0],
+    up: [0, 0, 1],
+    verticalFovRadians: Math.PI / 3,
+    viewportHeight: 1080,
+  };
+  const activeForEye = (eye) => {
+    const selection = selectEllipsoidViewDemandReference(coarse, {
+      camera: { ...camera, eye },
+      maxErrorPixels: 0,
+      budget: 4,
+    });
+    const active = new Set(selection.demands);
+    return selection.candidates.filter(({ face }) => active.has(face));
+  };
+  const update = (previous, demands) => updateEllipsoidRefinementWorkingSetReference(
+    coarse,
+    previous,
+    { demands, vertexBudget: 2, faceBudget: 6 },
+  );
+  const positiveDemands = activeForEye([8, 0, 0]);
+  const negativeDemands = activeForEye([-8, 0, 0]);
+  const positive = update(null, positiveDemands);
+  const negative = update(positive, negativeDemands);
+  const negativeSteady = update(negative, [...negativeDemands].reverse());
+  const positiveRegenerated = update(negativeSteady, positiveDemands);
+
+  assert.deepEqual(positive.entries.map(({ face }) => face), [
+    'face:+x:+y:+z',
+    'face:+x:+y:-z',
+  ]);
+  assert.deepEqual(negative.entries.map(({ face }) => face), [
+    'face:-x:+y:+z',
+    'face:-x:+y:-z',
+  ]);
+  assert.deepEqual(negative.changes, {
+    retained: [],
+    created: ['face:-x:+y:+z', 'face:-x:+y:-z'],
+    evicted: ['face:+x:+y:+z', 'face:+x:+y:-z'],
+  });
+  assert.strictEqual(negativeSteady.entries[0], negative.entries[0]);
+  assert.strictEqual(negativeSteady.entries[1], negative.entries[1]);
+  assert.deepEqual(negativeSteady.changes, {
+    retained: ['face:-x:+y:+z', 'face:-x:+y:-z'],
+    created: [],
+    evicted: [],
+  });
+  assert.deepEqual(positiveRegenerated.entries, positive.entries);
+  assert.deepEqual(positiveRegenerated.usage, { vertices: 2, faces: 6 });
+  assert.strictEqual(positiveRegenerated.coarse, coarse);
 });
