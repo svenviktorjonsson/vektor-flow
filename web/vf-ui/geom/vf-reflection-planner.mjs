@@ -1,3 +1,5 @@
+import { allocateReflectionAtlas } from './vf-reflection-atlas.mjs';
+
 const FNV_OFFSET_64 = 0xcbf29ce484222325n;
 const FNV_PRIME_64 = 0x100000001b3n;
 const U64_MASK = 0xffffffffffffffffn;
@@ -200,5 +202,23 @@ export function scheduleReflectionCaptures(clusters, budget) {
     budget: { maxCaptures, maxPixels },
     allocatedCaptures: jobs.length,
     allocatedPixels
+  };
+}
+
+export function planReflectionAtlas(clusters, options = {}) {
+  const captureRevision = canonicalId(options.captureRevision, 'captureRevision');
+  const scheduled = scheduleReflectionCaptures(clusters, options);
+  const jobs = scheduled.jobs.map(job => ({
+    ...job,
+    cacheKey: `reflection-capture-${stableHash([job.clusterId, captureRevision])}`
+  }));
+  const atlas = allocateReflectionAtlas(jobs, {
+    previous: options.previousAtlas,
+    maxCaptures: scheduled.budget.maxCaptures,
+    maxPixels: scheduled.budget.maxPixels
+  });
+  return {
+    capturePlan: { ...scheduled, jobs },
+    atlas
   };
 }
