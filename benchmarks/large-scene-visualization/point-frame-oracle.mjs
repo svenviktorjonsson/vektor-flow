@@ -171,6 +171,33 @@ export function framebufferRegionStats(rgba, workload, frame, options = {}) {
   };
 }
 
+export function opaqueFramebufferRegionStats(rgba, workload, frame) {
+  const [width, height] = workload.viewport;
+  if (!(rgba instanceof Uint8Array) || rgba.length !== width * height * 4) {
+    throw new TypeError('framebuffer must be an exact RGBA8 viewport readback');
+  }
+  const point = workload.pointRgba.map((value) => value / 255);
+  const background = workload.backgroundRgba.map((value) => value / 255);
+  let coverageChannel = 0;
+  for (let channel = 1; channel < 3; channel += 1) {
+    if (Math.abs(point[channel] - background[channel])
+      > Math.abs(point[coverageChannel] - background[coverageChannel])) {
+      coverageChannel = channel;
+    }
+  }
+  const contrast = point[coverageChannel] - background[coverageChannel];
+  if (Math.abs(contrast) < 1 / 255) throw new Error('point and background colors cannot recover coverage');
+  const foreground = new Float32Array(width * height);
+  for (let pixel = 0; pixel < foreground.length; pixel += 1) {
+    const observed = rgba[pixel * 4 + coverageChannel] / 255;
+    foreground[pixel] = Math.max(0, Math.min(1, (observed - background[coverageChannel]) / contrast));
+  }
+  const [gridWidth, gridHeight] = workload.correctness.grid;
+  const result = regionStatsFromForeground(foreground, workload, width, height, gridWidth, gridHeight);
+  result.frame = frame;
+  return result;
+}
+
 export function compareRegionStats(expected, observed, maximum) {
   if (expected.oracle !== observed.oracle
     || expected.reference !== observed.reference
