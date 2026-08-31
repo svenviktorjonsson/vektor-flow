@@ -153,6 +153,26 @@ export function normalReferenceFromU32(
   return mean + standardDeviation * standard;
 }
 
+export function correlatedNormal2ReferenceFromU32(
+  words,
+  { mean, standardDeviation, correlation },
+) {
+  requireSample(words);
+  const radiusUniform = (words[0] + 0.5) / U32_RANGE;
+  const angleUniform = words[1] / U32_RANGE;
+  const radius = Math.sqrt(-2 * Math.log(radiusUniform));
+  const angle = 2 * Math.PI * angleUniform;
+  const firstStandard = radius * Math.cos(angle);
+  const secondStandard = radius * Math.sin(angle);
+  return [
+    mean[0] + standardDeviation[0] * firstStandard,
+    mean[1] + standardDeviation[1] * (
+      correlation * firstStandard
+      + Math.sqrt(1 - correlation * correlation) * secondStandard
+    ),
+  ];
+}
+
 export function sampleNormalReference(
   node,
   sample,
