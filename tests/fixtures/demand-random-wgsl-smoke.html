@@ -4,6 +4,7 @@
 <script type="module">
   import {
     createPhilox4x32WgslParityFixture,
+    decodePhilox4x32WgslReadback,
     verifyPhilox4x32WgslParity,
   } from '/web/vf-ui/vf-demand-random-wgsl.mjs';
 
@@ -52,19 +53,19 @@
       compute: { module: shader, entryPoint: 'vf_philox_parity_main' },
     });
     const input = device.createBuffer({
-      size: fixture.inputWords.byteLength,
+      size: fixture.inputBytes.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     const output = device.createBuffer({
-      size: fixture.expectedWords.byteLength,
+      size: fixture.expectedBytes.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     const readback = device.createBuffer({
-      size: fixture.expectedWords.byteLength,
+      size: fixture.expectedBytes.byteLength,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     try {
-      device.queue.writeBuffer(input, 0, fixture.inputWords);
+      device.queue.writeBuffer(input, 0, fixture.inputBytes);
       const bindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
         entries: [
@@ -78,10 +79,10 @@
       pass.setBindGroup(0, bindGroup);
       pass.dispatchWorkgroups(Math.ceil(records.length / 64));
       pass.end();
-      encoder.copyBufferToBuffer(output, 0, readback, 0, fixture.expectedWords.byteLength);
+      encoder.copyBufferToBuffer(output, 0, readback, 0, fixture.expectedBytes.byteLength);
       device.queue.submit([encoder.finish()]);
       await readback.mapAsync(GPUMapMode.READ);
-      const actual = new Uint32Array(readback.getMappedRange()).slice();
+      const actual = decodePhilox4x32WgslReadback(readback.getMappedRange());
       readback.unmap();
       const parity = verifyPhilox4x32WgslParity(fixture, actual);
       if (!parity.matched) {
