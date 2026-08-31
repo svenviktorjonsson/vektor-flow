@@ -16,9 +16,9 @@ const environment = Object.freeze({
   browser: 'Microsoft Edge',
   browserVersion: '152.0.0.0',
   browserUserAgent: 'Edg/152.0.0.0',
-  gpu: 'Google; ANGLE SwiftShader',
+  gpu: 'Google; ANGLE NVIDIA',
   webglVendor: 'Google',
-  webglRenderer: 'ANGLE SwiftShader',
+  webglRenderer: 'ANGLE NVIDIA',
   devicePixelRatio: 1,
   viewport: [1280, 720],
   powerMode: 'not-recorded',
@@ -35,6 +35,12 @@ function lane(spec, milliseconds, options = {}) {
       ok: true,
       adapterVersion: 'test',
       environment: options.environment ?? environment,
+      clock: options.clock ?? {
+        crossOriginIsolated: true,
+        minimumPositiveDeltaMs: 0.005,
+        reads: 100_000,
+        positiveReads: 10_000,
+      },
       correctness: {
         passed: true,
         completedAtSequence: 1,
@@ -50,6 +56,7 @@ function lane(spec, milliseconds, options = {}) {
       timing: milliseconds === null ? null : {
         startedAtSequence: 2,
         samplesMs: Array(120).fill(milliseconds),
+        measuredGpuFrames: 120,
         gpuCompletionCalls: checkpointCount + 60 + 120,
       },
     },
@@ -135,4 +142,41 @@ test('never starts publication from incomplete preflight or mixed GPU evidence',
     versions: {},
     sourceCommit: 'b'.repeat(40),
   }), /same browser and GPU/);
+});
+
+test('withholds publication for software fallback or adaptively batched frame samples', () => {
+  const specs = applicableLaneSpecs(manifest);
+  const preflight = specs.map((spec) => lane(spec, null));
+  const timing = specs.map((spec) => lane(spec, 1));
+  timing[0].result.timing.measuredGpuFrames = 240;
+  assert.throws(() => buildTimingEvidence(manifest, {
+    preflight,
+    timing,
+    environment,
+    versions: {},
+    sourceCommit: 'b'.repeat(40),
+  }), /exactly one completed GPU frame per timing sample/);
+
+  const software = { ...environment, gpu: 'Google; ANGLE SwiftShader', webglRenderer: 'ANGLE SwiftShader' };
+  for (const item of [...preflight, ...timing]) item.result.environment = software;
+  timing[0].result.timing.measuredGpuFrames = 120;
+  assert.throws(() => buildTimingEvidence(manifest, {
+    preflight,
+    timing,
+    environment: software,
+    versions: {},
+    sourceCommit: 'b'.repeat(40),
+  }), /hardware renderer/);
+
+  for (const item of [...preflight, ...timing]) {
+    item.result.environment = environment;
+    item.result.clock = { ...item.result.clock, crossOriginIsolated: false, minimumPositiveDeltaMs: 0.1 };
+  }
+  assert.throws(() => buildTimingEvidence(manifest, {
+    preflight,
+    timing,
+    environment,
+    versions: {},
+    sourceCommit: 'b'.repeat(40),
+  }), /high-resolution clock evidence/);
 });
