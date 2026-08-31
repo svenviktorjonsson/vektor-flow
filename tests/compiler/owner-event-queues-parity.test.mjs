@@ -40,6 +40,28 @@ function summarize(event) {
 }
 
 function observe(contract) {
+  const slider = contract.createInternalSliderValueChangedOwnerQueues({
+    inputId: "detail",
+    frameId: "frame-0",
+    displayId: "display-0",
+  });
+  slider.consumeRuntimePacket({
+    seq: 1,
+    kind: "input.event",
+    payload: { event: {
+      event: "SliderValueChanged",
+      widget_id: "detail",
+      frame_id: "frame-0",
+      value: 0.75,
+    } },
+  });
+  const sliderObservation = {
+    input: slider.input.events.get(),
+    inputEmpty: slider.input.events.get(),
+    frame: slider.frame.events.get(),
+    display: slider.display.events.get(),
+  };
+
   const fanout = contract.createInternalButtonClickedOwnerQueues({
     buttonId: "button-0",
     frameId: "frame-0",
@@ -183,6 +205,7 @@ function observe(contract) {
   };
 
   return JSON.parse(JSON.stringify({
+    slider: sliderObservation,
     fanout: fanoutObservation,
     fifo: fifoObservation,
     malformed: malformedObservation,
@@ -223,6 +246,12 @@ test("ButtonClicked owner queues share propagation, cancellation, and default pa
   const nativeObservation = JSON.parse(native.stdout);
 
   assert.deepEqual(nativeObservation, browserObservation);
+  assert.deepEqual(browserObservation.slider, {
+    input: { event: "SliderValueChanged", widget_id: "detail", frame_id: "frame-0", value: 0.75 },
+    inputEmpty: null,
+    frame: { event: "SliderValueChanged", widget_id: "detail", frame_id: "frame-0", value: 0.75 },
+    display: { event: "SliderValueChanged", widget_id: "detail", frame_id: "frame-0", value: 0.75 },
+  });
   assert.deepEqual(browserObservation.fanout, {
     button: { event: "ButtonClicked", widget_id: "button-0", frame_id: "frame-0", x: 10 },
     buttonEmpty: null,

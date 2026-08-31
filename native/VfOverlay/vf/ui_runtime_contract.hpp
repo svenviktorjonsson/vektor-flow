@@ -158,6 +158,13 @@ public:
         bool stop_propagation);
     std::optional<InputEventPacketPayload> TakeInternalDefaultEvent();
 
+protected:
+    InternalButtonClickedOwnerQueues(
+        std::string component_id,
+        std::vector<std::string> frame_ids,
+        std::string display_id,
+        std::string expected_event);
+
 private:
     friend class InternalOwnerEventQueue;
     std::optional<InputEventPacketPayload> GetFromQueue(InternalOwnerEventQueue& owner);
@@ -168,7 +175,8 @@ private:
     void FinalizeInteraction(const std::shared_ptr<InternalOwnerEventInteraction>& interaction);
     InternalOwnerEventQueue& OwnerQueue(std::size_t index);
 
-    std::string button_id_;
+    std::string component_id_;
+    std::string expected_event_;
     std::vector<std::string> frame_ids_;
     std::string display_id_;
     std::uint64_t last_sequence_ = 0;
@@ -176,6 +184,21 @@ private:
     std::vector<InternalOwnerEventQueue> frames_;
     InternalOwnerEventQueue display_;
     std::deque<InputEventPacketPayload> default_events_;
+};
+
+class InternalSliderValueChangedOwnerQueues final
+    : public InternalButtonClickedOwnerQueues {
+public:
+    InternalSliderValueChangedOwnerQueues(
+        std::string input_id,
+        std::string frame_id,
+        std::string display_id);
+    InternalSliderValueChangedOwnerQueues(
+        std::string input_id,
+        std::vector<std::string> frame_ids,
+        std::string display_id);
+
+    InternalOwnerEventQueue& Input() noexcept;
 };
 
 class InternalGeometryPickOwnerQueues {

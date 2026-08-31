@@ -45,6 +45,25 @@ vf::UiRuntimePacket GeometryPacket(std::uint64_t sequence, std::uint64_t layer_i
         std::to_string(layer_id) + ",\"type\":\"Face\",\"u\":2,\"v\":5}}}}");
 }
 
+vf::UiRuntimePacket SliderPacket(std::uint64_t sequence, double value) {
+    return vf::ParseUiRuntimePacket(
+        "{\"seq\":" + std::to_string(sequence) +
+        ",\"kind\":\"input.event\",\"payload\":{\"event\":{"
+        "\"event\":\"SliderValueChanged\",\"widget_id\":\"detail\","
+        "\"frame_id\":\"frame-0\",\"value\":" + std::to_string(value) + "}}}");
+}
+
+vf::JsonValue SliderSummary(
+    const std::optional<vf::InputEventPacketPayload>& event) {
+    if (!event.has_value()) return vf::JsonValue(nullptr);
+    vf::JsonValue::Object summary;
+    summary.emplace("event", vf::GetInputEventName(*event));
+    summary.emplace("widget_id", *vf::GetInputEventWidgetId(*event));
+    summary.emplace("frame_id", *vf::GetInputEventFrameId(*event));
+    summary.emplace("value", vf::RequireInputEventField(*event, "value"));
+    return vf::JsonValue(std::move(summary));
+}
+
 void CheckGeometryPickQueues() {
     vf::InternalGeometryPickOwnerQueues queues(7, "frame-0", "display-0");
     bool rejected = false;
@@ -134,6 +153,15 @@ int main() {
         std::cerr << error.what() << std::endl;
         return 1;
     }
+    vf::InternalSliderValueChangedOwnerQueues slider(
+        "detail", "frame-0", "display-0");
+    slider.ConsumeRuntimePacket(SliderPacket(1, 0.75));
+    vf::JsonValue::Object slider_observation;
+    slider_observation.emplace("input", SliderSummary(slider.Input().Get()));
+    slider_observation.emplace("inputEmpty", SliderSummary(slider.Input().Get()));
+    slider_observation.emplace("frame", SliderSummary(slider.Frame().Get()));
+    slider_observation.emplace("display", SliderSummary(slider.Display().Get()));
+
     vf::InternalButtonClickedOwnerQueues fanout("button-0", "frame-0", "display-0");
     fanout.ConsumeRuntimePacket(Packet(1, 10));
     vf::JsonValue::Object fanout_observation;
@@ -242,6 +270,7 @@ int main() {
     completion_observation.emplace("defaultEmpty", Summary(completion.TakeInternalDefaultEvent()));
 
     vf::JsonValue::Object root;
+    root.emplace("slider", std::move(slider_observation));
     root.emplace("fanout", std::move(fanout_observation));
     root.emplace("fifo", std::move(fifo_observation));
     root.emplace("malformed", std::move(malformed_observation));
