@@ -121,6 +121,48 @@ test('sampling is traversal, chunk, and worker-order independent', () => {
   assert.deepEqual(interleaved, expected);
 });
 
+test('hierarchy levels share explicit ancestry without sharing random state', () => {
+  const parent = { ...DEMAND_VECTOR, hierarchy: ['world:alpine', 'object:grass'] };
+  const child = { ...parent, hierarchy: [...parent.hierarchy, 'patch:7'] };
+  const sibling = { ...parent, hierarchy: [...parent.hierarchy, 'patch:8'] };
+
+  const childFirst = demandU32(child);
+  const parentAfterChild = demandU32(parent);
+  const parentFirst = demandU32(parent);
+  const childAfterParent = demandU32(child);
+
+  assert.equal(childFirst, childAfterParent);
+  assert.equal(parentFirst, parentAfterChild);
+  assert.notEqual(parentFirst, childFirst);
+  assert.notEqual(childFirst, demandU32(sibling));
+});
+
+test('every demand identity dimension selects a different deterministic sample', () => {
+  const variants = [
+    { ...DEMAND_VECTOR, generator: 'vkf.geometry' },
+    { ...DEMAND_VECTOR, version: 2 },
+    { ...DEMAND_VECTOR, seed: [DEMAND_VECTOR.seed[0] + 1, DEMAND_VECTOR.seed[1]] },
+    { ...DEMAND_VECTOR, domain: 'geometry' },
+    { ...DEMAND_VECTOR, hierarchy: [...DEMAND_VECTOR.hierarchy, 'blade:3'] },
+    { ...DEMAND_VECTOR, lod: DEMAND_VECTOR.lod + 1 },
+    { ...DEMAND_VECTOR, channel: 'blade-width' },
+    { ...DEMAND_VECTOR, sample: [DEMAND_VECTOR.sample[0] + 1, DEMAND_VECTOR.sample[1]] },
+  ];
+  const outputs = [demandU32(DEMAND_VECTOR), ...variants.map(demandU32)];
+  assert.equal(new Set(outputs).size, outputs.length);
+});
+
+test('unrealized detail and huge sample identities do not expand stream storage', () => {
+  const small = deriveDemandStream({ ...DEMAND_VECTOR, lod: 0 });
+  const huge = deriveDemandStream({ ...DEMAND_VECTOR, lod: 0xffffffff });
+  assert.equal(small.key.length + small.counterPrefix.length, 4);
+  assert.equal(huge.key.length + huge.counterPrefix.length, 4);
+  assert.equal(
+    typeof sampleDemandStreamU32(huge, [0xffffffff, 0xffffffff]),
+    'number',
+  );
+});
+
 test('demand identity uses a pinned length-framed hierarchy encoding', () => {
   const encoded = encodeDemandIdentity({
     generator: 'p',
