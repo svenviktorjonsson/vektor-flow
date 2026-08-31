@@ -296,3 +296,20 @@ test("scene gallery captures a World through its embedding", async () => {
   assert.ok(bytes.length > 100);
   assert.equal(sha256(bytes), example.media.sha256);
 });
+
+test("scene gallery captures a short polar-coordinate ribbon", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "18-polar-ribbon");
+  assert.ok(example);
+  assert.equal(example.dimension, 2);
+  assert.deepEqual(example.features, ["2d", "plot", "polar-coordinates"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  assert.ok(source.includes('id:"polar_ribbon"'));
+  assert.ok(source.includes("frame.add("));
+  assert.ok(source.split(/\r?\n/u).filter((line) => line.trim()).length <= 12);
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+  assert.equal(example.capture.hidden, true);
+});
