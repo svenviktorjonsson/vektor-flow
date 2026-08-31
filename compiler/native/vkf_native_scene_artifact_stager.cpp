@@ -1557,6 +1557,17 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
         mesh_jsons.push_back("{\"id\":\"plane_0\",\"kind\":\"quad\",\"properties\":" +
             vkf_literal_to_json(*plane) + ",\"embedding\":" + native_scene_mesh_embedding_json("quad") + "}");
     }
+    if (const VkfLiteralValue* surfaces = object_field(root, "surfaces")) {
+        if (surfaces->kind == VkfLiteralKind::Array) {
+            for (std::size_t i = 0; i < surfaces->array.size(); ++i) {
+                const VkfLiteralValue& surface = surfaces->array[i];
+                const std::string id = literal_string_or(surface, "id", "surface_" + std::to_string(i));
+                mesh_jsons.push_back("{\"id\":\"" + json_escape(id) + "\",\"kind\":\"quad\",\"properties\":" +
+                    vkf_literal_to_json(surface) + ",\"embedding\":" + native_scene_mesh_embedding_json("quad") + "}");
+                occluder_ids.push_back(id);
+            }
+        }
+    }
     if (const VkfLiteralValue* cubes = object_field(root, "cubes")) {
         if (cubes->kind == VkfLiteralKind::Array) {
             for (std::size_t i = 0; i < cubes->array.size(); ++i) {
