@@ -156,7 +156,8 @@
   function packClusteredLightPlan(plan, grid, cap, lightCount) {
     var offsets = plan && plan.clusterOffsets ? plan.clusterOffsets : new Uint32Array(0);
     var lightIds = plan && plan.lightIds ? plan.lightIds : new Uint32Array(0);
-    var packed = new Uint32Array(8 + offsets.length + lightIds.length);
+    var packed = new Uint32Array(10 + offsets.length + lightIds.length);
+    var packedFloats = new Float32Array(packed.buffer);
     packed[0] = Math.max(0, Number(grid && grid.xSlices || 0) || 0) >>> 0;
     packed[1] = Math.max(0, Number(grid && grid.ySlices || 0) || 0) >>> 0;
     packed[2] = Math.max(0, Number(grid && grid.depthSlices || 0) || 0) >>> 0;
@@ -165,8 +166,10 @@
     packed[5] = Math.max(0, Number(plan && plan.assignmentCount || 0) || 0) >>> 0;
     packed[6] = Math.max(0, Number(plan && plan.overflowAssignmentCount || 0) || 0) >>> 0;
     packed[7] = Math.max(0, Number(lightCount || 0) || 0) >>> 0;
-    packed.set(offsets, 8);
-    packed.set(lightIds, 8 + offsets.length);
+    packedFloats[8] = Math.max(Number.EPSILON, Number(grid && grid.nearDepth || 0.05) || 0.05);
+    packedFloats[9] = Math.max(packedFloats[8] + Number.EPSILON, Number(grid && grid.farDepth || 500) || 500);
+    packed.set(offsets, 10);
+    packed.set(lightIds, 10 + offsets.length);
     return packed;
   }
 
