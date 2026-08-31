@@ -25,7 +25,7 @@ import {
   updateVkfOrbit,
   vkfMarkerInstances,
 } from './adapters/vkf-marker-impostor.mjs';
-import { rawOrbitUniform } from './adapters/raw-webgpu.mjs';
+import { rawOrbitUniform, rawPrimitiveForPointSize } from './adapters/raw-webgpu.mjs';
 import { threeOrbitPosition } from './adapters/three.mjs';
 import { deckOrbitViewState } from './adapters/deck-gl.mjs';
 import {
@@ -390,6 +390,8 @@ test('raw WebGPU floor mutates only its bounded orbit uniform', () => {
   assert.equal(frame25[1], 1);
   assert.ok(Math.abs(frame0[2] - 4 / 1280) < 1e-8);
   assert.ok(Math.abs(frame0[3] - 4 / 720) < 1e-8);
+  assert.equal(rawPrimitiveForPointSize(1), 'point-list');
+  assert.equal(rawPrimitiveForPointSize(4), 'analytic-quad');
 });
 
 test('Three.js peer receives the exact deterministic orbit position', () => {
