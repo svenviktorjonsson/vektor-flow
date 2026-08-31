@@ -382,6 +382,28 @@
         "api": "Page.captureScreenshot",
         "frame": "world_0_view_0"
       }
+    },
+    {
+      "id": "18-polar-ribbon",
+      "title": "Polar ribbon",
+      "dimension": 2,
+      "features": [
+        "2d",
+        "plot",
+        "polar-coordinates"
+      ],
+      "source": "18-polar-ribbon/app.vkf",
+      "sourceSha256": "7953dd326765396fa4a2a66308b1590ffecdd571d56a78930d959de9892d847a",
+      "media": {
+        "path": "docs/public/images/scene-gallery/18-polar-ribbon.png",
+        "sha256": "0cb6b66ea5560ba268745c270255b28bc37b497b79222a0f1445e4a5705bec79"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }
