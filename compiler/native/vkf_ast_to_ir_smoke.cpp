@@ -926,6 +926,18 @@ std::optional<FixedNumericVectorShape> fixed_numeric_vector_shape(std::string ty
     return result;
 }
 
+std::optional<std::vector<std::size_t>>
+fixed_rectangular_vector_dimensions(std::string type) {
+    std::vector<std::size_t> dimensions;
+    while (const auto vector = vector_type_parts(type)) {
+        if (!decimal_shape(vector->shape)) return std::nullopt;
+        dimensions.push_back(static_cast<std::size_t>(std::stoull(vector->shape)));
+        type = vector->element;
+    }
+    if (dimensions.empty() || type == "any") return std::nullopt;
+    return dimensions;
+}
+
 std::vector<std::size_t> constant_stat_axes(
     const vf::JsonValue::Array& named_args,
     std::size_t rank
@@ -5604,6 +5616,26 @@ private:
             const bool vector_object = starts_with(object_type, "list<") ||
                 (object_type.size() >= 2 && object_type.front() == '[' && object_type.back() == ']');
             const bool length_object = vector_object || symbolic_expression_type(object_type);
+            if (vector_object && field_name == "shape") {
+                const auto dimensions = fixed_rectangular_vector_dimensions(object_type);
+                if (!dimensions) {
+                    throw IRFailure("vector shape requires a fixed rectangular vector");
+                }
+                vf::JsonValue::Array items;
+                items.reserve(dimensions->size());
+                for (const auto dimension : *dimensions) {
+                    auto value = node("const");
+                    value["type"] = vf::JsonValue("int");
+                    value["value"] = vf::JsonValue(static_cast<double>(dimension));
+                    items.emplace_back(std::move(value));
+                }
+                auto shape = node("list");
+                shape["element_type"] = vf::JsonValue("int");
+                shape["items"] = vf::JsonValue(std::move(items));
+                shape["type"] = vf::JsonValue(
+                    "[int:" + std::to_string(dimensions->size()) + "]");
+                return vf::JsonValue(std::move(shape));
+            }
             if (vector_object && field_name != "length") {
                 throw IRFailure(
                     "vector member " + field_name + " is not an index; use .(" +

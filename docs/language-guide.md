@@ -1540,6 +1540,11 @@ Pair pair: (x:3, y:4)
 
 Fixed vector shapes nest, survive calls, and compose through compile-time size expressions. Dynamic vectors use `[T]` and expose runtime storage.
 
+Fixed rectangular vector values expose `.shape` as a fixed integer vector. Its
+dimensions run from the outermost vector on the left to the innermost vector on
+the right: `[[1, 2, 3], [4, 5, 6]].shape` is `[2, 3]`. Dynamic and jagged
+vectors do not expose `.shape` in this release.
+
 <!-- readme-example: core/40-fixed-shapes.vkf -->
 ```vkf
 cross(matrix:[[int:2]:2]) -> int: matrix.(0, 1) + matrix.(1, 0)
