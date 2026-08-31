@@ -217,7 +217,7 @@ king_piece_on_board(board:any, side:num) -> Piece:
                 p.side = side?
                     p.role = PieceRole.king?
                         .found: p
-        i: i + 1
+        .i: i + 1
     @: found
 
 piece_attacks_square(board:any, attacker:Piece, file:num, rank:num) -> bit:
