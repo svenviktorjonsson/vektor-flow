@@ -294,15 +294,6 @@ std::filesystem::path stage_root_for(const std::filesystem::path& manifest_path)
     return manifest_path.parent_path() / ".vkfbuild" / "bootstrap_bundle_artifact";
 }
 
-std::string sanitize_name(std::string path) {
-    for (char& ch : path) {
-        if (ch == '/' || ch == '\\' || ch == ':' || ch == '.') {
-            ch = '_';
-        }
-    }
-    return path;
-}
-
 std::vector<BundleUnit> read_manifest_units(const std::filesystem::path& manifest_path) {
     const vf::JsonValue root = vf::parse_json(read_file(manifest_path));
     const auto& object = object_of(root, "bootstrap manifest");
@@ -345,7 +336,7 @@ std::vector<BundleUnit> read_manifest_units(const std::filesystem::path& manifes
             throw BundleArtifactFailure("missing compiler source " + rel_path);
         }
 
-        const std::string stage_name = zero_padded_index(index) + "_" + sanitize_name(rel_path);
+        const std::string stage_name = zero_padded_index(index);
         const std::filesystem::path unit_dir = stage_root / stage_name;
         std::filesystem::create_directories(unit_dir);
 
