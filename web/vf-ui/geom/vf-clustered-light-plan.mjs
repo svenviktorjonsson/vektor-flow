@@ -5,6 +5,8 @@
  * depth. Cluster storage is x-fastest, then y, then logarithmic depth.
  */
 
+import { projectLightViewBounds } from './vf-light-view-bounds.mjs';
+
 // Keeps cluster offsets Uint32-representable while bounding the planner's
 // fixed per-cluster bookkeeping well below an allocation-hostile size.
 const MAX_SAFE_CLUSTER_COUNT = 1_048_576;
@@ -80,6 +82,35 @@ export function planClusteredLights({ grid, lights, maxLightsPerCluster }) {
     overflowAssignmentCount,
     overflowClusterCount
   });
+}
+
+export function planViewClusteredLights({ grid, camera, lights, maxLightsPerCluster }) {
+  if (!grid || typeof grid !== 'object') throw new TypeError('grid must be an object');
+  if (!camera || typeof camera !== 'object') throw new TypeError('camera must be an object');
+  if (!Array.isArray(lights)) throw new TypeError('lights must be an array');
+  const gridNear = Number(grid.nearDepth);
+  const gridFar = Number(grid.farDepth);
+  const cameraNear = Number(camera.nearDepth);
+  const cameraFar = Number(camera.farDepth);
+  if (gridNear !== cameraNear || gridFar !== cameraFar) {
+    throw new RangeError('camera and grid depth ranges must match');
+  }
+  const projectedLights = lights.map(light => {
+    const bounds = projectLightViewBounds(light, camera);
+    return {
+      id: light && light.id,
+      kind: light && light.kind === 'geometry' ? 'projected' : light && light.kind,
+      bounds: bounds ?? {
+        minX: 2,
+        maxX: 2,
+        minY: 0,
+        maxY: 0,
+        minDepth: gridNear,
+        maxDepth: gridNear
+      }
+    };
+  });
+  return planClusteredLights({ grid, lights: projectedLights, maxLightsPerCluster });
 }
 
 function normalizeGrid(grid) {
