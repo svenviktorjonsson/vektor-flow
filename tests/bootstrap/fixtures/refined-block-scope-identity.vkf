@@ -1,0 +1,47 @@
+ScannerState: (name:str, token_kind:str, starts:any, stops:any, emits:bit)
+
+scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
+    (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
+
+scan_whitespace_state:
+    scanner_state(
+        "scan_whitespace",
+        "WHITESPACE",
+        ["space", "tab", "newline"],
+        ["non-whitespace"],
+        false
+    )
+
+scan_comment_state:
+    scanner_state(
+        "scan_comment",
+        "COMMENT",
+        ["#"],
+        ["newline", "eof"],
+        false
+    )
+
+scan_identifier_state:
+    scanner_state(
+        "scan_identifier",
+        "IDENT",
+        ["alpha", "_"],
+        ["not alpha", "not digit", "not _"],
+        true
+    )
+
+scan_number_state:
+    scanner_state(
+        "scan_number",
+        "NUMBER",
+        ["digit"],
+        ["not digit", "not dot", "not exponent"],
+        true
+    )
+
+scanner_state_catalog:
+    whitespace: scan_whitespace_state
+    comments: scan_comment_state
+    identifiers: scan_identifier_state
+    numbers: scan_number_state
+    :
