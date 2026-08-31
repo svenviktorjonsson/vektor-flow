@@ -8,13 +8,14 @@ Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
 > [!WARNING]
-> VKF 0.3.0 is an unsupported experimental preview. It has bugs, incomplete
+> VKF 0.4.0 is an unsupported experimental preview. It has bugs, incomplete
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
-> The 0.3.0 native bundle includes the verified `linalg`, `physics`, units, and
-> `symbolic` libraries without compatibility fallbacks. The visual `ui` system
-> remains excluded until its native implementation is complete.
+> The 0.4.0 release candidate adds the compiled Windows UI runtime, static
+> HTML/CSS composition, and retained WebGPU scenes to the verified `linalg`,
+> `physics`, units, and `symbolic` libraries. It has not yet been tagged or
+> published.
 
 ## Why VKF Is Different
 
@@ -75,7 +76,7 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Native Material UI Gallery (0.4 Work in Progress)
+## Native Material UI Gallery (0.4)
 
 ![VKF material and UI gallery](docs/public/images/readme-ui/material-ui-gallery.png)
 
@@ -784,9 +785,12 @@ frame.add(
 <!-- scene-example:20-rigid-body-snapshot:end -->
 <!-- scene-gallery:end -->
 
-## Install VKF 0.3.0
+## Install VKF 0.4.0
 
-Download the [0.3.0 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.3.0).
+When the release gates complete, downloads will be published on the
+[0.4.0 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.4.0).
+Until that tag exists, 0.4.0 remains a release candidate rather than a
+published download.
 
 | Platform | Recommended download | Installation |
 | --- | --- | --- |
@@ -1263,6 +1267,25 @@ folders, and unrelated existing `vkf` commands.
 VKF programs still run with the current user's permissions. `io` can modify
 files and `process` can launch programs. `process.run` passes an exact argument
 vector; `process.shell` invokes a platform shell and must be treated as unsafe.
+
+## 0.4.0 Changes
+
+0.4.0 makes visual VKF programs native release artifacts on Windows:
+
+- compiled applications carry the transparent WebView2 overlay and retained
+  WebGPU runtime without Python, Node, a compiler, or a bundled third-party DLL;
+- UI components use HTML names, can be authored through VKF or loaded from
+  static HTML/CSS, and deliver events through compiled owner queues;
+- 20 minimal 2D/3D scene programs cover plots, lights, shadows, reflections,
+  transparency, textures, symbolic surfaces, interaction, and rigid bodies;
+- every gallery image is a hidden-browser full-compositor capture, while the
+  material gallery also retains separate renderer captures and an interaction
+  animation;
+- the correctness-gated large-scene comparison records five comparable ratios
+  below the 0.4 `<1.5x` ratchet; the retained-cloud frame-pacing study remains
+  an explicitly non-ratcheted diagnostic baseline.
+
+See the [0.4.0 release notes](docs/releases/0.4.0.md).
 
 ## 0.3.0 Changes
 
