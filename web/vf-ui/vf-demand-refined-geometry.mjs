@@ -8,6 +8,8 @@ const FACE_SPECS = Object.freeze([
   ['-x', '-y', '-z'],
   ['+x', '-y', '-z'],
 ]);
+const COARSE_FACE_IDS = new Set(FACE_SPECS.map((signs) => `face:${signs.join(':')}`));
+const shapeInstances = new WeakSet();
 
 function requireRadii3(radii) {
   const isTypedArray = ArrayBuffer.isView(radii) && !(radii instanceof DataView);
@@ -65,16 +67,30 @@ export function createCoarseEllipsoidReference({ radii }) {
       : [axisVertices[0], axisVertices[2], axisVertices[1]];
     return frozenFace(`face:${signs.join(':')}`, winding);
   }));
-  return Object.freeze({
+  const shape = Object.freeze({
     kind: 'ellipsoid-octahedron:v1',
     radii: Object.freeze([...radii]),
     vertices,
     faces,
   });
+  shapeInstances.add(shape);
+  return shape;
 }
 
 export function refineEllipsoidFaceReference(shape, faceId) {
+  if (!shape || typeof shape !== 'object' || !shapeInstances.has(shape)) {
+    throw new TypeError('ellipsoid reference shape is required');
+  }
+  if (typeof faceId !== 'string') {
+    throw new TypeError('ellipsoid face identity must be a string');
+  }
+  if (!COARSE_FACE_IDS.has(faceId)) {
+    throw new RangeError(`ellipsoid coarse face is unavailable: ${faceId}`);
+  }
   const face = shape.faces.find(({ id }) => id === faceId);
+  if (!face) {
+    throw new RangeError(`ellipsoid coarse face is unavailable: ${faceId}`);
+  }
   const positions = new Map(shape.vertices.map(({ id, position }) => [id, position]));
   const average = [0, 1, 2].map((axis) => (
     face.vertices.reduce((sum, vertex) => sum + positions.get(vertex)[axis], 0) / 3
@@ -93,7 +109,7 @@ export function refineEllipsoidFaceReference(shape, faceId) {
   const faces = Object.freeze(shape.faces.flatMap((candidate) => (
     candidate.id === faceId ? children : [candidate]
   )));
-  return Object.freeze({
+  const refined = Object.freeze({
     ...shape,
     vertices: Object.freeze([...shape.vertices, center]),
     faces,
@@ -104,4 +120,6 @@ export function refineEllipsoidFaceReference(shape, faceId) {
       boundary: face.boundary,
     }),
   });
+  shapeInstances.add(refined);
+  return refined;
 }
