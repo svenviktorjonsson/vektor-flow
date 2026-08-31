@@ -71,6 +71,12 @@ assert.deepEqual(receipt, {
   shadowDraws: 7,
   shadowCacheHits: 3,
   activeLights: 4,
+  plannedLights: 0,
+  lightClusters: 0,
+  lightClusterAssignments: 0,
+  lightClusterOverflowAssignments: 0,
+  lightClusterOverflowClusters: 0,
+  lightClusterCap: 64,
 });
 assert.equal(createdTextures.length, 3);
 
