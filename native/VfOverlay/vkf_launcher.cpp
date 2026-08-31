@@ -648,6 +648,7 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
         L"vf-frame.css",
         L"vf-runtime-shell.js",
         L"vf-runtime-packet-contract.js",
+        L"vf-retained-event-adapter.js",
         L"vf-runtime-source.js",
         L"vf-html-components.js",
         L"vf-runtime-scene.js",
