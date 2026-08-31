@@ -131,7 +131,10 @@ export function refineEllipsoidChildFaceReference(shape, faceId) {
   if (typeof faceId !== 'string') {
     throw new TypeError('ellipsoid face identity must be a string');
   }
-  if (!shape.refinement?.children?.includes(faceId)) {
+  if (
+    typeof shape.refinement?.face !== 'string'
+    || !shape.refinement.children?.includes(faceId)
+  ) {
     throw new RangeError(`ellipsoid level-one face is unavailable: ${faceId}`);
   }
   const target = shape.faces.find(({ id }) => id === faceId);
