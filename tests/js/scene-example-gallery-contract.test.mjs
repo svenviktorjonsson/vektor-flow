@@ -217,3 +217,20 @@ test("scene gallery combines texture, tint, transparency, and reflection", async
   assert.ok(bytes.length > 100);
   assert.equal(sha256(bytes), example.media.sha256);
 });
+
+test("scene gallery captures a multivector saddle plot", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "13-saddle-plot");
+  assert.ok(example);
+  assert.deepEqual(example.features, ["3d", "plot", "multivector", "lighting"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  assert.ok(source.includes('id:"saddle"'));
+  assert.ok(source.includes("x:[["));
+  assert.ok(source.includes("y:[["));
+  assert.ok(source.includes("z:[["));
+  assert.ok(source.includes("receives_lighting:true"));
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+});
