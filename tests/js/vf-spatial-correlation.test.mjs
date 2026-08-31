@@ -130,3 +130,29 @@ test('nearby field queries share correlation while distant queries do not', () =
   assert.ok(nearby > 0.99);
   assert.ok(Math.abs(distant) < 0.02);
 });
+
+test('spatial field queries are traversal and chunk independent', () => {
+  const node = createFieldNode();
+  const options = { correlationLength: 3, mean: 2, amplitude: 0.5 };
+  const positions = Array.from({ length: 64 }, (_, index) => [
+    index * 0.375 - 12,
+    (index * index % 23) * 0.25 - 2,
+  ]);
+  const sample = (position) => sampleSpatialCorrelation2Reference(
+    node,
+    position,
+    options,
+  );
+  const expected = positions.map(sample);
+
+  const reverse = new Map(
+    [...positions].reverse().map((position) => [position.join(':'), sample(position)]),
+  );
+  assert.deepEqual(
+    positions.map((position) => reverse.get(position.join(':'))),
+    expected,
+  );
+
+  const chunks = [positions.slice(0, 3), positions.slice(3, 41), positions.slice(41)];
+  assert.deepEqual(chunks.flatMap((chunk) => chunk.map(sample)), expected);
+});
