@@ -1,0 +1,157 @@
+/**
+ * Target-independent clustered-light assignment.
+ *
+ * Bounds use normalized device x/y coordinates in [-1, 1] and positive view
+ * depth. Cluster storage is x-fastest, then y, then logarithmic depth.
+ */
+
+export function planClusteredLights({ grid, lights, maxLightsPerCluster }) {
+  const normalizedGrid = normalizeGrid(grid);
+  const capacity = positiveInteger(maxLightsPerCluster, 'maxLightsPerCluster');
+  if (!Array.isArray(lights)) throw new TypeError('lights must be an array');
+
+  const clusterCount = normalizedGrid.xSlices * normalizedGrid.ySlices * normalizedGrid.depthSlices;
+  const clusterLightIds = Array.from({ length: clusterCount }, () => []);
+  const orderedLights = lights.map(normalizePointLight).sort((left, right) => left.id - right.id);
+  assertUniqueIds(orderedLights);
+
+  let culledLightCount = 0;
+  for (const light of orderedLights) {
+    const range = clusterRange(light.bounds, normalizedGrid);
+    if (!range) {
+      culledLightCount += 1;
+      continue;
+    }
+    for (let depth = range.minDepth; depth <= range.maxDepth; depth += 1) {
+      for (let y = range.minY; y <= range.maxY; y += 1) {
+        for (let x = range.minX; x <= range.maxX; x += 1) {
+          const clusterIndex = (depth * normalizedGrid.ySlices + y) * normalizedGrid.xSlices + x;
+          const ids = clusterLightIds[clusterIndex];
+          if (ids.length < capacity) ids.push(light.id);
+        }
+      }
+    }
+  }
+
+  const clusterOffsets = new Uint32Array(clusterCount + 1);
+  let assignmentCount = 0;
+  for (let index = 0; index < clusterCount; index += 1) {
+    clusterOffsets[index] = assignmentCount;
+    assignmentCount += clusterLightIds[index].length;
+  }
+  clusterOffsets[clusterCount] = assignmentCount;
+
+  const lightIds = new Uint32Array(assignmentCount);
+  let cursor = 0;
+  for (const ids of clusterLightIds) {
+    lightIds.set(ids, cursor);
+    cursor += ids.length;
+  }
+
+  return Object.freeze({
+    clusterCount,
+    clusterOffsets,
+    lightIds,
+    assignmentCount,
+    culledLightCount
+  });
+}
+
+function normalizeGrid(grid) {
+  if (!grid || typeof grid !== 'object') throw new TypeError('grid must be an object');
+  const xSlices = positiveInteger(grid.xSlices, 'grid.xSlices');
+  const ySlices = positiveInteger(grid.ySlices, 'grid.ySlices');
+  const depthSlices = positiveInteger(grid.depthSlices, 'grid.depthSlices');
+  const nearDepth = positiveFinite(grid.nearDepth, 'grid.nearDepth');
+  const farDepth = positiveFinite(grid.farDepth, 'grid.farDepth');
+  if (!(farDepth > nearDepth)) throw new RangeError('grid.farDepth must exceed grid.nearDepth');
+  return { xSlices, ySlices, depthSlices, nearDepth, farDepth };
+}
+
+function normalizePointLight(light) {
+  if (!light || typeof light !== 'object') throw new TypeError('light must be an object');
+  const id = uint32(light.id, 'light.id');
+  if (light.kind !== 'point') throw new TypeError('light.kind must be point');
+  return { id, bounds: normalizeBounds(light.bounds) };
+}
+
+function normalizeBounds(bounds) {
+  if (!bounds || typeof bounds !== 'object') throw new TypeError('light.bounds must be an object');
+  const result = {};
+  for (const name of ['minX', 'maxX', 'minY', 'maxY', 'minDepth', 'maxDepth']) {
+    const value = Number(bounds[name]);
+    if (!Number.isFinite(value)) throw new TypeError(`light.bounds.${name} must be finite`);
+    result[name] = value;
+  }
+  if (result.maxX < result.minX || result.maxY < result.minY || result.maxDepth < result.minDepth) {
+    throw new RangeError('light bounds maxima must not be below minima');
+  }
+  return result;
+}
+
+function assertUniqueIds(lights) {
+  for (let index = 1; index < lights.length; index += 1) {
+    if (lights[index - 1].id === lights[index].id) {
+      throw new RangeError(`duplicate light id ${lights[index].id}`);
+    }
+  }
+}
+
+function clusterRange(bounds, grid) {
+  if (bounds.maxX < -1 || bounds.minX > 1 || bounds.maxY < -1 || bounds.minY > 1 ||
+      bounds.maxDepth < grid.nearDepth || bounds.minDepth > grid.farDepth) return null;
+
+  return {
+    minX: lowerLinearSlice(bounds.minX, grid.xSlices),
+    maxX: upperLinearSlice(bounds.maxX, grid.xSlices),
+    minY: lowerLinearSlice(bounds.minY, grid.ySlices),
+    maxY: upperLinearSlice(bounds.maxY, grid.ySlices),
+    minDepth: lowerDepthSlice(bounds.minDepth, grid),
+    maxDepth: upperDepthSlice(bounds.maxDepth, grid)
+  };
+}
+
+function lowerLinearSlice(value, count) {
+  return clamp(Math.floor(((value + 1) * 0.5) * count), 0, count - 1);
+}
+
+function upperLinearSlice(value, count) {
+  return clamp(Math.ceil(((value + 1) * 0.5) * count) - 1, 0, count - 1);
+}
+
+function lowerDepthSlice(value, grid) {
+  return clamp(Math.floor(depthCoordinate(value, grid)), 0, grid.depthSlices - 1);
+}
+
+function upperDepthSlice(value, grid) {
+  return clamp(Math.ceil(depthCoordinate(value, grid)) - 1, 0, grid.depthSlices - 1);
+}
+
+function depthCoordinate(value, grid) {
+  const clipped = clamp(value, grid.nearDepth, grid.farDepth);
+  return Math.log(clipped / grid.nearDepth) / Math.log(grid.farDepth / grid.nearDepth) * grid.depthSlices;
+}
+
+function positiveInteger(value, name) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number <= 0) throw new RangeError(`${name} must be a positive integer`);
+  return number;
+}
+
+function positiveFinite(value, name) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) throw new RangeError(`${name} must be positive and finite`);
+  return number;
+}
+
+function uint32(value, name) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0 || number > 0xffffffff) {
+    throw new RangeError(`${name} must be an unsigned 32-bit integer`);
+  }
+  return number;
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
