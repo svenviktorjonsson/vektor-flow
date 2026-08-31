@@ -140,6 +140,29 @@
       : Date.now();
   }
 
+  function surfaceTargetAllocationBytes(format, width, height) {
+    var formatBytes = {
+      r8unorm: 1,
+      rg8unorm: 2,
+      rgba8unorm: 4,
+      "rgba8unorm-srgb": 4,
+      bgra8unorm: 4,
+      "bgra8unorm-srgb": 4,
+      rgb10a2unorm: 4,
+      rg11b10ufloat: 4,
+      rgba16float: 8,
+      rgba32float: 16
+    };
+    var colorBytes = formatBytes[String(format || "").toLowerCase()] || 4;
+    var pixels = Math.max(0, width | 0) * Math.max(0, height | 0);
+    var resolvedColorBytes = pixels * colorBytes;
+    var multisampledColorBytes = pixels * colorBytes * SAMPLE_COUNT;
+    // depth24plus storage is implementation-defined. Track its logical
+    // 32-bit attachment footprint so receipts are deterministic across GPUs.
+    var multisampledDepthBytes = pixels * 4 * SAMPLE_COUNT;
+    return resolvedColorBytes + multisampledColorBytes + multisampledDepthBytes;
+  }
+
   function chessLagDebugEnabled() {
     return !!(global.__vfChessLagDebug === true || global.__vfGeomWgpuDebug === true);
   }
@@ -6266,9 +6289,41 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pickH         = 0;
     this._pickPending   = false;   // readback in flight
     this._pickCallback  = null;    // fn(object_id, simplex_id, x, y) called after readback
+    this._renderEvidenceSequence = 0;
+    this._lastSurfacePassCount = 0;
+    this._lastShadowDrawCount = 0;
+    this._lastShadowCacheHitCount = 0;
+    this._lastActiveLightCount = 0;
   }
 
   VfGeomWgpu.prototype = {
+    _debugRenderEvidence: function () {
+      var targetPixels = 0;
+      var targetBytes = 0;
+      var parts = Array.isArray(this._parts) ? this._parts : [];
+      for (var i = 0; i < parts.length; i += 1) {
+        var part = parts[i];
+        if (!part || !part.surfaceColorTex) { continue; }
+        targetPixels += Math.max(0, Number(part.surfaceAllocatedPixels || 0) || 0);
+        targetBytes += Math.max(0, Number(part.surfaceAllocatedBytes || 0) || 0);
+      }
+      return {
+        schema: "vf-render-evidence/1",
+        frameId: String(this._frameId || ""),
+        frameSequence: Math.max(0, Number(this._renderEvidenceSequence || 0) || 0),
+        width: Math.max(0, Number(this._canvas && this._canvas.width || 0) || 0),
+        height: Math.max(0, Number(this._canvas && this._canvas.height || 0) || 0),
+        format: String(this._format || ""),
+        sampleCount: SAMPLE_COUNT,
+        surfacePasses: Math.max(0, Number(this._lastSurfacePassCount || 0) || 0),
+        surfaceTargetPixels: targetPixels,
+        surfaceTargetBytes: targetBytes,
+        shadowDraws: Math.max(0, Number(this._lastShadowDrawCount || 0) || 0),
+        shadowCacheHits: Math.max(0, Number(this._lastShadowCacheHitCount || 0) || 0),
+        activeLights: Math.max(0, Number(this._lastActiveLightCount || 0) || 0)
+      };
+    },
+
     _markPresentedFirstFrame: function () {
       var canvas = this._canvas;
       if (canvas && canvas.style) {
@@ -6664,6 +6719,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (part.surfaceMsaaTex) { try { part.surfaceMsaaTex.destroy(); } catch(_){} }
       part.surfaceW = w;
       part.surfaceH = h;
+      part.surfaceAllocatedPixels = w * h;
+      part.surfaceAllocatedBytes = surfaceTargetAllocationBytes(this._format, w, h);
       part.surfaceColorTex = this._device.createTexture({
         size: { width: w, height: h, depthOrArrayLayers: 1 },
         format: this._format,
@@ -6814,13 +6871,19 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     },
 
     _prepareShadowMapsForScene: function (enc, mesh, t, frameWidth, frameHeight) {
-      if (!mesh || !Array.isArray(this._parts) || !this._parts.length || !sharedWgpu) { return [null, null]; }
+      if (!mesh || !Array.isArray(this._parts) || !this._parts.length || !sharedWgpu) {
+        this._lastActiveLightCount = 0;
+        this._lastShadowCacheHitCount = 0;
+        this._lastShadowDrawCount = 0;
+        return [null, null];
+      }
       var MmLocal = getMath();
       var sceneLights = resolveSceneLights(
         lightsForRenderer(mesh.lights || [], this._offscreenFrame === true),
         sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
         t
       );
+      this._lastActiveLightCount = Math.min(4, sceneLights.length);
       maybeLogResolvedLights(this, "shadow_prepare", sceneLights);
       var activeLights = [];
       for (var li = 0; li < sceneLights.length && activeLights.length < 4; li += 1) {
@@ -6839,6 +6902,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           this._applyShadowStateToPart(this._parts[noShadowPi], null, null, null, null);
         }
         this._lastShadowCacheHit = 0.0;
+        this._lastShadowCacheHitCount = 0;
         this._lastShadowDrawCount = 0;
         return [null, null];
       }
@@ -6903,6 +6967,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var shadowState2 = prepareLightShadow(this, 2, activeLights[2] || null);
       var shadowState3 = prepareLightShadow(this, 3, activeLights[3] || null);
       this._lastShadowCacheHit = activeLights.length ? (cacheHits / activeLights.length) : 0.0;
+      this._lastShadowCacheHitCount = cacheHits;
       var shadowDrawCount = 0;
       this._shadowDepthView0 = shadowState0.view || null;
       this._shadowDepthView1 = shadowState1.view || null;
@@ -6922,10 +6987,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         );
       }
       var drawShadowPass = function (renderer, slot, shadowData, partsForShadow) {
-        if (!shadowData) { return; }
+        if (!shadowData) { return 0; }
         var depthView = renderer["_shadowDepthView" + String(slot)] || null;
         var pipe = slot === 1 ? sharedWgpu.pipeShadow1 : sharedWgpu.pipeShadow0;
-        if (!depthView || !pipe) { return; }
+        if (!depthView || !pipe) { return 0; }
+        var drawCount = 0;
         var pass = enc.beginRenderPass({
           colorAttachments: [],
           depthStencilAttachment: {
@@ -6972,12 +7038,13 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           pass.setVertexBuffer(0, part.vb);
           pass.setIndexBuffer(part.ib, "uint32");
           pass.drawIndexed(part.ibCount, 1, 0, 0, 0);
+          drawCount += 1;
         }
         pass.end();
+        return drawCount;
       };
       if (shadowState0.shadow && !shadowState0.cacheHit) {
-        drawShadowPass(this, 0, shadowState0.shadow, shadowState0.casterParts || []);
-        shadowDrawCount += 1;
+        shadowDrawCount += drawShadowPass(this, 0, shadowState0.shadow, shadowState0.casterParts || []);
         lightCaches[shadowState0.cacheSlot] = {
           key: shadowState0.cacheKey,
           shadow: shadowState0.shadow,
@@ -6986,8 +7053,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         };
       }
       if (shadowState1.shadow && !shadowState1.cacheHit) {
-        drawShadowPass(this, 1, shadowState1.shadow, shadowState1.casterParts || []);
-        shadowDrawCount += 1;
+        shadowDrawCount += drawShadowPass(this, 1, shadowState1.shadow, shadowState1.casterParts || []);
         lightCaches[shadowState1.cacheSlot] = {
           key: shadowState1.cacheKey,
           shadow: shadowState1.shadow,
@@ -6996,8 +7062,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         };
       }
       if (shadowState2.shadow && !shadowState2.cacheHit) {
-        drawShadowPass(this, 2, shadowState2.shadow, shadowState2.casterParts || []);
-        shadowDrawCount += 1;
+        shadowDrawCount += drawShadowPass(this, 2, shadowState2.shadow, shadowState2.casterParts || []);
         lightCaches[shadowState2.cacheSlot] = {
           key: shadowState2.cacheKey,
           shadow: shadowState2.shadow,
@@ -7006,8 +7071,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         };
       }
       if (shadowState3.shadow && !shadowState3.cacheHit) {
-        drawShadowPass(this, 3, shadowState3.shadow, shadowState3.casterParts || []);
-        shadowDrawCount += 1;
+        shadowDrawCount += drawShadowPass(this, 3, shadowState3.shadow, shadowState3.casterParts || []);
         lightCaches[shadowState3.cacheSlot] = {
           key: shadowState3.cacheKey,
           shadow: shadowState3.shadow,
@@ -7443,6 +7507,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     },
 
     _renderSurfacePasses: function (enc, sceneMesh, t, width, height) {
+      this._lastSurfacePassCount = 0;
       if (!this._parts || !this._parts.length) { return; }
       var MmBatch = getMath();
       for (var i = 0; i < this._parts.length; i++) {
@@ -7577,6 +7642,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           true,
           { reflectionClip: renderCamera && renderCamera._mirrorRenderClip ? renderCamera._mirrorRenderClip : null }
         );
+        this._lastSurfacePassCount += 1;
         this._ensurePartBindGroup(part);
       }
     },
@@ -8230,6 +8296,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
           t
         );
+        this._lastActiveLightCount = Math.min(4, sceneLights.length);
         maybeLogResolvedLights(this, "flares", sceneLights);
         perfStageStart = perfNowMs();
         this._drawGpuLightFlares(encBatch, mesh, sceneMvp, scenePos, sceneLights, wBatch, hBatch, this._frameColorView);
@@ -8321,6 +8388,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._markPresentedFirstFrame();
         perfSample.submit = perfNowMs() - perfStageStart;
         perfSample.total = perfNowMs() - perfTotalStart;
+        this._renderEvidenceSequence += 1;
         var perfStats = ensurePerfStats(this);
         this._lastPerfSample = clonePerfSample(perfSample);
         publishPerfSample(this, perfSample);
