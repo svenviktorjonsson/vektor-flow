@@ -2,6 +2,8 @@ import {
   refineEllipsoidFaceReference,
 } from './vf-demand-refined-geometry.mjs';
 
+const workingSetStates = new WeakSet();
+
 function binaryCompare(first, second) {
   return first < second ? -1 : first > second ? 1 : 0;
 }
@@ -30,7 +32,47 @@ function requireUniqueDemands(coarse, demands) {
     if (seen.has(activeDemand.face)) {
       throw new RangeError(`ellipsoid refinement demand is duplicated: ${activeDemand.face}`);
     }
+    if (typeof activeDemand.silhouette !== 'boolean') {
+      throw new TypeError('ellipsoid refinement silhouette priority must be a boolean');
+    }
+    for (const field of [
+      'silhouetteErrorPixels',
+      'projectedErrorPixels',
+      'errorBoundPixels',
+    ]) {
+      if (typeof activeDemand[field] !== 'number') {
+        throw new TypeError(`ellipsoid refinement ${field} must be a number`);
+      }
+      if (!Number.isFinite(activeDemand[field]) || activeDemand[field] < 0) {
+        throw new RangeError(
+          `ellipsoid refinement ${field} must be finite and non-negative`,
+        );
+      }
+    }
     seen.add(activeDemand.face);
+  }
+}
+
+function requireBudget(value, name) {
+  if (typeof value !== 'number') {
+    throw new TypeError(`ellipsoid refinement ${name} budget must be a number`);
+  }
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(
+      `ellipsoid refinement ${name} budget must be a non-negative safe integer`,
+    );
+  }
+}
+
+function requireCoarse(coarse) {
+  if (
+    !coarse
+    || typeof coarse !== 'object'
+    || coarse.kind !== 'ellipsoid-octahedron:v1'
+    || !Array.isArray(coarse.vertices)
+    || !Array.isArray(coarse.faces)
+  ) {
+    throw new TypeError('coarse ellipsoid reference shape is required');
   }
 }
 
@@ -50,6 +92,21 @@ export function updateEllipsoidRefinementWorkingSetReference(coarse, previous, {
   vertexBudget,
   faceBudget,
 }) {
+  requireCoarse(coarse);
+  requireBudget(vertexBudget, 'vertex');
+  requireBudget(faceBudget, 'face');
+  if (previous !== null) {
+    if (
+      !previous
+      || typeof previous !== 'object'
+      || !workingSetStates.has(previous)
+    ) {
+      throw new TypeError('ellipsoid refinement predecessor state is invalid');
+    }
+    if (previous.coarse !== coarse) {
+      throw new RangeError('ellipsoid refinement predecessor owns another coarse shape');
+    }
+  }
   requireUniqueDemands(coarse, demands);
   const capacity = Math.min(vertexBudget, Math.floor(faceBudget / 3));
   const selected = [...demands].sort(compareDemandPriority).slice(0, capacity);
@@ -71,7 +128,7 @@ export function updateEllipsoidRefinementWorkingSetReference(coarse, previous, {
     : previous.entries
       .map(({ face }) => face)
       .filter((face) => !selectedFaces.has(face));
-  return Object.freeze({
+  const state = Object.freeze({
     coarse,
     entries,
     usage: Object.freeze({
@@ -88,4 +145,6 @@ export function updateEllipsoidRefinementWorkingSetReference(coarse, previous, {
       evicted: Object.freeze(evicted),
     }),
   });
+  workingSetStates.add(state);
+  return state;
 }
