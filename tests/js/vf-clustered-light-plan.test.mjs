@@ -15,6 +15,14 @@ function bounds(minX, maxX, minY, maxY, minDepth, maxDepth) {
   return { minX, maxX, minY, maxY, minDepth, maxDepth };
 }
 
+function occupiedClusters(plan) {
+  const occupied = [];
+  for (let index = 0; index < plan.clusterCount; index += 1) {
+    if (plan.clusterOffsets[index + 1] > plan.clusterOffsets[index]) occupied.push(index);
+  }
+  return occupied;
+}
+
 test('assigns point-light bounds deterministically and culls bounds outside the frustum', () => {
   const visible = {
     id: 7,
@@ -33,6 +41,7 @@ test('assigns point-light bounds deterministically and culls bounds outside the 
   assert.deepEqual([...first.clusterOffsets], [...shuffled.clusterOffsets]);
   assert.deepEqual([...first.lightIds], [...shuffled.lightIds]);
   assert.deepEqual([...first.lightIds], [7, 7, 7, 7, 7, 7, 7, 7]);
+  assert.deepEqual(occupiedClusters(first), [0, 1, 8, 9, 16, 17, 24, 25]);
   assert.equal(first.assignmentCount, 8);
   assert.equal(first.culledLightCount, 1);
   assert.equal(first.clusterCount, 32);
@@ -82,10 +91,6 @@ test('keeps zero-volume bounds that lie exactly on cluster boundaries', () => {
     maxLightsPerCluster: 1
   });
 
-  const occupiedClusters = [];
-  for (let index = 0; index < plan.clusterCount; index += 1) {
-    if (plan.clusterOffsets[index + 1] > plan.clusterOffsets[index]) occupiedClusters.push(index);
-  }
-  assert.deepEqual(occupiedClusters, [5]);
+  assert.deepEqual(occupiedClusters(plan), [5]);
   assert.deepEqual([...plan.lightIds], [9]);
 });
