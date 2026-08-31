@@ -50,6 +50,38 @@ function requireFiniteVector2(value, name) {
   }
 }
 
+function requireOptions(options) {
+  if (!options || typeof options !== 'object') {
+    throw new TypeError('marked-point options are required');
+  }
+  requireFiniteScalar(options.cellSize, 'marked-point cell size', {
+    min: Number.MIN_VALUE,
+  });
+  if (!Number.isInteger(options.maxCandidates)) {
+    throw new TypeError('marked-point maximum candidates must be an integer');
+  }
+  if (options.maxCandidates < 0 || options.maxCandidates > MAX_CANDIDATES_PER_CELL) {
+    throw new RangeError(
+      `marked-point maximum candidates must be in [0, ${MAX_CANDIDATES_PER_CELL}]`,
+    );
+  }
+  requireFiniteScalar(
+    options.baseProbability,
+    'marked-point base probability',
+    { min: 0, max: 1 },
+  );
+  requireFiniteScalar(
+    options.correlationLength,
+    'marked-point correlation length',
+    { min: Number.MIN_VALUE },
+  );
+  requireFiniteScalar(
+    options.spatialStrength,
+    'marked-point spatial strength',
+    { min: 0, max: 1 },
+  );
+}
+
 function sampleUnit(node, slot, lane) {
   return sampleBoundedUniform(node, [slot, lane], { min: 0, max: 1 });
 }
@@ -61,31 +93,17 @@ function unitWordHex(unit) {
 export function sampleMarkedPointCell2Reference(
   node,
   cell,
-  {
+  options,
+) {
+  requireCell2(cell);
+  requireOptions(options);
+  const {
     cellSize,
     maxCandidates,
     baseProbability,
     correlationLength,
     spatialStrength,
-  },
-) {
-  requireCell2(cell);
-  requireFiniteScalar(cellSize, 'marked-point cell size', { min: Number.MIN_VALUE });
-  if (!Number.isInteger(maxCandidates)) {
-    throw new TypeError('marked-point maximum candidates must be an integer');
-  }
-  if (maxCandidates < 0 || maxCandidates > MAX_CANDIDATES_PER_CELL) {
-    throw new RangeError(
-      `marked-point maximum candidates must be in [0, ${MAX_CANDIDATES_PER_CELL}]`,
-    );
-  }
-  requireFiniteScalar(baseProbability, 'marked-point base probability', { min: 0, max: 1 });
-  requireFiniteScalar(
-    correlationLength,
-    'marked-point correlation length',
-    { min: Number.MIN_VALUE },
-  );
-  requireFiniteScalar(spatialStrength, 'marked-point spatial strength', { min: 0, max: 1 });
+  } = options;
   const cellNode = conditionChild(node, {
     segment: `cell:${cell[0]}:${cell[1]}`,
     channel: 'marked-point-candidates',
@@ -139,32 +157,7 @@ export function queryMarkedPointRegion2Reference(node, bounds, options) {
   if (!(bounds.min[0] < bounds.max[0]) || !(bounds.min[1] < bounds.max[1])) {
     throw new RangeError('marked-point bounds require min < max on both axes');
   }
-  requireFiniteScalar(options.cellSize, 'marked-point cell size', {
-    min: Number.MIN_VALUE,
-  });
-  if (!Number.isInteger(options.maxCandidates)) {
-    throw new TypeError('marked-point maximum candidates must be an integer');
-  }
-  if (options.maxCandidates < 0 || options.maxCandidates > MAX_CANDIDATES_PER_CELL) {
-    throw new RangeError(
-      `marked-point maximum candidates must be in [0, ${MAX_CANDIDATES_PER_CELL}]`,
-    );
-  }
-  requireFiniteScalar(
-    options.baseProbability,
-    'marked-point base probability',
-    { min: 0, max: 1 },
-  );
-  requireFiniteScalar(
-    options.correlationLength,
-    'marked-point correlation length',
-    { min: Number.MIN_VALUE },
-  );
-  requireFiniteScalar(
-    options.spatialStrength,
-    'marked-point spatial strength',
-    { min: 0, max: 1 },
-  );
+  requireOptions(options);
   const startX = Math.floor(bounds.min[0] / options.cellSize);
   const startY = Math.floor(bounds.min[1] / options.cellSize);
   const endX = Math.ceil(bounds.max[0] / options.cellSize) - 1;
