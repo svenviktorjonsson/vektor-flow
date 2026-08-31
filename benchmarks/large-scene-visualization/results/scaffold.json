@@ -1,0 +1,37 @@
+{
+  "schema": "vkf.large-scene-visualization-report",
+  "schemaVersion": 1,
+  "manifestSha256": "f262b6e0f175c8f5ae1029f960f42950bc3608c876d72257aa5f0326dbaafa5a",
+  "status": "scaffold",
+  "environment": {
+    "operatingSystem": "not-measured",
+    "architecture": "not-measured",
+    "cpu": "not-measured",
+    "gpu": "not-measured",
+    "browser": "not-measured",
+    "browserVersion": "not-measured",
+    "devicePixelRatio": 1,
+    "viewport": [1280, 720],
+    "powerMode": "not-measured"
+  },
+  "workloads": [
+    {
+      "id": "orthographic-points-100k-static",
+      "measurements": [
+        { "implementation": "vkf", "state": "scaffold", "comparable": true },
+        { "implementation": "deck-gl", "state": "scaffold", "comparable": true },
+        { "implementation": "vtk-js", "state": "scaffold", "comparable": true },
+        { "implementation": "plotly-scattergl", "state": "scaffold", "comparable": true }
+      ]
+    },
+    {
+      "id": "orthographic-points-1m-pan",
+      "measurements": [
+        { "implementation": "vkf", "state": "scaffold", "comparable": true },
+        { "implementation": "deck-gl", "state": "scaffold", "comparable": true },
+        { "implementation": "vtk-js", "state": "scaffold", "comparable": true },
+        { "implementation": "plotly-scattergl", "state": "scaffold", "comparable": true }
+      ]
+    }
+  ]
+}
