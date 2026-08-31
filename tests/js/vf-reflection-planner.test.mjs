@@ -65,12 +65,46 @@ test('keeps disconnected and tilted mirror facets in distinct clusters', () => {
 test('produces the same stable cluster IDs after input order changes', () => {
   const facets = tiledMirror(8, 4);
   facets.push(tile('island', 20, 20));
-  const shuffled = facets.slice().sort((left, right) => right.id.localeCompare(left.id));
+  const shuffled = facets.slice().reverse();
 
   assert.deepEqual(
     clusterReflectionFacets(shuffled).map(cluster => cluster.id),
     clusterReflectionFacets(facets).map(cluster => cluster.id)
   );
+});
+
+test('orders adversarial Unicode IDs by code unit without locale dependence', () => {
+  const ids = ['\u{10000}', '\uE000', 'ä', 'z', 'Å', 'a', 'a\u0000b'];
+  const facets = ids.map((id, index) => tile(id, index * 2, 0));
+
+  assert.deepEqual(
+    clusterReflectionFacets(facets.slice().reverse()).map(cluster => cluster.facetIds[0]),
+    ['a', 'a\u0000b', 'z', 'Å', 'ä', '\u{10000}', '\uE000']
+  );
+});
+
+test('canonicalizes neighbor IDs by the same rule as facet IDs', () => {
+  const facets = [
+    tile(' alpha ', 0, 0, { neighbors: [' beta '] }),
+    tile('beta', 1, 0, { neighbors: [' alpha '] })
+  ];
+
+  assert.deepEqual(clusterReflectionFacets(facets).map(cluster => cluster.facetIds), [
+    ['alpha', 'beta']
+  ]);
+});
+
+test('requires geometry-scale tolerance explicitly instead of using an absolute default', () => {
+  const facets = [
+    tile('base', 0, 0, { neighbors: ['near'] }),
+    tile('near', 1, 0, {
+      neighbors: ['base'],
+      plane: { normal: [0, 0, 1], offset: 1e-12 }
+    })
+  ];
+
+  assert.equal(clusterReflectionFacets(facets).length, 2);
+  assert.equal(clusterReflectionFacets(facets, { coplanarTolerance: 1e-10 }).length, 1);
 });
 
 test('schedules only visible captures within declared capture and pixel budgets', () => {

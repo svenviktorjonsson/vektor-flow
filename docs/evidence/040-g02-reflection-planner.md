@@ -62,3 +62,22 @@
   reverting this packet cannot alter current images.
 - Next packet: 040-G03 may consume stable cluster IDs and scheduled pixel
   allocations when building the shared reflection atlas.
+
+## Independent-review fix receipt
+
+- Time: 2026-08-31 07:21 +02:00
+- RED command: `node --test tests/js/vf-reflection-planner.test.mjs`
+- RED exit/duration: 1 after 0.20 s; three new tests failed for locale ordering,
+  asymmetric neighbor whitespace, and implicit absolute tolerance
+- RED test SHA-256:
+  `d8dc70b23bf0fad96c916bf10339bbc0fac1182298ce1f9db9bb6009f3fb6312`
+- GREEN command: `node --test tests/js/vf-reflection-planner.test.mjs`
+- GREEN exit/duration: 0 after 0.17 s; 7 tests passed
+- GREEN implementation SHA-256:
+  `18677fddf8e8ee5f7c2a53591299c69e48989a918c9997e516cb5c9da0519343`
+- GREEN test SHA-256:
+  `1e6064a50ccd07402fa1a15218d284e97d5f645c40bcb845cc843a251e647ac0`
+- Result: all planner order and union decisions use explicit UTF-16 code-unit
+  ordering; facet and neighbor IDs use the same canonicalizer; exact
+  coplanarity is the default and a nonzero tolerance must be caller-supplied
+  from geometry scale.
