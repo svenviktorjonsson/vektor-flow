@@ -48,9 +48,12 @@ conservative work threshold, and the effective CPU limit must be at least two.
 One branch runs on a private CPU task while the caller runs the other; results
 return in source order so commits remain deterministic. A one-core limit,
 dependencies, effects, fallibility, owned resources, reductions without a
-stable merge tree, or small work all retain serial execution. Generated
-artifacts do not yet split source flows into these demand pairs, so end-to-end
-automatic native branch execution remains an explicit follow-up RED.
+stable merge tree, or small work all retain serial execution. The native
+artifact compiler now identifies the exact source-derived pair of retained
+no-argument scalar calls and records `automatic-cpu-pair-selected` only when
+that same safety plan admits it. Generated artifacts still execute those calls
+serially; connecting this selection to private thread launch/join remains the
+explicit next RED.
 
 The only approved public scheduling settings are process-wide ceilings:
 
