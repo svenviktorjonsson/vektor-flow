@@ -120,3 +120,41 @@ test('uploads clustered plans and light records into a bound GPU storage group',
   assert.equal(renderer._debugRenderEvidence().lightClusterStorageBytes, 64);
   assert.equal(renderer._debugRenderEvidence().lightRecordStorageBytes, 384);
 });
+
+test('zero lights still bind one complete 64-byte shader record', () => {
+  const renderer = createRenderer();
+  const createdBuffers = [];
+  const writes = [];
+  renderer._device = {
+    createBuffer(descriptor) {
+      const buffer = { descriptor, destroy() {} };
+      createdBuffers.push(buffer);
+      return buffer;
+    },
+    createBindGroup(descriptor) {
+      return { descriptor };
+    },
+    queue: {
+      writeBuffer(buffer, offset, data) {
+        writes.push({ buffer, offset, data: new data.constructor(data) });
+      },
+    },
+  };
+  renderer._clusteredLightBindLayout = { label: 'clustered-light-layout' };
+  renderer._clusteredLightGrid = {
+    xSlices: 1,
+    ySlices: 1,
+    depthSlices: 1,
+    nearDepth: 0.05,
+    farDepth: 500,
+  };
+  renderer._clusteredLightMaxLightsPerCluster = 4;
+
+  renderer._planClusteredLightsForFrame([]);
+
+  assert.equal(createdBuffers.length, 2);
+  assert.ok(createdBuffers[1].descriptor.size >= 64);
+  assert.equal(writes[1].data.byteLength, 64);
+  assert.equal(renderer._debugRenderEvidence().plannedLights, 0);
+  assert.equal(renderer._debugRenderEvidence().lightRecordStorageBytes, 0);
+});

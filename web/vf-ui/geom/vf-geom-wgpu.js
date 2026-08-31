@@ -189,7 +189,7 @@
 
   function packClusteredLightRecords(lights) {
     var source = Array.isArray(lights) ? lights : [];
-    var packed = new Float32Array(Math.max(4, source.length * 16));
+    var packed = new Float32Array(Math.max(16, source.length * 16));
     function component(values, index, fallback) {
       var value = Number(values && values[index]);
       return Number.isFinite(value) ? value : fallback;
