@@ -329,3 +329,61 @@ test('additional refinement accepts only a level-one child on its owning shape',
     RangeError,
   );
 });
+
+test('hierarchical demand is order and chunk independent with bounded repair work', () => {
+  const makeCoarse = () => createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const coarse = makeCoarse();
+  const demands = coarse.faces.flatMap(({ id: parentId }) => {
+    const levelOne = refineEllipsoidFaceReference(makeCoarse(), parentId);
+    return levelOne.refinement.children.map((faceId) => ({ parentId, faceId }));
+  });
+  const summarize = ({ parentId, faceId }) => {
+    const levelOne = refineEllipsoidFaceReference(makeCoarse(), parentId);
+    const levelTwo = refineEllipsoidChildFaceReference(levelOne, faceId);
+    const replaced = new Set([
+      faceId,
+      ...levelTwo.refinement.repairs.map(({ face }) => face),
+    ]);
+    return {
+      demand: levelTwo.refinement.demand,
+      midpoints: levelTwo.vertices.slice(levelOne.vertices.length),
+      generatedFaces: levelTwo.faces.filter((face) => !levelOne.faces.includes(face)),
+      preservedFaces: levelTwo.faces.filter((face) => levelOne.faces.includes(face)),
+      expectedPreserved: levelOne.faces.filter(({ id }) => !replaced.has(id)),
+      work: levelTwo.refinement.work,
+    };
+  };
+  const expected = new Map(demands.map((demand) => [demand.faceId, summarize(demand)]));
+  const reversed = new Map(
+    [...demands].reverse().map((demand) => [demand.faceId, summarize(demand)]),
+  );
+  assert.deepEqual(
+    demands.map(({ faceId }) => reversed.get(faceId)),
+    demands.map(({ faceId }) => expected.get(faceId)),
+  );
+
+  const chunks = [demands.slice(0, 2), demands.slice(2, 15), demands.slice(15)];
+  const chunked = new Map(chunks.flatMap((chunk) => (
+    chunk.map((demand) => [demand.faceId, summarize(demand)])
+  )));
+  assert.deepEqual(
+    demands.map(({ faceId }) => chunked.get(faceId)),
+    demands.map(({ faceId }) => expected.get(faceId)),
+  );
+  for (const { faceId } of demands) {
+    const result = expected.get(faceId);
+    assert.equal(result.midpoints.length, 3);
+    assert.equal(result.generatedFaces.length, 10);
+    assert.deepEqual(result.preservedFaces, result.expectedPreserved);
+    assert.deepEqual(result.work, {
+      demandedFaces: 1,
+      conformityFaces: 3,
+      generatedVertices: 3,
+      generatedFaces: 10,
+    });
+    assert.ok(result.midpoints.every(({ id }) => id.startsWith('vertex:midpoint:2:edge:')));
+    assert.ok(result.generatedFaces.every(({ id }) => (
+      id.startsWith(`${faceId}/refine:2/`) || id.includes('/conform:2:')
+    )));
+  }
+});
