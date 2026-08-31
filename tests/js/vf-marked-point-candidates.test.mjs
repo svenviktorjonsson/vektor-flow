@@ -111,3 +111,32 @@ test('region query includes candidates from every crossed neighbor cell', () => 
   );
   assert.ok(Object.isFrozen(candidates));
 });
+
+test('region query rejects malformed bounds and unbounded work', () => {
+  const node = createPointNode();
+  const options = {
+    cellSize: 10,
+    maxCandidates: 2,
+    baseProbability: 0.5,
+    correlationLength: 20,
+    spatialStrength: 0.5,
+  };
+  const query = (bounds, overrides = {}) => queryMarkedPointRegion2Reference(
+    node,
+    bounds,
+    { ...options, ...overrides },
+  );
+
+  assert.throws(() => query({ min: [0], max: [1, 1] }), TypeError);
+  assert.throws(() => query({ min: [0, NaN], max: [1, 1] }), RangeError);
+  assert.throws(() => query({ min: [1, 0], max: [1, 1] }), RangeError);
+  assert.throws(() => query({ min: [0, 0], max: [40_970, 10] }), RangeError);
+  assert.throws(
+    () => query({ min: [0, 0], max: [650, 10] }, { maxCandidates: 1_024 }),
+    RangeError,
+  );
+  assert.throws(
+    () => query({ min: [21_474_836_480, 0], max: [21_474_836_490, 10] }),
+    RangeError,
+  );
+});
