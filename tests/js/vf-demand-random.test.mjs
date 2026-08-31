@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import {
   demandU32,
   deriveDemandKey,
+  deriveDemandStream,
   encodeDemandIdentity,
   philox4x32_10,
+  sampleDemandStreamU32,
   sha256Bytes,
 } from '../../web/vf-ui/vf-demand-random.mjs';
 
@@ -62,6 +64,36 @@ test('demand key and u32 output have a pinned cross-runtime reference vector', (
     counter: [0x5c768268, 0x70d89da1, 0x76543210, 0xfedcba98],
   });
   assert.equal(demandU32(DEMAND_VECTOR), 0x533e66b5);
+});
+
+test('sampling is traversal, chunk, and worker-order independent', () => {
+  const streamIdentity = { ...DEMAND_VECTOR };
+  delete streamIdentity.sample;
+  const stream = deriveDemandStream(streamIdentity);
+  const samples = Array.from({ length: 24 }, (_, index) => [index, 0]);
+  const expected = samples.map((sample) => sampleDemandStreamU32(stream, sample));
+
+  const reverseTraversal = new Map(
+    [...samples].reverse().map((sample) => [sample[0], sampleDemandStreamU32(stream, sample)]),
+  );
+  assert.deepEqual(samples.map((sample) => reverseTraversal.get(sample[0])), expected);
+
+  const chunks = [samples.slice(0, 5), samples.slice(5, 17), samples.slice(17)];
+  assert.deepEqual(
+    chunks.flatMap((chunk) => chunk.map((sample) => sampleDemandStreamU32(stream, sample))),
+    expected,
+  );
+
+  const workerA = deriveDemandStream(structuredClone(streamIdentity));
+  const workerB = deriveDemandStream(structuredClone(streamIdentity));
+  const interleaved = new Array(samples.length);
+  for (let index = 0; index < samples.length; index += 2) {
+    interleaved[index] = sampleDemandStreamU32(workerA, samples[index]);
+  }
+  for (let index = 1; index < samples.length; index += 2) {
+    interleaved[index] = sampleDemandStreamU32(workerB, samples[index]);
+  }
+  assert.deepEqual(interleaved, expected);
 });
 
 test('demand identity uses a pinned length-framed hierarchy encoding', () => {
