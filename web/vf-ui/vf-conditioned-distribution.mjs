@@ -73,6 +73,24 @@ export function sampleBoundedUniform(node, sample, { min, max }) {
   return min + span * unit;
 }
 
+export function normalReferenceFromU32(
+  words,
+  { mean, standardDeviation },
+) {
+  requireSample(words);
+  if (!Number.isFinite(mean)) {
+    throw new RangeError('normal mean must be finite');
+  }
+  if (!Number.isFinite(standardDeviation) || standardDeviation < 0) {
+    throw new RangeError('normal standard deviation must be finite and non-negative');
+  }
+  const radiusUniform = (words[0] + 0.5) / U32_RANGE;
+  const angleUniform = words[1] / U32_RANGE;
+  const standard = Math.sqrt(-2 * Math.log(radiusUniform))
+    * Math.cos(2 * Math.PI * angleUniform);
+  return mean + standardDeviation * standard;
+}
+
 export function sampleNormalReference(
   node,
   sample,
@@ -80,21 +98,11 @@ export function sampleNormalReference(
 ) {
   const { stream } = requireNode(node);
   requireSample(sample);
-  if (!Number.isFinite(mean)) {
-    throw new RangeError('normal mean must be finite');
-  }
-  if (!Number.isFinite(standardDeviation) || standardDeviation < 0) {
-    throw new RangeError('normal standard deviation must be finite and non-negative');
-  }
   const words = philox4x32_10([
     stream.counterPrefix[0],
     stream.counterPrefix[1],
     sample[0],
     sample[1],
   ], stream.key);
-  const radiusUniform = (words[0] + 0.5) / U32_RANGE;
-  const angleUniform = words[1] / U32_RANGE;
-  const standard = Math.sqrt(-2 * Math.log(radiusUniform))
-    * Math.cos(2 * Math.PI * angleUniform);
-  return mean + standardDeviation * standard;
+  return normalReferenceFromU32([words[0], words[1]], { mean, standardDeviation });
 }
