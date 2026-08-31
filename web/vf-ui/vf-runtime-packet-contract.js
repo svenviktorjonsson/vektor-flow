@@ -466,6 +466,72 @@
     });
   }
 
+  function cloneRetainedEventValue(value) {
+    if (value === null || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(cloneRetainedEventValue);
+    var result = {};
+    Object.keys(value).forEach(function(key) {
+      result[key] = cloneRetainedEventValue(value[key]);
+    });
+    return result;
+  }
+
+  function createInternalRetainedEventProgramExecution(program) {
+    if (!program || program.schema !== "vektor-flow/retained-event-program" ||
+        program.version !== 1 || !Array.isArray(program.rules)) {
+      throw new TypeError("internal retained event program is malformed");
+    }
+    var geometry = Object.create(null);
+    var sequence = 0;
+    return Object.freeze({
+      dispatch: function(event) {
+        if (!event || typeof event.event !== "string" || typeof event.widget_id !== "string") {
+          throw new TypeError("internal retained event is malformed");
+        }
+        var geomPatch = {};
+        for (var ruleIndex = 0; ruleIndex < program.rules.length; ruleIndex += 1) {
+          var rule = program.rules[ruleIndex];
+          if (!rule || rule.event !== event.event || rule.widget_id !== event.widget_id ||
+              !Array.isArray(rule.actions)) continue;
+          for (var actionIndex = 0; actionIndex < rule.actions.length; actionIndex += 1) {
+            var action = rule.actions[actionIndex];
+            var state = action && action.state;
+            if (!action || action.op !== "retained_layer_patch" ||
+                typeof action.target !== "string" || !action.target ||
+                !state || typeof state !== "object" || !Array.isArray(state.geom && state.geom.meshes) ||
+                typeof state.mesh_id !== "string" || typeof state.property !== "string" ||
+                !state.value || typeof state.value !== "object") {
+              throw new TypeError("internal retained layer patch is malformed");
+            }
+            if (!geometry[action.target]) geometry[action.target] = cloneRetainedEventValue(state.geom);
+            var mesh = geometry[action.target].meshes.find(function(candidate) {
+              return candidate && (candidate.id === state.mesh_id || candidate.layer_id === state.layer_id);
+            });
+            if (!mesh) throw new TypeError("internal retained layer patch target is missing");
+            var value;
+            if (state.value.kind === "const") {
+              value = cloneRetainedEventValue(state.value.value);
+            } else if (state.value.kind === "event_field" &&
+                       typeof state.value.field === "string" &&
+                       Object.prototype.hasOwnProperty.call(event, state.value.field)) {
+              value = cloneRetainedEventValue(event[state.value.field]);
+            } else {
+              throw new TypeError("internal retained layer patch value is malformed");
+            }
+            mesh[state.property] = value;
+            geomPatch[action.target] = cloneRetainedEventValue(geometry[action.target]);
+          }
+        }
+        if (Object.keys(geomPatch).length === 0) return null;
+        return {
+          seq: ++sequence,
+          kind: "display.replace",
+          payload: { display: { screen: [], frames: {}, geom: geomPatch } }
+        };
+      }
+    });
+  }
+
   return {
     PACKET_KINDS: PACKET_KINDS,
     BOOTSTRAP_COALESCE_KINDS: BOOTSTRAP_COALESCE_KINDS,
@@ -474,6 +540,7 @@
     createInternalSliderValueChangedOwnerQueues: createInternalSliderValueChangedOwnerQueues,
     createInternalGeometryPickOwnerQueues: createInternalGeometryPickOwnerQueues,
     executeInternalOwnerEventPoll: executeInternalOwnerEventPoll,
-    createInternalOwnerEventLoopExecution: createInternalOwnerEventLoopExecution
+    createInternalOwnerEventLoopExecution: createInternalOwnerEventLoopExecution,
+    createInternalRetainedEventProgramExecution: createInternalRetainedEventProgramExecution
   };
 }));
