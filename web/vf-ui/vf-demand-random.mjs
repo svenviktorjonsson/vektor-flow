@@ -36,8 +36,15 @@ function concatBytes(parts) {
   return result;
 }
 
-function u32Bytes(value) {
-  const word = value >>> 0;
+function requireU32(value, label) {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+    throw new TypeError(`${label} must be a u32`);
+  }
+  return value;
+}
+
+function u32Bytes(value, label = 'encoded length') {
+  const word = requireU32(value, label);
   return Uint8Array.of(word, word >>> 8, word >>> 16, word >>> 24);
 }
 
@@ -45,8 +52,21 @@ function frame(tag, payload) {
   return concatBytes([Uint8Array.of(tag), u32Bytes(payload.length), payload]);
 }
 
-function wordPairBytes(pair) {
-  return concatBytes([u32Bytes(pair[0]), u32Bytes(pair[1])]);
+function requireWordArray(words, expectedLength, label) {
+  if (!words || words.length !== expectedLength) {
+    throw new TypeError(`${label} must contain ${expectedLength} u32 words`);
+  }
+  for (let index = 0; index < words.length; index += 1) {
+    requireU32(words[index], `${label}[${index}]`);
+  }
+}
+
+function wordPairBytes(pair, label) {
+  requireWordArray(pair, 2, label);
+  return concatBytes([
+    u32Bytes(pair[0], `${label}[0]`),
+    u32Bytes(pair[1], `${label}[1]`),
+  ]);
 }
 
 function hierarchyBytes(segments) {
@@ -62,11 +82,11 @@ function encodeDemandStreamIdentity(identity) {
     Uint8Array.of(0x56, 0x4b, 0x46, 0x44),
     u32Bytes(1),
     frame(1, textEncoder.encode(identity.generator)),
-    frame(2, u32Bytes(identity.version)),
-    frame(3, wordPairBytes(identity.seed)),
+    frame(2, u32Bytes(identity.version, 'version')),
+    frame(3, wordPairBytes(identity.seed, 'seed')),
     frame(4, textEncoder.encode(identity.domain)),
     frame(5, hierarchyBytes(identity.hierarchy)),
-    frame(6, u32Bytes(identity.lod)),
+    frame(6, u32Bytes(identity.lod, 'lod')),
     frame(7, textEncoder.encode(identity.channel)),
   ]);
 }
@@ -74,7 +94,7 @@ function encodeDemandStreamIdentity(identity) {
 export function encodeDemandIdentity(identity) {
   return concatBytes([
     encodeDemandStreamIdentity(identity),
-    frame(8, wordPairBytes(identity.sample)),
+    frame(8, wordPairBytes(identity.sample, 'sample')),
   ]);
 }
 
@@ -179,9 +199,11 @@ function multiplyHighLowU32(left, right) {
 }
 
 export function philox4x32_10(counter, key) {
-  let words = counter.map((word) => word >>> 0);
-  let key0 = key[0] >>> 0;
-  let key1 = key[1] >>> 0;
+  requireWordArray(counter, 4, 'counter');
+  requireWordArray(key, 2, 'key');
+  let words = [...counter];
+  let key0 = key[0];
+  let key1 = key[1];
 
   for (let round = 0; round < 10; round += 1) {
     const [high0, low0] = multiplyHighLowU32(PHILOX_M0, words[0]);
@@ -217,11 +239,12 @@ export function deriveDemandStream(identity) {
 }
 
 export function sampleDemandStreamU32(stream, sample) {
+  requireWordArray(sample, 2, 'sample');
   const counter = [
     stream.counterPrefix[0],
     stream.counterPrefix[1],
-    sample[0] >>> 0,
-    sample[1] >>> 0,
+    sample[0],
+    sample[1],
   ];
   return philox4x32_10(counter, stream.key)[0];
 }
@@ -230,7 +253,7 @@ export function deriveDemandKey(identity) {
   const stream = deriveDemandStream(identity);
   return {
     key: [...stream.key],
-    counter: [...stream.counterPrefix, identity.sample[0] >>> 0, identity.sample[1] >>> 0],
+    counter: [...stream.counterPrefix, identity.sample[0], identity.sample[1]],
   };
 }
 

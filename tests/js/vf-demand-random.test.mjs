@@ -46,6 +46,21 @@ test('Philox4x32-10 matches the Random123 known-answer vectors', () => {
   }
 });
 
+test('u32 identity and counter words reject truncating inputs', () => {
+  assert.throws(
+    () => philox4x32_10([0, 0, 0, -1], [0, 0]),
+    /counter\[3\].*u32/,
+  );
+  assert.throws(
+    () => deriveDemandStream({ ...DEMAND_VECTOR, version: 1.5 }),
+    /version.*u32/,
+  );
+  assert.throws(
+    () => sampleDemandStreamU32(deriveDemandStream(DEMAND_VECTOR), [0x100000000, 0]),
+    /sample\[0\].*u32/,
+  );
+});
+
 test('identity digest matches the FIPS 180-4 SHA-256 vectors', () => {
   const vectors = [
     ['', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'],
