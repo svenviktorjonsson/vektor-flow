@@ -131,13 +131,17 @@ test("the foldered chess bot advances through the next rebinding gate", {
     diagnostic,
     /in function __vkf_module_state__square_attacked_by: Cannot declare existing name i; update it with \.i:value/u,
   );
-  assert.match(
+  assert.doesNotMatch(
     diagnostic,
     /in function __vkf_module_state__direction_has_legal_move: Cannot declare existing name done; update it with \.done:value/u,
   );
   assert.doesNotMatch(
     diagnostic,
     /in function __vkf_module_state__direction_has_legal_move: Cannot declare existing name found; update it with \.found:value/u,
+  );
+  assert.match(
+    diagnostic,
+    /in function __vkf_module_state__direction_has_legal_move: Cannot declare existing name f; update it with \.f:value/u,
   );
   await assert.rejects(access(artifact));
 });
