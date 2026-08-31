@@ -26,6 +26,16 @@ function smallWorkload() {
   return { workload, fixture };
 }
 
+function smallStaticWorkload() {
+  const workload = structuredClone(manifest.workloads[0]);
+  workload.pointCount = 32;
+  workload.viewport = [64, 64];
+  workload.correctness.grid = [8, 8];
+  const fixture = generatePointFixture(workload.fixture, workload.pointCount);
+  workload.fixture.sha256 = createHash('sha256').update(fixture).digest('hex');
+  return { workload, fixture };
+}
+
 test('VKF adapter follows the exact manifest camera path', () => {
   const workload = manifest.workloads[1];
   assert.deepEqual(cameraOffsetForFrame(workload, 0), [0, 0.1]);
@@ -90,4 +100,22 @@ test('VKF benchmark adapter retains exact generated x/y bytes while changing onl
   assert.notDeepEqual(calls[0].projection.worldOrigin, calls[1].projection.worldOrigin);
   assert.equal(calls[0].options.count, workload.pointCount);
   assert.equal(calls[0].options.pointSize, workload.pointDiameterPixels);
+});
+
+test('VKF fixed-camera frames reuse the initialized retained image without resubmitting state', async () => {
+  const { workload, fixture } = smallStaticWorkload();
+  const calls = [];
+  const renderer = {
+    async initialize() {},
+    setWorldPoints(...values) { calls.push(values); },
+    destroy() {},
+  };
+  const adapter = createVkfLargeSceneAdapter({}, workload, {
+    fixtureBytes: fixture,
+    rendererFactory: () => renderer,
+  });
+  await adapter.initialize();
+  adapter.renderFrame(0);
+  adapter.renderFrame(0);
+  assert.equal(calls.length, 1);
 });
