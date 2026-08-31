@@ -163,3 +163,47 @@ test('adjacent half-open regions neither lose nor duplicate boundary candidates'
   assert.equal(new Set(adjacentIds).size, adjacentIds.length);
   assert.deepEqual(adjacentIds, whole.map(({ id }) => id));
 });
+
+test('candidate identities and marks are traversal, chunk, and branch independent', () => {
+  const target = createPointNode();
+  const recreated = createPointNode();
+  const unrelated = conditionChild(createConditionedRoot(ROOT_IDENTITY), {
+    segment: 'forest:999',
+    channel: 'trees',
+  });
+  const options = {
+    cellSize: 5,
+    maxCandidates: 4,
+    baseProbability: 0.55,
+    correlationLength: 25,
+    spatialStrength: 0.7,
+  };
+  const cells = Array.from({ length: 32 }, (_, index) => [
+    index - 16,
+    (index * 7 % 19) - 9,
+  ]);
+  const key = (cell) => cell.join(':');
+  const sample = (node, cell) => sampleMarkedPointCell2Reference(node, cell, options);
+  const expected = new Map(cells.map((cell) => [key(cell), sample(target, cell)]));
+
+  [...cells].reverse().forEach((cell) => sample(unrelated, cell));
+  const reversed = new Map(
+    [...cells].reverse().map((cell) => [key(cell), sample(target, cell)]),
+  );
+  assert.deepEqual(
+    cells.map((cell) => reversed.get(key(cell))),
+    cells.map((cell) => expected.get(key(cell))),
+  );
+
+  const chunks = [cells.slice(0, 3), cells.slice(3, 21), cells.slice(21)];
+  const chunked = new Map(
+    chunks.flatMap((chunk) => chunk.map((cell) => [key(cell), sample(recreated, cell)])),
+  );
+  assert.deepEqual(
+    cells.map((cell) => chunked.get(key(cell))),
+    cells.map((cell) => expected.get(key(cell))),
+  );
+
+  const ids = cells.flatMap((cell) => expected.get(key(cell)).map(({ id }) => id));
+  assert.equal(new Set(ids).size, ids.length);
+});
