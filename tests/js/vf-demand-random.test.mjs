@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Worker } from 'node:worker_threads';
 
 import {
   demandU32,
@@ -121,6 +122,25 @@ test('sampling is traversal, chunk, and worker-order independent', () => {
   assert.deepEqual(interleaved, expected);
 });
 
+test('separate workers reproduce samples independent of partitioning', async () => {
+  const streamIdentity = { ...DEMAND_VECTOR };
+  delete streamIdentity.sample;
+  const samples = Array.from({ length: 24 }, (_, index) => [index, 0]);
+  const expectedStream = deriveDemandStream(streamIdentity);
+  const expected = samples.map((sample) => sampleDemandStreamU32(expectedStream, sample));
+  const evenSamples = samples.filter((_, index) => index % 2 === 0);
+  const oddSamples = samples.filter((_, index) => index % 2 === 1);
+
+  const [even, odd] = await Promise.all([
+    runDemandWorker(streamIdentity, evenSamples),
+    runDemandWorker(streamIdentity, oddSamples),
+  ]);
+  const combined = new Array(samples.length);
+  even.forEach((value, index) => { combined[index * 2] = value; });
+  odd.forEach((value, index) => { combined[index * 2 + 1] = value; });
+  assert.deepEqual(combined, expected);
+});
+
 test('hierarchy levels share explicit ancestry without sharing random state', () => {
   const parent = { ...DEMAND_VECTOR, hierarchy: ['world:alpine', 'object:grass'] };
   const child = { ...parent, hierarchy: [...parent.hierarchy, 'patch:7'] };
@@ -202,3 +222,17 @@ test('demand identity uses a pinned length-framed hierarchy encoding', () => {
   });
   assert.notDeepEqual(encoded, differentBoundary);
 });
+
+function runDemandWorker(identity, samples) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(
+      new URL('../helpers/vf-demand-random-worker.mjs', import.meta.url),
+      { workerData: { identity, samples } },
+    );
+    worker.once('message', resolve);
+    worker.once('error', reject);
+    worker.once('exit', (code) => {
+      if (code !== 0) reject(new Error(`demand worker exited with code ${code}`));
+    });
+  });
+}
