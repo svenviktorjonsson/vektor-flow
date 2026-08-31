@@ -7,7 +7,10 @@ import {
   createConditionedRoot,
 } from '../../web/vf-ui/vf-conditioned-distribution.mjs';
 import {
+  GRASS_MATERIAL_LOD_WGSL,
+  createGrassMaterialLodGpuParityFixture,
   sampleGrassMaterialLodReference,
+  verifyGrassMaterialLodGpuParity,
 } from '../../web/vf-ui/vf-grass-material-gpu.mjs';
 
 const STREAM = conditionedNodeStreamReference(conditionChild(
@@ -68,4 +71,38 @@ test('grass micro-material detail fades continuously from an exact coarse identi
     (legacy.roughness + fine.roughness) / 2,
   );
   assert.deepEqual(sample(4, 3 / 256), transition);
+});
+
+test('grass material parity fixture packs the pinned stream and bounded CPU oracle', () => {
+  const records = [
+    { ...BASE, detailLevel: 3, footprint: 0 },
+    { ...BASE, detailLevel: 4, footprint: 3 / 256 },
+    { ...BASE, detailLevel: 5, footprint: 1 / 256 },
+  ].map((record) => ({
+    ...record,
+    expected: sampleGrassMaterialLodReference(record),
+  }));
+  const fixture = createGrassMaterialLodGpuParityFixture(records);
+
+  assert.equal(fixture.inputStrideWords, 12);
+  assert.equal(fixture.outputStrideFloats, 8);
+  assert.deepEqual([...fixture.inputWords.slice(8, 10)], STREAM.key);
+  assert.deepEqual([...fixture.inputWords.slice(10, 12)], STREAM.counterPrefix);
+  assert.match(GRASS_MATERIAL_LOD_WGSL, /fn vf_grass_material_lod_sample\(/);
+  assert.match(fixture.source, /@compute\s+@workgroup_size\(64\)/);
+  assert.deepEqual(verifyGrassMaterialLodGpuParity(fixture, fixture.expected), {
+    matched: true,
+    records: 3,
+    maxAbsoluteError: 0,
+  });
+  const corrupted = fixture.expected.slice();
+  corrupted[4] += 0.01;
+  assert.deepEqual(verifyGrassMaterialLodGpuParity(fixture, corrupted), {
+    matched: false,
+    record: 0,
+    lane: 4,
+    expected: fixture.expected[4],
+    actual: corrupted[4],
+    tolerance: 0.000002,
+  });
 });
