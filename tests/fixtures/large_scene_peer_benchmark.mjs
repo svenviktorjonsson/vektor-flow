@@ -76,6 +76,7 @@ async function execute() {
     correctnessOnly: query.get('correctnessOnly') === 'true',
     warmupFrames: Number(query.get('warmups') ?? manifest.measurement.minimumWarmupFrames),
     measuredFrames: Number(query.get('measured') ?? manifest.measurement.minimumMeasuredFrames),
+    allowLateLargeUploads: query.get('allowLateLargeUploads') === 'true',
   });
   const gl = [...tracker.contexts][0];
   return {

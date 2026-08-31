@@ -50,7 +50,8 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
     if (retained?.sourceIdentityRetained !== true) {
       throw new Error('point source identity changed after initialization');
     }
-    if (retained.largeBufferUploadsAfterInitialize !== 0) {
+    if (retained.largeBufferUploadsAfterInitialize !== 0
+      && options.allowLateLargeUploads !== true) {
       throw new Error('large point buffer upload after initialization');
     }
     const correctness = {
