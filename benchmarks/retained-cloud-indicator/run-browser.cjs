@@ -132,6 +132,7 @@ async function main() {
     pointSizePx: process.env.VF_RETAINED_CLOUD_POINT_SIZE || '4',
     implementation: process.env.VF_RETAINED_CLOUD_IMPLEMENTATION || 'vkf',
     captureArtifacts: process.env.VF_RETAINED_CLOUD_CAPTURE_ARTIFACTS || '0',
+    allowCorrectnessUnsupported: process.env.VF_RETAINED_CLOUD_ALLOW_CORRECTNESS_UNSUPPORTED || '0',
   });
   const url = `${origin.url}/browser.html?${query}`;
   const edgePath = process.env.VF_EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';

@@ -159,6 +159,52 @@ test('lane separates rAF pacing, GPU timestamps, and serialized completion laten
   assert.equal(calls.at(-1), 'destroy');
 });
 
+test('correctness-unsupported lane preserves all captures and never enters timing', async () => {
+  let submissions = 0;
+  const adapter = {
+    id: 'vkf-marker-impostor', version: '0.4.0',
+    async initialize() { return { firstVisibleMs: 5, uploadBytes: 32_000_000 }; },
+    async submitFrame(frame) {
+      submissions += 1;
+      return { cameraAngleRadians: 2 * Math.PI * frame / 100 };
+    },
+    async completeGpu() {}, async drainGpu() {},
+    async capture(frame) { return { frame }; },
+    retainedEvidence() {
+      return {
+        fixtureBufferWritesAfterInitialize: 0,
+        fixtureBufferReallocationsAfterInitialize: 0,
+        cameraUniformWritesAfterInitialize: submissions,
+      };
+    },
+    async destroy() {},
+  };
+  const result = await runIndicatorLane(adapter, { pointSizePx: 1 }, {
+    allowCorrectnessUnsupported: true,
+    encodeCaptureArtifact: async (_capture, frame) => `png:${frame}`,
+    verifyCapture: async (_capture, frame) => {
+      const closedFrame = frame === 100 ? 0 : frame;
+      return {
+        passed: frame !== 50,
+        artifactSha256: closedFrame.toString(16).padStart(64, '0'),
+        maxRegionError: frame === 50 ? 0.15860784313723514 : 0.1,
+        observed: {
+          grid: [1, 1], channels: ['coverage', 'r', 'g', 'b'],
+          regions: [[closedFrame / 100, 0, 0, 0]],
+        },
+      };
+    },
+  });
+  assert.equal(result.correctness.passed, false);
+  assert.equal(result.correctness.disposition, 'correctness-unsupported-no-timing');
+  assert.deepEqual(result.correctness.failedFrames, [50]);
+  assert.equal(result.correctness.captures.length, 5);
+  assert.equal(result.correctness.captures[2].artifactPngDataUrl, 'png:50');
+  assert.equal(result.timing, null);
+  assert.equal(result.retainedAtCorrectnessGate.fixtureBufferWritesAfterInitialize, 0);
+  assert.equal(submissions, 5);
+});
+
 test('release lane rejects any fixture other than the frozen full-million bytes', async () => {
   const adapter = {
     id: 'must-not-start', version: '1.0.0',
@@ -435,6 +481,29 @@ test('suite requires both sizes, every implementation, repeated runs, and one en
     }))
   ));
   assert.equal(validateSuiteMatrix(rows, environmentKey), true);
+  const provisional = rows.map((row) => row.implementation === 'vkf-marker-impostor' && row.pointSizePx === 1
+    ? {
+        ...row,
+        runs: row.runs.map(({ environmentKey: key }) => ({
+          environmentKey: key,
+          result: {
+            correctness: {
+              passed: false,
+              disposition: 'correctness-unsupported-no-timing',
+              failedFrames: [50],
+            },
+            retainedAtCorrectnessGate: {
+              fixtureBufferWritesAfterInitialize: 0,
+              fixtureBufferReallocationsAfterInitialize: 0,
+            },
+            timing: null,
+          },
+        })),
+      }
+    : row);
+  assert.equal(validateSuiteMatrix(provisional, environmentKey), true);
+  assert.throws(() => validateSuiteMatrix(provisional.map((row) => row.implementation === 'three-js-webgl2'
+    && row.pointSizePx === 1 ? { ...row, runs: provisional[6].runs } : row), environmentKey), /correctness gate/);
   assert.throws(() => validateSuiteMatrix(rows.slice(1), environmentKey), /both 1px and 4px/);
   assert.throws(() => validateSuiteMatrix(rows.map((row, index) => (
     index === 0 ? { ...row, runs: row.runs.slice(1) } : row

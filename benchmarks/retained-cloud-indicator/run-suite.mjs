@@ -76,6 +76,8 @@ async function runLane(query, pointSizePx, repeat, captureArtifacts) {
       VF_RETAINED_CLOUD_POINT_SIZE: String(pointSizePx),
       VF_RETAINED_CLOUD_IMPLEMENTATION: query,
       VF_RETAINED_CLOUD_CAPTURE_ARTIFACTS: captureArtifacts ? '1' : '0',
+      VF_RETAINED_CLOUD_ALLOW_CORRECTNESS_UNSUPPORTED:
+        query === 'vkf' && pointSizePx === 1 ? '1' : '0',
       VF_RETAINED_CLOUD_GPU_MODE: 'hardware',
     },
     maxBuffer: 96 * 1024 * 1024,
@@ -157,19 +159,19 @@ async function main() {
     row.runLevelStatistics = {
       rafCallbackMean: metricAggregate(
         row.runs,
-        (run) => run.result.timing.rafCallbackScheduling.rafCallbackIntervals.meanMs,
+        (run) => run.result.timing?.rafCallbackScheduling.rafCallbackIntervals.meanMs ?? null,
       ),
       cpuSubmitMean: metricAggregate(
         row.runs,
-        (run) => run.result.timing.rafCallbackScheduling.cpuSubmit.meanMs,
+        (run) => run.result.timing?.rafCallbackScheduling.cpuSubmit.meanMs ?? null,
       ),
       gpuTimestampMean: metricAggregate(
         row.runs,
-        (run) => run.result.timing.gpuTimestamp?.meanMs ?? null,
+        (run) => run.result.timing?.gpuTimestamp?.meanMs ?? null,
       ),
       serializedSubmitToCompletionMean: metricAggregate(
         row.runs,
-        (run) => run.result.timing.serializedSubmitToCompletion.meanMs,
+        (run) => run.result.timing?.serializedSubmitToCompletion.meanMs ?? null,
       ),
       coldFirstVisibleMean: metricAggregate(row.runs, (run) => run.result.cold.firstVisibleMs),
     };
@@ -187,6 +189,7 @@ async function main() {
       independentRunsPerRow: SUITE_REPEATS,
       executionOrder: 'repeat, then 1px/4px, then raw WebGPU/Three.js/deck.gl/VKF',
       noAdaptiveBatching: true,
+      provisionalDisposition: 'VKF 1px is correctness-unsupported/no timing pending Viktor decision',
     },
     environmentKey,
     pinnedEnvironment,
@@ -201,9 +204,9 @@ async function main() {
     rows: rows.map((row) => ({
       implementation: row.implementation,
       pointSizePx: row.pointSizePx,
-      rafMeanMs: row.runLevelStatistics.rafCallbackMean.meanOfRunMeansMs,
+      rafMeanMs: row.runLevelStatistics.rafCallbackMean?.meanOfRunMeansMs ?? null,
       gpuMeanMs: row.runLevelStatistics.gpuTimestampMean?.meanOfRunMeansMs ?? null,
-      serializedMeanMs: row.runLevelStatistics.serializedSubmitToCompletionMean.meanOfRunMeansMs,
+      serializedMeanMs: row.runLevelStatistics.serializedSubmitToCompletionMean?.meanOfRunMeansMs ?? null,
     })),
   }, null, 2));
 }

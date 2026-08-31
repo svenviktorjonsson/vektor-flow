@@ -41,6 +41,7 @@ async function execute() {
   const mode = query.get('mode') ?? 'smoke';
   const implementation = query.get('implementation') ?? 'vkf';
   const captureArtifacts = query.get('captureArtifacts') === '1';
+  const allowCorrectnessUnsupported = query.get('allowCorrectnessUnsupported') === '1';
   const fixture = createCloudFixture(pointCount);
   const factories = {
     'deck-gl': createDeckGlAdapter,
@@ -56,6 +57,8 @@ async function execute() {
     result = await runIndicatorLane(adapter, { pointSizePx }, {
       fixture,
       release: true,
+      allowCorrectnessUnsupported: allowCorrectnessUnsupported
+        && implementation === 'vkf' && pointSizePx === 1,
       encodeCaptureArtifact: captureArtifacts ? encodeCapturePng : undefined,
     });
   } else {

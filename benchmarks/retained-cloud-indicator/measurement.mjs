@@ -71,6 +71,7 @@ export async function runIndicatorLane(adapter, lane, options = {}) {
   try {
     cold = await adapter.initialize(lane);
     const captures = [];
+    const failedFrames = [];
     for (const frame of INDICATOR_PROTOCOL.correctnessFrames) {
       const submission = await adapter.submitFrame(frame, lane, { phase: 'correctness' });
       assertCameraSubmission(submission, frame);
@@ -78,11 +79,14 @@ export async function runIndicatorLane(adapter, lane, options = {}) {
       completionCalls += 1;
       const rawCapture = await adapter.capture(frame, lane);
       const verified = await verifyCapture(rawCapture, frame, lane);
-      if (verified?.passed !== true || typeof verified.artifactSha256 !== 'string') {
-        throw new Error(`correctness capture failed at frame ${frame}: ${JSON.stringify(verified)}`);
-      }
       if (typeof options.encodeCaptureArtifact === 'function') {
         verified.artifactPngDataUrl = await options.encodeCaptureArtifact(rawCapture, frame, lane);
+      }
+      if (verified?.passed !== true || typeof verified.artifactSha256 !== 'string') {
+        if (options.allowCorrectnessUnsupported !== true) {
+          throw new Error(`correctness capture failed at frame ${frame}: ${JSON.stringify(verified)}`);
+        }
+        failedFrames.push(frame);
       }
       captures.push(verified);
     }
@@ -92,6 +96,25 @@ export async function runIndicatorLane(adapter, lane, options = {}) {
     }
     const closure = compareCloudRegionStats(captures[0].observed, captures.at(-1).observed, 0.01);
     if (!closure.passed) throw new Error(`closed orbit did not return to frame zero: ${closure.maxRegionError}`);
+    if (failedFrames.length > 0) {
+      const retainedAtCorrectnessGate = adapter.retainedEvidence();
+      assertRetained(retainedAtCorrectnessGate, INDICATOR_PROTOCOL.correctnessFrames.length);
+      return Object.freeze({
+        implementation: adapter.id,
+        version: adapter.version,
+        pointSizePx: lane.pointSizePx,
+        cold,
+        correctness: {
+          passed: false,
+          disposition: 'correctness-unsupported-no-timing',
+          failedFrames,
+          captures,
+          closure,
+        },
+        retainedAtCorrectnessGate,
+        timing: null,
+      });
+    }
     const correctness = { passed: true, captures, closure };
     assertRetained(adapter.retainedEvidence(), INDICATOR_PROTOCOL.correctnessFrames.length);
 
