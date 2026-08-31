@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+  <body>
+    <script src="../../native/VfOverlay/build/Release/web/vf-runtime-shell.js"></script>
+    <script>
+      const lightEmbedding = {
+        id: "id",
+        pos: "pos",
+        target: "target",
+        kind: "kind",
+        intensity: "intensity",
+        range: "range",
+        color: "color",
+        casts_shadow: "casts_shadow",
+        show_marker: "show_marker",
+        source_radius: "source_radius",
+        spread: "spread",
+        aperture_mesh_id: "aperture_mesh_id",
+        clip_epsilon_ratio: "clip_epsilon_ratio"
+      };
+      const darkPoint = (id, x) => ({
+        properties: {
+          id,
+          kind: "point",
+          pos: [x, 0, 6],
+          target: [0, 0, 0],
+          color: [1, 1, 1, 1],
+          intensity: 0,
+          range: 1,
+          casts_shadow: false,
+          show_marker: false,
+          source_radius: 0,
+          spread: 1
+        },
+        embedding: lightEmbedding
+      });
+
+      window.__vfNativeSceneConfig = {
+        scene_ir: {
+          frame: {
+            frame_id: "clustered_projected_aperture_frame",
+            title: "Clustered projected aperture capture",
+            rect: [0.05, 0.05, 0.70, 0.82]
+          },
+          camera: {
+            properties: {
+              pos: [0, 0, 8],
+              target: [0, 0, 0],
+              fov: 45,
+              up: [0, 1, 0]
+            },
+            embedding: { pos: "pos", target: "target", fov: "fov", up: "up" }
+          },
+          lights: [
+            darkPoint("legacy_0", -6),
+            darkPoint("legacy_1", -5),
+            darkPoint("legacy_2", 5),
+            darkPoint("legacy_3", 6),
+            {
+              properties: {
+                id: "clustered_projected_4",
+                kind: "projected",
+                pos: [0, 0, 4],
+                target: [0, 0, 0],
+                color: [1, 1, 1, 1],
+                intensity: 100,
+                range: 10,
+                casts_shadow: false,
+                show_marker: false,
+                source_radius: 0,
+                spread: 1,
+                aperture_mesh_id: "aperture",
+                clip_epsilon_ratio: 0
+              },
+              embedding: lightEmbedding
+            }
+          ],
+          timing: { fps: 30, duration_seconds: 1, boundary: "clamp" },
+          meshes: [
+            {
+              id: "receiver",
+              kind: "quad",
+              properties: {
+                center: [0, 0],
+                size: 8,
+                z: 0,
+                color: [0.12, 0.12, 0.12, 1]
+              },
+              embedding: {
+                center: "center",
+                size: "size",
+                z: "z",
+                color: "color",
+                visible: "visible"
+              }
+            },
+            {
+              id: "aperture",
+              kind: "quad",
+              properties: {
+                center: [0, 0],
+                size: 1.5,
+                z: 2,
+                color: [0, 0, 0, 0]
+              },
+              embedding: {
+                center: "center",
+                size: "size",
+                z: "z",
+                color: "color",
+                visible: "visible"
+              }
+            }
+          ],
+          shadow_receivers: [],
+          shadow: { enabled: false, color: [0, 0, 0, 1], lift: 0.002 },
+          surface_worlds: {},
+          surface_cameras: {},
+          render_options: { show_light_markers: false, light_marker_size: 0.1 }
+        }
+      };
+    </script>
+    <script>
+      VfRuntimeShell.ensureSceneDependencies().then(() => {
+        const nativeScene = document.createElement("script");
+        nativeScene.src = "../../native/VfOverlay/build/Release/web/vf-native-scene.js";
+        document.body.appendChild(nativeScene);
+      });
+    </script>
+  </body>
+</html>

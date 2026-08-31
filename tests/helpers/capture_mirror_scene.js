@@ -42,17 +42,30 @@ async function openScene(scenePath, port, frameId) {
   const sceneUrl = "file:///" + path.resolve(scenePath).replace(/\\/g, "/");
   const sceneUrlPrefix = sceneUrl.replace(/ /g, "%20");
   const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "vf-edge-"));
-  const edge = spawn(edgePath, [
+  const args = [
     `--user-data-dir=${userDir}`,
     `--remote-debugging-port=${port}`,
     "--allow-file-access-from-files",
     "--enable-unsafe-webgpu",
-    "--headless=new",
+    "--enable-features=Vulkan,UseSkiaRenderer",
     "--no-first-run",
     "--no-default-browser-check",
     "--window-size=1400,1000",
     sceneUrl,
-  ], {
+  ];
+  if (process.env.VF_CAPTURE_OFFSCREEN_GPU === "1") {
+    args.splice(
+      5,
+      0,
+      "--window-position=-32000,-32000",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows"
+    );
+  } else {
+    args.splice(5, 0, "--headless=new");
+  }
+  const edge = spawn(edgePath, args, {
     stdio: "ignore",
   });
 
@@ -120,10 +133,12 @@ async function openScene(scenePath, port, frameId) {
       return { edge, pageWs, pageState, browserWs, browserState };
     }
     if (lastReadiness && (lastReadiness.error || lastReadiness.fatal)) {
+      await closeScene(browserWs, browserState, edge);
       throw new Error(`renderer failed before ready: ${JSON.stringify(lastReadiness)}`);
     }
     await delay(250);
   }
+  await closeScene(browserWs, browserState, edge);
   throw new Error(`renderer never became ready: ${JSON.stringify(lastReadiness)}`);
 }
 
@@ -322,7 +337,21 @@ async function main() {
     payload.captureMode = captureMode;
     payload.captureDebug = captureDebug && typeof captureDebug === "object" ? { ...captureDebug, value: "<omitted>" } : captureDebug;
     payload.surfaceDebug = surfaceDebug.result ? surfaceDebug.result.value : null;
-    process.stdout.write(JSON.stringify(payload));
+    if (process.env.VF_CAPTURE_SUMMARY === "1") {
+      const capture = Array.isArray(payload.captureState) && payload.captureState.length ? payload.captureState[0] : null;
+      process.stdout.write(JSON.stringify({
+        offscreenGpu: process.env.VF_CAPTURE_OFFSCREEN_GPU === "1",
+        hasAdapter: !!(payload.dynamicState && payload.dynamicState.hasAdapter),
+        runningRenderers: payload.status && payload.status.runningRenderers,
+        captureMode: payload.captureMode,
+        frameWidth: capture && capture.frameWidth,
+        frameHeight: capture && capture.frameHeight,
+        renderEvidence: capture && capture.renderEvidence,
+        captureDebug: payload.captureDebug
+      }));
+    } else {
+      process.stdout.write(JSON.stringify(payload));
+    }
   } finally {
     await closeScene(runtime.browserWs, runtime.browserState, runtime.edge);
   }
