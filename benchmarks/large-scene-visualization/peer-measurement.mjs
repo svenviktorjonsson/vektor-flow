@@ -30,16 +30,18 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
   const measuredFrames = positiveCount(options.measuredFrames ?? 120, 'measuredFrames');
   const now = options.now ?? (() => performance.now());
   let sequence = 0;
+  let gpuCompletions = 0;
   const checkpointResults = [];
   await adapter.initialize();
   try {
     for (const frame of workload.correctness.checkpoints) {
       await adapter.renderFrame(frame);
       await adapter.completeGpu();
+      gpuCompletions += 1;
       const result = await adapter.capture(frame);
       checkpointResults.push({ frame, ...result });
       if (result.passed !== true || !Number.isFinite(result.maxRegionError)) {
-        throw new Error(`correctness failed at frame ${frame}`);
+        throw new Error(`correctness failed at frame ${frame}: ${JSON.stringify(result)}`);
       }
     }
     const retained = adapter.retainedEvidence();
@@ -54,11 +56,16 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
       completedAtSequence: ++sequence,
       checkpoints: checkpointResults,
       retained,
+      gpuCompletionCalls: gpuCompletions,
     };
+    if (options.correctnessOnly === true) {
+      return { version: adapter.version, correctness, timing: null };
+    }
 
     for (let index = 0; index < warmupFrames; index += 1) {
       await adapter.renderFrame(index % workload.cameraPath.frames);
       await adapter.completeGpu();
+      gpuCompletions += 1;
     }
     const startedAtSequence = ++sequence;
     const samplesMs = [];
@@ -66,6 +73,7 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
       const before = now();
       await adapter.renderFrame(index % workload.cameraPath.frames);
       await adapter.completeGpu();
+      gpuCompletions += 1;
       const elapsed = now() - before;
       if (!Number.isFinite(elapsed) || elapsed <= 0) throw new Error('timing sample must be finite and positive');
       samplesMs.push(elapsed);
@@ -73,7 +81,7 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
     return {
       version: adapter.version,
       correctness,
-      timing: { startedAtSequence, samplesMs },
+      timing: { startedAtSequence, samplesMs, gpuCompletionCalls: gpuCompletions },
     };
   } finally {
     await adapter.destroy();
