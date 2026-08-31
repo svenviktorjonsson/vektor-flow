@@ -2,30 +2,96 @@
   "schema": "vkf-media-freshness/1",
   "capture": {
     "api": "VfDisplay.__test.captureGeomFrameDataUrl",
+    "composite_api": "Page.captureScreenshot",
     "execution": "headless Edge WebGPU",
-    "fixture": "tests/fixtures/clustered_geometry_emitter_capture.html",
-    "frame_id": "clustered_geometry_emitter_frame",
-    "zoom_steps": [-2, 0, 2]
+    "fixture": "examples/material_ui_gallery/app.vkf",
+    "frame_id": "frame_0",
+    "interactions": [
+      "view-lighting",
+      "view-mirror",
+      "view-glass",
+      "view-all",
+      "glass-alpha=0.72"
+    ],
+    "pairs": [
+      {
+        "view": "view-lighting",
+        "renderer_sha256": "67062fc618671af37d96895713551f2f2eab76568e75a8bbdcbbade23cd13895",
+        "composite_sha256": "0bd4c907ba7735a581c2b1249361ee8ac087a6db44b236b4566903f2029ad099",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "view-mirror",
+        "renderer_sha256": "f53b64b0f605e296d6bf8b6b2fd5fc9fa4a94ad706d87664f7e3115a1b8244ed",
+        "composite_sha256": "4fd3d60d5ea3e772b2b8a69fa9bc54a58cd05709658aa4a5e1e6c7cf48dd690b",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "view-glass",
+        "renderer_sha256": "80297fa0aeacfa5227c655a47cba8655c865afffb5e15e2580a1e0e826fd6b34",
+        "composite_sha256": "b4d7106824c57faf7d8f44a9a436a99f3dd4243e371da0e9371078a280833ace",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "view-all",
+        "renderer_sha256": "e84d78be989d3d55f0b60ca1824787b1dc23316f6240dc4625af5513c21eaedb",
+        "composite_sha256": "8d254eff1dbff640bcaee4c4e5c4dad8d64672af188e3d95d235cc0584a31626",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "glass-alpha-072",
+        "renderer_sha256": "6815f4ec274800f0f944a02b4af57d7a7b7e2f57709a8ff39d2827804864bdbc",
+        "composite_sha256": "3545f6fba28e14e7b238f3418add048884535335ce61610fd0f77b2d15763d17",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      }
+    ]
   },
   "sources": {
-    "tests/fixtures/clustered_geometry_emitter_capture.html": "d31cebecb40453dfa3418c041107f516df106fd6c6611721f4d3290b7f8aa0d7",
-    "tests/helpers/capture_mirror_scene.js": "9e8086427fb2c70501cfa9b971db1fd963cd4304f5e1451225cd5ffc27b626ee",
-    "tests/fixtures/transparent-overlay-acceptance/main.html": "3b5d6b40403ecf5ecbd4f8b1961541f97e071c11196a452c5964c687d72b800d",
-    "tests/fixtures/transparent-overlay-acceptance/theme.css": "a57be20b33ceb947a63211648b186589946900b40a9e400271761f2848414583",
-    "tests/fixtures/transparent-overlay-acceptance/app.vkf": "a0030b25f03e3a26d6a1443f4affa647f87b72afc6e6e292ec76bc7d07538217",
-    "web/vf-ui/vf-static-html-loader.js": "71bd12c268b023dab13be48d05caa6ee03048f0cddc761ddfc67c11390340775"
+    "examples/material_ui_gallery/app.vkf": "8a20affff3cc692ec0126e285fc6e29742ad1f692c5c531516b8222f17d953b7",
+    "examples/material_ui_gallery/ui/main.html": "a12423a7c3e026b9897d5859895c73ad23f578034896ddd28633e2fc2e02548e",
+    "examples/material_ui_gallery/ui/gallery.css": "9ea69c0983e62a3eebaf7d5540dc8cd4b3543a54d07122a17b79585a2990227c",
+    "compiler/native/vkf_retained_scene_packet.hpp": "97cce63d6dee3662168b6377ce761062dfa24136d134025300d1ef955de8b9a7",
+    "compiler/native/vkf_native_scene_artifact_stager.cpp": "2a557604ecc7b38342a6b9271c80391793bc1be0acd8353f1e5010b94f4083f5",
+    "web/vf-ui/vf-runtime-packet-contract.js": "b2081b36b47e997a42659396c092400b603835ab308f53a19c98ab8ab411e760",
+    "web/vf-ui/vf-retained-event-adapter.js": "b7082ab7a277ece450781deb5e4a56f8e3dd33ef5f78c4a921fc47dfae2f001b",
+    "web/vf-ui/vf-static-html-loader.js": "71bd12c268b023dab13be48d05caa6ee03048f0cddc761ddfc67c11390340775",
+    "tests/helpers/capture_material_ui_gallery.js": "c91ce146210092224bab2a071a3036959de7942d6227f0c29ac932660022bb8c",
+    "tools/build_material_ui_gallery_gif.py": "a95090699456b8bea9d56e783a03a45662e54292c8e00c3a317d23e99a6567c1",
+    "scripts/build-material-ui-gallery-media.mjs": "821304b7851dc83c126b5c5a89524a26dc03321b32fa25b33f66ed70964cdff8"
   },
   "media": {
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.png": {
-      "sha256": "3cf7ff0a3a54e98877e1d13d2508e6933c54a0bd53a4a2264721d014c92f8aea",
-      "width": 950,
-      "height": 657
+      "sha256": "3545f6fba28e14e7b238f3418add048884535335ce61610fd0f77b2d15763d17",
+      "width": 1376,
+      "height": 861
+    },
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.png": {
+      "sha256": "6815f4ec274800f0f944a02b4af57d7a7b7e2f57709a8ff39d2827804864bdbc",
+      "width": 1002,
+      "height": 708
     },
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.gif": {
-      "sha256": "0656bf4d32c38c26e8f0e4297586843c3598578822bd3a8b79e4d1515001372d",
-      "width": 640,
-      "height": 443,
-      "frames": 4,
+      "sha256": "5fbf3afd7cbeaac98df218385896b01afad337033d63394ca39671c810e066f3",
+      "width": 1376,
+      "height": 861,
+      "frames": 5,
+      "loop": true
+    },
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.gif": {
+      "sha256": "2f991d9f9a55c03981911de56ad7aac4a8cd32ff064fd2fec36425026655a16a",
+      "width": 1002,
+      "height": 708,
+      "frames": 5,
       "loop": true
     }
   }

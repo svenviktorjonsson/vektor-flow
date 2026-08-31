@@ -62,7 +62,7 @@
     "web/vf-ui/vf-static-html-loader.js": "71bd12c268b023dab13be48d05caa6ee03048f0cddc761ddfc67c11390340775",
     "tests/helpers/capture_material_ui_gallery.js": "c91ce146210092224bab2a071a3036959de7942d6227f0c29ac932660022bb8c",
     "tools/build_material_ui_gallery_gif.py": "a95090699456b8bea9d56e783a03a45662e54292c8e00c3a317d23e99a6567c1",
-    "scripts/build-material-ui-gallery-media.mjs": "deb20ef40f1b241ccf52aa0d76d8d57342858399a8e90434425bdda32c45d497"
+    "scripts/build-material-ui-gallery-media.mjs": "821304b7851dc83c126b5c5a89524a26dc03321b32fa25b33f66ed70964cdff8"
   },
   "media": {
     "docs/public/images/readme-ui/material-ui-gallery.png": {

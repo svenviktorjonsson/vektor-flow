@@ -64,7 +64,20 @@ const captureSummary = JSON.parse(run(
 const stillDestination = path.join(mediaRoot, "material-ui-gallery.png");
 const gifDestination = path.join(mediaRoot, "material-ui-gallery.gif");
 const rendererGifDestination = path.join(mediaRoot, "material-ui-gallery-renderer.gif");
-await cp(path.join(captureRoot, captureSummary.still), stillDestination);
+const overlayStillDestination = path.join(mediaRoot, "ui-transparent-overlay-offscreen.png");
+const overlayRendererStillDestination = path.join(
+  mediaRoot, "ui-transparent-overlay-offscreen-renderer.png",
+);
+const overlayGifDestination = path.join(mediaRoot, "ui-transparent-overlay-offscreen.gif");
+const overlayRendererGifDestination = path.join(
+  mediaRoot, "ui-transparent-overlay-offscreen-renderer.gif",
+);
+const finalState = captureSummary.states.at(-1);
+await Promise.all([
+  cp(path.join(captureRoot, captureSummary.still), stillDestination),
+  cp(path.join(captureRoot, finalState.compositeFile), overlayStillDestination),
+  cp(path.join(captureRoot, finalState.rendererFile), overlayRendererStillDestination),
+]);
 run("python", [
   path.join(repositoryRoot, "tools", "build_material_ui_gallery_gif.py"),
   path.join(captureRoot, "composite"),
@@ -74,6 +87,10 @@ run("python", [
   path.join(repositoryRoot, "tools", "build_material_ui_gallery_gif.py"),
   path.join(captureRoot, "renderer"),
   rendererGifDestination,
+]);
+await Promise.all([
+  cp(gifDestination, overlayGifDestination),
+  cp(rendererGifDestination, overlayRendererGifDestination),
 ]);
 const sourcePaths = [
   "examples/material_ui_gallery/app.vkf",
@@ -110,6 +127,23 @@ for (const relativePath of mediaPaths) {
     ...(gif ? { frames: captureSummary.states.length, loop: true } : {}),
   };
 }
+const overlayMediaPaths = [
+  "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.png",
+  "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.png",
+  "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.gif",
+  "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.gif",
+];
+const overlayMedia = {};
+for (const relativePath of overlayMediaPaths) {
+  const bytes = await readFile(path.join(repositoryRoot, relativePath));
+  const gif = relativePath.endsWith(".gif");
+  overlayMedia[relativePath] = {
+    sha256: sha256(bytes),
+    width: gif ? bytes.readUInt16LE(6) : bytes.readUInt32BE(16),
+    height: gif ? bytes.readUInt16LE(8) : bytes.readUInt32BE(20),
+    ...(gif ? { frames: captureSummary.states.length, loop: true } : {}),
+  };
+}
 await writeFile(
   path.join(mediaRoot, "material-ui-gallery.manifest.json"),
   `${JSON.stringify({
@@ -131,6 +165,31 @@ await writeFile(
     },
     sources,
     media,
+  }, null, 2)}\n`,
+  "utf8",
+);
+await writeFile(
+  path.join(mediaRoot, "ui-transparent-overlay-offscreen.manifest.json"),
+  `${JSON.stringify({
+    schema: "vkf-media-freshness/1",
+    capture: {
+      api: "VfDisplay.__test.captureGeomFrameDataUrl",
+      composite_api: "Page.captureScreenshot",
+      execution: "headless Edge WebGPU",
+      fixture: "examples/material_ui_gallery/app.vkf",
+      frame_id: captureSummary.frameId,
+      interactions: ["view-lighting", "view-mirror", "view-glass", "view-all", "glass-alpha=0.72"],
+      pairs: captureSummary.states.map((state) => ({
+        view: state.view,
+        renderer_sha256: state.sha256,
+        composite_sha256: state.compositeSha256,
+        static_html: state.staticHtml,
+        frame_chrome: state.frameChrome,
+        webgpu_canvas: state.webgpuCanvas,
+      })),
+    },
+    sources,
+    media: overlayMedia,
   }, null, 2)}\n`,
   "utf8",
 );
