@@ -128,3 +128,61 @@ test("native and WASM stage the same executable retained material scene", async 
   assert.equal(geom.meshes[0].casts_shadow, true);
   assert.equal(geom.meshes[0].indices.length, 6);
 });
+
+test("one retained artifact combines material geometry with static HTML and CSS controls", async () => {
+  assert.ok(nativeSceneStager, "VKF_NATIVE_SCENE_STAGER must name the focused stager executable");
+  const sourceText = `${litSurfaceSource}\n${[
+    "controls: display.add_frame(pos:[0.78, 0.06], size:[0.18, 0.84])",
+    'controls.load("ui/main.html")',
+  ].join("\n")}`;
+  const typedIr = compile(sourceText);
+  const root = path.join(workRoot, "combined");
+  const source = path.join(root, "gallery.vkf");
+  const typedIrPath = path.join(root, "gallery.typed-ir.json");
+  const overlayWeb = path.join(root, "vf-ui");
+  const html = '<link rel="stylesheet" href="theme.css"><nav><button id="glass">Glass</button><input id="opacity" type="range" min="0" max="1" step="0.05" value="0.5"></nav>';
+  const css = "nav { display: grid; gap: 0.5rem; }\n";
+  await Promise.all([
+    mkdir(path.join(root, "ui"), { recursive: true }),
+    cp(path.join(repositoryRoot, "web", "vf-ui"), overlayWeb, { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(source, `${sourceText}\n`, "utf8"),
+    writeFile(typedIrPath, `${JSON.stringify(typedIr)}\n`, "utf8"),
+    writeFile(path.join(root, "ui", "main.html"), html, "utf8"),
+    writeFile(path.join(root, "ui", "theme.css"), css, "utf8"),
+  ]);
+
+  const nativeSummary = JSON.parse(stage(nativeSceneStager, undefined, [
+    "--source", source, "--overlay-web", overlayWeb, "--typed-ir", typedIrPath,
+  ]));
+  const nativeRoot = path.dirname(path.join(overlayWeb, ...nativeSummary.page_rel.split("/")));
+  const wasmSummary = JSON.parse(stage("vkf_wasm_artifact_smoke", undefined, [
+    "--source", source, "--typed-ir", typedIrPath,
+  ]));
+  const wasmRoot = path.dirname(wasmSummary.artifact_path);
+  const [nativePackets, wasmPackets, nativeMounts, wasmMounts] = await Promise.all([
+    readFile(path.join(nativeRoot, "vf-runtime-packets.json"), "utf8").then(JSON.parse),
+    readFile(wasmSummary.manifest_path, "utf8").then(JSON.parse)
+      .then(async (manifest) => {
+        const bytes = await readFile(wasmSummary.artifact_path);
+        return JSON.parse(runtimeBridge.instantiateWasmRuntime({ bytes, manifest })
+          .readBinding("$ui$compiled$packets"));
+      }),
+    readFile(path.join(nativeRoot, "vf-static-html-loads.json"), "utf8").then(JSON.parse),
+    readFile(path.join(wasmRoot, "vf-static-html-loads.json"), "utf8").then(JSON.parse),
+  ]);
+  assert.deepEqual(nativePackets, wasmPackets);
+  assert.deepEqual(nativePackets[0].payload.commands.map(({ id }) => id), ["frame_0", "frame_1"]);
+  assert.deepEqual(Object.keys(nativePackets[2].payload.display.geom), ["frame_0"]);
+  assert.deepEqual(nativeMounts, wasmMounts);
+  assert.equal(nativeMounts[0].frame_id, "frame_1");
+  assert.equal(
+    await readFile(path.join(nativeRoot, ...nativeMounts[0].resource.split("/")), "utf8"),
+    html,
+  );
+  assert.equal(
+    await readFile(path.join(wasmRoot, ...wasmMounts[0].resource.split("/")), "utf8"),
+    html,
+  );
+});
