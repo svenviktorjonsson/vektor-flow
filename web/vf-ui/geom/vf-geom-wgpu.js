@@ -226,6 +226,24 @@
     return out;
   }
 
+  function clusteredCameraFromMatrices(viewMatrix, projectionMatrix, grid) {
+    if (!viewMatrix || viewMatrix.length !== 16 || !projectionMatrix || projectionMatrix.length !== 16) {
+      return null;
+    }
+    var nearDepth = Number(grid && grid.nearDepth);
+    var farDepth = Number(grid && grid.farDepth);
+    if (!Number.isFinite(nearDepth) || !(nearDepth > 0.0) ||
+        !Number.isFinite(farDepth) || !(farDepth > nearDepth)) {
+      return null;
+    }
+    return {
+      viewMatrix: Array.prototype.slice.call(viewMatrix),
+      projectionMatrix: Array.prototype.slice.call(projectionMatrix),
+      nearDepth: nearDepth,
+      farDepth: farDepth
+    };
+  }
+
   function packClusteredLightPlan(plan, grid, cap, lightCount) {
     var offsets = plan && plan.clusterOffsets ? plan.clusterOffsets : new Uint32Array(0);
     var lightIds = plan && plan.lightIds ? plan.lightIds : new Uint32Array(0);
@@ -6646,18 +6664,26 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var projectedInputs = camera && typeof planner.planViewClusteredLights === "function"
         ? projectedClusteredLightInputs(lights)
         : null;
-      var plan = projectedInputs
-        ? planner.planViewClusteredLights({
+      var plan = null;
+      if (projectedInputs) {
+        try {
+          plan = planner.planViewClusteredLights({
             grid: grid,
             camera: camera,
             lights: projectedInputs,
             maxLightsPerCluster: capacity
-          })
-        : planner.planClusteredLights({
-            grid: grid,
-            lights: inputs,
-            maxLightsPerCluster: capacity
           });
+        } catch (_) {
+          plan = null;
+        }
+      }
+      if (!plan) {
+        plan = planner.planClusteredLights({
+          grid: grid,
+          lights: inputs,
+          maxLightsPerCluster: capacity
+        });
+      }
       this._clusteredLightPlan = plan;
       this._lastPlannedLightCount = inputs.length;
       if (this._device) {
@@ -7263,7 +7289,53 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       part.shadow_contact3 = contactOccluder3 || null;
     },
 
-    _prepareShadowMapsForScene: function (enc, mesh, t, frameWidth, frameHeight) {
+    _clusteredCameraForBatchScene: function (mesh, t, aspect) {
+      var sceneCamera = mesh && mesh.camera ? mesh.camera : null;
+      var parts = Array.isArray(this._parts) ? this._parts : [];
+      var hasLitPart = false;
+      for (var partIndex = 0; partIndex < parts.length; partIndex += 1) {
+        var partMesh = parts[partIndex] && parts[partIndex].mesh;
+        if (!partMesh || partMesh.visible === false || partMesh.no_lighting === true) { continue; }
+        hasLitPart = true;
+        if (partMesh.mode3d === false || (partMesh.camera && partMesh.camera !== sceneCamera)) { return null; }
+        var surfaceKind = String(partMesh.surface_system && partMesh.surface_system.kind || "").toLowerCase().trim();
+        if (surfaceKind === "screen") { return null; }
+      }
+      if (!hasLitPart) { return null; }
+
+      var MmBatch = getMath();
+      var camera = sceneCamera || {};
+      var renderAspect = Math.max(1e-6, Number(aspect || 1) || 1);
+      var projection;
+      if (Array.isArray(camera.projection_matrix) && camera.projection_matrix.length === 16 &&
+          (camera._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(camera, renderAspect))) {
+        projection = new Float32Array(camera.projection_matrix);
+      } else {
+        var fov = camera.fov !== undefined ? Number(camera.fov) : 45;
+        projection = MmBatch.mat4PerspectiveZ01(fov * Math.PI / 180, renderAspect, 0.05, 500);
+      }
+      if (camera.flip_x === true) {
+        projection[0] = -projection[0];
+        projection[4] = -projection[4];
+        projection[8] = -projection[8];
+        projection[12] = -projection[12];
+      }
+
+      var view;
+      if (Array.isArray(camera.view_matrix) && camera.view_matrix.length === 16) {
+        view = new Float32Array(camera.view_matrix);
+      } else if (!sceneCamera) {
+        view = MmBatch.mat4Mul(
+          MmBatch.mat4Translation(0, 0, -5),
+          MmBatch.mat4RotationY(t * 0.0008)
+        );
+      } else {
+        view = mat4LookAt(camera.pos || [0, 0, 5], camera.target || [0, 0, 0], camera.up || [0, 1, 0]);
+      }
+      return clusteredCameraFromMatrices(view, projection, this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID);
+    },
+
+    _prepareShadowMapsForScene: function (enc, mesh, t, frameWidth, frameHeight, clusteredCamera) {
       if (!mesh || !Array.isArray(this._parts) || !this._parts.length || !sharedWgpu) {
         this._lastActiveLightCount = 0;
         this._lastShadowCacheHitCount = 0;
@@ -7276,7 +7348,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
         t
       );
-      this._planClusteredLightsForFrame(sceneLights);
+      this._planClusteredLightsForFrame(sceneLights, clusteredCamera);
       this._lastActiveLightCount = Math.min(4, sceneLights.length);
       maybeLogResolvedLights(this, "shadow_prepare", sceneLights);
       var activeLights = [];
@@ -8629,7 +8701,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         perfSample.physics = this._stepScenePhysics(shadowEncBatch, mesh, t);
         perfSample.physics_ms = perfNowMs() - perfStageStart;
         perfStageStart = perfNowMs();
-        var preparedShadows = this._prepareShadowMapsForScene(shadowEncBatch, mesh, t, wBatch, hBatch);
+        var clusteredCameraBatch = this._clusteredCameraForBatchScene(mesh, t, aspBatch);
+        var preparedShadows = this._prepareShadowMapsForScene(shadowEncBatch, mesh, t, wBatch, hBatch, clusteredCameraBatch);
         perfSample.shadow_prepare = perfNowMs() - perfStageStart;
         perfSample.shadow_cache_hit = Number(this._lastShadowCacheHit || 0.0);
         if (((preparedShadows[0] || preparedShadows[1] || preparedShadows[2] || preparedShadows[3]) && Number(this._lastShadowDrawCount || 0) > 0) || Number(perfSample.physics || 0) > 0) {
@@ -8874,7 +8947,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       // --- Lights ---
       var rawLights = mesh.no_lighting === true ? [] : lightsForMesh((mesh.lights || []), this._offscreenFrame === true, mesh);
       var lightsNorm = resolveSceneLights(rawLights, sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution), t);
-      this._planClusteredLightsForFrame(lightsNorm);
+      this._planClusteredLightsForFrame(lightsNorm, clusteredCameraFromMatrices(
+        viewMat,
+        projMat,
+        this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID
+      ));
       maybeLogResolvedLights(this, "main", lightsNorm);
       var lmName = mesh.light_model || (lightsNorm[0] && lightsNorm[0].model) || "blinn_phong";
       var lmInt  = LIGHT_MODELS[lmName] !== undefined ? LIGHT_MODELS[lmName] : 2;
