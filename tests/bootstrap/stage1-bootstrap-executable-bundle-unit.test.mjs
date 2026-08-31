@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -26,8 +26,10 @@ test("bootstrap bundle emits an executable compiler-source unit", () => {
   mkdirSync(workRoot, { recursive: true });
   const work = mkdtempSync(join(workRoot, "i95-executable-unit-"));
   try {
-    const sourcePath = "compiler/self_hosted/compiler.vkf";
-    const canonicalSource = readFileSync(join(root, sourcePath), "utf8").replace(/\r\n/g, "\n");
+    const sourceFile = join(work, "compiler.vkf");
+    copyFileSync(join(root, "compiler", "self_hosted", "compiler.vkf"), sourceFile);
+    const sourcePath = relative(dirname(workRoot), sourceFile).replaceAll("\\", "/");
+    const canonicalSource = readFileSync(sourceFile, "utf8").replace(/\r\n/g, "\n");
     const sourceIdentity = sha256(canonicalSource);
     const manifest = {
       schema: "vektor-flow/compiler-bootstrap",
