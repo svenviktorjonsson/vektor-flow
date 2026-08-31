@@ -43,6 +43,28 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "03-mirror",
+      "title": "Planar mirror",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "mirror",
+        "reflection"
+      ],
+      "source": "03-mirror/app.vkf",
+      "sourceSha256": "21463d888e544844c613bcd5a9485fd7f9be99bf7089d89a1d90c2aa9a6c0f5d",
+      "media": {
+        "path": "docs/public/images/scene-gallery/03-mirror.png",
+        "sha256": "ab596f202469b4adea2685193fa52fdc323acaa1b67e939686f814cb260999f3"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }
