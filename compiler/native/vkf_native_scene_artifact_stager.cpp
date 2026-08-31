@@ -1,4 +1,5 @@
 #include "vkf_static_html_bundle.hpp"
+#include "vkf_retained_scene_packet.hpp"
 #include "vkf_world_mesh_packet.hpp"
 
 #include <cstdint>
@@ -2553,6 +2554,24 @@ void flatten_retained_html_numeric_value(
     throw StagerError("retained HTML Frame geometry must be numeric");
 }
 
+std::optional<CompiledUiSceneBundle> try_compile_retained_scene_packets(
+    const std::filesystem::path& typed_ir_path
+) {
+    if (typed_ir_path.empty()) return std::nullopt;
+    try {
+        const auto packets = vkf::retained_scene::compile_packets(
+            vf::parse_json(read_file_bytes(typed_ir_path)));
+        if (!packets.has_value()) return std::nullopt;
+        CompiledUiSceneBundle bundle;
+        bundle.scene_config_json = "[]";
+        bundle.runtime_packets_json = vf::json_stringify(*packets, -1);
+        bundle.provenance = "vkf-retained-scene-lowering";
+        return bundle;
+    } catch (const vkf::retained_scene::Error& error) {
+        throw StagerError(error.what());
+    }
+}
+
 std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
     const std::filesystem::path& typed_ir_path,
     const std::filesystem::path& source_path
@@ -3210,8 +3229,12 @@ int run(int argc, char** argv) {
             scene_config_provenance.path = slash_path(config_path);
             scene_config_provenance.source_hash_checked = true;
         } else {
-            auto compiled_ui_scene = try_compile_retained_html_tree(
-                effective.typed_ir, absolute_source);
+            auto compiled_ui_scene = try_compile_retained_scene_packets(
+                effective.typed_ir);
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_retained_html_tree(
+                    effective.typed_ir, absolute_source);
+            }
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_typed_world_presentation(
                     effective.typed_ir);
