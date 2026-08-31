@@ -77,31 +77,30 @@ browser's JavaScript engine.
 ## Off-screen capture
 
 All capture execution used Edge `--headless=new`; no visible browser window was
-created. The existing `VfDisplay.__test.captureGeomFrameDataUrl(frameId)` path
-reported:
+created. Five compiled VKF interactions were each captured twice: the renderer
+texture through `VfDisplay.__test.captureGeomFrameDataUrl(frameId)` and the
+complete viewport through DevTools `Page.captureScreenshot`. The 1002x708
+renderer capture contains only the WebGPU result. The 1376x861 compositor
+capture includes that canvas, both frame headers, and the separate static
+HTML/CSS controls.
 
-```json
-{
-  "hasAdapter": true,
-  "runningRenderers": 1,
-  "captureMode": "frame",
-  "frameWidth": 950,
-  "frameHeight": 657,
-  "plannedLights": 5,
-  "captureDataUrlOk": true
-}
-```
+The paired sequence covers four `ButtonClicked` view changes and one
+`SliderValueChanged` alpha update. Every manifest pair records distinct
+renderer and compositor hashes plus positive `static_html`, `frame_chrome`,
+and `webgpu_canvas` observations. Build/test-only Pillow converts both
+sequences into looping five-frame GIFs; the shipped application has no Pillow,
+JavaScript library, or media-tool dependency.
 
-Three zoom states were captured and converted by build/test-only Pillow into a
-looping four-frame GIF. The shipped application has no Pillow, JavaScript
-library, or media-tool dependency.
+![Hidden full-compositor VKF capture](../public/images/readme-ui/ui-transparent-overlay-offscreen.gif)
 
-![Headless VKF WebGPU capture](../public/images/readme-ui/ui-transparent-overlay-offscreen.gif)
+The independent renderer-only oracle is
+[`ui-transparent-overlay-offscreen-renderer.gif`](../public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.gif).
 
 The freshness manifest pins all relevant source and media SHA-256 hashes:
 `docs/public/images/readme-ui/ui-transparent-overlay-offscreen.manifest.json`.
-Its executable test also validates PNG/GIF signatures, dimensions, GIF loop
-metadata, and frame count.
+Its executable test validates both capture APIs, all paired layer observations,
+source and media hashes, PNG/GIF signatures, dimensions, GIF loop metadata,
+and frame counts.
 
 ## Transparent host audit
 
