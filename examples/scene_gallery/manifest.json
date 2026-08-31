@@ -153,6 +153,28 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "08-grass",
+      "title": "Grass material",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "texture",
+        "grass"
+      ],
+      "source": "08-grass/app.vkf",
+      "sourceSha256": "073689b4422d98ba06602f91d3ad86daa3f2b3da0affd14a661800823640a2b3",
+      "media": {
+        "path": "docs/public/images/scene-gallery/08-grass.png",
+        "sha256": "2780dfaf1fe6c3d26e7f5c545743f60fd199c55e4327fa9f7e3e95d6b3ee7280"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }
