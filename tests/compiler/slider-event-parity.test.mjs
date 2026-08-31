@@ -36,6 +36,15 @@ function compileSource(source) {
   return JSON.parse(stage("vkf_ast_to_ir_smoke", ast));
 }
 
+test("native compiler treats CRLF and LF VKF source identically", () => {
+  const source = [
+    ": .ui.display",
+    "slider: Input()",
+    "event: slider.events.get()",
+  ].join("\n");
+  assert.deepEqual(compileSource(source.replaceAll("\n", "\r\n")), compileSource(source));
+});
+
 test("Input range owners expose SliderEvent and SliderValueChanged specificity", () => {
   const typedIr = compileSource([
     ": .ui.display",
