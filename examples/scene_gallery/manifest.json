@@ -336,6 +336,29 @@
         "api": "Page.captureScreenshot",
         "frame": "spot_frame"
       }
+    },
+    {
+      "id": "16-dice-texture",
+      "title": "Procedural dice",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "texture",
+        "procedural",
+        "shadows"
+      ],
+      "source": "16-dice-texture/app.vkf",
+      "sourceSha256": "f07b5e1aaed47610d8ab76da949af2a78b0e5845f870453b688acea5a37d5978",
+      "media": {
+        "path": "docs/public/images/scene-gallery/16-dice-texture.png",
+        "sha256": "980a0f088ae80b8abc6ef1f4e1e7804d30addd36c308af8f890a0378999bcac6"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "dice_frame"
+      }
     }
   ]
 }
