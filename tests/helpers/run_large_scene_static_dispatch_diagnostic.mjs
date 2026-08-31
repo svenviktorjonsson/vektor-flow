@@ -5,16 +5,20 @@ import { dirname, resolve } from 'node:path';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
+import {
+  STATIC_DISPATCH_PROTOCOL,
+  staticDispatchRotatedOrder,
+} from '../../benchmarks/large-scene-visualization/static-dispatch-diagnostic.mjs';
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const manifest = JSON.parse(readFileSync(
   resolve(root, 'benchmarks', 'large-scene-visualization', 'manifest.json'),
   'utf8',
 ));
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
-const workload = manifest.workloads.find(({ id }) => id === 'orthographic-points-100k-static');
-const fixedDispatchesPerSample = 1000;
-const warmupSamples = 50;
-const measuredSamples = 1000;
+const workload = manifest.workloads.find(({ id }) => id === STATIC_DISPATCH_PROTOCOL.sourceWorkload);
+const warmupSamples = STATIC_DISPATCH_PROTOCOL.warmupSamples;
+const measuredSamples = STATIC_DISPATCH_PROTOCOL.measuredSamples;
 const tCritical95 = 1.9623414611334487;
 
 function sourceCommit() {
@@ -83,7 +87,7 @@ function runLane(implementation, port) {
       VF_LARGE_SCENE_CORRECTNESS_ONLY: '0',
       VF_LARGE_SCENE_WARMUPS: String(warmupSamples),
       VF_LARGE_SCENE_MEASURED: String(measuredSamples),
-      VF_LARGE_SCENE_FIXED_DISPATCHES: String(fixedDispatchesPerSample),
+      VF_LARGE_SCENE_STATIC_DISPATCH_DIAGNOSTIC: '1',
       VF_LARGE_SCENE_CDP_PORT: String(port),
     },
   });
@@ -96,34 +100,24 @@ function runLane(implementation, port) {
   if (timing.warmupFrames !== warmupSamples
     || timing.measuredFrames !== measuredSamples
     || timing.samplesMs?.length !== measuredSamples
-    || timing.fixedDispatchesPerSample !== fixedDispatchesPerSample
-    || timing.measuredDispatches !== measuredSamples * fixedDispatchesPerSample
-    || timing.adaptiveBatching !== false
     || timing.measuredGpuFrames !== measuredSamples
-    || timing.gpuCompletionCalls !== workload.correctness.checkpoints.length
-      + warmupSamples + measuredSamples) {
+    || timing.gpuCompletionCalls !== 1 + warmupSamples + measuredSamples) {
     throw new Error(`${implementation} diagnostic count mismatch`);
   }
   if (result.correctness.retained?.sourceIdentityRetained !== true
     || result.correctness.retained.largeBufferUploadsAfterInitialize !== 0) {
     throw new Error(`${implementation} diagnostic violated retained-data responsibility`);
   }
-  const batch = distribution(timing.samplesMs, 'Ms');
-  const perDispatchSamplesUs = timing.samplesMs.map(
-    (sampleMs) => (sampleMs * 1000) / fixedDispatchesPerSample,
-  );
   return {
     implementation,
     result,
-    batchDistributionMs: batch,
-    perDispatchDistributionUs: distribution(perDispatchSamplesUs, 'Us'),
-    targetMinimumBatchMs: result.clock.minimumPositiveDeltaMs * 100,
-    targetSatisfied: batch.medianMs >= result.clock.minimumPositiveDeltaMs * 100,
+    distributionMs: distribution(timing.samplesMs, 'Ms'),
   };
 }
 
+const rotatedOrder = staticDispatchRotatedOrder(manifest);
 const lanes = [];
-for (const implementation of workload.comparableImplementations) {
+for (const implementation of rotatedOrder) {
   lanes.push(runLane(implementation, await availablePort()));
 }
 const renderer = lanes[0].result.environment.webglRenderer;
@@ -132,12 +126,8 @@ if (/swiftshader|software/i.test(renderer)
   || lanes.some(({ result }) => JSON.stringify(result.environment) !== environmentIdentity)) {
   throw new Error('fixed-dispatch diagnostic requires one shared hardware environment');
 }
-if (lanes.some(({ targetSatisfied }) => !targetSatisfied)) {
-  throw new Error('fixed-dispatch batch median did not reach 100 clock quanta');
-}
-
 const evidence = {
-  schema: 'vkf.large-scene-static-fixed-dispatch-diagnostic',
+  schema: 'vkf.large-scene-static-real-render-diagnostic',
   schemaVersion: 1,
   status: 'measured-diagnostic',
   performanceClaim: false,
@@ -149,13 +139,14 @@ const evidence = {
     'vtk-js': packageJson.devDependencies['@kitware/vtk.js'],
     'plotly-scattergl': packageJson.devDependencies['plotly.js-dist-min'],
   },
-  workload: workload.id,
-  responsibility: 'retained static no-change dispatch; identical fixed operation count; one GPU completion after each batch',
-  fixedDispatchesPerSample,
+  workload: STATIC_DISPATCH_PROTOCOL.workload,
+  sourceWorkload: workload.id,
+  pointCount: workload.pointCount,
+  datasetSha256: workload.fixture.sha256,
+  responsibility: STATIC_DISPATCH_PROTOCOL.measuredOperation,
   warmupSamples,
   measuredSamples,
-  adaptiveBatching: false,
-  rotatedOrder: workload.comparableImplementations,
+  rotatedOrder,
   environment: lanes[0].result.environment,
   lanes,
 };
@@ -169,11 +160,9 @@ if (output) {
 process.stdout.write(JSON.stringify({
   status: evidence.status,
   sourceCommit: evidence.sourceCommit,
-  fixedDispatchesPerSample,
-  distributions: lanes.map(({ implementation, batchDistributionMs, perDispatchDistributionUs }) => ({
+  distributions: lanes.map(({ implementation, distributionMs }) => ({
     implementation,
-    batchMedianMs: batchDistributionMs.medianMs,
-    perDispatchMedianUs: perDispatchDistributionUs.medianUs,
+    medianMs: distributionMs.medianMs,
   })),
   evidenceSha256: createHash('sha256').update(serialized).digest('hex'),
   output: output ?? null,

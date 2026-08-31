@@ -13,6 +13,7 @@ import {
   cameraOffsetForFrame,
   createVkfLargeSceneAdapter,
 } from './adapters/vkf.mjs';
+import { RETAINED_POINT_REDRAW } from '../../web/vf-ui/geom/internal/vf-retained-point-cloud-camera.mjs';
 
 const manifest = JSON.parse(readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'));
 
@@ -118,4 +119,26 @@ test('VKF fixed-camera frames reuse the initialized retained image without resub
   adapter.renderFrame(0);
   adapter.renderFrame(0);
   assert.equal(calls.length, 1);
+});
+
+test('VKF forced static benchmark redraws retained state without resubmitting it', async () => {
+  const { workload, fixture } = smallStaticWorkload();
+  const stateCalls = [];
+  let redraws = 0;
+  const renderer = {
+    async initialize() {},
+    setWorldPoints(...values) { stateCalls.push(values); },
+    [RETAINED_POINT_REDRAW]() { redraws += 1; },
+    destroy() {},
+  };
+  const adapter = createVkfLargeSceneAdapter({}, workload, {
+    fixtureBytes: fixture,
+    rendererFactory: () => renderer,
+    forceStaticDraw: true,
+  });
+  await adapter.initialize();
+  adapter.renderFrame(0);
+  adapter.renderFrame(0);
+  assert.equal(stateCalls.length, 1);
+  assert.equal(redraws, 2);
 });

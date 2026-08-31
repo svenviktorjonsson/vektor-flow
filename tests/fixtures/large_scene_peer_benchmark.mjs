@@ -5,6 +5,7 @@ import { createPlotlyScatterGlLargeSceneAdapter } from '../../benchmarks/large-s
 import { createVkfBrowserLargeSceneAdapter } from '../../benchmarks/large-scene-visualization/adapters/vkf-browser.mjs';
 import { createVtkJsLargeSceneAdapter } from '../../benchmarks/large-scene-visualization/adapters/vtk-js.mjs';
 import { runCorrectnessThenTiming } from '../../benchmarks/large-scene-visualization/peer-measurement.mjs';
+import { staticDispatchWorkload } from '../../benchmarks/large-scene-visualization/static-dispatch-diagnostic.mjs';
 
 const factories = Object.freeze({
   vkf: createVkfBrowserLargeSceneAdapter,
@@ -58,17 +59,23 @@ async function execute() {
   const implementation = query.get('implementation');
   const workloadId = query.get('workload');
   const factory = factories[implementation];
-  const workload = manifest.workloads.find(({ id }) => id === workloadId);
+  const sourceWorkload = manifest.workloads.find(({ id }) => id === workloadId);
+  const workload = query.get('staticDispatchDiagnostic') === 'true'
+    ? staticDispatchWorkload(sourceWorkload, manifest.implementations)
+    : sourceWorkload;
   if (!factory) throw new Error(`unknown implementation ${implementation}`);
   if (!workload) throw new Error(`unknown workload ${workloadId}`);
   const clock = clockEvidence();
   const tracker = installLargeBufferUploadTracker(workload.pointCount * 4);
-  const adapter = factory(document.getElementById('host'), workload, { tracker });
+  const staticDispatchDiagnostic = query.get('staticDispatchDiagnostic') === 'true';
+  const adapter = factory(document.getElementById('host'), workload, {
+    tracker,
+    forceStaticDraw: staticDispatchDiagnostic,
+  });
   const result = await runCorrectnessThenTiming(adapter, workload, {
     correctnessOnly: query.get('correctnessOnly') === 'true',
     warmupFrames: Number(query.get('warmups') ?? manifest.measurement.minimumWarmupFrames),
     measuredFrames: Number(query.get('measured') ?? manifest.measurement.minimumMeasuredFrames),
-    fixedDispatchesPerSample: Number(query.get('fixedDispatchesPerSample') ?? 1),
   });
   const gl = [...tracker.contexts][0];
   return {

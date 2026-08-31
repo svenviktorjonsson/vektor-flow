@@ -14,7 +14,10 @@ export function createVkfBrowserLargeSceneAdapter(host, workload, options = {}) 
   const tracker = options.tracker ?? installLargeBufferUploadTracker(workload.pointCount * 4);
   const canvas = document.createElement('canvas');
   host.append(canvas);
-  const renderer = createVkfLargeSceneAdapter(canvas, workload, { fixtureBytes: fixture.bytes });
+  const renderer = createVkfLargeSceneAdapter(canvas, workload, {
+    fixtureBytes: fixture.bytes,
+    forceStaticDraw: options.forceStaticDraw === true,
+  });
   return createBrowserPeerAdapter({
     version: VKF_BROWSER_VERSION,
     host,

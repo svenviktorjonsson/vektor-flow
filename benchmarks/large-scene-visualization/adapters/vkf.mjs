@@ -5,6 +5,7 @@ import {
 } from '../point-frame-oracle.mjs';
 import { createScreenSpacePointCloudRenderer } from '../../../web/vf-ui/geom/vf-screen-point-cloud-renderer.mjs';
 import { setRetainedWorldPointCloud2D } from '../../../web/vf-ui/geom/internal/vf-retained-point-cloud-camera.mjs';
+import { RETAINED_POINT_REDRAW } from '../../../web/vf-ui/geom/internal/vf-retained-point-cloud-camera.mjs';
 
 export { cameraOffsetForFrame };
 
@@ -50,7 +51,10 @@ export function createVkfLargeSceneAdapter(canvas, workload, options = {}) {
   function renderFrame(frame) {
     if (!initialized) throw new Error('VKF large-scene adapter must initialize before rendering');
     const nextProjection = projectionForFrame(workload, frame);
-    if (rendered && sameProjection(retainedProjection, nextProjection)) return;
+    if (rendered && sameProjection(retainedProjection, nextProjection)) {
+      if (options.forceStaticDraw === true) renderer[RETAINED_POINT_REDRAW]();
+      return;
+    }
     setRetainedWorldPointCloud2D(renderer, points, nextProjection, {
       count: workload.pointCount,
       pointSize: workload.pointDiameterPixels,

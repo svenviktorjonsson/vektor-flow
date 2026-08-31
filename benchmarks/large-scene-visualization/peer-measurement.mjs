@@ -28,15 +28,13 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
   assertComparableAdapter(adapter);
   const warmupFrames = positiveCount(options.warmupFrames ?? 60, 'warmupFrames');
   const measuredFrames = positiveCount(options.measuredFrames ?? 120, 'measuredFrames');
-  const fixedDispatchesPerSample = positiveCount(
-    options.fixedDispatchesPerSample ?? 1,
-    'fixedDispatchesPerSample',
-  );
   const now = options.now ?? (() => performance.now());
   let sequence = 0;
   let gpuCompletions = 0;
   const checkpointResults = [];
+  const preparationStarted = now();
   await adapter.initialize();
+  const preparationMs = now() - preparationStarted;
   try {
     for (const frame of workload.correctness.checkpoints) {
       await adapter.renderFrame(frame);
@@ -63,13 +61,11 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
       gpuCompletionCalls: gpuCompletions,
     };
     if (options.correctnessOnly === true) {
-      return { version: adapter.version, correctness, timing: null };
+      return { version: adapter.version, preparationMs, correctness, timing: null };
     }
 
     for (let index = 0; index < warmupFrames; index += 1) {
-      for (let dispatch = 0; dispatch < fixedDispatchesPerSample; dispatch += 1) {
-        await adapter.renderFrame(index % workload.cameraPath.frames);
-      }
+      await adapter.renderFrame(index % workload.cameraPath.frames);
       await adapter.completeGpu();
       gpuCompletions += 1;
     }
@@ -78,9 +74,7 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
     let measuredGpuFrames = 0;
     for (let index = 0; index < measuredFrames; index += 1) {
       const before = now();
-      for (let dispatch = 0; dispatch < fixedDispatchesPerSample; dispatch += 1) {
-        await adapter.renderFrame(index % workload.cameraPath.frames);
-      }
+      await adapter.renderFrame(index % workload.cameraPath.frames);
       await adapter.completeGpu();
       gpuCompletions += 1;
       measuredGpuFrames += 1;
@@ -95,17 +89,16 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
     }
     return {
       version: adapter.version,
+      preparationMs,
       correctness,
       timing: {
         startedAtSequence,
         warmupFrames,
         measuredFrames,
-        fixedDispatchesPerSample,
-        measuredDispatches: measuredFrames * fixedDispatchesPerSample,
-        adaptiveBatching: false,
         samplesMs,
         measuredGpuFrames,
         gpuCompletionCalls: gpuCompletions,
+        retainedAfterTiming: adapter.retainedEvidence(),
       },
     };
   } finally {

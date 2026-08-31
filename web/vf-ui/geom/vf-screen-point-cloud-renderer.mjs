@@ -1,6 +1,7 @@
 import {
   RETAINED_POINT_COMPONENTS,
   RETAINED_POINT_DATA,
+  RETAINED_POINT_REDRAW,
 } from './internal/vf-retained-point-cloud-camera.mjs';
 
 const DEFAULT_COLOR = Object.freeze([0.396, 0.91, 1, 0.92]);
@@ -206,7 +207,15 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     if (destroyed) throw new Error('screen-space point-cloud renderer is destroyed');
   }
 
-  return Object.freeze({ initialize, setPoints, setWorldPoints, resize, destroy, get backend() { return gl ? 'webgl2-points' : null; } });
+  return Object.freeze({
+    initialize,
+    setPoints,
+    setWorldPoints,
+    resize,
+    destroy,
+    [RETAINED_POINT_REDRAW]: render,
+    get backend() { return gl ? 'webgl2-points' : null; },
+  });
 }
 
 function normalizeProjection(value, current, scratch) {

@@ -6,6 +6,7 @@ import {
   projectPointCloud3DToScreen
 } from '../../web/vf-ui/geom/vf-screen-point-cloud-renderer.mjs';
 import {
+  RETAINED_POINT_REDRAW,
   setRetainedWorldPointCloud,
   setRetainedWorldPointCloud2D
 } from '../../web/vf-ui/geom/internal/vf-retained-point-cloud-camera.mjs';
@@ -233,6 +234,21 @@ test('identical retained state is a no-op while visual state changes still redra
 
   setRetainedWorldPointCloud2D(renderer, points, projection(), { ...options, pointSize: 3 });
   assert.equal(state.draws.length, 2);
+});
+
+test('private retained redraw reissues a real draw without another point upload', async () => {
+  const { gl, state } = trackedWebGl();
+  const renderer = createScreenSpacePointCloudRenderer({
+    width: 1280,
+    height: 720,
+    getContext: () => gl
+  });
+  await renderer.initialize();
+  const points = new Float32Array([0.25, -0.5]);
+  setRetainedWorldPointCloud2D(renderer, points, projection(), { count: 1, pointSize: 2 });
+  renderer[RETAINED_POINT_REDRAW]();
+  assert.equal(state.draws.length, 2);
+  assert.equal(state.bufferSubDataCalls.length, 1);
 });
 
 test('mutating retained projection and color inputs still redraws', async () => {
