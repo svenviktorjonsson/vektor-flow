@@ -221,6 +221,29 @@
         "api": "Page.captureScreenshot",
         "frame": "solkatt_frame"
       }
+    },
+    {
+      "id": "11-roughness",
+      "title": "Roughness",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "lighting",
+        "roughness",
+        "specular"
+      ],
+      "source": "11-roughness/app.vkf",
+      "sourceSha256": "596f7f73c3e5c84ece7e949b065d7e6214ef47197cdc7427dca0937593216031",
+      "media": {
+        "path": "docs/public/images/scene-gallery/11-roughness.png",
+        "sha256": "934436ff8901f3644c1c421c8958f37cb8baa15d4937e2648804cd38cc276f8f"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "roughness_frame"
+      }
     }
   ]
 }

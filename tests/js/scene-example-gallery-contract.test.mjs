@@ -184,3 +184,21 @@ test("scene gallery captures a focused sun reflection", async () => {
   assert.ok(bytes.length > 100);
   assert.equal(sha256(bytes), example.media.sha256);
 });
+
+test("scene gallery compares rough and polished surfaces", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "11-roughness");
+  assert.ok(example);
+  assert.deepEqual(example.features, ["3d", "lighting", "roughness", "specular"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  assert.ok(source.includes('id:"rough"'));
+  assert.ok(source.includes('id:"satin"'));
+  assert.ok(source.includes('id:"polished"'));
+  assert.ok(source.includes("roughness:0.95"));
+  assert.ok(source.includes("roughness:0.35"));
+  assert.ok(source.includes("roughness:0.02"));
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+});
