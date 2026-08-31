@@ -95,3 +95,48 @@ test('unchanged active demand reaches a retained steady state', () => {
     evicted: [],
   });
 });
+
+test('camera changes evict stale detail and regenerate it exactly from face keys', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const coarseVertices = coarse.vertices;
+  const coarseFaces = coarse.faces;
+  const firstDemands = [
+    demand('face:+x:+y:+z', { projectedErrorPixels: 40 }),
+    demand('face:+x:+y:-z', { projectedErrorPixels: 20 }),
+  ];
+  const secondDemands = [
+    demand('face:-x:-y:+z', { projectedErrorPixels: 70 }),
+    demand('face:-x:+y:+z', { projectedErrorPixels: 50 }),
+  ];
+  const update = (previous, demands) => (
+    updateEllipsoidRefinementWorkingSetReference(coarse, previous, {
+      demands,
+      vertexBudget: 2,
+      faceBudget: 6,
+    })
+  );
+  const first = update(null, firstDemands);
+  const changed = update(first, secondDemands);
+  const regenerated = update(changed, [...firstDemands].reverse());
+
+  assert.deepEqual(changed.entries.map(({ face }) => face), [
+    'face:-x:-y:+z',
+    'face:-x:+y:+z',
+  ]);
+  assert.deepEqual(changed.changes, {
+    retained: [],
+    created: ['face:-x:-y:+z', 'face:-x:+y:+z'],
+    evicted: ['face:+x:+y:+z', 'face:+x:+y:-z'],
+  });
+  assert.deepEqual(regenerated.entries, first.entries);
+  assert.notStrictEqual(regenerated.entries[0], first.entries[0]);
+  assert.notStrictEqual(regenerated.entries[1], first.entries[1]);
+  assert.deepEqual(regenerated.changes, {
+    retained: [],
+    created: ['face:+x:+y:+z', 'face:+x:+y:-z'],
+    evicted: ['face:-x:-y:+z', 'face:-x:+y:+z'],
+  });
+  assert.strictEqual(regenerated.coarse, coarse);
+  assert.strictEqual(coarse.vertices, coarseVertices);
+  assert.strictEqual(coarse.faces, coarseFaces);
+});
