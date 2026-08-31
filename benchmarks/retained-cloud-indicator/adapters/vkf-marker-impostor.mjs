@@ -40,9 +40,7 @@ export function vkfMarkerInstances(fixture, pointSizePx, viewport) {
     instances[target + 4] = fixture.colors[sourceColor] / 255;
     instances[target + 5] = fixture.colors[sourceColor + 1] / 255;
     instances[target + 6] = fixture.colors[sourceColor + 2] / 255;
-    // The shipped marker_impostor ABI uses negative alpha to select its
-    // deterministic unlit color path while preserving absolute opacity.
-    instances[target + 7] = -fixture.colors[sourceColor + 3] / 255;
+    instances[target + 7] = fixture.colors[sourceColor + 3] / 255;
   }
   return instances;
 }
@@ -90,7 +88,7 @@ export function createVkfMarkerScene(fixture, pointSizePx, viewport) {
     transparent: true,
     overlay_expanded: true,
     depth_write: true,
-    no_lighting: true,
+    no_lighting: false,
     no_cull: true,
     pickable: false,
   };
