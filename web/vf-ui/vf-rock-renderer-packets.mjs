@@ -91,12 +91,21 @@ function detailPacket(coarse, entry) {
 }
 
 function uploadSummary(packets) {
+  const vertexFloats = packets.reduce(
+    (sum, packet) => sum + packet.vertices.length,
+    0,
+  );
+  const indices = packets.reduce(
+    (sum, packet) => sum + packet.indices.length,
+    0,
+  );
   return Object.freeze({
     packets: packets.length,
     vertices: packets.reduce((sum, packet) => sum + packet.vertex_ids.length, 0),
     faces: packets.reduce((sum, packet) => sum + packet.face_ids.length, 0),
-    vertexFloats: packets.reduce((sum, packet) => sum + packet.vertices.length, 0),
-    indices: packets.reduce((sum, packet) => sum + packet.indices.length, 0),
+    vertexFloats,
+    indices,
+    bytes: (vertexFloats + indices) * Uint32Array.BYTES_PER_ELEMENT,
   });
 }
 

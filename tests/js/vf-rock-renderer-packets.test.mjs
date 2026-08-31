@@ -70,6 +70,7 @@ test('adapter emits renderer field-mesh packets with stable geometry identities'
     faces: 11,
     vertexFloats: 100,
     indices: 33,
+    bytes: 532,
   });
   assert.ok(Object.isFrozen(adapted));
   assert.ok(Object.isFrozen(adapted.packets));
@@ -117,6 +118,7 @@ test('camera demand uploads only changed detail and never the coarse packet agai
     faces: 0,
     vertexFloats: 0,
     indices: 0,
+    bytes: 0,
   });
 
   assert.strictEqual(changed.coarse, first.coarse);
@@ -136,6 +138,7 @@ test('camera demand uploads only changed detail and never the coarse packet agai
     faces: 3,
     vertexFloats: 40,
     indices: 9,
+    bytes: 196,
   });
   const retainedPacket = changed.packets.find(
     ({ id }) => id === 'rock:detail:face:+x:+y:-z',
@@ -197,6 +200,7 @@ test('evicted renderer packets regenerate exactly with stable object identities'
     faces: 6,
     vertexFloats: 80,
     indices: 18,
+    bytes: 392,
   });
   assert.ok(returned.packets.every(({ id }) => !id.includes('face:-x')));
 });
