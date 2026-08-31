@@ -56,3 +56,21 @@ test('assigns point, spot, and projected bounds in stable light-id order', () =>
   assert.equal(plan.assignmentCount, 3);
   assert.equal(plan.culledLightCount, 0);
 });
+
+test('caps every cluster and reports deterministic overflow evidence', () => {
+  const oneCluster = bounds(-0.9, -0.6, -0.9, -0.1, 1.1, 2.9);
+  const lights = [5, 3, 1, 4, 2].map((id) => ({ id, kind: 'point', bounds: oneCluster }));
+
+  const plan = planClusteredLights({ grid: GRID, lights, maxLightsPerCluster: 2 });
+  const reversed = planClusteredLights({ grid: GRID, lights: [...lights].reverse(), maxLightsPerCluster: 2 });
+
+  assert.deepEqual([...plan.lightIds], [1, 2]);
+  assert.deepEqual([...plan.lightIds], [...reversed.lightIds]);
+  assert.equal(plan.assignmentCount, 2);
+  assert.equal(plan.candidateAssignmentCount, 5);
+  assert.equal(plan.overflowAssignmentCount, 3);
+  assert.equal(plan.overflowClusterCount, 1);
+  assert.equal(plan.overflowCounts[0], 3);
+  assert.equal(plan.overflowCounts.slice(1).every((count) => count === 0), true);
+  assert.ok(plan.lightIds.length <= plan.clusterCount * 2);
+});

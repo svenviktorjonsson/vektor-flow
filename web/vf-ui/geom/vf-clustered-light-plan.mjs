@@ -12,10 +12,13 @@ export function planClusteredLights({ grid, lights, maxLightsPerCluster }) {
 
   const clusterCount = normalizedGrid.xSlices * normalizedGrid.ySlices * normalizedGrid.depthSlices;
   const clusterLightIds = Array.from({ length: clusterCount }, () => []);
+  const overflowCounts = new Uint32Array(clusterCount);
   const orderedLights = lights.map(normalizeLight).sort((left, right) => left.id - right.id);
   assertUniqueIds(orderedLights);
 
   let culledLightCount = 0;
+  let candidateAssignmentCount = 0;
+  let overflowAssignmentCount = 0;
   for (const light of orderedLights) {
     const range = clusterRange(light.bounds, normalizedGrid);
     if (!range) {
@@ -27,7 +30,13 @@ export function planClusteredLights({ grid, lights, maxLightsPerCluster }) {
         for (let x = range.minX; x <= range.maxX; x += 1) {
           const clusterIndex = (depth * normalizedGrid.ySlices + y) * normalizedGrid.xSlices + x;
           const ids = clusterLightIds[clusterIndex];
-          if (ids.length < capacity) ids.push(light.id);
+          candidateAssignmentCount += 1;
+          if (ids.length < capacity) {
+            ids.push(light.id);
+          } else {
+            overflowCounts[clusterIndex] += 1;
+            overflowAssignmentCount += 1;
+          }
         }
       }
     }
@@ -48,12 +57,21 @@ export function planClusteredLights({ grid, lights, maxLightsPerCluster }) {
     cursor += ids.length;
   }
 
+  let overflowClusterCount = 0;
+  for (const count of overflowCounts) {
+    if (count > 0) overflowClusterCount += 1;
+  }
+
   return Object.freeze({
     clusterCount,
     clusterOffsets,
     lightIds,
     assignmentCount,
-    culledLightCount
+    candidateAssignmentCount,
+    culledLightCount,
+    overflowCounts,
+    overflowAssignmentCount,
+    overflowClusterCount
   });
 }
 
