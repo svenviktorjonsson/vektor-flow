@@ -11,8 +11,11 @@
 
 - `createConditionedRoot(identity)` takes a defensive snapshot and compiles the
   MAT010A demand stream.
-- `conditionChild(parent, { segment, channel })` appends exactly one explicit
-  hierarchy segment while retaining generator, version, seed, domain, and LOD.
+- `conditionChild(parent, { segment, channel })` appends exactly one authored
+  hierarchy segment. Its compiled stream also receives a private, versioned
+  128-bit token made from the complete parent demand stream key and prefix.
+  Consequently every parent identity field, including its channel, conditions
+  descendants without exposing implementation segments in authored hierarchy.
 - Parent and child snapshots, seeds, and hierarchy paths are frozen. Compiled
   stream state is held privately and has no mutable cursor.
 - `sampleBoundedUniform` maps lane zero as `u32 / 2^32`, then applies finite
@@ -44,27 +47,39 @@ All focused cycles used:
 4. Explicit transform oracle
    - RED: missing `normalReferenceFromU32` export.
    - GREEN: raw Philox lanes and hierarchy sampling reach the same numerical
-     result through one transform implementation.
+     transform implementation.
    - Commit: `acc2417 refactor(random): expose normal u32 oracle`
+5. Full-parent conditioning
+   - RED: changing only the parent channel left the child sample unchanged,
+     exposing that the initial child derivation replaced rather than inherited
+     that part of parent identity.
+   - GREEN: a private `condition:v1` token now carries all four parent key and
+     counter-prefix words into child derivation. Recreated identities remain
+     exact, changed parent channel changes the child, and visible hierarchy is
+     still only the three authored segments.
+   - Commit: `46642fb fix(random): condition children on full parent`
 
 ## Pinned numerical oracles
 
-For hierarchy
-`environment:alpine/species:grass/instance:17`, channel `blade-height`, and
-sample counter `3:0`, Philox begins with `8a27a5d3 50fb04ea`.
+For hierarchy `environment:alpine/species:grass/instance:17`, channel
+`blade-height`, and sample counter `3:0`, the full-parent condition token is
+`condition:v1:944939b4:78e7b645:c0768a36:daca7bb5`; after including it in the
+compiled child hierarchy, Philox begins with `f4d2fe28 9ffe0525`.
 
 - Bounded uniform `[-2, 5)`:
-  `-2 + 7 * (0x8a27a5d3 / 2^32) = 1.7776723366696388`.
-- Normal with mean 10 and standard deviation 2.5:
-  `u1 = (0x8a27a5d3 + 0.5) / 2^32`,
-  `u2 = 0x50fb04ea / 2^32`, and
-  `10 + 2.5 * sqrt(-2 ln(u1)) * cos(2 pi u2) = 8.875981430658127`.
+  `-2 + 7 * (0xf4d2fe28 / 2^32) = 4.694411462172866`.
+- Hierarchy-derived normal with mean 10 and standard deviation 2.5:
+  `u1 = (0xf4d2fe28 + 0.5) / 2^32`,
+  `u2 = 0x9ffe0525 / 2^32`, and
+  `10 + 2.5 * sqrt(-2 ln(u1)) * cos(2 pi u2) = 9.471712514179357`.
+- The raw-transform oracle remains independent of hierarchy derivation:
+  `8a27a5d3 50fb04ea` maps to `8.875981430658127`.
 
 ## Test receipts
 
 - Focused MAT010A/B/C command:
   `node --test tests/js/vf-conditioned-distribution.test.mjs tests/js/vf-demand-random.test.mjs tests/js/vf-demand-random-wgsl.test.mjs`
-- Exit/duration: 0 after 0.92 s; 20 tests passed.
+- Exit/duration: 0 after 0.69 s; 20 tests passed.
 - Full command: `npm test`
 - Exit/duration: 1 after 21.57 s; 393 passed and 3 failed.
 - Every MAT010A, MAT010B, and MAT010C test passed in the complete process.
@@ -77,10 +92,10 @@ sample counter `3:0`, Philox begins with `8a27a5d3 50fb04ea`.
 - Owned paths: `web/vf-ui/vf-conditioned-distribution.mjs`,
   `tests/js/vf-conditioned-distribution.test.mjs`, and this receipt.
 - SHA-256:
-  - module: `b34826eee5d284817bd5669d3360e846d485242cd08b6e0a1294ff8427a27ab9`
-  - tests: `ebec28b8e9665b89b4fcf6fe501b5df1baf510348425067ab5f75925724ce6e7`
+  - module: `a11fbc60b9c65da1f092daf8f1c1e447a36f653abb648d5becbdf868ff8be25b`
+  - tests: `68cfc4fd018f6ee36162f7fc55e2abca8893c66ca048804743b8aae21e1032a`
 - Git blobs:
-  - module: `f85fb72ed90991949cd53ab627684673f40ac319`
-  - tests: `e06a13c52ab324273f0b6fe186161b3ec3d3ceed`
+  - module: `8d4dc84e1dc8bf8fd772ec4d81ce98310ad98e4e`
+  - tests: `baa12489782b968b8b159c91b221f174c6d318fe`
 - Recovery: the module is internal and unwired. Reverting the packet cannot
   alter current rendering, material output, or VKF behavior.
