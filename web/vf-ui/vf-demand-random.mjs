@@ -57,7 +57,7 @@ function hierarchyBytes(segments) {
   ]);
 }
 
-export function encodeDemandIdentity(identity) {
+function encodeDemandStreamIdentity(identity) {
   return concatBytes([
     Uint8Array.of(0x56, 0x4b, 0x46, 0x44),
     u32Bytes(1),
@@ -68,6 +68,12 @@ export function encodeDemandIdentity(identity) {
     frame(5, hierarchyBytes(identity.hierarchy)),
     frame(6, u32Bytes(identity.lod)),
     frame(7, textEncoder.encode(identity.channel)),
+  ]);
+}
+
+export function encodeDemandIdentity(identity) {
+  return concatBytes([
+    encodeDemandStreamIdentity(identity),
     frame(8, wordPairBytes(identity.sample)),
   ]);
 }
@@ -191,4 +197,31 @@ export function philox4x32_10(counter, key) {
   }
 
   return words;
+}
+
+function digestWord(digest, offset) {
+  return (
+    (digest[offset] << 24)
+    | (digest[offset + 1] << 16)
+    | (digest[offset + 2] << 8)
+    | digest[offset + 3]
+  ) >>> 0;
+}
+
+export function deriveDemandKey(identity) {
+  const digest = sha256Bytes(encodeDemandStreamIdentity(identity));
+  return {
+    key: [digestWord(digest, 0), digestWord(digest, 4)],
+    counter: [
+      digestWord(digest, 8),
+      digestWord(digest, 12),
+      identity.sample[0] >>> 0,
+      identity.sample[1] >>> 0,
+    ],
+  };
+}
+
+export function demandU32(identity) {
+  const { counter, key } = deriveDemandKey(identity);
+  return philox4x32_10(counter, key)[0];
 }

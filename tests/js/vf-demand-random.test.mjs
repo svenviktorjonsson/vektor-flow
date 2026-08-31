@@ -2,10 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  demandU32,
+  deriveDemandKey,
   encodeDemandIdentity,
   philox4x32_10,
   sha256Bytes,
 } from '../../web/vf-ui/vf-demand-random.mjs';
+
+const DEMAND_VECTOR = Object.freeze({
+  generator: 'vkf.procedural',
+  version: 1,
+  seed: [0x01234567, 0x89abcdef],
+  domain: 'material',
+  hierarchy: ['world:alpine', 'object:grass', 'patch:7'],
+  lod: 12,
+  channel: 'blade-height',
+  sample: [0x76543210, 0xfedcba98],
+});
 
 test('Philox4x32-10 matches the Random123 known-answer vectors', () => {
   const vectors = [
@@ -41,6 +54,14 @@ test('identity digest matches the FIPS 180-4 SHA-256 vectors', () => {
     const digest = sha256Bytes(new TextEncoder().encode(input));
     assert.equal(Buffer.from(digest).toString('hex'), expected);
   }
+});
+
+test('demand key and u32 output have a pinned cross-runtime reference vector', () => {
+  assert.deepEqual(deriveDemandKey(DEMAND_VECTOR), {
+    key: [0xc236c986, 0x61db5b0b],
+    counter: [0x5c768268, 0x70d89da1, 0x76543210, 0xfedcba98],
+  });
+  assert.equal(demandU32(DEMAND_VECTOR), 0x533e66b5);
 });
 
 test('demand identity uses a pinned length-framed hierarchy encoding', () => {
