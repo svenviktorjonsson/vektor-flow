@@ -7,6 +7,10 @@ import {
   decodePhilox4x32WgslReadback,
   verifyPhilox4x32WgslParity,
 } from '../../web/vf-ui/vf-demand-random-wgsl.mjs';
+import {
+  deriveDemandKey,
+  philox4x32_10,
+} from '../../web/vf-ui/vf-demand-random.mjs';
 
 const OFFICIAL_VECTORS = Object.freeze([
   {
@@ -78,6 +82,29 @@ test('CPU and GPU records use pinned little-endian u32 bytes', () => {
     [...decodePhilox4x32WgslReadback(fixture.expectedBytes)],
     OFFICIAL_VECTORS[2].expected,
   );
+});
+
+test('a hierarchical demand key maps unchanged into the GPU fixture', () => {
+  const demandKey = deriveDemandKey({
+    generator: 'vkf.procedural',
+    version: 1,
+    seed: [0x01234567, 0x89abcdef],
+    domain: 'material',
+    hierarchy: ['world:alpine', 'object:grass', 'patch:7'],
+    lod: 12,
+    channel: 'blade-height',
+    sample: [0x76543210, 0xfedcba98],
+  });
+  const expected = philox4x32_10(demandKey.counter, demandKey.key);
+  const fixture = createPhilox4x32WgslParityFixture([{ ...demandKey, expected }]);
+
+  assert.deepEqual([...fixture.inputWords], [
+    0x5c768268, 0x70d89da1, 0x76543210, 0xfedcba98,
+    0xc236c986, 0x61db5b0b, 0, 0,
+  ]);
+  assert.deepEqual([...fixture.expectedWords], [
+    0x533e66b5, 0x0c7c0189, 0x93314d71, 0xc15ff1c2,
+  ]);
 });
 
 test('browser fixture executes the shader and verifies mapped GPU readback', async () => {
