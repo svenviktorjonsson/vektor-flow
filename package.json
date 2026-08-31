@@ -43,6 +43,9 @@
   "files": [
     "index.js",
     "README.md",
+    "examples/material_ui_gallery",
+    "examples/ui_plot_card",
+    "examples/ui_status_board",
     "web/editor",
     "web/vf-ui"
   ],

@@ -52,6 +52,12 @@ New-Item -ItemType Directory -Path $samplesTarget -Force | Out-Null
 foreach ($sample in @("examples/01_hello.vkf", "examples/64_axis_tags_and_broadcast.vkf")) {
     Copy-Item -LiteralPath (Join-Path $repoRoot $sample) -Destination $samplesTarget
 }
+$uiSamplesTarget = Join-Path $samplesTarget "ui"
+New-Item -ItemType Directory -Path $uiSamplesTarget -Force | Out-Null
+foreach ($sample in @("examples/material_ui_gallery", "examples/ui_plot_card", "examples/ui_status_board")) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot $sample) `
+        -Destination (Join-Path $uiSamplesTarget (Split-Path $sample -Leaf)) -Recurse
+}
 foreach ($document in @("README.md", "INSTALL.md", "TESTING.md")) {
     Copy-Item -LiteralPath (Join-Path $repoRoot $document) -Destination $stageRoot
 }
