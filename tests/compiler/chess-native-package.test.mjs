@@ -1,0 +1,69 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readFile, rm } from "node:fs/promises";
+import path from "node:path";
+import test, { after } from "node:test";
+import { fileURLToPath } from "node:url";
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const universalVkf = process.env.VKF_UNIVERSAL_BIN;
+const chessRoot = path.join(repositoryRoot, "examples", "programs", "vkf_chess_3d");
+const chessSource = path.join(chessRoot, "main.vkf");
+const workRoot = path.join(repositoryRoot, ".work", `g03-chess-native-${process.pid}`);
+const output = path.join(workRoot, "vkf-chess-3d.exe");
+
+after(() => rm(workRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+
+function sceneBundleEntries(application) {
+  const footer = Buffer.from("VKF_SCENE_BUNDLE_END_V1");
+  assert.deepEqual(application.subarray(application.length - footer.length), footer);
+  const sizeOffset = application.length - footer.length - 8;
+  const payloadSize = Number(application.readBigUInt64LE(sizeOffset));
+  const payload = application.subarray(sizeOffset - payloadSize, sizeOffset);
+  const header = Buffer.from("VKF_SCENE_BUNDLE_V1\n");
+  assert.deepEqual(payload.subarray(0, header.length), header);
+  let offset = header.length;
+  const count = payload.readUInt32LE(offset);
+  offset += 4;
+  const entries = new Map();
+  for (let index = 0; index < count; index += 1) {
+    const pathLength = payload.readUInt32LE(offset);
+    offset += 4;
+    const dataLength = Number(payload.readBigUInt64LE(offset));
+    offset += 8;
+    const relativePath = payload.subarray(offset, offset + pathLength).toString("utf8");
+    offset += pathLength;
+    entries.set(relativePath, payload.subarray(offset, offset + dataLength));
+    offset += dataLength;
+  }
+  assert.equal(offset, payload.length);
+  return entries;
+}
+
+test("the shipped chess application uses compiler-owned retained-scene staging", {
+  skip: process.platform !== "win32",
+  timeout: 180_000,
+}, async () => {
+  assert.ok(universalVkf, "VKF_UNIVERSAL_BIN must name the packaged vkf executable");
+  const source = await readFile(chessSource, "utf8");
+  assert.match(source, /^ui:\s*\.ui\.display$/mu);
+  assert.doesNotMatch(source, /native_scene_config_path|native_scene_runtime_packets_path/u);
+  assert.doesNotMatch(source, /\.lib\.native_scene|native\.overlay_scene/u);
+
+  const stdout = execFileSync(universalVkf, ["-b", chessSource, "-o", output], {
+    cwd: chessRoot,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  assert.match(stdout, /^Built /mu);
+
+  const entries = sceneBundleEntries(await readFile(output));
+  const packets = JSON.parse(entries.get("sessions/main/vf-runtime-packets.json"));
+  const frameCommands = packets
+    .filter(({ kind }) => kind === "scene.replace")
+    .flatMap(({ payload }) => payload.commands);
+  assert.ok(
+    frameCommands.some(({ kind, id }) => kind === "frame_upsert" && id === "vkf_chess_board"),
+    "compiler-produced chess scene must retain its board frame",
+  );
+});
