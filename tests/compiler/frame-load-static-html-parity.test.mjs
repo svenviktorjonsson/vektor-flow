@@ -152,15 +152,12 @@ async function terminateBrowserTree(processId) {
 async function runBrowserBundle(bundleDirectory, profileDirectory, nativeRoot, nativePageRel) {
   const loader = await readFile(path.join(repositoryRoot, "web", "vf-ui", "vf-static-html-loader.js"));
   const components = await readFile(path.join(repositoryRoot, "web", "vf-ui", "vf-html-components.js"));
-  const page = `<!doctype html><html><body data-vf-static-html-loads="/bundle/vf-static-html-loads.json"><div id="frame" data-vf-frame-id="frame_0"><div class="vf-frame__body"><canvas></canvas></div></div><output id="result"></output>
-  <script src="/vf-html-components.js"></script><script src="/vf-static-html-loader.js"></script><script>(async()=>{try{
-  const body=document.querySelector('.vf-frame__body');const canvas=body.firstElementChild;
-  for(let i=0;i<400&&!document.querySelector('[data-vf-static-html-root]')&&!globalThis.__vfStaticHtmlLoadError;i++)await new Promise(r=>setTimeout(r,25));const panel=document.querySelector('.panel');const image=document.querySelector('.panel img');
-  if(!panel)throw new Error(String(globalThis.__vfStaticHtmlLoadError||'static HTML did not auto-mount'));
-  await image.decode();
-  for(let i=0;i<80&&getComputedStyle(panel).color!=='rgb(12, 34, 56)';i++)await new Promise(r=>setTimeout(r,25));
-  const frame=document.getElementById('frame');document.getElementById('result').textContent=JSON.stringify({tags:Array.from(document.querySelectorAll('[data-vf-static-html-root] *'),e=>e.localName),color:getComputedStyle(panel).color,imageWidth:image.naturalWidth,backgroundLoaded:getComputedStyle(panel).backgroundImage.includes('texture.png'),canvasRetained:body.firstElementChild===canvas,lookup:frame.get('save')===panel.querySelector('#save')});
-  }catch(error){document.getElementById('result').textContent=JSON.stringify({error:String(error&&error.message||error)});}})();</script></body></html>`;
+  const runtimeContract = await readFile(path.join(repositoryRoot, "web", "vf-ui", "vf-runtime-packet-contract.js"));
+  const frameRuntime = await readFile(path.join(repositoryRoot, "web", "vf-ui", "vf-frame.js"));
+  const frameStyles = await readFile(path.join(repositoryRoot, "web", "vf-ui", "vf-frame.css"));
+  const page = `<!doctype html><html><head><link rel="stylesheet" href="/vf-frame.css"></head><body data-vf-static-html-loads="/bundle/vf-static-html-loads.json"><div id="layer" style="position:relative;width:900px;height:700px"></div>
+  <script src="/vf-frame.js"></script><script>const __panel=VfFrame.mount(document.getElementById('layer'),{id:'frame_0',inLayerDrag:true,draggable:true,resizable:true,dockable:false,closable:false});__panel.root.style.left='80px';__panel.root.style.top='60px';__panel.root.style.width='420px';__panel.root.style.height='320px';</script>
+  <script src="/vf-runtime-packet-contract.js"></script><script src="/vf-html-components.js"></script><script src="/vf-static-html-loader.js"></script></body></html>`;
   const server = createServer(async (request, response) => {
     try {
       if (request.url === "/") {
@@ -173,6 +170,18 @@ async function runBrowserBundle(bundleDirectory, profileDirectory, nativeRoot, n
       }
       if (request.url === "/vf-html-components.js") {
         response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end(components);
+        return;
+      }
+      if (request.url === "/vf-runtime-packet-contract.js") {
+        response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end(runtimeContract);
+        return;
+      }
+      if (request.url === "/vf-frame.js") {
+        response.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end(frameRuntime);
+        return;
+      }
+      if (request.url === "/vf-frame.css") {
+        response.writeHead(200, { "content-type": "text/css; charset=utf-8" }).end(frameStyles);
         return;
       }
       if (request.url.startsWith("/bundle/")) {
@@ -256,9 +265,34 @@ async function runBrowserBundle(bundleDirectory, profileDirectory, nativeRoot, n
     browserProcessId = processInfo?.processInfo?.find(({ type }) => type === "browser")?.id;
     await cdp(pageSocket, pageState, "Runtime.enable");
     let text = "";
-    const resultExpression = nativeRoot
-      ? `(()=>{if(globalThis.__vfStaticHtmlLoadError)return JSON.stringify({error:String(globalThis.__vfStaticHtmlLoadError)});const panel=document.querySelector('.panel');const image=panel&&panel.querySelector('img');if(!panel||!image||!image.complete)return '';const style=getComputedStyle(panel);if(style.color!=='rgb(12, 34, 56)'||!style.backgroundImage.includes('texture.png'))return '';const root=panel.closest('[data-vf-static-html-root]');const body=root&&root.parentElement;const frame=root&&root.closest('[data-vf-frame-id]');return JSON.stringify({tags:Array.from(root.querySelectorAll('*'),e=>e.localName),color:style.color,imageWidth:image.naturalWidth,backgroundLoaded:true,canvasRetained:body.firstElementChild.localName==='canvas',lookup:frame.get('save')===panel.querySelector('#save')});})()`
-      : "document.getElementById('result')?.textContent || ''";
+    const resultExpression = `(()=>{
+      if(globalThis.__vfStaticHtmlLoadError)return JSON.stringify({error:String(globalThis.__vfStaticHtmlLoadError)});
+      const panel=document.querySelector('.panel');const image=panel&&panel.querySelector('img');
+      if(!panel||!image||!image.complete||!globalThis.VfRuntimePacketContract)return '';
+      const style=getComputedStyle(panel);if(style.color!=='rgb(224, 242, 255)'||!style.backgroundImage.includes('texture.svg'))return '';
+      if(!globalThis.__vfStaticInteraction){
+        const messages=[];if(!globalThis.chrome)globalThis.chrome={};
+        Object.defineProperty(globalThis.chrome,'webview',{value:{postMessage:m=>messages.push(structuredClone(m))},configurable:true});
+        const button=panel.querySelector('#show-details');button.click();
+        const slider=panel.querySelector('#detail');slider.value='0.75';slider.dispatchEvent(new Event('input',{bubbles:true}));
+        const buttonQueues=VfRuntimePacketContract.createInternalButtonClickedOwnerQueues({buttonId:'show-details',frameId:'frame_0',displayId:'display-0'});
+        buttonQueues.consumeRuntimePacket({seq:1,kind:'input.event',payload:{event:messages[0]}});
+        const buttonEvent=buttonQueues.button.events.get();
+        for(const view of panel.querySelectorAll('[data-view-panel]'))view.hidden=view.dataset.viewPanel!==button.dataset.view;
+        const sliderQueues=VfRuntimePacketContract.createInternalSliderValueChangedOwnerQueues({inputId:'detail',frameId:'frame_0',displayId:'display-0'});
+        sliderQueues.consumeRuntimePacket({seq:1,kind:'input.event',payload:{event:messages[1]}});
+        const sliderEvent=sliderQueues.input.events.get();panel.querySelector('#detail-value').value=String(sliderEvent.value);
+        const frame=panel.closest('[data-vf-frame-id]');const header=frame.querySelector('.vf-frame__header');const rect=header.getBoundingClientRect();
+        const pointer=(type,x,y)=>header.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:7,pointerType:'mouse',isPrimary:true,button:0,buttons:type==='pointerup'?0:1,clientX:x,clientY:y}));
+        pointer('pointerdown',rect.left+20,rect.top+12);pointer('pointermove',rect.left+55,rect.top+37);pointer('pointerup',rect.left+55,rect.top+37);
+        VfFrame.postNativeHostLayout(document.getElementById('layer'),{stageAlpha:1});
+        const layout=messages.filter(message=>message&&message.type==='layout').at(-1);const geometry=messages.filter(message=>message&&message.type==='transparent-overlay.geometry').at(-1);
+        const outside={x:innerWidth-2,y:innerHeight-2};const outsideInteractive=layout.hitRegions.some(r=>outside.x>=r.left&&outside.x<r.right&&outside.y>=r.top&&outside.y<r.bottom);
+        globalThis.__vfStaticInteraction={messages:messages.slice(0,2),buttonEvent,sliderEvent,detailsVisible:!panel.querySelector('#details').hidden,overviewHidden:panel.querySelector('#overview').hidden,output:panel.querySelector('#detail-value').value,overlay:{dragSignaled:messages.some(message=>message&&message.type==='layout'&&message.dragActive===true),hasHitRegions:layout.hitRegions.length>0,hasShapes:geometry.shapes.length>0,outsideInteractive}};
+      }
+      const root=panel.closest('[data-vf-static-html-root]');const body=root&&root.parentElement;const frame=root&&root.closest('[data-vf-frame-id]');
+      return JSON.stringify({tags:Array.from(root.querySelectorAll('*'),e=>e.localName),color:style.color,imageWidth:image.naturalWidth,backgroundLoaded:true,canvasRetained:body.firstElementChild.localName==='canvas',lookup:frame.get('show-details')===panel.querySelector('#show-details'),interaction:globalThis.__vfStaticInteraction});
+    })()`;
     for (let attempt = 0; attempt < 240 && !text; attempt += 1) {
       const evaluated = await cdp(pageSocket, pageState, "Runtime.evaluate", {
         expression: resultExpression,
@@ -288,23 +322,26 @@ test("frame.load bundles a nested local asset graph identically for native and W
   const source = path.join(workRoot, `${sourceStem}.vkf`);
   const typedIrPath = path.join(workRoot, `${sourceStem}.typed.json`);
   const uiDirectory = path.join(workRoot, "ui");
-  const assetsDirectory = path.join(workRoot, "assets");
   const nestedCssDirectory = path.join(uiDirectory, "nested");
   const overlayWeb = path.join(workRoot, "native-vf-ui");
+  const fixtureDirectory = path.join(
+    repositoryRoot, "tests", "fixtures", "transparent-overlay-acceptance",
+  );
   const sourceText = [
     ": .ui.display",
     "display: Display(dim:2)",
     "frame: display.add_frame(pos:[0.1, 0.2], size:[0.5, 0.6])",
     'frame.load("ui/main.html")',
   ].join("\n");
-  const html = '<link rel="stylesheet" href="theme.css"><main class="panel"><img src="../assets/icon.svg"><button id="save">Apply</button></main>';
-  const css = '@import "nested/palette.css";\n.panel { background-image: url("../assets/texture.png"); }\n';
-  const nestedCss = ".panel { color: rgb(12, 34, 56); }\n";
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="red"/></svg>\n';
-  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const [html, css, nestedCss, iconSvg, textureSvg] = await Promise.all([
+    readFile(path.join(fixtureDirectory, "main.html"), "utf8"),
+    readFile(path.join(fixtureDirectory, "theme.css"), "utf8"),
+    readFile(path.join(fixtureDirectory, "nested", "palette.css"), "utf8"),
+    readFile(path.join(fixtureDirectory, "assets", "icon.svg"), "utf8"),
+    readFile(path.join(fixtureDirectory, "assets", "texture.svg"), "utf8"),
+  ]);
   await Promise.all([
-    mkdir(nestedCssDirectory, { recursive: true }),
-    mkdir(assetsDirectory, { recursive: true }),
+    cp(fixtureDirectory, uiDirectory, { recursive: true }),
     cp(path.join(repositoryRoot, "web", "vf-ui"), overlayWeb, { recursive: true }),
   ]);
   const typedIr = compileSource(sourceText);
@@ -312,11 +349,6 @@ test("frame.load bundles a nested local asset graph identically for native and W
   await Promise.all([
     writeFile(source, sourceText, "utf8"),
     writeFile(typedIrPath, `${JSON.stringify(typedIr)}\n`, "utf8"),
-    writeFile(path.join(uiDirectory, "main.html"), html, "utf8"),
-    writeFile(path.join(uiDirectory, "theme.css"), css, "utf8"),
-    writeFile(path.join(nestedCssDirectory, "palette.css"), nestedCss, "utf8"),
-    writeFile(path.join(assetsDirectory, "icon.svg"), svg, "utf8"),
-    writeFile(path.join(assetsDirectory, "texture.png"), png),
   ]);
 
   const wasmSummary = JSON.parse(run(executable(nativeBin, "vkf_wasm_artifact_smoke"), [
@@ -342,8 +374,8 @@ test("frame.load bundles a nested local asset graph identically for native and W
   assert.equal(await readFile(path.join(path.dirname(wasmHtml), "theme.css"), "utf8"), css);
   assert.equal(await readFile(path.join(path.dirname(nativeHtml), "nested", "palette.css"), "utf8"), nestedCss);
   assert.equal(await readFile(path.join(path.dirname(wasmHtml), "nested", "palette.css"), "utf8"), nestedCss);
-  assert.equal(await readFile(path.resolve(path.dirname(nativeHtml), "..", "assets", "icon.svg"), "utf8"), svg);
-  assert.deepEqual(await readFile(path.resolve(path.dirname(wasmHtml), "..", "assets", "texture.png")), png);
+  assert.equal(await readFile(path.join(path.dirname(nativeHtml), "assets", "icon.svg"), "utf8"), iconSvg);
+  assert.equal(await readFile(path.join(path.dirname(wasmHtml), "assets", "texture.svg"), "utf8"), textureSvg);
   const resourceDirectory = nativeMounts[0].resource.split("/")[0];
   assert.deepEqual(
     await resourceSnapshot(path.join(nativeBundle, resourceDirectory)),
@@ -373,12 +405,29 @@ test("frame.load bundles a nested local asset graph identically for native and W
     await resourceSnapshot(path.join(wasmBundle, wasmMounts[0].resource.split("/")[0])),
   );
   const expectedBrowser = {
-    tags: ["link", "main", "img", "button"],
-    color: "rgb(12, 34, 56)",
-    imageWidth: 2,
+    tags: ["link", "main", "img", "nav", "button", "button", "section", "h1", "p", "section", "label", "input", "output"],
+    color: "rgb(224, 242, 255)",
+    imageWidth: 24,
     backgroundLoaded: true,
     canvasRetained: true,
     lookup: true,
+    interaction: {
+      messages: [
+        { type: "vf_event", event: "ButtonClicked", widget_id: "show-details", frame_id: "frame_0" },
+        { type: "vf_event", event: "SliderValueChanged", widget_id: "detail", frame_id: "frame_0", value: 0.75 },
+      ],
+      buttonEvent: { type: "vf_event", event: "ButtonClicked", widget_id: "show-details", frame_id: "frame_0" },
+      sliderEvent: { type: "vf_event", event: "SliderValueChanged", widget_id: "detail", frame_id: "frame_0", value: 0.75 },
+      detailsVisible: true,
+      overviewHidden: true,
+      output: "0.75",
+      overlay: {
+        dragSignaled: true,
+        hasHitRegions: true,
+        hasShapes: true,
+        outsideInteractive: false,
+      },
+    },
   };
   assert.deepEqual(
     await runBrowserBundle(wasmBundle, path.join(workRoot, "wasm-edge-profile")),
