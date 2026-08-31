@@ -17,5 +17,7 @@ test("shipped UI audit runner is hidden, dependency-free, and full-compositor", 
   assert.match(source, /frameChrome/u);
   assert.match(source, /runningRenderers/u);
   assert.match(source, /composite_sha256/u);
+  assert.match(source, /compositeOutputPath/u);
+  assert.match(source, /writeFileSync\(compositeOutputPath/u);
   assert.doesNotMatch(source, /playwright|puppeteer|selenium/iu);
 });
