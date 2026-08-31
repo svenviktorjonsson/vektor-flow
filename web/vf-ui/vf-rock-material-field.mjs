@@ -1,4 +1,5 @@
 import {
+  conditionedNodeStreamReference,
   conditionChild,
   createConditionedRoot,
 } from './vf-conditioned-distribution.mjs';
@@ -88,6 +89,30 @@ export function createRockMaterialFieldReference(identity) {
   });
   fieldState.set(field, { node });
   return field;
+}
+
+export function createRockMaterialGpuDescriptorReference(
+  field,
+  { radii, detailLevel, minimumFootprint = 0 },
+) {
+  const state = fieldState.get(field);
+  if (!state) {
+    throw new TypeError('rock material field is required');
+  }
+  requireRadii(radii);
+  requireOptions({ detailLevel, footprint: minimumFootprint });
+  const stream = conditionedNodeStreamReference(state.node);
+  return Object.freeze({
+    kind: 'rock-geology-weathering-gpu:v1',
+    streamWords: Object.freeze([
+      ...stream.counterPrefix,
+      ...stream.key,
+    ]),
+    radii: Object.freeze([...radii]),
+    detailLevel,
+    minimumFootprint,
+    maxOctaves: MAX_OCTAVES,
+  });
 }
 
 export function sampleRockMaterialReference(

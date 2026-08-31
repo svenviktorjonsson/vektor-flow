@@ -75,6 +75,14 @@ export function conditionChild(parent, { segment, channel }) {
   ]);
 }
 
+export function conditionedNodeStreamReference(node) {
+  const { stream } = requireNode(node);
+  return Object.freeze({
+    key: Object.freeze([...stream.key]),
+    counterPrefix: Object.freeze([...stream.counterPrefix]),
+  });
+}
+
 export function sampleBoundedUniform(node, sample, { min, max }) {
   const { stream } = requireNode(node);
   if (!Number.isFinite(min) || !Number.isFinite(max) || !(min < max)) {
