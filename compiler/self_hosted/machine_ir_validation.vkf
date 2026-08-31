@@ -54,6 +54,7 @@ machine_ir_numeric_parameter_multiply_stack_maxima(function_name:str, parameter_
     .depth: machine_ir_numeric_stack_depth(depth, module.entry.instructions.2.kind)
     depth > maximum?
         .maximum: depth
+    (depth = 0)?!
     maxima.0: maximum
 
     .depth: 0
