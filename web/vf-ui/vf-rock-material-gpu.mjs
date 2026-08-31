@@ -256,3 +256,43 @@ fn vf_rock_parity_main(@builtin(global_invocation_id) id: vec3<u32>) {
     expected,
   });
 }
+
+const PARITY_TOLERANCE = Object.freeze([
+  0.0002, 0.0002, 0.0002, 0.0002,
+  0.0002, 0.0002, 0.0002, 0.0002,
+  0.02, 0.02, 0, 0,
+  0.005, 0.005, 0.005, 0,
+]);
+
+export function verifyRockMaterialGpuParity(fixture, actual) {
+  if (!fixture?.expected || !actual || actual.length !== fixture.expected.length) {
+    throw new TypeError(
+      `rock GPU readback must contain ${fixture?.expected?.length ?? 0} floats`,
+    );
+  }
+  let maxAbsoluteError = 0;
+  for (let index = 0; index < actual.length; index += 1) {
+    if (!Number.isFinite(actual[index])) {
+      throw new RangeError(`rock GPU readback[${index}] must be finite`);
+    }
+    const error = Math.abs(actual[index] - fixture.expected[index]);
+    maxAbsoluteError = Math.max(maxAbsoluteError, error);
+    const lane = index % fixture.outputStrideFloats;
+    const tolerance = PARITY_TOLERANCE[lane];
+    if (error > tolerance) {
+      return {
+        matched: false,
+        record: Math.floor(index / fixture.outputStrideFloats),
+        lane,
+        expected: fixture.expected[index],
+        actual: actual[index],
+        tolerance,
+      };
+    }
+  }
+  return {
+    matched: true,
+    records: actual.length / fixture.outputStrideFloats,
+    maxAbsoluteError,
+  };
+}

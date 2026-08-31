@@ -9,6 +9,7 @@ import {
 import {
   ROCK_MATERIAL_WGSL,
   createRockMaterialGpuParityFixture,
+  verifyRockMaterialGpuParity,
 } from '../../web/vf-ui/vf-rock-material-gpu.mjs';
 
 const IDENTITY = Object.freeze({
@@ -19,6 +20,41 @@ const IDENTITY = Object.freeze({
   hierarchy: Object.freeze(['world:alpine', 'rock:gpu-parity']),
   lod: 0,
   channel: 'geology',
+});
+
+test('rock GPU parity verifier enforces channel-specific numerical bounds', () => {
+  const field = createRockMaterialFieldReference(IDENTITY);
+  const descriptor = createRockMaterialGpuDescriptorReference(field, {
+    radii: [3, 2, 1.5],
+    detailLevel: 5,
+  });
+  const surfaceCoordinates = [0.125, -0.375];
+  const footprint = 0.01;
+  const fixture = createRockMaterialGpuParityFixture([{
+    descriptor,
+    surfaceCoordinates,
+    footprint,
+    expected: sampleRockMaterialReference(field, surfaceCoordinates, {
+      detailLevel: descriptor.detailLevel,
+      footprint,
+    }),
+  }]);
+
+  assert.deepEqual(verifyRockMaterialGpuParity(fixture, fixture.expected), {
+    matched: true,
+    records: 1,
+    maxAbsoluteError: 0,
+  });
+  const corrupted = fixture.expected.slice();
+  corrupted[2] += 0.01;
+  assert.deepEqual(verifyRockMaterialGpuParity(fixture, corrupted), {
+    matched: false,
+    record: 0,
+    lane: 2,
+    expected: fixture.expected[2],
+    actual: corrupted[2],
+    tolerance: 0.0002,
+  });
 });
 
 test('rock GPU fixture packs the exact conditioned stream and CPU material oracle', () => {
