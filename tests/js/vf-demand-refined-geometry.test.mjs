@@ -302,3 +302,30 @@ test('level-two demand stays closed and watertight across its conformity ring', 
   assert.ok(minimumOutwardDot > 0);
   assert.equal(signedVolume, 14.423964731154435);
 });
+
+test('additional refinement accepts only a level-one child on its owning shape', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const levelOne = refineEllipsoidFaceReference(coarse, 'face:+x:+y:+z');
+  const target = 'face:+x:+y:+z/refine:1/child:0';
+  const levelTwo = refineEllipsoidChildFaceReference(levelOne, target);
+
+  assert.throws(
+    () => refineEllipsoidChildFaceReference({}, target),
+    TypeError,
+  );
+  assert.throws(
+    () => refineEllipsoidChildFaceReference(coarse, target),
+    RangeError,
+  );
+  assert.throws(
+    () => refineEllipsoidChildFaceReference(levelOne, 'face:missing'),
+    RangeError,
+  );
+  assert.throws(
+    () => refineEllipsoidChildFaceReference(
+      levelTwo,
+      `${target}/refine:2/child:0`,
+    ),
+    RangeError,
+  );
+});
