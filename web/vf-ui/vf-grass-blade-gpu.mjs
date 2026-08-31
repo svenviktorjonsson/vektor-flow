@@ -145,19 +145,6 @@ fn vf_grass_blade_compute(@builtin(global_invocation_id) id: vec3<u32>) {
   }
   vf_grass_write_instance(id.x, vf_grass_parameters.blades_per_cell);
 }
-
-@compute @workgroup_size(64)
-fn vf_grass_shadow_blade_compute(@builtin(global_invocation_id) id: vec3<u32>) {
-  let shadow_blades_per_cell = max(1u, vf_grass_parameters.blades_per_cell / 2u);
-  let full_cells = vf_grass_parameters.instance_count / vf_grass_parameters.blades_per_cell;
-  let final_cell_blades = vf_grass_parameters.instance_count % vf_grass_parameters.blades_per_cell;
-  let shadow_instance_count = (full_cells * shadow_blades_per_cell)
-    + min(final_cell_blades, shadow_blades_per_cell);
-  if (id.x >= shadow_instance_count) {
-    return;
-  }
-  vf_grass_write_instance(id.x, shadow_blades_per_cell);
-}
 `;
 
 function requireGrassGpu(grassGpu, instanceCount) {

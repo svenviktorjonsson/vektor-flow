@@ -9,9 +9,11 @@ const source = await readFile(
 
 test('shadow WGSL expands the exact retained grass blade instance layout', () => {
   const shadowSource = source.match(/var SHADOW_SHADER = `([\s\S]*?)`;/)?.[1] ?? '';
-  assert.match(shadowSource, /struct GrassShadowVin/);
-  assert.match(shadowSource, /fn grass_shadow_position\(v: GrassShadowVin\)/);
-  assert.match(shadowSource, /v\.originHeight\.x \+ \(direction\.x \* halfWidth \* v\.pos\.x\)/);
+  assert.match(shadowSource, /struct GrassBladeInstance/);
+  assert.match(shadowSource, /@group\(1\) @binding\(0\) var<storage, read> grass_instances/);
+  assert.match(shadowSource, /fn grass_color_instance_index\(shadow_instance_index: u32\)/);
+  assert.match(shadowSource, /cell_index \* grass_shadow_params\.color_blades_per_cell \+ local_index/);
+  assert.match(shadowSource, /grass_instances\[grass_color_instance_index\(instance_index\)\]/);
   assert.match(shadowSource, /fn vs_grass_shadow0\(/);
   assert.match(shadowSource, /fn vs_grass_shadow1\(/);
 });
@@ -20,9 +22,10 @@ test('shadow pass selects instanced grass pipelines and bounded instance draws',
   assert.match(source, /pipeGrassShadow0/);
   assert.match(source, /pipeGrassShadow1/);
   assert.match(source, /part\.instanceKind === "grass-blade-list"/);
-  assert.match(source, /part\.grassGpuRuntime\.shadowInstanceBuffer/);
+  assert.match(source, /part\.grassGpuRuntime\.grassShadowBindGroup/);
   assert.match(source, /part\.grassGpuRuntime\.shadowInstanceCount/);
-  assert.match(source, /pass\.setVertexBuffer\(1, shadowInstanceBuffer\)/);
+  assert.match(source, /pass\.setBindGroup\(1, grassShadowBindGroup\)/);
+  assert.doesNotMatch(source, /vf-grass-shadow-blade-instances/);
   assert.match(source, /pass\.drawIndexed\(part\.ibCount, shadowInstanceCount/);
 });
 

@@ -3423,23 +3423,37 @@ struct Vin {
   @location(2) color : vec4<f32>,
 }
 
-struct GrassShadowVin {
-  @location(0) pos : vec3<f32>,
-  @location(1) _normal : vec3<f32>,
-  @location(2) _baseColor : vec4<f32>,
-  @location(3) originHeight : vec4<f32>,
-  @location(4) directionWidthRoughness : vec4<f32>,
-  @location(5) leanPad : vec4<f32>,
-  @location(6) _instColor : vec4<f32>,
+struct GrassBladeInstance {
+  originHeight : vec4<f32>,
+  directionWidthRoughness : vec4<f32>,
+  leanPad : vec4<f32>,
+  color : vec4<f32>,
 }
 
-fn grass_shadow_position(v: GrassShadowVin) -> vec3<f32> {
-  let direction = v.directionWidthRoughness.xy;
-  let halfWidth = v.directionWidthRoughness.z;
+struct GrassShadowParameters {
+  instance_count : u32,
+  color_blades_per_cell : u32,
+  cell_count : u32,
+  shadow_blades_per_cell : u32,
+}
+
+@group(1) @binding(0) var<storage, read> grass_instances : array<GrassBladeInstance>;
+@group(1) @binding(1) var<uniform> grass_shadow_params : GrassShadowParameters;
+
+fn grass_color_instance_index(shadow_instance_index: u32) -> u32 {
+  let cell_index = shadow_instance_index / grass_shadow_params.shadow_blades_per_cell;
+  let local_index = shadow_instance_index % grass_shadow_params.shadow_blades_per_cell;
+  return cell_index * grass_shadow_params.color_blades_per_cell + local_index;
+}
+
+fn grass_shadow_position(v: Vin, instance_index: u32) -> vec3<f32> {
+  let instance = grass_instances[grass_color_instance_index(instance_index)];
+  let direction = instance.directionWidthRoughness.xy;
+  let halfWidth = instance.directionWidthRoughness.z;
   return vec3<f32>(
-    v.originHeight.x + (direction.x * halfWidth * v.pos.x) + (v.leanPad.x * v.pos.z),
-    v.originHeight.y + (direction.y * halfWidth * v.pos.x) + (v.leanPad.y * v.pos.z),
-    v.originHeight.z + (v.originHeight.w * v.pos.z)
+    instance.originHeight.x + (direction.x * halfWidth * v.pos.x) + (instance.leanPad.x * v.pos.z),
+    instance.originHeight.y + (direction.y * halfWidth * v.pos.x) + (instance.leanPad.y * v.pos.z),
+    instance.originHeight.z + (instance.originHeight.w * v.pos.z)
   );
 }
 
@@ -3456,14 +3470,14 @@ fn vs_shadow1(v: Vin) -> @builtin(position) vec4<f32> {
 }
 
 @vertex
-fn vs_grass_shadow0(v: GrassShadowVin) -> @builtin(position) vec4<f32> {
-  let wp = (sc.model * vec4<f32>(grass_shadow_position(v), 1.0)).xyz;
+fn vs_grass_shadow0(v: Vin, @builtin(instance_index) instance_index: u32) -> @builtin(position) vec4<f32> {
+  let wp = (sc.model * vec4<f32>(grass_shadow_position(v, instance_index), 1.0)).xyz;
   return sc.shadow_vp0 * vec4<f32>(wp, 1.0);
 }
 
 @vertex
-fn vs_grass_shadow1(v: GrassShadowVin) -> @builtin(position) vec4<f32> {
-  let wp = (sc.model * vec4<f32>(grass_shadow_position(v), 1.0)).xyz;
+fn vs_grass_shadow1(v: Vin, @builtin(instance_index) instance_index: u32) -> @builtin(position) vec4<f32> {
+  let wp = (sc.model * vec4<f32>(grass_shadow_position(v, instance_index), 1.0)).xyz;
   return sc.shadow_vp1 * vec4<f32>(wp, 1.0);
 }
 `;
@@ -3926,6 +3940,15 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           }]
         });
         var shadowPlLayout = device.createPipelineLayout({ bindGroupLayouts: [shadowBindLayout] });
+        var grassShadowBindLayout = device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+            { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } }
+          ]
+        });
+        var grassShadowPlLayout = device.createPipelineLayout({
+          bindGroupLayouts: [shadowBindLayout, grassShadowBindLayout]
+        });
         var flareLayout = device.createPipelineLayout({ bindGroupLayouts: [] });
 
         var makeDesc = function (topo, cullMode, transparent, vertexEntry, buffers, blendMode, fragmentEntry, depthWriteOverride) {
@@ -4075,8 +4098,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           }
         });
         pipeGrassShadow0 = device.createRenderPipeline({
-          layout: shadowPlLayout,
-          vertex: { module: shadowMod, entryPoint: "vs_grass_shadow0", buffers: [vbufDesc, grassBladeInstDesc] },
+          layout: grassShadowPlLayout,
+          vertex: { module: shadowMod, entryPoint: "vs_grass_shadow0", buffers: [vbufDesc] },
           primitive: { topology: "triangle-list", cullMode: "none" },
           depthStencil: {
             depthWriteEnabled: true,
@@ -4088,8 +4111,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           }
         });
         pipeGrassShadow1 = device.createRenderPipeline({
-          layout: shadowPlLayout,
-          vertex: { module: shadowMod, entryPoint: "vs_grass_shadow1", buffers: [vbufDesc, grassBladeInstDesc] },
+          layout: grassShadowPlLayout,
+          vertex: { module: shadowMod, entryPoint: "vs_grass_shadow1", buffers: [vbufDesc] },
           primitive: { topology: "triangle-list", cullMode: "none" },
           depthStencil: {
             depthWriteEnabled: true,
@@ -4201,14 +4224,6 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             entryPoint: "vf_grass_blade_compute"
           }
         });
-        var pipeGrassShadowCompute = device.createComputePipeline({
-          label: "vf-grass-shadow-compute",
-          layout: grassBladeComputePipelineLayout,
-          compute: {
-            module: grassBladeComputeMod,
-            entryPoint: "vf_grass_shadow_blade_compute"
-          }
-        });
         sharedWgpu = {
           device, format, bindLayout,
           pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive,
@@ -4216,10 +4231,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           pipeSphereInst, pipeCylinderInst, pipeGrassBladeInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, flareQuadBuf,
           surfaceSampler, defaultSurfaceView, fontSampler, chessFontAtlas, shadowSampler, defaultShadowView,
           clusteredLightBindLayout,
-          pipeShadow0, pipeShadow1, pipeGrassShadow0, pipeGrassShadow1, shadowBindLayout,
+          pipeShadow0, pipeShadow1, pipeGrassShadow0, pipeGrassShadow1, shadowBindLayout, grassShadowBindLayout,
           pipePick, pickBindLayout,
           frameBlitBindLayout, pipeFrameBlit,
-          pipeGrassBladeCompute, pipeGrassShadowCompute, grassBladeComputeBindLayout
+          pipeGrassBladeCompute, grassBladeComputeBindLayout
         };
         wlog("info", "getSharedWgpu: OK");
         return sharedWgpu;
@@ -6849,8 +6864,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pipeCylinderInst = null;
     this._pipeGrassBladeInst = null;
     this._pipeGrassBladeCompute = null;
-    this._pipeGrassShadowCompute = null;
     this._grassBladeComputeBindLayout = null;
+    this._grassShadowBindLayout = null;
     this._pipePointImpostor = null;
     this._pipeLineImpostor = null;
     this._bindLayout = null;
@@ -7761,9 +7776,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           var part = partsForShadow[i];
           var partMesh = part && part.mesh;
           if (apertureCasterId && String(partMesh.id || "") === apertureCasterId) { continue; }
-          var shadowInstanceBuffer = part.grassGpuRuntime && part.grassGpuRuntime.shadowInstanceBuffer;
+          var grassShadowBindGroup = part.grassGpuRuntime && part.grassGpuRuntime.grassShadowBindGroup;
           var shadowInstanceCount = Number(part.grassGpuRuntime && part.grassGpuRuntime.shadowInstanceCount || 0);
-          var isGrassShadow = part.instanceKind === "grass-blade-list" && shadowInstanceBuffer && shadowInstanceCount > 0;
+          var isGrassShadow = part.instanceKind === "grass-blade-list" && grassShadowBindGroup && shadowInstanceCount > 0;
           var partPipe = isGrassShadow
             ? (slot === 1 ? sharedWgpu.pipeGrassShadow1 : sharedWgpu.pipeGrassShadow0)
             : pipe;
@@ -7793,8 +7808,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           renderer._device.queue.writeBuffer(shadowUniformBuf, 0, shadowUb);
           renderer._ensurePartShadowBindGroup(part, slot);
           pass.setBindGroup(0, part["shadowBindGroup" + String(Math.max(0, Math.min(3, Number(slot) | 0)))]);
+          if (isGrassShadow) { pass.setBindGroup(1, grassShadowBindGroup); }
           pass.setVertexBuffer(0, part.vb);
-          if (isGrassShadow) { pass.setVertexBuffer(1, shadowInstanceBuffer); }
           pass.setIndexBuffer(part.ib, "uint32");
           if (isGrassShadow) {
             pass.drawIndexed(part.ibCount, shadowInstanceCount, 0, 0, 0);
@@ -8832,7 +8847,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         instanceCount,
         grassGpu.blades_per_cell,
         cellCount,
-        0
+        shadowLod.bladesPerCell
       ]);
       this._device.queue.writeBuffer(runtime.cellBuffer, 0, records);
       this._device.queue.writeBuffer(runtime.parameterBuffer, 0, parameters);
@@ -8841,15 +8856,12 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       pass.setPipeline(this._pipeGrassBladeCompute);
       pass.setBindGroup(0, runtime.bindGroup);
       pass.dispatchWorkgroups(Math.ceil(instanceCount / 64));
-      pass.setPipeline(this._pipeGrassShadowCompute);
-      pass.setBindGroup(0, runtime.shadowBindGroup);
-      pass.dispatchWorkgroups(Math.ceil(shadowLod.instanceCount / 64));
       pass.end();
       this._device.queue.submit([encoder.finish()]);
     },
 
     _createGrassGpuRuntime: function (grassGpu, instanceCount) {
-      if (!this._pipeGrassBladeCompute || !this._pipeGrassShadowCompute || !this._grassBladeComputeBindLayout) {
+      if (!this._pipeGrassBladeCompute || !this._grassBladeComputeBindLayout || !this._grassShadowBindLayout) {
         failFast("grass GPU packet requires the grass compute pipeline");
       }
       if (!grassGpu || grassGpu.kind !== "grass-blade-philox:v1" ||
@@ -8875,18 +8887,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
       });
       var shadowLod = this._grassShadowLod(grassGpu, instanceCount);
-      var shadowInstanceBuffer = dev.createBuffer({
-        label: "vf-grass-shadow-blade-instances",
-        size: shadowLod.instanceCount * 64,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX
-      });
       var runtime = {
         cellBuffer: cellBuffer,
         instanceBuffer: instanceBuffer,
         parameterBuffer: parameterBuffer,
-        shadowInstanceBuffer: shadowInstanceBuffer,
         shadowInstanceCount: shadowLod.instanceCount,
-        shadowInstanceBytes: shadowLod.instanceCount * 64,
         cellBytes: grassGpu.cell_records.byteLength,
         instanceBytes: instanceCount * 64,
         bindGroup: dev.createBindGroup({
@@ -8897,12 +8902,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             { binding: 2, resource: { buffer: parameterBuffer } }
           ]
         }),
-        shadowBindGroup: dev.createBindGroup({
-          layout: this._grassBladeComputeBindLayout,
+        grassShadowBindGroup: dev.createBindGroup({
+          layout: this._grassShadowBindLayout,
           entries: [
-            { binding: 0, resource: { buffer: cellBuffer } },
-            { binding: 1, resource: { buffer: shadowInstanceBuffer } },
-            { binding: 2, resource: { buffer: parameterBuffer } }
+            { binding: 0, resource: { buffer: instanceBuffer } },
+            { binding: 1, resource: { buffer: parameterBuffer } }
           ]
         })
       };
@@ -8915,7 +8919,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!runtime || !grassGpu ||
           runtime.cellBytes !== grassGpu.cell_records.byteLength ||
           runtime.instanceBytes !== instanceCount * 64 ||
-          runtime.shadowInstanceBytes !== shadowLod.instanceCount * 64) {
+          runtime.shadowInstanceCount !== shadowLod.instanceCount) {
         failFast("grass GPU retained update exceeds its allocated buffers");
       }
       this._dispatchGrassGpuRuntime(runtime, grassGpu, instanceCount);
@@ -8926,7 +8930,6 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (runtime.cellBuffer) { try { runtime.cellBuffer.destroy(); } catch(_){} }
       if (runtime.instanceBuffer) { try { runtime.instanceBuffer.destroy(); } catch(_){} }
       if (runtime.parameterBuffer) { try { runtime.parameterBuffer.destroy(); } catch(_){} }
-      if (runtime.shadowInstanceBuffer) { try { runtime.shadowInstanceBuffer.destroy(); } catch(_){} }
     },
 
     _createScenePart: function (mesh, index) {
@@ -9067,11 +9070,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!!part.mesh.instances !== !!mesh.instances) { return false; }
       if (part.mesh.instances && mesh.instances && part.mesh.instances.byteLength !== mesh.instances.byteLength) { return false; }
       if (!!part.grassGpuRuntime !== !!mesh.grass_gpu) { return false; }
-      if (part.grassGpuRuntime) {
-        var nextShadowLod = this._grassShadowLod(mesh.grass_gpu, Number(mesh.instance_count || 0));
-        if (part.grassGpuRuntime.cellBytes !== mesh.grass_gpu.cell_records.byteLength ||
-            part.grassGpuRuntime.instanceBytes !== Number(mesh.instance_count || 0) * 64 ||
-            part.grassGpuRuntime.shadowInstanceBytes !== nextShadowLod.instanceCount * 64) { return false; }
+        if (part.grassGpuRuntime) {
+          var nextShadowLod = this._grassShadowLod(mesh.grass_gpu, Number(mesh.instance_count || 0));
+          if (part.grassGpuRuntime.cellBytes !== mesh.grass_gpu.cell_records.byteLength ||
+              part.grassGpuRuntime.instanceBytes !== Number(mesh.instance_count || 0) * 64 ||
+              part.grassGpuRuntime.shadowInstanceCount !== nextShadowLod.instanceCount) { return false; }
       }
       if (!!part.rockMaterialBuf !== !!mesh.rock_material_gpu) { return false; }
       if (part.rockMaterialBuf && part.rockMaterialByteLength !== (mesh.vertices.length / 10) * 24) { return false; }
@@ -9825,8 +9828,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pipeCylinderInst = sg.pipeCylinderInst || null;
     this._pipeGrassBladeInst = sg.pipeGrassBladeInst || null;
     this._pipeGrassBladeCompute = sg.pipeGrassBladeCompute || null;
-    this._pipeGrassShadowCompute = sg.pipeGrassShadowCompute || null;
     this._grassBladeComputeBindLayout = sg.grassBladeComputeBindLayout || null;
+    this._grassShadowBindLayout = sg.grassShadowBindLayout || null;
     this._pipePointImpostor = sg.pipePointImpostor || null;
     this._pipePointImpostorDepth = sg.pipePointImpostorDepth || null;
     this._pipeLineImpostor = sg.pipeLineImpostor || null;
