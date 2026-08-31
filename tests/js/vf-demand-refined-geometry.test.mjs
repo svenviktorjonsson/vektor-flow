@@ -149,3 +149,39 @@ test('one-face refinement stays closed, conforming, and on the ellipsoid', () =>
   assert.equal(refined.vertices.length - incidence.size + refined.faces.length, 2);
   assert.equal(signedVolume, 13.098076211353316);
 });
+
+test('face demand is traversal and chunk independent without unrelated detail', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const faceIds = coarse.faces.map(({ id }) => id);
+  const summary = (faceId) => {
+    const refined = refineEllipsoidFaceReference(coarse, faceId);
+    return {
+      refinement: refined.refinement,
+      generatedVertices: refined.vertices.slice(coarse.vertices.length),
+      generatedFaces: refined.faces.filter(({ id }) => id.includes('/refine:1/')),
+    };
+  };
+  const expected = new Map(faceIds.map((faceId) => [faceId, summary(faceId)]));
+  const reversed = new Map(
+    [...faceIds].reverse().map((faceId) => [faceId, summary(faceId)]),
+  );
+  assert.deepEqual(
+    faceIds.map((faceId) => reversed.get(faceId)),
+    faceIds.map((faceId) => expected.get(faceId)),
+  );
+
+  const chunks = [faceIds.slice(0, 1), faceIds.slice(1, 6), faceIds.slice(6)];
+  const chunked = new Map(
+    chunks.flatMap((chunk) => chunk.map((faceId) => [faceId, summary(faceId)])),
+  );
+  assert.deepEqual(
+    faceIds.map((faceId) => chunked.get(faceId)),
+    faceIds.map((faceId) => expected.get(faceId)),
+  );
+  for (const faceId of faceIds) {
+    const result = expected.get(faceId);
+    assert.equal(result.generatedVertices.length, 1);
+    assert.equal(result.generatedFaces.length, 3);
+    assert.ok(result.generatedFaces.every(({ id }) => id.startsWith(`${faceId}/refine:1/`)));
+  }
+});
