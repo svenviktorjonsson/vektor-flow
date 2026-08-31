@@ -329,6 +329,7 @@ add_executable(vkf-native-scene-artifact-stager
 )
 target_include_directories(vkf-native-scene-artifact-stager PRIVATE
   "${VF_REPO_ROOT}"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 if(MSVC)
   target_compile_options(vkf-native-scene-artifact-stager PRIVATE /Zi)
