@@ -325,6 +325,7 @@ endif()
 
 add_executable(vkf-native-scene-artifact-stager
   ../../compiler/native/vkf_native_scene_artifact_stager.cpp
+  vf/json.cpp
 )
 target_include_directories(vkf-native-scene-artifact-stager PRIVATE
   "${VF_REPO_ROOT}"

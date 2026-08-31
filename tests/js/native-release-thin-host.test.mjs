@@ -65,6 +65,11 @@ test("browser runtime maps the opaque host event arena without UI semantics", ()
 });
 
 test("release package builds the retained scene stager with repository headers", () => {
+  const sources = cmake.match(
+    /add_executable\(vkf-native-scene-artifact-stager([\s\S]*?)\n\)/,
+  );
+  assert.ok(sources, "retained scene stager target is missing");
+  assert.match(sources[1], /vf\/json\.cpp/);
   const target = cmake.match(
     /add_executable\(vkf-native-scene-artifact-stager[\s\S]*?target_include_directories\(vkf-native-scene-artifact-stager PRIVATE([\s\S]*?)\n\)/,
   );
