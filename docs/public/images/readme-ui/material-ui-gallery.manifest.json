@@ -16,35 +16,35 @@
     "composite_states": [
       {
         "view": "view-lighting",
-        "sha256": "0bd4c907ba7735a581c2b1249361ee8ac087a6db44b236b4566903f2029ad099",
+        "sha256": "25ccd3fafd73da7df2ccf5addcc71898dfcde87cb3afda5ba290e747db52796d",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
       },
       {
         "view": "view-mirror",
-        "sha256": "4fd3d60d5ea3e772b2b8a69fa9bc54a58cd05709658aa4a5e1e6c7cf48dd690b",
+        "sha256": "17ff54de51a579eb42a9512e43b0f3033bbd61f1873d8379e5bba659b7a9c4b2",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
       },
       {
         "view": "view-glass",
-        "sha256": "b4d7106824c57faf7d8f44a9a436a99f3dd4243e371da0e9371078a280833ace",
+        "sha256": "705740d825ec7112ca3eb1340a71934376c1953e310977ba6a6c07b38804d38e",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
       },
       {
         "view": "view-all",
-        "sha256": "8d254eff1dbff640bcaee4c4e5c4dad8d64672af188e3d95d235cc0584a31626",
+        "sha256": "97b1fe387319894840f0f32e437153376c9ed8c40969690d7cce616a14953e09",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
       },
       {
         "view": "glass-alpha-072",
-        "sha256": "3545f6fba28e14e7b238f3418add048884535335ce61610fd0f77b2d15763d17",
+        "sha256": "665c59597f621b5ef1a4ba5eaba337598539cb98af36d9da73a3e4dfd1828941",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
@@ -55,7 +55,7 @@
     "examples/material_ui_gallery/app.vkf": "8a20affff3cc692ec0126e285fc6e29742ad1f692c5c531516b8222f17d953b7",
     "examples/material_ui_gallery/ui/main.html": "a12423a7c3e026b9897d5859895c73ad23f578034896ddd28633e2fc2e02548e",
     "examples/material_ui_gallery/ui/gallery.css": "9ea69c0983e62a3eebaf7d5540dc8cd4b3543a54d07122a17b79585a2990227c",
-    "compiler/native/vkf_retained_scene_packet.hpp": "97cce63d6dee3662168b6377ce761062dfa24136d134025300d1ef955de8b9a7",
+    "compiler/native/vkf_retained_scene_packet.hpp": "a526f2326462d80c33c97cf9eb2ee3df68daa17f81099b1830ea49026d8d91d4",
     "compiler/native/vkf_native_scene_artifact_stager.cpp": "2a557604ecc7b38342a6b9271c80391793bc1be0acd8353f1e5010b94f4083f5",
     "web/vf-ui/vf-runtime-packet-contract.js": "b2081b36b47e997a42659396c092400b603835ab308f53a19c98ab8ab411e760",
     "web/vf-ui/vf-retained-event-adapter.js": "b7082ab7a277ece450781deb5e4a56f8e3dd33ef5f78c4a921fc47dfae2f001b",
@@ -66,19 +66,19 @@
   },
   "media": {
     "docs/public/images/readme-ui/material-ui-gallery.png": {
-      "sha256": "3545f6fba28e14e7b238f3418add048884535335ce61610fd0f77b2d15763d17",
+      "sha256": "665c59597f621b5ef1a4ba5eaba337598539cb98af36d9da73a3e4dfd1828941",
       "width": 1376,
       "height": 861
     },
     "docs/public/images/readme-ui/material-ui-gallery.gif": {
-      "sha256": "5fbf3afd7cbeaac98df218385896b01afad337033d63394ca39671c810e066f3",
+      "sha256": "193720d10cf4a451871db5f9e63bc9b6963d4aee1a116263bd32724ec7c95250",
       "width": 1376,
       "height": 861,
       "frames": 5,
       "loop": true
     },
     "docs/public/images/readme-ui/material-ui-gallery-renderer.gif": {
-      "sha256": "2f991d9f9a55c03981911de56ad7aac4a8cd32ff064fd2fec36425026655a16a",
+      "sha256": "c54fae40c3d3369cda23551fddda7ed81160da8a0a9e855c1ed3204cc482a0e1",
       "width": 1002,
       "height": 708,
       "frames": 5,
