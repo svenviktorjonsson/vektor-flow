@@ -2563,7 +2563,7 @@ void HttpThreadMain() {
         if (c == INVALID_SOCKET)
             continue;
 
-        char buf[65536];
+        char buf[65536]{};
         int total = 0;
         while (total < (int)sizeof(buf) - 1) {
             int r = recv(c, buf + total, (int)sizeof(buf) - 1 - total, 0);
@@ -2573,6 +2573,10 @@ void HttpThreadMain() {
             buf[total] = 0;
             if (strstr(buf, "\r\n\r\n"))
                 break;
+        }
+        if (total <= 0) {
+            closesocket(c);
+            continue;
         }
 
         char method[16] = {};
@@ -2593,7 +2597,7 @@ void HttpThreadMain() {
         std::string body;
         if (bodyStart) {
             bodyStart += 4;
-            body.assign(bodyStart, buf + total - bodyStart);
+            body.assign(bodyStart, static_cast<size_t>((buf + total) - bodyStart));
         }
 
         int clen = 0;
