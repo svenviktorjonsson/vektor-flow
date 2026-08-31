@@ -244,6 +244,29 @@
         "api": "Page.captureScreenshot",
         "frame": "roughness_frame"
       }
+    },
+    {
+      "id": "12-layered-glass",
+      "title": "Layered glass",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "texture",
+        "transparency",
+        "mirror"
+      ],
+      "source": "12-layered-glass/app.vkf",
+      "sourceSha256": "32e6819c984ffae9ea309394afd3612fa17807e78584840dcc2982b1ed4f4e42",
+      "media": {
+        "path": "docs/public/images/scene-gallery/12-layered-glass.png",
+        "sha256": "d5aef464bf573e38e951bc2c23788fba93bcc65319f40cd593efdd1818ab5f44"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "layered_frame"
+      }
     }
   ]
 }

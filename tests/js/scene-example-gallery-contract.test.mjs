@@ -202,3 +202,18 @@ test("scene gallery compares rough and polished surfaces", async () => {
   assert.ok(bytes.length > 100);
   assert.equal(sha256(bytes), example.media.sha256);
 });
+
+test("scene gallery combines texture, tint, transparency, and reflection", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "12-layered-glass");
+  assert.ok(example);
+  assert.deepEqual(example.features, ["3d", "texture", "transparency", "mirror"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  for (const field of ['id:"layered_glass"', 'kind:"checker"', "alpha:0.48", "transparent:true", "reflectivity:0.42", 'kind:"screen"']) {
+    assert.ok(source.includes(field), `missing ${field}`);
+  }
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+});
