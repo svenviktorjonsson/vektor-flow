@@ -233,3 +233,72 @@ test('one demanded child face receives stable hierarchical refinement identities
     generatedFaces: 10,
   });
 });
+
+test('level-two demand stays closed and watertight across its conformity ring', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const levelOne = refineEllipsoidFaceReference(coarse, 'face:+x:+y:+z');
+  const targetId = 'face:+x:+y:+z/refine:1/child:0';
+  const target = levelOne.faces.find(({ id }) => id === targetId);
+  const levelTwo = refineEllipsoidChildFaceReference(levelOne, targetId);
+  const positions = new Map(levelTwo.vertices.map(({ id, position }) => [id, position]));
+  const incidence = new Map();
+  let signedVolume = 0;
+  let minimumOutwardDot = Infinity;
+  const subtract = (a, b) => a.map((value, index) => value - b[index]);
+  const cross = (a, b) => [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+  const dot = (a, b) => a.reduce((sum, value, index) => sum + value * b[index], 0);
+  const canonicalEdge = (first, second) => (
+    `edge:${[first, second].sort().join('|')}`
+  );
+
+  for (const face of levelTwo.faces) {
+    face.boundary.forEach((edge) => incidence.set(edge, (incidence.get(edge) ?? 0) + 1));
+    const [a, b, c] = face.vertices.map((vertex) => positions.get(vertex));
+    const normal = cross(subtract(b, a), subtract(c, a));
+    const centroid = a.map((value, index) => (value + b[index] + c[index]) / 3);
+    minimumOutwardDot = Math.min(minimumOutwardDot, dot(normal, centroid));
+    signedVolume += (
+      a[0] * (b[1] * c[2] - b[2] * c[1])
+      - a[1] * (b[0] * c[2] - b[2] * c[0])
+      + a[2] * (b[0] * c[1] - b[1] * c[0])
+    ) / 6;
+  }
+
+  assert.deepEqual(
+    levelTwo.vertices.slice(levelOne.vertices.length).map(({ position }) => position),
+    [
+      [2.1213203435596424, 1.414213562373095, 0],
+      [0.9751727510156044, 1.7761476679542303, 0.4875863755078022],
+      [2.6642215019313458, 0.6501151673437363, 0.4875863755078022],
+    ],
+  );
+  for (const vertex of levelTwo.vertices.slice(levelOne.vertices.length)) {
+    const [x, y, z] = vertex.position;
+    assert.ok(Math.abs((x / 3) ** 2 + (y / 2) ** 2 + (z / 1.5) ** 2 - 1) < 1e-15);
+  }
+  levelTwo.refinement.repairs.forEach((repair, edgeIndex) => {
+    const first = target.vertices[edgeIndex];
+    const second = target.vertices[(edgeIndex + 1) % 3];
+    assert.equal(incidence.has(repair.edge), false);
+    assert.equal(incidence.get(canonicalEdge(first, repair.midpoint)), 2);
+    assert.equal(incidence.get(canonicalEdge(repair.midpoint, second)), 2);
+  });
+  const replaced = new Set([
+    targetId,
+    ...levelTwo.refinement.repairs.map(({ face }) => face),
+  ]);
+  assert.ok(levelOne.faces.filter(({ id }) => !replaced.has(id)).every(
+    (face) => levelTwo.faces.includes(face),
+  ));
+  assert.equal(levelTwo.vertices.length, 10);
+  assert.equal(incidence.size, 24);
+  assert.equal(levelTwo.faces.length, 16);
+  assert.ok([...incidence.values()].every((count) => count === 2));
+  assert.equal(levelTwo.vertices.length - incidence.size + levelTwo.faces.length, 2);
+  assert.ok(minimumOutwardDot > 0);
+  assert.equal(signedVolume, 14.423964731154435);
+});
