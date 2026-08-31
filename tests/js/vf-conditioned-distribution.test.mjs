@@ -7,6 +7,7 @@ import {
   normalReferenceFromU32,
   sampleBoundedUniform,
   sampleNormalReference,
+  sampleWeightedCategoricalIndex,
 } from '../../web/vf-ui/vf-conditioned-distribution.mjs';
 
 const ROOT_IDENTITY = Object.freeze({
@@ -17,6 +18,18 @@ const ROOT_IDENTITY = Object.freeze({
   hierarchy: ['environment:alpine', 'species:grass'],
   lod: 4,
   channel: 'traits',
+});
+
+test('weighted categorical sampling selects a pinned category without expansion', () => {
+  const child = conditionChild(createConditionedRoot(ROOT_IDENTITY), {
+    segment: 'instance:17',
+    channel: 'species',
+  });
+
+  assert.equal(
+    sampleWeightedCategoricalIndex(child, [3, 0], [1, 3, 6]),
+    2,
+  );
 });
 
 test('normal reference transform matches a pinned Box-Muller oracle', () => {
