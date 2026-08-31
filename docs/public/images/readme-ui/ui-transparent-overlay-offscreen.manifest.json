@@ -1,0 +1,32 @@
+{
+  "schema": "vkf-media-freshness/1",
+  "capture": {
+    "api": "VfDisplay.__test.captureGeomFrameDataUrl",
+    "execution": "headless Edge WebGPU",
+    "fixture": "tests/fixtures/clustered_geometry_emitter_capture.html",
+    "frame_id": "clustered_geometry_emitter_frame",
+    "zoom_steps": [-2, 0, 2]
+  },
+  "sources": {
+    "tests/fixtures/clustered_geometry_emitter_capture.html": "cc29e45c512b482014dfccddd5c94c42ff999a7945024fb8aecdfd5669986446",
+    "tests/helpers/capture_mirror_scene.js": "10838f5496253d853950760bf9ec4fd4927b84a1e6144a2023d1b62487290a0e",
+    "tests/fixtures/transparent-overlay-acceptance/main.html": "3b5d6b40403ecf5ecbd4f8b1961541f97e071c11196a452c5964c687d72b800d",
+    "tests/fixtures/transparent-overlay-acceptance/theme.css": "a57be20b33ceb947a63211648b186589946900b40a9e400271761f2848414583",
+    "tests/fixtures/transparent-overlay-acceptance/app.vkf": "a0030b25f03e3a26d6a1443f4affa647f87b72afc6e6e292ec76bc7d07538217",
+    "web/vf-ui/vf-static-html-loader.js": "7b97b3c19780cc1cb09a4cef4f87516664b843925001043239a28f5d19ef3aa5"
+  },
+  "media": {
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.png": {
+      "sha256": "3cf7ff0a3a54e98877e1d13d2508e6933c54a0bd53a4a2264721d014c92f8aea",
+      "width": 950,
+      "height": 657
+    },
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.gif": {
+      "sha256": "0656bf4d32c38c26e8f0e4297586843c3598578822bd3a8b79e4d1515001372d",
+      "width": 640,
+      "height": 443,
+      "frames": 4,
+      "loop": true
+    }
+  }
+}
