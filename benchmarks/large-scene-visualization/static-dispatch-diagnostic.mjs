@@ -17,6 +17,14 @@ export function staticDispatchWorkload(source, implementations) {
     perFrameOperation: 'none; fixed retained dispatch',
     comparableImplementations: [...implementations],
     nonComparableImplementations: [],
+    adapterCalibration: {
+      ...source.adapterCalibration,
+      'plotly-scattergl': {
+        markerSizePixels: 2.4,
+        targetDiameterPixels: source.pointDiameterPixels,
+        basis: 'sampled-frame-regions-v1 framebuffer coverage',
+      },
+    },
     cameraPath: {
       kind: 'fixed',
       frames: 1,
