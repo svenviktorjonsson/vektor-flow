@@ -63,6 +63,20 @@ jobs:
           $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "$env:VKF_RELEASE_VERSION-dev" }
           .\scripts\package-native-release.ps1 -Version $version -UiBinaryDirectory build/v
 
+      - name: Verify portable dependency closure
+        shell: pwsh
+        run: |
+          node tools/verify-windows-release-closure.mjs `
+            --release-root=dist/releases/vektor-flow-windows-x64 `
+            --probe-toolchain-free `
+            --probe-root=build/release-dependency-probe |
+            Set-Content -LiteralPath dist/releases/windows-x64-dependency-closure.json -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\trace-native-release-modules.ps1 `
+            -ReleaseRoot dist/releases/vektor-flow-windows-x64 `
+            -WorkRoot build/release-module-trace |
+            Set-Content -LiteralPath dist/releases/windows-x64-loaded-modules.json -Encoding utf8
+
       - name: Build installer
         shell: pwsh
         run: |
@@ -77,6 +91,8 @@ jobs:
             dist/releases/vektor-flow-windows-x64.zip.sha256
             dist/releases/vektor-flow-windows-x64-setup.exe
             dist/releases/vektor-flow-windows-x64-setup.exe.sha256
+            dist/releases/windows-x64-dependency-closure.json
+            dist/releases/windows-x64-loaded-modules.json
           if-no-files-found: error
 
   linux-x64:
