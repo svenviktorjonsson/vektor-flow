@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 
@@ -103,6 +104,17 @@ test('timing browser is always headless and hardware mode does not force SwiftSh
 test('timing runner selects the requested GPU mode and defaults to correctness-only software', () => {
   assert.equal(gpuModeFromEnvironment({ VF_LARGE_SCENE_GPU_MODE: 'hardware' }), 'hardware');
   assert.equal(gpuModeFromEnvironment({}), 'swiftshader');
+});
+
+test('timing runner requests graceful hidden-browser shutdown before process-tree fallback', () => {
+  const runner = readFileSync(
+    new URL('../../tests/helpers/run_large_scene_peer_benchmark.js', import.meta.url),
+    'utf8',
+  );
+  const browserClose = runner.indexOf("sendCdp(browserSocket, browserState, 'Browser.close')");
+  const processFallback = runner.indexOf('terminateOwnedProcessTree(edge)');
+  assert.ok(browserClose >= 0);
+  assert.ok(processFallback > browserClose);
 });
 
 test('failed correctness or a late large point upload withholds all timing', async () => {

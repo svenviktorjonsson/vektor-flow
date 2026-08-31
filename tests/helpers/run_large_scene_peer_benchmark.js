@@ -159,6 +159,7 @@ async function main() {
       await delay(250);
     }
     if (!finalResult) throw new Error('large-scene benchmark timed out');
+    try { await sendCdp(browserSocket, browserState, 'Browser.close'); } catch (_) {}
   } finally {
     try { await terminateOwnedProcessTree(edge); } catch (error) { cleanupError ??= error; }
     try { pageSocket?.close(); } catch (_) {}
