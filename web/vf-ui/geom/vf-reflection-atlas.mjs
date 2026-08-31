@@ -76,7 +76,8 @@ export function allocateReflectionAtlas(inputs, options = {}) {
     allocatedPixels += job.allocatedPixels;
   }
 
-  const oldByCluster = new Map(previousSlots(options.previous).map(slot => [slot.clusterId, slot]));
+  const oldSlots = previousSlots(options.previous);
+  const oldByCluster = new Map(oldSlots.map(slot => [slot.clusterId, slot]));
   const reservedIndices = new Set();
   const assignedIndex = new Map();
   for (const job of admitted) {
@@ -85,6 +86,21 @@ export function allocateReflectionAtlas(inputs, options = {}) {
       reservedIndices.add(old.slotIndex);
       assignedIndex.set(job.clusterId, old.slotIndex);
     }
+  }
+  const admittedIds = new Set(admitted.map(job => job.clusterId));
+  const retained = [];
+  let residentPixels = allocatedPixels;
+  for (const old of oldSlots.slice().sort((left, right) => left.slotIndex - right.slotIndex)) {
+    if (admittedIds.has(old.clusterId)
+      || old.slotIndex >= maxCaptures
+      || reservedIndices.has(old.slotIndex)
+      || admitted.length + retained.length >= maxCaptures
+      || old.allocatedPixels > maxPixels - residentPixels) {
+      continue;
+    }
+    retained.push(old);
+    reservedIndices.add(old.slotIndex);
+    residentPixels += old.allocatedPixels;
   }
   let nextSlot = 0;
   for (const job of admitted) {
@@ -111,7 +127,7 @@ export function allocateReflectionAtlas(inputs, options = {}) {
       needsCapture: !reusable
     };
   });
-  const slots = assignments.map(assignment => {
+  const activeSlots = assignments.map(assignment => {
     const slotIndex = assignedIndex.get(assignment.clusterId);
     return {
       slotIndex,
@@ -120,7 +136,14 @@ export function allocateReflectionAtlas(inputs, options = {}) {
       cacheKey: assignment.cacheKey,
       allocatedPixels: assignment.allocatedPixels
     };
-  }).sort((left, right) => left.slotIndex - right.slotIndex);
+  });
+  const slots = activeSlots.concat(retained.map(old => ({
+    slotIndex: old.slotIndex,
+    slotId: slotId(old.slotIndex),
+    clusterId: old.clusterId,
+    cacheKey: old.cacheKey,
+    allocatedPixels: old.allocatedPixels
+  }))).sort((left, right) => left.slotIndex - right.slotIndex);
 
   const reusedCaptures = assignments.filter(item => item.status === 'reused').length;
   const invalidatedCaptures = assignments.filter(item => item.status === 'invalidated').length;
@@ -130,8 +153,8 @@ export function allocateReflectionAtlas(inputs, options = {}) {
     overflow,
     budget: { maxCaptures, maxPixels },
     stats: {
-      allocatedCaptures: assignments.length,
-      allocatedPixels,
+      allocatedCaptures: slots.length,
+      allocatedPixels: residentPixels,
       reusedCaptures,
       invalidatedCaptures,
       newCaptures: assignments.length - reusedCaptures - invalidatedCaptures,
