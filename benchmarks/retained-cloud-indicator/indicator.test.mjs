@@ -363,7 +363,7 @@ test('VKF marker_impostor prepares immutable XYZ+RGBA instances once and orbits 
     [...instances.slice(4, 7)].map((value) => Math.round(value * 255)),
     [...fixture.colors.slice(0, 3)],
   );
-  assert.equal(instances[7], -1, 'negative alpha selects shipped unlit marker output');
+  assert.equal(instances[7], 1, 'fixture alpha stays unchanged for the zero-light material path');
   const scene = createVkfMarkerScene(fixture, 4, [1280, 720]);
   const retained = scene.parts[0].instances;
   const revision = scene.__revision;
@@ -376,6 +376,7 @@ test('VKF marker_impostor prepares immutable XYZ+RGBA instances once and orbits 
   assert.equal(scene.parts[0].static_instances, true);
   assert.equal(scene.parts[0].transparent, true);
   assert.equal(scene.parts[0].overlay_expanded, true);
+  assert.equal(scene.parts[0].no_lighting, false);
   assert.equal(scene.parts[0].camera, scene.camera);
   assert.equal(scene.camera.projection_matrix.length, 16);
   assert.ok(Math.abs(scene.camera.projection_matrix[5] - (1 / 1.1)) < 1e-7);
