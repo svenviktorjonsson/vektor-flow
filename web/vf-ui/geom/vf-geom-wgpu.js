@@ -1068,6 +1068,15 @@ struct CylinderInstVin {
   @location(4) bPad       : vec4<f32>,
   @location(5) instColor  : vec4<f32>,
 }
+struct GrassBladeInstVin {
+  @location(0) pos        : vec3<f32>,
+  @location(1) _normal    : vec3<f32>,
+  @location(2) _baseColor : vec4<f32>,
+  @location(3) originHeight : vec4<f32>,
+  @location(4) directionWidthRoughness : vec4<f32>,
+  @location(5) leanPad : vec4<f32>,
+  @location(6) instColor : vec4<f32>,
+}
 struct Vout {
   @builtin(position) clip    : vec4<f32>,
   @location(0)       color   : vec4<f32>,
@@ -3159,6 +3168,32 @@ fn vs_cylinder_instance(v: CylinderInstVin) -> Vout {
 }
 
 @vertex
+fn vs_grass_blade_instance(v: GrassBladeInstVin) -> Vout {
+  var o: Vout;
+  let direction = v.directionWidthRoughness.xy;
+  let halfWidth = v.directionWidthRoughness.z;
+  let rise = vec3<f32>(v.leanPad.xy, v.originHeight.w);
+  let localPosition = vec3<f32>(
+    v.originHeight.x + (direction.x * halfWidth * v.pos.x) + (v.leanPad.x * v.pos.z),
+    v.originHeight.y + (direction.y * halfWidth * v.pos.x) + (v.leanPad.y * v.pos.z),
+    v.originHeight.z + (v.originHeight.w * v.pos.z)
+  );
+  let localNormal = normalize(cross(vec3<f32>(direction, 0.0), rise));
+  let wp = (sc.model * vec4f(localPosition, 1.0)).xyz;
+  let rawClip = sc.mvp * vec4f(wp, 1.0);
+  o.clip = applyDepthOffset(rawClip);
+  o.screen_pos = rawClip;
+  o.surface_proj_pos = sc.surface_projector * vec4f(wp, 1.0);
+  o.color = v.instColor;
+  o.world_pos = wp;
+  o.normal = normalize((sc.model * vec4f(localNormal, 0.0)).xyz);
+  o.local_pos = localPosition;
+  o.rock_surface_coordinates = vec2<f32>(0.0);
+  o.rock_baked_displacement = 0.0;
+  return o;
+}
+
+@vertex
 fn vs_point_impostor(v: SphereInstVin) -> PointImpostorVOut {
   var o: PointImpostorVOut;
   let center = v.centerRad.xyz;
@@ -3733,6 +3768,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             { format: "float32x4", offset: 32, shaderLocation: 5 },
           ],
         };
+        var grassBladeInstDesc = {
+          arrayStride: 64,
+          stepMode: "instance",
+          attributes: [
+            { format: "float32x4", offset:  0, shaderLocation: 3 },
+            { format: "float32x4", offset: 16, shaderLocation: 4 },
+            { format: "float32x4", offset: 32, shaderLocation: 5 },
+            { format: "float32x4", offset: 48, shaderLocation: 6 },
+          ],
+        };
         var flareQuadDesc = {
           arrayStride: 8,
           stepMode: "vertex",
@@ -3873,7 +3918,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           return d;
         };
 
-        var pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive, pipeRockTri, pipeRockTriCull, pipeRockTriAlpha, pipeRockTriAlphaCull, pipeRockTriAlphaDepth, pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, pipeShadow0, pipeShadow1;
+        var pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive, pipeRockTri, pipeRockTriCull, pipeRockTriAlpha, pipeRockTriAlphaCull, pipeRockTriAlphaDepth, pipeSphereInst, pipeCylinderInst, pipeGrassBladeInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, pipeShadow0, pipeShadow1;
         pipeTri  = device.createRenderPipeline(makeDesc("triangle-list"));
         pipeTriCull = device.createRenderPipeline(makeDesc("triangle-list", "back"));
         pipeLine = device.createRenderPipeline(makeDesc("line-list"));
@@ -3901,6 +3946,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         );
         pipeCylinderInst = device.createRenderPipeline(
           makeDesc("triangle-list", null, false, "vs_cylinder_instance", [vbufDesc, cylinderInstDesc])
+        );
+        pipeGrassBladeInst = device.createRenderPipeline(
+          makeDesc("triangle-list", null, false, "vs_grass_blade_instance", [vbufDesc, grassBladeInstDesc])
         );
         pipePointImpostor = device.createRenderPipeline(
           makeDesc("triangle-list", null, true, "vs_point_impostor", [vbufDesc, sphereInstDesc], null, "fs_point_impostor")
@@ -4060,7 +4108,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           device, format, bindLayout,
           pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive,
           pipeRockTri, pipeRockTriCull, pipeRockTriAlpha, pipeRockTriAlphaCull, pipeRockTriAlphaDepth,
-          pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, flareQuadBuf,
+          pipeSphereInst, pipeCylinderInst, pipeGrassBladeInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, flareQuadBuf,
           surfaceSampler, defaultSurfaceView, fontSampler, chessFontAtlas, shadowSampler, defaultShadowView,
           clusteredLightBindLayout,
           pipeShadow0, pipeShadow1, shadowBindLayout,
@@ -6637,6 +6685,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pipeTriAdditive = null;
     this._pipeSphereInst = null;
     this._pipeCylinderInst = null;
+    this._pipeGrassBladeInst = null;
     this._pipePointImpostor = null;
     this._pipeLineImpostor = null;
     this._bindLayout = null;
@@ -7757,6 +7806,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             part.instanceKind === "cylinder-list"
               ? this._pipeCylinderInst
               : (
+                  part.instanceKind === "grass-blade-list"
+                    ? this._pipeGrassBladeInst
+                    : (
                   part.instanceKind === "point-impostor"
                     ? (partMesh.depth_write === true && this._pipePointImpostorDepth ? this._pipePointImpostorDepth : this._pipePointImpostor)
                     : (
@@ -7776,6 +7828,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
                           )
                       )
                 )
+                    )
           );
       if (part.rockMaterialBuf) {
         pipePart = useTransparentDepthPart
@@ -9377,6 +9430,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pipeTriAdditive = sg.pipeTriAdditive || null;
     this._pipeSphereInst = sg.pipeSphereInst || null;
     this._pipeCylinderInst = sg.pipeCylinderInst || null;
+    this._pipeGrassBladeInst = sg.pipeGrassBladeInst || null;
     this._pipePointImpostor = sg.pipePointImpostor || null;
     this._pipePointImpostorDepth = sg.pipePointImpostorDepth || null;
     this._pipeLineImpostor = sg.pipeLineImpostor || null;
