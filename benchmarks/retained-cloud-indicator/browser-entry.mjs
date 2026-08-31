@@ -3,6 +3,7 @@ import {
   planViewClusteredLights,
 } from '../../web/vf-ui/geom/vf-clustered-light-plan.mjs';
 import { createVkfMarkerImpostorAdapter } from './adapters/vkf-marker-impostor.mjs';
+import { createRawWebGpuAdapter } from './adapters/raw-webgpu.mjs';
 import { runIndicatorLane } from './measurement.mjs';
 import { createCloudFixture, fixtureSha256 } from './protocol.mjs';
 import { verifyCloudCapture } from './correctness.mjs';
@@ -27,8 +28,11 @@ async function execute() {
   const pointCount = Number(query.get('pointCount') ?? 10_000);
   const pointSizePx = Number(query.get('pointSizePx') ?? 4);
   const mode = query.get('mode') ?? 'smoke';
+  const implementation = query.get('implementation') ?? 'vkf';
   const fixture = createCloudFixture(pointCount);
-  const adapter = createVkfMarkerImpostorAdapter(document.getElementById('host'), fixture);
+  const adapter = implementation === 'raw-webgpu'
+    ? createRawWebGpuAdapter(document.getElementById('host'), fixture)
+    : createVkfMarkerImpostorAdapter(document.getElementById('host'), fixture);
   let result;
   if (mode === 'full') {
     result = await runIndicatorLane(adapter, { pointSizePx }, { fixture, release: true });
@@ -51,7 +55,7 @@ async function execute() {
     }
   }
   return {
-    implementation: 'vkf-marker-impostor',
+    implementation: adapter.id,
     mode,
     pointCount,
     pointSizePx,
