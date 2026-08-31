@@ -96,9 +96,19 @@ export function validateCandidateSamples(samples, fixtureManifest, contract = lo
   return samples;
 }
 
-function runSampleProcess({ specification, boundary, phase, cwd, timeoutMs, expected }) {
-  const started = performance.now();
-  const executed = spawnSync(
+export function runSampleProcess({
+  specification,
+  boundary,
+  phase,
+  cwd,
+  timeoutMs,
+  expected,
+  spawnProcess = spawnSync,
+  now = () => performance.now(),
+  validateResult = (result, oracle) => Number.isFinite(result) && result === oracle,
+}) {
+  const started = now();
+  const executed = spawnProcess(
     specification.command,
     specification.args ?? [],
     {
@@ -115,18 +125,20 @@ function runSampleProcess({ specification, boundary, phase, cwd, timeoutMs, expe
     },
   );
   const rendered = String(executed.stdout ?? '').trim();
-  const result = rendered === '' ? null : Number(rendered);
-  const elapsedWallMs = performance.now() - started;
+  let result = rendered === '' ? null : Number(rendered);
+  let status;
   if (executed.error?.code === 'ETIMEDOUT') {
-    return Object.freeze({ status: 'TIMEOUT', result: null, elapsed_wall_ms: elapsedWallMs });
+    status = 'TIMEOUT';
+    result = null;
+  } else if (executed.error || executed.status !== 0) {
+    status = 'ERROR';
+  } else if (!validateResult(result, expected)) {
+    status = 'ORACLE_MISMATCH';
+  } else {
+    status = 'OK';
   }
-  if (executed.error || executed.status !== 0) {
-    return Object.freeze({ status: 'ERROR', result, elapsed_wall_ms: elapsedWallMs });
-  }
-  if (!Number.isFinite(result) || result !== expected) {
-    return Object.freeze({ status: 'ORACLE_MISMATCH', result, elapsed_wall_ms: elapsedWallMs });
-  }
-  return Object.freeze({ status: 'OK', result, elapsed_wall_ms: elapsedWallMs });
+  const elapsedWallMs = now() - started;
+  return Object.freeze({ status, result, elapsed_wall_ms: elapsedWallMs });
 }
 
 export function collectPairedSamples({

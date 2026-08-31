@@ -6,12 +6,57 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { writeFixture } from './materialize-fixture.mjs';
-import { buildSamplingReceipt, collectPairedSamples } from './run.mjs';
+import { buildSamplingReceipt, collectPairedSamples, runSampleProcess } from './run.mjs';
 
 const publicRunners = Object.freeze({
   vkf: process.env.VKF_LAZY_DATA_COMPILER,
   polars: process.env.VKF_POLARS_PYTHON,
   duckdb: process.env.VKF_DUCKDB_PYTHON,
+});
+
+test('captures wall time after process status and exact oracle validation', () => {
+  const cases = [
+    { name: 'timeout', executed: { error: { code: 'ETIMEDOUT' }, status: null, stdout: '' }, expected: 'TIMEOUT' },
+    { name: 'error', executed: { error: null, status: 7, stdout: '' }, expected: 'ERROR' },
+    { name: 'mismatch', executed: { error: null, status: 0, stdout: '43\n' }, expected: 'ORACLE_MISMATCH' },
+    { name: 'ok', executed: { error: null, status: 0, stdout: '42\n' }, expected: 'OK' },
+  ];
+  for (const { name, executed, expected } of cases) {
+    const observations = [];
+    const observedExecution = new Proxy(executed, {
+      get(target, property) {
+        observations.push(String(property));
+        return target[property];
+      },
+    });
+    let clockReads = 0;
+    const observed = runSampleProcess({
+      specification: { command: 'unused' },
+      boundary: 'fresh_source_e2e',
+      phase: 'sample',
+      cwd: '.',
+      timeoutMs: 1_000,
+      expected: 42,
+      spawnProcess() { return observedExecution; },
+      now() {
+        clockReads += 1;
+        if (clockReads === 2) observations.push('elapsed-captured');
+        return clockReads === 1 ? 10 : 25;
+      },
+      validateResult(result, oracle) {
+        observations.push('exact-validation');
+        return Number.isFinite(result) && result === oracle;
+      },
+    });
+    assert.equal(observed.status, expected, name);
+    assert.equal(observed.elapsed_wall_ms, 15, name);
+    assert.equal(
+      observations.includes('exact-validation'),
+      name === 'mismatch' || name === 'ok',
+      `${name}: exact validation path mismatch`,
+    );
+    assert.equal(observations.at(-1), 'elapsed-captured', `${name}: timer stopped before classification`);
+  }
 });
 
 test('collects paired fresh-process samples in rotating order after warm preparation', () => {
