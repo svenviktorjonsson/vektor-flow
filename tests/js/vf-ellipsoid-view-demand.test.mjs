@@ -57,3 +57,41 @@ test('view demand enforces its explicit small refinement budget', () => {
     assert.ok(select(budget).demands.length <= budget);
   }
 });
+
+test('camera projection pins conservative edge-error bounds and thresholds', () => {
+  const shape = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const select = (eyeX, maxErrorPixels = 0) => selectEllipsoidViewDemandReference(shape, {
+    camera: { ...camera, eye: [eyeX, 0, 0] },
+    maxErrorPixels,
+    budget: 4,
+  });
+  const near = select(8);
+  const far = select(16);
+
+  assert.deepEqual(near.candidates[0], {
+    face: 'face:+x:+y:+z',
+    silhouette: true,
+    silhouetteEdges: ['edge:vertex:+y|vertex:+z'],
+    silhouetteErrorPixels: 60.533910158706625,
+    projectedErrorPixels: 108.09023430565387,
+    errorBoundPixels: 230.11397265001793,
+  });
+  assert.deepEqual(far.candidates[0], {
+    face: 'face:+x:+y:+z',
+    silhouette: true,
+    silhouetteEdges: ['edge:vertex:+y|vertex:+z'],
+    silhouetteErrorPixels: 30.266955079353313,
+    projectedErrorPixels: 36.849502683549346,
+    errorBoundPixels: 72.94398963969292,
+  });
+  assert.ok(near.candidates.every(
+    ({ projectedErrorPixels, errorBoundPixels }) => projectedErrorPixels < errorBoundPixels,
+  ));
+  assert.ok(far.candidates.every(
+    ({ projectedErrorPixels, errorBoundPixels }) => projectedErrorPixels < errorBoundPixels,
+  ));
+  assert.equal(select(8, 230).demands.length, 4);
+  assert.equal(select(8, 231).demands.length, 0);
+  assert.equal(select(16, 72).demands.length, 4);
+  assert.equal(select(16, 73).demands.length, 0);
+});
