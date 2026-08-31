@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createGrassMaterialFieldReference,
+  createGrassRendererBatchPacketsReference,
   createGrassRendererInstancePacketsReference,
   createGrassRendererPacketsReference,
 } from '../../web/vf-ui/vf-grass-material-field.mjs';
@@ -91,4 +92,45 @@ test('instanced grass is byte-stable under refinement and reduces bounded upload
   assert.equal(refined.uploadBytes, 1_208);
   assert.ok(refined.uploadBytes < expanded.vertexBytes + expanded.indexBytes);
   assert.ok(refined.uploadBytes <= refined.packets.length * 184 + refined.bladeCount * 64);
+});
+
+test('compatible grass cells batch into one draw while preserving deterministic identities', () => {
+  const field = createGrassMaterialFieldReference(IDENTITY);
+  const demand = {
+    ...DEMAND,
+    cells: Object.freeze([
+      Object.freeze([2, -1]),
+      Object.freeze([3, -1]),
+      Object.freeze([2, 0]),
+    ]),
+    bladeBudget: 48,
+  };
+  const cells = createGrassRendererInstancePacketsReference(field, demand);
+  const batch = createGrassRendererBatchPacketsReference(field, demand);
+
+  assert.equal(batch.packets.length, 1);
+  const packet = batch.packets[0];
+  assert.equal(packet.id, 'grass:view-batch:v1');
+  assert.equal(packet.instance_kind, 'grass-blade-list');
+  assert.equal(packet.instance_count, cells.bladeCount);
+  assert.equal(packet.static_instances, false);
+  assert.deepEqual(packet.cell_ids, cells.packets.map(({ id }) => id));
+  assert.deepEqual(
+    packet.cell_instance_ranges.map(({ id, offset, count }) => ({ id, offset, count })),
+    [
+      { id: 'grass:cell:2:-1', offset: 0, count: 16 },
+      { id: 'grass:cell:2:0', offset: 16, count: 16 },
+      { id: 'grass:cell:3:-1', offset: 32, count: 16 },
+    ],
+  );
+  assert.deepEqual(
+    [...packet.instances],
+    cells.packets.flatMap(({ instances }) => [...instances]),
+  );
+  assert.strictEqual(packet.vertices, cells.packets[0].vertices);
+  assert.strictEqual(packet.indices, cells.packets[0].indices);
+  assert.equal(batch.uploadBytes, 184 + 48 * 64);
+  assert.equal(batch.templateVertexBytes, 160);
+  assert.equal(batch.templateIndexBytes, 24);
+  assert.equal(batch.instanceBytes, 48 * 64);
 });

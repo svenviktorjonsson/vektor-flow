@@ -406,3 +406,73 @@ export function createGrassRendererInstancePacketsReference(
     budget: bladeBudget,
   });
 }
+
+export function createGrassRendererBatchPacketsReference(field, demand) {
+  const workingSet = createGrassRendererInstancePacketsReference(field, demand);
+  if (workingSet.packets.length === 0) {
+    return Object.freeze({
+      kind: 'grass-renderer-batch-working-set:v1',
+      packets: Object.freeze([]),
+      demandedCellCount: workingSet.demandedCellCount,
+      bladeCount: 0,
+      templateVertexBytes: 0,
+      templateIndexBytes: 0,
+      instanceBytes: 0,
+      uploadBytes: 0,
+      budget: workingSet.budget,
+    });
+  }
+  const first = workingSet.packets[0];
+  const instances = new Float32Array(workingSet.bladeCount * 16);
+  const cellIds = [];
+  const cellInstanceRanges = [];
+  let instanceOffset = 0;
+  for (const packet of workingSet.packets) {
+    instances.set(packet.instances, instanceOffset * 16);
+    cellIds.push(packet.id);
+    cellInstanceRanges.push(Object.freeze({
+      id: packet.id,
+      offset: instanceOffset,
+      count: packet.instance_count,
+    }));
+    instanceOffset += packet.instance_count;
+  }
+  const retainedSignature = cellInstanceRanges
+    .map(({ id, count }) => `${id}:${count}`)
+    .join('|');
+  const packet = Object.freeze({
+    id: 'grass:view-batch:v1',
+    type: 'field_mesh',
+    instance_kind: 'grass-blade-list',
+    instance_count: workingSet.bladeCount,
+    instances,
+    vertices: first.vertices,
+    indices: first.indices,
+    blade_count: workingSet.bladeCount,
+    cell_ids: Object.freeze(cellIds),
+    cell_instance_ranges: Object.freeze(cellInstanceRanges),
+    retained_signature: retainedSignature,
+    static_vertices: true,
+    static_indices: true,
+    static_instances: false,
+    cull_backfaces: false,
+    no_cull: true,
+    no_lighting: true,
+    pickable: false,
+    specular_strength: 0.02,
+  });
+  const templateVertexBytes = packet.vertices.byteLength;
+  const templateIndexBytes = packet.indices.byteLength;
+  const instanceBytes = packet.instances.byteLength;
+  return Object.freeze({
+    kind: 'grass-renderer-batch-working-set:v1',
+    packets: Object.freeze([packet]),
+    demandedCellCount: workingSet.demandedCellCount,
+    bladeCount: workingSet.bladeCount,
+    templateVertexBytes,
+    templateIndexBytes,
+    instanceBytes,
+    uploadBytes: templateVertexBytes + templateIndexBytes + instanceBytes,
+    budget: workingSet.budget,
+  });
+}
