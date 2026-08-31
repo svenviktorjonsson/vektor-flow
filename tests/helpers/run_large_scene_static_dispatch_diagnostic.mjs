@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -24,6 +25,19 @@ function sourceCommit() {
   });
   if (git.status !== 0) throw new Error(`cannot resolve source commit: ${git.stderr}`);
   return git.stdout.trim();
+}
+
+async function availablePort() {
+  const server = createServer();
+  await new Promise((resolveListen, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolveListen);
+  });
+  const { port } = server.address();
+  await new Promise((resolveClose, reject) => {
+    server.close((error) => error ? reject(error) : resolveClose());
+  });
+  return port;
 }
 
 function quantile(sorted, fraction) {
@@ -108,9 +122,10 @@ function runLane(implementation, port) {
   };
 }
 
-const lanes = workload.comparableImplementations.map(
-  (implementation, index) => runLane(implementation, 10020 + index),
-);
+const lanes = [];
+for (const implementation of workload.comparableImplementations) {
+  lanes.push(runLane(implementation, await availablePort()));
+}
 const renderer = lanes[0].result.environment.webglRenderer;
 const environmentIdentity = JSON.stringify(lanes[0].result.environment);
 if (/swiftshader|software/i.test(renderer)
