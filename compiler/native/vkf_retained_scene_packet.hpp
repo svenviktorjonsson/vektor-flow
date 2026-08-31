@@ -286,10 +286,12 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
     if (!raw_operations.is_array()) throw Error("typed UI operations must be an array");
     bool has_scene = false;
     for (const auto& raw : raw_operations.as_array()) {
+        const auto& operation = detail::object(raw, "typed UI operation");
         const std::string kind = detail::text(
-            detail::object(raw, "typed UI operation"), "kind", "typed UI operation");
+            operation, "kind", "typed UI operation");
         if (kind == "set_geom_options" || kind == "add_camera" ||
             kind == "add_light" || kind == "add") {
+            if (operation.find("frame_id") == operation.end()) continue;
             has_scene = true;
         }
     }
