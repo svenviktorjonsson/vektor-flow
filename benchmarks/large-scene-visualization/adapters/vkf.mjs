@@ -33,8 +33,18 @@ export function createVkfLargeSceneAdapter(canvas, workload, options = {}) {
   let retainedProjection = null;
 
   function sameProjection(left, right) {
-    return left != null && ['worldOrigin', 'screenOrigin', 'xAxis', 'yAxis', 'zAxis']
-      .every((name) => left[name].every((value, index) => value === right[name][index]));
+    return left != null
+      && left.worldOrigin[0] === right.worldOrigin[0]
+      && left.worldOrigin[1] === right.worldOrigin[1]
+      && left.worldOrigin[2] === right.worldOrigin[2]
+      && left.screenOrigin[0] === right.screenOrigin[0]
+      && left.screenOrigin[1] === right.screenOrigin[1]
+      && left.xAxis[0] === right.xAxis[0]
+      && left.xAxis[1] === right.xAxis[1]
+      && left.yAxis[0] === right.yAxis[0]
+      && left.yAxis[1] === right.yAxis[1]
+      && left.zAxis[0] === right.zAxis[0]
+      && left.zAxis[1] === right.zAxis[1];
   }
 
   function renderFrame(frame) {
