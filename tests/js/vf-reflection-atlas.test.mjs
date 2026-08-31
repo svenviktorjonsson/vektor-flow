@@ -84,3 +84,16 @@ test('reports graceful deterministic overflow while filling usable capacity', ()
     { clusterId: 'after-capture-limit', requestedPixels: 1, reason: 'capture-budget' }
   ]);
 });
+
+test('bounds 4,096 faceted captures by the interactive atlas contract', () => {
+  const jobs = Array.from({ length: 4096 }, (_, index) => job(`facet-${index}`, 524288));
+  const atlas = allocateReflectionAtlas(jobs, {
+    maxCaptures: 32,
+    maxPixels: 16777216
+  });
+
+  assert.equal(atlas.stats.allocatedCaptures, 32);
+  assert.equal(atlas.stats.allocatedPixels, 16777216);
+  assert.equal(atlas.overflow.length, 4064);
+  assert.equal(atlas.overflow.every(item => item.reason === 'capture-budget'), true);
+});
