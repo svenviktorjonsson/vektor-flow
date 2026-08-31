@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   createPhilox4x32WgslParityFixture,
@@ -60,4 +61,15 @@ test('WGSL readback verifier pinpoints parity across every official vector', () 
     expected: 0x94fdcceb,
     actual: 0x94fdccea,
   });
+});
+
+test('browser fixture executes the shader and verifies mapped GPU readback', async () => {
+  const html = await readFile(
+    new URL('../fixtures/demand-random-wgsl-smoke.html', import.meta.url),
+    'utf8',
+  );
+  assert.match(html, /createComputePipelineAsync/);
+  assert.match(html, /dispatchWorkgroups/);
+  assert.match(html, /mapAsync\(GPUMapMode\.READ\)/);
+  assert.match(html, /verifyPhilox4x32WgslParity/);
 });

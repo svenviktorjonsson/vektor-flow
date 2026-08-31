@@ -1,0 +1,107 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>demand-random-wgsl-running</title>
+<script type="module">
+  import {
+    createPhilox4x32WgslParityFixture,
+    verifyPhilox4x32WgslParity,
+  } from '/web/vf-ui/vf-demand-random-wgsl.mjs';
+
+  const records = [
+    {
+      counter: [0, 0, 0, 0],
+      key: [0, 0],
+      expected: [0x6627e8d5, 0xe169c58d, 0xbc57ac4c, 0x9b00dbd8],
+    },
+    {
+      counter: [0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff],
+      key: [0xffffffff, 0xffffffff],
+      expected: [0x408f276d, 0x41c83b0e, 0xa20bc7c6, 0x6d5451fd],
+    },
+    {
+      counter: [0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344],
+      key: [0xa4093822, 0x299f31d0],
+      expected: [0xd16cfe09, 0x94fdcceb, 0x5001e420, 0x24126ea1],
+    },
+  ];
+
+  async function run() {
+    if (!navigator.gpu) {
+      return { outcome: 'unavailable', detail: 'navigator.gpu missing' };
+    }
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      return { outcome: 'unavailable', detail: 'WebGPU adapter unavailable' };
+    }
+    const device = await adapter.requestDevice();
+    const fixture = createPhilox4x32WgslParityFixture(records);
+    const shader = device.createShaderModule({
+      label: 'VKF Philox4x32-10 parity',
+      code: fixture.source,
+    });
+    if (typeof shader.getCompilationInfo === 'function') {
+      const info = await shader.getCompilationInfo();
+      const errors = info.messages.filter((message) => message.type === 'error');
+      if (errors.length > 0) {
+        throw new Error(errors.map((error) => error.message).join('\n'));
+      }
+    }
+    const pipeline = await device.createComputePipelineAsync({
+      label: 'VKF Philox4x32-10 parity',
+      layout: 'auto',
+      compute: { module: shader, entryPoint: 'vf_philox_parity_main' },
+    });
+    const input = device.createBuffer({
+      size: fixture.inputWords.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const output = device.createBuffer({
+      size: fixture.expectedWords.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const readback = device.createBuffer({
+      size: fixture.expectedWords.byteLength,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      device.queue.writeBuffer(input, 0, fixture.inputWords);
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: input } },
+          { binding: 1, resource: { buffer: output } },
+        ],
+      });
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.dispatchWorkgroups(Math.ceil(records.length / 64));
+      pass.end();
+      encoder.copyBufferToBuffer(output, 0, readback, 0, fixture.expectedWords.byteLength);
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const actual = new Uint32Array(readback.getMappedRange()).slice();
+      readback.unmap();
+      const parity = verifyPhilox4x32WgslParity(fixture, actual);
+      if (!parity.matched) {
+        throw new Error(`record ${parity.record} lane ${parity.lane}: ${parity.actual} != ${parity.expected}`);
+      }
+      return { outcome: 'pass', detail: `${parity.records} official vectors matched` };
+    } finally {
+      input.destroy();
+      output.destroy();
+      readback.destroy();
+    }
+  }
+
+  let result;
+  try {
+    result = await run();
+  } catch (error) {
+    result = { outcome: 'fail', detail: String(error?.message || error) };
+  }
+  document.title = `demand-random-wgsl-${result.outcome}`;
+  window.__demandRandomWgslResult = result;
+  fetch(`/__demand_random_wgsl_${result.outcome}?detail=${encodeURIComponent(result.detail)}`).catch(() => {});
+</script>
