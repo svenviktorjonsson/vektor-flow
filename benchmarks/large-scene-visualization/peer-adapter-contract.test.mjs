@@ -173,6 +173,15 @@ test('failed correctness or a late large point upload withholds all timing', asy
     /large point buffer upload after initialization/,
   );
   assert.equal(reuploaded.calls.filter((call) => call.startsWith('render:')).length, 2);
+
+  const exploratory = fakeAdapter({ lateUploads: 1 });
+  const result = await runCorrectnessThenTiming(exploratory, workload(), {
+    warmupFrames: 1,
+    measuredFrames: 1,
+    allowLateLargeUploads: true,
+  });
+  assert.equal(result.correctness.retained.largeBufferUploadsAfterInitialize, 1);
+  assert.equal(result.timing.samplesMs.length, 1);
 });
 
 test('matrix correctness phase completes and destroys without starting warmup or timing', async () => {

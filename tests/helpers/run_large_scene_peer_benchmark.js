@@ -99,6 +99,7 @@ async function main() {
   const warmups = Number(process.env.VF_LARGE_SCENE_WARMUPS || 1);
   const measured = Number(process.env.VF_LARGE_SCENE_MEASURED || 1);
   const staticDispatchDiagnostic = process.env.VF_LARGE_SCENE_STATIC_DISPATCH_DIAGNOSTIC === '1';
+  const allowLateLargeUploads = process.env.VF_LARGE_SCENE_ALLOW_LATE_UPLOADS === '1';
   const correctnessOnly = process.env.VF_LARGE_SCENE_CORRECTNESS_ONLY !== '0';
   const edgePath = process.env.VF_EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
   const gpuMode = gpuModeFromEnvironment();
@@ -118,6 +119,7 @@ async function main() {
     measured,
     correctnessOnly,
     staticDispatchDiagnostic,
+    allowLateLargeUploads,
   });
   const url = `${isolatedOrigin.url}/benchmark.html?${query}`;
   const edge = spawn(edgePath, edgeLaunchArgs({ profile, port, url, gpuMode }), {
