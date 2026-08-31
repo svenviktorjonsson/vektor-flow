@@ -1,0 +1,491 @@
+{
+  "schema": "vkf.large-scene-peer-timing-evidence",
+  "schemaVersion": 1,
+  "status": "withheld-correctness-preflight-failed",
+  "performanceClaim": false,
+  "sourceCommit": "7126d05061a5fd49750a73e33e6b857ee8522472",
+  "versions": {
+    "vkf": "0.3.0",
+    "deck-gl": "9.3.11",
+    "vtk-js": "36.10.0",
+    "plotly-scattergl": "4.0.0",
+    "esbuild": "0.25.9"
+  },
+  "rotatedOrder": [
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-100k-static"
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-100k-static"
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-100k-static"
+    },
+    {
+      "implementation": "plotly-scattergl",
+      "workload": "orthographic-points-100k-static"
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-1m-pan"
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-1m-pan"
+    },
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-1m-pan"
+    }
+  ],
+  "rawPreflightLanes": [
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-100k-static",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vkf",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "0.4.0-dev",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.04407041181388194,
+              "artifactSha256": "3f67d3d257eaaa98491b3946f9bee9f665bc6bd5a7b3e2864f4014964b9781b1"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-100k-static",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "deck-gl",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "9.3.11",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.010223807150032405,
+              "artifactSha256": "cf3161d026527b035bd3d40ebe2eebe426260e9b1654ece89cdb095007947d4a"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-100k-static",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vtk-js",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "36.10.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.03600691057741645,
+              "artifactSha256": "1bd421f05a04d121c13b788c9049521ab24e37981f72c243d9a3ac0750454763"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "plotly-scattergl",
+      "workload": "orthographic-points-100k-static",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "plotly-scattergl",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "4.0.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 1.0 (OpenGL ES 2.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.0059668879449600865,
+              "artifactSha256": "a2bdcad0b10a3167ffe2564b6b402b880626c3f229b36b67e5e0c8099dc94b49"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 1.0 (OpenGL ES 2.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-1m-pan",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "deck-gl",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "9.3.11",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.0048712101730051804,
+              "artifactSha256": "cb186f8015df3d66eac8d2065e030538d9d962cf5021b4b9823fb1d9ea356cc5"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.004457162796461467,
+              "artifactSha256": "e49ac83acb42e6238823e25c0f4e792dafece17c2a791605502a61bbbd351090"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.004891243039746862,
+              "artifactSha256": "9cb2e282eeda2fa3b6899c22527aea44d13b1948d2ba5c88dd434d6a92387689"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.004449198016663991,
+              "artifactSha256": "8df6b849e0fa47bee7bb95db4f094b7989a839b1fdf57b253a1638609a8e9709"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.004733544978371418,
+              "artifactSha256": "9acda8785d7ca3814c8e03da3d0cad1ee5ff0952e415fbc7664232667d6b900c"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-1m-pan",
+      "phase": "preflight",
+      "exitCode": 1,
+      "passed": false,
+      "result": {
+        "ok": false,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vtk-js",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "36.10.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.019919383577071126,
+              "artifactSha256": "206fc50a45b4fcb61fa901d954b85c5ae3dcfe498d80e791eec8180452ded761"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.020374711533077128,
+              "artifactSha256": "7e9025ab2314bea63d480f565dafb3207fd5612bd99e701f201e7218d65843a5"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.02049683090765031,
+              "artifactSha256": "90a5e8a6c3a417c61acf0a276ccb1554b543c12ef2fa0273fa64fa0244f39c19"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.020547915282659313,
+              "artifactSha256": "d797d58645d70c39d53fe06e5b1901e3f3ec9cdefa7b58fdafc5253b6e610e6d"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.02124621002236382,
+              "artifactSha256": "10298dffbe97ac1ddf516fbce68e8425b1e2b9eaf21c12df49adbfe06621561c"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": null,
+        "cleanupError": "Error: owned benchmark directory remained locked: C:\\Users\\viktor.jonsson\\OneDrive - CellMax Technologies AB\\Documents\\Repositories\\svenviktorjonsson\\vektor-flow\\.worktrees\\0.4\\040-g02r-peer-timing\\.test-tmp\\large-scene-peer-20064\n    at removeOwnedDirectory (C:\\Users\\viktor.jonsson\\OneDrive - CellMax Technologies AB\\Documents\\Repositories\\svenviktorjonsson\\vektor-flow\\.worktrees\\0.4\\040-g02r-peer-timing\\tests\\helpers\\run_large_scene_peer_benchmark.js:31:9)\n    at async main (C:\\Users\\viktor.jonsson\\OneDrive - CellMax Technologies AB\\Documents\\Repositories\\svenviktorjonsson\\vektor-flow\\.worktrees\\0.4\\040-g02r-peer-timing\\tests\\helpers\\run_large_scene_peer_benchmark.js:154:7)"
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-1m-pan",
+      "phase": "preflight",
+      "exitCode": 1,
+      "passed": false,
+      "result": {
+        "ok": false,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vkf",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "0.4.0-dev",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.02667192358363535,
+              "artifactSha256": "cf341b55513c85182e752e7612011fd55fd215f326afe3e305ae73e9f74631c7"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.02726878595291049,
+              "artifactSha256": "9abe27843e8947b80617a4dd5178b846d30fd5f7895f89636aeebbd9036efaa7"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.02708892926937545,
+              "artifactSha256": "26f023649c90cd4a2b1a516274a0b8158e102467b911ebc46483812afaffcebb"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.027796917983359926,
+              "artifactSha256": "e8d9901fb623fd473c17462b07f0452ef2de28ffe2ccf4e5246d5dd0c1d7f5c2"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.027700207798188714,
+              "artifactSha256": "da686e0c333834806d111b71493280343efc5b6c0a03af69098ae3267f7f6afd"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": null,
+        "cleanupError": "Error: owned benchmark directory remained locked: C:\\Users\\viktor.jonsson\\OneDrive - CellMax Technologies AB\\Documents\\Repositories\\svenviktorjonsson\\vektor-flow\\.worktrees\\0.4\\040-g02r-peer-timing\\.test-tmp\\large-scene-peer-82012\n    at removeOwnedDirectory (C:\\Users\\viktor.jonsson\\OneDrive - CellMax Technologies AB\\Documents\\Repositories\\svenviktorjonsson\\vektor-flow\\.worktrees\\0.4\\040-g02r-peer-timing\\tests\\helpers\\run_large_scene_peer_benchmark.js:31:9)\n    at async main (C:\\Users\\viktor.jonsson\\OneDrive - CellMax Technologies AB\\Documents\\Repositories\\svenviktorjonsson\\vektor-flow\\.worktrees\\0.4\\040-g02r-peer-timing\\tests\\helpers\\run_large_scene_peer_benchmark.js:154:7)"
+      },
+      "stderr": ""
+    }
+  ],
+  "rawTimingLanes": []
+}
