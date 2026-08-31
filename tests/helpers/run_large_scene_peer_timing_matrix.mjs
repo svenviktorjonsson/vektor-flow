@@ -52,6 +52,7 @@ function runLane(spec, phase, port) {
       VF_LARGE_SCENE_WARMUPS: String(manifest.measurement.minimumWarmupFrames),
       VF_LARGE_SCENE_MEASURED: String(manifest.measurement.minimumMeasuredFrames),
       VF_LARGE_SCENE_CDP_PORT: String(port),
+      VF_LARGE_SCENE_GPU_MODE: 'hardware',
     },
   });
   let result = null;

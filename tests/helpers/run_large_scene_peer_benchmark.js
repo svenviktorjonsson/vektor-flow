@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const esbuild = require('esbuild');
+const { edgeLaunchArgs } = require('./large_scene_edge_launch.js');
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -82,6 +83,7 @@ async function main() {
   const measured = Number(process.env.VF_LARGE_SCENE_MEASURED || 1);
   const correctnessOnly = process.env.VF_LARGE_SCENE_CORRECTNESS_ONLY !== '0';
   const edgePath = process.env.VF_EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+  const gpuMode = process.env.VF_LARGE_SCENE_GPU_MODE || 'swiftshader';
   if (!fs.existsSync(edgePath)) throw new Error(`edge missing at ${edgePath}`);
   const port = Number(process.env.VF_LARGE_SCENE_CDP_PORT || 9353);
   const ownedRoot = path.resolve(repoRoot, '.test-tmp');
@@ -92,21 +94,10 @@ async function main() {
   await buildFixture(repoRoot, directory);
   const query = new URLSearchParams({ implementation, workload, warmups, measured, correctnessOnly });
   const url = `file:///${path.resolve(directory, 'benchmark.html').replace(/\\/g, '/')}?${query}`;
-  const edge = spawn(edgePath, [
-    `--user-data-dir=${profile}`,
-    `--remote-debugging-port=${port}`,
-    '--headless=new',
-    '--allow-file-access-from-files',
-    '--enable-webgl',
-    '--ignore-gpu-blocklist',
-    '--use-angle=swiftshader',
-    '--force-device-scale-factor=1',
-    '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding',
-    '--no-first-run',
-    '--no-default-browser-check',
-    url,
-  ], { stdio: 'ignore', windowsHide: true });
+  const edge = spawn(edgePath, edgeLaunchArgs({ profile, port, url, gpuMode }), {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
 
   let browserSocket;
   let pageSocket;

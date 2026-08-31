@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 
 import {
   assertComparableAdapter,
   runCorrectnessThenTiming,
 } from './peer-measurement.mjs';
+
+const require = createRequire(import.meta.url);
+const { edgeLaunchArgs } = require('../../tests/helpers/large_scene_edge_launch.js');
 
 function workload() {
   return {
@@ -55,6 +59,29 @@ test('correctness checkpoints and GPU completion finish before timing begins', a
   assert.equal(result.timing.samplesMs.length, 3);
   assert.equal(adapter.calls.filter((call) => call === 'complete').length, 7);
   assert.equal(adapter.calls.at(-1), 'destroy');
+});
+
+test('quantized clocks average enough completed GPU frames to produce each positive sample', async () => {
+  const adapter = fakeAdapter();
+  let clockReads = 0;
+  const result = await runCorrectnessThenTiming(adapter, workload(), {
+    warmupFrames: 1,
+    measuredFrames: 2,
+    now: () => Math.floor(clockReads++ / 3),
+  });
+  assert.deepEqual(result.timing.samplesMs, [1 / 3, 1 / 2]);
+  assert.equal(result.timing.measuredGpuFrames, 5);
+  assert.equal(result.timing.gpuCompletionCalls, 8);
+});
+
+test('timing browser is always headless and hardware mode does not force SwiftShader', () => {
+  const common = { profile: 'profile', port: 9353, url: 'file:///fixture.html' };
+  const hardware = edgeLaunchArgs({ ...common, gpuMode: 'hardware' });
+  assert.equal(hardware.includes('--headless=new'), true);
+  assert.equal(hardware.some((argument) => argument.includes('swiftshader')), false);
+  const software = edgeLaunchArgs({ ...common, gpuMode: 'swiftshader' });
+  assert.equal(software.includes('--use-angle=swiftshader'), true);
+  assert.throws(() => edgeLaunchArgs({ ...common, gpuMode: 'invalid' }), /GPU mode/);
 });
 
 test('failed correctness or a late large point upload withholds all timing', async () => {
