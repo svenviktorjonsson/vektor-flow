@@ -88,6 +88,21 @@ export function sampleBoundedUniform(node, sample, { min, max }) {
   return min + span * unit;
 }
 
+export function sampleWeightedCategoricalIndex(node, sample, weights) {
+  const { stream } = requireNode(node);
+  requireSample(sample);
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  const target = (sampleDemandStreamU32(stream, sample) / U32_RANGE) * total;
+  let cumulative = 0;
+  for (let index = 0; index < weights.length; index += 1) {
+    cumulative += weights[index];
+    if (target < cumulative) {
+      return index;
+    }
+  }
+  return weights.length - 1;
+}
+
 export function normalReferenceFromU32(
   words,
   { mean, standardDeviation },
