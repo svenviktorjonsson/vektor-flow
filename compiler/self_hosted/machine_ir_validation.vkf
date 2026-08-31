@@ -160,6 +160,7 @@ machine_ir_numeric_positive_conditional_stack_maxima(
     .depth: machine_ir_numeric_stack_depth(depth, module.functions.1.instructions.8.kind)
     depth > maximum?
         .maximum: depth
+    (depth = 0)?!
     maxima.2: maximum
 
     maxima
