@@ -24,6 +24,7 @@ import {
   updateVkfOrbit,
   vkfMarkerInstances,
 } from './adapters/vkf-marker-impostor.mjs';
+import { rawOrbitUniform } from './adapters/raw-webgpu.mjs';
 
 test('release indicator freezes one million aligned XYZ+RGBA8 points and two size lanes', async () => {
   assert.equal(INDICATOR_PROTOCOL.pointCount, 1_000_000);
@@ -331,4 +332,15 @@ test('VKF marker_impostor prepares immutable XYZ+RGBA instances once and orbits 
   assert.equal(scene.parts[0].camera, scene.camera);
   assert.equal(scene.camera.projection_matrix.length, 16);
   assert.ok(Math.abs(scene.camera.projection_matrix[5] - (1 / 1.1)) < 1e-7);
+});
+
+test('raw WebGPU floor mutates only its bounded orbit uniform', () => {
+  const frame0 = rawOrbitUniform(0, 4, [1280, 720]);
+  const frame25 = rawOrbitUniform(25, 4, [1280, 720]);
+  assert.equal(frame0.byteLength, 32);
+  assert.deepEqual([...frame0.slice(0, 2)], [1, 0]);
+  assert.ok(Math.abs(frame25[0]) < 1e-6);
+  assert.equal(frame25[1], 1);
+  assert.ok(Math.abs(frame0[2] - 4 / 1280) < 1e-8);
+  assert.ok(Math.abs(frame0[3] - 4 / 720) < 1e-8);
 });
