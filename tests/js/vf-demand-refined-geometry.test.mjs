@@ -45,3 +45,30 @@ test('coarse ellipsoid rejects malformed or degenerate radii', () => {
     [3, 2, 1.5],
   );
 });
+
+test('coarse topology is a closed outward-oriented sphere', () => {
+  const shape = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const positions = new Map(shape.vertices.map(({ id, position }) => [id, position]));
+  const incidence = new Map();
+  const subtract = (a, b) => a.map((value, index) => value - b[index]);
+  const cross = (a, b) => [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+  const dot = (a, b) => a.reduce((sum, value, index) => sum + value * b[index], 0);
+
+  for (const face of shape.faces) {
+    face.boundary.forEach((edge) => incidence.set(edge, (incidence.get(edge) ?? 0) + 1));
+    const [a, b, c] = face.vertices.map((vertex) => positions.get(vertex));
+    const normal = cross(subtract(b, a), subtract(c, a));
+    const centroid = a.map((value, index) => (value + b[index] + c[index]) / 3);
+    assert.ok(dot(normal, centroid) > 0, `${face.id} must wind outward`);
+  }
+
+  assert.equal(shape.vertices.length, 6);
+  assert.equal(incidence.size, 12);
+  assert.equal(shape.faces.length, 8);
+  assert.ok([...incidence.values()].every((count) => count === 2));
+  assert.equal(shape.vertices.length - incidence.size + shape.faces.length, 2);
+});
