@@ -13,8 +13,6 @@ const MAX_OCTAVES = 6;
 const MAX_DEMANDED_CELLS = 4096;
 const MAX_CACHED_CELL_MATERIALS = MAX_DEMANDED_CELLS * 2;
 const MAX_BLADE_BUDGET = 65536;
-const MATERIAL_REFINEMENT_START_FOOTPRINT = 1 / 16;
-const MATERIAL_REFINEMENT_FULL_FOOTPRINT = 1 / 32;
 const DRY_COLOR = Object.freeze([0.24, 0.31, 0.08]);
 const LUSH_COLOR = Object.freeze([0.16, 0.48, 0.09]);
 const GRASS_BLADE_TEMPLATE_VERTICES = new Float32Array([
@@ -27,17 +25,6 @@ const GRASS_BLADE_TEMPLATE_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
-}
-
-function materialRefinementWeight(footprint) {
-  const span = MATERIAL_REFINEMENT_START_FOOTPRINT
-    - MATERIAL_REFINEMENT_FULL_FOOTPRINT;
-  const linear = clamp(
-    (MATERIAL_REFINEMENT_START_FOOTPRINT - footprint) / span,
-    0,
-    1,
-  );
-  return linear * linear * (3 - 2 * linear);
 }
 
 function requirePosition(position) {
@@ -272,21 +259,13 @@ function appendBlade(vertices, indices, blade, baseIndex) {
   );
 }
 
-function sampleBlade(
-  cellNode,
-  material,
-  cellX,
-  cellY,
-  bladeIndex,
-  refinementWeight,
-) {
+function sampleBlade(cellNode, material, cellX, cellY, bladeIndex) {
   const sample = (lane, minimum, maximum) => sampleBoundedUniform(
     cellNode,
     [bladeIndex, lane],
     { min: minimum, max: maximum },
   );
   const colorShift = sample(6, -0.035, 0.035);
-  const materialDetail = sample(8, -1, 1) * refinementWeight;
   return Object.freeze({
     x: cellX + sample(0, 0.08, 0.92),
     y: cellY + sample(1, 0.08, 0.92),
@@ -298,12 +277,12 @@ function sampleBlade(
       amount: material.bladeHeight * sample(7, 0.02, 0.16),
     }),
     color: Object.freeze([
-      clamp(material.baseColor[0] + colorShift * 0.4 + materialDetail * 0.018, 0, 1),
-      clamp(material.baseColor[1] + colorShift + materialDetail * 0.036, 0, 1),
-      clamp(material.baseColor[2] + colorShift * 0.2 + materialDetail * 0.012, 0, 1),
+      clamp(material.baseColor[0] + colorShift * 0.4, 0, 1),
+      clamp(material.baseColor[1] + colorShift, 0, 1),
+      clamp(material.baseColor[2] + colorShift * 0.2, 0, 1),
       1,
     ]),
-    roughness: clamp(material.roughness + materialDetail * 0.025, 0.72, 0.98),
+    roughness: material.roughness,
   });
 }
 
@@ -319,7 +298,6 @@ export function createGrassRendererPacketsReference(
   requireBladeBudget(bladeBudget);
   const demandedCells = requireDemandedCells(cells);
   const bladesPerCell = 2 ** Math.min(4, detailLevel);
-  const refinementWeight = materialRefinementWeight(footprint);
   const packets = [];
   let bladeCount = 0;
   let vertexBytes = 0;
@@ -335,9 +313,7 @@ export function createGrassRendererPacketsReference(
     const indexValues = [];
     const roughness = new Float32Array(cellBladeCount);
     for (let bladeIndex = 0; bladeIndex < cellBladeCount; bladeIndex += 1) {
-      const blade = sampleBlade(
-        cellNode, material, cellX, cellY, bladeIndex, refinementWeight,
-      );
+      const blade = sampleBlade(cellNode, material, cellX, cellY, bladeIndex);
       appendBlade(vertexValues, indexValues, blade, bladeIndex * 4);
       roughness[bladeIndex] = blade.roughness;
     }
@@ -381,7 +357,6 @@ export function createGrassRendererInstancePacketsReference(
   requireBladeBudget(bladeBudget);
   const demandedCells = requireDemandedCells(cells);
   const bladesPerCell = 2 ** Math.min(4, detailLevel);
-  const refinementWeight = materialRefinementWeight(footprint);
   const packets = [];
   let bladeCount = 0;
   let templateVertexBytes = 0;
@@ -396,9 +371,7 @@ export function createGrassRendererInstancePacketsReference(
     );
     const instances = new Float32Array(cellBladeCount * 16);
     for (let bladeIndex = 0; bladeIndex < cellBladeCount; bladeIndex += 1) {
-      const blade = sampleBlade(
-        cellNode, material, cellX, cellY, bladeIndex, refinementWeight,
-      );
+      const blade = sampleBlade(cellNode, material, cellX, cellY, bladeIndex);
       const offset = bladeIndex * 16;
       const directionX = Math.cos(blade.direction);
       const directionY = Math.sin(blade.direction);
@@ -537,7 +510,6 @@ export function createGrassRendererGpuBatchPacketsReference(
   requireBladeBudget(bladeBudget);
   const demandedCells = requireDemandedCells(cells);
   const bladesPerCell = 2 ** Math.min(4, detailLevel);
-  const refinementWeight = materialRefinementWeight(footprint);
   const shadowBladesPerCell = 2 ** Math.max(0, Math.min(4, detailLevel) - 1);
   const activeCells = [];
   let bladeCount = 0;
@@ -582,7 +554,6 @@ export function createGrassRendererGpuBatchPacketsReference(
     cellRecordFloats[wordOffset + 6] = material.bladeHeight;
     cellRecordFloats[wordOffset + 7] = material.roughness;
     cellRecordFloats.set(material.baseColor, wordOffset + 8);
-    cellRecordFloats[wordOffset + 11] = refinementWeight;
     const id = `grass:cell:${cellX}:${cellY}`;
     cellIds.push(id);
     cellInstanceRanges.push(Object.freeze({

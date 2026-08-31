@@ -129,17 +129,10 @@ test('approaching the field appends detail without changing shared cell blades',
 
   assert.ok(nearDemand.detailLevel > farDemand.detailLevel);
   assert.ok(sharedNear.blade_count > sharedFar.blade_count);
-  let materialChanged = false;
-  for (let offset = 0; offset < sharedFar.vertices.length; offset += 10) {
-    assert.deepEqual(
-      [...sharedFar.vertices.slice(offset, offset + 6)],
-      [...sharedNear.vertices.slice(offset, offset + 6)],
-    );
-    assert.equal(sharedFar.vertices[offset + 9], sharedNear.vertices[offset + 9]);
-    materialChanged ||= sharedFar.vertices[offset + 6]
-      !== sharedNear.vertices[offset + 6];
-  }
-  assert.equal(materialChanged, true);
+  assert.deepEqual(
+    [...sharedFar.vertices],
+    [...sharedNear.vertices.slice(0, sharedFar.vertices.length)],
+  );
   assert.deepEqual(
     [...sharedFar.indices],
     [...sharedNear.indices.slice(0, sharedFar.indices.length)],
