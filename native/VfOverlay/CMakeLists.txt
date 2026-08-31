@@ -326,6 +326,9 @@ endif()
 add_executable(vkf-native-scene-artifact-stager
   ../../compiler/native/vkf_native_scene_artifact_stager.cpp
 )
+target_include_directories(vkf-native-scene-artifact-stager PRIVATE
+  "${VF_REPO_ROOT}"
+)
 if(MSVC)
   target_compile_options(vkf-native-scene-artifact-stager PRIVATE /Zi)
   target_link_options(vkf-native-scene-artifact-stager PRIVATE /DEBUG /INCREMENTAL:NO)

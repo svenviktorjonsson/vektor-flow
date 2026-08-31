@@ -63,3 +63,11 @@ test("browser runtime maps the opaque host event arena without UI semantics", ()
   assert.match(runtime, /vf_host_event_arena_v1/);
   assert.match(runtime, /__vfHostEventArena/);
 });
+
+test("release package builds the retained scene stager with repository headers", () => {
+  const target = cmake.match(
+    /add_executable\(vkf-native-scene-artifact-stager[\s\S]*?target_include_directories\(vkf-native-scene-artifact-stager PRIVATE([\s\S]*?)\n\)/,
+  );
+  assert.ok(target, "retained scene stager is missing private include roots");
+  assert.match(target[1], /VF_REPO_ROOT/);
+});
