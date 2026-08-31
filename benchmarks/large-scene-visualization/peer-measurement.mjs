@@ -69,19 +69,26 @@ export async function runCorrectnessThenTiming(adapter, workload, options = {}) 
     }
     const startedAtSequence = ++sequence;
     const samplesMs = [];
+    let measuredGpuFrames = 0;
     for (let index = 0; index < measuredFrames; index += 1) {
       const before = now();
       await adapter.renderFrame(index % workload.cameraPath.frames);
       await adapter.completeGpu();
       gpuCompletions += 1;
+      measuredGpuFrames += 1;
       const elapsed = now() - before;
-      if (!Number.isFinite(elapsed) || elapsed <= 0) throw new Error('timing sample must be finite and positive');
+      if (!Number.isFinite(elapsed) || elapsed < 0) {
+        throw new Error('timing observation must be finite and monotonic');
+      }
+      if (elapsed === 0) {
+        throw new Error('high-resolution clock did not advance across one completed GPU frame');
+      }
       samplesMs.push(elapsed);
     }
     return {
       version: adapter.version,
       correctness,
-      timing: { startedAtSequence, samplesMs, gpuCompletionCalls: gpuCompletions },
+      timing: { startedAtSequence, samplesMs, measuredGpuFrames, gpuCompletionCalls: gpuCompletions },
     };
   } finally {
     await adapter.destroy();

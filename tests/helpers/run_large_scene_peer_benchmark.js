@@ -1,8 +1,10 @@
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const esbuild = require('esbuild');
+const { edgeLaunchArgs } = require('./large_scene_edge_launch.js');
+const { startLargeSceneIsolatedOrigin } = require('./large_scene_isolated_origin.js');
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -14,6 +16,19 @@ async function waitForExit(child, timeoutMs) {
     const timeout = setTimeout(resolve, timeoutMs);
     child.once('exit', () => { clearTimeout(timeout); resolve(); });
   });
+}
+
+async function terminateOwnedProcessTree(child) {
+  if (process.platform === 'win32') {
+    const taskkill = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe');
+    spawnSync(taskkill, ['/PID', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+  } else {
+    try { child.kill('SIGKILL'); } catch (_) {}
+  }
+  await waitForExit(child, 5000);
 }
 
 async function removeOwnedDirectory(directory, ownedRoot) {
@@ -90,23 +105,13 @@ async function main() {
   if (!directory.startsWith(`${repoRoot}${path.sep}`)) throw new Error('test directory escaped the repository');
   fs.mkdirSync(profile, { recursive: true });
   await buildFixture(repoRoot, directory);
+  const isolatedOrigin = await startLargeSceneIsolatedOrigin(directory);
   const query = new URLSearchParams({ implementation, workload, warmups, measured, correctnessOnly });
-  const url = `file:///${path.resolve(directory, 'benchmark.html').replace(/\\/g, '/')}?${query}`;
-  const edge = spawn(edgePath, [
-    `--user-data-dir=${profile}`,
-    `--remote-debugging-port=${port}`,
-    '--headless=new',
-    '--allow-file-access-from-files',
-    '--enable-webgl',
-    '--ignore-gpu-blocklist',
-    '--use-angle=swiftshader',
-    '--force-device-scale-factor=1',
-    '--disable-background-timer-throttling',
-    '--disable-renderer-backgrounding',
-    '--no-first-run',
-    '--no-default-browser-check',
-    url,
-  ], { stdio: 'ignore', windowsHide: true });
+  const url = `${isolatedOrigin.url}/benchmark.html?${query}`;
+  const edge = spawn(edgePath, edgeLaunchArgs({ profile, port, url, gpuMode }), {
+    stdio: 'ignore',
+    windowsHide: true,
+  });
 
   let browserSocket;
   let pageSocket;
@@ -150,20 +155,16 @@ async function main() {
       await delay(250);
     }
     if (!finalResult) throw new Error('large-scene benchmark timed out');
-    await sendCdp(browserSocket, browserState, 'Browser.close');
   } finally {
+    try { await terminateOwnedProcessTree(edge); } catch (error) { cleanupError ??= error; }
     try { pageSocket?.close(); } catch (_) {}
     try { browserSocket?.close(); } catch (_) {}
-    await waitForExit(edge, 5000);
-    if (edge.exitCode === null) {
-      try { edge.kill(); } catch (_) {}
-      await waitForExit(edge, 5000);
-    }
+    try { await isolatedOrigin.close(); } catch (error) { cleanupError = error; }
     try {
       await removeOwnedDirectory(directory, ownedRoot);
       if (fs.existsSync(ownedRoot) && fs.readdirSync(ownedRoot).length === 0) fs.rmdirSync(ownedRoot);
     } catch (error) {
-      cleanupError = error;
+      cleanupError ??= error;
     }
   }
   if (cleanupError) {

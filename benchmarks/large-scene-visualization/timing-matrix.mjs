@@ -37,12 +37,19 @@ function exactLanes(manifest, lanes, phase) {
 
 function assertCorrectness(workload, lane, phase) {
   const correctness = lane.result?.correctness;
+  const clock = lane.result?.clock;
   if (lane.passed !== true || lane.exitCode !== 0 || lane.result?.ok !== true
     || correctness?.passed !== true
     || correctness.retained?.sourceIdentityRetained !== true
     || correctness.retained.largeBufferUploadsAfterInitialize !== 0
     || correctness.checkpoints?.length !== workload.correctness.checkpoints.length) {
     throw new Error(`${phase} failed for ${laneKey(lane)}`);
+  }
+  if (clock?.crossOriginIsolated !== true
+    || !Number.isFinite(clock.minimumPositiveDeltaMs)
+    || clock.minimumPositiveDeltaMs <= 0
+    || clock.minimumPositiveDeltaMs > 0.01) {
+    throw new Error(`${phase} high-resolution clock evidence failed for ${laneKey(lane)}`);
   }
   for (const checkpoint of correctness.checkpoints) {
     if (checkpoint.passed !== true || !Number.isFinite(checkpoint.maxRegionError)
@@ -70,6 +77,9 @@ function assertEnvironment(lanes, environment) {
   const identity = environmentIdentity(environment);
   if (lanes.some((lane) => environmentIdentity(lane.result?.environment) !== identity)) {
     throw new Error('every timing lane must use the same browser and GPU environment');
+  }
+  if (/swiftshader|software/i.test(`${environment?.gpu ?? ''} ${environment?.webglRenderer ?? ''}`)) {
+    throw new Error('published timing requires a hardware renderer; software fallback is correctness-only');
   }
 }
 
@@ -166,6 +176,9 @@ export function buildTimingEvidence(manifest, options) {
     if (!Array.isArray(result?.samplesMs)
       || result.samplesMs.length < manifest.measurement.minimumMeasuredFrames) {
       throw new Error(`${laneKey(lane)} requires at least ${manifest.measurement.minimumMeasuredFrames} measured frames`);
+    }
+    if (result.measuredGpuFrames !== result.samplesMs.length) {
+      throw new Error(`${laneKey(lane)} must use exactly one completed GPU frame per timing sample`);
     }
     const requiredCompletions = workload.correctness.checkpoints.length
       + manifest.measurement.minimumWarmupFrames
