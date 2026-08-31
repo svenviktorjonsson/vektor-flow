@@ -235,6 +235,30 @@ test('identical retained state is a no-op while visual state changes still redra
   assert.equal(state.draws.length, 2);
 });
 
+test('mutating retained projection and color inputs still redraws', async () => {
+  const { gl, state } = trackedWebGl();
+  const renderer = createScreenSpacePointCloudRenderer({
+    width: 1280,
+    height: 720,
+    getContext: () => gl
+  });
+  await renderer.initialize();
+  const points = new Float32Array([0.25, -0.5]);
+  const retainedProjection = projection();
+  const retainedColor = [0.4, 0.9, 1, 0.9];
+  const options = { count: 1, pointSize: 2, color: retainedColor };
+  setRetainedWorldPointCloud2D(renderer, points, retainedProjection, options);
+
+  retainedProjection.worldOrigin[0] = 0.1;
+  setRetainedWorldPointCloud2D(renderer, points, retainedProjection, options);
+  retainedColor[0] = 0.2;
+  setRetainedWorldPointCloud2D(renderer, points, retainedProjection, options);
+
+  assert.equal(state.draws.length, 3);
+  assert.deepEqual(state.uniforms.get('u_world_origin'), [0.1, 0, 0]);
+  assert.deepEqual(state.uniforms.get('u_color'), [0.2, 0.9, 1, 0.9]);
+});
+
 test('ordinary world-point updates preserve mutable-buffer upload behavior', async () => {
   const { gl, state } = trackedWebGl();
   const renderer = createScreenSpacePointCloudRenderer({
