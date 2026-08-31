@@ -8,7 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -172,10 +172,17 @@ export function runAutomaticCpuBenchmark({
     JSON.stringify(oneOutput) === JSON.stringify(expected);
   return {
     schemaVersion: 1,
+    evidenceStatus: 'implementation-provisional',
     workload: 'four-independent-integer-recurrences',
     iterationsPerLane,
     sampleCount: samples,
     compilerSha256: createHash('sha256').update(readFileSync(compiler)).digest('hex'),
+    environment: {
+      platform: process.platform,
+      architecture: process.arch,
+      logicalCpus: availableParallelism(),
+      node: process.version,
+    },
     correctness: { equalOutputs },
     oneCore: {
       configuredCores: 1,
