@@ -126,11 +126,13 @@ test('0.4 ratchet accepts every correctness-gated comparable row strictly below 
     publishedMeasurement(activeManifest, 'vkf', [14.99, 14.99, 14.99]),
     publishedMeasurement(activeManifest, 'deck-gl', [10, 10, 10]),
     publishedMeasurement(activeManifest, 'vtk-js', [20, 20, 20]),
+    publishedMeasurement(activeManifest, 'plotly-scattergl', [12, 12, 12]),
   ]));
   assert.equal(result.hasPublishedClaims, true);
   assert.deepEqual(result.rows.map(({ peer, ratio }) => [peer, ratio]), [
     ['deck-gl', 1.499],
     ['vtk-js', 0.7495],
+    ['plotly-scattergl', 14.99 / 12],
   ]);
 });
 
@@ -138,6 +140,8 @@ test('0.4 ratchet rejects equality and any slower published comparable row', () 
   const activeManifest = testManifest();
   assert.throws(() => evaluateReport(activeManifest, report(activeManifest, [
     publishedMeasurement(activeManifest, 'vkf', [15, 15, 15]),
+    publishedMeasurement(activeManifest, 'deck-gl', [20, 20, 20]),
+    publishedMeasurement(activeManifest, 'vtk-js', [20, 20, 20]),
     publishedMeasurement(activeManifest, 'plotly-scattergl', [10, 10, 10]),
   ])), /plotly-scattergl ratio 1\.500.*below 1\.500/);
 });
@@ -147,6 +151,16 @@ test('a VKF timing cannot be published without at least one comparable peer row'
   assert.throws(() => evaluateReport(activeManifest, report(activeManifest, [
     publishedMeasurement(activeManifest, 'vkf', [8, 8, 8]),
   ])), /has VKF timing without a peer comparison/);
+});
+
+test('a 0.4 measured workload is withheld until every frozen peer row is valid', () => {
+  const activeManifest = testManifest();
+  assert.throws(() => evaluateReport(activeManifest, report(activeManifest, [
+    publishedMeasurement(activeManifest, 'vkf', [8, 8, 8]),
+    publishedMeasurement(activeManifest, 'deck-gl', [10, 10, 10]),
+    publishedMeasurement(activeManifest, 'vtk-js', [12, 12, 12]),
+    { implementation: 'plotly-scattergl', state: 'scaffold', comparable: true },
+  ])), /must publish vkf, deck-gl, vtk-js, plotly-scattergl together/);
 });
 
 test('published timing is rejected unless correctness completed first on the exact contract', () => {
@@ -185,6 +199,8 @@ test('the deferred 0.6 target is recorded but not enforced by the 0.4 ratchet', 
   const result = evaluateReport(activeManifest, report(activeManifest, [
     publishedMeasurement(activeManifest, 'vkf', [7.5, 7.5, 7.5]),
     publishedMeasurement(activeManifest, 'deck-gl', [10, 10, 10]),
+    publishedMeasurement(activeManifest, 'vtk-js', [11, 11, 11]),
+    publishedMeasurement(activeManifest, 'plotly-scattergl', [12, 12, 12]),
   ]));
   assert.equal(result.gate.release, '0.4.0');
   assert.equal(result.gate.maxVkfToPeerRatioExclusive, 1.5);
