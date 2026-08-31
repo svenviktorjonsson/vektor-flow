@@ -121,13 +121,16 @@ function clusterRange(bounds, grid) {
   if (bounds.maxX < -1 || bounds.minX > 1 || bounds.maxY < -1 || bounds.minY > 1 ||
       bounds.maxDepth < grid.nearDepth || bounds.minDepth > grid.farDepth) return null;
 
+  const minX = lowerLinearSlice(bounds.minX, grid.xSlices);
+  const minY = lowerLinearSlice(bounds.minY, grid.ySlices);
+  const minDepth = lowerDepthSlice(bounds.minDepth, grid);
   return {
-    minX: lowerLinearSlice(bounds.minX, grid.xSlices),
-    maxX: upperLinearSlice(bounds.maxX, grid.xSlices),
-    minY: lowerLinearSlice(bounds.minY, grid.ySlices),
-    maxY: upperLinearSlice(bounds.maxY, grid.ySlices),
-    minDepth: lowerDepthSlice(bounds.minDepth, grid),
-    maxDepth: upperDepthSlice(bounds.maxDepth, grid)
+    minX,
+    maxX: Math.max(minX, upperLinearSlice(bounds.maxX, grid.xSlices)),
+    minY,
+    maxY: Math.max(minY, upperLinearSlice(bounds.maxY, grid.ySlices)),
+    minDepth,
+    maxDepth: Math.max(minDepth, upperDepthSlice(bounds.maxDepth, grid))
   };
 }
 

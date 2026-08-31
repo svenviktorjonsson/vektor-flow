@@ -74,3 +74,18 @@ test('caps every cluster and reports deterministic overflow evidence', () => {
   assert.equal(plan.overflowCounts.slice(1).every((count) => count === 0), true);
   assert.ok(plan.lightIds.length <= plan.clusterCount * 2);
 });
+
+test('keeps zero-volume bounds that lie exactly on cluster boundaries', () => {
+  const plan = planClusteredLights({
+    grid: GRID,
+    lights: [{ id: 9, kind: 'point', bounds: bounds(-0.5, -0.5, 0, 0, 2, 2) }],
+    maxLightsPerCluster: 1
+  });
+
+  const occupiedClusters = [];
+  for (let index = 0; index < plan.clusterCount; index += 1) {
+    if (plan.clusterOffsets[index + 1] > plan.clusterOffsets[index]) occupiedClusters.push(index);
+  }
+  assert.deepEqual(occupiedClusters, [5]);
+  assert.deepEqual([...plan.lightIds], [9]);
+});
