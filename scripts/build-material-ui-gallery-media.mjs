@@ -63,11 +63,17 @@ const captureSummary = JSON.parse(run(
 
 const stillDestination = path.join(mediaRoot, "material-ui-gallery.png");
 const gifDestination = path.join(mediaRoot, "material-ui-gallery.gif");
+const rendererGifDestination = path.join(mediaRoot, "material-ui-gallery-renderer.gif");
 await cp(path.join(captureRoot, captureSummary.still), stillDestination);
 run("python", [
   path.join(repositoryRoot, "tools", "build_material_ui_gallery_gif.py"),
-  captureRoot,
+  path.join(captureRoot, "composite"),
   gifDestination,
+]);
+run("python", [
+  path.join(repositoryRoot, "tools", "build_material_ui_gallery_gif.py"),
+  path.join(captureRoot, "renderer"),
+  rendererGifDestination,
 ]);
 const sourcePaths = [
   "examples/material_ui_gallery/app.vkf",
@@ -85,6 +91,7 @@ const sourcePaths = [
 const mediaPaths = [
   "docs/public/images/readme-ui/material-ui-gallery.png",
   "docs/public/images/readme-ui/material-ui-gallery.gif",
+  "docs/public/images/readme-ui/material-ui-gallery-renderer.gif",
 ];
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const sources = {};
@@ -114,6 +121,13 @@ await writeFile(
       fixture: "examples/material_ui_gallery/app.vkf",
       frame_id: captureSummary.frameId,
       interactions: ["view-lighting", "view-mirror", "view-glass", "view-all", "glass-alpha=0.72"],
+      composite_states: captureSummary.states.map((state) => ({
+        view: state.view,
+        sha256: state.compositeSha256,
+        static_html: state.staticHtml,
+        frame_chrome: state.frameChrome,
+        webgpu_canvas: state.webgpuCanvas,
+      })),
     },
     sources,
     media,
@@ -124,4 +138,5 @@ process.stdout.write(JSON.stringify({
   ...captureSummary,
   still: path.relative(repositoryRoot, stillDestination).replaceAll(path.sep, "/"),
   animation: path.relative(repositoryRoot, gifDestination).replaceAll(path.sep, "/"),
+  rendererAnimation: path.relative(repositoryRoot, rendererGifDestination).replaceAll(path.sep, "/"),
 }));

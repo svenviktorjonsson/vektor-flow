@@ -134,6 +134,38 @@ async function captureFrame(runtime, frameId, outputPath) {
   return crypto.createHash("sha256").update(fs.readFileSync(outputPath)).digest("hex");
 }
 
+async function captureComposite(runtime, outputPath) {
+  const composition = await evaluate(runtime, `(() => {
+    const staticRoot = document.querySelector("[data-vf-static-html-root]");
+    const frameHeaders = Array.from(document.querySelectorAll(".vf-frame__header"));
+    const canvas = document.querySelector("canvas.vf-geom-canvas");
+    const canvasRect = canvas ? canvas.getBoundingClientRect() : null;
+    return {
+      staticHtml: !!(staticRoot && staticRoot.getBoundingClientRect().width > 0),
+      frameChrome: frameHeaders.length >= 2 && frameHeaders.every((header) => header.getBoundingClientRect().height > 0),
+      webgpuCanvas: !!(canvasRect && canvasRect.width > 0 && canvasRect.height > 0),
+      frameHeaderCount: frameHeaders.length,
+      canvasWidth: canvasRect ? Math.round(canvasRect.width) : 0,
+      canvasHeight: canvasRect ? Math.round(canvasRect.height) : 0
+    };
+  })()`);
+  if (!composition || !composition.staticHtml || !composition.frameChrome || !composition.webgpuCanvas) {
+    throw new Error(`full compositor prerequisites are missing: ${JSON.stringify(composition)}`);
+  }
+  const screenshot = await sendCdp(runtime.pageWs, runtime.pageState, "Page.captureScreenshot", {
+    format: "png",
+    omitBackground: false,
+    captureBeyondViewport: false,
+    fromSurface: true,
+  });
+  const bytes = Buffer.from(screenshot.data, "base64");
+  fs.writeFileSync(outputPath, bytes);
+  return {
+    ...composition,
+    compositeSha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
 async function main() {
   const scenePath = process.argv[2];
   const outputDirectory = process.argv[3];
@@ -142,7 +174,10 @@ async function main() {
   if (!scenePath || !outputDirectory) {
     throw new Error("usage: node capture_material_ui_gallery.js <scenePath> <outputDirectory> [port] [frameId]");
   }
-  fs.mkdirSync(outputDirectory, { recursive: true });
+  const rendererDirectory = path.join(outputDirectory, "renderer");
+  const compositeDirectory = path.join(outputDirectory, "composite");
+  fs.mkdirSync(rendererDirectory, { recursive: true });
+  fs.mkdirSync(compositeDirectory, { recursive: true });
   const runtime = await openScene(scenePath, port, frameId);
   const states = [];
   try {
@@ -163,9 +198,19 @@ async function main() {
       if (!observed || !observed.ok) {
         throw new Error(`compiled gallery event failed for ${viewId}: ${JSON.stringify(observed)}`);
       }
-      const outputPath = path.join(outputDirectory, `${String(index).padStart(2, "0")}-${viewId}.png`);
-      const sha256 = await captureFrame(runtime, frameId, outputPath);
-      states.push({ view: viewId, file: path.basename(outputPath), meshCount: observed.meshCount, sha256 });
+      const file = `${String(index).padStart(2, "0")}-${viewId}.png`;
+      const rendererPath = path.join(rendererDirectory, file);
+      const compositePath = path.join(compositeDirectory, file);
+      const sha256 = await captureFrame(runtime, frameId, rendererPath);
+      const composition = await captureComposite(runtime, compositePath);
+      states.push({
+        view: viewId,
+        rendererFile: `renderer/${file}`,
+        compositeFile: `composite/${file}`,
+        meshCount: observed.meshCount,
+        sha256,
+        ...composition,
+      });
     }
 
     const slider = await evaluate(runtime, `(async () => {
@@ -179,26 +224,29 @@ async function main() {
     if (!slider || !slider.ok || slider.value !== 0.72) {
       throw new Error(`compiled gallery slider failed: ${JSON.stringify(slider)}`);
     }
-    const sliderPath = path.join(outputDirectory, "04-glass-alpha-072.png");
-    await captureFrame(runtime, frameId, sliderPath);
-    states.push({ view: "glass-alpha-072", file: path.basename(sliderPath), value: slider.value });
-    if (new Set(states.slice(0, 4).map((state) => state.sha256)).size < 3) {
-      throw new Error("compiled gallery buttons did not produce distinct rendered views");
-    }
-
-    const screenshot = await sendCdp(runtime.pageWs, runtime.pageState, "Page.captureScreenshot", {
-      format: "png",
-      omitBackground: false,
-      captureBeyondViewport: false,
-      fromSurface: true,
+    const sliderFile = "04-glass-alpha-072.png";
+    const sliderSha256 = await captureFrame(runtime, frameId, path.join(rendererDirectory, sliderFile));
+    const sliderComposition = await captureComposite(runtime, path.join(compositeDirectory, sliderFile));
+    states.push({
+      view: "glass-alpha-072",
+      rendererFile: `renderer/${sliderFile}`,
+      compositeFile: `composite/${sliderFile}`,
+      value: slider.value,
+      sha256: sliderSha256,
+      ...sliderComposition,
     });
-    fs.writeFileSync(path.join(outputDirectory, "material-ui-gallery.png"), Buffer.from(screenshot.data, "base64"));
+    if (new Set(states.map((state) => state.sha256)).size !== states.length) {
+      throw new Error("compiled gallery interactions did not produce distinct renderer views");
+    }
+    if (new Set(states.map((state) => state.compositeSha256)).size !== states.length) {
+      throw new Error("compiled gallery interactions did not produce distinct composited views");
+    }
     process.stdout.write(JSON.stringify({
       captureApi: "VfDisplay.__test.captureGeomFrameDataUrl",
       execution: "headless",
       frameId,
       states,
-      still: "material-ui-gallery.png",
+      still: states.at(-1).compositeFile,
     }));
   } finally {
     await closeScene(runtime);

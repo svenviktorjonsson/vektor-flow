@@ -12,6 +12,43 @@
       "view-glass",
       "view-all",
       "glass-alpha=0.72"
+    ],
+    "composite_states": [
+      {
+        "view": "view-lighting",
+        "sha256": "0bd4c907ba7735a581c2b1249361ee8ac087a6db44b236b4566903f2029ad099",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "view-mirror",
+        "sha256": "4fd3d60d5ea3e772b2b8a69fa9bc54a58cd05709658aa4a5e1e6c7cf48dd690b",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "view-glass",
+        "sha256": "b4d7106824c57faf7d8f44a9a436a99f3dd4243e371da0e9371078a280833ace",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "view-all",
+        "sha256": "8d254eff1dbff640bcaee4c4e5c4dad8d64672af188e3d95d235cc0584a31626",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "glass-alpha-072",
+        "sha256": "3545f6fba28e14e7b238f3418add048884535335ce61610fd0f77b2d15763d17",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      }
     ]
   },
   "sources": {
@@ -23,9 +60,9 @@
     "web/vf-ui/vf-runtime-packet-contract.js": "b2081b36b47e997a42659396c092400b603835ab308f53a19c98ab8ab411e760",
     "web/vf-ui/vf-retained-event-adapter.js": "b7082ab7a277ece450781deb5e4a56f8e3dd33ef5f78c4a921fc47dfae2f001b",
     "web/vf-ui/vf-static-html-loader.js": "71bd12c268b023dab13be48d05caa6ee03048f0cddc761ddfc67c11390340775",
-    "tests/helpers/capture_material_ui_gallery.js": "e3c36ae21208bf5015a08a612f2f727c43d907ddba86bde4a36ace8f2f6ba6c6",
+    "tests/helpers/capture_material_ui_gallery.js": "c91ce146210092224bab2a071a3036959de7942d6227f0c29ac932660022bb8c",
     "tools/build_material_ui_gallery_gif.py": "a95090699456b8bea9d56e783a03a45662e54292c8e00c3a317d23e99a6567c1",
-    "scripts/build-material-ui-gallery-media.mjs": "a69ae605e67b2cef18f3cb499370952b40de2f5a94940f4629a784530ca1aec9"
+    "scripts/build-material-ui-gallery-media.mjs": "deb20ef40f1b241ccf52aa0d76d8d57342858399a8e90434425bdda32c45d497"
   },
   "media": {
     "docs/public/images/readme-ui/material-ui-gallery.png": {
@@ -34,6 +71,13 @@
       "height": 861
     },
     "docs/public/images/readme-ui/material-ui-gallery.gif": {
+      "sha256": "5fbf3afd7cbeaac98df218385896b01afad337033d63394ca39671c810e066f3",
+      "width": 1376,
+      "height": 861,
+      "frames": 5,
+      "loop": true
+    },
+    "docs/public/images/readme-ui/material-ui-gallery-renderer.gif": {
       "sha256": "2f991d9f9a55c03981911de56ad7aac4a8cd32ff064fd2fec36425026655a16a",
       "width": 1002,
       "height": 708,
