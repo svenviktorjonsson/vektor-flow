@@ -86,7 +86,7 @@ evaluate_state(state:GameState, perspective:num) -> num:
     i: 0
     score: castle_rights_score(state, perspective) + tempo_score(state, perspective)
     i < 32?>
-        score: score + piece_score(state.board, state.board.(i), perspective)
+        .score: score + piece_score(state.board, state.board.(i), perspective)
         i: i + 1
     @: score
 
