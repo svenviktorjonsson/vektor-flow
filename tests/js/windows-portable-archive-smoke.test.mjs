@@ -61,3 +61,18 @@ test("Windows packaging verifies the completed archive", async () => {
   assert.ok(verificationIndex > archiveIndex);
   assert.match(source, /test-windows-portable-archive\.ps1/u);
 });
+
+test("Windows packaging proves retained Button and Slider behavior in the exact UI executable", async () => {
+  const source = await readFile(
+    path.join(repositoryRoot, "scripts/package-native-release.ps1"),
+    "utf8",
+  );
+  assert.match(source, /Button\(id:"release-button"\)/u);
+  assert.match(source, /Input\(id:"release-slider"\)/u);
+  assert.match(source, /ButtonClicked/u);
+  assert.match(source, /SliderValueChanged/u);
+  assert.match(source, /uiPayloadText\.Contains\('"event":"ButtonClicked"'\)/u);
+  assert.match(source, /uiPayloadText\.Contains\('"event":"SliderValueChanged"'\)/u);
+  assert.match(source, /uiPayloadText\.Contains\('id="release-button"'\)/u);
+  assert.match(source, /uiPayloadText\.Contains\('id="release-slider"'\)/u);
+});

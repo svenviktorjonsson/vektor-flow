@@ -155,8 +155,17 @@ try {
 display: Display(dim:2)
 frame: display.add_frame(pos:[0.1, 0.2], size:[0.5, 0.6])
 frame.load("ui/main.html")
+glass: frame.add(x:[[-1.5, 1.5], [-1.5, 1.5]], y:[[0.0, 0.0], [2.0, 2.0]], z:[[0.0, 0.0], [0.0, 0.0]], id:"release-glass", alpha:0.5, transparent:true)
+release_button: Button(id:"release-button")
+release_slider: Input(id:"release-slider")
+(button_event: release_button.events.get())??>
+    ButtonClicked =>
+        glass.visible: true
+(slider_event: release_slider.events.get())??>
+    SliderValueChanged =>
+        glass.alpha: slider_event.value
 "@ | Set-Content -LiteralPath $uiSource -Encoding utf8
-    '<link rel="stylesheet" href="theme.css"><button>Release UI</button>' |
+    '<link rel="stylesheet" href="theme.css"><button id="release-button">Release UI</button><input id="release-slider" type="range" min="0" max="1" value="0.5">' |
         Set-Content -LiteralPath (Join-Path $uiRoot "main.html") -Encoding utf8
     'button { background-image: url("assets/icon.svg"); color: rgb(12, 34, 56); }' |
         Set-Content -LiteralPath (Join-Path $uiRoot "theme.css") -Encoding utf8
@@ -200,6 +209,12 @@ frame.load("ui/main.html")
     $uiPayloadText = [System.Text.Encoding]::UTF8.GetString($uiBytes, [int]$payloadStart, [int]$payloadSize)
     if (-not $uiPayloadText.Contains('"schema":"vektorflow.internal.ui_package_provenance"')) {
         throw "Packaged UI application omitted its private provenance"
+    }
+    if (-not $uiPayloadText.Contains('id="release-button"') -or
+        -not $uiPayloadText.Contains('id="release-slider"') -or
+        -not $uiPayloadText.Contains('"event":"ButtonClicked"') -or
+        -not $uiPayloadText.Contains('"event":"SliderValueChanged"')) {
+        throw "Packaged UI application omitted retained Button/Slider behavior"
     }
     $savedLocalAppData = $env:LOCALAPPDATA
     $uiLocalAppData = Join-Path $savedLocalAppData ("VektorFlowPackageSmoke-" + $PID)
