@@ -168,17 +168,31 @@
       var kind = normalizeLightKind(light.kind);
       var range = Number(light.range);
       var position = light.pos;
-      if (kind !== "point" || !Array.isArray(position) || position.length < 3 ||
+      if (!Array.isArray(position) || position.length < 3 ||
           !Number.isFinite(range) || !(range > 0.0)) {
         return null;
       }
-      out[i] = {
+      var projected = {
         id: i,
-        kind: "point",
+        kind: kind,
         position: [Number(position[0]), Number(position[1]), Number(position[2])],
-        radius: range
+        radius: range,
+        range: range
       };
-      if (!out[i].position.every(Number.isFinite)) { return null; }
+      if (!projected.position.every(Number.isFinite)) { return null; }
+      if (kind === "spot") {
+        projected.direction = Array.isArray(light.direction_f32)
+          ? [Number(light.direction_f32[0]), Number(light.direction_f32[1]), Number(light.direction_f32[2])]
+          : null;
+        projected.outerConeCos = Number(light.outer_cone_cos);
+        if (!projected.direction || !projected.direction.every(Number.isFinite) ||
+            !Number.isFinite(projected.outerConeCos)) {
+          return null;
+        }
+      } else if (kind !== "point") {
+        return null;
+      }
+      out[i] = projected;
     }
     return out;
   }
