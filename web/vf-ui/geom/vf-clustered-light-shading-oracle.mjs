@@ -106,6 +106,7 @@ export function evaluateClusteredDirectLights({
     const id = Number(rawId) >>> 0;
     if (id < skipLightIdsBelow || id >= source.length) continue;
     const light = source[id] || {};
+    if (finite(light.kindCode) >= 1.5) continue;
     const position = light.position || [0, 0, 0];
     const toLight = [
       finite(position[0]) - finite(world[0]),
