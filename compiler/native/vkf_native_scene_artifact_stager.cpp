@@ -2555,19 +2555,36 @@ void flatten_retained_html_numeric_value(
 }
 
 std::optional<CompiledUiSceneBundle> try_compile_retained_scene_packets(
-    const std::filesystem::path& typed_ir_path
+    const std::filesystem::path& typed_ir_path,
+    const std::filesystem::path& source_path
 ) {
     if (typed_ir_path.empty()) return std::nullopt;
     try {
-        const auto packets = vkf::retained_scene::compile_packets(
-            vf::parse_json(read_file_bytes(typed_ir_path)));
+        const auto root = vf::parse_json(read_file_bytes(typed_ir_path));
+        const auto packets = vkf::retained_scene::compile_packets(root);
         if (!packets.has_value()) return std::nullopt;
         CompiledUiSceneBundle bundle;
         bundle.scene_config_json = "[]";
         bundle.runtime_packets_json = vf::json_stringify(*packets, -1);
         bundle.provenance = "vkf-retained-scene-lowering";
+        std::map<std::uint64_t, bool> loaded_frames;
+        for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
+            std::filesystem::path resource_path(load.resource);
+            if (resource_path.is_absolute()) {
+                throw StagerError("Frame.load resource path must be source-relative");
+            }
+            if (loaded_frames[load.frame_id]) {
+                throw StagerError("Frame.load initial slice accepts one load per Frame");
+            }
+            loaded_frames[load.frame_id] = true;
+            bundle.static_html_bundles.push_back(vf::static_html::collect(
+                source_path, source_path.parent_path() / resource_path,
+                "frame_" + std::to_string(load.frame_id)));
+        }
         return bundle;
     } catch (const vkf::retained_scene::Error& error) {
+        throw StagerError(error.what());
+    } catch (const vf::static_html::Error& error) {
         throw StagerError(error.what());
     }
 }
@@ -3230,7 +3247,7 @@ int run(int argc, char** argv) {
             scene_config_provenance.source_hash_checked = true;
         } else {
             auto compiled_ui_scene = try_compile_retained_scene_packets(
-                effective.typed_ir);
+                effective.typed_ir, absolute_source);
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_retained_html_tree(
                     effective.typed_ir, absolute_source);

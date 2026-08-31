@@ -902,6 +902,7 @@ void flatten_retained_html_numeric_value(
 
 bool collect_retained_scene_packet_binding(
     const vf::JsonValue& root,
+    const std::filesystem::path& source_path,
     WasmModulePlan& plan
 ) {
     try {
@@ -912,8 +913,24 @@ bool collect_retained_scene_packet_binding(
         packet_binding.kind = WasmBinding::Kind::String;
         packet_binding.string_value = vf::json_stringify(*packets, -1);
         plan.bindings.push_back(std::move(packet_binding));
+        std::map<std::uint64_t, bool> loaded_frames;
+        for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
+            std::filesystem::path resource_path(load.resource);
+            if (resource_path.is_absolute()) {
+                throw WasmArtifactFailure("Frame.load resource path must be source-relative");
+            }
+            if (loaded_frames[load.frame_id]) {
+                throw WasmArtifactFailure("Frame.load initial slice accepts one load per Frame");
+            }
+            loaded_frames[load.frame_id] = true;
+            plan.static_html_bundles.push_back(vf::static_html::collect(
+                source_path, source_path.parent_path() / resource_path,
+                "frame_" + std::to_string(load.frame_id)));
+        }
         return true;
     } catch (const vkf::retained_scene::Error& error) {
+        throw WasmArtifactFailure(error.what());
+    } catch (const vf::static_html::Error& error) {
         throw WasmArtifactFailure(error.what());
     }
 }
@@ -1711,7 +1728,7 @@ WasmModulePlan collect_module_plan(
         }
         throw WasmArtifactFailure("unsupported typed IR module item for wasm artifact emission");
     }
-    if (!collect_retained_scene_packet_binding(root, plan)) {
+    if (!collect_retained_scene_packet_binding(root, source_path, plan)) {
         collect_retained_html_packet_binding(root, source_path, plan);
     }
     collect_owner_event_poll_binding(root, plan);
