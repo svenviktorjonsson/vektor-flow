@@ -40,6 +40,80 @@ function byteLength(value) {
   return 0;
 }
 
+export function installWebGlFixtureTracker(minimumFixtureBytes, globals = globalThis) {
+  if (!Number.isSafeInteger(minimumFixtureBytes) || minimumFixtureBytes < 1) {
+    throw new RangeError('minimum fixture bytes must be positive');
+  }
+  const originals = [];
+  const fixtureBuffers = new Set();
+  const boundBuffers = new WeakMap();
+  let initialized = false;
+  let initialFixtureBufferWrites = 0;
+  let initialFixtureBufferBytes = 0;
+  let fixtureBufferWritesAfterInitialize = 0;
+  let fixtureBufferBytesAfterInitialize = 0;
+  let fixtureBufferReallocationsAfterInitialize = 0;
+  const constructors = new Set([
+    globals.WebGLRenderingContext,
+    globals.WebGL2RenderingContext,
+  ]);
+  for (const constructor of constructors) {
+    const prototype = constructor?.prototype;
+    if (!prototype) continue;
+    const originalBindBuffer = prototype.bindBuffer;
+    if (typeof originalBindBuffer === 'function') {
+      originals.push([prototype, 'bindBuffer', originalBindBuffer]);
+      prototype.bindBuffer = function(target, buffer, ...rest) {
+        let targets = boundBuffers.get(this);
+        if (!targets) { targets = new Map(); boundBuffers.set(this, targets); }
+        targets.set(target, buffer);
+        return originalBindBuffer.call(this, target, buffer, ...rest);
+      };
+    }
+    for (const method of ['bufferData', 'bufferSubData']) {
+      const original = prototype[method];
+      if (typeof original !== 'function') continue;
+      originals.push([prototype, method, original]);
+      prototype[method] = function(target, ...rest) {
+        const bytes = byteLength(method === 'bufferData' ? rest[0] : rest[1]);
+        const buffer = boundBuffers.get(this)?.get(target) ?? null;
+        if (buffer && bytes >= minimumFixtureBytes) {
+          if (initialized) {
+            fixtureBufferWritesAfterInitialize += 1;
+            fixtureBufferBytesAfterInitialize += bytes;
+            if (method === 'bufferData') fixtureBufferReallocationsAfterInitialize += 1;
+          } else {
+            fixtureBuffers.add(buffer);
+            initialFixtureBufferWrites += 1;
+            initialFixtureBufferBytes += bytes;
+          }
+        }
+        return original.call(this, target, ...rest);
+      };
+    }
+  }
+  if (originals.length === 0) throw new Error('WebGL prototypes are required for retention tracking');
+  return Object.freeze({
+    markInitialized() { initialized = true; },
+    evidence() {
+      return {
+        initialFixtureBufferWrites,
+        initialFixtureBufferBytes,
+        initialFixtureBufferAllocations: fixtureBuffers.size,
+        fixtureBufferWritesAfterInitialize,
+        fixtureBufferBytesAfterInitialize,
+        fixtureBufferReallocationsAfterInitialize,
+        fixtureBufferMapsAfterInitialize: 0,
+        fixtureBufferCopiesAfterInitialize: 0,
+        largeMappedAtCreationAfterInitialize: 0,
+      };
+    },
+    restore() {
+      for (const [prototype, method, original] of originals.reverse()) prototype[method] = original;
+    },
+  });
+}
+
 export function installWebGpuFixtureTracker(minimumFixtureBytes, globals = globalThis) {
   if (!Number.isSafeInteger(minimumFixtureBytes) || minimumFixtureBytes < 1) {
     throw new RangeError('minimum fixture bytes must be positive');

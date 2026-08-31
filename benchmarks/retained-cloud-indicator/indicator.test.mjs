@@ -11,6 +11,7 @@ import { summarizeIntervals } from './statistics.mjs';
 import { runIndicatorLane } from './measurement.mjs';
 import {
   createRetentionLedger,
+  installWebGlFixtureTracker,
   installWebGpuFixtureTracker,
 } from './retention-ledger.mjs';
 import {
@@ -25,6 +26,8 @@ import {
   vkfMarkerInstances,
 } from './adapters/vkf-marker-impostor.mjs';
 import { rawOrbitUniform } from './adapters/raw-webgpu.mjs';
+import { threeOrbitPosition } from './adapters/three.mjs';
+import { deckOrbitViewState } from './adapters/deck-gl.mjs';
 
 test('release indicator freezes one million aligned XYZ+RGBA8 points and two size lanes', async () => {
   assert.equal(INDICATOR_PROTOCOL.pointCount, 1_000_000);
@@ -270,6 +273,44 @@ test('WebGPU tracker rejects writes and reallocations of registered fixture buff
   tracker.restore();
 });
 
+test('WebGL tracker rejects split fixture uploads after initialization', () => {
+  class FakeWebGl {
+    constructor() { this.bound = new Map(); }
+    createBuffer() { return {}; }
+    bindBuffer(target, buffer) { this.bound.set(target, buffer); }
+    bufferData() {}
+    bufferSubData() {}
+  }
+  const tracker = installWebGlFixtureTracker(1024, {
+    WebGLRenderingContext: FakeWebGl,
+    WebGL2RenderingContext: null,
+  });
+  const gl = new FakeWebGl();
+  const positions = gl.createBuffer();
+  gl.bindBuffer(34962, positions);
+  gl.bufferData(34962, new Uint8Array(2048), 35044);
+  const colors = gl.createBuffer();
+  gl.bindBuffer(34962, colors);
+  gl.bufferData(34962, new Uint8Array(1024), 35044);
+  tracker.markInitialized();
+  gl.bindBuffer(34962, positions);
+  gl.bufferSubData(34962, 0, new Uint8Array(2048));
+  gl.bindBuffer(34962, gl.createBuffer());
+  gl.bufferData(34962, 2048, 35044);
+  assert.deepEqual(tracker.evidence(), {
+    initialFixtureBufferWrites: 2,
+    initialFixtureBufferBytes: 3072,
+    initialFixtureBufferAllocations: 2,
+    fixtureBufferWritesAfterInitialize: 2,
+    fixtureBufferBytesAfterInitialize: 4096,
+    fixtureBufferReallocationsAfterInitialize: 1,
+    fixtureBufferMapsAfterInitialize: 0,
+    fixtureBufferCopiesAfterInitialize: 0,
+    largeMappedAtCreationAfterInitialize: 0,
+  });
+  tracker.restore();
+});
+
 test('capture gate requires visible colored cloud coverage in every quadrant', async () => {
   const rgba = new Uint8Array(8 * 8 * 4);
   for (const [x, y, color] of [
@@ -343,4 +384,21 @@ test('raw WebGPU floor mutates only its bounded orbit uniform', () => {
   assert.equal(frame25[1], 1);
   assert.ok(Math.abs(frame0[2] - 4 / 1280) < 1e-8);
   assert.ok(Math.abs(frame0[3] - 4 / 720) < 1e-8);
+});
+
+test('Three.js peer receives the exact deterministic orbit position', () => {
+  assert.deepEqual(threeOrbitPosition(0), [0, 0, 3]);
+  const quarter = threeOrbitPosition(25);
+  assert.ok(quarter[0] > 2.99);
+  assert.ok(Math.abs(quarter[2]) < 1e-12);
+});
+
+test('deck.gl peer receives the exact deterministic orbit state', () => {
+  const frame0 = deckOrbitViewState(0, [1280, 720]);
+  const quarter = deckOrbitViewState(25, [1280, 720]);
+  assert.deepEqual(frame0.target, [0, 0, 0]);
+  assert.equal(frame0.rotationOrbit, 0);
+  assert.equal(quarter.rotationOrbit, -90);
+  assert.equal(frame0.rotationX, 0);
+  assert.ok(Math.abs(2 ** frame0.zoom - 720 / 2.2) < 1e-10);
 });
