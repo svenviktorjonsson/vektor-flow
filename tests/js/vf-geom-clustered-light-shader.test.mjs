@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 import {
   clusterIndexForReceiver,
-  evaluateClusteredDirectLights
+  evaluateClusteredDirectLights,
+  shadeClusteredReceiver
 } from '../../web/vf-ui/geom/vf-clustered-light-shading-oracle.mjs';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -90,6 +91,36 @@ test('a retained fifth light contributes without changing the first-four direct 
   assert.deepEqual(firstFour.specular, [7.2, 7.2, 7.2]);
   assert.deepEqual(fifthOnly.diffuse, [0.5, 0.25, 0.125]);
   assert.deepEqual(fifthOnly.specular, [1.8, 1.8, 1.8]);
+});
+
+test('transparent and opaque receivers share lighting before premultiplied alpha', () => {
+  const lights = Array.from({ length: 5 }, () => ({
+    position: [0, 0, 2],
+    range: 0,
+    color: [1, 1, 1],
+    intensity: 4,
+    direction: [0, 0, -1],
+    kindCode: 0,
+    innerConeCos: -1,
+    outerConeCos: -1
+  }));
+  const receiver = {
+    worldPosition: [0, 0, 0],
+    normal: [0, 0, 1],
+    cameraPosition: [0, 0, 10],
+    baseColor: [0.5, 0.25, 0.125],
+    specularScale: 1,
+    specularStrength: 1
+  };
+
+  const opaque = shadeClusteredReceiver({ lights, receiver: { ...receiver, alpha: 1 } });
+  const transparent = shadeClusteredReceiver({ lights, receiver: { ...receiver, alpha: 0.25 } });
+
+  assert.equal(opaque.alpha, 1);
+  assert.equal(transparent.alpha, 0.25);
+  for (let channel = 0; channel < 3; channel += 1) {
+    assert.ok(Math.abs(transparent.rgb[channel] - (opaque.rgb[channel] * 0.25)) < 1e-12);
+  }
 });
 
 test('main receiver shader consumes retained clustered lights after the legacy four', () => {

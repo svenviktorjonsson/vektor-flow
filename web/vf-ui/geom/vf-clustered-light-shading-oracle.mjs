@@ -136,3 +136,14 @@ export function evaluateClusteredDirectLights({
 
   return { diffuse, specular };
 }
+
+export function shadeClusteredReceiver({ lights, receiver, lightIds }) {
+  const alpha = finite(receiver?.alpha, 1);
+  const base = receiver?.baseColor || [1, 1, 1];
+  const direct = evaluateClusteredDirectLights({ lights, receiver, lightIds });
+  const rgb = [0, 1, 2].map((channel) =>
+    (((0.1 * finite(base[channel])) + direct.diffuse[channel]) * alpha) +
+      direct.specular[channel]
+  );
+  return { rgb, alpha };
+}
