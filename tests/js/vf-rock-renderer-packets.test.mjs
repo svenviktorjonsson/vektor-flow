@@ -74,3 +74,71 @@ test('adapter emits renderer field-mesh packets with stable geometry identities'
   assert.ok(Object.isFrozen(adapted));
   assert.ok(Object.isFrozen(adapted.packets));
 });
+
+test('camera demand uploads only changed detail and never the coarse packet again', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const firstDemands = [
+    demand('face:+x:+y:+z', 40),
+    demand('face:+x:+y:-z', 20),
+  ];
+  const update = (previous, demands) => updateEllipsoidRefinementWorkingSetReference(
+    coarse,
+    previous,
+    { demands, vertexBudget: 2, faceBudget: 6 },
+  );
+  const firstWorking = update(null, firstDemands);
+  const first = adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+    firstWorking,
+    null,
+  );
+  const steadyWorking = update(firstWorking, [...firstDemands].reverse());
+  const steady = adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+    steadyWorking,
+    first,
+  );
+  const changedWorking = update(steadyWorking, [
+    demand('face:-x:+y:+z', 60),
+    firstDemands[1],
+  ]);
+  const changed = adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+    changedWorking,
+    steady,
+  );
+
+  assert.strictEqual(steady.coarse, first.coarse);
+  assert.strictEqual(steady.packets[1], first.packets[1]);
+  assert.strictEqual(steady.packets[2], first.packets[2]);
+  assert.deepEqual(steady.delta.upsert, []);
+  assert.deepEqual(steady.delta.remove, []);
+  assert.deepEqual(steady.delta.unchanged, steady.packets.map(({ id }) => id));
+  assert.deepEqual(steady.delta.upload, {
+    packets: 0,
+    vertices: 0,
+    faces: 0,
+    vertexFloats: 0,
+    indices: 0,
+  });
+
+  assert.strictEqual(changed.coarse, first.coarse);
+  assert.deepEqual(changed.delta.upsert.map(({ id }) => id), [
+    'rock:detail:face:-x:+y:+z',
+  ]);
+  assert.deepEqual(changed.delta.remove, [
+    'rock:detail:face:+x:+y:+z',
+  ]);
+  assert.deepEqual(changed.delta.unchanged, [
+    'rock:ellipsoid-octahedron:v1:coarse',
+    'rock:detail:face:+x:+y:-z',
+  ]);
+  assert.deepEqual(changed.delta.upload, {
+    packets: 1,
+    vertices: 4,
+    faces: 3,
+    vertexFloats: 40,
+    indices: 9,
+  });
+  const retainedPacket = changed.packets.find(
+    ({ id }) => id === 'rock:detail:face:+x:+y:-z',
+  );
+  assert.strictEqual(retainedPacket, first.packets[2]);
+});
