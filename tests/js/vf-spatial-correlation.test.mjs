@@ -36,3 +36,27 @@ test('spatial correlation samples a pinned continuous field value', () => {
     9.032170148338288,
   );
 });
+
+test('spatial correlation rejects unbounded or malformed queries', () => {
+  const node = createFieldNode();
+  const valid = { correlationLength: 2, mean: 10, amplitude: 3 };
+  const sample = (position, overrides = {}) => sampleSpatialCorrelation2Reference(
+    node,
+    position,
+    { ...valid, ...overrides },
+  );
+
+  assert.throws(() => sample([0]), TypeError);
+  assert.throws(() => sample([0, NaN]), RangeError);
+  assert.throws(() => sample([0, 0], { correlationLength: 0 }), RangeError);
+  assert.throws(() => sample([0, 0], { correlationLength: Infinity }), RangeError);
+  assert.throws(() => sample([0, 0], { mean: NaN }), RangeError);
+  assert.throws(() => sample([0, 0], { amplitude: -1 }), RangeError);
+  assert.throws(() => sample([0, 0], { amplitude: Infinity }), RangeError);
+  assert.throws(() => sample([2_147_483_647, 0], { correlationLength: 1 }), RangeError);
+  assert.throws(() => sample([-2_147_483_649, 0], { correlationLength: 1 }), RangeError);
+  assert.equal(
+    sample(new Float64Array([3.25, -1.5]), { amplitude: 0 }),
+    10,
+  );
+});
