@@ -2,8 +2,15 @@ cmake_minimum_required(VERSION 3.14)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
   set(CMAKE_POLICY_VERSION_MINIMUM "3.5" CACHE STRING "" FORCE)
 endif()
+if(POLICY CMP0091)
+  cmake_policy(SET CMP0091 NEW)
+endif()
 
 project(vf-overlay CXX)
+
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -260,7 +267,11 @@ target_link_libraries(vkf-ui-package PRIVATE
 )
 if(MSVC)
   target_compile_options(vkf-ui-package PRIVATE /Zi)
-  target_link_options(vkf-ui-package PRIVATE /DEBUG /INCREMENTAL:NO)
+  target_link_options(vkf-ui-package PRIVATE
+    /DEBUG
+    /INCREMENTAL:NO
+    "/MAP:${CMAKE_CURRENT_BINARY_DIR}/vkf-ui-package.map"
+  )
 endif()
 add_dependencies(vkf-ui-package vkf-embedded-vf-ui-assets)
 
@@ -284,7 +295,12 @@ target_link_libraries(vkf-runner PRIVATE
 )
 if(MSVC)
   target_compile_options(vkf-runner PRIVATE /Zi)
-  target_link_options(vkf-runner PRIVATE /DEBUG /INCREMENTAL:NO /ENTRY:wmainCRTStartup)
+  target_link_options(vkf-runner PRIVATE
+    /DEBUG
+    /INCREMENTAL:NO
+    /ENTRY:wmainCRTStartup
+    "/MAP:${CMAKE_CURRENT_BINARY_DIR}/vkf-runner.map"
+  )
 endif()
 add_dependencies(vkf-runner vkf-embedded-vf-ui-assets)
 add_dependencies(vkf-ui-package vkf-runner)
