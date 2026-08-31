@@ -96,3 +96,21 @@ test('one demanded face receives pinned stable refinement identities', () => {
   assert.equal(refined.vertices.length, 7);
   assert.equal(refined.faces.length, 10);
 });
+
+test('face refinement rejects foreign shapes and unavailable faces', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const refined = refineEllipsoidFaceReference(coarse, 'face:+x:+y:+z');
+
+  assert.throws(
+    () => refineEllipsoidFaceReference({}, 'face:+x:+y:+z'),
+    TypeError,
+  );
+  assert.throws(
+    () => refineEllipsoidFaceReference(coarse, 'face:missing'),
+    RangeError,
+  );
+  assert.throws(
+    () => refineEllipsoidFaceReference(refined, 'face:+x:+y:+z/refine:1/child:0'),
+    RangeError,
+  );
+});
