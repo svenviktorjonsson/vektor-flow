@@ -194,6 +194,7 @@ machine_ir_numeric_count_to_loop_stack_maxima(
         entry_value
     )
     module: mir.mir_lower_numeric_count_to_loop_typed_module(application)
+    (module.entry.instructions.2.kind = "return_f64")?!
     (module.functions.0.instructions.2.kind = "label")?!
     (module.functions.0.instructions.11.kind = "jump")?!
     (module.functions.0.instructions.2.label = module.functions.0.instructions.11.label)?!
