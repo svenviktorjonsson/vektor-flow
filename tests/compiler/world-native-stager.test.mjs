@@ -68,6 +68,9 @@ test("native stager consumes the canonical typed World presentation", async () =
   );
   assert.doesNotMatch(sourceText, /native_scene_config_path/u);
   const typedIr = compileSource(sourceText);
+  const worldAdd = typedIr.ui_program.operations.find(({ kind }) => kind === "add");
+  assert.ok(worldAdd, "World presentation must retain its layer add operation");
+  assert.equal(worldAdd.frame_id, undefined, "World layer add is not a retained Frame.add operation");
 
   const source = path.join(workRoot, "world.vkf");
   const typedIrPath = path.join(workRoot, "world.typed-ir.json");
