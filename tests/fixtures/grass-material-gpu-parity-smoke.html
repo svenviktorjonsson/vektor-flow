@@ -1,0 +1,132 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grass-material-gpu-parity-running</title>
+<script type="module">
+  import {
+    conditionChild,
+    conditionedNodeStreamReference,
+    createConditionedRoot,
+  } from '../../web/vf-ui/vf-conditioned-distribution.mjs';
+  import {
+    createGrassMaterialLodGpuParityFixture,
+    sampleGrassMaterialLodReference,
+    verifyGrassMaterialLodGpuParity,
+  } from '../../web/vf-ui/vf-grass-material-gpu.mjs';
+
+  const stream = conditionedNodeStreamReference(conditionChild(
+    createConditionedRoot({
+      generator: 'vkf.conditioned',
+      version: 1,
+      seed: [0x01234567, 0x89abcdef],
+      domain: 'material',
+      hierarchy: ['world:temperate', 'grass-field:gpu-material'],
+      lod: 0,
+      channel: 'surface',
+    }),
+    { segment: 'grass:cell:2:-1', channel: 'blade-traits' },
+  ));
+  const base = {
+    baseColor: [0.18, 0.44, 0.09, 1],
+    roughness: 0.84,
+    stream,
+    bladeIndex: 7,
+  };
+
+  async function run() {
+    if (!navigator.gpu) {
+      return { outcome: 'unavailable', detail: 'navigator.gpu missing' };
+    }
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) {
+      return { outcome: 'unavailable', detail: 'WebGPU adapter unavailable' };
+    }
+    const device = await adapter.requestDevice();
+    const records = [
+      { ...base, detailLevel: 3, footprint: 0 },
+      { ...base, detailLevel: 4, footprint: 3 / 256 },
+      { ...base, detailLevel: 5, footprint: 1 / 256 },
+    ].map((record) => ({
+      ...record,
+      expected: sampleGrassMaterialLodReference(record),
+    }));
+    const exactIdentity = records[0].expected.baseColor === records[0].baseColor
+      && records[0].expected.roughness === records[0].roughness;
+    const fixture = createGrassMaterialLodGpuParityFixture(records);
+    const shader = device.createShaderModule({
+      label: 'VKF grass material CPU/WGSL parity',
+      code: fixture.source,
+    });
+    if (typeof shader.getCompilationInfo === 'function') {
+      const info = await shader.getCompilationInfo();
+      const errors = info.messages.filter((message) => message.type === 'error');
+      if (errors.length > 0) {
+        throw new Error(errors.map((error) => error.message).join('\n'));
+      }
+    }
+    const pipeline = await device.createComputePipelineAsync({
+      label: 'VKF grass material CPU/WGSL parity',
+      layout: 'auto',
+      compute: { module: shader, entryPoint: 'vf_grass_material_parity_main' },
+    });
+    const input = device.createBuffer({
+      size: fixture.inputWords.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const output = device.createBuffer({
+      size: fixture.expected.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const readback = device.createBuffer({
+      size: fixture.expected.byteLength,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      device.queue.writeBuffer(input, 0, fixture.inputWords);
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: input } },
+          { binding: 1, resource: { buffer: output } },
+        ],
+      });
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.dispatchWorkgroups(Math.ceil(records.length / 64));
+      pass.end();
+      encoder.copyBufferToBuffer(output, 0, readback, 0, fixture.expected.byteLength);
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const actual = new Float32Array(readback.getMappedRange().slice(0));
+      readback.unmap();
+      const parity = verifyGrassMaterialLodGpuParity(fixture, actual);
+      if (!parity.matched) {
+        throw new Error(
+          `record ${parity.record} lane ${parity.lane}: ${parity.actual} != ${parity.expected} ± ${parity.tolerance}`,
+        );
+      }
+      return {
+        outcome: 'pass',
+        detail: `${parity.records} filtered grass materials matched`,
+        records: parity.records,
+        maxAbsoluteError: parity.maxAbsoluteError,
+        exactIdentity,
+        stream,
+      };
+    } finally {
+      input.destroy();
+      output.destroy();
+      readback.destroy();
+    }
+  }
+
+  let result;
+  try {
+    result = await run();
+  } catch (error) {
+    result = { outcome: 'fail', detail: String(error?.message || error) };
+  }
+  document.title = `grass-material-gpu-parity-${result.outcome}`;
+  window.__grassMaterialGpuParityEvidence = result;
+</script>
