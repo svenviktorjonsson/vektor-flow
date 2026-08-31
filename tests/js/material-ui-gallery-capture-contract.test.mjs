@@ -11,6 +11,11 @@ test("material gallery capture is off-screen, event-driven, and uses the VKF fra
     readFile(path.join(repositoryRoot, "scripts/build-material-ui-gallery-media.mjs"), "utf8"),
   ]);
   assert.match(capture, /captureGeomFrameDataUrl/u);
+  assert.match(capture, /Page\.captureScreenshot/u);
+  assert.match(capture, /compositeSha256/u);
+  assert.match(capture, /staticHtml/u);
+  assert.match(capture, /frameChrome/u);
+  assert.match(capture, /webgpuCanvas/u);
   assert.match(capture, /\.click\(\)/u);
   for (const id of ["view-lighting", "view-mirror", "view-glass", "view-all"]) {
     assert.match(capture, new RegExp(id, "u"));
@@ -18,4 +23,5 @@ test("material gallery capture is off-screen, event-driven, and uses the VKF fra
   assert.doesNotMatch(capture, /--window-position/u);
   assert.match(builder, /VF_CAPTURE_OFFSCREEN_GPU:\s*"0"/u);
   assert.match(builder, /material-ui-gallery\.gif/u);
+  assert.match(builder, /material-ui-gallery-renderer\.gif/u);
 });

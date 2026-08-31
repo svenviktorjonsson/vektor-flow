@@ -26,6 +26,13 @@ test("material UI gallery media stays tied to executable VKF and capture sources
   assert.deepEqual(manifest.capture.interactions, [
     "view-lighting", "view-mirror", "view-glass", "view-all", "glass-alpha=0.72",
   ]);
+  assert.equal(manifest.capture.composite_states.length, 5);
+  assert.equal(new Set(manifest.capture.composite_states.map(({ sha256 }) => sha256)).size, 5);
+  for (const state of manifest.capture.composite_states) {
+    assert.equal(state.static_html, true);
+    assert.equal(state.frame_chrome, true);
+    assert.equal(state.webgpu_canvas, true);
+  }
 
   for (const [relativePath, expected] of Object.entries(manifest.sources)) {
     assert.equal(canonicalTextHash(await readFile(path.join(repositoryRoot, relativePath))), expected, relativePath);
@@ -51,4 +58,12 @@ test("material UI gallery media stays tied to executable VKF and capture sources
     if (gif[index] === 0x21 && gif[index + 1] === 0xf9 && gif[index + 2] === 0x04) frames += 1;
   }
   assert.equal(frames, gifSpec.frames);
+
+  const rendererSpec = manifest.media["docs/public/images/readme-ui/material-ui-gallery-renderer.gif"];
+  const renderer = await readFile(path.join(mediaRoot, "material-ui-gallery-renderer.gif"));
+  assert.equal(renderer.subarray(0, 6).toString("ascii"), "GIF89a");
+  assert.equal(renderer.readUInt16LE(6), rendererSpec.width);
+  assert.equal(renderer.readUInt16LE(8), rendererSpec.height);
+  assert.equal(rendererSpec.frames, 5);
+  assert.notEqual(rendererSpec.sha256, gifSpec.sha256);
 });
