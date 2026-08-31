@@ -59,7 +59,7 @@ int wmain() {
     }
     OverlayPacketRuntime::HttpResult first;
     runtime.TryHandleHttpRequest("GET", "/api/runtime-packets", "", L"", &first);
-    if (!Contains(first.response_json, "\\\"visible\\\":true")) {
+    if (!Contains(first.response_json, "\"visible\":true")) {
         cleanup();
         return Fail("ButtonClicked did not patch retained visibility: " + first.response_json);
     }
@@ -70,8 +70,8 @@ int wmain() {
     OverlayPacketRuntime::HttpResult second;
     runtime.TryHandleHttpRequest("GET", "/api/runtime-packets", "", L"", &second);
     cleanup();
-    if (!Contains(second.response_json, "\\\"alpha\\\":0.72") ||
-        !Contains(second.response_json, "\\\"visible\\\":true")) {
+    if (!Contains(second.response_json, "\"alpha\":0.72") ||
+        !Contains(second.response_json, "\"visible\":true")) {
         return Fail("SliderValueChanged did not preserve and patch retained geometry: " + second.response_json);
     }
     std::wcout << L"retained-scene-event-program-runtime-test passed" << std::endl;

@@ -164,6 +164,7 @@ private:
     std::map<std::string, long long> event_counters_;
     std::map<std::string, std::string> event_values_;
     std::map<std::string, vf::JsonValue::Array> plot_committed_meshes_;
+    std::map<std::string, vf::JsonValue> retained_event_geometry_;
 
     mutable std::mutex log_sink_mutex_;
     LogSink log_sink_;
