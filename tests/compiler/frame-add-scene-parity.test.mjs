@@ -47,6 +47,13 @@ const litSurfaceSource = [
   "surface: frame.add(x:[[-1.5, 1.5], [-1.5, 1.5]], y:[[0.0, 0.0], [2.0, 2.0]], z:[[0.0, 0.0], [0.0, 0.0]], id:\"lit_surface\", color:[0.16, 0.52, 0.92, 1.0], representation:\"faces\", receives_lighting:true, casts_shadow:true)",
 ].join("\n");
 
+const rectangularSurfaceSource = [
+  ": .ui.display",
+  "display: Display(dim:2)",
+  "frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])",
+  "surface: frame.add(x:[[-3, -2, -1, 0, 1, 2, 3], [-3, -2, -1, 0, 1, 2, 3]], y:[[-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09], [-0.06, -0.86, -0.80, 0.03, 0.88, 0.94, 0.15]], z:[[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]], id:\"sine\", color:[0.12, 0.72, 1.0, 1.0])",
+].join("\n");
+
 test("approved Frame add calls lower to retained scene operations instead of no-ops", () => {
   const typedIr = compile(litSurfaceSource);
   assert.deepEqual(typedIr.ui_program.operations.map(({ kind }) => kind), [
@@ -68,6 +75,39 @@ test("approved Frame add calls lower to retained scene operations instead of no-
   assert.equal(add.properties.color.type, "[num:4]");
   assert.equal(add.properties.receives_lighting.value, true);
   assert.equal(typedIr.body.find(({ name }) => name === "surface").type, "Layer");
+});
+
+test("Frame add stages rectangular surface grids without materializing a 2 by 2 limit", async () => {
+  assert.ok(nativeSceneStager, "VKF_NATIVE_SCENE_STAGER must name the focused stager executable");
+  const typedIr = compile(rectangularSurfaceSource);
+  const root = path.join(workRoot, "rectangular-grid");
+  const source = path.join(root, "rectangular-grid.vkf");
+  const typedIrPath = path.join(root, "rectangular-grid.typed-ir.json");
+  const overlayWeb = path.join(root, "vf-ui");
+  await mkdir(root, { recursive: true });
+  await Promise.all([
+    writeFile(source, `${rectangularSurfaceSource}\n`, "utf8"),
+    writeFile(typedIrPath, `${JSON.stringify(typedIr)}\n`, "utf8"),
+    cp(path.join(repositoryRoot, "web", "vf-ui"), overlayWeb, { recursive: true }),
+  ]);
+
+  const nativeSummary = JSON.parse(stage(nativeSceneStager, undefined, [
+    "--source", source,
+    "--overlay-web", overlayWeb,
+    "--typed-ir", typedIrPath,
+  ]));
+  const sessionDirectory = path.dirname(path.join(
+    overlayWeb,
+    ...nativeSummary.page_rel.split("/"),
+  ));
+  const packets = JSON.parse(await readFile(
+    path.join(sessionDirectory, "vf-runtime-packets.json"),
+    "utf8",
+  ));
+  const mesh = packets[2].payload.display.geom.frame_0.meshes[0];
+  assert.equal(mesh.vertices.length, 2 * 7 * 10);
+  assert.equal(mesh.indices.length, 6 * (2 - 1) * (7 - 1));
+  assert.deepEqual(mesh.indices.slice(0, 6), [0, 1, 8, 0, 8, 7]);
 });
 
 test("native and WASM stage the same executable retained material scene", async () => {

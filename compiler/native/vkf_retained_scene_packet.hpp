@@ -119,6 +119,38 @@ inline std::vector<double> numbers(const vf::JsonValue& value, const std::string
     return result;
 }
 
+struct NumericGrid {
+    std::size_t rows = 0;
+    std::size_t columns = 0;
+    std::vector<double> values;
+};
+
+inline NumericGrid numeric_grid(const vf::JsonValue& value, const std::string& context) {
+    if (!value.is_array() || value.as_array().size() < 2) {
+        throw Error(context + " must have at least two rows");
+    }
+    NumericGrid result;
+    result.rows = value.as_array().size();
+    for (const auto& raw_row : value.as_array()) {
+        if (!raw_row.is_array() || raw_row.as_array().size() < 2) {
+            throw Error(context + " rows must have at least two columns");
+        }
+        if (result.columns == 0) {
+            result.columns = raw_row.as_array().size();
+            result.values.reserve(result.rows * result.columns);
+        } else if (raw_row.as_array().size() != result.columns) {
+            throw Error(context + " must be rectangular");
+        }
+        for (const auto& raw_item : raw_row.as_array()) {
+            if (!raw_item.is_number() || !std::isfinite(raw_item.as_number())) {
+                throw Error(context + " must contain only finite numbers");
+            }
+            result.values.push_back(raw_item.as_number());
+        }
+    }
+    return result;
+}
+
 inline bool boolean_or(
     const vf::JsonValue::Object& value,
     const std::string& name,
@@ -166,43 +198,74 @@ inline vf::JsonValue material_mesh(
     const vf::JsonValue::Object& properties,
     std::uint64_t layer_id
 ) {
-    const auto x = numbers(field(properties, "x", "Frame.add"), "Frame.add x");
-    const auto y = numbers(field(properties, "y", "Frame.add"), "Frame.add y");
-    const auto z = numbers(field(properties, "z", "Frame.add"), "Frame.add z");
+    const auto x = numeric_grid(field(properties, "x", "Frame.add"), "Frame.add x");
+    const auto y = numeric_grid(field(properties, "y", "Frame.add"), "Frame.add y");
+    const auto z = numeric_grid(field(properties, "z", "Frame.add"), "Frame.add z");
     const auto color = numbers(field(properties, "color", "Frame.add"), "Frame.add color");
-    if (x.size() != 4 || y.size() != 4 || z.size() != 4) {
-        throw Error("retained Frame.add first material slice requires a 2 by 2 surface");
+    if (x.rows != y.rows || x.rows != z.rows ||
+        x.columns != y.columns || x.columns != z.columns) {
+        throw Error("retained Frame.add x, y, and z surfaces must have the same shape");
     }
     if (color.size() != 3 && color.size() != 4) {
         throw Error("retained Frame.add color must have three or four components");
     }
-    const double ux = x[1] - x[0];
-    const double uy = y[1] - y[0];
-    const double uz = z[1] - z[0];
-    const double vx = x[2] - x[0];
-    const double vy = y[2] - y[0];
-    const double vz = z[2] - z[0];
-    double nx = uy * vz - uz * vy;
-    double ny = uz * vx - ux * vz;
-    double nz = ux * vy - uy * vx;
-    const double length = std::sqrt(nx * nx + ny * ny + nz * nz);
-    if (!(length > 1e-12)) throw Error("retained Frame.add surface must have non-zero area");
-    nx /= length;
-    ny /= length;
-    nz /= length;
+    const std::size_t vertex_count = x.rows * x.columns;
+    std::vector<double> normals(vertex_count * 3, 0.0);
+    vf::JsonValue::Array indices;
+    indices.reserve((x.rows - 1) * (x.columns - 1) * 6);
+    bool has_area = false;
+    const auto accumulate_triangle = [&](std::size_t a, std::size_t b, std::size_t c) {
+        const double ux = x.values[b] - x.values[a];
+        const double uy = y.values[b] - y.values[a];
+        const double uz = z.values[b] - z.values[a];
+        const double vx = x.values[c] - x.values[a];
+        const double vy = y.values[c] - y.values[a];
+        const double vz = z.values[c] - z.values[a];
+        const double nx = uy * vz - uz * vy;
+        const double ny = uz * vx - ux * vz;
+        const double nz = ux * vy - uy * vx;
+        if (nx * nx + ny * ny + nz * nz > 1e-24) has_area = true;
+        for (const std::size_t index : {a, b, c}) {
+            normals[index * 3] += nx;
+            normals[index * 3 + 1] += ny;
+            normals[index * 3 + 2] += nz;
+        }
+        indices.push_back(vf::JsonValue(static_cast<double>(a)));
+        indices.push_back(vf::JsonValue(static_cast<double>(b)));
+        indices.push_back(vf::JsonValue(static_cast<double>(c)));
+    };
+    for (std::size_t row = 0; row + 1 < x.rows; ++row) {
+        for (std::size_t column = 0; column + 1 < x.columns; ++column) {
+            const std::size_t a = row * x.columns + column;
+            const std::size_t b = a + 1;
+            const std::size_t c = (row + 1) * x.columns + column;
+            const std::size_t d = c + 1;
+            accumulate_triangle(a, b, d);
+            accumulate_triangle(a, d, c);
+        }
+    }
+    if (!has_area) throw Error("retained Frame.add surface must have non-zero area");
+    for (std::size_t index = 0; index < vertex_count; ++index) {
+        const double nx = normals[index * 3];
+        const double ny = normals[index * 3 + 1];
+        const double nz = normals[index * 3 + 2];
+        const double length = std::sqrt(nx * nx + ny * ny + nz * nz);
+        if (length > 1e-12) {
+            normals[index * 3] /= length;
+            normals[index * 3 + 1] /= length;
+            normals[index * 3 + 2] /= length;
+        }
+    }
     const double alpha = color.size() == 4 ? color[3] : 1.0;
     vf::JsonValue::Array vertices;
-    vertices.reserve(40);
-    for (std::size_t index = 0; index < 4; ++index) {
+    vertices.reserve(vertex_count * 10);
+    for (std::size_t index = 0; index < vertex_count; ++index) {
         for (const double item : {
-                 x[index], y[index], z[index], nx, ny, nz,
+                 x.values[index], y.values[index], z.values[index],
+                 normals[index * 3], normals[index * 3 + 1], normals[index * 3 + 2],
                  color[0], color[1], color[2], alpha}) {
             vertices.push_back(vf::JsonValue(item));
         }
-    }
-    vf::JsonValue::Array indices;
-    for (const double item : {0.0, 1.0, 3.0, 0.0, 3.0, 2.0}) {
-        indices.push_back(vf::JsonValue(item));
     }
     const auto id_value = field(properties, "id", "Frame.add");
     if (!id_value.is_string()) throw Error("Frame.add id must be a string");

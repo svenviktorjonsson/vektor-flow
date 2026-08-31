@@ -1,0 +1,26 @@
+{
+  "schema": "vkf.scene-example-gallery/1",
+  "examples": [
+    {
+      "id": "01-line-plot",
+      "title": "Line plot",
+      "dimension": 2,
+      "features": [
+        "2d",
+        "plot"
+      ],
+      "source": "01-line-plot/app.vkf",
+      "sourceSha256": "1c33f9c359af04e3cfa30a3a071a78e6df8dc3429d9d7a25064ec5df42084f10",
+      "media": {
+        "path": "docs/public/images/scene-gallery/01-line-plot.png",
+        "sha256": "ca2664413bd2d3049bfcbb4e0a1361898f33d581a97a5ad51143f071c212d144"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    }
+  ]
+}

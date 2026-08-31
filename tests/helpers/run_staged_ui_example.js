@@ -71,8 +71,9 @@ async function main() {
   const frameId = process.argv[3] || "";
   const requireRenderer = process.argv[4] !== "frame-only";
   const cdpPort = Number(process.argv[5] || "9480");
+  const compositeOutputPath = process.argv[6] ? path.resolve(process.argv[6]) : "";
   if (!process.argv[2] || !frameId) {
-    throw new Error("usage: node run_staged_ui_example.js <scene> <frame-id> [renderer|frame-only] [cdp-port]");
+    throw new Error("usage: node run_staged_ui_example.js <scene> <frame-id> [renderer|frame-only] [cdp-port] [composite-output.png]");
   }
   const edgePath = process.env.VF_EDGE_PATH || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
   if (!fs.existsSync(edgePath)) throw new Error(`edge missing at ${edgePath}`);
@@ -140,7 +141,13 @@ async function main() {
       throw new Error(`staged UI never became ready: ${JSON.stringify(evidence)}`);
     }
     const screenshot = await cdp(page, pageState, "Page.captureScreenshot", { format: "png", fromSurface: true });
-    evidence.composite_sha256 = crypto.createHash("sha256").update(Buffer.from(screenshot.data, "base64")).digest("hex");
+    const screenshotBytes = Buffer.from(screenshot.data, "base64");
+    evidence.composite_sha256 = crypto.createHash("sha256").update(screenshotBytes).digest("hex");
+    if (compositeOutputPath) {
+      fs.mkdirSync(path.dirname(compositeOutputPath), { recursive: true });
+      fs.writeFileSync(compositeOutputPath, screenshotBytes);
+      evidence.composite_path = compositeOutputPath;
+    }
     evidence.hidden = true;
     console.log(JSON.stringify(evidence));
     try { await cdp(browser, browserState, "Browser.close"); } catch (_) {}
