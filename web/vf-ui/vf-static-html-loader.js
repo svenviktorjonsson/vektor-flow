@@ -129,14 +129,6 @@
         return;
       }
     } catch (_) {}
-    if (global.VfRetainedEventAdapter &&
-        typeof global.VfRetainedEventAdapter.dispatch === "function") {
-      global.VfRetainedEventAdapter.dispatch(message).catch(function (error) {
-        global.__vfRetainedEventError = error;
-        global.document.body?.setAttribute("data-vf-retained-event-error", "1");
-      });
-      return;
-    }
     if (typeof global.fetch === "function") {
       global.fetch("/api/enqueue", {
         method: "POST",
