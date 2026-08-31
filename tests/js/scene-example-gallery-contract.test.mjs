@@ -166,3 +166,21 @@ test("scene gallery captures static HTML and CSS controls with VKF events", asyn
   assert.ok(bytes.length > 100);
   assert.equal(sha256(bytes), example.media.sha256);
 });
+
+test("scene gallery captures a focused sun reflection", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "10-sun-reflection");
+  assert.ok(example);
+  assert.deepEqual(example.features, ["3d", "lighting", "specular", "sun-reflection"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  assert.ok(source.includes('id:"sun"'));
+  assert.ok(source.includes('kind:"projected"'));
+  assert.ok(source.includes('reflect_of_light_id:"sun"'));
+  assert.ok(source.includes('reflect_mirror_mesh_id:"mirror"'));
+  assert.ok(source.includes("specular_strength:1"));
+  assert.ok(source.includes("roughness:0.02"));
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+});
