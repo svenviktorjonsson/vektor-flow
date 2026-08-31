@@ -70,6 +70,9 @@ test('demand streams require explicit typed identity fields', () => {
     () => deriveDemandStream({ ...DEMAND_VECTOR, hierarchy: ['world', 7] }),
     /hierarchy\[1\].*string/,
   );
+  const withoutSample = { ...DEMAND_VECTOR };
+  delete withoutSample.sample;
+  assert.throws(() => deriveDemandKey(withoutSample), /sample.*2 u32/);
 });
 
 test('identity digest matches the FIPS 180-4 SHA-256 vectors', () => {
