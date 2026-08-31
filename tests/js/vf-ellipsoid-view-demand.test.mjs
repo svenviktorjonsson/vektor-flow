@@ -40,3 +40,20 @@ test('view demand spends a small budget on visible silhouette faces first', () =
   assert.ok(Object.isFrozen(selection.demands));
   assert.ok(Object.isFrozen(selection.candidates));
 });
+
+test('view demand enforces its explicit small refinement budget', () => {
+  const shape = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const select = (budget) => selectEllipsoidViewDemandReference(shape, {
+    camera,
+    maxErrorPixels: 0,
+    budget,
+  });
+
+  assert.throws(() => select(-1), RangeError);
+  assert.throws(() => select(1.5), RangeError);
+  assert.throws(() => select(65), RangeError);
+  assert.throws(() => select('2'), TypeError);
+  for (let budget = 0; budget <= 4; budget += 1) {
+    assert.ok(select(budget).demands.length <= budget);
+  }
+});

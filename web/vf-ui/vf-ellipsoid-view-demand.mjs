@@ -1,4 +1,5 @@
 const FACING_EPSILON = 1e-12;
+const MAX_REFINEMENT_BUDGET = 64;
 
 function subtract(a, b) {
   return a.map((value, index) => value - b[index]);
@@ -56,6 +57,18 @@ export function selectEllipsoidViewDemandReference(shape, {
   maxErrorPixels,
   budget,
 }) {
+  if (typeof budget !== 'number') {
+    throw new TypeError('ellipsoid view refinement budget must be a number');
+  }
+  if (
+    !Number.isSafeInteger(budget)
+    || budget < 0
+    || budget > MAX_REFINEMENT_BUDGET
+  ) {
+    throw new RangeError(
+      `ellipsoid view refinement budget must be an integer from 0 to ${MAX_REFINEMENT_BUDGET}`,
+    );
+  }
   const positions = new Map(shape.vertices.map(({ id, position }) => [id, position]));
   const basis = cameraBasis(camera);
   const facing = new Map(shape.faces.map((face) => {
