@@ -1,0 +1,9 @@
+:root { color-scheme: dark; font-family: "Segoe UI", sans-serif; }
+body { margin: 0; background: #111827; color: #e5f3ff; }
+main { display: grid; gap: 0.85rem; padding: 1.25rem; }
+.eyebrow { margin: 0; color: #5bd9ff; font: 700 0.7rem/1 monospace; letter-spacing: 0.14em; }
+h1 { margin: 0; font-size: 1.55rem; }
+p { margin: 0; color: #9fb2c8; line-height: 1.45; }
+button { border: 1px solid #3b82f6; border-radius: 0.55rem; padding: 0.65rem; background: #172554; color: white; }
+label { margin-top: 0.5rem; color: #c8d7e8; font-size: 0.82rem; }
+input { width: 100%; accent-color: #38bdf8; }

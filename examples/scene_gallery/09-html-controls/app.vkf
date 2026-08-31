@@ -1,0 +1,16 @@
+: .ui.display
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.04, 0.07], size:[0.68, 0.84])
+frame.set_geom_options(background:[0.01, 0.015, 0.03, 1], unified_renderer:true, combine_transparent:true)
+frame.add_camera(pos:[4.4, -6.4, 3.4], target:[0, 1, 1], up:[0, 0, 1], fov:42)
+frame.add_light(id:"key", pos:[-2.8, -2.4, 5.2], target:[0, 1, 1], color:[1, 0.76, 0.52, 1], intensity:32, range:18, casts_shadow:true)
+frame.add(x:[[-2.6, 2.6], [-2.6, 2.6]], y:[[3.2, 3.2], [3.2, 3.2]], z:[[0.2, 0.2], [3.2, 3.2]], id:"back", color:[0.92, 0.2, 0.08, 1], receives_lighting:true)
+panel: frame.add(x:[[-1.8, 2], [-1.8, 2]], y:[[0.2, 0.6], [0.2, 0.6]], z:[[0.2, 0.2], [2.8, 2.8]], id:"panel", color:[0.08, 0.74, 0.96, 0.52], alpha:0.52, transparent:true, depth_write:false, reflectivity:0.22, receives_lighting:true)
+controls: display.add_frame(pos:[0.75, 0.07], size:[0.21, 0.84])
+controls.load("ui/main.html")
+tone: Button(id:"tone")
+alpha: Input(id:"alpha")
+(tone_event: tone.events.get())??>
+    ButtonClicked => panel.alpha: 0.9
+(alpha_event: alpha.events.get())??>
+    SliderValueChanged => panel.alpha: alpha_event.value
