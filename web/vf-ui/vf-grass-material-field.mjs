@@ -291,6 +291,7 @@ export function createGrassRendererPacketsReference(
       indices,
       blade_count: cellBladeCount,
       cull_backfaces: false,
+      no_lighting: true,
       specular_strength: 0.02,
       material_channels: Object.freeze({ roughness }),
     }));

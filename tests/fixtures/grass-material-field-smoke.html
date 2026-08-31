@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>grass material field smoke</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #9fc7df;
+      }
+
+      #layer {
+        position: fixed;
+        inset: 0;
+      }
+    </style>
+  </head>
+  <body data-vf-runtime-autoboot="false">
+    <div id="layer"></div>
+    <canvas id="vf-screen-canvas"></canvas>
+    <script src="../../web/vf-ui/vf-runtime-shell.js"></script>
+    <script type="module">
+      import {
+        createGrassMaterialFieldReference,
+        createGrassRendererPacketsReference,
+      } from '../../web/vf-ui/vf-grass-material-field.mjs';
+
+      const frameId = 'grass_material_field_frame';
+      try {
+        await window.VfRuntimeShell.ensureSceneDependencies();
+        const layer = document.getElementById('layer');
+        const panel = window.VfFrame.mount(layer, {
+          id: frameId,
+          title: 'Demand-refined procedural grass',
+          draggable: false,
+          dockable: false,
+          resizable: false,
+          closable: false,
+        });
+        panel.root.style.left = '5%';
+        panel.root.style.top = '5%';
+        panel.root.style.width = '90%';
+        panel.root.style.height = '90%';
+
+        const field = createGrassMaterialFieldReference({
+          generator: 'vkf.conditioned',
+          version: 1,
+          seed: [0x01234567, 0x89abcdef],
+          domain: 'material',
+          hierarchy: ['world:temperate', 'grass-field:3'],
+          lod: 0,
+          channel: 'surface',
+        });
+        const cells = [];
+        for (let x = -4; x <= 4; x += 1) {
+          for (let y = -4; y <= 4; y += 1) {
+            cells.push([x, y]);
+          }
+        }
+        const workingSet = createGrassRendererPacketsReference(field, {
+          cells,
+          detailLevel: 4,
+          footprint: 0.015,
+          bladeBudget: cells.length * 16,
+        });
+        const ground = Object.freeze({
+          id: 'grass:ground',
+          type: 'field_mesh',
+          vertices: new Float32Array([
+            -5, -5, -0.01, 0, 0, 1, 0.16, 0.22, 0.08, 1,
+             5, -5, -0.01, 0, 0, 1, 0.16, 0.22, 0.08, 1,
+             5,  5, -0.01, 0, 0, 1, 0.16, 0.22, 0.08, 1,
+            -5,  5, -0.01, 0, 0, 1, 0.16, 0.22, 0.08, 1,
+          ]),
+          indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+          cull_backfaces: false,
+          no_lighting: true,
+          specular_strength: 0.01,
+        });
+        const meshes = [ground, ...workingSet.packets];
+        window.__grassMaterialFieldEvidence = {
+          bladeCount: workingSet.bladeCount,
+          demandedCellCount: workingSet.demandedCellCount,
+          packetCount: workingSet.packets.length,
+          vertexBytes: workingSet.vertexBytes,
+          indexBytes: workingSet.indexBytes,
+        };
+        window.VfDisplay.mountDynamicGeomFrame(frameId, () => ({
+          meshes,
+          camera: {
+            pos: [8, -10, 6],
+            target: [0, 0, 0.45],
+            up: [0, 0, 1],
+            fov: 44,
+          },
+          lights: [{
+            id: 'grass_sun',
+            kind: 'point',
+            pos: [-3, -5, 9],
+            target: [0, 0, 0],
+            color: [1, 0.95, 0.8, 1],
+            intensity: 24,
+            range: 30,
+          }],
+          background: [0.34, 0.55, 0.72, 1],
+          unified_renderer: true,
+        }));
+        window.VfDisplay.requestDynamicGeomFrameUpdate(frameId);
+      } catch (error) {
+        window.__vfLastError = String(error && error.stack || error);
+      }
+    </script>
+  </body>
+</html>

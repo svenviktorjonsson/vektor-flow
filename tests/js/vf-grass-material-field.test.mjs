@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   createGrassMaterialFieldReference,
@@ -68,9 +69,22 @@ test('only demanded grass cells materialize a bounded typed renderer working set
   );
   for (const packet of forward.packets) {
     assert.equal(packet.type, 'field_mesh');
+    assert.equal(packet.no_lighting, true);
     assert.ok(packet.vertices instanceof Float32Array);
     assert.ok(packet.indices instanceof Uint32Array);
     assert.equal(packet.vertices.length, packet.blade_count * 40);
     assert.equal(packet.indices.length, packet.blade_count * 6);
   }
+});
+
+test('offscreen grass fixture feeds demanded packets into the retained renderer', async () => {
+  const html = await readFile(
+    new URL('../fixtures/grass-material-field-smoke.html', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(html, /createGrassRendererPacketsReference/);
+  assert.match(html, /mountDynamicGeomFrame/);
+  assert.match(html, /__grassMaterialFieldEvidence/);
+  assert.match(html, /bladeCount/);
 });
