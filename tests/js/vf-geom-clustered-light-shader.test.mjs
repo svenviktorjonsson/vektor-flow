@@ -165,6 +165,55 @@ test('a retained fifth projected light is clipped by its packed aperture', () =>
   }), { diffuse: [1, 1, 1], specular: [0, 0, 0] });
 });
 
+test('a retained geometry emitter contributes bounded one-sided diffuse light', () => {
+  const geometry = {
+    position: [0, 0, 2],
+    range: 4,
+    color: [1, 0.5, 0.25],
+    intensity: 4,
+    direction: [0, 0, -1],
+    kindCode: 3,
+    geometryArea: 2,
+    geometryTwoSided: false
+  };
+  const receiver = {
+    worldPosition: [0, 0, 0],
+    normal: [0, 0, 1],
+    cameraPosition: [0, 0, 10],
+    baseColor: [1, 1, 1],
+    alpha: 1,
+    specularScale: 1,
+    specularStrength: 1
+  };
+  const front = evaluateClusteredDirectLights({
+    lights: [{}, {}, {}, {}, geometry],
+    lightIds: [4],
+    skipLightIdsBelow: 4,
+    receiver
+  });
+  const back = evaluateClusteredDirectLights({
+    lights: [{}, {}, {}, {}, { ...geometry, direction: [0, 0, 1] }],
+    lightIds: [4],
+    skipLightIdsBelow: 4,
+    receiver
+  });
+  const twoSided = evaluateClusteredDirectLights({
+    lights: [{}, {}, {}, {}, {
+      ...geometry,
+      direction: [0, 0, 1],
+      geometryTwoSided: true
+    }],
+    lightIds: [4],
+    skipLightIdsBelow: 4,
+    receiver
+  });
+
+  assert.ok(front.diffuse[0] > 0);
+  assert.deepEqual(front.specular, [0, 0, 0]);
+  assert.deepEqual(back, { diffuse: [0, 0, 0], specular: [0, 0, 0] });
+  assert.deepEqual(twoSided, front);
+});
+
 test('transparent and opaque receivers share lighting before premultiplied alpha', () => {
   const lights = Array.from({ length: 5 }, () => ({
     position: [0, 0, 2],
@@ -204,6 +253,8 @@ test('main receiver shader consumes retained clustered lights after the legacy f
   assert.match(rendererSource, /apertureCount = min\(u32\(light\.aperture_normal_count\.w \+ 0\.5\), 8u\)/);
   assert.match(rendererSource, /for \(var index: u32 = 0u; index < apertureCount;/);
   assert.match(rendererSource, /clusteredProjectedApertureFactor\(worldPos, light\)/);
+  assert.match(rendererSource, /clusteredGeometryEmitterFactor\(light, L\)/);
+  assert.match(rendererSource, /light\.direction_kind\.w >= 2\.5/);
   assert.doesNotMatch(rendererSource, /if \(light\.direction_kind\.w >= 1\.5\)\s*\{\s*continue;/);
   assert.match(rendererSource, /let clustered = clusteredAdditionalDirectLights[\s\S]*diffuse \+= clustered\.diffuse[\s\S]*specular \+= clustered\.specular/);
 

@@ -185,6 +185,103 @@ test('renderer projects a finite aperture-light volume and culls it off camera',
   assert.deepEqual([...new Set(plan.lightIds)], [0]);
 });
 
+test('internal geometry emitters append after legacy lights as bounded records', () => {
+  const renderer = createRenderer();
+  const legacy = Array.from({ length: 4 }, (_, index) => normalizedLight(index));
+  const polygon = [
+    [-1, -1, -3], [1, -1, -3], [1, 1, -3], [-1, 1, -3]
+  ];
+  const emitters = Array.from({ length: 40 }, (_, index) => ({
+    id: `patch-${index}`,
+    points: polygon,
+    color_f32: [0.25, 0.5, 1, 1],
+    intensity: 8,
+    range: 3,
+    two_sided: index === 0
+  }));
+
+  const lights = renderer._clusteredLightsForScene(legacy, { _geometry_emitters: emitters });
+
+  assert.equal(lights.length, 36);
+  assert.deepEqual(lights.slice(0, 4), legacy);
+  assert.deepEqual(JSON.parse(JSON.stringify(lights[4])), {
+    id: 'patch-0',
+    kind: 'geometry',
+    kind_code: 3,
+    pos: [0, 0, -3],
+    direction_f32: [0, 0, 1],
+    color_f32: [0.25, 0.5, 1, 1],
+    intensity: 8,
+    range: 3,
+    inner_cone_cos: -1,
+    outer_cone_cos: -1,
+    source_radius: 0,
+    spread: 1,
+    casts_shadow: false,
+    show_marker: false,
+    geometry_points: polygon,
+    geometry_area: 4,
+    geometry_radius: Math.SQRT2,
+    geometry_two_sided: true
+  });
+});
+
+test('internal geometry emitters reserve legacy slots without widening public light kinds', () => {
+  const renderer = createRenderer();
+  const lights = renderer._clusteredLightsForScene([], {
+    _geometry_emitters: [{
+      points: [[0, 0, -3], [0, 1, -3], [1, 0, -3]],
+      color_f32: [1, 1, 1, 1],
+      intensity: 1,
+      range: 2
+    }]
+  });
+
+  assert.equal(lights.length, 5);
+  assert.deepEqual(lights.slice(0, 4).map((light) => light.kind), ['point', 'point', 'point', 'point']);
+  assert.equal(lights[4].kind, 'geometry');
+  assert.match(rendererSource, /raw !== "point" && raw !== "spot" && raw !== "projected"/);
+});
+
+test('internal geometry emitters use projected bounds and packed geometry metadata', () => {
+  const renderer = createRenderer();
+  const writes = [];
+  renderer._device = {
+    createBuffer(descriptor) { return { descriptor, destroy() {} }; },
+    createBindGroup(descriptor) { return { descriptor }; },
+    queue: { writeBuffer(buffer, offset, data) { writes.push(new data.constructor(data)); } }
+  };
+  renderer._clusteredLightBindLayout = {};
+  renderer._clusteredLightGrid = {
+    xSlices: 4, ySlices: 2, depthSlices: 4, nearDepth: 1, farDepth: 10
+  };
+  const legacy = Array.from({ length: 4 }, (_, index) => ({
+    ...normalizedLight(index), kind: 'point', pos: [20 + index, 0, -5], range: 1
+  }));
+  const lights = renderer._clusteredLightsForScene(legacy, {
+    _geometry_emitters: [{
+      id: 'patch',
+      points: [[-1, -1, -3], [1, -1, -3], [1, 1, -3], [-1, 1, -3]],
+      color_f32: [1, 0.5, 0.25, 1],
+      intensity: 8,
+      range: 3,
+      two_sided: true
+    }]
+  });
+  const plan = renderer._planClusteredLightsForFrame(lights, VIEW_CAMERA);
+
+  assert.equal(plan.culledLightCount, 4);
+  assert.deepEqual([...new Set(plan.lightIds)], [4]);
+  const records = writes[1];
+  const base = 4 * 48;
+  assert.deepEqual([...records.slice(base, base + 16)].map((v) => Math.round(v * 1000) / 1000), [
+    0, 0, -3, 3,
+    1, 0.5, 0.25, 8,
+    0, 0, 1, 3,
+    4, Math.round(Math.SQRT2 * 1000) / 1000, 1, 0
+  ]);
+});
+
 test('batch camera uses exact live matrices and unsafe scenes retain conservative coverage', () => {
   const renderer = createRenderer();
   renderer._clusteredLightGrid = {
