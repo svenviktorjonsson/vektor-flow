@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   createGrassMaterialFieldReference,
   createGrassRendererBatchPacketsReference,
+  createGrassRendererGpuBatchPacketsReference,
   createGrassRendererInstancePacketsReference,
   createGrassRendererPacketsReference,
 } from '../../web/vf-ui/vf-grass-material-field.mjs';
@@ -133,4 +134,45 @@ test('compatible grass cells batch into one draw while preserving deterministic 
   assert.equal(batch.templateVertexBytes, 160);
   assert.equal(batch.templateIndexBytes, 24);
   assert.equal(batch.instanceBytes, 48 * 64);
+});
+
+test('GPU grass packets upload one deterministic Philox descriptor per cell', () => {
+  const field = createGrassMaterialFieldReference(IDENTITY);
+  const demand = {
+    ...DEMAND,
+    cells: Object.freeze([
+      Object.freeze([2, -1]),
+      Object.freeze([3, -1]),
+      Object.freeze([2, 0]),
+    ]),
+    bladeBudget: 48,
+  };
+  const cpu = createGrassRendererBatchPacketsReference(field, demand);
+  const gpu = createGrassRendererGpuBatchPacketsReference(field, demand);
+  const packet = gpu.packets[0];
+
+  assert.equal(packet.id, cpu.packets[0].id);
+  assert.equal(packet.instance_kind, 'grass-blade-list');
+  assert.equal(packet.instance_count, 48);
+  assert.equal(packet.instances, undefined);
+  assert.equal(packet.grass_gpu.kind, 'grass-blade-philox:v1');
+  assert.equal(packet.grass_gpu.cell_stride_words, 12);
+  assert.equal(packet.grass_gpu.blades_per_cell, 16);
+  assert.ok(packet.grass_gpu.cell_records instanceof Uint32Array);
+  assert.equal(packet.grass_gpu.cell_records.length, 3 * 12);
+  assert.deepEqual(packet.cell_ids, cpu.packets[0].cell_ids);
+  assert.deepEqual(packet.cell_instance_ranges, cpu.packets[0].cell_instance_ranges);
+  assert.equal(gpu.instanceBytes, 0);
+  assert.equal(gpu.cellDescriptorBytes, 3 * 48);
+  assert.equal(gpu.computeParameterBytes, 16);
+  assert.equal(gpu.uploadBytes, 184 + 3 * 48 + 16);
+
+  const recreated = createGrassRendererGpuBatchPacketsReference(
+    createGrassMaterialFieldReference(IDENTITY),
+    demand,
+  );
+  assert.deepEqual(
+    [...recreated.packets[0].grass_gpu.cell_records],
+    [...packet.grass_gpu.cell_records],
+  );
 });

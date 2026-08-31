@@ -1,5 +1,6 @@
 import {
   conditionChild,
+  conditionedNodeStreamReference,
   createConditionedRoot,
   sampleBoundedUniform,
 } from './vf-conditioned-distribution.mjs';
@@ -474,5 +475,124 @@ export function createGrassRendererBatchPacketsReference(field, demand) {
     instanceBytes,
     uploadBytes: templateVertexBytes + templateIndexBytes + instanceBytes,
     budget: workingSet.budget,
+  });
+}
+
+export function createGrassRendererGpuBatchPacketsReference(
+  field,
+  { cells, detailLevel, footprint, bladeBudget },
+) {
+  const state = fieldState.get(field);
+  if (!state) {
+    throw new TypeError('grass material field is required');
+  }
+  requireOptions({ detailLevel, footprint });
+  requireBladeBudget(bladeBudget);
+  const demandedCells = requireDemandedCells(cells);
+  const bladesPerCell = 2 ** Math.min(4, detailLevel);
+  const activeCells = [];
+  let bladeCount = 0;
+  for (const [cellX, cellY] of demandedCells) {
+    if (bladeCount >= bladeBudget) break;
+    const cellBladeCount = Math.min(bladesPerCell, bladeBudget - bladeCount);
+    if (cellBladeCount === 0) break;
+    activeCells.push({ cellX, cellY, cellBladeCount });
+    bladeCount += cellBladeCount;
+  }
+  if (activeCells.length === 0) {
+    return Object.freeze({
+      kind: 'grass-renderer-gpu-batch-working-set:v1',
+      packets: Object.freeze([]),
+      demandedCellCount: demandedCells.length,
+      bladeCount: 0,
+      templateVertexBytes: 0,
+      templateIndexBytes: 0,
+      instanceBytes: 0,
+      cellDescriptorBytes: 0,
+      computeParameterBytes: 0,
+      uploadBytes: 0,
+      budget: bladeBudget,
+    });
+  }
+  const cellRecords = new Uint32Array(activeCells.length * 12);
+  const cellRecordFloats = new Float32Array(cellRecords.buffer);
+  const cellIds = [];
+  const cellInstanceRanges = [];
+  let instanceOffset = 0;
+  activeCells.forEach(({ cellX, cellY, cellBladeCount }, cellIndex) => {
+    const cellNode = conditionChild(state.detailNode, {
+      segment: `grass:cell:${cellX}:${cellY}`,
+      channel: 'blade-traits',
+    });
+    const stream = conditionedNodeStreamReference(cellNode);
+    const material = sampleGrassMaterialReference(
+      field,
+      [cellX + 0.5, cellY + 0.5],
+      { detailLevel: 0, footprint: 0 },
+    );
+    const wordOffset = cellIndex * 12;
+    cellRecords[wordOffset] = cellX;
+    cellRecords[wordOffset + 1] = cellY;
+    cellRecords.set(stream.key, wordOffset + 2);
+    cellRecords.set(stream.counterPrefix, wordOffset + 4);
+    cellRecordFloats[wordOffset + 6] = material.bladeHeight;
+    cellRecordFloats[wordOffset + 7] = material.roughness;
+    cellRecordFloats.set(material.baseColor, wordOffset + 8);
+    const id = `grass:cell:${cellX}:${cellY}`;
+    cellIds.push(id);
+    cellInstanceRanges.push(Object.freeze({
+      id,
+      offset: instanceOffset,
+      count: cellBladeCount,
+    }));
+    instanceOffset += cellBladeCount;
+  });
+  const retainedSignature = cellInstanceRanges
+    .map(({ id, count }) => `${id}:${count}`)
+    .join('|');
+  const grassGpu = Object.freeze({
+    kind: 'grass-blade-philox:v1',
+    cell_records: cellRecords,
+    cell_stride_words: 12,
+    blades_per_cell: bladesPerCell,
+  });
+  const packet = Object.freeze({
+    id: 'grass:view-batch:v1',
+    type: 'field_mesh',
+    instance_kind: 'grass-blade-list',
+    instance_count: bladeCount,
+    grass_gpu: grassGpu,
+    vertices: GRASS_BLADE_TEMPLATE_VERTICES,
+    indices: GRASS_BLADE_TEMPLATE_INDICES,
+    blade_count: bladeCount,
+    cell_ids: Object.freeze(cellIds),
+    cell_instance_ranges: Object.freeze(cellInstanceRanges),
+    retained_signature: retainedSignature,
+    static_vertices: true,
+    static_indices: true,
+    static_instances: false,
+    cull_backfaces: false,
+    no_cull: true,
+    no_lighting: true,
+    pickable: false,
+    specular_strength: 0.02,
+  });
+  const templateVertexBytes = packet.vertices.byteLength;
+  const templateIndexBytes = packet.indices.byteLength;
+  const cellDescriptorBytes = cellRecords.byteLength;
+  const computeParameterBytes = 16;
+  return Object.freeze({
+    kind: 'grass-renderer-gpu-batch-working-set:v1',
+    packets: Object.freeze([packet]),
+    demandedCellCount: demandedCells.length,
+    bladeCount,
+    templateVertexBytes,
+    templateIndexBytes,
+    instanceBytes: 0,
+    cellDescriptorBytes,
+    computeParameterBytes,
+    uploadBytes: templateVertexBytes + templateIndexBytes
+      + cellDescriptorBytes + computeParameterBytes,
+    budget: bladeBudget,
   });
 }
