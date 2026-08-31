@@ -140,6 +140,7 @@ async function main() {
     if (!evidence.frame || (requireRenderer && !(evidence.status && evidence.status.runningRenderers > 0))) {
       throw new Error(`staged UI never became ready: ${JSON.stringify(evidence)}`);
     }
+    await delay(1000);
     const screenshot = await cdp(page, pageState, "Page.captureScreenshot", { format: "png", fromSurface: true });
     const screenshotBytes = Buffer.from(screenshot.data, "base64");
     evidence.composite_sha256 = crypto.createHash("sha256").update(screenshotBytes).digest("hex");

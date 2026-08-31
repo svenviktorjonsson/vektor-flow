@@ -53,3 +53,19 @@ test("scene gallery captures a minimal illuminated 3D surface", async () => {
   assert.equal(sha256(bytes), example.media.sha256);
   assert.equal(example.capture.hidden, true);
 });
+
+test("scene gallery captures a public mirrored surface", async () => {
+  const manifest = JSON.parse(await readFile(path.join(galleryRoot, "manifest.json"), "utf8"));
+  const example = manifest.examples.find(({ id }) => id === "03-mirror");
+  assert.ok(example);
+  assert.deepEqual(example.features, ["3d", "mirror", "reflection"]);
+  const source = await readFile(path.join(galleryRoot, example.source), "utf8");
+  assert.ok(source.includes("surface_system:"));
+  assert.ok(source.includes("mirror_of:"));
+  assert.ok(source.includes("reflectivity:"));
+  assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
+  const bytes = await readFile(path.join(repositoryRoot, example.media.path));
+  assert.ok(bytes.length > 100);
+  assert.equal(sha256(bytes), example.media.sha256);
+  assert.equal(example.capture.hidden, true);
+});

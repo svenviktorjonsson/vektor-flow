@@ -13,6 +13,7 @@ test("shipped UI audit runner is hidden, dependency-free, and full-compositor", 
 
   assert.match(source, /--headless=new/u);
   assert.match(source, /Page\.captureScreenshot/u);
+  assert.match(source, /await delay\(1000\)/u);
   assert.match(source, /createServer/u);
   assert.match(source, /frameChrome/u);
   assert.match(source, /runningRenderers/u);

@@ -1,0 +1,14 @@
+: .ui.display
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])
+frame.set_geom_options(background:[0.01, 0.015, 0.03, 1], unified_renderer:true, combine_transparent:true)
+frame.add_camera(pos:[5.2, -7.4, 4.2], target:[0, 1.2, 1.1], up:[0, 0, 1], fov:43)
+frame.add_light(id:"key", kind:"point", pos:[-2.8, -2.6, 5.8], target:[0, 1, 0.8], color:[1, 0.72, 0.48, 1], intensity:34, range:18, casts_shadow:true)
+frame.add(x:[[-4, 4], [-4, 4]], y:[[-2, -2], [4.2, 4.2]], z:[[0, 0], [0, 0]], id:"floor", color:[0.13, 0.18, 0.28, 1], roughness:0.72, receives_lighting:true)
+frame.add(x:[[-1.5, 0.4], [-1.1, 0.8]], y:[[0.3, 1.0], [0.3, 1.0]], z:[[0.2, 0.5], [2.7, 3.0]], id:"sculpture", color:[0.96, 0.22, 0.08, 1], roughness:0.24, specular_strength:0.78, casts_shadow:true, receives_lighting:true)
+frame.add(
+    x:[[-3.2, 3.2], [-3.2, 3.2]], y:[[4.1, 4.1], [4.1, 4.1]], z:[[0.1, 0.1], [3.8, 3.8]],
+    id:"mirror", color:[0.72, 0.84, 1, 1], alpha:1, transparent:true, reflectivity:0.9, roughness:0.04,
+    surface_system:(kind:"screen", reflectivity:0.9, reverse_facing:true, flip_y:true, scale:[1, 1], camera:(fov:43, up:[0, 0, 1], mirror_of:(frame_id:"frame_0", mesh_id:"mirror", reflect_eye_only:true, lock_aperture_camera:true, controls_enabled:false))),
+    casts_shadow:true, receives_shadow:true, receives_lighting:true
+)
