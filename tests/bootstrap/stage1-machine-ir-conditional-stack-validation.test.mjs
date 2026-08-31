@@ -637,3 +637,50 @@ test("VKF rejects a fixed conditional whose false arm is not terminated by a ret
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects a fixed-conditional entry without a return terminator", () => {
+  const work = makeWork("i90-conditional-entry-terminator-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /(_mir_numeric_linked_entry\(function_name:str\):[\s\S]*?_mir_call_no_handler\(function_name, 1, 1, 1\),\r?\n)            mir_return_f64\(\)/,
+      '$1            mir_local("store_local", 0)',
+    );
+    assert.notEqual(
+      mutatedMachineIr,
+      originalMachineIr,
+      "conditional-entry terminator mutation did not apply",
+    );
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "conditional-entry-terminator.vkf");
+    const artifact = join(work, `conditional-entry-terminator${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_positive_conditional_stack_maxima("positive", "x")',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `conditional-entry terminator probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "unterminated fixed-conditional entry produced output");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
