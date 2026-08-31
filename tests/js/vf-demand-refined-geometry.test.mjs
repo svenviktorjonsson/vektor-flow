@@ -114,3 +114,38 @@ test('face refinement rejects foreign shapes and unavailable faces', () => {
     RangeError,
   );
 });
+
+test('one-face refinement stays closed, conforming, and on the ellipsoid', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const refined = refineEllipsoidFaceReference(coarse, 'face:+x:+y:+z');
+  const positions = new Map(refined.vertices.map(({ id, position }) => [id, position]));
+  const incidence = new Map();
+  let signedVolume = 0;
+
+  for (const face of refined.faces) {
+    face.boundary.forEach((edge) => incidence.set(edge, (incidence.get(edge) ?? 0) + 1));
+    const [a, b, c] = face.vertices.map((vertex) => positions.get(vertex));
+    signedVolume += (
+      a[0] * (b[1] * c[2] - b[2] * c[1])
+      - a[1] * (b[0] * c[2] - b[2] * c[0])
+      + a[2] * (b[0] * c[1] - b[1] * c[0])
+    ) / 6;
+  }
+
+  const parent = coarse.faces.find(({ id }) => id === 'face:+x:+y:+z');
+  const center = positions.get(refined.refinement.center);
+  const ellipsoidResidual = (center[0] / 3) ** 2
+    + (center[1] / 2) ** 2
+    + (center[2] / 1.5) ** 2;
+  assert.deepEqual(refined.refinement.boundary, parent.boundary);
+  assert.ok(coarse.faces.filter(({ id }) => id !== parent.id).every(
+    (face) => refined.faces.includes(face),
+  ));
+  assert.equal(ellipsoidResidual, 1.0000000000000002);
+  assert.equal(refined.vertices.length, 7);
+  assert.equal(incidence.size, 15);
+  assert.equal(refined.faces.length, 10);
+  assert.ok([...incidence.values()].every((count) => count === 2));
+  assert.equal(refined.vertices.length - incidence.size + refined.faces.length, 2);
+  assert.equal(signedVolume, 13.098076211353316);
+});
