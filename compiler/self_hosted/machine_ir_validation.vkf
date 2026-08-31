@@ -177,6 +177,7 @@ machine_ir_numeric_count_to_loop_stack_maxima(
     )
     module: mir.mir_lower_numeric_count_to_loop_typed_module(application)
     (module.functions.0.instructions.2.label = module.functions.0.instructions.11.label)?!
+    (module.functions.0.instructions.6.label = module.functions.0.instructions.12.label)?!
     [num:2] maxima: [0, 0]
     depth: 0
     maximum: 0
