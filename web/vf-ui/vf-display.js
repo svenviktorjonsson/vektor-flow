@@ -2573,6 +2573,18 @@
     };
   }
 
+  function geomSpecNeedsUnifiedRenderer(spec) {
+    if (!spec || typeof spec !== "object") { return false; }
+    if (spec.instance_kind && spec.instances && Number(spec.instance_count || 0) > 0) {
+      return true;
+    }
+    if (spec.type !== "field_mesh") { return false; }
+    var topology = String(spec.topology || "");
+    var renderMode = fieldMeshRenderMode(spec);
+    return renderMode === "marker_impostor" &&
+      (topology === "point-list" || topology === "line-list");
+  }
+
   // Build a single-mesh object for the renderer from a spec
   function buildSingleMesh(spec, camera, lights) {
     var Core = global.VfGeomCore;
@@ -10815,7 +10827,10 @@
           });
         })()
       : null;
-    var unifiedScene = geomSpec && geomSpec.unified_renderer === true
+    var unifiedScene = geomSpec && (
+      geomSpec.unified_renderer === true ||
+      renderableSpecs.some(geomSpecNeedsUnifiedRenderer)
+    )
       ? buildUnifiedFrameScene(renderableSpecs, effectiveCamera, lights, geomSpec.light_flares || null, geomSpec.background || null)
       : null;
     var combinedTransparent = !unifiedScene && geomSpec && geomSpec.combine_transparent === true && renderableSpecs.length > 1
