@@ -224,10 +224,12 @@ export function selectGrassViewDemandReference({
     && height <= Math.floor(MAX_SCAN_CELLS / width);
   const selected = [];
   let intersectingCount = 0;
+  let scannedCellCount = 0;
   if (cellBudget > 0 && canScanAll) {
     const candidates = [];
     for (let x = minimumCellX; x <= maximumCellX; x += 1) {
       for (let y = minimumCellY; y <= maximumCellY; y += 1) {
+        scannedCellCount += 1;
         if (cellIntersectsFootprint(x, y, footprint)) {
           candidates.push([x, y]);
         }
@@ -260,6 +262,7 @@ export function selectGrassViewDemandReference({
         }
       }
     }
+    scannedCellCount = scanned;
     intersectingCount = selected.length + 1;
   }
   selected.sort(binaryCellCompare);
@@ -275,6 +278,7 @@ export function selectGrassViewDemandReference({
     footprint: 1 / pixelsPerCell,
     bladeBudget,
     cellBudget,
+    scannedCellCount,
     truncated: !canScanAll || intersectingCount > cellBudget,
   });
 }

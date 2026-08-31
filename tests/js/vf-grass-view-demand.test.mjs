@@ -60,3 +60,25 @@ test('camera frustum emits bounded canonical grass cells consumable by the rende
   assert.ok(workingSet.bladeCount <= 128);
   assert.ok(workingSet.packets.length <= demand.cells.length);
 });
+
+test('a billion-unit view selects its nearest bounded working set without scanning the world', () => {
+  const demand = selectGrassViewDemandReference({
+    camera: {
+      eye: [0, 0, 1_000_000_000],
+      target: [0, 0, 0],
+      up: [0, 1, 0],
+      verticalFovRadians: Math.PI / 3,
+      viewportWidth: 800,
+      viewportHeight: 600,
+    },
+    planeZ: 0,
+    cellBudget: 32,
+    bladeBudget: 128,
+  });
+
+  assert.equal(demand.cells.length, 32);
+  assert.equal(demand.truncated, true);
+  assert.ok(demand.scannedCellCount >= demand.cells.length);
+  assert.ok(demand.scannedCellCount <= 65536);
+  assert.ok(demand.cells.every(([x, y]) => Math.abs(x) <= 4 && Math.abs(y) <= 4));
+});
