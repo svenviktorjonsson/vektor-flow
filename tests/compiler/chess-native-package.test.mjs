@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -58,6 +58,14 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
   assert.match(stdout, /^Built /mu);
 
   const entries = sceneBundleEntries(await readFile(output));
+  for (const runtimeAsset of [
+    "vf-chess.css",
+    "vf-widgets.js",
+    "vf-shared-runtime.js",
+    "vf-gpu-runtime.js",
+  ]) {
+    assert.ok(entries.has(runtimeAsset), `packaged chess runtime omitted ${runtimeAsset}`);
+  }
   const packets = JSON.parse(entries.get("sessions/main/vf-runtime-packets.json"));
   const frameCommands = packets
     .filter(({ kind }) => kind === "scene.replace")
@@ -68,4 +76,27 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
   );
   const geom = packets.find(({ kind }) => kind === "display.replace").payload.display.geom.frame_0;
   assert.equal(geom.meshes.length, 33, "board plus all 32 pieces must reach the renderer");
+
+  const overlayRoot = path.join(workRoot, "hidden-overlay");
+  for (const [relativePath, bytes] of entries) {
+    const destination = path.join(overlayRoot, ...relativePath.split("/"));
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, bytes);
+  }
+  const hiddenEvidence = JSON.parse(execFileSync(process.execPath, [
+    path.join(repositoryRoot, "tests", "helpers", "run_staged_ui_example.js"),
+    path.join(overlayRoot, "sessions", "main", "vkf-scene.html"),
+    "frame_0",
+    "renderer",
+    String(9900 + (process.pid % 300)),
+  ], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    timeout: 90_000,
+    windowsHide: true,
+  }));
+  assert.equal(hiddenEvidence.hidden, true);
+  assert.equal(hiddenEvidence.frameChrome, true);
+  assert.ok(hiddenEvidence.status.runningRenderers > 0);
+  assert.match(hiddenEvidence.composite_sha256, /^[0-9a-f]{64}$/u);
 });
