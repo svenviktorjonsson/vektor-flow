@@ -1632,7 +1632,7 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
         }
         out << light_jsons[i];
     }
-    out << "],\"timing\":" << literal_json_or(root, "timing", "{\"fps\":60,\"duration_seconds\":8.0,\"boundary\":\"repeat\"")
+    out << "],\"timing\":" << literal_json_or(root, "timing", "{\"fps\":60,\"duration_seconds\":8.0,\"boundary\":\"repeat\"}")
         << ",\"render_options\":{"
         << "\"show_light_markers\":" << literal_json_or(root, "show_light_markers", "false") << ","
         << "\"light_flares\":" << literal_json_or(root, "light_flares", "false") << ","
