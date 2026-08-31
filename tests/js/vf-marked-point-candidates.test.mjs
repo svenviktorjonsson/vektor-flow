@@ -39,14 +39,14 @@ test('queried cell produces pinned bounded candidate identities and marks', () =
 
   assert.deepEqual(candidates, [
     {
-      id: 'candidate:v1:b0709f36:2f5feefc',
+      id: 'candidate:v1:b0709f36:2f5feefc:d53d96f0:a6505381',
       cell: [2, -1],
       slot: 0,
       position: [24.33209284907207, -2.935679443180561],
       marks: { weight: 0.30771112302318215, angle: 4.4799549441969715 },
     },
     {
-      id: 'candidate:v1:fb1ae87e:1581e99c',
+      id: 'candidate:v1:fb1ae87e:1581e99c:78d197a6:ea1cae26',
       cell: [2, -1],
       slot: 1,
       position: [20.41999283246696, -9.32815571082756],
@@ -103,11 +103,11 @@ test('region query includes candidates from every crossed neighbor cell', () => 
   assert.deepEqual(
     candidates.map(({ id, cell, slot }) => ({ id, cell, slot })),
     [
-      { id: 'candidate:v1:5f176be7:5643cbb0', cell: [0, -1], slot: 2 },
-      { id: 'candidate:v1:df812db2:ecc08f23', cell: [1, -1], slot: 4 },
-      { id: 'candidate:v1:76f3e6d1:18391f06', cell: [0, 0], slot: 5 },
-      { id: 'candidate:v1:1357d14d:34ffea71', cell: [1, 0], slot: 1 },
-      { id: 'candidate:v1:dc612832:2e626ea1', cell: [1, 0], slot: 5 },
+      { id: 'candidate:v1:5f176be7:5643cbb0:a8d9f4c8:8fb980a7', cell: [0, -1], slot: 2 },
+      { id: 'candidate:v1:df812db2:ecc08f23:33870897:6249f0d9', cell: [1, -1], slot: 4 },
+      { id: 'candidate:v1:76f3e6d1:18391f06:6a183599:b85e4937', cell: [0, 0], slot: 5 },
+      { id: 'candidate:v1:1357d14d:34ffea71:64e48b9f:09b18210', cell: [1, 0], slot: 1 },
+      { id: 'candidate:v1:dc612832:2e626ea1:03f01288:4d73c419', cell: [1, 0], slot: 5 },
     ],
   );
   assert.ok(Object.isFrozen(candidates));
@@ -330,11 +330,11 @@ test('distant cell demand does not generate an intervening world population', ()
     candidates.map(({ id, position }) => ({ id, position })),
     [
       {
-        id: 'candidate:v1:e4a118ff:a01104ef',
+        id: 'candidate:v1:e4a118ff:a01104ef:474d2fa6:58ae1520',
         position: [2_000_000_000.6923192, -1_999_999_999.1287613],
       },
       {
-        id: 'candidate:v1:41f7cfb6:9c1b8b5b',
+        id: 'candidate:v1:41f7cfb6:9c1b8b5b:2d8d7bf7:298c47e6',
         position: [2_000_000_000.8670542, -1_999_999_999.745709],
       },
     ],

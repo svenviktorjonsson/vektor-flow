@@ -132,7 +132,13 @@ export function sampleMarkedPointCell2Reference(
       continue;
     }
     candidates.push(Object.freeze({
-      id: `candidate:v1:${unitWordHex(sampleUnit(cellNode, slot, 3))}:${unitWordHex(sampleUnit(cellNode, slot, 4))}`,
+      id: [
+        'candidate:v1',
+        unitWordHex(sampleUnit(cellNode, slot, 3)),
+        unitWordHex(sampleUnit(cellNode, slot, 4)),
+        unitWordHex(sampleUnit(cellNode, slot, 7)),
+        unitWordHex(sampleUnit(cellNode, slot, 8)),
+      ].join(':'),
       cell: frozenCell,
       slot,
       position: Object.freeze([
