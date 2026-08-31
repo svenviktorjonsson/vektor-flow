@@ -108,3 +108,31 @@ export function createPhilox4x32WgslParityFixture(records) {
     expectedWords,
   };
 }
+
+export function verifyPhilox4x32WgslParity(fixture, actualWords) {
+  if (!actualWords || actualWords.length !== fixture.expectedWords.length) {
+    throw new TypeError(
+      `Philox WGSL readback must contain ${fixture.expectedWords.length} u32 words`,
+    );
+  }
+  for (let index = 0; index < actualWords.length; index += 1) {
+    const actual = actualWords[index];
+    if (!Number.isInteger(actual) || actual < 0 || actual > 0xffffffff) {
+      throw new TypeError(`Philox WGSL readback[${index}] must be a u32`);
+    }
+    const expected = fixture.expectedWords[index];
+    if (actual !== expected) {
+      return {
+        matched: false,
+        record: Math.floor(index / 4),
+        lane: index % 4,
+        expected,
+        actual,
+      };
+    }
+  }
+  return {
+    matched: true,
+    records: actualWords.length / 4,
+  };
+}
