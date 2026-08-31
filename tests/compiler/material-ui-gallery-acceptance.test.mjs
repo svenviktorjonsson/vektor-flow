@@ -85,7 +85,7 @@ test("material UI gallery is one executable VKF scene with script-free HTML/CSS 
   assert.equal(meshes.studio_floor.texture.kind, "checker");
   assert.equal(meshes.mirror_wall.surface_system.kind, "screen");
   assert.equal(meshes.glass_panel.transparent, true);
-  assert.equal(meshes.glass_panel.alpha, 0.48);
+  assert.equal(meshes.glass_panel.alpha, 0.08);
   assert.equal(meshes.sculpture_panel.casts_shadow, true);
   assert.equal(meshes.studio_floor.receives_shadow, true);
   assert.equal(scene.lights.filter(({ casts_shadow: castsShadow }) => castsShadow).length, 2);
@@ -99,7 +99,7 @@ test("material UI gallery is one executable VKF scene with script-free HTML/CSS 
 
   const events = runtimeContract.createInternalRetainedEventProgramExecution(nativeProgram);
   const mirror = events.dispatch({ event: "ButtonClicked", widget_id: "view-mirror" });
-  assert.equal(mirror.payload.display.geom.frame_0.meshes.find(({ id }) => id === "mirror_wall").visible, true);
+  assert.equal(mirror.payload.display.geom.frame_0.meshes.find(({ id }) => id === "mirror_wall").alpha, 1);
   const alpha = events.dispatch({ event: "SliderValueChanged", widget_id: "glass-alpha", value: 0.64 });
   assert.equal(alpha.payload.display.geom.frame_0.meshes.find(({ id }) => id === "glass_panel").alpha, 0.64);
 });

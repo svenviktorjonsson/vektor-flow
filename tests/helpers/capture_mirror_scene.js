@@ -357,7 +357,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(String(error && error.stack || error));
-  process.exit(1);
-});
+module.exports = { delay, openScene, closeScene, sendCdp };
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(String(error && error.stack || error));
+    process.exit(1);
+  });
+}
