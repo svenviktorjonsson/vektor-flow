@@ -40,6 +40,10 @@ export function installLargeBufferUploadTracker(minimumBytes) {
   const originals = [];
   let initialized = false;
   let lateLargeUploads = 0;
+  let largeUploadCalls = 0;
+  let largeUploadBytes = 0;
+  let largeAllocationCalls = 0;
+  let largeAllocationBytes = 0;
   const canvasPrototype = globalThis.HTMLCanvasElement?.prototype;
   if (canvasPrototype?.getContext) {
     const originalGetContext = canvasPrototype.getContext;
@@ -60,8 +64,18 @@ export function installLargeBufferUploadTracker(minimumBytes) {
       originals.push([constructor.prototype, method, original]);
       constructor.prototype[method] = function(...args) {
         contexts.add(this);
-        if (initialized && args.some((value) => uploadBytes(value) >= minimumBytes)) {
-          lateLargeUploads += 1;
+        const bytes = Math.max(0, ...args.map(uploadBytes));
+        if (bytes >= minimumBytes) {
+          const allocationOnly = method === 'bufferData'
+            && args.some((value) => typeof value === 'number' && value === bytes);
+          if (allocationOnly) {
+            largeAllocationCalls += 1;
+            largeAllocationBytes += bytes;
+          } else {
+            largeUploadCalls += 1;
+            largeUploadBytes += bytes;
+          }
+          if (initialized) lateLargeUploads += 1;
         }
         return original.apply(this, args);
       };
@@ -70,7 +84,15 @@ export function installLargeBufferUploadTracker(minimumBytes) {
   return Object.freeze({
     contexts,
     markInitialized() { initialized = true; },
-    evidence() { return { largeBufferUploadsAfterInitialize: lateLargeUploads }; },
+    evidence() {
+      return {
+        largeBufferUploadsAfterInitialize: lateLargeUploads,
+        largeBufferUploadCalls: largeUploadCalls,
+        largeBufferUploadBytes: largeUploadBytes,
+        largeBufferAllocationCalls: largeAllocationCalls,
+        largeBufferAllocationBytes: largeAllocationBytes,
+      };
+    },
     restore() {
       for (const [prototype, method, original] of originals) prototype[method] = original;
     },

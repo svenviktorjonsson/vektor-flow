@@ -10,6 +10,7 @@ import {
   PLOTLY_SCATTERGL_VERSION,
   plotlyMarkerSize,
   plotlyPlanarPositions,
+  renderPlotlyFrame,
 } from './adapters/plotly-scattergl.mjs';
 import {
   VTK_JS_VERSION,
@@ -78,6 +79,20 @@ test('Plotly static markers use the framebuffer-calibrated size only when declar
       },
     },
   }), 2.4);
+});
+
+test('Plotly forced static benchmark calls a real redraw while ordinary static dispatch remains idle', async () => {
+  const calls = [];
+  const Plotly = {
+    async redraw(plot) { calls.push(['redraw', plot]); },
+    async relayout(plot, ranges) { calls.push(['relayout', plot, ranges]); },
+  };
+  const plot = {};
+  const fixed = { cameraPath: { kind: 'fixed' } };
+  await renderPlotlyFrame(Plotly, plot, fixed, 0, false);
+  assert.deepEqual(calls, []);
+  await renderPlotlyFrame(Plotly, plot, fixed, 0, true);
+  assert.deepEqual(calls, [['redraw', plot]]);
 });
 
 test('explicit completion submits one GPU fence per context before blocking', () => {

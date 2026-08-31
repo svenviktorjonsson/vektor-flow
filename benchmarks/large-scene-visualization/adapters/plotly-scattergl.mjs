@@ -26,6 +26,15 @@ export function plotlyPlanarPositions(points, pointCount) {
   return Object.freeze({ x, y });
 }
 
+export async function renderPlotlyFrame(Plotly, plot, workload, frame, forceStaticDraw = false) {
+  if (workload.cameraPath.kind === 'fixed') {
+    if (forceStaticDraw) await Plotly.redraw(plot);
+    return;
+  }
+  const ranges = cameraRangesForFrame(workload, frame);
+  await Plotly.relayout(plot, { 'xaxis.range': ranges.x, 'yaxis.range': ranges.y });
+}
+
 export function createPlotlyScatterGlLargeSceneAdapter(host, workload, options = {}) {
   prepareHost(host, workload);
   const fixture = fixtureView(workload, options.fixtureBytes);
@@ -82,9 +91,7 @@ export function createPlotlyScatterGlLargeSceneAdapter(host, workload, options =
       });
     },
     async renderFrameImpl(frame) {
-      if (workload.cameraPath.kind === 'fixed') return;
-      const ranges = cameraRangesForFrame(workload, frame);
-      await Plotly.relayout(plot, { 'xaxis.range': ranges.x, 'yaxis.range': ranges.y });
+      await renderPlotlyFrame(Plotly, plot, workload, frame, options.forceStaticDraw === true);
     },
     async destroyImpl() { if (plot) Plotly.purge(plot); },
   });

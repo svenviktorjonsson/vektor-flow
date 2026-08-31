@@ -7,6 +7,10 @@ import {
   assertComparableAdapter,
   runCorrectnessThenTiming,
 } from './peer-measurement.mjs';
+import {
+  STATIC_DISPATCH_PROTOCOL,
+  staticDispatchWorkload,
+} from './static-dispatch-diagnostic.mjs';
 
 const require = createRequire(import.meta.url);
 const {
@@ -101,22 +105,18 @@ test('timing browser is always headless and hardware mode does not force SwiftSh
   assert.throws(() => edgeLaunchArgs({ ...common, gpuMode: 'invalid' }), /GPU mode/);
 });
 
-test('fixed retained dispatch batching uses the exact predeclared operation count', async () => {
+test('each measured sample issues exactly one render and one GPU completion', async () => {
   const adapter = fakeAdapter();
   let clock = 0;
   const result = await runCorrectnessThenTiming(adapter, workload(), {
     warmupFrames: 2,
     measuredFrames: 3,
-    fixedDispatchesPerSample: 4,
     now: () => clock++,
   });
-  assert.equal(result.timing.fixedDispatchesPerSample, 4);
-  assert.equal(result.timing.measuredDispatches, 12);
-  assert.equal(result.timing.adaptiveBatching, false);
   assert.equal(result.timing.samplesMs.length, 3);
   assert.equal(result.timing.measuredGpuFrames, 3);
   assert.equal(result.timing.gpuCompletionCalls, 7);
-  assert.equal(adapter.calls.filter((call) => call.startsWith('render:')).length, 22);
+  assert.equal(adapter.calls.filter((call) => call.startsWith('render:')).length, 7);
 });
 
 test('timing runner selects the requested GPU mode and defaults to correctness-only software', () => {
@@ -135,18 +135,24 @@ test('timing runner requests graceful hidden-browser shutdown before process-tre
   assert.ok(processFallback > browserClose);
 });
 
-test('static resolution diagnostic freezes 1000 dispatches over exact 50/1000 runs', () => {
+test('static real-render diagnostic reuses the frozen 1M fixture for exact 100 runs', () => {
+  const manifest = JSON.parse(readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'));
+  const source = manifest.workloads.find(({ id }) => id === STATIC_DISPATCH_PROTOCOL.sourceWorkload);
+  const diagnosticWorkload = staticDispatchWorkload(source, manifest.implementations);
+  assert.equal(diagnosticWorkload.pointCount, 1_000_000);
+  assert.equal(diagnosticWorkload.fixture.sha256, source.fixture.sha256);
+  assert.equal(diagnosticWorkload.cameraPath.kind, 'fixed');
+  assert.deepEqual(diagnosticWorkload.correctness.checkpoints, [0]);
+  assert.equal(STATIC_DISPATCH_PROTOCOL.measuredSamples, 100);
+  assert.equal(STATIC_DISPATCH_PROTOCOL.measuredOperation,
+    'one real retained draw plus one explicit GPU completion');
   const diagnostic = readFileSync(
     new URL('../../tests/helpers/run_large_scene_static_dispatch_diagnostic.mjs', import.meta.url),
     'utf8',
   );
-  assert.match(diagnostic, /fixedDispatchesPerSample = 1000;/);
-  assert.match(diagnostic, /warmupSamples = 50;/);
-  assert.match(diagnostic, /measuredSamples = 1000;/);
-  assert.match(diagnostic, /adaptiveBatching !== false/);
   assert.match(diagnostic, /server\.listen\(0, '127\.0\.0\.1'/);
   assert.doesNotMatch(diagnostic, /while\s*\(/);
-  assert.doesNotMatch(diagnostic, /10020/);
+  assert.doesNotMatch(diagnostic, /FIXED_DISPATCHES|fixedDispatchesPerSample/);
 });
 
 test('failed correctness or a late large point upload withholds all timing', async () => {
