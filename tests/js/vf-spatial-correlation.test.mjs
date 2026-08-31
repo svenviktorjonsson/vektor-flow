@@ -193,3 +193,14 @@ test('worker partitions reproduce spatial field samples', async () => {
   records.sort((first, second) => first.index - second.index);
   assert.deepEqual(records.map((record) => record.value), expected);
 });
+
+test('distant coordinate demand does not require an intervening grid', () => {
+  assert.equal(
+    sampleSpatialCorrelation2Reference(
+      createFieldNode(),
+      [2_000_000_000.25, -2_000_000_000.75],
+      { correlationLength: 1, mean: 0, amplitude: 1 },
+    ),
+    -0.48314400662804147,
+  );
+});
