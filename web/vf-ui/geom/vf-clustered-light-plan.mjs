@@ -12,7 +12,7 @@ export function planClusteredLights({ grid, lights, maxLightsPerCluster }) {
 
   const clusterCount = normalizedGrid.xSlices * normalizedGrid.ySlices * normalizedGrid.depthSlices;
   const clusterLightIds = Array.from({ length: clusterCount }, () => []);
-  const orderedLights = lights.map(normalizePointLight).sort((left, right) => left.id - right.id);
+  const orderedLights = lights.map(normalizeLight).sort((left, right) => left.id - right.id);
   assertUniqueIds(orderedLights);
 
   let culledLightCount = 0;
@@ -68,11 +68,13 @@ function normalizeGrid(grid) {
   return { xSlices, ySlices, depthSlices, nearDepth, farDepth };
 }
 
-function normalizePointLight(light) {
+function normalizeLight(light) {
   if (!light || typeof light !== 'object') throw new TypeError('light must be an object');
   const id = uint32(light.id, 'light.id');
-  if (light.kind !== 'point') throw new TypeError('light.kind must be point');
-  return { id, bounds: normalizeBounds(light.bounds) };
+  if (light.kind !== 'point' && light.kind !== 'spot' && light.kind !== 'projected') {
+    throw new TypeError('light.kind must be point, spot, or projected');
+  }
+  return { id, kind: light.kind, bounds: normalizeBounds(light.bounds) };
 }
 
 function normalizeBounds(bounds) {

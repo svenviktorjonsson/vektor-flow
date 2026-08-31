@@ -37,3 +37,22 @@ test('assigns point-light bounds deterministically and culls bounds outside the 
   assert.equal(first.culledLightCount, 1);
   assert.equal(first.clusterCount, 32);
 });
+
+test('assigns point, spot, and projected bounds in stable light-id order', () => {
+  const oneCluster = bounds(-0.9, -0.6, -0.9, -0.1, 1.1, 2.9);
+  const plan = planClusteredLights({
+    grid: GRID,
+    lights: [
+      { id: 30, kind: 'projected', bounds: oneCluster },
+      { id: 10, kind: 'spot', bounds: oneCluster },
+      { id: 20, kind: 'point', bounds: oneCluster }
+    ],
+    maxLightsPerCluster: 8
+  });
+
+  assert.deepEqual([...plan.lightIds], [10, 20, 30]);
+  assert.equal(plan.clusterOffsets[0], 0);
+  assert.equal(plan.clusterOffsets[1], 3);
+  assert.equal(plan.assignmentCount, 3);
+  assert.equal(plan.culledLightCount, 0);
+});
