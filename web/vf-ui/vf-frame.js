@@ -40,6 +40,14 @@
     return true;
   }
 
+  function encodeNativeHitRegionArena(hitRegions) {
+    return (Array.isArray(hitRegions) ? hitRegions : []).map(function (region) {
+      return [region.left, region.top, region.right, region.bottom].map(function (value) {
+        return String(Math.trunc(Number(value) || 0));
+      }).join(",");
+    }).join(";");
+  }
+
   function geometrySignature(shapes, active) {
     return JSON.stringify({ active: active || "none", shapes: shapes || [] });
   }
@@ -350,6 +358,10 @@
         dragActive: o.dragActive === true,
         resizeActive: o.resizeActive === true,
         hitRegions: hitRegions,
+      });
+      postWebViewMessage({
+        type: "vf_host_hit_regions_v1",
+        data: encodeNativeHitRegionArena(hitRegions),
       });
       if (!overlayShapes.length && VfFrame._lastTransparentOverlayShapeCount > 0 && o.clearOverlayGeometry !== true) {
         return;
@@ -1337,5 +1349,8 @@
   };
 
   VfFrame.normalizeMinimizedDockKey = VfFrame.normalizeDockLocationKey;
+  VfFrame.__test = Object.assign(VfFrame.__test || {}, {
+    encodeNativeHitRegionArena: encodeNativeHitRegionArena,
+  });
   global.VfFrame = VfFrame;
 })(typeof window !== "undefined" ? window : this);

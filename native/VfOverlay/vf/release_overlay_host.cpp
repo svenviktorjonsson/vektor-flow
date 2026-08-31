@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <windowsx.h>
 
 #include <wrl.h>
 #include <wrl/client.h>
@@ -10,11 +11,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
 #include "../vf_overlay_host.hpp"
 #include "crash_diagnostics.hpp"
+#include "release_host_adapter.hpp"
 
 namespace {
 
@@ -27,9 +31,13 @@ constexpr wchar_t kResourceHost[] = L"vkf.local";
 HWND g_window = nullptr;
 ComPtr<ICoreWebView2Controller> g_controller;
 ComPtr<ICoreWebView2> g_webview;
+ComPtr<ICoreWebView2Environment12> g_environment12;
+ComPtr<ICoreWebView2_17> g_webview17;
+ComPtr<ICoreWebView2SharedBuffer> g_event_shared_buffer;
 std::wstring g_web_root;
 std::wstring g_page;
 std::atomic<int> g_exit_code{0};
+vf::ReleaseHostAdapter g_adapter;
 
 void FailStartup(HWND window) {
     g_exit_code.store(1);
@@ -62,28 +70,108 @@ void ResizeController() {
     g_controller->put_Bounds(bounds);
 }
 
-bool MessageContainsType(ICoreWebView2WebMessageReceivedEventArgs* args, const wchar_t* type) {
+std::wstring ReadWebMessage(ICoreWebView2WebMessageReceivedEventArgs* args) {
     LPWSTR text = nullptr;
     if (args == nullptr || FAILED(args->get_WebMessageAsJson(&text)) || text == nullptr) {
-        return false;
+        return {};
     }
-    const std::wstring json(text);
+    std::wstring json(text);
     CoTaskMemFree(text);
+    return json;
+}
+
+bool MessageContainsType(std::wstring_view json, const wchar_t* type) {
     const std::wstring compact = std::wstring(L"\"type\":\"") + type + L"\"";
     const std::wstring spaced = std::wstring(L"\"type\": \"") + type + L"\"";
     return json.find(compact) != std::wstring::npos || json.find(spaced) != std::wstring::npos;
+}
+
+std::string WideToUtf8(std::wstring_view text) {
+    if (text.empty()) return {};
+    const int required = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+    if (required <= 0) return {};
+    std::string result(static_cast<std::size_t>(required), '\0');
+    if (WideCharToMultiByte(
+            CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
+            result.data(), required, nullptr, nullptr) != required) {
+        return {};
+    }
+    return result;
+}
+
+RECT DipRectToPhysicalClient(const vf::ReleaseHostHitRect& rect) {
+    UINT dpi = g_window == nullptr ? USER_DEFAULT_SCREEN_DPI : GetDpiForWindow(g_window);
+    if (dpi == 0u) dpi = USER_DEFAULT_SCREEN_DPI;
+    return {
+        MulDiv(rect.left, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI),
+        MulDiv(rect.top, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI),
+        MulDiv(rect.right, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI),
+        MulDiv(rect.bottom, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI),
+    };
+}
+
+HRGN BuildChildInputRegion(HWND child) {
+    RECT child_in_host{};
+    GetClientRect(child, &child_in_host);
+    MapWindowPoints(child, g_window, reinterpret_cast<POINT*>(&child_in_host), 2);
+    HRGN combined = CreateRectRgn(0, 0, 0, 0);
+    if (combined == nullptr) return nullptr;
+    for (const auto& hit : g_adapter.HitRegions()) {
+        const RECT physical = DipRectToPhysicalClient(hit);
+        RECT clipped{};
+        if (!IntersectRect(&clipped, &physical, &child_in_host)) continue;
+        OffsetRect(&clipped, -child_in_host.left, -child_in_host.top);
+        HRGN piece = CreateRectRgnIndirect(&clipped);
+        if (piece == nullptr) continue;
+        CombineRgn(combined, combined, piece, RGN_OR);
+        DeleteObject(piece);
+    }
+    return combined;
+}
+
+void SyncChildInputRegions() {
+    if (g_window == nullptr) return;
+    EnumChildWindows(g_window, [](HWND child, LPARAM) -> BOOL {
+        HRGN region = BuildChildInputRegion(child);
+        if (region != nullptr && !SetWindowRgn(child, region, TRUE)) {
+            DeleteObject(region);
+        }
+        return TRUE;
+    }, 0);
+}
+
+void PublishEventSharedBuffer() {
+    if (!g_webview17 || !g_event_shared_buffer) return;
+    constexpr wchar_t metadata[] =
+        L"{\"type\":\"vf_host_event_arena_v1\",\"version\":1,\"access\":\"read-write\"}";
+    g_webview17->PostSharedBufferToScript(
+        g_event_shared_buffer.Get(), COREWEBVIEW2_SHARED_BUFFER_ACCESS_READ_WRITE, metadata);
 }
 
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     switch (message) {
     case WM_SIZE:
         ResizeController();
+        SyncChildInputRegions();
         return 0;
+    case WM_NCHITTEST: {
+        POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        ScreenToClient(window, &point);
+        UINT dpi = GetDpiForWindow(window);
+        if (dpi == 0u) dpi = USER_DEFAULT_SCREEN_DPI;
+        const auto x = static_cast<std::int32_t>(MulDiv(point.x, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dpi)));
+        const auto y = static_cast<std::int32_t>(MulDiv(point.y, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dpi)));
+        return g_adapter.IsInteractivePoint(x, y) ? HTCLIENT : HTTRANSPARENT;
+    }
     case WM_CLOSE:
         DestroyWindow(window);
         return 0;
     case WM_DESTROY:
         g_webview.Reset();
+        g_webview17.Reset();
+        g_event_shared_buffer.Reset();
+        g_environment12.Reset();
         if (g_controller) {
             g_controller->Close();
             g_controller.Reset();
@@ -123,6 +211,17 @@ void StartWebView(HWND window) {
                     FailStartup(window);
                     return FAILED(result) ? result : E_FAIL;
                 }
+                environment->QueryInterface(IID_PPV_ARGS(&g_environment12));
+                if (g_environment12) {
+                    constexpr UINT64 kEventArenaBytes = 64u * 1024u;
+                    if (SUCCEEDED(g_environment12->CreateSharedBuffer(kEventArenaBytes, &g_event_shared_buffer)) &&
+                        g_event_shared_buffer) {
+                        BYTE* bytes = nullptr;
+                        if (SUCCEEDED(g_event_shared_buffer->get_Buffer(&bytes)) && bytes != nullptr) {
+                            g_adapter.BindEventArena(reinterpret_cast<std::byte*>(bytes), kEventArenaBytes);
+                        }
+                    }
+                }
                 return environment->CreateCoreWebView2Controller(
                     window,
                     Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
@@ -136,6 +235,7 @@ void StartWebView(HWND window) {
                                 FailStartup(window);
                                 return E_FAIL;
                             }
+                            g_webview.As(&g_webview17);
 
                             ComPtr<ICoreWebView2Controller2> controller2;
                             if (SUCCEEDED(controller->QueryInterface(IID_PPV_ARGS(&controller2))) && controller2) {
@@ -161,13 +261,28 @@ void StartWebView(HWND window) {
                             g_webview->add_WebMessageReceived(
                                 Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                                     [window](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-                                        if (MessageContainsType(args, L"close")) {
+                                        const std::wstring message = ReadWebMessage(args);
+                                        if (MessageContainsType(message, L"close")) {
                                             PostMessageW(window, WM_CLOSE, 0, 0);
-                                        } else if (MessageContainsType(args, L"minimize")) {
+                                        } else if (MessageContainsType(message, L"minimize")) {
                                             ShowWindow(window, SW_MINIMIZE);
-                                        } else if (MessageContainsType(args, L"restore")) {
+                                        } else if (MessageContainsType(message, L"restore")) {
                                             ShowWindow(window, SW_RESTORE);
+                                        } else if (g_adapter.ApplyHitRegionAdapterMessage(message)) {
+                                            SyncChildInputRegions();
+                                        } else if (MessageContainsType(message, L"vf_event")) {
+                                            const std::string bytes = WideToUtf8(message);
+                                            if (!bytes.empty()) g_adapter.PushOpaqueEvent(bytes);
                                         }
+                                        return S_OK;
+                                    }).Get(),
+                                nullptr);
+
+                            g_webview->add_NavigationCompleted(
+                                Callback<ICoreWebView2NavigationCompletedEventHandler>(
+                                    [](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*) -> HRESULT {
+                                        PublishEventSharedBuffer();
+                                        SyncChildInputRegions();
                                         return S_OK;
                                     }).Get(),
                                 nullptr);

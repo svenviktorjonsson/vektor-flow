@@ -149,6 +149,7 @@ set(VF_OVERLAY_COMPAT_HOST_SOURCES
 
 set(VF_OVERLAY_RELEASE_HOST_SOURCES
   vf/release_overlay_host.cpp
+  vf/release_host_adapter.cpp
   vf/crash_diagnostics.cpp
 )
 
@@ -309,6 +310,18 @@ if(MSVC)
 endif()
 add_dependencies(vkf-runner vkf-embedded-vf-ui-assets)
 add_dependencies(vkf-ui-package vkf-runner)
+
+add_executable(vf-release-host-adapter-test
+  vf/release_host_adapter.cpp
+  vf/release_host_adapter_test.cpp
+)
+target_include_directories(vf-release-host-adapter-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+if(MSVC)
+  target_compile_options(vf-release-host-adapter-test PRIVATE /Zi)
+  target_link_options(vf-release-host-adapter-test PRIVATE /DEBUG /INCREMENTAL:NO)
+endif()
 
 add_executable(vkf-native-scene-artifact-stager
   ../../compiler/native/vkf_native_scene_artifact_stager.cpp
