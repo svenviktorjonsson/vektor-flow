@@ -426,6 +426,29 @@
         "api": "Page.captureScreenshot",
         "frame": "wireframe_points"
       }
+    },
+    {
+      "id": "20-rigid-body-snapshot",
+      "title": "Rigid-body snapshot",
+      "dimension": 2,
+      "features": [
+        "2d",
+        "physics",
+        "rigid-body",
+        "animation"
+      ],
+      "source": "20-rigid-body-snapshot/app.vkf",
+      "sourceSha256": "be14147a0497182b4af5cde88634c36a2d7d60bc8ff69331fb146a25387af150",
+      "media": {
+        "path": "docs/public/images/scene-gallery/20-rigid-body-snapshot.png",
+        "sha256": "2b6042c07400bae59165fcaed077888241c1d5f164d9dd8cdd64f0eb259373d5"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "rigid_snapshot"
+      }
     }
   ]
 }
