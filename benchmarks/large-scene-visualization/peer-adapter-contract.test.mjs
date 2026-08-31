@@ -50,6 +50,8 @@ test('correctness checkpoints and GPU completion finish before timing begins', a
   });
   assert.equal(result.correctness.passed, true);
   assert.equal(result.correctness.completedAtSequence < result.timing.startedAtSequence, true);
+  assert.equal(result.correctness.gpuCompletionCalls, 2);
+  assert.equal(result.timing.gpuCompletionCalls, 7);
   assert.equal(result.timing.samplesMs.length, 3);
   assert.equal(adapter.calls.filter((call) => call === 'complete').length, 7);
   assert.equal(adapter.calls.at(-1), 'destroy');
@@ -69,4 +71,17 @@ test('failed correctness or a late large point upload withholds all timing', asy
     /large point buffer upload after initialization/,
   );
   assert.equal(reuploaded.calls.filter((call) => call.startsWith('render:')).length, 2);
+});
+
+test('matrix correctness phase completes and destroys without starting warmup or timing', async () => {
+  const adapter = fakeAdapter();
+  const result = await runCorrectnessThenTiming(adapter, workload(), {
+    correctnessOnly: true,
+    warmupFrames: 2,
+    measuredFrames: 3,
+  });
+  assert.equal(result.correctness.passed, true);
+  assert.equal(result.timing, null);
+  assert.deepEqual(adapter.calls.filter((call) => call.startsWith('render:')), ['render:0', 'render:2']);
+  assert.equal(adapter.calls.at(-1), 'destroy');
 });

@@ -58,7 +58,8 @@
     "test:stdlib-wasm": "node tools/verify-stdlib-wasm.mjs",
     "test:symbolic-benchmark-harness": "node --test benchmarks/symbolic-comparison/run.test.mjs",
     "test:linalg-benchmark-harness": "node --test benchmarks/linalg-comparison/run.test.mjs && node benchmarks/linalg-comparison/materialize-fixtures.mjs --check",
-    "test:large-scene-benchmark-harness": "node --test benchmarks/large-scene-visualization/contract.test.mjs benchmarks/large-scene-visualization/vkf-adapter.test.mjs && node benchmarks/large-scene-visualization/run.mjs",
+    "test:large-scene-benchmark-harness": "node --test benchmarks/large-scene-visualization/contract.test.mjs benchmarks/large-scene-visualization/peer-adapter-contract.test.mjs benchmarks/large-scene-visualization/peer-adapters.test.mjs benchmarks/large-scene-visualization/vkf-adapter.test.mjs && node benchmarks/large-scene-visualization/run.mjs",
+    "capture:large-scene-peer-matrix": "node tests/helpers/run_large_scene_peer_matrix.js",
     "capture:retained-point-camera": "node tests/helpers/capture_retained_point_camera.js",
     "test:package": "node --test tests/js/package-exports.test.mjs tests/js/package-archive.integration.mjs"
   },
