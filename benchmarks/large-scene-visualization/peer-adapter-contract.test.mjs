@@ -101,6 +101,24 @@ test('timing browser is always headless and hardware mode does not force SwiftSh
   assert.throws(() => edgeLaunchArgs({ ...common, gpuMode: 'invalid' }), /GPU mode/);
 });
 
+test('fixed retained dispatch batching uses the exact predeclared operation count', async () => {
+  const adapter = fakeAdapter();
+  let clock = 0;
+  const result = await runCorrectnessThenTiming(adapter, workload(), {
+    warmupFrames: 2,
+    measuredFrames: 3,
+    fixedDispatchesPerSample: 4,
+    now: () => clock++,
+  });
+  assert.equal(result.timing.fixedDispatchesPerSample, 4);
+  assert.equal(result.timing.measuredDispatches, 12);
+  assert.equal(result.timing.adaptiveBatching, false);
+  assert.equal(result.timing.samplesMs.length, 3);
+  assert.equal(result.timing.measuredGpuFrames, 3);
+  assert.equal(result.timing.gpuCompletionCalls, 7);
+  assert.equal(adapter.calls.filter((call) => call.startsWith('render:')).length, 22);
+});
+
 test('timing runner selects the requested GPU mode and defaults to correctness-only software', () => {
   assert.equal(gpuModeFromEnvironment({ VF_LARGE_SCENE_GPU_MODE: 'hardware' }), 'hardware');
   assert.equal(gpuModeFromEnvironment({}), 'swiftshader');
@@ -115,6 +133,18 @@ test('timing runner requests graceful hidden-browser shutdown before process-tre
   const processFallback = runner.indexOf('terminateOwnedProcessTree(edge)');
   assert.ok(browserClose >= 0);
   assert.ok(processFallback > browserClose);
+});
+
+test('static resolution diagnostic freezes 1000 dispatches over exact 50/1000 runs', () => {
+  const diagnostic = readFileSync(
+    new URL('../../tests/helpers/run_large_scene_static_dispatch_diagnostic.mjs', import.meta.url),
+    'utf8',
+  );
+  assert.match(diagnostic, /fixedDispatchesPerSample = 1000;/);
+  assert.match(diagnostic, /warmupSamples = 50;/);
+  assert.match(diagnostic, /measuredSamples = 1000;/);
+  assert.match(diagnostic, /adaptiveBatching !== false/);
+  assert.doesNotMatch(diagnostic, /while\s*\(/);
 });
 
 test('failed correctness or a late large point upload withholds all timing', async () => {
