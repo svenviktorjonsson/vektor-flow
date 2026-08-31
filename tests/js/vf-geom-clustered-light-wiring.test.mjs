@@ -15,6 +15,10 @@ const rendererSource = fs.readFileSync(
   path.join(testDirectory, '../../web/vf-ui/geom/vf-geom-wgpu.js'),
   'utf8'
 );
+const mathSource = fs.readFileSync(
+  path.join(testDirectory, '../../web/vf-ui/geom/vf-geom-math.js'),
+  'utf8'
+);
 
 function createRenderer() {
   const context = vm.createContext({
@@ -27,6 +31,7 @@ function createRenderer() {
     VfGeomMath: {},
     VfClusteredLightPlan: { planClusteredLights, planViewClusteredLights }
   });
+  vm.runInContext(mathSource, context, { filename: 'vf-geom-math.js' });
   vm.runInContext(rendererSource, context, { filename: 'vf-geom-wgpu.js' });
   return new context.VfGeomWgpu({ width: 640, height: 360 }, () => null);
 }
@@ -178,6 +183,41 @@ test('renderer projects a finite aperture-light volume and culls it off camera',
   assert.equal(plan.culledLightCount, 1);
   assert.ok(plan.assignmentCount > 0 && plan.assignmentCount < 32);
   assert.deepEqual([...new Set(plan.lightIds)], [0]);
+});
+
+test('batch camera uses exact live matrices and unsafe scenes retain conservative coverage', () => {
+  const renderer = createRenderer();
+  renderer._clusteredLightGrid = {
+    xSlices: 2,
+    ySlices: 1,
+    depthSlices: 2,
+    nearDepth: 1,
+    farDepth: 10
+  };
+  const scene = {
+    camera: {
+      projection_matrix: [...VIEW_CAMERA.projectionMatrix],
+      view_matrix: [...VIEW_CAMERA.viewMatrix]
+    }
+  };
+  renderer._parts = [{ mesh: { mode3d: true } }];
+
+  const camera = renderer._clusteredCameraForBatchScene(scene, 0, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(camera)), {
+    ...VIEW_CAMERA,
+    viewMatrix: [...new Float32Array(VIEW_CAMERA.viewMatrix)],
+    projectionMatrix: [...new Float32Array(VIEW_CAMERA.projectionMatrix)]
+  });
+
+  renderer._parts = [{ mesh: { mode3d: true, surface_system: { kind: 'screen' } } }];
+  assert.equal(renderer._clusteredCameraForBatchScene(scene, 0, 1), null);
+
+  const fallback = renderer._planClusteredLightsForFrame([
+    { ...normalizedLight(0), kind: 'point', pos: [20, 0, -5], range: 0 }
+  ], VIEW_CAMERA);
+  assert.equal(fallback.culledLightCount, 0);
+  assert.equal(fallback.assignmentCount, 4);
+  assert.deepEqual([...new Set(fallback.lightIds)], [0]);
 });
 
 test('uploads clustered plans and light records into a bound GPU storage group', () => {
