@@ -65,6 +65,28 @@
         "api": "Page.captureScreenshot",
         "frame": "frame_0"
       }
+    },
+    {
+      "id": "04-tinted-glass",
+      "title": "Tinted glass",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "transparency",
+        "tinted-glass"
+      ],
+      "source": "04-tinted-glass/app.vkf",
+      "sourceSha256": "fa43b7bbdf277f548350a7de4e75ed9897966437f983d58a098c83a2f40a7a93",
+      "media": {
+        "path": "docs/public/images/scene-gallery/04-tinted-glass.png",
+        "sha256": "2f9f73f23576702eb9816374cb8832684f7b14c46666bf19a44a9810f5dd32b0"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
     }
   ]
 }
