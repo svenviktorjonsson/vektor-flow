@@ -100,13 +100,34 @@ function uploadSummary(packets) {
   });
 }
 
+function requireWorkingSet(workingSet) {
+  if (
+    !workingSet
+    || typeof workingSet !== 'object'
+    || !workingSet.coarse
+    || workingSet.coarse.kind !== 'ellipsoid-octahedron:v1'
+    || !Array.isArray(workingSet.coarse.vertices)
+    || !Array.isArray(workingSet.coarse.faces)
+    || !Array.isArray(workingSet.entries)
+  ) {
+    throw new TypeError('ellipsoid refinement working set is required');
+  }
+}
+
 export function adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
   workingSet,
   previous,
 ) {
+  requireWorkingSet(workingSet);
   const coarse = workingSet.coarse;
-  const basePacket = coarsePacket(coarse);
   const previousData = previous === null ? null : adapterMetadata.get(previous);
+  if (previous !== null && !previousData) {
+    throw new TypeError('retained rock geometry packet state is invalid');
+  }
+  if (previousData && previousData.coarse !== coarse) {
+    throw new RangeError('retained rock geometry packet state owns another coarse shape');
+  }
+  const basePacket = coarsePacket(coarse);
   const previousByFace = previousData?.coarse === coarse
     ? previousData.detailByFace
     : new Map();
