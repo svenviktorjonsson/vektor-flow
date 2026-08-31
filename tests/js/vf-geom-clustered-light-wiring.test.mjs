@@ -139,6 +139,47 @@ test('renderer projects spot bounds while retaining a near-plane point light', (
   assert.deepEqual([...new Set(plan.lightIds)], [0, 1]);
 });
 
+test('renderer projects a finite aperture-light volume and culls it off camera', () => {
+  const renderer = createRenderer();
+  renderer._clusteredLightGrid = {
+    xSlices: 4,
+    ySlices: 2,
+    depthSlices: 4,
+    nearDepth: 1,
+    farDepth: 10
+  };
+  renderer._clusteredLightMaxLightsPerCluster = 8;
+
+  function apertureAt(x) {
+    return {
+      plane_point: [x, 0, -3],
+      plane_normal: [0, 0, 1],
+      u_axis: [1, 0, 0],
+      v_axis: [0, 1, 0],
+      points: [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]
+    };
+  }
+  const visible = {
+    ...normalizedLight(0),
+    kind: 'projected',
+    pos: [0, 0, -2],
+    range: 1.5,
+    projected_aperture: apertureAt(0)
+  };
+  const outside = {
+    ...normalizedLight(1),
+    kind: 'projected',
+    pos: [20, 0, -2],
+    range: 1.5,
+    projected_aperture: apertureAt(20)
+  };
+  const plan = renderer._planClusteredLightsForFrame([visible, outside], VIEW_CAMERA);
+
+  assert.equal(plan.culledLightCount, 1);
+  assert.ok(plan.assignmentCount > 0 && plan.assignmentCount < 32);
+  assert.deepEqual([...new Set(plan.lightIds)], [0]);
+});
+
 test('uploads clustered plans and light records into a bound GPU storage group', () => {
   const renderer = createRenderer();
   const createdBuffers = [];

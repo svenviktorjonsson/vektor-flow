@@ -160,6 +160,29 @@
     return out;
   }
 
+  function projectedApertureEnvelopePoints(light, position, range) {
+    var aperture;
+    try {
+      aperture = requirePlanarPacket(light && light.projected_aperture, "clustered projected aperture");
+    } catch (_) {
+      return null;
+    }
+    var points = [position.slice()];
+    for (var i = 0; i < aperture.points.length; i += 1) {
+      var local = aperture.points[i];
+      var corner = addVec3(
+        aperture.planePoint,
+        addVec3(scaleVec3(aperture.uAxis, local[0]), scaleVec3(aperture.vAxis, local[1]))
+      );
+      var ray = subVec3(corner, position);
+      var distance = Math.sqrt(dotVec3(ray, ray));
+      if (!(distance > 1e-9) || !Number.isFinite(distance)) { return null; }
+      points.push(corner);
+      points.push(addVec3(position, scaleVec3(ray, range / distance)));
+    }
+    return points;
+  }
+
   function projectedClusteredLightInputs(lights) {
     var source = Array.isArray(lights) ? lights : [];
     var out = new Array(source.length);
@@ -180,7 +203,13 @@
         range: range
       };
       if (!projected.position.every(Number.isFinite)) { return null; }
-      if (kind === "spot") {
+      if (kind === "projected") {
+        projected.points = projectedApertureEnvelopePoints(light, projected.position, range);
+        if (!projected.points) { return null; }
+        delete projected.position;
+        delete projected.radius;
+        delete projected.range;
+      } else if (kind === "spot") {
         projected.direction = Array.isArray(light.direction_f32)
           ? [Number(light.direction_f32[0]), Number(light.direction_f32[1]), Number(light.direction_f32[2])]
           : null;
