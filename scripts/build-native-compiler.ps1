@@ -24,6 +24,7 @@ $targetDefinitions = @(
     @{ Name = "vkf_lexer_cursor_smoke"; Source = "compiler/native/vkf_lexer_cursor_smoke.cpp"; Json = $false },
     @{ Name = "vkf_parser_token_stream_smoke"; Source = "compiler/native/vkf_parser_token_stream_smoke.cpp"; Json = $true },
     @{ Name = "vkf_ast_to_ir_smoke"; Source = "compiler/native/vkf_ast_to_ir_smoke.cpp"; ExtraSources = @("compiler/native/vkf_csv_demand_source_scanner.cpp"); Json = $true },
+    @{ Name = "vkf_bootstrap_bundle_artifact_smoke"; Source = "compiler/native/vkf_bootstrap_bundle_artifact_smoke.cpp"; Json = $true },
     @{ Name = "vkf_compiler_artifact_smoke"; Source = "compiler/native/vkf_compiler_artifact_smoke.cpp"; Json = $true },
     @{ Name = "vkf_cpp_aot_artifact"; Source = "compiler/native/vkf_cpp_aot_artifact.cpp"; Json = $true },
     @{ Name = "vkf_x64_artifact"; Source = "compiler/native/vkf_x64_artifact.cpp"; Json = $true },
