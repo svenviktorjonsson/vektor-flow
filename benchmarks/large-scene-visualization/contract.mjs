@@ -62,6 +62,36 @@ export function validateManifest(manifest) {
     if (workload.dataMutation !== 'none') {
       throw new Error(`${workload.id} must keep identical position buffers after setup`);
     }
+    const comparable = workload.comparableImplementations;
+    if (!Array.isArray(comparable) || comparable.length < 2 || comparable[0] !== 'vkf'
+      || new Set(comparable).size !== comparable.length
+      || comparable.some((implementation) => !implementations.has(implementation))) {
+      throw new Error(`${workload.id} comparable implementations are invalid`);
+    }
+    const exclusions = workload.nonComparableImplementations;
+    if (!Array.isArray(exclusions)) {
+      throw new Error(`${workload.id} non-comparable implementations must be an array`);
+    }
+    const exclusionIds = new Set();
+    for (const exclusion of exclusions) {
+      if (!implementations.has(exclusion?.id) || comparable.includes(exclusion.id)
+        || exclusionIds.has(exclusion.id)) {
+        throw new Error(`${workload.id} non-comparable implementation ${exclusion?.id} is invalid`);
+      }
+      requiredString(exclusion.reason, `${workload.id}/${exclusion.id} non-comparable reason`);
+      exclusionIds.add(exclusion.id);
+    }
+    if (comparable.length + exclusionIds.size !== implementations.size) {
+      throw new Error(`${workload.id} must classify every implementation`);
+    }
+    for (const [implementation, calibration] of Object.entries(workload.adapterCalibration ?? {})) {
+      if (!comparable.includes(implementation)
+        || !Number.isFinite(calibration?.markerSizePixels) || calibration.markerSizePixels <= 0
+        || calibration.targetDiameterPixels !== workload.pointDiameterPixels) {
+        throw new Error(`${workload.id}/${implementation} adapter calibration is invalid`);
+      }
+      requiredString(calibration.basis, `${workload.id}/${implementation} calibration basis`);
+    }
     requiredString(workload.perFrameOperation, `${workload.id} per-frame operation`);
     const expectedCameraFormula = workload.cameraPath?.kind === 'fixed'
       ? 'offset=[0,0]'
@@ -195,6 +225,10 @@ export function evaluateReport(manifest, report) {
     if (!Array.isArray(workloadReport.measurements)) throw new Error(`${workload.id} measurements must be an array`);
     const measurements = new Map();
     const medians = new Map();
+    const comparableImplementations = new Set(workload.comparableImplementations);
+    const exclusions = new Map(
+      workload.nonComparableImplementations.map(({ id, reason }) => [id, reason]),
+    );
     for (const measurement of workloadReport.measurements) {
       if (!knownImplementations.has(measurement.implementation)) {
         throw new Error(`${workload.id} has unknown implementation ${measurement.implementation}`);
@@ -203,14 +237,29 @@ export function evaluateReport(manifest, report) {
         throw new Error(`${workload.id} repeats ${measurement.implementation}`);
       }
       measurements.set(measurement.implementation, measurement);
+      const applicable = comparableImplementations.has(measurement.implementation);
+      if (measurement.state === 'not-applicable') {
+        if (applicable || measurement.comparable !== false
+          || measurement.reason !== exclusions.get(measurement.implementation)
+          || measurement.timing || measurement.correctness) {
+          throw new Error(`${measurement.implementation} applicability differs from ${workload.id}`);
+        }
+        continue;
+      }
       if (measurement.state === 'scaffold') {
         if (measurement.timing || measurement.correctness) {
           throw new Error(`${measurement.implementation} scaffold must not contain measured evidence`);
         }
+        if (measurement.comparable !== applicable) {
+          throw new Error(`${measurement.implementation} applicability differs from ${workload.id}`);
+        }
         continue;
       }
       if (measurement.state !== 'published') {
-        throw new Error(`${measurement.implementation} state must be scaffold or published`);
+        throw new Error(`${measurement.implementation} state must be scaffold, not-applicable, or published`);
+      }
+      if (!applicable) {
+        throw new Error(`${measurement.implementation} is not comparable for ${workload.id}`);
       }
       medians.set(measurement.implementation, validatePublished(manifest, workload, measurement));
       publishedCount += 1;
@@ -219,25 +268,25 @@ export function evaluateReport(manifest, report) {
     if (medians.size === 1 && medians.has('vkf')) {
       throw new Error(`${workload.id} has VKF timing without a peer comparison`);
     }
-    if (medians.size > 0 && medians.size !== manifest.implementations.length) {
+    if (medians.size > 0 && (medians.size !== workload.comparableImplementations.length
+      || workload.comparableImplementations.some((implementation) => !medians.has(implementation)))) {
       throw new Error(
-        `${workload.id} must publish ${manifest.implementations.join(', ')} together`,
+        `${workload.id} must publish ${workload.comparableImplementations.join(', ')} together`,
       );
     }
     const vkfMedianMs = medians.get('vkf');
     if (vkfMedianMs !== undefined) {
-      for (const peer of manifest.peers) {
-        const peerMedianMs = medians.get(peer.id);
-        if (peerMedianMs === undefined) continue;
+      for (const peerId of workload.comparableImplementations.slice(1)) {
+        const peerMedianMs = medians.get(peerId);
         const ratio = vkfMedianMs / peerMedianMs;
         if (!(ratio < gate.maxVkfToPeerRatioExclusive)) {
           throw new Error(
-            `${workload.id}/${peer.id} ratio ${ratio.toFixed(3)} must be below ${gate.maxVkfToPeerRatioExclusive.toFixed(3)}`,
+            `${workload.id}/${peerId} ratio ${ratio.toFixed(3)} must be below ${gate.maxVkfToPeerRatioExclusive.toFixed(3)}`,
           );
         }
         rows.push({
           workload: workload.id,
-          peer: peer.id,
+          peer: peerId,
           metric: manifest.measurement.ratchetMetric,
           statistic: manifest.measurement.statistic,
           vkfMedianMs,

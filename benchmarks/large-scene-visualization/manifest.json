@@ -49,6 +49,15 @@
       "projection": "orthographic",
       "dataMutation": "none",
       "perFrameOperation": "none; fixed camera",
+      "comparableImplementations": ["vkf", "deck-gl", "vtk-js", "plotly-scattergl"],
+      "nonComparableImplementations": [],
+      "adapterCalibration": {
+        "plotly-scattergl": {
+          "markerSizePixels": 2.4,
+          "targetDiameterPixels": 2,
+          "basis": "sampled-frame-regions-v1 framebuffer coverage"
+        }
+      },
       "cameraPath": {
         "kind": "fixed",
         "frames": 1,
@@ -91,6 +100,13 @@
       "projection": "orthographic",
       "dataMutation": "none",
       "perFrameOperation": "camera-only pan; position buffers remain unchanged",
+      "comparableImplementations": ["vkf", "deck-gl", "vtk-js"],
+      "nonComparableImplementations": [
+        {
+          "id": "plotly-scattergl",
+          "reason": "public Plotly.relayout camera updates reupload the immutable x/y point buffers"
+        }
+      ],
       "cameraPath": {
         "kind": "sinusoidal-pan",
         "frames": 240,

@@ -1,7 +1,7 @@
 {
   "schema": "vkf.large-scene-visualization-report",
   "schemaVersion": 1,
-  "manifestSha256": "c9a0d712bda981f12613f9857fadd835e2b82bd898aece31164d3b23884f4400",
+  "manifestSha256": "835f1f11a5ccadbd06f5569fcb6ea40f6f0f0f2a430d910672f770fc1d74e391",
   "status": "scaffold",
   "environment": {
     "operatingSystem": "not-measured",
@@ -30,7 +30,12 @@
         { "implementation": "vkf", "state": "scaffold", "comparable": true },
         { "implementation": "deck-gl", "state": "scaffold", "comparable": true },
         { "implementation": "vtk-js", "state": "scaffold", "comparable": true },
-        { "implementation": "plotly-scattergl", "state": "scaffold", "comparable": true }
+        {
+          "implementation": "plotly-scattergl",
+          "state": "not-applicable",
+          "comparable": false,
+          "reason": "public Plotly.relayout camera updates reupload the immutable x/y point buffers"
+        }
       ]
     }
   ]

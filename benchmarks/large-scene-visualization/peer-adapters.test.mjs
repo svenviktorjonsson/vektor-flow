@@ -8,6 +8,7 @@ import {
 } from './adapters/deck-gl.mjs';
 import {
   PLOTLY_SCATTERGL_VERSION,
+  plotlyMarkerSize,
   plotlyPlanarPositions,
 } from './adapters/plotly-scattergl.mjs';
 import {
@@ -60,4 +61,18 @@ test('deck retains interleaved bytes while VTK and Plotly make one preparation-o
   assert.deepEqual([...vtk], [points[0], points[1], 0, points[2], points[3], 0, points[4], points[5], 0]);
   assert.deepEqual([...plotly.x], [points[0], points[2], points[4]]);
   assert.deepEqual([...plotly.y], [points[1], points[3], points[5]]);
+});
+
+test('Plotly static markers use the framebuffer-calibrated size only when declared', () => {
+  assert.equal(plotlyMarkerSize({ pointDiameterPixels: 2 }), 2);
+  assert.equal(plotlyMarkerSize({
+    pointDiameterPixels: 2,
+    adapterCalibration: {
+      'plotly-scattergl': {
+        markerSizePixels: 2.4,
+        targetDiameterPixels: 2,
+        basis: 'sampled-frame-regions-v1 framebuffer coverage',
+      },
+    },
+  }), 2.4);
 });
