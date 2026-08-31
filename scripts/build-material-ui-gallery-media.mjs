@@ -78,7 +78,6 @@ const sourcePaths = [
   "web/vf-ui/vf-runtime-packet-contract.js",
   "web/vf-ui/vf-retained-event-adapter.js",
   "web/vf-ui/vf-static-html-loader.js",
-  "tests/helpers/capture_mirror_scene.js",
   "tests/helpers/capture_material_ui_gallery.js",
   "tools/build_material_ui_gallery_gif.py",
   "scripts/build-material-ui-gallery-media.mjs",
