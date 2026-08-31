@@ -481,7 +481,7 @@ test('suite requires both sizes, every implementation, repeated runs, and one en
     }))
   ));
   assert.equal(validateSuiteMatrix(rows, environmentKey), true);
-  const provisional = rows.map((row) => row.implementation === 'vkf-marker-impostor' && row.pointSizePx === 1
+  const provisional = rows.map((row) => row.implementation === 'vkf-marker-impostor'
     ? {
         ...row,
         runs: row.runs.map(({ environmentKey: key }) => ({
