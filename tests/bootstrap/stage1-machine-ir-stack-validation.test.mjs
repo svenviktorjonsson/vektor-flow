@@ -232,3 +232,46 @@ test("VKF rejects reusable numeric entry stack imbalance before output", () => {
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("VKF rejects reusable numeric function stack imbalance before output", () => {
+  const work = makeWork("i67-function-balance-");
+  try {
+    copyProbeModules(work);
+    const machineIrPath = join(work, "machine_ir.vkf");
+    const originalMachineIr = readFileSync(machineIrPath, "utf8");
+    const mutatedMachineIr = originalMachineIr.replace(
+      /(mir_numeric_parameter_multiply_instructions\(right_value:num\):[\s\S]*?        mir_multiply_f64\(\),\r?\n)        mir_return_f64\(\)/,
+      "$1        mir_push_f64(0)",
+    );
+    assert.notEqual(mutatedMachineIr, originalMachineIr, "function-imbalance mutation did not apply");
+    writeFileSync(machineIrPath, mutatedMachineIr, "utf8");
+
+    const source = join(work, "function-balance.vkf");
+    const artifact = join(work, `function-balance${executableSuffix}`);
+    writeFileSync(
+      source,
+      [
+        "validation: .machine_ir_validation",
+        ':: validation.machine_ir_numeric_parameter_multiply_stack_maxima("twice", "value", 2)',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const compiled = compile(source, artifact);
+    assert.equal(compiled.error, undefined, `failed to start ${compiler}: ${compiled.error}`);
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const run = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 2_000,
+      windowsHide: true,
+    });
+    assert.equal(run.error, undefined, `function-balance probe did not start: ${run.error}`);
+    assert.notEqual(run.status, 0, "unbalanced numeric function unexpectedly succeeded");
+    assert.equal(run.stdout, "");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
