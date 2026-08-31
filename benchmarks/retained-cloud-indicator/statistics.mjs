@@ -33,6 +33,7 @@ export function summarizeIntervals(samples) {
     const count = samples.filter((value) => value > thresholdMs).length;
     return { thresholdMs, count, rate: count / samples.length };
   };
+  const maxMs = sorted.at(-1);
   return Object.freeze({
     count: samples.length,
     meanMs,
@@ -42,7 +43,9 @@ export function summarizeIntervals(samples) {
     p50Ms: quantile(sorted, 0.5),
     p95Ms: quantile(sorted, 0.95),
     p99Ms: quantile(sorted, 0.99),
-    maxMs: sorted.at(-1),
+    maxMs,
+    percentileMethod: 'R-7 linear interpolation',
+    longestStall: { sampleIndex: rawSamplesMs.indexOf(maxMs), milliseconds: maxMs },
     effectiveFps: 1000 / meanMs,
     missedFrames60Hz: threshold(16.67),
     missedFrames30Hz: threshold(33.33),

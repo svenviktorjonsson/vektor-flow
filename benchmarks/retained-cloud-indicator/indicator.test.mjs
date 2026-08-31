@@ -13,6 +13,17 @@ import {
   createRetentionLedger,
   installWebGpuFixtureTracker,
 } from './retention-ledger.mjs';
+import {
+  assessCloudCapture,
+  cloudReferenceRegionStats,
+  compareCloudRegionStats,
+} from './correctness.mjs';
+import {
+  bgraRowsToRgba,
+  createVkfMarkerScene,
+  updateVkfOrbit,
+  vkfMarkerInstances,
+} from './adapters/vkf-marker-impostor.mjs';
 
 test('release indicator freezes one million aligned XYZ+RGBA8 points and two size lanes', async () => {
   assert.equal(INDICATOR_PROTOCOL.pointCount, 1_000_000);
@@ -20,6 +31,21 @@ test('release indicator freezes one million aligned XYZ+RGBA8 points and two siz
   assert.equal(INDICATOR_PROTOCOL.warmupFrames, 60);
   assert.equal(INDICATOR_PROTOCOL.measuredFrames, 100);
   assert.equal(INDICATOR_PROTOCOL.strideBytes, 16);
+  assert.equal(INDICATOR_PROTOCOL.fixtureSha256, '469116dd54fbf3bcf2a061cbbd81a27bbb9d17c5bc0d1f2804fc70d4ce5a9104');
+  assert.deepEqual(INDICATOR_PROTOCOL.correctnessFrames, [0, 25, 50, 75, 100]);
+  assert.deepEqual(INDICATOR_PROTOCOL.renderState, {
+    framebuffer: [1280, 720],
+    devicePixelRatio: 1,
+    primitive: 'analytic circular point impostor',
+    depthCompare: 'less',
+    depthWrite: true,
+    blend: 'premultiplied-alpha source-over',
+    sampleCount: 4,
+    canvasColorSpace: 'srgb',
+    backgroundRgba: [0, 0, 0, 255],
+    clipDepth: 'WebGPU 0..1',
+    orthographicHalfHeight: 1.1,
+  });
   const fixture = createCloudFixture(3);
   assert.equal(fixture.byteLength, 48);
   assert.equal(fixture.positions.length, 9);
@@ -35,8 +61,18 @@ test('deterministic orbit changes only projection uniforms', () => {
   assert.ok(start.xAxis[0] > 0);
   assert.ok(Math.abs(start.zAxis[0]) < 1e-12);
   assert.ok(Math.abs(quarter.xAxis[0]) < 1e-12);
-  assert.ok(quarter.zAxis[0] > 0);
+  assert.ok(quarter.zAxis[0] < 0);
   assert.deepEqual(start.yAxis, quarter.yAxis);
+});
+
+test('VKF texture readback removes row padding and converts BGRA to RGBA', () => {
+  const padded = new Uint8Array(16);
+  padded.set([3, 2, 1, 4, 7, 6, 5, 8], 0);
+  padded.set([11, 10, 9, 12, 15, 14, 13, 16], 8);
+  assert.deepEqual(
+    bgraRowsToRgba(padded, 2, 2, 8),
+    new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
+  );
 });
 
 test('frame summary uses sample deviation and reports visible pacing thresholds', () => {
@@ -48,6 +84,8 @@ test('frame summary uses sample deviation and reports visible pacing thresholds'
   assert.equal(summary.p95Ms, 48.5);
   assert.ok(Math.abs(summary.p99Ms - 49.7) < 1e-12);
   assert.equal(summary.maxMs, 50);
+  assert.equal(summary.percentileMethod, 'R-7 linear interpolation');
+  assert.deepEqual(summary.longestStall, { sampleIndex: 3, milliseconds: 50 });
   assert.equal(summary.effectiveFps, 1000 / 30);
   assert.deepEqual(summary.missedFrames60Hz, { thresholdMs: 16.67, count: 3, rate: 0.75 });
   assert.deepEqual(summary.missedFrames30Hz, { thresholdMs: 33.33, count: 2, rate: 0.5 });
@@ -62,10 +100,14 @@ test('lane separates rAF pacing, GPU timestamps, and serialized completion laten
     id: 'fake',
     version: '1.0.0',
     async initialize() { calls.push('initialize'); return { firstVisibleMs: 5, uploadBytes: 16 }; },
-    async submitFrame(frame) { calls.push(`submit:${frame}`); submissions += 1; },
+    async submitFrame(frame) {
+      calls.push(`submit:${frame}`);
+      submissions += 1;
+      return { cameraAngleRadians: 2 * Math.PI * frame / 100 };
+    },
     async completeGpu() { calls.push('complete'); completions += 1; return null; },
     async drainGpu() { calls.push('drain'); },
-    async capture(frame) { calls.push(`capture:${frame}`); return { passed: true, frame, hash: 'a'.repeat(64) }; },
+    async capture(frame) { calls.push(`capture:${frame}`); return { frame }; },
     retainedEvidence() {
       return {
         fixtureBufferWritesAfterInitialize: 0,
@@ -80,20 +122,44 @@ test('lane separates rAF pacing, GPU timestamps, and serialized completion laten
   const result = await runIndicatorLane(adapter, { pointSizePx: 4 }, {
     now: () => ++clock,
     nextAnimationFrame: async () => { animationTimestamp += 10; return animationTimestamp; },
+    verifyCapture: async (_capture, frame) => {
+      const closedFrame = frame === 100 ? 0 : frame;
+      return {
+        passed: true,
+        artifactSha256: closedFrame.toString(16).padStart(64, '0'),
+        observed: {
+          grid: [1, 1], channels: ['coverage', 'r', 'g', 'b'],
+          regions: [[closedFrame / 100, 0, 0, 0]],
+        },
+      };
+    },
   });
   assert.equal(result.correctness.passed, true);
-  assert.equal(result.timing.presentation.warmupFrames, 60);
-  assert.equal(result.timing.presentation.measuredFrames, 100);
-  assert.equal(result.timing.gpuCompletionCalls, 161);
+  assert.equal(result.timing.rafCallbackScheduling.warmupFrames, 60);
+  assert.equal(result.timing.rafCallbackScheduling.measuredFrames, 100);
+  assert.equal(result.timing.gpuCompletionCalls, 165);
   assert.equal(result.timing.finalDrainCalls, 2);
-  assert.equal(result.timing.presentation.presentedIntervals.rawSamplesMs.length, 100);
-  assert.equal(result.timing.presentation.cpuSubmit.rawSamplesMs.length, 100);
+  assert.equal(result.timing.rafCallbackScheduling.rafCallbackIntervals.rawSamplesMs.length, 100);
+  assert.equal(result.timing.rafCallbackScheduling.cpuSubmit.rawSamplesMs.length, 100);
   assert.equal(result.timing.gpuTimestamp, null);
   assert.equal(result.timing.serializedSubmitToCompletion.rawSamplesMs.length, 100);
-  assert.equal(completions, 161);
-  assert.equal(submissions, 321);
+  assert.equal(completions, 165);
+  assert.equal(submissions, 325);
   assert.ok(calls.indexOf('capture:0') < calls.indexOf('submit:1'));
   assert.equal(calls.at(-1), 'destroy');
+});
+
+test('release lane rejects any fixture other than the frozen full-million bytes', async () => {
+  const adapter = {
+    id: 'must-not-start', version: '1.0.0',
+    async initialize() { throw new Error('release validation ran too late'); },
+    async submitFrame() {}, async completeGpu() {}, async drainGpu() {},
+    async capture() {}, retainedEvidence() { return {}; }, async destroy() {},
+  };
+  await assert.rejects(runIndicatorLane(adapter, { pointSizePx: 4 }, {
+    fixture: createCloudFixture(10),
+    release: true,
+  }), /frozen one-million fixture/);
 });
 
 test('lane rejects fixture writes while permitting bounded camera-uniform writes', async () => {
@@ -101,10 +167,13 @@ test('lane rejects fixture writes while permitting bounded camera-uniform writes
   const adapter = {
     id: 'fake', version: '1.0.0',
     async initialize() {},
-    async submitFrame() { submissions += 1; },
+    async submitFrame(frame) {
+      submissions += 1;
+      return { cameraAngleRadians: 2 * Math.PI * frame / 100 };
+    },
     async completeGpu() {},
     async drainGpu() {},
-    async capture() { return { passed: true, hash: 'b'.repeat(64) }; },
+    async capture(frame) { return { frame }; },
     retainedEvidence() {
       return {
         fixtureBufferWritesAfterInitialize: 1,
@@ -114,8 +183,30 @@ test('lane rejects fixture writes while permitting bounded camera-uniform writes
     },
     async destroy() {},
   };
-  await assert.rejects(runIndicatorLane(adapter, { pointSizePx: 1 }), /fixture buffer write/);
-  assert.equal(submissions, 1);
+  await assert.rejects(runIndicatorLane(adapter, { pointSizePx: 1 }, {
+    verifyCapture: async (_capture, frame) => {
+      const closedFrame = frame === 100 ? 0 : frame;
+      return {
+        passed: true,
+        artifactSha256: closedFrame.toString(16).padStart(64, '0'),
+        observed: { grid: [1, 1], channels: ['coverage', 'r', 'g', 'b'], regions: [[closedFrame, 0, 0, 0]] },
+      };
+    },
+  }), /fixture buffer write/);
+  assert.equal(submissions, 5);
+});
+
+test('lane destroys partially initialized adapters when initialization fails', async () => {
+  let destroyed = false;
+  const adapter = {
+    id: 'broken', version: '1.0.0',
+    async initialize() { throw new Error('device lost'); },
+    async submitFrame() {}, async completeGpu() {}, async drainGpu() {},
+    async capture() {}, retainedEvidence() { return {}; },
+    async destroy() { destroyed = true; },
+  };
+  await assert.rejects(runIndicatorLane(adapter, { pointSizePx: 1 }), /device lost/);
+  assert.equal(destroyed, true);
 });
 
 test('retention ledger separates fixture mutation from bounded camera uniforms', () => {
@@ -138,15 +229,24 @@ test('retention ledger separates fixture mutation from bounded camera uniforms',
 });
 
 test('WebGPU tracker rejects writes and reallocations of registered fixture buffers', () => {
+  class FakeBuffer {
+    constructor(size) { this.size = size; }
+    async mapAsync() {}
+  }
   class FakeQueue {
     writeBuffer(buffer, _offset, source) { return source.byteLength; }
   }
   class FakeDevice {
-    createBuffer(descriptor) { return { size: descriptor.size }; }
+    createBuffer(descriptor) { return new FakeBuffer(descriptor.size); }
+  }
+  class FakeCommandEncoder {
+    copyBufferToBuffer() {}
   }
   const tracker = installWebGpuFixtureTracker(1024, {
     GPUQueue: FakeQueue,
     GPUDevice: FakeDevice,
+    GPUBuffer: FakeBuffer,
+    GPUCommandEncoder: FakeCommandEncoder,
   });
   const device = new FakeDevice();
   const queue = new FakeQueue();
@@ -158,7 +258,77 @@ test('WebGPU tracker rejects writes and reallocations of registered fixture buff
   assert.equal(tracker.evidence().fixtureBufferWritesAfterInitialize, 0);
   queue.writeBuffer(fixtureBuffer, 0, new Uint8Array(4096));
   device.createBuffer({ size: 4096 });
-  assert.equal(tracker.evidence().fixtureBufferWritesAfterInitialize, 1);
-  assert.equal(tracker.evidence().fixtureBufferReallocationsAfterInitialize, 1);
+  fixtureBuffer.mapAsync(1);
+  new FakeCommandEncoder().copyBufferToBuffer({ size: 4096 }, 0, fixtureBuffer, 0, 4096);
+  device.createBuffer({ size: 4096, mappedAtCreation: true });
+  assert.equal(tracker.evidence().fixtureBufferWritesAfterInitialize, 3);
+  assert.equal(tracker.evidence().fixtureBufferReallocationsAfterInitialize, 2);
+  assert.equal(tracker.evidence().fixtureBufferMapsAfterInitialize, 1);
+  assert.equal(tracker.evidence().fixtureBufferCopiesAfterInitialize, 1);
+  assert.equal(tracker.evidence().largeMappedAtCreationAfterInitialize, 1);
   tracker.restore();
+});
+
+test('capture gate requires visible colored cloud coverage in every quadrant', async () => {
+  const rgba = new Uint8Array(8 * 8 * 4);
+  for (const [x, y, color] of [
+    [1, 1, [230, 70, 80, 255]],
+    [6, 1, [51, 210, 245, 255]],
+    [1, 6, [230, 210, 80, 255]],
+    [6, 6, [51, 70, 245, 255]],
+  ]) rgba.set(color, (y * 8 + x) * 4);
+  const result = await assessCloudCapture(rgba, 8, 8, { minimumChangedPixels: 4 });
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.quadrantChangedPixels, [1, 1, 1, 1]);
+  assert.equal(result.changedPixels, 4);
+  assert.equal(result.artifactSha256.length, 64);
+  rgba.fill(0, 0, 8 * 4 * 4);
+  assert.equal((await assessCloudCapture(rgba, 8, 8, { minimumChangedPixels: 4 })).passed, false);
+});
+
+test('deterministic region oracle rejects reduced data and wrong orbit cameras', () => {
+  const full = createCloudFixture(200);
+  const reduced = createCloudFixture(100);
+  const frame0 = cloudReferenceRegionStats(full, 0, [64, 64], 4, [4, 4]);
+  const exact = compareCloudRegionStats(frame0, structuredClone(frame0), 0.01);
+  const wrongCamera = compareCloudRegionStats(
+    frame0,
+    cloudReferenceRegionStats(full, 25, [64, 64], 4, [4, 4]),
+    0.01,
+  );
+  const reducedData = compareCloudRegionStats(
+    frame0,
+    cloudReferenceRegionStats(reduced, 0, [64, 64], 4, [4, 4]),
+    0.01,
+  );
+  assert.equal(exact.passed, true);
+  assert.equal(wrongCamera.passed, false);
+  assert.equal(reducedData.passed, false);
+});
+
+test('VKF marker_impostor prepares immutable XYZ+RGBA instances once and orbits by camera only', () => {
+  const fixture = createCloudFixture(2);
+  const instances = vkfMarkerInstances(fixture, 4, [1280, 720]);
+  assert.equal(instances.length, 16);
+  assert.deepEqual([...instances.slice(0, 3)], [...fixture.positions.slice(0, 3)]);
+  assert.deepEqual(
+    [...instances.slice(4, 7)].map((value) => Math.round(value * 255)),
+    [...fixture.colors.slice(0, 3)],
+  );
+  assert.equal(instances[7], -1, 'negative alpha selects shipped unlit marker output');
+  const scene = createVkfMarkerScene(fixture, 4, [1280, 720]);
+  const retained = scene.parts[0].instances;
+  const revision = scene.__revision;
+  updateVkfOrbit(scene, 25);
+  assert.equal(scene.parts[0].instances, retained);
+  assert.equal(scene.__revision, revision);
+  assert.ok(scene.camera.pos[0] > 2.9);
+  assert.ok(Math.abs(scene.camera.pos[2]) < 1e-12);
+  assert.equal(scene.parts[0].instance_kind, 'point-impostor');
+  assert.equal(scene.parts[0].static_instances, true);
+  assert.equal(scene.parts[0].transparent, true);
+  assert.equal(scene.parts[0].overlay_expanded, true);
+  assert.equal(scene.parts[0].camera, scene.camera);
+  assert.equal(scene.camera.projection_matrix.length, 16);
+  assert.ok(Math.abs(scene.camera.projection_matrix[5] - (1 / 1.1)) < 1e-7);
 });
