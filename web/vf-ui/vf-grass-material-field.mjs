@@ -13,6 +13,13 @@ const MAX_DEMANDED_CELLS = 4096;
 const MAX_BLADE_BUDGET = 65536;
 const DRY_COLOR = Object.freeze([0.24, 0.31, 0.08]);
 const LUSH_COLOR = Object.freeze([0.16, 0.48, 0.09]);
+const GRASS_BLADE_TEMPLATE_VERTICES = new Float32Array([
+  -1, 0, 0, 0, 0, 1, 1, 1, 1, 1,
+  1, 0, 0, 0, 0, 1, 1, 1, 1, 1,
+  0.28, 0, 1, 0, 0, 1, 1, 1, 1, 1,
+  -0.28, 0, 1, 0, 0, 1, 1, 1, 1, 1,
+]);
+const GRASS_BLADE_TEMPLATE_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -220,6 +227,33 @@ function appendBlade(vertices, indices, blade, baseIndex) {
   );
 }
 
+function sampleBlade(cellNode, material, cellX, cellY, bladeIndex) {
+  const sample = (lane, minimum, maximum) => sampleBoundedUniform(
+    cellNode,
+    [bladeIndex, lane],
+    { min: minimum, max: maximum },
+  );
+  const colorShift = sample(6, -0.035, 0.035);
+  return Object.freeze({
+    x: cellX + sample(0, 0.08, 0.92),
+    y: cellY + sample(1, 0.08, 0.92),
+    height: material.bladeHeight * sample(2, 0.72, 1.28),
+    halfWidth: sample(3, 0.012, 0.028),
+    direction: sample(4, 0, Math.PI),
+    lean: Object.freeze({
+      direction: sample(5, 0, Math.PI * 2),
+      amount: material.bladeHeight * sample(7, 0.02, 0.16),
+    }),
+    color: Object.freeze([
+      clamp(material.baseColor[0] + colorShift * 0.4, 0, 1),
+      clamp(material.baseColor[1] + colorShift, 0, 1),
+      clamp(material.baseColor[2] + colorShift * 0.2, 0, 1),
+      1,
+    ]),
+    roughness: material.roughness,
+  });
+}
+
 export function createGrassRendererPacketsReference(
   field,
   { cells, detailLevel, footprint, bladeBudget },
@@ -253,31 +287,9 @@ export function createGrassRendererPacketsReference(
     const indexValues = [];
     const roughness = new Float32Array(cellBladeCount);
     for (let bladeIndex = 0; bladeIndex < cellBladeCount; bladeIndex += 1) {
-      const sample = (lane, minimum, maximum) => sampleBoundedUniform(
-        cellNode,
-        [bladeIndex, lane],
-        { min: minimum, max: maximum },
-      );
-      const colorShift = sample(6, -0.035, 0.035);
-      const color = [
-        clamp(material.baseColor[0] + colorShift * 0.4, 0, 1),
-        clamp(material.baseColor[1] + colorShift, 0, 1),
-        clamp(material.baseColor[2] + colorShift * 0.2, 0, 1),
-        1,
-      ];
-      appendBlade(vertexValues, indexValues, {
-        x: cellX + sample(0, 0.08, 0.92),
-        y: cellY + sample(1, 0.08, 0.92),
-        height: material.bladeHeight * sample(2, 0.72, 1.28),
-        halfWidth: sample(3, 0.012, 0.028),
-        direction: sample(4, 0, Math.PI),
-        lean: {
-          direction: sample(5, 0, Math.PI * 2),
-          amount: material.bladeHeight * sample(7, 0.02, 0.16),
-        },
-        color,
-      }, bladeIndex * 4);
-      roughness[bladeIndex] = material.roughness;
+      const blade = sampleBlade(cellNode, material, cellX, cellY, bladeIndex);
+      appendBlade(vertexValues, indexValues, blade, bladeIndex * 4);
+      roughness[bladeIndex] = blade.roughness;
     }
     const vertices = new Float32Array(vertexValues);
     const indices = new Uint32Array(indexValues);
@@ -303,6 +315,94 @@ export function createGrassRendererPacketsReference(
     bladeCount,
     vertexBytes,
     indexBytes,
+    budget: bladeBudget,
+  });
+}
+
+export function createGrassRendererInstancePacketsReference(
+  field,
+  { cells, detailLevel, footprint, bladeBudget },
+) {
+  const state = fieldState.get(field);
+  if (!state) {
+    throw new TypeError('grass material field is required');
+  }
+  requireOptions({ detailLevel, footprint });
+  requireBladeBudget(bladeBudget);
+  const demandedCells = requireDemandedCells(cells);
+  const bladesPerCell = 2 ** Math.min(4, detailLevel);
+  const packets = [];
+  let bladeCount = 0;
+  let templateVertexBytes = 0;
+  let templateIndexBytes = 0;
+  let instanceBytes = 0;
+  for (const [cellX, cellY] of demandedCells) {
+    if (bladeCount >= bladeBudget) break;
+    const cellBladeCount = Math.min(bladesPerCell, bladeBudget - bladeCount);
+    if (cellBladeCount === 0) break;
+    const cellNode = conditionChild(state.detailNode, {
+      segment: `grass:cell:${cellX}:${cellY}`,
+      channel: 'blade-traits',
+    });
+    const material = sampleGrassMaterialReference(
+      field,
+      [cellX + 0.5, cellY + 0.5],
+      { detailLevel: 0, footprint: 0 },
+    );
+    const instances = new Float32Array(cellBladeCount * 16);
+    for (let bladeIndex = 0; bladeIndex < cellBladeCount; bladeIndex += 1) {
+      const blade = sampleBlade(cellNode, material, cellX, cellY, bladeIndex);
+      const offset = bladeIndex * 16;
+      const directionX = Math.cos(blade.direction);
+      const directionY = Math.sin(blade.direction);
+      instances.set([
+        blade.x,
+        blade.y,
+        0,
+        blade.height,
+        directionX,
+        directionY,
+        blade.halfWidth,
+        blade.roughness,
+        Math.cos(blade.lean.direction) * blade.lean.amount,
+        Math.sin(blade.lean.direction) * blade.lean.amount,
+        0,
+        0,
+        ...blade.color,
+      ], offset);
+    }
+    bladeCount += cellBladeCount;
+    templateVertexBytes += GRASS_BLADE_TEMPLATE_VERTICES.byteLength;
+    templateIndexBytes += GRASS_BLADE_TEMPLATE_INDICES.byteLength;
+    instanceBytes += instances.byteLength;
+    packets.push(Object.freeze({
+      id: `grass:cell:${cellX}:${cellY}`,
+      type: 'field_mesh',
+      instance_kind: 'grass-blade-list',
+      instance_count: cellBladeCount,
+      instances,
+      vertices: GRASS_BLADE_TEMPLATE_VERTICES,
+      indices: GRASS_BLADE_TEMPLATE_INDICES,
+      blade_count: cellBladeCount,
+      static_vertices: true,
+      static_indices: true,
+      static_instances: true,
+      cull_backfaces: false,
+      no_cull: true,
+      no_lighting: true,
+      pickable: false,
+      specular_strength: 0.02,
+    }));
+  }
+  return Object.freeze({
+    kind: 'grass-renderer-instance-working-set:v1',
+    packets: Object.freeze(packets),
+    demandedCellCount: demandedCells.length,
+    bladeCount,
+    templateVertexBytes,
+    templateIndexBytes,
+    instanceBytes,
+    uploadBytes: templateVertexBytes + templateIndexBytes + instanceBytes,
     budget: bladeBudget,
   });
 }
