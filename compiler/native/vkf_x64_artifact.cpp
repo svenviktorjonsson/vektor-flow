@@ -646,8 +646,10 @@ class MachineX64Emitter {
 public:
     MachineX64Emitter(
         const vkf::machine_ir::Module& module,
-        vkf::adaptive_optimizer::Policy policy = {}
-    ) : module_(module), policy_(std::move(policy)) {}
+        vkf::adaptive_optimizer::Policy policy = {},
+        bool execute_automatic_cpu_pair = false
+    ) : module_(module), policy_(std::move(policy)),
+        execute_automatic_cpu_pair_(execute_automatic_cpu_pair) {}
 
     std::vector<unsigned char> emit() {
         offsets_[module_.entry.name] = code_.position();
@@ -656,6 +658,7 @@ public:
             offsets_[function.name] = code_.position();
             emit_function(function, false);
         }
+        if (execute_automatic_cpu_pair_) emit_automatic_cpu_thread_thunk();
         for (const auto& patch : calls_) {
             const auto found = offsets_.find(patch.function);
             if (found == offsets_.end()) throw BackendFailure("unknown function " + patch.function);
@@ -666,6 +669,8 @@ public:
 
 private:
     vkf::adaptive_optimizer::Policy policy_;
+    bool execute_automatic_cpu_pair_ = false;
+    std::vector<std::size_t> automatic_cpu_thread_references_;
     struct Frame {
         unsigned local_count = 0;
         unsigned temp_base = 0;
@@ -2963,6 +2968,119 @@ private:
             code_.raw({0x41, 0xff, 0x94, 0x24});
             code_.i32(static_cast<std::int32_t>(slot * 8));
         }
+    }
+
+    void call_private_pe_runtime_slot(unsigned slot) {
+        if (slot < 37 || slot > 39) {
+            throw BackendFailure("invalid private PE runtime slot");
+        }
+        code_.raw({0x41, 0xff, 0x94, 0x24});
+        code_.i32(static_cast<std::int32_t>(slot * 8));
+    }
+
+    void emit_automatic_cpu_call(
+        const Frame& frame,
+        const std::string& symbol,
+        std::uint32_t result_local
+    ) {
+        code_.raw({0x4c, 0x8d, 0x95});
+        code_.i32(frame.displacement(frame.temp_base));
+        code_.raw({0x4c, 0x8d, 0x9d});
+        code_.i32(frame.displacement(result_local));
+        code_.byte(0xe8);
+        calls_.push_back({code_.rel32_placeholder(), symbol});
+    }
+
+    void emit_automatic_cpu_pair_entry(
+        const vkf::machine_ir::Function& function,
+        Frame frame
+    ) {
+#ifndef _WIN32
+        (void)function;
+        (void)frame;
+        throw BackendFailure("automatic CPU pair execution requires the private PE runtime");
+#else
+        using vkf::machine_ir::Opcode;
+        if (function.instructions.size() != 7u || function.locals.size() < 2u ||
+            function.max_stack < 2u ||
+            module_.output_kind != vkf::machine_ir::OutputKind::MultipleF64 ||
+            module_.output_count != 2u ||
+            function.instructions[0].opcode != Opcode::Call ||
+            function.instructions[2].opcode != Opcode::Call) {
+            throw BackendFailure("invalid selected automatic CPU pair entry");
+        }
+        frame.frame_bytes += 16u;
+        prologue(frame);
+        save_runtime_context(frame);
+        const auto context_runtime = frame.temp_base + 1u;
+        const auto context_result = frame.temp_base;
+        code_.raw({0x4c, 0x89, 0xa5});
+        code_.i32(frame.displacement(context_runtime));
+
+        code_.raw({0x48, 0xc7, 0x44, 0x24, 0x20});
+        code_.i32(0);
+        code_.raw({0x48, 0xc7, 0x44, 0x24, 0x28});
+        code_.i32(0);
+        code_.raw({0x31, 0xc9, 0x31, 0xd2, 0x4c, 0x8d, 0x05});
+        automatic_cpu_thread_references_.push_back(code_.rel32_placeholder());
+        code_.raw({0x4c, 0x8d, 0x8d});
+        code_.i32(frame.displacement(context_runtime));
+        call_private_pe_runtime_slot(37);
+        code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x84});
+        const auto serial_fallback = code_.rel32_placeholder();
+        code_.raw({0x48, 0x89, 0x85});
+        code_.i32(frame.displacement(0));
+
+        emit_automatic_cpu_call(frame, function.instructions[2].symbol, 1);
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(0));
+        code_.byte(0xba);
+        code_.i32(-1);
+        call_private_pe_runtime_slot(38);
+        code_.raw({0x85, 0xc0, 0x0f, 0x84});
+        const auto wait_succeeded = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(wait_succeeded, code_.position());
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(0));
+        call_private_pe_runtime_slot(39);
+        load_xmm(0, frame.displacement(context_result));
+        store_xmm(0, frame.displacement(0));
+        code_.byte(0xe9);
+        const auto output = code_.rel32_placeholder();
+
+        code_.patch_rel32(serial_fallback, code_.position());
+        emit_automatic_cpu_call(frame, function.instructions[0].symbol, 0);
+        emit_automatic_cpu_call(frame, function.instructions[2].symbol, 1);
+        code_.patch_rel32(output, code_.position());
+
+        load_xmm(0, frame.displacement(0));
+        code_.raw({0xf2, 0x41, 0x0f, 0x11, 0x84, 0x24});
+        code_.i32(static_cast<std::int32_t>(vkf::machine_ir::runtime_output_base));
+        load_xmm(0, frame.displacement(1));
+        code_.raw({0xf2, 0x41, 0x0f, 0x11, 0x84, 0x24});
+        code_.i32(static_cast<std::int32_t>(vkf::machine_ir::runtime_output_base + 8u));
+        restore_runtime_context(frame);
+        epilogue();
+#endif
+    }
+
+    void emit_automatic_cpu_thread_thunk() {
+#ifdef _WIN32
+        const auto thunk = code_.position();
+        for (const auto reference : automatic_cpu_thread_references_) {
+            code_.patch_rel32(reference, thunk);
+        }
+        code_.raw({0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x30,
+                   0x4c, 0x89, 0x65, 0xf8,
+                   0x4c, 0x8b, 0x21,
+                   0x4c, 0x8d, 0x51, 0x08,
+                   0x4c, 0x8d, 0x59, 0x08,
+                   0xe8});
+        calls_.push_back({
+            code_.rel32_placeholder(), module_.entry.instructions[0].symbol});
+        code_.raw({0x4c, 0x8b, 0x65, 0xf8, 0x31, 0xc0, 0xc9, 0xc3});
+#endif
     }
 
     void emit_abort() {
@@ -5853,6 +5971,10 @@ private:
 
     void emit_function(const vkf::machine_ir::Function& function, bool entry) {
         const Frame frame = make_frame(function, entry);
+        if (entry && execute_automatic_cpu_pair_) {
+            emit_automatic_cpu_pair_entry(function, frame);
+            return;
+        }
         if (!entry && policy_.integer_function_tier &&
             is_integer_function_candidate(function)) {
             emit_integer_function(function, frame);
@@ -13782,6 +13904,8 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     vkf::adaptive_optimizer::Policy selected_policy;
     vkf::adaptive_optimizer::AutomaticFlowLimits flow_limits;
     TuningResult tuning;
+    bool automatic_cpu_pair = false;
+    bool execute_automatic_cpu_pair = false;
     try {
         flow_limits = automatic_flow_limits(typed_ir);
         machine_ir = supplied_machine_ir
@@ -13790,8 +13914,13 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         const bool supports_simd = vkf::target::host_x64_supports_avx2();
         optimization_decisions = vkf::adaptive_optimizer::decide_module(
             machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
-        const bool automatic_cpu_pair = vkf::adaptive_optimizer::select_automatic_cpu_pair(
+        automatic_cpu_pair = vkf::adaptive_optimizer::select_automatic_cpu_pair(
             machine_ir, flow_limits, std::max(1u, std::thread::hardware_concurrency()));
+#ifdef _WIN32
+        execute_automatic_cpu_pair = automatic_cpu_pair &&
+            machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64 &&
+            machine_ir.output_count == 2u;
+#endif
         if (automatic_cpu_pair && !optimization_decisions.empty()) {
             auto& entry_decision = optimization_decisions.front();
             vkf::adaptive_optimizer::append_unique(
@@ -13825,6 +13954,11 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             tuning.eligible = can_tune_machine_code(machine_ir);
             code = MachineX64Emitter(machine_ir, selected_policy).emit();
         }
+#ifdef _WIN32
+        if (execute_automatic_cpu_pair) {
+            code = MachineX64Emitter(machine_ir, selected_policy, true).emit();
+        }
+#endif
         tuning.fingerprint = optimizer_fingerprint;
     } catch (const vkf::machine_ir::LoweringFailure& error) {
         throw vkf_x64_backend::Unsupported(error.what());
@@ -13844,7 +13978,8 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             machine_ir.output_kind == vkf::machine_ir::OutputKind::None,
             machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64
                 ? machine_ir.output_count : 0u,
-            vkf::pe::math_imports_for(machine_ir), machine_ir.outputs, machine_ir.output_tokens);
+            vkf::pe::math_imports_for(machine_ir), machine_ir.outputs,
+            machine_ir.output_tokens, execute_automatic_cpu_pair);
         executable = std::move(artifact.bytes);
         is_pe = true;
     } catch (const vkf::pe::WriterFailure& error) {

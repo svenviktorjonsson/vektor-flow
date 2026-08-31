@@ -51,9 +51,12 @@ dependencies, effects, fallibility, owned resources, reductions without a
 stable merge tree, or small work all retain serial execution. The native
 artifact compiler now identifies the exact source-derived pair of retained
 no-argument scalar calls and records `automatic-cpu-pair-selected` only when
-that same safety plan admits it. Generated artifacts still execute those calls
-serially; connecting this selection to private thread launch/join remains the
-explicit next RED.
+that same safety plan admits it. A selected Windows native artifact with the
+exact two-numeric-result shape runs one demand on a private operating-system
+thread while the caller runs the other, joins before observation, and then
+commits both results in source order. Thread creation failure falls back to the
+same serial order. Other target and result shapes remain selection-only and
+serial. This is execution evidence, not a wall-clock performance claim.
 
 The only approved public scheduling settings are process-wide ceilings:
 
