@@ -140,3 +140,26 @@ test('region query rejects malformed bounds and unbounded work', () => {
     RangeError,
   );
 });
+
+test('adjacent half-open regions neither lose nor duplicate boundary candidates', () => {
+  const node = createPointNode();
+  const options = {
+    cellSize: 10,
+    maxCandidates: 8,
+    baseProbability: 1,
+    correlationLength: 20,
+    spatialStrength: 0,
+  };
+  const query = (min, max) => queryMarkedPointRegion2Reference(
+    node,
+    { min, max },
+    options,
+  );
+  const left = query([0, 0], [10, 10]);
+  const right = query([10, 0], [20, 10]);
+  const whole = query([0, 0], [20, 10]);
+  const adjacentIds = [...left, ...right].map(({ id }) => id);
+
+  assert.equal(new Set(adjacentIds).size, adjacentIds.length);
+  assert.deepEqual(adjacentIds, whole.map(({ id }) => id));
+});
