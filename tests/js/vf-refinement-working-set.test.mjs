@@ -140,3 +140,38 @@ test('camera changes evict stale detail and regenerate it exactly from face keys
   assert.strictEqual(coarse.vertices, coarseVertices);
   assert.strictEqual(coarse.faces, coarseFaces);
 });
+
+test('working-set selection is traversal and chunk independent', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const demands = [
+    demand('face:+x:+y:+z', { projectedErrorPixels: 100 }),
+    demand('face:+x:+y:-z', {
+      silhouette: true,
+      silhouetteErrorPixels: 20,
+      projectedErrorPixels: 20,
+    }),
+    demand('face:+x:-y:+z', {
+      silhouette: true,
+      silhouetteErrorPixels: 40,
+      projectedErrorPixels: 40,
+    }),
+    demand('face:+x:-y:-z', { projectedErrorPixels: 200 }),
+  ];
+  const update = (active) => updateEllipsoidRefinementWorkingSetReference(
+    coarse,
+    null,
+    { demands: active, vertexBudget: 3, faceBudget: 9 },
+  );
+  const forward = update(demands);
+  const reversed = update([...demands].reverse());
+  const chunks = [demands.slice(0, 1), demands.slice(1, 3), demands.slice(3)];
+  const chunked = update(chunks.flat());
+
+  assert.deepEqual(reversed, forward);
+  assert.deepEqual(chunked, forward);
+  assert.throws(() => update([demands[0], demands[0]]), RangeError);
+  assert.throws(
+    () => update([demand('face:missing', { projectedErrorPixels: 1 })]),
+    RangeError,
+  );
+});
