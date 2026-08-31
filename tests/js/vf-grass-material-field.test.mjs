@@ -29,6 +29,20 @@ test('grass material samples deterministic field and patch variation on demand',
   );
 
   assert.deepEqual(first, recreated);
+  assert.deepEqual(first, {
+    fieldVariation: 0.8275767911476568,
+    patchVariation: -0.5268860254969965,
+    surfaceVariation: -0.2157097563439967,
+    coverage: 0.8093782915027848,
+    bladeHeight: 0.495709104276328,
+    roughness: 0.8220761283665791,
+    baseColor: [
+      0.18565425296905105,
+      0.42548471244076647,
+      0.08679321837886861,
+      1,
+    ],
+  });
   assert.equal(field.kind, 'grass-multiscale-field:v1');
   assert.equal(field.maxOctaves, 6);
   assert.ok(first.fieldVariation >= -1 && first.fieldVariation <= 1);
@@ -100,6 +114,39 @@ test('grass refinement appends blades without changing established cell identity
     [...coarse.packets[0].indices],
     [...fine.packets[0].indices.slice(0, coarse.packets[0].indices.length)],
   );
+});
+
+test('grass demand stays bounded for distant or over-capacity working sets', () => {
+  const field = createGrassMaterialFieldReference(IDENTITY);
+  const distant = createGrassRendererPacketsReference(field, {
+    cells: [[2_000_000_000, -2_000_000_000]],
+    detailLevel: Number.MAX_SAFE_INTEGER,
+    footprint: 0,
+    bladeBudget: 1,
+  });
+  const empty = createGrassRendererPacketsReference(field, {
+    cells: Array.from({ length: 4096 }, (_, index) => [index, 0]),
+    detailLevel: 5,
+    footprint: 0,
+    bladeBudget: 0,
+  });
+
+  assert.equal(distant.bladeCount, 1);
+  assert.equal(distant.vertexBytes + distant.indexBytes, 184);
+  assert.equal(empty.bladeCount, 0);
+  assert.equal(empty.packets.length, 0);
+  assert.throws(() => createGrassRendererPacketsReference(field, {
+    cells: Array.from({ length: 4097 }, (_, index) => [index, 0]),
+    detailLevel: 0,
+    footprint: 0,
+    bladeBudget: 0,
+  }), /exceeds 4096 cells/);
+  assert.throws(() => createGrassRendererPacketsReference(field, {
+    cells: [[0, 0]],
+    detailLevel: 0,
+    footprint: 0,
+    bladeBudget: 65537,
+  }), /exceeds 65536/);
 });
 
 test('offscreen grass fixture feeds demanded packets into the retained renderer', async () => {
