@@ -185,3 +185,22 @@ test('face demand is traversal and chunk independent without unrelated detail', 
     assert.ok(result.generatedFaces.every(({ id }) => id.startsWith(`${faceId}/refine:1/`)));
   }
 });
+
+test('independently refined neighbors retain their exact shared boundary', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const firstId = 'face:+x:+y:+z';
+  const secondId = 'face:-x:+y:+z';
+  const firstParent = coarse.faces.find(({ id }) => id === firstId);
+  const secondParent = coarse.faces.find(({ id }) => id === secondId);
+  const shared = firstParent.boundary.filter((edge) => secondParent.boundary.includes(edge));
+  const first = refineEllipsoidFaceReference(coarse, firstId);
+  const second = refineEllipsoidFaceReference(coarse, secondId);
+  const firstChildren = first.faces.filter(({ id }) => id.startsWith(`${firstId}/refine:1/`));
+  const secondChildren = second.faces.filter(({ id }) => id.startsWith(`${secondId}/refine:1/`));
+
+  assert.deepEqual(shared, ['edge:vertex:+y|vertex:+z']);
+  assert.equal(firstChildren.filter(({ boundary }) => boundary.includes(shared[0])).length, 1);
+  assert.equal(secondChildren.filter(({ boundary }) => boundary.includes(shared[0])).length, 1);
+  assert.ok(!first.vertices.slice(coarse.vertices.length).some(({ id }) => shared[0].includes(id)));
+  assert.ok(!second.vertices.slice(coarse.vertices.length).some(({ id }) => shared[0].includes(id)));
+});
