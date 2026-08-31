@@ -274,3 +274,42 @@ test('opposite camera demands converge to a bounded steady state', () => {
   assert.deepEqual(positiveRegenerated.usage, { vertices: 2, faces: 6 });
   assert.strictEqual(positiveRegenerated.coarse, coarse);
 });
+
+test('budget sweep bounds all detail and empty demand evicts it all', () => {
+  const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+  const demands = coarse.faces.map(({ id }, index) => demand(id, {
+    silhouette: index % 2 === 0,
+    silhouetteErrorPixels: index % 2 === 0 ? 100 - index : 0,
+    projectedErrorPixels: 100 - index,
+    errorBoundPixels: 120 - index,
+  }));
+  const update = (previous, active, vertexBudget, faceBudget) => (
+    updateEllipsoidRefinementWorkingSetReference(coarse, previous, {
+      demands: active,
+      vertexBudget,
+      faceBudget,
+    })
+  );
+
+  for (let vertexBudget = 0; vertexBudget <= 8; vertexBudget += 1) {
+    for (let faceBudget = 0; faceBudget <= 24; faceBudget += 1) {
+      const state = update(null, demands, vertexBudget, faceBudget);
+      assert.ok(state.usage.vertices <= vertexBudget);
+      assert.ok(state.usage.faces <= faceBudget);
+      assert.equal(state.usage.vertices, state.entries.length);
+      assert.equal(state.usage.faces, state.entries.length * 3);
+    }
+  }
+
+  const full = update(null, demands, 8, 24);
+  const empty = update(full, [], 8, 24);
+  assert.equal(full.entries.length, 8);
+  assert.deepEqual(empty.entries, []);
+  assert.deepEqual(empty.usage, { vertices: 0, faces: 0 });
+  assert.deepEqual(empty.changes, {
+    retained: [],
+    created: [],
+    evicted: full.entries.map(({ face }) => face),
+  });
+  assert.strictEqual(empty.coarse, coarse);
+});
