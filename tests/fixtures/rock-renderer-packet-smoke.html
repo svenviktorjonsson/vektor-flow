@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>rock renderer packet smoke</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #10141a;
+      }
+
+      #layer {
+        position: fixed;
+        inset: 0;
+      }
+    </style>
+  </head>
+  <body data-vf-runtime-autoboot="false">
+    <div id="layer"></div>
+    <canvas id="vf-screen-canvas"></canvas>
+    <script src="../../web/vf-ui/vf-runtime-shell.js"></script>
+    <script type="module">
+      import {
+        createCoarseEllipsoidReference,
+      } from '../../web/vf-ui/vf-demand-refined-geometry.mjs';
+      import {
+        updateEllipsoidRefinementWorkingSetReference,
+      } from '../../web/vf-ui/vf-refinement-working-set.mjs';
+      import {
+        adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference,
+      } from '../../web/vf-ui/vf-rock-renderer-packets.mjs';
+
+      const frameId = 'rock_renderer_packet_frame';
+      const demand = (face, error) => Object.freeze({
+        face,
+        silhouette: true,
+        silhouetteEdges: Object.freeze([]),
+        silhouetteErrorPixels: error,
+        projectedErrorPixels: error,
+        errorBoundPixels: error,
+      });
+
+      try {
+        await window.VfRuntimeShell.ensureSceneDependencies();
+        const layer = document.getElementById('layer');
+        const panel = window.VfFrame.mount(layer, {
+          id: frameId,
+          title: 'Retained rock packets',
+          draggable: false,
+          dockable: false,
+          resizable: false,
+          closable: false,
+        });
+        panel.root.style.left = '5%';
+        panel.root.style.top = '5%';
+        panel.root.style.width = '90%';
+        panel.root.style.height = '90%';
+
+        const coarse = createCoarseEllipsoidReference({ radii: [3, 2, 1.5] });
+        const working = updateEllipsoidRefinementWorkingSetReference(coarse, null, {
+          demands: [
+            demand('face:+x:+y:+z', 40),
+            demand('face:+x:+y:-z', 20),
+          ],
+          vertexBudget: 2,
+          faceBudget: 6,
+        });
+        const adapted = adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+          working,
+          null,
+        );
+        window.__rockRendererPacketEvidence = {
+          ids: adapted.packets.map(({ id }) => id),
+          objectIds: adapted.packets.map(({ object_id: objectId }) => objectId),
+          upload: adapted.delta.upload,
+        };
+        window.VfDisplay.mountDynamicGeomFrame(frameId, () => ({
+          meshes: adapted.packets,
+          camera: {
+            pos: [7, -7, 5],
+            target: [0, 0, 0],
+            up: [0, 0, 1],
+            fov: 42,
+          },
+          lights: [{
+            id: 'rock_key',
+            kind: 'point',
+            pos: [4, -5, 7],
+            target: [0, 0, 0],
+            color: [1, 0.94, 0.82, 1],
+            intensity: 14,
+            range: 20,
+          }],
+          background: [0.035, 0.05, 0.075, 1],
+          unified_renderer: true,
+        }));
+        window.VfDisplay.requestDynamicGeomFrameUpdate(frameId);
+      } catch (error) {
+        window.__vfLastError = String(error && error.stack || error);
+      }
+    </script>
+  </body>
+</html>
