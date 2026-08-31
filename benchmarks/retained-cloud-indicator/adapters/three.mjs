@@ -10,6 +10,10 @@ export function threeOrbitPosition(frame) {
   return [3 * Math.sin(angle), 0, 3 * Math.cos(angle)];
 }
 
+export function threePrimitiveForPointSize(pointSizePx) {
+  return pointSizePx === 1 ? 'instanced-discrete-point-quad' : 'points';
+}
+
 function readWebGlRgba(gl, width, height) {
   const bottomUp = new Uint8Array(width * height * 4);
   gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, bottomUp);
@@ -37,6 +41,8 @@ export function createThreeAdapter(host, fixture, options = {}) {
   let camera;
   let retainedPositions;
   let retainedColors;
+  let positionAttributeName;
+  let colorAttributeName;
   let cameraUniformWrites = 0;
 
   function render(frame) {
@@ -64,15 +70,74 @@ export function createThreeAdapter(host, fixture, options = {}) {
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.setClearColor(0x000000, 1);
       gl = renderer.getContext();
-      geometry = new THREE.BufferGeometry();
-      const positionAttribute = new THREE.BufferAttribute(fixture.positions, 3);
-      const colorAttribute = new THREE.Uint8BufferAttribute(fixture.colors, 4, true);
-      retainedPositions = positionAttribute.array;
-      retainedColors = colorAttribute.array;
-      geometry.setAttribute('position', positionAttribute);
-      geometry.setAttribute('color', colorAttribute);
-      geometry.computeBoundingSphere();
-      material = new THREE.RawShaderMaterial({
+      const primitive = threePrimitiveForPointSize(lane.pointSizePx);
+      if (primitive === 'instanced-discrete-point-quad') {
+        geometry = new THREE.InstancedBufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+          -1, -1, 0, 1, -1, 0, 1, 1, 0,
+          -1, -1, 0, 1, 1, 0, -1, 1, 0,
+        ]), 3));
+        const positionAttribute = new THREE.InstancedBufferAttribute(fixture.positions, 3);
+        const colorAttribute = new THREE.InstancedBufferAttribute(fixture.colors, 4, true);
+        retainedPositions = positionAttribute.array;
+        retainedColors = colorAttribute.array;
+        positionAttributeName = 'instancePosition';
+        colorAttributeName = 'instanceColor';
+        geometry.setAttribute(positionAttributeName, positionAttribute);
+        geometry.setAttribute(colorAttributeName, colorAttribute);
+        geometry.instanceCount = fixture.pointCount;
+        material = new THREE.RawShaderMaterial({
+          transparent: true,
+          depthTest: true,
+          depthWrite: true,
+          blending: THREE.NormalBlending,
+          uniforms: {
+            carrierSize: { value: 3 },
+            viewport: { value: new THREE.Vector2(viewport[0], viewport[1]) },
+          },
+          vertexShader: `
+            precision highp float;
+            uniform float carrierSize;
+            uniform vec2 viewport;
+            uniform mat4 projectionMatrix;
+            uniform mat4 modelViewMatrix;
+            attribute vec3 position;
+            attribute vec3 instancePosition;
+            attribute vec4 instanceColor;
+            varying vec2 pointCenterPixels;
+            varying vec4 pointColor;
+            void main() {
+              pointColor = instanceColor;
+              vec4 center = projectionMatrix * modelViewMatrix * vec4(instancePosition, 1.0);
+              pointCenterPixels = (center.xy / center.w * 0.5 + 0.5) * viewport;
+              center.xy += position.xy * (carrierSize / viewport) * center.w;
+              gl_Position = center;
+            }
+          `,
+          fragmentShader: `
+            precision highp float;
+            varying vec2 pointCenterPixels;
+            varying vec4 pointColor;
+            void main() {
+              if (floor(gl_FragCoord.x) != floor(pointCenterPixels.x)
+                  || floor(gl_FragCoord.y) != floor(pointCenterPixels.y)) discard;
+              gl_FragColor = pointColor;
+            }
+          `,
+        });
+        points = new THREE.Mesh(geometry, material);
+      } else {
+        geometry = new THREE.BufferGeometry();
+        const positionAttribute = new THREE.BufferAttribute(fixture.positions, 3);
+        const colorAttribute = new THREE.Uint8BufferAttribute(fixture.colors, 4, true);
+        retainedPositions = positionAttribute.array;
+        retainedColors = colorAttribute.array;
+        positionAttributeName = 'position';
+        colorAttributeName = 'color';
+        geometry.setAttribute(positionAttributeName, positionAttribute);
+        geometry.setAttribute(colorAttributeName, colorAttribute);
+        geometry.computeBoundingSphere();
+        material = new THREE.RawShaderMaterial({
         vertexColors: true,
         transparent: true,
         depthTest: true,
@@ -103,8 +168,9 @@ export function createThreeAdapter(host, fixture, options = {}) {
             gl_FragColor = pointColor;
           }
         `,
-      });
-      points = new THREE.Points(geometry, material);
+        });
+        points = new THREE.Points(geometry, material);
+      }
       points.frustumCulled = false;
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x000000);
@@ -120,7 +186,7 @@ export function createThreeAdapter(host, fixture, options = {}) {
         uploadBytes: fixture.byteLength,
         estimatedGpuBytes: fixture.byteLength + viewport[0] * viewport[1] * 8,
         jsHeapBytes: performance.memory?.usedJSHeapSize ?? null,
-        backend: `Three.js r${THREE_VERSION} WebGL2 Points/ShaderMaterial`,
+        backend: `Three.js r${THREE_VERSION} WebGL2 ${primitive}`,
         timestampMode: 'unsupported by WebGL adapter',
         sampleCount: gl.getParameter(gl.SAMPLES),
         renderer: gl.getParameter(gl.RENDERER),
@@ -149,8 +215,8 @@ export function createThreeAdapter(host, fixture, options = {}) {
         ...tracker.evidence(),
         cameraUniformWritesAfterInitialize: cameraUniformWrites,
         cameraUniformBytesAfterInitialize: cameraUniformWrites * 128,
-        fixtureBufferIdentityStable: geometry?.getAttribute('position')?.array === retainedPositions
-          && geometry?.getAttribute('color')?.array === retainedColors,
+        fixtureBufferIdentityStable: geometry?.getAttribute(positionAttributeName)?.array === retainedPositions
+          && geometry?.getAttribute(colorAttributeName)?.array === retainedColors,
       };
     },
     async destroy() {

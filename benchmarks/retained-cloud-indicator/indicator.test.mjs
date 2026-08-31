@@ -26,7 +26,7 @@ import {
   vkfMarkerInstances,
 } from './adapters/vkf-marker-impostor.mjs';
 import { rawOrbitUniform, rawPrimitiveForPointSize } from './adapters/raw-webgpu.mjs';
-import { threeOrbitPosition } from './adapters/three.mjs';
+import { threeOrbitPosition, threePrimitiveForPointSize } from './adapters/three.mjs';
 import { deckOrbitViewState } from './adapters/deck-gl.mjs';
 import {
   SUITE_IMPLEMENTATIONS,
@@ -46,7 +46,7 @@ test('release indicator freezes one million aligned XYZ+RGBA8 points and two siz
   assert.deepEqual(INDICATOR_PROTOCOL.renderState, {
     framebuffer: [1280, 720],
     devicePixelRatio: 1,
-    primitive: 'analytic circular point impostor',
+    primitive: '1px discrete point; 4px analytic circular point impostor',
     depthCompare: 'less',
     depthWrite: true,
     blend: 'premultiplied-alpha source-over',
@@ -399,6 +399,8 @@ test('Three.js peer receives the exact deterministic orbit position', () => {
   const quarter = threeOrbitPosition(25);
   assert.ok(quarter[0] > 2.99);
   assert.ok(Math.abs(quarter[2]) < 1e-12);
+  assert.equal(threePrimitiveForPointSize(1), 'instanced-discrete-point-quad');
+  assert.equal(threePrimitiveForPointSize(4), 'points');
 });
 
 test('deck.gl peer receives the exact deterministic orbit state', () => {
