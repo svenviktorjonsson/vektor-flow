@@ -111,3 +111,66 @@ test('rejects non-finite camera and point-light inputs before projection', () =>
     /camera.projectionMatrix\[15\] must be finite/
   );
 });
+
+test('projects a spot cone through a conservative finite sphere envelope', () => {
+  const result = projectLightViewBounds({
+    kind: 'spot',
+    position: [0, 0, -4],
+    direction: [0, 0, -1],
+    range: 2,
+    outerConeCos: Math.SQRT1_2
+  }, CAMERA);
+
+  assert.ok(result.minX <= -0.8 && result.maxX >= 0.8);
+  assert.ok(result.minY <= -0.8 && result.maxY >= 0.8);
+  assert.ok(result.minDepth < 3 && result.maxDepth > 7);
+  assert.equal(Object.values(result).every(Number.isFinite), true);
+});
+
+test('projects finite geometry-light points and culls off-frustum geometry', () => {
+  const square = [
+    [-1, -1, -5], [1, -1, -5], [1, 1, -5], [-1, 1, -5]
+  ];
+  const projected = projectLightViewBounds({ kind: 'projected', points: square }, CAMERA);
+  const geometry = projectLightViewBounds({ kind: 'geometry', points: square }, CAMERA);
+
+  assert.deepEqual(geometry, projected);
+  assert.ok(projected.minX <= -0.2 && projected.maxX >= 0.2);
+  assert.ok(projected.minY <= -0.2 && projected.maxY >= 0.2);
+  assert.ok(projected.minDepth > 3 && projected.maxDepth < 7);
+  assert.equal(projectLightViewBounds({
+    kind: 'geometry',
+    points: square.map(([x, y, z]) => [x + 20, y, z])
+  }, CAMERA), null);
+});
+
+test('keeps projected geometry intersecting the near plane finite', () => {
+  const result = projectLightViewBounds({
+    kind: 'projected',
+    points: [[-0.2, 0, -0.5], [0.2, 0, -2]]
+  }, CAMERA);
+
+  assert.ok(result);
+  assert.equal(Object.values(result).every(Number.isFinite), true);
+  assert.equal(result.minDepth, 1);
+  assert.ok(result.maxDepth >= 2);
+});
+
+test('rejects invalid spot and geometry envelopes before projection', () => {
+  assert.throws(
+    () => projectLightViewBounds({
+      kind: 'spot', position: [0, 0, -5], direction: [0, 0, 0], range: 2, outerConeCos: 0.8
+    }, CAMERA),
+    /light.direction must be non-zero/
+  );
+  assert.throws(
+    () => projectLightViewBounds({
+      kind: 'spot', position: [0, 0, -5], direction: [0, 0, -1], range: 2, outerConeCos: 0
+    }, CAMERA),
+    /light.outerConeCos must be greater than zero and at most one/
+  );
+  assert.throws(
+    () => projectLightViewBounds({ kind: 'geometry', points: [] }, CAMERA),
+    /light.points must not be empty/
+  );
+});

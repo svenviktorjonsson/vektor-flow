@@ -146,11 +146,69 @@ function projectSphereBounds(position, radius, camera) {
   };
 }
 
+function normalizedDirection(value) {
+  const direction = vector3(value, 'light.direction');
+  const length = Math.hypot(direction[0], direction[1], direction[2]);
+  if (!(length > Number.EPSILON)) throw new RangeError('light.direction must be non-zero');
+  return direction.map(component => component / length);
+}
+
+function spotEnvelope(light) {
+  const position = vector3(light.position, 'light.position');
+  const direction = normalizedDirection(light.direction);
+  const range = nonNegativeFinite(light.range, 'light.range');
+  const outerConeCos = finiteNumber(light.outerConeCos, 'light.outerConeCos');
+  if (!(outerConeCos > 0 && outerConeCos <= 1)) {
+    throw new RangeError('light.outerConeCos must be greater than zero and at most one');
+  }
+  const baseRadius = range * Math.sqrt(Math.max(0, 1 - outerConeCos * outerConeCos)) / outerConeCos;
+  const radius = Math.hypot(range * 0.5, baseRadius);
+  if (!Number.isFinite(radius)) throw new RangeError('spot-light envelope must be finite');
+  return {
+    position: position.map((component, index) => component + direction[index] * range * 0.5),
+    radius
+  };
+}
+
+function geometryEnvelope(light) {
+  if (!Array.isArray(light.points)) throw new TypeError('light.points must be an array');
+  if (light.points.length === 0) throw new RangeError('light.points must not be empty');
+  const points = light.points.map((point, index) => vector3(point, `light.points[${index}]`));
+  const minimum = [Infinity, Infinity, Infinity];
+  const maximum = [-Infinity, -Infinity, -Infinity];
+  for (const point of points) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      minimum[axis] = Math.min(minimum[axis], point[axis]);
+      maximum[axis] = Math.max(maximum[axis], point[axis]);
+    }
+  }
+  const position = minimum.map((value, axis) => (value + maximum[axis]) * 0.5);
+  let radius = 0;
+  for (const point of points) {
+    radius = Math.max(radius, Math.hypot(
+      point[0] - position[0],
+      point[1] - position[1],
+      point[2] - position[2]
+    ));
+  }
+  return { position, radius };
+}
+
 export function projectLightViewBounds(light, cameraInput) {
   if (!light || typeof light !== 'object') throw new TypeError('light must be an object');
-  if (light.kind !== 'point') throw new TypeError('light.kind must be point');
   const camera = normalizeCamera(cameraInput);
-  const position = vector3(light.position, 'light.position');
-  const radius = nonNegativeFinite(light.radius, 'light.radius');
-  return projectSphereBounds(position, radius, camera);
+  let envelope;
+  if (light.kind === 'point') {
+    envelope = {
+      position: vector3(light.position, 'light.position'),
+      radius: nonNegativeFinite(light.radius, 'light.radius')
+    };
+  } else if (light.kind === 'spot') {
+    envelope = spotEnvelope(light);
+  } else if (light.kind === 'projected' || light.kind === 'geometry') {
+    envelope = geometryEnvelope(light);
+  } else {
+    throw new TypeError('light.kind must be point, spot, projected, or geometry');
+  }
+  return projectSphereBounds(envelope.position, envelope.radius, camera);
 }
