@@ -20,8 +20,10 @@ test('shadow pass selects instanced grass pipelines and bounded instance draws',
   assert.match(source, /pipeGrassShadow0/);
   assert.match(source, /pipeGrassShadow1/);
   assert.match(source, /part\.instanceKind === "grass-blade-list"/);
-  assert.match(source, /pass\.setVertexBuffer\(1, part\.instanceBuf\)/);
-  assert.match(source, /pass\.drawIndexed\(part\.ibCount, Math\.max\(1, Number\(part\.instanceCount \|\| 0\)\)/);
+  assert.match(source, /part\.grassGpuRuntime\.shadowInstanceBuffer/);
+  assert.match(source, /part\.grassGpuRuntime\.shadowInstanceCount/);
+  assert.match(source, /pass\.setVertexBuffer\(1, shadowInstanceBuffer\)/);
+  assert.match(source, /pass\.drawIndexed\(part\.ibCount, shadowInstanceCount/);
 });
 
 test('grass shadow fitting follows retained cell descriptors and revisions', () => {

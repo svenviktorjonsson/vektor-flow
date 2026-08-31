@@ -49,6 +49,7 @@ test('grass GPU runtime dispatches bounded Philox work and releases all buffers'
   const dispatches = [];
   const submissions = [];
   renderer._pipeGrassBladeCompute = { name: 'grass-compute' };
+  renderer._pipeGrassShadowCompute = { name: 'grass-shadow-compute' };
   renderer._grassBladeComputeBindLayout = { name: 'grass-layout' };
   renderer._device = {
     createBuffer(descriptor) {
@@ -84,24 +85,28 @@ test('grass GPU runtime dispatches bounded Philox work and releases all buffers'
     cell_records: new Uint32Array(24),
     cell_stride_words: 12,
     blades_per_cell: 2,
+    shadow_blades_per_cell: 1,
+    shadow_instance_count: 2,
   };
 
   const runtime = renderer._createGrassGpuRuntime(descriptor, 4);
-  assert.equal(buffers.length, 3);
-  assert.deepEqual(buffers.map(({ descriptor: item }) => item.size), [96, 256, 16]);
+  assert.equal(buffers.length, 4);
+  assert.deepEqual(buffers.map(({ descriptor: item }) => item.size), [96, 256, 16, 128]);
   assert.equal(writes.length, 2);
-  assert.deepEqual(dispatches, [1]);
+  assert.deepEqual(dispatches, [1, 1]);
   assert.equal(submissions.length, 1);
   assert.strictEqual(runtime.instanceBuffer, buffers[1]);
+  assert.strictEqual(runtime.shadowInstanceBuffer, buffers[3]);
+  assert.equal(runtime.shadowInstanceCount, 2);
 
   renderer._updateGrassGpuRuntime(runtime, {
     ...descriptor,
     cell_records: new Uint32Array(24).fill(7),
   }, 4);
   assert.equal(writes.length, 4);
-  assert.deepEqual(dispatches, [1, 1]);
+  assert.deepEqual(dispatches, [1, 1, 1, 1]);
   assert.equal(submissions.length, 2);
 
   renderer._destroyGrassGpuRuntime(runtime);
-  assert.deepEqual(buffers.map(({ destroyed }) => destroyed), [1, 1, 1]);
+  assert.deepEqual(buffers.map(({ destroyed }) => destroyed), [1, 1, 1, 1]);
 });
