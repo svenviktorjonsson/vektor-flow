@@ -5,6 +5,7 @@ import {
   conditionChild,
   createConditionedRoot,
   sampleBoundedUniform,
+  sampleNormalReference,
 } from '../../web/vf-ui/vf-conditioned-distribution.mjs';
 
 const ROOT_IDENTITY = Object.freeze({
@@ -15,6 +16,19 @@ const ROOT_IDENTITY = Object.freeze({
   hierarchy: ['environment:alpine', 'species:grass'],
   lod: 4,
   channel: 'traits',
+});
+
+test('normal reference transform matches a pinned Box-Muller oracle', () => {
+  const root = createConditionedRoot(ROOT_IDENTITY);
+  const child = conditionChild(root, {
+    segment: 'instance:17',
+    channel: 'blade-height',
+  });
+
+  assert.equal(
+    sampleNormalReference(child, [3, 0], { mean: 10, standardDeviation: 2.5 }),
+    8.875981430658127,
+  );
 });
 
 test('immutable child identity produces a pinned bounded-uniform sample', () => {

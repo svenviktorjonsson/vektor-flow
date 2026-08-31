@@ -1,5 +1,6 @@
 import {
   deriveDemandStream,
+  philox4x32_10,
   sampleDemandStreamU32,
 } from './vf-demand-random.mjs';
 
@@ -12,6 +13,18 @@ function requireNode(node) {
     throw new TypeError('conditioned distribution node is required');
   }
   return state;
+}
+
+function requireSample(sample) {
+  if (!sample || sample.length !== 2) {
+    throw new TypeError('conditioned sample must contain two u32 words');
+  }
+  for (let index = 0; index < sample.length; index += 1) {
+    const word = sample[index];
+    if (!Number.isInteger(word) || word < 0 || word > 0xffffffff) {
+      throw new TypeError(`conditioned sample[${index}] must be a u32`);
+    }
+  }
 }
 
 function snapshotNode(identity) {
@@ -58,4 +71,30 @@ export function sampleBoundedUniform(node, sample, { min, max }) {
   }
   const unit = sampleDemandStreamU32(stream, sample) / U32_RANGE;
   return min + span * unit;
+}
+
+export function sampleNormalReference(
+  node,
+  sample,
+  { mean, standardDeviation },
+) {
+  const { stream } = requireNode(node);
+  requireSample(sample);
+  if (!Number.isFinite(mean)) {
+    throw new RangeError('normal mean must be finite');
+  }
+  if (!Number.isFinite(standardDeviation) || standardDeviation < 0) {
+    throw new RangeError('normal standard deviation must be finite and non-negative');
+  }
+  const words = philox4x32_10([
+    stream.counterPrefix[0],
+    stream.counterPrefix[1],
+    sample[0],
+    sample[1],
+  ], stream.key);
+  const radiusUniform = (words[0] + 0.5) / U32_RANGE;
+  const angleUniform = words[1] / U32_RANGE;
+  const standard = Math.sqrt(-2 * Math.log(radiusUniform))
+    * Math.cos(2 * Math.PI * angleUniform);
+  return mean + standardDeviation * standard;
 }
