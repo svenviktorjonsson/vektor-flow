@@ -98,6 +98,7 @@ async function main() {
   const workload = process.env.VF_LARGE_SCENE_WORKLOAD || 'orthographic-points-100k-static';
   const warmups = Number(process.env.VF_LARGE_SCENE_WARMUPS || 1);
   const measured = Number(process.env.VF_LARGE_SCENE_MEASURED || 1);
+  const fixedDispatchesPerSample = Number(process.env.VF_LARGE_SCENE_FIXED_DISPATCHES || 1);
   const correctnessOnly = process.env.VF_LARGE_SCENE_CORRECTNESS_ONLY !== '0';
   const edgePath = process.env.VF_EDGE_PATH || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
   const gpuMode = gpuModeFromEnvironment();
@@ -110,7 +111,14 @@ async function main() {
   fs.mkdirSync(profile, { recursive: true });
   await buildFixture(repoRoot, directory);
   const isolatedOrigin = await startLargeSceneIsolatedOrigin(directory);
-  const query = new URLSearchParams({ implementation, workload, warmups, measured, correctnessOnly });
+  const query = new URLSearchParams({
+    implementation,
+    workload,
+    warmups,
+    measured,
+    correctnessOnly,
+    fixedDispatchesPerSample,
+  });
   const url = `${isolatedOrigin.url}/benchmark.html?${query}`;
   const edge = spawn(edgePath, edgeLaunchArgs({ profile, port, url, gpuMode }), {
     stdio: 'ignore',
