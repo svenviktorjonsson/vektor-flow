@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>instanced grass shadow smoke</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #91b8d0; }
+      #layer { position: fixed; inset: 0; }
+    </style>
+  </head>
+  <body data-vf-runtime-autoboot="false">
+    <div id="layer"></div>
+    <canvas id="vf-screen-canvas"></canvas>
+    <script src="../../web/vf-ui/vf-runtime-shell.js"></script>
+    <script type="module">
+      import { createGrassMaterialFieldReference } from '../../web/vf-ui/vf-grass-material-field.mjs';
+      import { createGrassCameraDemandControllerReference } from '../../web/vf-ui/vf-grass-camera-demand-runtime.mjs';
+      import { createRetainedGeometryPacketRuntimeReference } from '../../web/vf-ui/vf-rock-camera-demand-runtime.mjs';
+
+      const frameId = 'grass_instanced_shadow_frame';
+      const displayCamera = { pos: [7, -8, 5], target: [0, 5, 0.35], up: [0, 0, 1], fov: 48 };
+      const demandCamera = {
+        eye: displayCamera.pos,
+        target: displayCamera.target,
+        up: displayCamera.up,
+        verticalFovRadians: Math.PI * 48 / 180,
+        viewportWidth: 1236,
+        viewportHeight: 725,
+      };
+      try {
+        await window.VfRuntimeShell.ensureSceneDependencies();
+        const panel = window.VfFrame.mount(document.getElementById('layer'), {
+          id: frameId,
+          title: 'Instanced grass shadows',
+          draggable: false,
+          dockable: false,
+          resizable: false,
+          closable: false,
+        });
+        panel.root.style.left = '5%';
+        panel.root.style.top = '5%';
+        panel.root.style.width = '90%';
+        panel.root.style.height = '90%';
+
+        const ground = Object.freeze({
+          id: 'grass:shadow:ground',
+          type: 'field_mesh',
+          vertices: new Float32Array([
+            -20, -6, -0.01, 0, 0, 1, 0.32, 0.39, 0.20, 1,
+            20, -6, -0.01, 0, 0, 1, 0.32, 0.39, 0.20, 1,
+            20, 25, -0.01, 0, 0, 1, 0.32, 0.39, 0.20, 1,
+            -20, 25, -0.01, 0, 0, 1, 0.32, 0.39, 0.20, 1,
+          ]),
+          indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+          cull_backfaces: false,
+          casts_shadow: false,
+          receives_shadow: true,
+          specular_strength: 0.02,
+        });
+        let packets = [];
+        window.VfDisplay.mountDynamicGeomFrame(frameId, () => ({
+          meshes: [ground, ...packets],
+          camera: displayCamera,
+          lights: [{
+            id: 'grass_shadow_key',
+            kind: 'point',
+            pos: [-4, -3, 8],
+            target: [0, 5, 0],
+            color: [1, 0.95, 0.82, 1],
+            intensity: 22,
+            range: 35,
+            casts_shadow: true,
+          }],
+          background: [0.30, 0.50, 0.66, 1],
+          unified_renderer: true,
+        }));
+        const runtime = createRetainedGeometryPacketRuntimeReference({
+          requestRender(nextPackets) {
+            packets = nextPackets;
+            window.VfDisplay.requestDynamicGeomFrameUpdate(frameId);
+          },
+        });
+        const controller = createGrassCameraDemandControllerReference({
+          field: createGrassMaterialFieldReference({
+            generator: 'vkf.conditioned',
+            version: 1,
+            seed: [0x01234567, 0x89abcdef],
+            domain: 'material',
+            hierarchy: ['world:temperate', 'grass-field:shadow'],
+            lod: 0,
+            channel: 'surface',
+          }),
+          runtime,
+          planeZ: 0,
+          maximumDistance: 24,
+          cellBudget: 96,
+          bladeBudget: 1024,
+        });
+        const applied = await controller.request({ revision: 1, camera: demandCamera });
+        window.__grassInstancedShadowEvidence = {
+          revision: applied.revision,
+          cellCount: applied.cells.length,
+          packetCount: runtime.packets().length,
+          bladeCount: runtime.packets()[0]?.instance_count ?? 0,
+          upload: applied.runtime.upload,
+        };
+      } catch (error) {
+        window.__vfLastError = String(error && error.stack || error);
+      }
+    </script>
+  </body>
+</html>
