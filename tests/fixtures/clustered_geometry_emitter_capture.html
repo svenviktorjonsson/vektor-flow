@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+  <body>
+    <script src="../../native/VfOverlay/build/Release/web/vf-runtime-shell.js"></script>
+    <script>
+      const lightEmbedding = {
+        id: "id",
+        pos: "pos",
+        target: "target",
+        kind: "kind",
+        intensity: "intensity",
+        range: "range",
+        color: "color",
+        casts_shadow: "casts_shadow",
+        show_marker: "show_marker"
+      };
+      const darkPoint = (id, x) => ({
+        properties: {
+          id,
+          kind: "point",
+          pos: [x, 0, 6],
+          target: [0, 0, 0],
+          color: [1, 1, 1, 1],
+          intensity: 0,
+          range: 1,
+          casts_shadow: false,
+          show_marker: false
+        },
+        embedding: lightEmbedding
+      });
+
+      window.__vfNativeSceneConfig = {
+        scene_ir: {
+          frame: {
+            frame_id: "clustered_geometry_emitter_frame",
+            title: "Clustered geometry emitter capture",
+            rect: [0.05, 0.05, 0.70, 0.82]
+          },
+          camera: {
+            properties: {
+              pos: [0, 0, 8],
+              target: [0, 0, 0],
+              fov: 45,
+              up: [0, 1, 0]
+            },
+            embedding: { pos: "pos", target: "target", fov: "fov", up: "up" }
+          },
+          lights: [
+            darkPoint("legacy_0", -6),
+            darkPoint("legacy_1", -5),
+            darkPoint("legacy_2", 5),
+            darkPoint("legacy_3", 6)
+          ],
+          timing: { fps: 30, duration_seconds: 1, boundary: "clamp" },
+          meshes: [{
+            id: "receiver",
+            kind: "quad",
+            properties: {
+              center: [0, 0],
+              size: 8,
+              z: 0,
+              color: [0.12, 0.12, 0.12, 1]
+            },
+            embedding: {
+              center: "center",
+              size: "size",
+              z: "z",
+              color: "color",
+              visible: "visible"
+            }
+          }],
+          shadow_receivers: [],
+          shadow: { enabled: false, color: [0, 0, 0, 1], lift: 0.002 },
+          surface_worlds: {},
+          surface_cameras: {},
+          render_options: { show_light_markers: false, light_marker_size: 0.1 }
+        }
+      };
+
+      const geometryEmitter = {
+        id: "geometry_patch_4",
+        points: [
+          [-0.75, -0.75, 2],
+          [-0.75, 0.75, 2],
+          [0.75, 0.75, 2],
+          [0.75, -0.75, 2]
+        ],
+        color_f32: [1, 1, 1, 1],
+        intensity: 100,
+        range: 3,
+        two_sided: false
+      };
+      const installGeometryEmitter = setInterval(() => {
+        const renderer = window.__vfFrameRenderers &&
+          window.__vfFrameRenderers.clustered_geometry_emitter_frame;
+        if (!renderer || renderer.__vfGeometryEmitterCaptureInstalled) return;
+        const originalGetMesh = renderer._getMesh;
+        renderer._getMesh = function (time) {
+          const mesh = originalGetMesh.call(this, time);
+          if (mesh) mesh._geometry_emitters = [geometryEmitter];
+          return mesh;
+        };
+        renderer.__vfGeometryEmitterCaptureInstalled = true;
+        renderer._lastMesh = null;
+        clearInterval(installGeometryEmitter);
+        if (window.VfDisplay && window.VfDisplay.redrawVisibleGeomFrames) {
+          window.VfDisplay.redrawVisibleGeomFrames();
+        }
+      }, 25);
+    </script>
+    <script>
+      VfRuntimeShell.ensureSceneDependencies().then(() => {
+        const nativeScene = document.createElement("script");
+        nativeScene.src = "../../native/VfOverlay/build/Release/web/vf-native-scene.js";
+        document.body.appendChild(nativeScene);
+      });
+    </script>
+  </body>
+</html>
