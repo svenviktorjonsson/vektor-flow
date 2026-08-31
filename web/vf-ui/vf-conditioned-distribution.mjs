@@ -27,7 +27,12 @@ function requireSample(sample) {
   }
 }
 
-function snapshotNode(identity) {
+function conditionToken(stream) {
+  const words = [...stream.key, ...stream.counterPrefix];
+  return `condition:v1:${words.map((word) => word.toString(16).padStart(8, '0')).join(':')}`;
+}
+
+function snapshotNode(identity, canonicalHierarchy = identity.hierarchy) {
   const node = Object.freeze({
     generator: identity.generator,
     version: identity.version,
@@ -37,7 +42,12 @@ function snapshotNode(identity) {
     lod: identity.lod,
     channel: identity.channel,
   });
-  nodeState.set(node, { stream: deriveDemandStream(node) });
+  nodeState.set(node, {
+    stream: deriveDemandStream({
+      ...node,
+      hierarchy: canonicalHierarchy,
+    }),
+  });
   return node;
 }
 
@@ -46,18 +56,23 @@ export function createConditionedRoot(identity) {
 }
 
 export function conditionChild(parent, { segment, channel }) {
-  requireNode(parent);
+  const { stream: parentStream } = requireNode(parent);
   if (typeof segment !== 'string') {
     throw new TypeError('child hierarchy segment must be a string');
   }
   if (typeof channel !== 'string') {
     throw new TypeError('child channel must be a string');
   }
-  return snapshotNode({
+  const identity = {
     ...parent,
     hierarchy: [...parent.hierarchy, segment],
     channel,
-  });
+  };
+  return snapshotNode(identity, [
+    ...parent.hierarchy,
+    conditionToken(parentStream),
+    segment,
+  ]);
 }
 
 export function sampleBoundedUniform(node, sample, { min, max }) {

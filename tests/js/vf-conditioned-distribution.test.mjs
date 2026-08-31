@@ -28,7 +28,7 @@ test('normal reference transform matches a pinned Box-Muller oracle', () => {
 
   assert.equal(
     sampleNormalReference(child, [3, 0], { mean: 10, standardDeviation: 2.5 }),
-    8.875981430658127,
+    9.471712514179357,
   );
   assert.equal(
     normalReferenceFromU32(
@@ -51,6 +51,10 @@ test('stable parent identity conditions children without branch state', () => {
     ...ROOT_IDENTITY,
     seed: [ROOT_IDENTITY.seed[0] + 1, ROOT_IDENTITY.seed[1]],
   }, 'instance:17');
+  const changedParentChannel = makeChild({
+    ...ROOT_IDENTITY,
+    channel: 'other-traits',
+  }, 'instance:17');
   const sample = [3, 0];
   const bounds = { min: -2, max: 5 };
 
@@ -63,6 +67,7 @@ test('stable parent identity conditions children without branch state', () => {
   assert.equal(before, sampleBoundedUniform(recreated, sample, bounds));
   assert.notEqual(before, sampleBoundedUniform(sibling, sample, bounds));
   assert.notEqual(before, sampleBoundedUniform(changedParent, sample, bounds));
+  assert.notEqual(before, sampleBoundedUniform(changedParentChannel, sample, bounds));
 });
 
 test('conditioned samples are traversal and chunk independent', () => {
@@ -102,7 +107,7 @@ test('immutable child identity produces a pinned bounded-uniform sample', () => 
   ]);
   assert.equal(
     sampleBoundedUniform(child, [3, 0], { min: -2, max: 5 }),
-    1.7776723366696388,
+    4.694411462172866,
   );
   assert.throws(() => child.hierarchy.push('mutation'), TypeError);
 });
