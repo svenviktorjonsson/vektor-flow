@@ -160,6 +160,31 @@ mir_tagged_module_statement(
         max_stack:2
     )
 
+mir_assemble_tagged_statement_module(
+    module:TaggedMachineModule,
+    index:int,
+    validated_max_stack:num
+) -> MachineModule:
+    statement: mir_tagged_module_statement(module, index)
+    entry: mir_function(
+        statement.name,
+        ["num"],
+        [],
+        statement.instructions,
+        validated_max_stack
+    )
+    (
+        schema:"vektorflow.machine_ir",
+        version:4,
+        output_kind:"none",
+        output_count:0,
+        outputs:[],
+        output_tokens:[],
+        string_data:[],
+        entry:entry,
+        functions:[]
+    )
+
 mir_numeric_parameter_multiply_instructions(right_value:num):
     [
         mir_load_local(0),
