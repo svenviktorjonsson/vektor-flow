@@ -11,6 +11,7 @@ const fieldState = new WeakMap();
 const floatBitsBuffer = new ArrayBuffer(8);
 const floatBitsView = new DataView(floatBitsBuffer);
 const MAX_REALIZED_MATERIAL_SAMPLES = 2048;
+const MAX_PACKET_VARIANTS = 8;
 const MAX_OCTAVES = 6;
 const DERIVATIVE_STEP = 1e-4;
 const DARK_COLOR = Object.freeze([0.22, 0.19, 0.15]);
@@ -55,6 +56,10 @@ function float64Key(value) {
 function materialSampleKey(surfaceCoordinates, detailLevel, footprint) {
   const octaveCount = effectiveOctaveCount(detailLevel, footprint);
   return `${float64Key(surfaceCoordinates[0])}/${float64Key(surfaceCoordinates[1])}/${octaveCount}/${float64Key(footprint)}`;
+}
+
+function materialPacketKey(radii, detailLevel, footprint) {
+  return `${Array.from(radii, float64Key).join('/')}/${detailLevel}/${float64Key(footprint)}`;
 }
 
 function filterWeight(wavelength, footprint) {
@@ -109,7 +114,11 @@ export function createRockMaterialFieldReference(identity) {
     identity: root,
     maxOctaves: MAX_OCTAVES,
   });
-  fieldState.set(field, { node, materialSamples: new Map() });
+  fieldState.set(field, {
+    node,
+    materialSamples: new Map(),
+    materialPackets: new WeakMap(),
+  });
   return field;
 }
 
@@ -292,8 +301,21 @@ export function adaptRockMaterialToRendererPacketReference(
   }
   requireRadii(radii);
   requireOptions({ detailLevel, footprint });
-  if (!fieldState.has(field)) {
+  const state = fieldState.get(field);
+  if (!state) {
     throw new TypeError('rock material field is required');
+  }
+  let variants = state.materialPackets.get(packet);
+  if (!variants) {
+    variants = new Map();
+    state.materialPackets.set(packet, variants);
+  }
+  const variantKey = materialPacketKey(radii, detailLevel, footprint);
+  const cached = variants.get(variantKey);
+  if (cached) {
+    variants.delete(variantKey);
+    variants.set(variantKey, cached);
+    return cached;
   }
   const vertexCount = packet.vertices.length / 10;
   const vertices = new Float32Array(packet.vertices.length);
@@ -330,7 +352,7 @@ export function adaptRockMaterialToRendererPacketReference(
     baseNormals.set(baseNormal, vertex * 3);
     roughnessSum += sample.roughness;
   }
-  return Object.freeze({
+  const materialPacket = Object.freeze({
     ...packet,
     vertices,
     specular_strength: 1 - roughnessSum / vertexCount,
@@ -343,4 +365,9 @@ export function adaptRockMaterialToRendererPacketReference(
       baseNormals,
     }),
   });
+  variants.set(variantKey, materialPacket);
+  if (variants.size > MAX_PACKET_VARIANTS) {
+    variants.delete(variants.keys().next().value);
+  }
+  return materialPacket;
 }
