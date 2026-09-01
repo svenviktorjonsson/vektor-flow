@@ -48,6 +48,8 @@ TaggedSingleStatementModule: (kind:str, body:[TaggedBinaryOpNode:1], span:Span)
 TaggedSingleStatementResult: (module:TaggedSingleStatementModule, diagnostics:any)
 TaggedTwoStatementModule: (kind:str, body:[TaggedBinaryOpNode:2], span:Span)
 TaggedTwoStatementResult: (module:TaggedTwoStatementModule, diagnostics:any)
+TaggedThreeStatementModule: (kind:str, body:[TaggedBinaryOpNode:3], span:Span)
+TaggedThreeStatementResult: (module:TaggedThreeStatementModule, diagnostics:any)
 DottedIndexNode: (kind:str, base:any, indices:any, span:Span)
 MatchArmNode: (kind:str, condition:any, body:any)
 MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bit, catch:bit)
@@ -324,6 +326,21 @@ parse_tagged_two_statement_result(
         first_result, second_left, second_operator, second_right
     )
 
+append_tagged_third_statement(
+    result:TaggedTwoStatementResult,
+    left:TaggedParseCursor,
+    operator:TaggedParseCursor,
+    right:TaggedParseCursor
+) -> TaggedThreeStatementResult:
+    stop: location(right.file, right.line, right.column)
+    expression: parse_tagged_binary_expression(left, operator, right)
+    parsed_module: (
+        kind:"module",
+        body:result.module.body & [expression],
+        span:span(result.module.span.start, stop)
+    )
+    (module:parsed_module, diagnostics:result.diagnostics)
+
 parse_type_annotation(cursor:ParseCursor):
     current: peek(cursor)
     current.kind??
@@ -453,7 +470,8 @@ parser_capability:
         "parse_tagged_binary_expression",
         "parse_tagged_binary_result",
         "append_tagged_binary_statement",
-        "parse_tagged_two_statement_result"
+        "parse_tagged_two_statement_result",
+        "append_tagged_third_statement"
     ]
     diagnostics: ["file", "line", "column", "span", "unsupported-syntax"]
     ast_nodes: [
