@@ -86,8 +86,8 @@ async function verifyRetainedCloud(root, evidence) {
       }
     }
   }
-  assert.equal(correctnessPassedRows, 6);
-  assert.equal(correctnessUnsupportedRows, 2);
+  assert.equal(correctnessPassedRows, 8);
+  assert.equal(correctnessUnsupportedRows, 0);
   assert.equal(captures.size, 40);
   await Promise.all([...captures.values()].map((artifact) => verifyCapture(root, artifact)));
 

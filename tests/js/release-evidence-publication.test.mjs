@@ -17,8 +17,8 @@ test("0.4 publication evidence keeps the ratcheted and indicator contracts disti
   assert.deepEqual(result.retainedCloud, {
     rows: 8,
     repeatedRuns: 24,
-    correctnessPassedRows: 6,
-    correctnessUnsupportedRows: 2,
+    correctnessPassedRows: 8,
+    correctnessUnsupportedRows: 0,
     captureArtifacts: 40,
     performanceRatchet: false,
   });
