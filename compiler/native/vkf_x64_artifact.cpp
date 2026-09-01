@@ -9048,6 +9048,84 @@ private:
                     start, start + 112u, position_x, velocity_x,
                     *first, *second, *first_mass, *second_mass};
             };
+        const auto match_dead_static_interaction_separator =
+            [&](std::size_t start) -> std::optional<StaticVector3InteractionPlan> {
+                using vkf::machine_ir::Opcode;
+                const auto& at = function.instructions;
+                std::vector<std::uint32_t> assigned_locals;
+                std::size_t position = start;
+                while (position < at.size()) {
+                    if (position + 1u < at.size() &&
+                        at[position].opcode == Opcode::PushF64 &&
+                        at[position + 1u].opcode == Opcode::StoreLocal) {
+                        assigned_locals.push_back(at[position + 1u].index);
+                        position += 2u;
+                        continue;
+                    }
+                    if (position + 2u < at.size() &&
+                        at[position].opcode == Opcode::LoadLocal &&
+                        at[position + 1u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 1u].index_local &&
+                        *at[position + 1u].index_local == at[position].index &&
+                        !at[position + 1u].may_error &&
+                        at[position + 2u].opcode == Opcode::Drop) {
+                        position += 3u;
+                        continue;
+                    }
+                    break;
+                }
+                if (position == start || assigned_locals.empty()) {
+                    return std::nullopt;
+                }
+                const auto interaction = match_static_vector3_interaction(position);
+                if (!interaction) return std::nullopt;
+                std::sort(assigned_locals.begin(), assigned_locals.end());
+                assigned_locals.erase(
+                    std::unique(assigned_locals.begin(), assigned_locals.end()),
+                    assigned_locals.end());
+                for (const auto local : assigned_locals) {
+                    for (std::size_t following = interaction->end + 1u;
+                         following < at.size(); ++following) {
+                        const auto following_interaction =
+                            match_static_vector3_interaction(following);
+                        if (following_interaction) {
+                            following = following_interaction->end;
+                            continue;
+                        }
+                        const auto& candidate = at[following];
+                        if (candidate.opcode == Opcode::StoreLocal &&
+                            candidate.index == local) {
+                            break;
+                        }
+                        if (following + 2u < at.size() &&
+                            candidate.opcode == Opcode::LoadLocal &&
+                            candidate.index == local &&
+                            at[following + 1u].opcode ==
+                                Opcode::LoadF64LocalsIndex &&
+                            at[following + 1u].index_local &&
+                            *at[following + 1u].index_local == local &&
+                            !at[following + 1u].may_error &&
+                            at[following + 2u].opcode == Opcode::Drop) {
+                            following += 2u;
+                            continue;
+                        }
+                        if (candidate.opcode == Opcode::Label ||
+                            candidate.opcode == Opcode::Jump ||
+                            candidate.opcode == Opcode::JumpIfFalse ||
+                            candidate.opcode == Opcode::JumpIfTrue ||
+                            candidate.opcode == Opcode::JumpIfParameterProvided) {
+                            return std::nullopt;
+                        }
+                        if ((candidate.opcode == Opcode::LoadLocal &&
+                             candidate.index == local) ||
+                            (candidate.index_local &&
+                             *candidate.index_local == local)) {
+                            return std::nullopt;
+                        }
+                    }
+                }
+                return interaction;
+            };
         const auto emit_two_static_vector3_interactions =
             [&](std::size_t start) -> std::optional<std::size_t> {
                 using vkf::machine_ir::Opcode;
@@ -9079,6 +9157,8 @@ private:
                     first->velocity_x != second->velocity_x) {
                     return std::nullopt;
                 }
+                const auto dead_separator =
+                    match_dead_static_interaction_separator(first->end + 1u);
                 const auto validate_separator = [&] {
                     for (std::size_t position = first->end + 1u;
                          position < second->start;) {
@@ -9153,7 +9233,9 @@ private:
                         }
                     }
                 };
-                emit_separator();
+                if (!dead_separator || dead_separator->start != second->start) {
+                    emit_separator();
+                }
                 const auto load_pair = [&](std::uint32_t base,
                                            std::uint32_t index,
                                            unsigned destination) {
@@ -9913,7 +9995,7 @@ private:
                 expression_index_cache = {};
                 return start + 112u;
             };
-        const auto emit_packed_scaled_vector3_update =
+        const auto match_packed_scaled_vector3_update =
             [&](std::size_t start) -> std::optional<std::size_t> {
                 using vkf::machine_ir::Opcode;
                 if (!policy_.packed_dot_reductions ||
@@ -9936,14 +10018,6 @@ private:
                     }
                     return left.opcode == Opcode::LoadLocal &&
                         left.index == right.index;
-                };
-                const auto emit_invariant_scale = [&](const auto& operand,
-                                                      unsigned destination) {
-                    if (operand.opcode == Opcode::PushF64) {
-                        emit_number(operand.f64, destination);
-                    } else {
-                        load_local(operand.index, destination);
-                    }
                 };
                 const auto lane_matches = [&](std::size_t position) {
                     return at[position].opcode == Opcode::LoadLocal &&
@@ -9996,6 +10070,127 @@ private:
                     at[start + 26u].index != first_store.index + 2u) {
                     return std::nullopt;
                 }
+                return start + 26u;
+            };
+        const auto match_dead_static_scaled_separator =
+            [&](std::size_t start) -> std::optional<std::size_t> {
+                using vkf::machine_ir::Opcode;
+                const auto& at = function.instructions;
+                std::vector<std::uint32_t> assigned_locals;
+                std::size_t position = start;
+                while (position < at.size()) {
+                    if (position + 1u < at.size() &&
+                        at[position].opcode == Opcode::PushF64 &&
+                        at[position + 1u].opcode == Opcode::StoreLocal) {
+                        assigned_locals.push_back(at[position + 1u].index);
+                        position += 2u;
+                        continue;
+                    }
+                    if (position + 2u < at.size() &&
+                        at[position].opcode == Opcode::LoadLocal &&
+                        at[position + 1u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 1u].index_local &&
+                        *at[position + 1u].index_local == at[position].index &&
+                        !at[position + 1u].may_error &&
+                        at[position + 2u].opcode == Opcode::Drop) {
+                        position += 3u;
+                        continue;
+                    }
+                    break;
+                }
+                const auto consumed_end =
+                    match_packed_scaled_vector3_update(position);
+                if (position == start || assigned_locals.empty() ||
+                    !consumed_end ||
+                    !static_integral_local_before(position, at[position].index)) {
+                    return std::nullopt;
+                }
+                std::sort(assigned_locals.begin(), assigned_locals.end());
+                assigned_locals.erase(
+                    std::unique(assigned_locals.begin(), assigned_locals.end()),
+                    assigned_locals.end());
+                for (const auto local : assigned_locals) {
+                    for (std::size_t following = *consumed_end + 1u;
+                         following < at.size(); ++following) {
+                        const auto following_update =
+                            match_packed_scaled_vector3_update(following);
+                        if (following_update) {
+                            following = *following_update;
+                            continue;
+                        }
+                        const auto& candidate = at[following];
+                        if (candidate.opcode == Opcode::StoreLocal &&
+                            candidate.index == local) {
+                            break;
+                        }
+                        if (following + 2u < at.size() &&
+                            candidate.opcode == Opcode::LoadLocal &&
+                            candidate.index == local &&
+                            at[following + 1u].opcode ==
+                                Opcode::LoadF64LocalsIndex &&
+                            at[following + 1u].index_local &&
+                            *at[following + 1u].index_local == local &&
+                            !at[following + 1u].may_error &&
+                            at[following + 2u].opcode == Opcode::Drop) {
+                            following += 2u;
+                            continue;
+                        }
+                        if (candidate.opcode == Opcode::Jump) {
+                            const auto target = label_positions.find(candidate.label);
+                            if (target == label_positions.end() ||
+                                target->second >= following) {
+                                return std::nullopt;
+                            }
+                            bool overwritten = false;
+                            for (std::size_t wrapped = target->second;
+                                 wrapped < following; ++wrapped) {
+                                const auto& wrapped_candidate = at[wrapped];
+                                if (wrapped_candidate.opcode == Opcode::StoreLocal &&
+                                    wrapped_candidate.index == local) {
+                                    overwritten = true;
+                                    break;
+                                }
+                                if ((wrapped_candidate.opcode == Opcode::LoadLocal &&
+                                     wrapped_candidate.index == local) ||
+                                    (wrapped_candidate.index_local &&
+                                     *wrapped_candidate.index_local == local)) {
+                                    return std::nullopt;
+                                }
+                            }
+                            if (!overwritten) return std::nullopt;
+                            break;
+                        }
+                        if (candidate.opcode == Opcode::JumpIfFalse ||
+                            candidate.opcode == Opcode::JumpIfTrue ||
+                            candidate.opcode == Opcode::JumpIfParameterProvided ||
+                            (candidate.opcode == Opcode::LoadLocal &&
+                             candidate.index == local) ||
+                            (candidate.index_local &&
+                             *candidate.index_local == local)) {
+                            return std::nullopt;
+                        }
+                    }
+                }
+                return position;
+            };
+        const auto emit_packed_scaled_vector3_update =
+            [&](std::size_t start) -> std::optional<std::size_t> {
+                using vkf::machine_ir::Opcode;
+                const auto matched_end = match_packed_scaled_vector3_update(start);
+                if (!matched_end) return std::nullopt;
+                const auto& at = function.instructions;
+                const auto emit_invariant_scale = [&](const auto& operand,
+                                                      unsigned destination) {
+                    if (operand.opcode == Opcode::PushF64) {
+                        emit_number(operand.f64, destination);
+                    } else {
+                        load_local(operand.index, destination);
+                    }
+                };
+                const auto& first_current = at[start + 2u];
+                const auto& first_component = at[start + 4u];
+                const auto arithmetic = at[start + 7u].opcode;
+                const auto& first_store = at[start + 8u];
 
                 expression_index_cache = {};
                 const auto static_index = static_integral_local_before(
@@ -10070,7 +10265,7 @@ private:
                 emit_lane_store(at[start + 17u], 0u, true);
                 emit_lane_store(at[start + 26u], 3u);
                 expression_index_cache = {};
-                return start + 26u;
+                return *matched_end;
             };
         const auto emit_packed_affine_indexed_pair =
             [&](std::size_t start) -> std::optional<std::size_t> {
@@ -10354,6 +10549,20 @@ private:
                 }
             }
             if (stack_depth == 0) {
+                const auto dead_scaled_separator =
+                    match_dead_static_scaled_separator(instruction_index);
+                if (dead_scaled_separator) {
+                    expression_index_cache = {};
+                    instruction_index = *dead_scaled_separator - 1u;
+                    continue;
+                }
+                const auto dead_separator =
+                    match_dead_static_interaction_separator(instruction_index);
+                if (dead_separator) {
+                    expression_index_cache = {};
+                    instruction_index = dead_separator->start - 1u;
+                    continue;
+                }
                 const auto paired_interactions =
                     emit_two_static_vector3_interactions(instruction_index);
                 if (paired_interactions) {
