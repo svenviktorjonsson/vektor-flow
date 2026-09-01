@@ -2,6 +2,7 @@ const MAX_TRIANGLES = 131072;
 const MAX_GGX_VERTICES = 65536;
 const MAX_GGX_BATCH_SAMPLES = 4096;
 const MAX_GGX_COVERAGE_SUBDIVISIONS = 89;
+const MAX_GGX_MESH_TRIANGLES = 4096;
 const REFERENCE_GGX_ANISOTROPY = 0.65;
 const REFERENCE_GGX_MIN_ALPHA = 0.08;
 const packetCache = new WeakMap();
@@ -473,5 +474,72 @@ export function evaluateWoodTriangleGgxCoverageReference(
     specularBrdf: batch.specularBrdf,
     reflectedRgb: batch.reflectedRgb,
     vectorBytes: barycentricWeights.byteLength + batch.vectorBytes,
+  });
+}
+
+export function evaluateWoodMeshGgxCentroidsReference(
+  packet,
+  { viewDirection, lightDirection, triangleBudget },
+) {
+  if (
+    !packet
+    || packet.kind !== 'wood-cut-material-triangle-packet:v1'
+    || !Number.isSafeInteger(packet.triangleCount)
+    || packet.triangleCount < 0
+  ) {
+    throw new TypeError('wood cut material triangle packet is required');
+  }
+  if (
+    !Number.isSafeInteger(triangleBudget)
+    || triangleBudget < 0
+    || triangleBudget > MAX_GGX_MESH_TRIANGLES
+  ) {
+    throw new RangeError(
+      `wood mesh triangleBudget must be an integer from 0 to ${MAX_GGX_MESH_TRIANGLES}`,
+    );
+  }
+  const triangleCount = packet.triangleCount;
+  if (triangleCount > triangleBudget) {
+    throw new RangeError('wood mesh GGX centroids exceed triangleBudget');
+  }
+
+  const barycentric = Object.freeze([1 / 3, 1 / 3, 1 / 3]);
+  const triangleIndices = new Uint32Array(triangleCount);
+  const positions = new Float32Array(triangleCount * 3);
+  const surfaceNormals = new Float32Array(triangleCount * 3);
+  const specularBrdf = new Float32Array(triangleCount);
+  const reflectedRgb = new Float32Array(triangleCount * 3);
+  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+    const sample = sampleWoodMaterialTriangleReference(packet, {
+      triangle,
+      barycentric,
+    });
+    const response = evaluateWoodFaceGgxResponseReference(sample, {
+      viewDirection,
+      lightDirection,
+    });
+    triangleIndices[triangle] = triangle;
+    positions.set(sample.position, triangle * 3);
+    surfaceNormals.set(sample.surfaceNormal, triangle * 3);
+    specularBrdf[triangle] = response.specularBrdf;
+    reflectedRgb.set(response.reflectedRgb, triangle * 3);
+  }
+
+  return Object.freeze({
+    kind: 'wood-cut-mesh-ggx-centroids:v1',
+    sourcePacket: packet,
+    triangleCount,
+    triangleBudget,
+    barycentric,
+    triangleIndices,
+    positions,
+    surfaceNormals,
+    specularBrdf,
+    reflectedRgb,
+    vectorBytes: triangleIndices.byteLength
+      + positions.byteLength
+      + surfaceNormals.byteLength
+      + specularBrdf.byteLength
+      + reflectedRgb.byteLength,
   });
 }
