@@ -29,6 +29,30 @@ compile_tagged_dependency_tape(source:str):
         max_stack:maximum
     )
 
+compile_tagged_module_statement(source:str, index:int):
+    tokens: lexer.tagged_statement_token_tape(source)
+    parsed: parser.parse_tagged_token_tape(
+        tokens.source, tokens.rows, tokens.count
+    )
+    typed_module: typed.typed_tagged_module(
+        parsed.module.body.source,
+        parsed.module.body.rows,
+        parsed.module.body.count
+    )
+    dynamic_module: mir.mir_tagged_module(
+        typed_module.source,
+        typed_module.statements,
+        typed_module.count
+    )
+    statement: mir.mir_tagged_module_statement(dynamic_module, index)
+    maximum: validation.machine_ir_tagged_statement_stack_maximum(
+        statement.instructions.0.kind,
+        statement.instructions.1.kind,
+        statement.instructions.2.kind,
+        statement.instructions.3.kind
+    )
+    mir.mir_assemble_tagged_statement_module(dynamic_module, index, maximum)
+
 CompilerArtifactManifest: (
     source_path:str,
     source_sha256:str,
