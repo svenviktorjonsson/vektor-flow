@@ -53,3 +53,82 @@ test('one demanded patch lazily realizes a vector-first conditioned stone family
   });
   assert.ok(material.roughness >= 0.58 && material.roughness <= 0.92);
 });
+
+test('patch affinity and individual variation match a pinned stone population', () => {
+  const working = realizeStoneFamilyPatchesReference(
+    createStoneFamilyPopulationReference(IDENTITY),
+    { patches: [[2, -1]], stoneBudget: 16 },
+  );
+
+  assert.equal(working.stoneCount, 13);
+  assert.equal(working.vectorBytes, 416);
+  assert.deepEqual(Array.from(working.familyIndices), [
+    3, 3, 3, 1, 3, 2, 3, 3, 2, 3, 3, 3, 3,
+  ]);
+  assert.deepEqual(Array.from(working.positions.slice(0, 6)), [
+    11.204845428466797,
+    -3.855315685272217,
+    0.4602487087249756,
+    8.276394844055176,
+    -3.616556406021118,
+    0.3930971324443817,
+  ]);
+  assert.deepEqual(working.families.map(({ id }) => id), [
+    'stone:family:1',
+    'stone:family:2',
+    'stone:family:3',
+  ]);
+  assert.equal(working.patches[0].dominantFamily, 3);
+  assert.equal(
+    Array.from(working.familyIndices).filter((family) => family === 3).length,
+    10,
+  );
+});
+
+test('stone patch demand is order independent and enforces bounded lazy work', () => {
+  const population = createStoneFamilyPopulationReference(IDENTITY);
+  const forward = realizeStoneFamilyPatchesReference(population, {
+    patches: [[2, -1], [3, 0], [2, -1]],
+    stoneBudget: 21,
+  });
+  const reversed = realizeStoneFamilyPatchesReference(population, {
+    patches: [[3, 0], [2, -1]],
+    stoneBudget: 21,
+  });
+  const recreated = realizeStoneFamilyPatchesReference(
+    createStoneFamilyPopulationReference(IDENTITY),
+    { patches: [[3, 0], [2, -1]], stoneBudget: 21 },
+  );
+  const emptyDistant = realizeStoneFamilyPatchesReference(population, {
+    patches: [[1_000_000_000, -1_000_000_000]],
+    stoneBudget: 0,
+  });
+  const boundedDistant = realizeStoneFamilyPatchesReference(population, {
+    patches: [[1_000_000_000, -1_000_000_000]],
+    stoneBudget: 5,
+  });
+
+  assert.deepEqual(reversed, forward);
+  assert.deepEqual(recreated, forward);
+  assert.strictEqual(reversed.patches[0], forward.patches[0]);
+  assert.equal(emptyDistant.stoneCount, 0);
+  assert.equal(emptyDistant.patches.length, 0);
+  assert.equal(emptyDistant.vectorBytes, 0);
+  assert.equal(boundedDistant.stoneCount, 5);
+  assert.equal(boundedDistant.vectorBytes, 160);
+  assert.equal(boundedDistant.patches.length, 1);
+  assert.throws(
+    () => realizeStoneFamilyPatchesReference(population, {
+      patches: Array.from({ length: 4097 }, () => [0, 0]),
+      stoneBudget: 0,
+    }),
+    /exceeds 4096 patches/,
+  );
+  assert.throws(
+    () => realizeStoneFamilyPatchesReference(population, {
+      patches: [[0, 0]],
+      stoneBudget: 65537,
+    }),
+    /stone budget exceeds 65536/,
+  );
+});
