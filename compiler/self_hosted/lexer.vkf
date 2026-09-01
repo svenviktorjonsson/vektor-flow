@@ -232,6 +232,11 @@ identifier_plus_stream(source:str):
     eof: token("EOF", null, stream_end.line, stream_end.column)
     (first:first, operator:operator, third:third, newline:newline, eof:eof)
 
+bounded_lex(source:str):
+    stream: identifier_plus_stream(source)
+    tokens: [stream.first, stream.operator, stream.third, stream.newline, stream.eof]
+    (tokens:tokens, errors:[])
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
@@ -312,6 +317,7 @@ lexer_capability:
         "linked identifier and decimal number token stream producer",
         "linked plus operator token stream producer",
         "bounded linked token stream with NEWLINE and EOF",
+        "bounded linked LexResult token container",
         "character class helpers",
         "token kind catalog",
         "scan_whitespace",
