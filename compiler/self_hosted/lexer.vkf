@@ -308,7 +308,9 @@ identifier_plus_number_stream(source:str):
     third: number_token(source, third_start.position)
     stream_end: _lexer_skip_number(third_start)
     stream_end.eof?! "bounded identifier-plus-number stream must end after the number"
-    (first:first, operator:operator, third:third)
+    newline: token("NEWLINE", null, stream_end.line, stream_end.column)
+    eof: token("EOF", null, stream_end.line, stream_end.column)
+    (first:first, operator:operator, third:third, newline:newline, eof:eof)
 
 bounded_parser_expression_stream(source:str):
     result: identifier_plus_number_stream(source)
@@ -330,6 +332,18 @@ bounded_parser_expression_stream(source:str):
             _tagged_parser_value("number", "", result.third.value),
             result.third.line,
             result.third.column
+        ),
+        _tagged_parser_token(
+            result.newline.kind,
+            _tagged_parser_value("null", "", 0),
+            result.newline.line,
+            result.newline.column
+        ),
+        _tagged_parser_token(
+            result.eof.kind,
+            _tagged_parser_value("null", "", 0),
+            result.eof.line,
+            result.eof.column
         )
     ]
     (schema:"vektorflow.token_stream", version:1, tokens:tokens)

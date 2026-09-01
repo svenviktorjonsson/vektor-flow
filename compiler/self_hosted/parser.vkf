@@ -250,6 +250,9 @@ parse_tagged_cursor_number(cursor:TaggedParseCursor) -> NumberLiteralNode:
     where: location(cursor.file, cursor.line, cursor.column)
     number_literal(cursor.number, span(where, where))
 
+tagged_at_end(cursor:TaggedParseCursor) -> bit:
+    cursor.kind = "EOF"
+
 tagged_binary_operator(cursor:TaggedParseCursor) -> str:
     cursor.kind??
         "PLUS" => "+"
@@ -268,6 +271,17 @@ parse_tagged_binary_expression(
         parse_tagged_cursor_number(right),
         span(start, stop)
     )
+
+parse_tagged_binary_result(
+    left:TaggedParseCursor,
+    operator:TaggedParseCursor,
+    right:TaggedParseCursor
+) -> ParseResult:
+    start: location(left.file, left.line, left.column)
+    stop: location(right.file, right.line, right.column)
+    expression: parse_tagged_binary_expression(left, operator, right)
+    parsed_module: module_node([expression], span(start, stop))
+    (module:parsed_module, diagnostics:[])
 
 parse_type_annotation(cursor:ParseCursor):
     current: peek(cursor)
@@ -393,8 +407,10 @@ parser_capability:
         "parse_tagged_number",
         "parse_tagged_cursor_identifier",
         "parse_tagged_cursor_number",
+        "tagged_at_end",
         "tagged_binary_operator",
-        "parse_tagged_binary_expression"
+        "parse_tagged_binary_expression",
+        "parse_tagged_binary_result"
     ]
     diagnostics: ["file", "line", "column", "span", "unsupported-syntax"]
     ast_nodes: [
