@@ -30,6 +30,7 @@ import {
 } from '../../web/vf-ui/vf-wood-material-energy.mjs';
 import {
   adaptWoodCutMaterialToTriangleFacesReference,
+  sampleWoodMaterialTriangleReference,
 } from '../../web/vf-ui/vf-wood-material-renderer-packet.mjs';
 
 const IDENTITY = Object.freeze({
@@ -208,4 +209,96 @@ test('renderer packet rejects an over-capacity GGX vertex plane before realizati
     }),
     /wood cut material exceeds GGX vertex capacity 65536/,
   );
+});
+
+function interpolate(values, components, vertexIndices, barycentric) {
+  return Array.from({ length: components }, (_, component) => (
+    vertexIndices.reduce((sum, vertex, corner) => (
+      sum + values[vertex * components + component] * barycentric[corner]
+    ), 0)
+  ));
+}
+
+function normalize(vector) {
+  const length = Math.hypot(...vector);
+  return vector.map((component) => component / length);
+}
+
+test('renderer resolves one complete wood face into an anisotropic shading sample', () => {
+  const material = proceduralSideGrainMaterial();
+  const packet = adaptWoodCutMaterialToTriangleFacesReference(material, {
+    triangleBudget: 32,
+  });
+  const triangle = 7;
+  const barycentric = [0.2, 0.3, 0.5];
+  const sample = sampleWoodMaterialTriangleReference(packet, {
+    triangle,
+    barycentric,
+  });
+  const vertexIndices = Array.from(packet.indices.subarray(
+    triangle * 3,
+    triangle * 3 + 3,
+  ));
+  const expectedPosition = interpolate(
+    packet.positions,
+    3,
+    vertexIndices,
+    barycentric,
+  );
+  const expectedBaseColor = interpolate(
+    packet.baseColors,
+    4,
+    vertexIndices,
+    barycentric,
+  );
+  const decodedNormals = new Float64Array(packet.vertexCount * 3);
+  for (let vertex = 0; vertex < packet.vertexCount; vertex += 1) {
+    const encodedOffset = vertex * 4;
+    const tangentNormal = normalize([0, 1, 2].map((component) => (
+      packet.normalRgba8[encodedOffset + component] / 127.5 - 1
+    )));
+    decodedNormals.set(tangentNormal, vertex * 3);
+  }
+  const tangentNormal = normalize(interpolate(
+    decodedNormals,
+    3,
+    vertexIndices,
+    barycentric,
+  ));
+  const expectedSurfaceNormal = normalize([0, 1, 2].map((component) => (
+    packet.tangentFrame.tangent[component] * tangentNormal[0]
+    + packet.tangentFrame.bitangent[component] * tangentNormal[1]
+    + packet.tangentFrame.normal[component] * tangentNormal[2]
+  )));
+  const expectedAlphaX = interpolate(
+    packet.ggxLobe.alphaX,
+    1,
+    vertexIndices,
+    barycentric,
+  )[0];
+  const expectedAlphaY = interpolate(
+    packet.ggxLobe.alphaY,
+    1,
+    vertexIndices,
+    barycentric,
+  )[0];
+
+  assert.equal(sample.kind, 'wood-cut-anisotropic-face-sample:v1');
+  assert.strictEqual(sample.sourcePacket, packet);
+  assert.equal(sample.triangle, triangle);
+  assert.deepEqual(sample.vertexIndices, vertexIndices);
+  assert.deepEqual(sample.barycentric, barycentric);
+  sample.position.forEach((value, component) => (
+    assert.ok(Math.abs(value - expectedPosition[component]) < 1e-7)
+  ));
+  sample.baseColor.forEach((value, component) => (
+    assert.ok(Math.abs(value - expectedBaseColor[component]) < 1e-7)
+  ));
+  sample.surfaceNormal.forEach((value, component) => (
+    assert.ok(Math.abs(value - expectedSurfaceNormal[component]) < 1e-7)
+  ));
+  assert.ok(Math.abs(Math.hypot(...sample.surfaceNormal) - 1) < 1e-12);
+  assert.ok(Math.abs(sample.alphaX - expectedAlphaX) < 1e-7);
+  assert.ok(Math.abs(sample.alphaY - expectedAlphaY) < 1e-7);
+  assert.ok(sample.alphaX > sample.alphaY);
 });
