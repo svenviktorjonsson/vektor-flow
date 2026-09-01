@@ -2687,10 +2687,16 @@
 
   function cubeMesh(cube, color) {
     var hasDynamicTransform = !!(cube.tracks && (cube.tracks.center || cube.tracks.rotation || cube.tracks.transform || cube.tracks.scale));
+    var textureKind = String(cube && cube.texture && cube.texture.kind || "").toLowerCase().trim();
+    // Face-space textures must receive canonical cube coordinates in the
+    // fragment shader. Keep the cube transform in the model matrix instead of
+    // baking it into the uploaded vertices, otherwise a rotated die samples
+    // its pips from world space and the visible faces collapse into dark slabs.
+    var preserveLocalFaceSpace = textureKind === "dice";
     var localVertices = makeCubeLocalVertices(cube.size);
     var vertices = localVertices;
     var bakedStaticTransform = false;
-    if (!hasDynamicTransform) {
+    if (!hasDynamicTransform && !preserveLocalFaceSpace) {
       if (Array.isArray(cube.transform) && cube.transform.length === 16) {
         vertices = transformVerticesByMatrix(localVertices, cube.transform);
         bakedStaticTransform = true;

@@ -66,8 +66,56 @@ function serveOverlay(scenePath, port) {
   });
 }
 
+function nativeSceneIr(scenePath) {
+  const html = fs.readFileSync(scenePath, "utf8");
+  const match = html.match(
+    /window\.__vfNativeSceneConfig=([\s\S]*?);window\.__vfNativeSceneArenaUrl=/u,
+  );
+  return match ? JSON.parse(match[1]).scene_ir : null;
+}
+
+function rotateEulerZyx(vector, rotation) {
+  const radians = rotation.map((degrees) => Number(degrees || 0) * Math.PI / 180);
+  const [rx, ry, rz] = radians;
+  const [cx, sx] = [Math.cos(rx), Math.sin(rx)];
+  const [cy, sy] = [Math.cos(ry), Math.sin(ry)];
+  const [cz, sz] = [Math.cos(rz), Math.sin(rz)];
+  const afterX = [vector[0], (cx * vector[1]) - (sx * vector[2]), (sx * vector[1]) + (cx * vector[2])];
+  const afterY = [(cy * afterX[0]) + (sy * afterX[2]), afterX[1], (-sy * afterX[0]) + (cy * afterX[2])];
+  return [(cz * afterY[0]) - (sz * afterY[1]), (sz * afterY[0]) + (cz * afterY[1]), afterY[2]];
+}
+
+function verifyMultiFaceDie(scenePath, verification) {
+  const scene = nativeSceneIr(scenePath);
+  if (!scene) throw new Error("multi-face die verification requires native scene IR");
+  const mesh = (scene.meshes || []).find(({ id }) => id === verification.meshId);
+  if (!mesh) throw new Error(`verification mesh ${verification.meshId} is missing`);
+  const properties = mesh.properties || {};
+  const center = properties.center || [0, 0, 0];
+  const camera = scene.camera && scene.camera.properties || {};
+  const eye = camera.pos || [0, 0, 5];
+  const view = eye.map((value, axis) => Number(value) - Number(center[axis] || 0));
+  const normals = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+  const rotation = properties.rotation || [0, 0, 0];
+  const visibleFaces = normals
+    .map((normal) => rotateEulerZyx(normal, rotation))
+    .filter((normal) => normal.reduce((sum, value, axis) => sum + (value * view[axis]), 0) > 1e-6)
+    .length;
+  const markedFaces = properties.texture && properties.texture.kind === "dice" ? visibleFaces : 0;
+  const size = Number(properties.size || 0);
+  const restsOnGround = Math.abs(Number(center[2] || 0) - (size * 0.5)) <= 1e-6;
+  const result = { kind: verification.kind, meshId: verification.meshId, visibleFaces, markedFaces, restsOnGround };
+  if (visibleFaces < verification.minVisibleFaces || markedFaces < verification.minMarkedFaces || !restsOnGround) {
+    throw new Error(`multi-face die verification failed: ${JSON.stringify(result)}`);
+  }
+  return result;
+}
+
 function verifyPacketScene(scenePath, frameId, verification) {
   if (!verification) return null;
+  if (verification.kind === "multi-face-die") {
+    return verifyMultiFaceDie(scenePath, verification);
+  }
   const packetsPath = path.join(path.dirname(scenePath), "vf-runtime-packets.json");
   const packets = JSON.parse(fs.readFileSync(packetsPath, "utf8"));
   const displayPacket = packets.find(({ kind }) => kind === "display.replace");

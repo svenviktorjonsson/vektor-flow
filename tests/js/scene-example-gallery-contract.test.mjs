@@ -274,7 +274,7 @@ test("scene gallery captures a procedural dice texture", async () => {
   const source = await readFile(path.join(galleryRoot, example.source), "utf8");
   assert.ok(source.includes('id:"die"'));
   assert.ok(source.includes('kind:"dice"'));
-  assert.ok(source.includes("graph_width_px:3"));
+  assert.ok(!source.includes("graph_width_px"), "a standard die needs pips, not graph edges");
   assert.equal(sha256(Buffer.from(source.replaceAll("\r\n", "\n"))), example.sourceSha256);
   const bytes = await readFile(path.join(repositoryRoot, example.media.path));
   assert.ok(bytes.length > 100);

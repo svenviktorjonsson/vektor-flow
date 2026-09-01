@@ -354,16 +354,22 @@
         "shadows"
       ],
       "source": "16-dice-texture/app.vkf",
-      "sourceSha256": "f07b5e1aaed47610d8ab76da949af2a78b0e5845f870453b688acea5a37d5978",
+      "sourceSha256": "c81bcb1daa21c67fa8954be3c1a4f4c6534890f908bb2d2519b2e37271a792cf",
       "media": {
         "path": "docs/public/images/scene-gallery/16-dice-texture.png",
-        "sha256": "980a0f088ae80b8abc6ef1f4e1e7804d30addd36c308af8f890a0378999bcac6"
+        "sha256": "8dce0b26fd1b84dd1003ed2c33cc311e84e5b353af8c0ccf0f04e3f54385857d"
       },
       "capture": {
         "hidden": true,
         "applicationJavaScript": false,
         "api": "Page.captureScreenshot",
-        "frame": "dice_frame"
+        "frame": "dice_frame",
+        "verification": {
+          "kind": "multi-face-die",
+          "meshId": "die",
+          "minVisibleFaces": 3,
+          "minMarkedFaces": 3
+        }
       }
     },
     {
