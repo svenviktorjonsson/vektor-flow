@@ -150,3 +150,20 @@ test("subtraction follows addition in a closed mixed expression", () => {
     expectedStdout: 33,
   });
 });
+
+test("division binds before addition in a closed mixed expression", () => {
+  runArithmetic({
+    sourceText: "value: 31\nvalue + 6 / 2",
+    parserFunction: "parse_tagged_binding_add_divide",
+    typedFunction: "typed_tagged_add_divide",
+    machineFunction: "mir_tagged_add_divide",
+    component: "machine_ir.closed_add_divide.typed_module_pipeline",
+    expected: [
+      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "3",
+      "push_f64", "31", "push_f64", "6", "push_f64", "2",
+      "divide_f64", "add_f64", "return_f64",
+    ],
+    expectedStdout: 34,
+    thirdValueBeforeFourth: true,
+  });
+});
