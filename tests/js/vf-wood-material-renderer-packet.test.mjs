@@ -35,6 +35,7 @@ import {
   evaluateWoodMeshGgxAzimuthProfileReference,
   evaluateWoodMeshGgxCentroidsReference,
   evaluateWoodOrientationGgxProfilesReference,
+  evaluateWoodRefinementGgxConvergenceReference,
   evaluateWoodRefinementGgxProfilesReference,
   evaluateWoodTriangleGgxBatchReference,
   evaluateWoodTriangleGgxCoverageReference,
@@ -856,5 +857,69 @@ test('side-grain refinement levels retain distinct bounded GGX profiles', () => 
       + refinements.azimuths.byteLength
       + refinements.meanSpecularBrdf.byteLength
       + refinements.meanReflectedRgb.byteLength,
+  );
+});
+
+test('side-grain GGX profiles converge toward the finest retained refinement', () => {
+  const detailLevels = [0, 1, 2];
+  const packets = detailLevels.map((detailLevel) => (
+    adaptWoodCutMaterialToTriangleFacesReference(
+      proceduralWoodMaterial('side-grain', detailLevel),
+      { triangleBudget: 32 },
+    )
+  ));
+  const refinements = evaluateWoodRefinementGgxProfilesReference(packets, {
+    azimuths: [0, Math.PI / 2],
+    viewCosine: 0.72,
+    triangleBudget: 32,
+    refinementBudget: 3,
+    probeBudget: 2,
+  });
+  const convergence = evaluateWoodRefinementGgxConvergenceReference(refinements);
+  const reference = detailLevels.length - 1;
+  const expectedSpecularError = detailLevels.map((_, refinement) => {
+    let error = 0;
+    for (let probe = 0; probe < refinements.probeCount; probe += 1) {
+      error = Math.max(error, Math.abs(
+        refinements.meanSpecularBrdf[refinement * refinements.probeCount + probe]
+          - refinements.meanSpecularBrdf[reference * refinements.probeCount + probe]
+      ));
+    }
+    return Math.fround(error);
+  });
+  const profileRgbLength = refinements.probeCount * 3;
+  const expectedReflectedRgbError = detailLevels.map((_, refinement) => {
+    let error = 0;
+    for (let component = 0; component < profileRgbLength; component += 1) {
+      error = Math.max(error, Math.abs(
+        refinements.meanReflectedRgb[refinement * profileRgbLength + component]
+          - refinements.meanReflectedRgb[reference * profileRgbLength + component]
+      ));
+    }
+    return Math.fround(error);
+  });
+
+  assert.equal(convergence.kind, 'wood-cut-refinement-ggx-convergence:v1');
+  assert.strictEqual(convergence.sourceProfiles, refinements);
+  assert.equal(convergence.refinementCount, 3);
+  assert.equal(convergence.referenceDetailLevel, 2);
+  assert.deepEqual(
+    Array.from(convergence.maximumSpecularError),
+    expectedSpecularError,
+  );
+  assert.deepEqual(
+    Array.from(convergence.maximumReflectedRgbError),
+    expectedReflectedRgbError,
+  );
+  assert.equal(convergence.specularErrorStrictlyDecreases, true);
+  assert.equal(convergence.reflectedRgbErrorStrictlyDecreases, true);
+  assert.ok(convergence.maximumSpecularError[0] > 1e-3);
+  assert.ok(convergence.maximumReflectedRgbError[0] > 1e-2);
+  assert.equal(convergence.maximumSpecularError[reference], 0);
+  assert.equal(convergence.maximumReflectedRgbError[reference], 0);
+  assert.equal(
+    convergence.vectorBytes,
+    convergence.maximumSpecularError.byteLength
+      + convergence.maximumReflectedRgbError.byteLength,
   );
 });
