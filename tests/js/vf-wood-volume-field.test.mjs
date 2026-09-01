@@ -83,3 +83,31 @@ test('transverse and longitudinal cuts sample one deterministic multiscale wood 
   assert.notEqual(transverse[0].ring, transverse[1].ring);
   assert.notEqual(transverse[0].fiber, transverse[2].fiber);
 });
+
+test('trunk and branch sample the same volume at their shared attachment', () => {
+  const forest = realizeForestPatchesReference(
+    createForestPopulationReference(IDENTITY),
+    { patches: [[-2, 3]], treeBudget: 32 },
+  );
+  const geometry = planTreeGeometryReference(
+    createTreeGeometryPlannerReference(IDENTITY),
+    forest,
+    { treeIndices: [0], detailLevels: [2], primitiveBudget: 64 },
+  );
+  const coordinates = realizeWoodGrowthCoordinatesReference(
+    createWoodGrowthCoordinateFieldReference(),
+    geometry,
+    { segmentBudget: 64 },
+  );
+  const field = createWoodVolumeFieldReference(IDENTITY);
+  const attachment = coordinates.segments[1].origin;
+  const options = { detailLevel: 2, footprint: 0 };
+  const trunk = sampleWoodVolumeReference(field, coordinates, 0, attachment, options);
+  const branch = sampleWoodVolumeReference(field, coordinates, 1, attachment, options);
+
+  assert.ok(Math.abs(trunk.growthCoordinates[2] - branch.growthCoordinates[2]) < 1e-6);
+  assert.ok(Math.abs(trunk.ring - branch.ring) < 1e-6);
+  assert.ok(Math.abs(trunk.ray - branch.ray) < 1e-6);
+  assert.ok(Math.abs(trunk.fiber - branch.fiber) < 1e-6);
+  assert.deepEqual(trunk.baseColor, branch.baseColor);
+});
