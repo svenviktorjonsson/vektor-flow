@@ -34,6 +34,7 @@ hidden.
 | Windows platform | 1 passed, 0 failed |
 | native/WASM parity | 11 cases, 10 identical repetitions per target |
 | npm package | 5 passed, 0 failed |
+| isolated completed portable archive | 3 passed, 0 failed |
 | symbolic benchmark harness | 6 passed, 0 failed |
 | linear-algebra benchmark harness | 8 passed, 0 failed |
 | large-scene benchmark harness | 41 passed, 0 failed |
