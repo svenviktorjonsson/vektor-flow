@@ -35,7 +35,7 @@ test("a prior numeric binding closes and encodes a nested addition", () => {
       "parsed: parser.parse_tagged_binding_nested_addition(",
       "    tokens.source, tokens.rows, tokens.count",
       ")",
-      "expression: typed.typed_tagged_nested_addition(parsed)",
+      "expression: typed.typed_tagged_nested_addition(parsed.kind, parsed.values)",
       "statement: mir.mir_tagged_nested_addition(expression.values)",
       "maximum: validation.machine_ir_nested_addition_stack_maximum(",
       "    statement.instructions.0.kind, statement.instructions.1.kind,",

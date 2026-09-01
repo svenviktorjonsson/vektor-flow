@@ -55,9 +55,15 @@ MachineModule: (
 TaggedMachineModule: (source:str, statements:[num], count:int)
 TaggedMachineInstruction: (kind:str, index:num, value:num)
 TaggedMachineInstructions: [TaggedMachineInstruction:4]
+TaggedNestedMachineInstructions: [TaggedMachineInstruction:6]
 TaggedMachineStatement: (
     name:str,
     instructions:TaggedMachineInstructions,
+    max_stack:num
+)
+TaggedNestedMachineStatement: (
+    name:str,
+    instructions:TaggedNestedMachineInstructions,
     max_stack:num
 )
 
@@ -256,17 +262,63 @@ mir_tagged_closed_statement_from_prior_binding(
     found?! "closed Machine IR expression has no matching prior binding"
     mir_tagged_closed_statement(module, binding_index, expression_index)
 
+mir_tagged_nested_addition(values:[num:3]) -> TaggedNestedMachineStatement:
+    (
+        name:"\$entry",
+        instructions:[
+            _mir_tagged_instruction("push_f64", value:values.0),
+            _mir_tagged_instruction("push_f64", value:values.1),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("push_f64", value:values.2),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("return_f64")
+        ],
+        max_stack:2
+    )
+
+mir_assemble_closed_nested_module(
+    statement:TaggedNestedMachineStatement,
+    validated_max_stack:num
+) -> MachineModule:
+    (validated_max_stack = statement.max_stack)?! "nested Machine IR stack maximum does not match validation"
+    entry: (
+        name:statement.name,
+        parameters:[],
+        locals:[],
+        owned_f64_list_locals:[],
+        owned_string_locals:[],
+        parameter_mask_local:null,
+        may_error:false,
+        instructions:statement.instructions,
+        max_stack:validated_max_stack
+    )
+    (
+        schema:"vektorflow.machine_ir",
+        version:4,
+        output_kind:"f64",
+        output_count:1,
+        outputs:[],
+        output_tokens:[],
+        string_data:[],
+        entry:entry,
+        functions:[]
+    )
+
 mir_assemble_closed_tagged_module(
     statement:TaggedMachineStatement,
     validated_max_stack:num
 ) -> MachineModule:
     (validated_max_stack = statement.max_stack)?! "closed Machine IR stack maximum does not match validation"
-    entry: mir_function(
-        statement.name,
-        [],
-        [],
-        statement.instructions,
-        validated_max_stack
+    entry: (
+        name:statement.name,
+        parameters:[],
+        locals:[],
+        owned_f64_list_locals:[],
+        owned_string_locals:[],
+        parameter_mask_local:null,
+        may_error:false,
+        instructions:statement.instructions,
+        max_stack:validated_max_stack
     )
     (
         schema:"vektorflow.machine_ir",

@@ -51,6 +51,37 @@ machine_ir_tagged_statement_stack_maximum(
     (depth = 0)?! "machine IR statement leaves an imbalanced stack"
     maximum
 
+machine_ir_nested_addition_stack_maximum(
+    first_kind:str,
+    second_kind:str,
+    third_kind:str,
+    fourth_kind:str,
+    fifth_kind:str,
+    sixth_kind:str
+) -> num:
+    depth: 0
+    maximum: 0
+    .depth: machine_ir_numeric_stack_depth(depth, first_kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, second_kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, third_kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, fourth_kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, fifth_kind)
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(depth, sixth_kind)
+    depth > maximum?
+        .maximum: depth
+    (depth = 0)?! "nested Machine IR statement leaves an imbalanced stack"
+    maximum
+
 machine_ir_numeric_parameter_multiply_stack_maxima(function_name:str, parameter_name:str, factor:num) -> [num:3]:
     function: typed.typed_numeric_parameter_multiply_function(function_name, parameter_name, factor)
     module: mir.mir_lower_numeric_parameter_multiply_function_module(function)

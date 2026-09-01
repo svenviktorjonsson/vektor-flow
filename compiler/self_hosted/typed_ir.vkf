@@ -19,6 +19,7 @@ TypedList: (kind:str, items:any, element_type:str, type:str)
 TypedRecord: (kind:str, fields:any, type:str)
 TypedFieldAccess: (kind:str, object:any, field:str, object_type:str, type:str)
 TypedTaggedModule: (kind:str, source:str, statements:[num], count:int)
+TypedTaggedNestedAddition: (kind:str, values:[num:3], type:str)
 TypedTaggedBinaryOp: (
     kind:str,
     left:TypedLoad,
@@ -98,6 +99,12 @@ typed_tagged_module(
         statements:statements,
         count:count
     )
+
+typed_tagged_nested_addition(
+    kind:str, values:[num:3]
+) -> TypedTaggedNestedAddition:
+    (kind = "nested_addition")?! "typed nested addition input has the wrong kind"
+    (kind:"typed_nested_addition", values:values, type:"int")
 
 typed_tagged_operator(operator_code:num) -> str:
     operator_code??
