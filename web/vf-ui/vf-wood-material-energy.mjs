@@ -82,19 +82,19 @@ function localProbeCosine(normal, probe) {
   );
 }
 
-function ggxLambda(direction, alphaX, alphaY) {
+function ggxLambda(x, y, z, alphaX, alphaY) {
   const scaledTangentSquared = (
-    alphaX * alphaX * direction[0] * direction[0]
-    + alphaY * alphaY * direction[1] * direction[1]
+    alphaX * alphaX * x * x
+    + alphaY * alphaY * y * y
   );
-  return (Math.sqrt(1 + scaledTangentSquared / (direction[2] * direction[2])) - 1) * 0.5;
+  return (Math.sqrt(1 + scaledTangentSquared / (z * z)) - 1) * 0.5;
 }
 
-function ggxDistribution(half, alphaX, alphaY) {
+function ggxDistribution(x, y, z, alphaX, alphaY) {
   const scaledLengthSquared = (
-    half[0] * half[0] / (alphaX * alphaX)
-    + half[1] * half[1] / (alphaY * alphaY)
-    + half[2] * half[2]
+    x * x / (alphaX * alphaX)
+    + y * y / (alphaY * alphaY)
+    + z * z
   );
   return 1 / (Math.PI * alphaX * alphaY * scaledLengthSquared * scaledLengthSquared);
 }
@@ -109,12 +109,9 @@ function integrateGgxHemisphere(
 ) {
   const cosine = Math.max(1e-4, viewCosine);
   const sine = Math.sqrt(Math.max(0, 1 - cosine * cosine));
-  const view = [
-    sine * Math.cos(viewAzimuth),
-    sine * Math.sin(viewAzimuth),
-    cosine,
-  ];
-  const lambdaView = ggxLambda(view, alphaX, alphaY);
+  const viewX = sine * Math.cos(viewAzimuth);
+  const viewY = sine * Math.sin(viewAzimuth);
+  const lambdaView = ggxLambda(viewX, viewY, cosine, alphaX, alphaY);
   const sampleWeight = 2 * Math.PI / (polarSamples * azimuthSamples);
   let unitReflectorEnergy = 0;
   let dielectricSpecularEnergy = 0;
@@ -123,25 +120,22 @@ function integrateGgxHemisphere(
     const lightSine = Math.sqrt(1 - lightCosine * lightCosine);
     for (let azimuth = 0; azimuth < azimuthSamples; azimuth += 1) {
       const lightAzimuth = (azimuth + 0.5) * 2 * Math.PI / azimuthSamples;
-      const light = [
-        lightSine * Math.cos(lightAzimuth),
-        lightSine * Math.sin(lightAzimuth),
-        lightCosine,
-      ];
+      const lightX = lightSine * Math.cos(lightAzimuth);
+      const lightY = lightSine * Math.sin(lightAzimuth);
       const halfLength = Math.sqrt(
-        (view[0] + light[0]) ** 2
-        + (view[1] + light[1]) ** 2
-        + (view[2] + light[2]) ** 2,
+        (viewX + lightX) ** 2
+        + (viewY + lightY) ** 2
+        + (cosine + lightCosine) ** 2,
       );
-      const half = [
-        (view[0] + light[0]) / halfLength,
-        (view[1] + light[1]) / halfLength,
-        (view[2] + light[2]) / halfLength,
-      ];
-      const viewHalf = Math.max(0, view[0] * half[0] + view[1] * half[1] + view[2] * half[2]);
-      const maskingShadowing = 1 / (1 + lambdaView + ggxLambda(light, alphaX, alphaY));
+      const halfX = (viewX + lightX) / halfLength;
+      const halfY = (viewY + lightY) / halfLength;
+      const halfZ = (cosine + lightCosine) / halfLength;
+      const viewHalf = Math.max(0, viewX * halfX + viewY * halfY + cosine * halfZ);
+      const maskingShadowing = 1 / (
+        1 + lambdaView + ggxLambda(lightX, lightY, lightCosine, alphaX, alphaY)
+      );
       const brdfWeight = (
-        ggxDistribution(half, alphaX, alphaY)
+        ggxDistribution(halfX, halfY, halfZ, alphaX, alphaY)
         * maskingShadowing
         * sampleWeight
         / (4 * cosine)
