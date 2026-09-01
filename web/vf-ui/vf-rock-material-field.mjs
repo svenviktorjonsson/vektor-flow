@@ -10,6 +10,7 @@ import {
 const fieldState = new WeakMap();
 const floatBitsBuffer = new ArrayBuffer(8);
 const floatBitsView = new DataView(floatBitsBuffer);
+const MAX_REALIZED_MATERIAL_SAMPLES = 2048;
 const MAX_OCTAVES = 6;
 const DERIVATIVE_STEP = 1e-4;
 const DARK_COLOR = Object.freeze([0.22, 0.19, 0.15]);
@@ -137,17 +138,22 @@ export function sampleRockMaterialReference(
   }
   requireSurfaceCoordinates(surfaceCoordinates);
   requireOptions({ detailLevel, footprint });
+  const { node, materialSamples } = state;
   const cacheKey = materialSampleKey(surfaceCoordinates, detailLevel, footprint);
-  const cached = state.materialSamples.get(cacheKey);
-  if (cached) return cached;
+  const cached = materialSamples.get(cacheKey);
+  if (cached) {
+    materialSamples.delete(cacheKey);
+    materialSamples.set(cacheKey, cached);
+    return cached;
+  }
   const geology = rawGeology(
-    state.node,
+    node,
     surfaceCoordinates,
     detailLevel,
     footprint,
   );
   const at = (offsetU, offsetV) => rawGeology(
-    state.node,
+    node,
     [surfaceCoordinates[0] + offsetU, surfaceCoordinates[1] + offsetV],
     detailLevel,
     footprint,
@@ -174,7 +180,10 @@ export function sampleRockMaterialReference(
     derivative: Object.freeze([derivativeU, derivativeV]),
     tangentNormal: normalizedTangentNormal(derivativeU, derivativeV),
   });
-  state.materialSamples.set(cacheKey, sample);
+  materialSamples.set(cacheKey, sample);
+  if (materialSamples.size > MAX_REALIZED_MATERIAL_SAMPLES) {
+    materialSamples.delete(materialSamples.keys().next().value);
+  }
   return sample;
 }
 
