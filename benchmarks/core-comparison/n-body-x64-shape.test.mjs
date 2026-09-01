@@ -68,3 +68,26 @@ test('fixed n-body interactions elide runtime static-index materialization', () 
     rmSync(workRoot, { recursive: true, force: true });
   }
 });
+
+test('fixed-pair promotion preserves the published n-body result', () => {
+  const driver = process.env.VKF_NBODY_NATIVE_DRIVER;
+  assert.ok(driver, 'VKF_NBODY_NATIVE_DRIVER must name the focused native compiler');
+  const workRoot = mkdtempSync(resolve(tmpdir(), 'vkf-nbody-x64-result-'));
+  try {
+    const manifest = compileNBody(driver, workRoot);
+    const executable = resolve(
+      dirname(manifest.code_path),
+      `vkf${process.platform === 'win32' ? '.exe' : ''}`
+    );
+    const result = spawnSync(executable, [], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const actual = Number(result.stdout.trim());
+    const expected = -0.16907807065934854;
+    assert.ok(
+      Math.abs(actual - expected) <= 1e-9,
+      `fixed-pair promotion changed n-body output: expected ${expected}, received ${actual}`
+    );
+  } finally {
+    rmSync(workRoot, { recursive: true, force: true });
+  }
+});
