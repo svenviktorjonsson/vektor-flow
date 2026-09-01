@@ -35,7 +35,7 @@ test("two derived bindings close a later demanded expression", () => {
       "parsed: parser.parse_tagged_two_derived_bindings(tokens.source, tokens.rows, tokens.count)",
       "expression: typed.typed_tagged_two_derived_bindings(parsed.kind, parsed.values)",
       "statement: mir.mir_tagged_two_derived_bindings(expression.values)",
-      "opcode_tape: [",
+      "[num] opcode_tape: [",
       "    validation.machine_ir_numeric_opcode_code(statement.instructions.0.kind),",
       "    validation.machine_ir_numeric_opcode_code(statement.instructions.1.kind),",
       "    validation.machine_ir_numeric_opcode_code(statement.instructions.2.kind),",

@@ -121,6 +121,47 @@ machine_ir_dependency_chain_stack_maximum(
     (depth = 0)?! "dependency Machine IR statement leaves an imbalanced stack"
     maximum
 
+machine_ir_numeric_opcode_code(kind:str) -> num:
+    code: 0
+    (kind = "system_cpu_count" \/ kind = "load_local" \/ kind = "push_f64")?
+        .code: 1
+    (kind = "add_f64" \/ kind = "subtract_f64" \/ kind = "multiply_f64" \/
+        kind = "divide_f64" \/ kind = "ordered_less_f64" \/
+        kind = "ordered_greater_f64")?
+        .code: 2
+    (kind = "store_local" \/ kind = "jump_if_false" \/ kind = "return_f64")?
+        .code: 3
+    (kind = "label" \/ kind = "jump")?
+        .code: 4
+    (code != 0)?! "numeric opcode tape encountered an unsupported opcode"
+    code
+
+machine_ir_numeric_opcode_depth(depth:num, code:num) -> num:
+    (code >= 1 /\ code <= 4)?! "numeric opcode tape encountered an unknown code"
+    required: 0
+    produced: 0
+    code = 1?
+        .produced: 1
+    code = 2?
+        .required: 2
+        .produced: 1
+    code = 3?
+        .required: 1
+    (depth >= required)?! "numeric opcode tape stack underflow"
+    depth - required + produced
+
+machine_ir_numeric_opcode_tape_stack_maximum(codes:[num]) -> num:
+    depth: 0
+    maximum: 0
+    index: 0
+    (index < codes.length())?>
+        .depth: machine_ir_numeric_opcode_depth(depth, codes.(index))
+        depth > maximum?
+            .maximum: depth
+        .index+: 1
+    (depth = 0)?! "numeric opcode tape leaves an imbalanced stack"
+    maximum
+
 machine_ir_numeric_parameter_multiply_stack_maxima(function_name:str, parameter_name:str, factor:num) -> [num:3]:
     function: typed.typed_numeric_parameter_multiply_function(function_name, parameter_name, factor)
     module: mir.mir_lower_numeric_parameter_multiply_function_module(function)
