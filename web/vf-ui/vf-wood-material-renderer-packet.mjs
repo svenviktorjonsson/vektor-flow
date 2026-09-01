@@ -120,3 +120,98 @@ export function adaptWoodCutMaterialToTriangleFacesReference(
   packetCache.set(material, packet);
   return packet;
 }
+
+function normalize(vector) {
+  const length = Math.hypot(...vector);
+  return vector.map((component) => component / length);
+}
+
+function interpolate(values, components, vertexIndices, barycentric) {
+  return Array.from({ length: components }, (_, component) => (
+    vertexIndices.reduce((sum, vertex, corner) => (
+      sum + values[vertex * components + component] * barycentric[corner]
+    ), 0)
+  ));
+}
+
+export function sampleWoodMaterialTriangleReference(
+  packet,
+  { triangle, barycentric },
+) {
+  if (!packet || packet.kind !== 'wood-cut-material-triangle-packet:v1') {
+    throw new TypeError('wood cut material triangle packet is required');
+  }
+  if (
+    !Number.isSafeInteger(triangle)
+    || triangle < 0
+    || triangle >= packet.triangleCount
+  ) {
+    throw new RangeError('wood material triangle must reference a complete face');
+  }
+  if (
+    !Array.isArray(barycentric)
+    || barycentric.length !== 3
+    || barycentric.some((weight) => !Number.isFinite(weight) || weight < 0)
+    || Math.abs(barycentric.reduce((sum, weight) => sum + weight, 0) - 1) > 1e-12
+  ) {
+    throw new RangeError('wood material barycentric weights must be finite, non-negative, and sum to one');
+  }
+
+  const vertexIndices = Array.from(packet.indices.subarray(
+    triangle * 3,
+    triangle * 3 + 3,
+  ));
+  const decodedNormals = new Float64Array(9);
+  vertexIndices.forEach((vertex, corner) => {
+    const encodedOffset = vertex * 4;
+    const tangentNormal = normalize([0, 1, 2].map((component) => (
+      packet.normalRgba8[encodedOffset + component] / 127.5 - 1
+    )));
+    decodedNormals.set(tangentNormal, corner * 3);
+  });
+  const localIndices = [0, 1, 2];
+  const tangentNormal = normalize(interpolate(
+    decodedNormals,
+    3,
+    localIndices,
+    barycentric,
+  ));
+  const surfaceNormal = normalize([0, 1, 2].map((component) => (
+    packet.tangentFrame.tangent[component] * tangentNormal[0]
+    + packet.tangentFrame.bitangent[component] * tangentNormal[1]
+    + packet.tangentFrame.normal[component] * tangentNormal[2]
+  )));
+
+  return Object.freeze({
+    kind: 'wood-cut-anisotropic-face-sample:v1',
+    sourcePacket: packet,
+    triangle,
+    vertexIndices: Object.freeze(vertexIndices),
+    barycentric: Object.freeze(Array.from(barycentric)),
+    position: Object.freeze(interpolate(
+      packet.positions,
+      3,
+      vertexIndices,
+      barycentric,
+    )),
+    baseColor: Object.freeze(interpolate(
+      packet.baseColors,
+      4,
+      vertexIndices,
+      barycentric,
+    )),
+    surfaceNormal: Object.freeze(surfaceNormal),
+    alphaX: interpolate(
+      packet.ggxLobe.alphaX,
+      1,
+      vertexIndices,
+      barycentric,
+    )[0],
+    alphaY: interpolate(
+      packet.ggxLobe.alphaY,
+      1,
+      vertexIndices,
+      barycentric,
+    )[0],
+  });
+}
