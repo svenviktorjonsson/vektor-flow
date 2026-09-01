@@ -55,8 +55,14 @@ test("compiled StringCursor identifier scan matches the canonical lexer", () => 
     assert.deepEqual(executed.stdout.trim().split(/\r?\n/u), [
       expected.kind,
       expected.value,
-      String(expected.line),
-      String(expected.column),
+      String(expected.location.line),
+      String(expected.location.column),
+      "2",
+      "6",
+      "true",
+      "2",
+      "1",
+      "true",
     ]);
   } finally {
     rmSync(work, { recursive: true, force: true });

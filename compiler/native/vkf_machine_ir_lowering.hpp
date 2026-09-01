@@ -10281,6 +10281,83 @@ inline ValueLayout lower_expression(
         }
         const std::string symbol = string_field(callee, "name", "callee");
         const auto signature = signatures.find(symbol);
+        if (signature == signatures.end() &&
+            (symbol == "vkf_string_eof" || symbol == "vkf_string_peek_scalar" ||
+             symbol == "vkf_utf8_advance")) {
+            if (args.size() != 2 ||
+                !array_of(field(expression, "named_args", "UTF-8 intrinsic"),
+                    "UTF-8 intrinsic named args").empty() ||
+                !array_of(field(expression, "spread_args", "UTF-8 intrinsic"),
+                    "UTF-8 intrinsic spread args").empty()) {
+                throw LoweringFailure("machine IR " + symbol + " requires source and byte position");
+            }
+            const auto& source_expression = object_of(args[0], "UTF-8 intrinsic source");
+            const auto source = lower_expression(
+                source_expression, builder, signatures, strings);
+            if (source.kind != ValueKind::String || source.width != 2) {
+                throw LoweringFailure("machine IR " + symbol + " source must be str");
+            }
+            const auto source_local = builder.add_borrowed_temporary(source);
+            emit_store_local_component(builder, source_local + 1u);
+            emit_store_local_component(builder, source_local);
+            const auto position = lower_expression(
+                object_of(args[1], "UTF-8 intrinsic position"), builder, signatures, strings);
+            require_scalar(position, "machine IR " + symbol + " byte position");
+            const auto position_local = builder.add_borrowed_temporary({});
+            emit_store_local_component(builder, position_local);
+            const bool release_source =
+                expression_transfers_string_value(source_expression, signatures);
+
+            if (symbol == "vkf_string_eof") {
+                emit_load_local_component(builder, position_local);
+                emit_load_local_component(builder, source_local + 1u);
+                builder.emit({Opcode::Duplicate});
+                Instruction zero;
+                zero.opcode = Opcode::PushF64;
+                zero.f64 = 0.0;
+                builder.emit(std::move(zero));
+                builder.emit({Opcode::OrderedGreaterEqualF64});
+                const auto length_ready = builder.next_label();
+                Instruction borrowed_length;
+                borrowed_length.opcode = Opcode::JumpIfTrue;
+                borrowed_length.label = length_ready;
+                builder.emit(std::move(borrowed_length));
+                builder.emit({Opcode::NegateF64});
+                Instruction one;
+                one.opcode = Opcode::PushF64;
+                one.f64 = 1.0;
+                builder.emit(std::move(one));
+                builder.emit({Opcode::SubtractF64});
+                Instruction length_label;
+                length_label.opcode = Opcode::Label;
+                length_label.label = length_ready;
+                builder.emit(std::move(length_label));
+                builder.emit({Opcode::OrderedGreaterEqualF64});
+                if (release_source) {
+                    emit_release_layout_local(builder, source_local, source);
+                }
+                return {};
+            }
+
+            emit_load_local_component(builder, source_local);
+            emit_load_local_component(builder, source_local + 1u);
+            emit_load_local_component(builder, position_local);
+            builder.emit({Opcode::DecodeUtf8At});
+            const auto next_position = builder.add_borrowed_temporary({});
+            emit_store_local_component(builder, next_position);
+            if (symbol == "vkf_utf8_advance") {
+                builder.emit({Opcode::Drop});
+                emit_load_local_component(builder, next_position);
+            } else {
+                builder.emit({Opcode::FormatChrString});
+            }
+            if (release_source) {
+                emit_release_layout_local(builder, source_local, source);
+            }
+            return symbol == "vkf_string_peek_scalar"
+                ? ValueLayout{2, ValueKind::String, {}}
+                : ValueLayout{};
+        }
         if (signature == signatures.end() && symbol == "bit") {
             if (args.size() != 1 ||
                 !array_of(field(expression, "named_args", "call"), "named call args").empty() ||

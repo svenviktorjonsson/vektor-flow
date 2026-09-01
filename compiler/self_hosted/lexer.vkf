@@ -21,7 +21,13 @@ _string_cursor_peek(cursor:StringCursor) -> str:
     vkf_string_peek_scalar(cursor.source, cursor.position)
 
 _string_cursor_advance(cursor:StringCursor) -> StringCursor:
-    vkf_cursor_advance_scalar(cursor)
+    int next_position: vkf_utf8_advance(cursor.source, cursor.position)
+    bit next_eof: vkf_string_eof(cursor.source, next_position)
+    cursor.peek() = "\n"?
+        @: (source:cursor.source, position:next_position,
+            line:cursor.line + 1, column:1, eof:next_eof)
+    (source:cursor.source, position:next_position,
+     line:cursor.line, column:cursor.column + 1, eof:next_eof)
 
 _string_cursor_slice(cursor:StringCursor, start:num, stop:num) -> str:
     vkf_utf8_slice(cursor.source, start, stop)

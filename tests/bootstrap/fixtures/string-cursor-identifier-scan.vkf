@@ -8,7 +8,13 @@ _string_cursor_peek(cursor:StringCursor) -> str:
     vkf_string_peek_scalar(cursor.source, cursor.position)
 
 _string_cursor_advance(cursor:StringCursor) -> StringCursor:
-    vkf_cursor_advance_scalar(cursor)
+    int next_position: vkf_utf8_advance(cursor.source, cursor.position)
+    bit next_eof: vkf_string_eof(cursor.source, next_position)
+    cursor.peek() = "\n"?
+        @: (source:cursor.source, position:next_position,
+            line:cursor.line + 1, column:1, eof:next_eof)
+    (source:cursor.source, position:next_position,
+     line:cursor.line, column:cursor.column + 1, eof:next_eof)
 
 _string_cursor_slice(cursor:StringCursor, start:num, stop:num) -> str:
     vkf_utf8_slice(cursor.source, start, stop)
@@ -16,18 +22,30 @@ _string_cursor_slice(cursor:StringCursor, start:num, stop:num) -> str:
 is_identifier_continue(ch:str) -> bit:
     (ch >= "a" /\ ch <= "z") \/ (ch >= "A" /\ ch <= "Z") \/ (ch >= "0" /\ ch <= "9") \/ ch = "_"
 
-scan_identifier(cursor:StringCursor, start:num) -> Token:
+scan_identifier(cursor:StringCursor, value:str) -> Token:
     cursor.eof?
-        @: (kind:"IDENT", value:cursor.slice(start, cursor.position),
-            line:1, column:1)
+        @: (kind:"IDENT", value:value, line:1, column:1)
     is_identifier_continue(cursor.peek())?
-        @: scan_identifier(cursor.advance(), start)
-    (kind:"IDENT", value:cursor.slice(start, cursor.position),
-     line:1, column:1)
+        ch: cursor.peek()
+        @: scan_identifier(cursor.advance(), value & ch)
+    (kind:"IDENT", value:value, line:1, column:1)
 
 source: "alpha "
-observed: scan_identifier(StringCursor(source), 0)
+observed: scan_identifier(StringCursor(source), "")
 :: observed.kind
 :: observed.value
 :: observed.line
 :: observed.column
+
+unicode_cursor: StringCursor("é🙂")
+after_one: unicode_cursor.advance()
+after_two: after_one.advance()
+:: after_one.position
+:: after_two.position
+:: after_two.eof
+
+newline_start: StringCursor("\n")
+newline_end: newline_start.advance()
+:: newline_end.line
+:: newline_end.column
+:: newline_end.eof
