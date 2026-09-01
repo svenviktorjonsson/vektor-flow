@@ -4,20 +4,20 @@ Status: evidence-only baseline. This comparison does not carry a `<1.5x` release
 
 ## Result
 
-The six valid raw WebGPU, Three.js, and deck.gl rows passed the frozen correctness oracle and retained-fixture gate in three independent hidden-browser runs. Both shipped VKF `marker_impostor` rows failed the common opaque-point oracle deterministically, so they have cold/retention/capture evidence but no timing. No VKF timing result or peer ratio is claimed.
+All eight raw WebGPU, Three.js, deck.gl, and VKF rows passed the frozen correctness oracle and retained-fixture gate in three independent hidden-browser runs. The VKF lanes use a benchmark-internal exact flat opaque marker pipeline over the shipped renderer's retained buffers; the public lit `marker_impostor` defaults are unchanged. No peer ratio or release threshold is claimed.
 
 The primary scheduling values below are rAF **callback intervals**, not proof of display presentation. GPU pass duration is available only for the raw WebGPU floor. Serialized submit-to-completion is a separate diagnostic and must not be treated as equivalent to callback pacing or GPU timestamps.
 
 | Backend | Size | Correctness | rAF mean ± run SD (ms) | 95% CI of mean (ms) | p50 / p95 / p99 / max (ms) | Missed 60 / 30 Hz | GPU timestamp mean (ms) | Serialized mean (ms) | Cold first-visible mean (ms) |
 |---|---:|---|---:|---:|---:|---:|---:|---:|---:|
-| raw WebGPU floor, discrete point | 1 px | pass | 16.884 ± 0.385 | 15.927–17.840 | 16.662 / 16.769 / 27.899 / 27.947 | 44.0% / 0.7% | 47.596 | 51.091 | 1305.6 |
-| Three.js r185, retained discrete layer | 1 px | pass | 86.031 ± 19.592 | 37.363–134.699 | 86.068 / 177.701 / 205.670 / 222.180 | 91.3% / 83.7% | unavailable | 0.121 | 146.0 |
-| deck.gl 9.3.11, retained discrete layer | 1 px | pass | 161.731 ± 31.911 | 82.459–241.004 | 138.861 / 312.147 / 467.186 / 533.088 | 99.0% / 97.3% | unavailable | 1.016 | 475.6 |
-| shipped VKF WebGPU `marker_impostor` | 1 px | **unsupported: frame 50, 0.158608 > 0.15** | withheld | withheld | withheld | withheld | withheld | withheld | 20227.2 |
-| raw WebGPU floor, analytic circle | 4 px | pass | 16.827 ± 0.169 | 16.408–17.246 | 16.663 / 16.871 / 18.190 / 33.717 | 44.7% / 0.7% | 67.744 | 67.339 | 1176.7 |
-| Three.js r185 `Points` | 4 px | pass | 49.600 ± 4.243 | 39.060–60.141 | 49.977 / 99.844 / 111.156 / 116.667 | 89.7% / 70.3% | unavailable | 0.103 | 212.7 |
-| deck.gl 9.3.11 `ScatterplotLayer` | 4 px | pass | 133.184 ± 20.227 | 82.938–183.431 | 127.823 / 236.121 / 305.539 / 311.333 | 97.7% / 96.0% | unavailable | 1.513 | 723.2 |
-| shipped VKF WebGPU `marker_impostor` | 4 px | **unsupported: frames 25/50, max 0.167135 > 0.15** | withheld | withheld | withheld | withheld | withheld | withheld | 20269.6 |
+| raw WebGPU floor, discrete point | 1 px | pass (max error 0.103906) | 17.618 ± 0.125 | 17.308–17.929 | 17.862 / 18.562 / 25.243 / 26.837 | 97.3% / 0.7% | 55.105 | 61.671 | 2868.1 |
+| Three.js r185, retained discrete layer | 1 px | pass (max error 0.000312) | 104.308 ± 10.498 | 78.230–130.385 | 101.371 / 213.113 / 228.111 / 238.262 | 100.0% / 85.0% | unavailable | 0.120 | 273.2 |
+| deck.gl 9.3.11, retained discrete layer | 1 px | pass (max error 0.000312) | 242.819 ± 25.511 | 179.447–306.191 | 239.555 / 358.513 / 423.186 / 429.423 | 100.0% / 97.3% | unavailable | 1.652 | 1508.7 |
+| VKF internal exact-flat retained marker | 1 px | pass (max error 0.103906) | 61.839 ± 8.292 | 41.240–82.437 | 59.782 / 88.631 / 101.263 / 101.690 | 100.0% / 98.3% | unavailable | 48.579 | 28713.5 |
+| raw WebGPU floor, analytic circle | 4 px | pass (max error 0.052151) | 17.842 ± 0.235 | 17.258–18.426 | 17.896 / 18.606 / 24.160 / 24.480 | 98.7% / 0.7% | 77.211 | 79.280 | 2566.2 |
+| Three.js r185 `Points` | 4 px | pass (max error 0.000858) | 60.687 ± 2.810 | 53.707–67.667 | 53.998 / 124.785 / 137.256 / 138.343 | 99.3% / 82.7% | unavailable | 0.158 | 399.3 |
+| deck.gl 9.3.11 `ScatterplotLayer` | 4 px | pass (max error 0.045511) | 169.371 ± 21.517 | 115.919–222.823 | 166.694 / 276.065 / 346.871 / 363.608 | 100.0% / 95.7% | unavailable | 1.755 | 1157.7 |
+| VKF internal exact-flat retained marker | 4 px | pass (max error 0.055769) | 77.332 ± 9.105 | 54.714–99.950 | 77.652 / 107.719 / 114.786 / 125.408 | 100.0% / 99.0% | unavailable | 83.862 | 27752.8 |
 
 The p50/p95/p99/max and missed-deadline entries are arithmetic means of the corresponding statistics from the three independent runs. The artifact retains every run separately, including all 100 raw measured samples per valid timing lane. Percentiles use R-7 linear interpolation; run-level confidence intervals use a two-sided Student t interval with 2 degrees of freedom.
 
@@ -33,12 +33,13 @@ The p50/p95/p99/max and missed-deadline entries are arithmetic means of the corr
 ## Environment and provenance
 
 - Package version: `0.4.0`.
-- Tested source commit: `aa2e5250cd053fdb6dec861488a4a40e607dc78b`.
-- Benchmark source hash: `fce0f8e7251f8c8a7f9487aa0c0d8ab3e080c5fb4d4fd0c315e677613a7521cd`.
+- Tested source commit: `dd7882c8531f3a4700f6585ec2d63171d7d19cee`.
+- Benchmark source hash: `c083d54c524b395c1a695af133357aebf8a59d921a16b852885c1f1538862109`.
 - Protocol hash: `e7ae5935fdf0bf2af9cad582004a2efcffb05ef14da054727bb9592ef1796939`.
 - Environment hash: `00a295987babac3433caffdb1240930d65566637aa46e998b6a223b29dea3c83`.
 - Windows 10.0.26200 x64; Intel Core Ultra 7 255U; Intel Xe-LPG hardware; Microsoft Edge 152; hidden/offscreen browser; no visible windows.
-- Artifact: [`040-retained-cloud-indicator.json`](artifacts/040-retained-cloud-indicator.json), SHA-256 `9af2df3b5ba7ea6bc792a567ca52a8c735a579478d11927ea2f5297fcf9b6484`.
+- Artifact: [`040-retained-cloud-indicator.json`](artifacts/040-retained-cloud-indicator.json), SHA-256 `331dea0754ed71e75a0957b4984e030d9b81012b192a86524a2176bd340001cea`.
 - First-run PNG captures: [`040-retained-cloud-indicator-captures/`](artifacts/040-retained-cloud-indicator-captures/), 40 files with per-file SHA-256 and byte length in the artifact.
+- End-to-end hidden hardware suite wall time: 1330.826 seconds (22 minutes 10.826 seconds).
 
-The VKF failures are not performance losses. They are responsibility mismatches: the shipped marker shader uses antialiased premultiplied blending and depth-correct sphere fragments, while the common peer oracle requires nearest opaque discrete/circular points. Timing is intentionally withheld until Viktor decides whether VKF should add an exact flat/opaque marker mode, retain the rows as unsupported, or leave VKF out of this comparison.
+The earlier VKF failures were responsibility mismatches: the shipped marker shader uses antialiased premultiplied blending and depth-correct sphere fragments, while the common peer oracle requires nearest opaque discrete/circular points. The benchmark now selects an internal exact-flat pipeline without adding a public marker mode; its timing is therefore specific to that benchmark responsibility, not the public lit marker default.
