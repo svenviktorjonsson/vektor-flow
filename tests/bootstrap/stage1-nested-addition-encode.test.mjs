@@ -15,7 +15,7 @@ const newline = process.platform === "win32" ? "\r\n" : "\n";
 
 function runArithmetic({
   sourceText, parserFunction, typedFunction, machineFunction,
-  component, expected, expectedStdout,
+  component, expected, expectedStdout, thirdValueBeforeFourth = false,
 }) {
   const rootWork = join(root, ".work");
   mkdirSync(rootWork, { recursive: true });
@@ -56,9 +56,15 @@ function runArithmetic({
       ":: module.entry.instructions.0.value",
       ":: module.entry.instructions.1.kind",
       ":: module.entry.instructions.1.value",
-      ":: module.entry.instructions.2.kind",
-      ":: module.entry.instructions.3.kind",
-      ":: module.entry.instructions.3.value",
+      ...(thirdValueBeforeFourth ? [
+        ":: module.entry.instructions.2.kind",
+        ":: module.entry.instructions.2.value",
+        ":: module.entry.instructions.3.kind",
+      ] : [
+        ":: module.entry.instructions.2.kind",
+        ":: module.entry.instructions.3.kind",
+        ":: module.entry.instructions.3.value",
+      ]),
       ":: module.entry.instructions.4.kind",
       ":: module.entry.instructions.5.kind",
       "",
@@ -125,5 +131,6 @@ test("multiplication binds before addition in a closed mixed expression", () => 
       "multiply_f64", "add_f64", "return_f64",
     ],
     expectedStdout: 33,
+    thirdValueBeforeFourth: true,
   });
 });

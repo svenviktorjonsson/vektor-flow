@@ -106,6 +106,12 @@ typed_tagged_nested_addition(
     (kind = "nested_addition")?! "typed nested addition input has the wrong kind"
     (kind:"typed_nested_addition", values:values, type:"int")
 
+typed_tagged_add_multiply(
+    kind:str, values:[num:3]
+) -> TypedTaggedNestedAddition:
+    (kind = "add_multiply")?! "typed mixed arithmetic input has the wrong kind"
+    (kind:"typed_add_multiply", values:values, type:"int")
+
 typed_tagged_operator(operator_code:num) -> str:
     operator_code??
         1 => "PLUS"
