@@ -40,6 +40,7 @@ import {
   evaluateWoodTriangleGgxBatchReference,
   evaluateWoodTriangleGgxCoverageReference,
   sampleWoodMaterialTriangleReference,
+  selectWoodRefinementGgxProfileReference,
 } from '../../web/vf-ui/vf-wood-material-renderer-packet.mjs';
 
 const IDENTITY = Object.freeze({
@@ -922,4 +923,54 @@ test('side-grain GGX profiles converge toward the finest retained refinement', (
     convergence.maximumSpecularError.byteLength
       + convergence.maximumReflectedRgbError.byteLength,
   );
+});
+
+test('quality budgets select the coarsest sufficient wood refinement', () => {
+  const detailLevels = [0, 1, 2];
+  const packets = detailLevels.map((detailLevel) => (
+    adaptWoodCutMaterialToTriangleFacesReference(
+      proceduralWoodMaterial('side-grain', detailLevel),
+      { triangleBudget: 32 },
+    )
+  ));
+  const refinements = evaluateWoodRefinementGgxProfilesReference(packets, {
+    azimuths: [0, Math.PI / 2],
+    viewCosine: 0.72,
+    triangleBudget: 32,
+    refinementBudget: 3,
+    probeBudget: 2,
+  });
+  const convergence = evaluateWoodRefinementGgxConvergenceReference(refinements);
+  const selections = detailLevels.map((_, refinement) => (
+    selectWoodRefinementGgxProfileReference(convergence, {
+      maximumSpecularError: convergence.maximumSpecularError[refinement],
+      maximumReflectedRgbError: convergence.maximumReflectedRgbError[refinement],
+    })
+  ));
+
+  assert.deepEqual(
+    selections.map((selection) => selection.selectedRefinement),
+    [0, 1, 2],
+  );
+  assert.deepEqual(
+    selections.map((selection) => selection.selectedDetailLevel),
+    detailLevels,
+  );
+  for (let selected = 0; selected < selections.length; selected += 1) {
+    const selection = selections[selected];
+    assert.equal(selection.kind, 'wood-cut-refinement-ggx-selection:v1');
+    assert.strictEqual(selection.sourceConvergence, convergence);
+    assert.strictEqual(selection.sourcePacket, packets[selected]);
+    assert.equal(
+      selection.specularError,
+      convergence.maximumSpecularError[selected],
+    );
+    assert.equal(
+      selection.reflectedRgbError,
+      convergence.maximumReflectedRgbError[selected],
+    );
+    assert.ok(selection.specularError <= selection.maximumSpecularError);
+    assert.ok(selection.reflectedRgbError <= selection.maximumReflectedRgbError);
+    assert.equal(selection.vectorBytes, 0);
+  }
 });
