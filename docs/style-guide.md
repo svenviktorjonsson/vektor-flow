@@ -76,6 +76,15 @@ measure(system:System) -> num:
 Do not mix `positions` with redundant forms such as `system.positions` in the
 same spilled scope.
 
+Spill a standard-library module when using its members throughout an example.
+Keep the resulting expressions focused on the operation:
+
+```vkf
+:.math
+x: [..512] / 256 - 1
+y: sin(x * pi)
+```
+
 ## Iteration
 
 Use a range pipe for fixed unit-step iteration:
