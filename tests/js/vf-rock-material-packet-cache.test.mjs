@@ -57,3 +57,30 @@ test('unchanged retained stone geometry reuses its complete material packet', ()
   assert.strictEqual(repeated.material_channels, first.material_channels);
   assert.ok(Object.isFrozen(first));
 });
+
+test('retained stone packet variants use a bounded least-recently-used set', () => {
+  const packet = coarsePacket();
+  const field = createRockMaterialFieldReference(IDENTITY);
+  const footprints = Array.from({ length: 9 }, (_, index) => 0.01 + index * 0.001);
+  const variants = footprints.map((footprint) => (
+    adaptRockMaterialToRendererPacketReference(packet, field, {
+      radii: [1.4, 0.9, 1.1],
+      detailLevel: 4,
+      footprint,
+    })
+  ));
+  const lastRepeated = adaptRockMaterialToRendererPacketReference(packet, field, {
+    radii: [1.4, 0.9, 1.1],
+    detailLevel: 4,
+    footprint: footprints[8],
+  });
+  const firstAfterOverflow = adaptRockMaterialToRendererPacketReference(packet, field, {
+    radii: [1.4, 0.9, 1.1],
+    detailLevel: 4,
+    footprint: footprints[0],
+  });
+
+  assert.strictEqual(lastRepeated, variants[8]);
+  assert.notStrictEqual(firstAfterOverflow, variants[0]);
+  assert.deepEqual(firstAfterOverflow, variants[0]);
+});
