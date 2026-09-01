@@ -8656,7 +8656,19 @@ inline ValueLayout lower_expression(
             }
         }
         const auto left = lower_expression(left_expression, builder, signatures, strings);
+        const auto right_shape = layout_from_builder_expression_shape(
+            right_expression, builder, signatures);
+        const bool fixed_aggregate_concat = op == "AMPERSAND" &&
+            left.kind == ValueKind::Aggregate &&
+            right_shape.kind == ValueKind::Aggregate &&
+            !is_record_layout(left) && !is_record_layout(right_shape);
+        if (fixed_aggregate_concat) {
+            ensure_independent_value(left_expression, left, builder, signatures);
+        }
         const auto right = lower_expression(right_expression, builder, signatures, strings);
+        if (fixed_aggregate_concat) {
+            ensure_independent_value(right_expression, right, builder, signatures);
+        }
         if (structural_arithmetic && left.kind == ValueKind::Aggregate &&
             right.kind == ValueKind::Numeric && right.width == 1) {
             const auto opcode = scalar_binary_opcode(op);
