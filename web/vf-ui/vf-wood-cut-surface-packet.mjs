@@ -1,4 +1,5 @@
 const ORIENTATIONS = new Set(['end-grain', 'side-grain']);
+const packetCache = new WeakMap();
 
 function requireGrid(grid) {
   if (
@@ -61,13 +62,15 @@ export function packWoodCutSurfacePacketReference(grid, orientation) {
   if (!ORIENTATIONS.has(orientation)) {
     throw new RangeError('wood cut orientation must be end-grain or side-grain');
   }
+  const cached = packetCache.get(grid)?.get(orientation);
+  if (cached) return cached;
   const imageRgba8 = new Uint8ClampedArray(grid.sampleCount * 4);
   for (let index = 0; index < imageRgba8.length; index += 1) {
     imageRgba8[index] = colorByte(grid.baseColors[index]);
   }
   const indices = gridIndices(grid.rows, grid.columns);
   const primitiveId = grid.samples[0]?.primitiveId ?? 'empty';
-  return Object.freeze({
+  const packet = Object.freeze({
     kind: 'wood-cut-surface-packet:v1',
     id: `wood:cut:${primitiveId}:${orientation}:${grid.columns}x${grid.rows}`,
     orientation,
@@ -84,4 +87,11 @@ export function packWoodCutSurfacePacketReference(grid, orientation) {
     normal: Object.freeze(cross(grid.axisU, grid.axisV)),
     vectorBytes: imageRgba8.byteLength + indices.byteLength,
   });
+  let byOrientation = packetCache.get(grid);
+  if (!byOrientation) {
+    byOrientation = new Map();
+    packetCache.set(grid, byOrientation);
+  }
+  byOrientation.set(orientation, packet);
+  return packet;
 }
