@@ -44,24 +44,42 @@ function filterRadius(footprint, extent, count) {
   return Math.min(count - 1, Math.floor(footprint / (2 * sampleSpacing)));
 }
 
-function filteredHeight(channels, rows, columns, row, column, radiusU, radiusV) {
-  let sum = 0;
-  let count = 0;
-  for (
-    let sampleRow = Math.max(0, row - radiusV);
-    sampleRow <= Math.min(rows - 1, row + radiusV);
-    sampleRow += 1
-  ) {
-    for (
-      let sampleColumn = Math.max(0, column - radiusU);
-      sampleColumn <= Math.min(columns - 1, column + radiusU);
-      sampleColumn += 1
-    ) {
-      sum += materialHeight(channels, sampleRow * columns + sampleColumn);
-      count += 1;
+function heightIntegral(channels, rows, columns) {
+  const stride = columns + 1;
+  const integral = new Float64Array((rows + 1) * stride);
+  for (let row = 0; row < rows; row += 1) {
+    let rowSum = 0;
+    for (let column = 0; column < columns; column += 1) {
+      rowSum += materialHeight(channels, row * columns + column);
+      integral[(row + 1) * stride + column + 1] = integral[row * stride + column + 1] + rowSum;
     }
   }
-  return sum / count;
+  return integral;
+}
+
+function filteredHeight(
+  channels,
+  integral,
+  rows,
+  columns,
+  row,
+  column,
+  radiusU,
+  radiusV,
+) {
+  if (radiusU === 0 && radiusV === 0) {
+    return materialHeight(channels, row * columns + column);
+  }
+  const left = Math.max(0, column - radiusU);
+  const right = Math.min(columns - 1, column + radiusU);
+  const top = Math.max(0, row - radiusV);
+  const bottom = Math.min(rows - 1, row + radiusV);
+  const stride = columns + 1;
+  const sum = integral[(bottom + 1) * stride + right + 1]
+    - integral[top * stride + right + 1]
+    - integral[(bottom + 1) * stride + left]
+    + integral[top * stride + left];
+  return sum / ((right - left + 1) * (bottom - top + 1));
 }
 
 function sampleDerivative(
@@ -71,6 +89,7 @@ function sampleDerivative(
   row,
   column,
   axis,
+  integral,
   radiusU,
   radiusV,
 ) {
@@ -83,17 +102,18 @@ function sampleDerivative(
     : Math.min(rows - 1, row + step);
   if (before === after) return 0;
   const firstHeight = axis === 'u'
-    ? filteredHeight(channels, rows, columns, row, before, radiusU, radiusV)
-    : filteredHeight(channels, rows, columns, before, column, radiusU, radiusV);
+    ? filteredHeight(channels, integral, rows, columns, row, before, radiusU, radiusV)
+    : filteredHeight(channels, integral, rows, columns, before, column, radiusU, radiusV);
   const lastHeight = axis === 'u'
-    ? filteredHeight(channels, rows, columns, row, after, radiusU, radiusV)
-    : filteredHeight(channels, rows, columns, after, column, radiusU, radiusV);
+    ? filteredHeight(channels, integral, rows, columns, row, after, radiusU, radiusV)
+    : filteredHeight(channels, integral, rows, columns, after, column, radiusU, radiusV);
   const normalizedSteps = axis === 'u' ? columns - 1 : rows - 1;
-  return (
+  const derivative = (
     (lastHeight - firstHeight)
     * normalizedSteps
     / (after - before)
   );
+  return Math.abs(derivative) < 1e-12 ? 0 : derivative;
 }
 
 function encodeNormal(target, pixel, x, y, z) {
@@ -116,6 +136,9 @@ export function packWoodCutMaterialPacketReference(surface) {
     filterRadius(grid.footprint, grid.width, columns),
     filterRadius(grid.footprint, grid.height, rows),
   ]);
+  const integral = normalFilterRadius[0] === 0 && normalFilterRadius[1] === 0
+    ? null
+    : heightIntegral(surface.surfaceChannels, rows, columns);
   const normalRgba8 = new Uint8ClampedArray(grid.sampleCount * 4);
   const roughnessR8 = new Uint8Array(grid.sampleCount);
   for (let row = 0; row < rows; row += 1) {
@@ -128,6 +151,7 @@ export function packWoodCutMaterialPacketReference(surface) {
         row,
         column,
         'u',
+        integral,
         normalFilterRadius[0],
         normalFilterRadius[1],
       );
@@ -138,6 +162,7 @@ export function packWoodCutMaterialPacketReference(surface) {
         row,
         column,
         'v',
+        integral,
         normalFilterRadius[0],
         normalFilterRadius[1],
       );
