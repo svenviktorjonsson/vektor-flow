@@ -134,3 +134,19 @@ test("multiplication binds before addition in a closed mixed expression", () => 
     thirdValueBeforeFourth: true,
   });
 });
+
+test("subtraction follows addition in a closed mixed expression", () => {
+  runArithmetic({
+    sourceText: "value: 31\nvalue + 3 - 1",
+    parserFunction: "parse_tagged_binding_add_subtract",
+    typedFunction: "typed_tagged_add_subtract",
+    machineFunction: "mir_tagged_add_subtract",
+    component: "machine_ir.closed_add_subtract.typed_module_pipeline",
+    expected: [
+      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "2",
+      "push_f64", "31", "push_f64", "3", "add_f64",
+      "push_f64", "1", "subtract_f64", "return_f64",
+    ],
+    expectedStdout: 33,
+  });
+});
