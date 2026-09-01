@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
 import {
+  evaluateWoodCutGgxWhiteFurnaceReference,
   evaluateWoodCutWhiteFurnaceReference,
 } from '../../web/vf-ui/vf-wood-material-energy.mjs';
 import {
@@ -76,6 +77,41 @@ function sha256(bytes) {
     .digest('hex')
     .toUpperCase();
 }
+
+test('anisotropic GGX reference integrates the complete white-furnace hemisphere', () => {
+  const material = Object.freeze({
+    ...materialPacket(),
+    imageWidth: 1,
+    imageHeight: 1,
+    baseColors: new Float32Array([0.8, 0.5, 0.2, 1]),
+    normalRgba8: new Uint8ClampedArray([127, 127, 255, 255]),
+    roughnessR8: new Uint8Array([128]),
+  });
+  const oracle = evaluateWoodCutGgxWhiteFurnaceReference(material, { sampleBudget: 1 });
+
+  assert.equal(oracle.kind, 'wood-cut-ggx-white-furnace:v1');
+  assert.strictEqual(oracle.sourceMaterial, material);
+  assert.equal(oracle.sampleCount, 1);
+  assert.ok(oracle.hemisphereSamples >= 4096);
+  assert.deepEqual(oracle.profiles.map((profile) => profile.kind), [
+    'isotropic-ggx',
+    'anisotropic-ggx',
+  ]);
+  for (const profile of oracle.profiles) {
+    assert.ok(profile.unitReflectorEnergy instanceof Float32Array);
+    assert.ok(profile.dielectricSpecularEnergy instanceof Float32Array);
+    assert.ok(profile.combinedEnergyRgb instanceof Float32Array);
+    assert.equal(profile.unitReflectorEnergy.length, oracle.viewProbes.length);
+    assert.equal(profile.combinedEnergyRgb.length, oracle.viewProbes.length * 3);
+    assert.equal(profile.violations, 0);
+    assert.ok(profile.minimumEnergy >= 0);
+    assert.ok(profile.maximumEnergy <= 1);
+    profile.unitReflectorEnergy.forEach((unitEnergy, index) => {
+      assert.ok(unitEnergy >= profile.dielectricSpecularEnergy[index]);
+      assert.ok(unitEnergy <= 1);
+    });
+  }
+});
 
 test('wood dielectric partition stays inside the white-furnace energy budget', () => {
   const material = materialPacket();
