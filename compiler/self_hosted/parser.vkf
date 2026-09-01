@@ -304,7 +304,7 @@ append_tagged_binary_statement(
     expression: parse_tagged_binary_expression(left, operator, right)
     parsed_module: (
         kind:"module",
-        body:[result.module.body.(0), expression],
+        body:result.module.body & [expression],
         span:span(result.module.span.start, stop)
     )
     (module:parsed_module, diagnostics:result.diagnostics)
