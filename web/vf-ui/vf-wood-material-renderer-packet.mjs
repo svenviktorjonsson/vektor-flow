@@ -1,4 +1,6 @@
 const MAX_TRIANGLES = 131072;
+const REFERENCE_GGX_ANISOTROPY = 0.65;
+const REFERENCE_GGX_MIN_ALPHA = 0.08;
 const packetCache = new WeakMap();
 
 function requireMaterial(material) {
@@ -59,6 +61,29 @@ function requireBudget(triangleBudget, triangleCount) {
   }
 }
 
+function realizeAnisotropicGgxLobe(material, vertexCount) {
+  const alphaX = new Float32Array(vertexCount);
+  const alphaY = new Float32Array(vertexCount);
+  const aspect = Math.sqrt(1 - 0.9 * REFERENCE_GGX_ANISOTROPY);
+  for (let sample = 0; sample < vertexCount; sample += 1) {
+    const perceptualRoughness = material.roughnessR8[sample] / 255;
+    const alpha = Math.max(
+      REFERENCE_GGX_MIN_ALPHA,
+      perceptualRoughness * perceptualRoughness,
+    );
+    alphaX[sample] = alpha / aspect;
+    alphaY[sample] = alpha * aspect;
+  }
+  return Object.freeze({
+    kind: 'wood-cut-anisotropic-ggx-lobe:v1',
+    anisotropy: REFERENCE_GGX_ANISOTROPY,
+    axisOrder: Object.freeze(['tangent', 'bitangent']),
+    alphaX,
+    alphaY,
+    vectorBytes: alphaX.byteLength + alphaY.byteLength,
+  });
+}
+
 export function adaptWoodCutMaterialToTriangleFacesReference(
   material,
   { triangleBudget },
@@ -84,6 +109,7 @@ export function adaptWoodCutMaterialToTriangleFacesReference(
       normal: surface.normal,
       handedness: 1,
     }),
+    ggxLobe: realizeAnisotropicGgxLobe(material, vertexCount),
   });
   packetCache.set(material, packet);
   return packet;
