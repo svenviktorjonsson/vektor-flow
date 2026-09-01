@@ -167,3 +167,19 @@ test("division binds before addition in a closed mixed expression", () => {
     thirdValueBeforeFourth: true,
   });
 });
+
+test("a derived binding closes a later demanded expression", () => {
+  runArithmetic({
+    sourceText: "base: 31\nvalue: base + 1\nvalue + 2",
+    parserFunction: "parse_tagged_derived_binding_addition",
+    typedFunction: "typed_tagged_derived_binding_addition",
+    machineFunction: "mir_tagged_derived_binding_addition",
+    component: "machine_ir.closed_nested_addition.typed_module_pipeline",
+    expected: [
+      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "2",
+      "push_f64", "31", "push_f64", "1", "add_f64",
+      "push_f64", "2", "add_f64", "return_f64",
+    ],
+    expectedStdout: 34,
+  });
+});
