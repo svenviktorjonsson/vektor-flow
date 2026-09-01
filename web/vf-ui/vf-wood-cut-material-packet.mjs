@@ -38,23 +38,59 @@ function materialHeight(channels, sampleIndex) {
   return 0.25 * ring + 0.12 * ray + 0.08 * fiber + 0.55 * density;
 }
 
-function sampleDerivative(channels, rows, columns, row, column, axis) {
+function filterRadius(footprint, extent, count) {
+  if (!(footprint > 0) || count <= 1) return 0;
+  const sampleSpacing = extent / (count - 1);
+  return Math.min(count - 1, Math.floor(footprint / (2 * sampleSpacing)));
+}
+
+function filteredHeight(channels, rows, columns, row, column, radiusU, radiusV) {
+  let sum = 0;
+  let count = 0;
+  for (
+    let sampleRow = Math.max(0, row - radiusV);
+    sampleRow <= Math.min(rows - 1, row + radiusV);
+    sampleRow += 1
+  ) {
+    for (
+      let sampleColumn = Math.max(0, column - radiusU);
+      sampleColumn <= Math.min(columns - 1, column + radiusU);
+      sampleColumn += 1
+    ) {
+      sum += materialHeight(channels, sampleRow * columns + sampleColumn);
+      count += 1;
+    }
+  }
+  return sum / count;
+}
+
+function sampleDerivative(
+  channels,
+  rows,
+  columns,
+  row,
+  column,
+  axis,
+  radiusU,
+  radiusV,
+) {
+  const step = Math.max(1, axis === 'u' ? radiusU : radiusV);
   const before = axis === 'u'
-    ? Math.max(0, column - 1)
-    : Math.max(0, row - 1);
+    ? Math.max(0, column - step)
+    : Math.max(0, row - step);
   const after = axis === 'u'
-    ? Math.min(columns - 1, column + 1)
-    : Math.min(rows - 1, row + 1);
+    ? Math.min(columns - 1, column + step)
+    : Math.min(rows - 1, row + step);
   if (before === after) return 0;
-  const firstIndex = axis === 'u'
-    ? row * columns + before
-    : before * columns + column;
-  const lastIndex = axis === 'u'
-    ? row * columns + after
-    : after * columns + column;
+  const firstHeight = axis === 'u'
+    ? filteredHeight(channels, rows, columns, row, before, radiusU, radiusV)
+    : filteredHeight(channels, rows, columns, before, column, radiusU, radiusV);
+  const lastHeight = axis === 'u'
+    ? filteredHeight(channels, rows, columns, row, after, radiusU, radiusV)
+    : filteredHeight(channels, rows, columns, after, column, radiusU, radiusV);
   const normalizedSteps = axis === 'u' ? columns - 1 : rows - 1;
   return (
-    (materialHeight(channels, lastIndex) - materialHeight(channels, firstIndex))
+    (lastHeight - firstHeight)
     * normalizedSteps
     / (after - before)
   );
@@ -76,6 +112,10 @@ export function packWoodCutMaterialPacketReference(surface) {
 
   const rows = surface.imageHeight;
   const columns = surface.imageWidth;
+  const normalFilterRadius = Object.freeze([
+    filterRadius(grid.footprint, grid.width, columns),
+    filterRadius(grid.footprint, grid.height, rows),
+  ]);
   const normalRgba8 = new Uint8ClampedArray(grid.sampleCount * 4);
   const roughnessR8 = new Uint8Array(grid.sampleCount);
   for (let row = 0; row < rows; row += 1) {
@@ -88,6 +128,8 @@ export function packWoodCutMaterialPacketReference(surface) {
         row,
         column,
         'u',
+        normalFilterRadius[0],
+        normalFilterRadius[1],
       );
       const slopeV = sampleDerivative(
         surface.surfaceChannels,
@@ -96,6 +138,8 @@ export function packWoodCutMaterialPacketReference(surface) {
         row,
         column,
         'v',
+        normalFilterRadius[0],
+        normalFilterRadius[1],
       );
       encodeNormal(
         normalRgba8,
@@ -119,6 +163,7 @@ export function packWoodCutMaterialPacketReference(surface) {
     surfaceChannels: surface.surfaceChannels,
     imageWidth: columns,
     imageHeight: rows,
+    normalFilterRadius,
     normalRgba8,
     roughnessR8,
     vectorBytes: normalRgba8.byteLength + roughnessR8.byteLength,

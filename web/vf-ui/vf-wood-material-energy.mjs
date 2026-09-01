@@ -16,6 +16,8 @@ function requireMaterial(material) {
     || sampleCount > MAX_SAMPLES
     || !(material.baseColors instanceof Float32Array)
     || material.baseColors.length !== sampleCount * 4
+    || !(material.normalRgba8 instanceof Uint8ClampedArray)
+    || material.normalRgba8.length !== sampleCount * 4
     || !(material.roughnessR8 instanceof Uint8Array)
     || material.roughnessR8.length !== sampleCount
   ) {
@@ -45,6 +47,20 @@ function schlickFresnel(cosine) {
   return DIELECTRIC_F0 + (1 - DIELECTRIC_F0) * ((1 - cosine) ** 5);
 }
 
+function decodedNormal(material, sample) {
+  const offset = sample * 4;
+  const x = material.normalRgba8[offset] / 127.5 - 1;
+  const y = material.normalRgba8[offset + 1] / 127.5 - 1;
+  const z = material.normalRgba8[offset + 2] / 127.5 - 1;
+  const length = Math.hypot(x, y, z);
+  return [x / length, y / length, z / length];
+}
+
+function localIncidenceCosine(normal, geometricCosine) {
+  const tangentSine = Math.sqrt(Math.max(0, 1 - geometricCosine * geometricCosine));
+  return clampUnit(normal[0] * tangentSine + normal[2] * geometricCosine);
+}
+
 export function evaluateWoodCutWhiteFurnaceReference(
   material,
   { sampleBudget },
@@ -57,10 +73,18 @@ export function evaluateWoodCutWhiteFurnaceReference(
   const energyRgb = new Float32Array(sampleCount * COSINE_PROBES.length * 3);
   let minimumEnergy = Infinity;
   let maximumEnergy = -Infinity;
+  let minimumLocalCosine = Infinity;
+  let maximumLocalCosine = -Infinity;
+  let localCosineSum = 0;
   let violations = 0;
   for (let sample = 0; sample < sampleCount; sample += 1) {
+    const normal = decodedNormal(material, sample);
     for (let probe = 0; probe < COSINE_PROBES.length; probe += 1) {
-      const fresnel = schlickFresnel(COSINE_PROBES[probe]);
+      const localCosine = localIncidenceCosine(normal, COSINE_PROBES[probe]);
+      minimumLocalCosine = Math.min(minimumLocalCosine, localCosine);
+      maximumLocalCosine = Math.max(maximumLocalCosine, localCosine);
+      localCosineSum += localCosine;
+      const fresnel = schlickFresnel(localCosine);
       const diffuseWeight = 1 - fresnel;
       const outputOffset = (sample * COSINE_PROBES.length + probe) * 3;
       for (let channel = 0; channel < 3; channel += 1) {
@@ -83,6 +107,9 @@ export function evaluateWoodCutWhiteFurnaceReference(
     energyRgb,
     minimumEnergy,
     maximumEnergy,
+    minimumLocalCosine,
+    maximumLocalCosine,
+    meanLocalCosine: localCosineSum / (sampleCount * COSINE_PROBES.length),
     violations,
     vectorBytes: energyRgb.byteLength,
   });

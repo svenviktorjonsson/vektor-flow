@@ -131,6 +131,8 @@ export function packWoodCutPlaneGridReference({
     axisV: Object.freeze(axisV),
     width,
     height,
+    detailLevel,
+    footprint,
     rows,
     columns,
     sampleCount,
