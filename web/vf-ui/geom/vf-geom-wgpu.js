@@ -7400,20 +7400,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
 
     _surfaceAspectForPart: function (part) {
       var mesh = part && part.mesh;
-      var verts = mesh && mesh.vertices;
-      if (!verts || verts.length < 20) { return 1.0; }
-      var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (var i = 0; i + 9 < verts.length; i += 10) {
-        var x = Number(verts[i] || 0);
-        var y = Number(verts[i + 1] || 0);
-        if (x < minX) { minX = x; }
-        if (x > maxX) { maxX = x; }
-        if (y < minY) { minY = y; }
-        if (y > maxY) { maxY = y; }
-      }
-      var spanX = Math.max(1e-4, maxX - minX);
-      var spanY = Math.max(1e-4, maxY - minY);
-      return spanX / spanY;
+      if (!mesh) { return 1.0; }
+      var bounds = surfaceLocalBounds(mesh);
+      var spanU = Math.max(1e-4, Number(bounds && bounds.spanX || 0.0) || 0.0);
+      var spanV = Math.max(1e-4, Number(bounds && bounds.spanY || 0.0) || 0.0);
+      return spanU / spanV;
     },
 
     _surfaceTargetDimsForPart: function (part, frameWidth, frameHeight) {
