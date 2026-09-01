@@ -134,6 +134,8 @@ export function packWoodCutPlaneGridReference({
     rows,
     columns,
     sampleCount,
+    budget: sampleBudget,
+    truncated: false,
     positions,
     growthCoordinates,
     baseColors,
