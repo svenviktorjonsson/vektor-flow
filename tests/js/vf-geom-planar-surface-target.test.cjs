@@ -17,6 +17,8 @@ const context = vm.createContext({
 });
 vm.runInContext(source, context, { filename: "vf-geom-wgpu.js" });
 
+const util = context.VfGeomWgpuUtil;
+
 const renderer = new context.VfGeomWgpu(
   { width: 1024, height: 708 },
   () => null
@@ -28,17 +30,42 @@ function vertex(x, y, z) {
 
 const uprightMirror = {
   mesh: {
+    type: "field_mesh",
     surface_system: { kind: "screen" },
     vertices: new Float32Array([
-      ...vertex(-3.25, 4.35, 0.15),
-      ...vertex(3.25, 4.35, 0.15),
-      ...vertex(3.25, 4.35, 3.85),
-      ...vertex(-3.25, 4.35, 3.85),
+      ...vertex(-3.05, 4.35, 0.15),
+      ...vertex(-3.05, 4.35, 4.02),
+      ...vertex(3.05, 4.35, 0.15),
+      ...vertex(3.05, 4.35, 4.02),
     ]),
+    indices: new Uint32Array([0, 1, 3, 0, 3, 2]),
   },
 };
 
+assert.equal(util.isPlanarScreenHost(uprightMirror.mesh), true);
+assert.equal(util.isPlanarScreenHost({
+  surface_system: { kind: "screen" },
+  vertices: new Float32Array([
+    ...vertex(-1, 0, 0),
+    ...vertex(1, 0, 0),
+    ...vertex(1, 0, 1),
+    ...vertex(-1, 0.25, 1),
+  ]),
+}), false);
+
 assert.deepEqual(
   JSON.parse(JSON.stringify(renderer._surfaceTargetDimsForPart(uprightMirror, 1024, 708))),
-  { width: 1024, height: 583 }
+  { width: 1024, height: 650 }
+);
+
+const uprightBounds = util.surfaceLocalBounds(uprightMirror.mesh);
+assert.ok(Math.abs(uprightBounds.spanX - 6.1) < 1e-5);
+assert.ok(Math.abs(uprightBounds.spanY - 3.87) < 1e-5);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(uprightBounds.uAxis.map((value) => Math.round(value)))),
+  [1, 0, 0]
+);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(uprightBounds.vAxis.map((value) => Math.round(value)))),
+  [0, 0, 1]
 );

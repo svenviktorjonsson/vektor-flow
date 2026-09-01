@@ -4315,8 +4315,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     var textureKind = 0.0;
     var fixedSurfaceTextureKind = 0.0;
     var surfaceTextureReady = textureKind > 3.5 && meshLike && meshLike._surfaceTextureReady === true;
-    var meshKindLower = String(meshLike && meshLike.kind || "").toLowerCase().trim();
-    var screenHostIsQuadLike = meshKindLower === "quad" || (meshLike && meshLike.size != null);
+    var screenHostIsPlanar = isPlanarScreenHost(meshLike);
     function proceduralTextureKindCode(textureSpec) {
       var rawKind = String(textureSpec && textureSpec.kind || "").toLowerCase().trim();
       if (rawKind === "checker") { return 1.0; }
@@ -4328,7 +4327,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     }
     if (surfaceSystem) {
       var surfaceKind = String(surfaceSystem.kind || "").toLowerCase().trim();
-      if (surfaceKind === "screen" && screenHostIsQuadLike) {
+      if (surfaceKind === "screen" && screenHostIsPlanar) {
         fixedSurfaceTextureKind = texture ? proceduralTextureKindCode(texture) : 0.0;
         textureKind = 4.0;
       }
@@ -4337,7 +4336,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     }
     surfaceTextureReady = textureKind > 3.5 && meshLike && meshLike._surfaceTextureReady === true;
     if (textureKind > 3.5 && !surfaceTextureReady) {
-      if (surfaceSystem && String(surfaceSystem.kind || "").toLowerCase().trim() === "screen" && screenHostIsQuadLike) {
+      if (surfaceSystem && String(surfaceSystem.kind || "").toLowerCase().trim() === "screen" && screenHostIsPlanar) {
         surfaceTextureReady = false;
       } else {
         failFast("surface_system requires a ready offscreen surface texture");
@@ -5389,6 +5388,17 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       return derivePlanarFrameFromPoints(quadPoints);
     }
     failFast("mirror surface_system host mesh requires planar vertices or a quad spec");
+  }
+
+  function isPlanarScreenHost(meshLike) {
+    var surfaceKind = String(meshLike && meshLike.surface_system && meshLike.surface_system.kind || "")
+      .toLowerCase().trim();
+    if (surfaceKind !== "screen") { return false; }
+    try {
+      return !!derivePlanarSurfaceLocalFrame(meshLike);
+    } catch (_) {
+      return false;
+    }
   }
 
   function derivePlanarSurfaceWorldFrame(part, timeMs, MmLocal) {
@@ -6671,11 +6681,16 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     }
     var frame = derivePlanarSurfaceLocalFrame(meshLike);
     var points = planarPointsFromMeshVertices(meshLike, null);
+    // Field-mesh packets flatten the inner/rightmost grid axis first
+    // (edge 0 -> 1). Surface U is the outer/leftmost axis, so the texture
+    // basis is the reverse of the packet's first/second planar edge order.
+    var textureUAxis = frame.vAxis;
+    var textureVAxis = frame.uAxis;
     var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (var i = 0; i < points.length; i += 1) {
       var point = points[i];
-      var u = dotVec3(point, frame.uAxis);
-      var v = dotVec3(point, frame.vAxis);
+      var u = dotVec3(point, textureUAxis);
+      var v = dotVec3(point, textureVAxis);
       if (u < minX) { minX = u; }
       if (u > maxX) { maxX = u; }
       if (v < minY) { minY = v; }
@@ -6686,8 +6701,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       minY: minY,
       spanX: maxX - minX,
       spanY: maxY - minY,
-      uAxis: frame.uAxis,
-      vAxis: frame.vAxis
+      uAxis: textureUAxis,
+      vAxis: textureVAxis
     };
   }
 
@@ -8332,8 +8347,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         }
         this._ensureSurfaceTarget(part, targetDims.width, targetDims.height);
         partMesh._surfaceTextureReady = true;
-        var apertureLockedMirrorTexture = surfaceCamera && surfaceCamera.lock_aperture_camera === true && !!renderCamera._mirrorDebug;
-        partMesh._surfaceProjectorMatrix = !apertureLockedMirrorTexture && Array.isArray(renderCamera._mirrorViewProjection)
+        partMesh._surfaceProjectorMatrix = Array.isArray(renderCamera._mirrorViewProjection)
           ? renderCamera._mirrorViewProjection
           : null;
         surfaceSystem._projective_texture = !!partMesh._surfaceProjectorMatrix;
@@ -9609,6 +9623,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     LIGHT_MODELS: LIGHT_MODELS,
     getSharedWgpu: getSharedWgpu,
     createPlanarMirrorAdapter: createPlanarMirrorAdapter,
+    isPlanarScreenHost: isPlanarScreenHost,
     derivePlanarSurfaceLocalFrame: derivePlanarSurfaceLocalFrame,
     createPlanarMirrorRuntime: createPlanarMirrorRuntime,
     resolvePlanarMirrorGeometry: resolvePlanarMirrorGeometry,
