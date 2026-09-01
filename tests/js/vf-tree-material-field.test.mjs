@@ -64,6 +64,26 @@ test('tree materials lazily pack bark and foliage over demanded geometry only', 
   assert.equal(materials.surfaceParams.length, materials.materialCount * 4);
   assert.equal(materials.vectorBytes, 22 * 33);
   assert.deepEqual(materials.primitiveIds, refined.primitiveIds);
+  assert.deepEqual(Array.from(materials.baseColors.slice(0, 8)), [
+    0.2267715483903885,
+    0.1599140167236328,
+    0.08004822582006454,
+    1,
+    0.18103784322738647,
+    0.28691360354423523,
+    0.08560787886381149,
+    1,
+  ]);
+  assert.deepEqual(Array.from(materials.surfaceParams.slice(0, 8)), [
+    0.7590516805648804,
+    0.5253937244415283,
+    0,
+    5.355871677398682,
+    0.5821430087089539,
+    0.36743852496147156,
+    0.13025176525115967,
+    2.1605498790740967,
+  ]);
 });
 
 test('coarse-to-fine material refinement preserves shared primitive identities', () => {
@@ -89,6 +109,32 @@ test('coarse-to-fine material refinement preserves shared primitive identities',
     Array.from(coarseMaterials.baseColors),
   );
   assert.deepEqual(recreated, refinedMaterials);
+});
+
+test('species traits condition distinct individual bark and foliage surfaces', () => {
+  const { forest } = workingSet();
+  assert.equal(forest.speciesIndices[0], forest.speciesIndices[1]);
+  const plan = planTreeGeometryReference(
+    createTreeGeometryPlannerReference(IDENTITY),
+    forest,
+    { treeIndices: [0, 1], detailLevels: [0, 0], primitiveBudget: 8 },
+  );
+  const materials = realizeTreeMaterialsReference(
+    createTreeMaterialFieldReference(IDENTITY),
+    forest,
+    plan,
+    { materialBudget: 8 },
+  );
+
+  assert.deepEqual(Array.from(materials.materialKinds), [0, 1, 0, 1]);
+  assert.notDeepEqual(
+    Array.from(materials.baseColors.slice(0, 4)),
+    Array.from(materials.baseColors.slice(8, 12)),
+  );
+  assert.notDeepEqual(
+    Array.from(materials.baseColors.slice(4, 8)),
+    Array.from(materials.baseColors.slice(12, 16)),
+  );
 });
 
 test('material realization remains hard bounded and retains a finite tree cache', async () => {
