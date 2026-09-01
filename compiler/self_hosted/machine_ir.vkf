@@ -318,6 +318,11 @@ mir_tagged_add_divide(values:[num:3]) -> TaggedNestedMachineStatement:
         max_stack:3
     )
 
+mir_tagged_derived_binding_addition(
+    values:[num:3]
+) -> TaggedNestedMachineStatement:
+    mir_tagged_nested_addition(values)
+
 mir_assemble_closed_nested_module(
     statement:TaggedNestedMachineStatement,
     validated_max_stack:num

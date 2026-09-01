@@ -510,6 +510,15 @@ _scan_tagged_statement_tokens(
         )
         @: _scan_tagged_statement_tokens(operator_stop, next_tape, 2)
     (expected = 2)?
+        is_identifier_start(cursor.peek())?
+            identifier_value_stop: _lexer_skip_identifier(cursor)
+            identifier_tape: _append_tagged_token(
+                tape, 1, cursor.position, identifier_value_stop.position,
+                0, cursor.line, cursor.column
+            )
+            @: _scan_tagged_statement_tokens(
+                identifier_value_stop, identifier_tape, 3
+            )
         is_number_start(cursor.peek())?! "number token expected"
         number: number_token(cursor.source, cursor.position)
         number_stop: _lexer_skip_number(cursor)
