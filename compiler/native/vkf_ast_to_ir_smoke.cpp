@@ -3805,11 +3805,10 @@ private:
                         if (method == "add" &&
                             (properties.find("x") == properties.end() ||
                              properties.find("y") == properties.end() ||
-                             properties.find("z") == properties.end() ||
                              properties.find("id") == properties.end() ||
                              properties.find("color") == properties.end())) {
                             throw IRFailure(
-                                "Frame.add material surface requires `x:`, `y:`, `z:`, `id:`, and `color:`");
+                                "Frame.add geometry requires `x:`, `y:`, `id:`, and `color:`");
                         }
                         vf::JsonValue::Object operation;
                         operation["kind"] = vf::JsonValue(method);

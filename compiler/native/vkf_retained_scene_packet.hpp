@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -61,7 +62,89 @@ inline std::uint64_t id(
     return static_cast<std::uint64_t>(item.as_number());
 }
 
-inline vf::JsonValue evaluate(const vf::JsonValue& raw) {
+struct EvaluationContext {
+    std::map<std::string, vf::JsonValue> bindings;
+    std::map<std::string, vf::JsonValue> cache;
+    std::set<std::string> active;
+};
+
+inline vf::JsonValue evaluate(
+    const vf::JsonValue& raw,
+    EvaluationContext* context = nullptr
+);
+
+inline vf::JsonValue elementwise_binary(
+    const vf::JsonValue& left,
+    const vf::JsonValue& right,
+    const std::string& op
+) {
+    if (left.is_array() || right.is_array()) {
+        vf::JsonValue::Array result;
+        if (left.is_array() && right.is_array()) {
+            if (left.as_array().size() != right.as_array().size()) {
+                throw Error("retained scene vector operands must have the same shape");
+            }
+            result.reserve(left.as_array().size());
+            for (std::size_t index = 0; index < left.as_array().size(); ++index) {
+                result.push_back(elementwise_binary(
+                    left.as_array()[index], right.as_array()[index], op));
+            }
+        } else {
+            const auto& items = left.is_array() ? left.as_array() : right.as_array();
+            result.reserve(items.size());
+            for (const auto& item : items) {
+                result.push_back(left.is_array()
+                    ? elementwise_binary(item, right, op)
+                    : elementwise_binary(left, item, op));
+            }
+        }
+        return vf::JsonValue(std::move(result));
+    }
+    if (!left.is_number() || !right.is_number()) {
+        throw Error("retained scene arithmetic requires numeric values");
+    }
+    const double lhs = left.as_number();
+    const double rhs = right.as_number();
+    double value = 0.0;
+    if (op == "PLUS") value = lhs + rhs;
+    else if (op == "MINUS") value = lhs - rhs;
+    else if (op == "STAR") value = lhs * rhs;
+    else if (op == "SLASH") {
+        if (rhs == 0.0) throw Error("retained scene arithmetic divides by zero");
+        value = lhs / rhs;
+    } else if (op == "CARET" || op == "POWER") value = std::pow(lhs, rhs);
+    else throw Error("retained scene arithmetic does not support `" + op + "`");
+    if (!std::isfinite(value)) throw Error("retained scene arithmetic must stay finite");
+    return vf::JsonValue(value);
+}
+
+inline vf::JsonValue elementwise_math(
+    const vf::JsonValue& value,
+    const std::string& function
+) {
+    if (value.is_array()) {
+        vf::JsonValue::Array result;
+        result.reserve(value.as_array().size());
+        for (const auto& item : value.as_array()) {
+            result.push_back(elementwise_math(item, function));
+        }
+        return vf::JsonValue(std::move(result));
+    }
+    if (!value.is_number()) throw Error("retained scene math requires numeric values");
+    const double input = value.as_number();
+    double output = 0.0;
+    if (function == "sin") output = std::sin(input);
+    else if (function == "cos") output = std::cos(input);
+    else if (function == "tan") output = std::tan(input);
+    else if (function == "exp") output = std::exp(input);
+    else if (function == "sqrt") output = std::sqrt(input);
+    else if (function == "abs") output = std::abs(input);
+    else throw Error("retained scene math does not support `math." + function + "`");
+    if (!std::isfinite(output)) throw Error("retained scene math must stay finite");
+    return vf::JsonValue(output);
+}
+
+inline vf::JsonValue evaluate(const vf::JsonValue& raw, EvaluationContext* context) {
     if (!raw.is_object()) return raw;
     const auto& value = raw.as_object();
     const auto kind_entry = value.find("kind");
@@ -75,7 +158,7 @@ inline vf::JsonValue evaluate(const vf::JsonValue& raw) {
         if (!items.is_array()) throw Error("retained scene " + kind + " items must be an array");
         vf::JsonValue::Array result;
         result.reserve(items.as_array().size());
-        for (const auto& item : items.as_array()) result.push_back(evaluate(item));
+        for (const auto& item : items.as_array()) result.push_back(evaluate(item, context));
         return vf::JsonValue(std::move(result));
     }
     if (kind == "record") {
@@ -85,19 +168,58 @@ inline vf::JsonValue evaluate(const vf::JsonValue& raw) {
         for (const auto& raw_field : fields.as_array()) {
             const auto& record_field = object(raw_field, "retained scene record field");
             result[text(record_field, "name", "retained scene record field")] =
-                evaluate(field(record_field, "value", "retained scene record field"));
+                evaluate(field(record_field, "value", "retained scene record field"), context);
         }
         return vf::JsonValue(std::move(result));
+    }
+    if (kind == "load") {
+        if (context == nullptr) throw Error("retained scene cannot resolve a binding here");
+        const std::string name = text(value, "name", "retained scene load");
+        const auto cached = context->cache.find(name);
+        if (cached != context->cache.end()) return cached->second;
+        const auto binding = context->bindings.find(name);
+        if (binding == context->bindings.end()) {
+            throw Error("retained scene binding `" + name + "` is unavailable");
+        }
+        if (!context->active.insert(name).second) {
+            throw Error("retained scene binding `" + name + "` is recursive");
+        }
+        auto resolved = evaluate(binding->second, context);
+        context->active.erase(name);
+        context->cache[name] = resolved;
+        return resolved;
+    }
+    if (kind == "binary_op") {
+        return elementwise_binary(
+            evaluate(field(value, "left", "retained scene binary operation"), context),
+            evaluate(field(value, "right", "retained scene binary operation"), context),
+            text(value, "op", "retained scene binary operation"));
+    }
+    if (kind == "call") {
+        const auto& callee = object(
+            field(value, "callee", "retained scene call"), "retained scene callee");
+        const auto& args = field(value, "args", "retained scene call");
+        if (!args.is_array() || args.as_array().size() != 1 ||
+            text(callee, "kind", "retained scene callee") != "stdlib_function" ||
+            text(callee, "module", "retained scene callee") != "math") {
+            throw Error("retained scene only evaluates one-argument math calls");
+        }
+        return elementwise_math(
+            evaluate(args.as_array().front(), context),
+            text(callee, "name", "retained scene callee"));
     }
     throw Error("retained scene requires compile-time values, got `" + kind + "`");
 }
 
-inline vf::JsonValue::Object properties(const vf::JsonValue::Object& operation) {
+inline vf::JsonValue::Object properties(
+    const vf::JsonValue::Object& operation,
+    EvaluationContext* context = nullptr
+) {
     const auto& raw = object(
         field(operation, "properties", "retained scene operation"),
         "retained scene properties");
     vf::JsonValue::Object result;
-    for (const auto& entry : raw) result[entry.first] = evaluate(entry.second);
+    for (const auto& entry : raw) result[entry.first] = evaluate(entry.second, context);
     return result;
 }
 
@@ -124,6 +246,24 @@ struct NumericGrid {
     std::size_t columns = 0;
     std::vector<double> values;
 };
+
+inline std::vector<double> numeric_vector(
+    const vf::JsonValue& value,
+    const std::string& context
+) {
+    if (!value.is_array() || value.as_array().size() < 2) {
+        throw Error(context + " must have at least two values");
+    }
+    std::vector<double> result;
+    result.reserve(value.as_array().size());
+    for (const auto& item : value.as_array()) {
+        if (!item.is_number() || !std::isfinite(item.as_number())) {
+            throw Error(context + " must contain only finite numbers");
+        }
+        result.push_back(item.as_number());
+    }
+    return result;
+}
 
 inline NumericGrid numeric_grid(const vf::JsonValue& value, const std::string& context) {
     if (!value.is_array() || value.as_array().size() < 2) {
@@ -198,6 +338,77 @@ inline vf::JsonValue material_mesh(
     const vf::JsonValue::Object& properties,
     std::uint64_t layer_id
 ) {
+    const auto& x_value = field(properties, "x", "Frame.add");
+    const auto& y_value = field(properties, "y", "Frame.add");
+    const bool line = x_value.is_array() && !x_value.as_array().empty() &&
+        x_value.as_array().front().is_number();
+    if (line) {
+        const auto x = numeric_vector(x_value, "Frame.add x");
+        const auto y = numeric_vector(y_value, "Frame.add y");
+        const auto color = numbers(field(properties, "color", "Frame.add"), "Frame.add color");
+        if (x.size() != y.size()) {
+            throw Error("retained Frame.add x and y lines must have the same length");
+        }
+        if (color.size() != 3 && color.size() != 4) {
+            throw Error("retained Frame.add color must have three or four components");
+        }
+        std::vector<double> z(x.size(), 0.0);
+        bool mode3d = false;
+        const auto z_entry = properties.find("z");
+        if (z_entry != properties.end()) {
+            z = numeric_vector(z_entry->second, "Frame.add z");
+            if (z.size() != x.size()) {
+                throw Error("retained Frame.add x, y, and z lines must have the same length");
+            }
+            mode3d = true;
+        }
+        const double alpha = color.size() == 4 ? color[3] : 1.0;
+        vf::JsonValue::Array vertices;
+        vertices.reserve(x.size() * 10);
+        for (std::size_t index = 0; index < x.size(); ++index) {
+            for (const double item : {
+                     x[index], y[index], z[index], 0.0, 0.0, 1.0,
+                     color[0], color[1], color[2], alpha}) {
+                vertices.push_back(vf::JsonValue(item));
+            }
+        }
+        vf::JsonValue::Array indices;
+        indices.reserve((x.size() - 1) * 2);
+        for (std::size_t index = 0; index + 1 < x.size(); ++index) {
+            indices.push_back(vf::JsonValue(static_cast<double>(index)));
+            indices.push_back(vf::JsonValue(static_cast<double>(index + 1)));
+        }
+        const auto id_value = field(properties, "id", "Frame.add");
+        if (!id_value.is_string()) throw Error("Frame.add id must be a string");
+        vf::JsonValue::Object mesh{
+            {"id", id_value},
+            {"layer_id", vf::JsonValue(static_cast<double>(layer_id))},
+            {"type", vf::JsonValue("field_mesh")},
+            {"topology", vf::JsonValue("line-list")},
+            {"render_mode", vf::JsonValue("line")},
+            {"marker_space", vf::JsonValue("pixel")},
+            {"edge_width", vf::JsonValue(1.0)},
+            {"mode3d", vf::JsonValue(mode3d)},
+            {"vertices", vf::JsonValue(std::move(vertices))},
+            {"indices", vf::JsonValue(std::move(indices))},
+            {"no_lighting", vf::JsonValue(true)},
+            {"casts_shadow", vf::JsonValue(false)},
+        };
+        for (const std::string& name : {
+                 "representation", "render_mode", "alpha", "transparent", "depth_write",
+                 "receives_lighting", "no_lighting", "casts_shadow", "receives_shadow",
+                 "interpolation", "visible"}) {
+            const auto found = properties.find(name);
+            if (found != properties.end()) mesh[name] = found->second;
+        }
+        if (mesh.find("transparent") == mesh.end()) {
+            mesh["transparent"] = vf::JsonValue(alpha < 0.999);
+        }
+        if (mesh.find("depth_write") == mesh.end()) {
+            mesh["depth_write"] = vf::JsonValue(!mesh.at("transparent").as_boolean());
+        }
+        return vf::JsonValue(std::move(mesh));
+    }
     const auto x = numeric_grid(field(properties, "x", "Frame.add"), "Frame.add x");
     const auto y = numeric_grid(field(properties, "y", "Frame.add"), "Frame.add y");
     const auto z = numeric_grid(field(properties, "z", "Frame.add"), "Frame.add z");
@@ -347,6 +558,23 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
     }
     const auto& raw_operations = detail::field(program, "operations", "typed UI program");
     if (!raw_operations.is_array()) throw Error("typed UI operations must be an array");
+    detail::EvaluationContext evaluation;
+    const auto body_entry = root.find("body");
+    if (body_entry != root.end()) {
+        if (!body_entry->second.is_array()) throw Error("typed IR body must be an array");
+        for (const auto& raw_statement : body_entry->second.as_array()) {
+            if (!raw_statement.is_object()) continue;
+            const auto& statement = raw_statement.as_object();
+            const auto kind_entry = statement.find("kind");
+            if (kind_entry == statement.end() || !kind_entry->second.is_string() ||
+                kind_entry->second.as_string() != "store_binding" ||
+                detail::boolean_or(statement, "update", false)) {
+                continue;
+            }
+            evaluation.bindings[detail::text(statement, "name", "typed IR binding")] =
+                detail::field(statement, "value", "typed IR binding");
+        }
+    }
     bool has_scene = false;
     for (const auto& raw : raw_operations.as_array()) {
         const auto& operation = detail::object(raw, "typed UI operation");
@@ -372,10 +600,12 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
             const auto frame_id = detail::id(operation, "frame_id", "typed UI add_frame");
             detail::Frame frame;
             frame.pos = detail::numbers(
-                detail::evaluate(detail::field(operation, "pos", "typed UI add_frame")),
+                detail::evaluate(
+                    detail::field(operation, "pos", "typed UI add_frame"), &evaluation),
                 "Frame position");
             frame.size = detail::numbers(
-                detail::evaluate(detail::field(operation, "size", "typed UI add_frame")),
+                detail::evaluate(
+                    detail::field(operation, "size", "typed UI add_frame"), &evaluation),
                 "Frame size");
             if (frame.pos.size() != 2 || frame.size.size() != 2) {
                 throw Error("retained scene requires two-dimensional Frame geometry");
@@ -398,7 +628,7 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
             const auto found = frames.find(frame_id);
             if (found == frames.end()) throw Error("retained scene target Frame was not created");
             found->second.targeted = true;
-            auto properties = detail::properties(operation);
+            auto properties = detail::properties(operation, &evaluation);
             if (kind == "set_geom_options") {
                 for (auto& entry : properties) found->second.options[entry.first] = std::move(entry.second);
             } else if (kind == "add_camera") {
@@ -504,8 +734,10 @@ inline std::optional<vf::JsonValue> compile_event_program(
     for (const auto& raw_operation : operations.as_array()) {
         const auto& operation = detail::object(raw_operation, "typed UI operation");
         if (detail::text(operation, "kind", "typed UI operation") != "add") continue;
-        const auto properties = detail::properties(operation);
-        const auto& id_value = detail::field(properties, "id", "Frame.add");
+        const auto& raw_properties = detail::object(
+            detail::field(operation, "properties", "Frame.add"), "Frame.add properties");
+        const auto id_value = detail::evaluate(
+            detail::field(raw_properties, "id", "Frame.add"));
         if (!id_value.is_string()) throw Error("Frame.add id must be a string");
         layers[detail::id(operation, "layer_id", "Frame.add")] = {
             detail::id(operation, "frame_id", "Frame.add"), id_value.as_string()};

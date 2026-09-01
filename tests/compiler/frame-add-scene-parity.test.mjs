@@ -54,6 +54,15 @@ const rectangularSurfaceSource = [
   "surface: frame.add(x:[[-3, -2, -1, 0, 1, 2, 3], [-3, -2, -1, 0, 1, 2, 3]], y:[[-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09], [-0.06, -0.86, -0.80, 0.03, 0.88, 0.94, 0.15]], z:[[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]], id:\"sine\", color:[0.12, 0.72, 1.0, 1.0])",
 ].join("\n");
 
+const linePlotSource = [
+  ": .ui.display",
+  "math:.math",
+  "display: Display(dim:2)",
+  "frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])",
+  "x: [..512] / 512 * 2 * math.pi - math.pi",
+  "line: frame.add(x:x, y:math.sin(x), id:\"sine\", color:[0.12, 0.72, 1.0, 1.0])",
+].join("\n");
+
 test("approved Frame add calls lower to retained scene operations instead of no-ops", () => {
   const typedIr = compile(litSurfaceSource);
   assert.deepEqual(typedIr.ui_program.operations.map(({ kind }) => kind), [
@@ -108,6 +117,50 @@ test("Frame add stages rectangular surface grids without materializing a 2 by 2 
   assert.equal(mesh.vertices.length, 2 * 7 * 10);
   assert.equal(mesh.indices.length, 6 * (2 - 1) * (7 - 1));
   assert.deepEqual(mesh.indices.slice(0, 6), [0, 1, 8, 0, 8, 7]);
+});
+
+test("Frame add stages flat x/y vectors as one constant-width 2D polyline", async () => {
+  assert.ok(nativeSceneStager, "VKF_NATIVE_SCENE_STAGER must name the focused stager executable");
+  const typedIr = compile(linePlotSource);
+  const root = path.join(workRoot, "flat-line");
+  const source = path.join(root, "flat-line.vkf");
+  const typedIrPath = path.join(root, "flat-line.typed-ir.json");
+  const overlayWeb = path.join(root, "vf-ui");
+  await mkdir(root, { recursive: true });
+  await Promise.all([
+    writeFile(source, `${linePlotSource}\n`, "utf8"),
+    writeFile(typedIrPath, `${JSON.stringify(typedIr)}\n`, "utf8"),
+    cp(path.join(repositoryRoot, "web", "vf-ui"), overlayWeb, { recursive: true }),
+  ]);
+
+  const nativeSummary = JSON.parse(stage(nativeSceneStager, undefined, [
+    "--source", source,
+    "--overlay-web", overlayWeb,
+    "--typed-ir", typedIrPath,
+  ]));
+  const sessionDirectory = path.dirname(path.join(
+    overlayWeb,
+    ...nativeSummary.page_rel.split("/"),
+  ));
+  const packets = JSON.parse(await readFile(
+    path.join(sessionDirectory, "vf-runtime-packets.json"),
+    "utf8",
+  ));
+  const mesh = packets[2].payload.display.geom.frame_0.meshes[0];
+  assert.equal(mesh.topology, "line-list");
+  assert.equal(mesh.render_mode, "line");
+  assert.equal(mesh.marker_space, "pixel");
+  assert.equal(mesh.mode3d, false);
+  assert.equal(mesh.edge_width, 1);
+  assert.equal(mesh.vertex_widths, undefined);
+  assert.equal(mesh.vertices.length, 513 * 10);
+  assert.equal(mesh.indices.length, 512 * 2);
+  assert.deepEqual(mesh.indices.slice(0, 8), [0, 1, 1, 2, 2, 3, 3, 4]);
+  assert.deepEqual(mesh.indices.slice(-8), [508, 509, 509, 510, 510, 511, 511, 512]);
+  assert.deepEqual(
+    mesh.vertices.filter((_, index) => index % 10 === 2),
+    new Array(513).fill(0),
+  );
 });
 
 test("native and WASM stage the same executable retained material scene", async () => {
