@@ -52,6 +52,15 @@ MachineModule: (
     functions:any
 )
 
+TaggedMachineModule: (source:str, statements:[num], count:int)
+TaggedMachineInstruction: (kind:str, index:num, value:num)
+TaggedMachineInstructions: [TaggedMachineInstruction:4]
+TaggedMachineStatement: (
+    name:str,
+    instructions:TaggedMachineInstructions,
+    max_stack:num
+)
+
 NumericFunctionConstInput: (kind:str, value:num, type:str)
 NumericFunctionLoadInput: (kind:str, name:str, type:str)
 NumericFunctionMultiplyInput: (kind:str, left:NumericFunctionLoadInput, left_type:str, op:str, right:NumericFunctionConstInput, right_type:str, type:str)
@@ -118,6 +127,37 @@ mir_module(entry:MachineFunction, functions:any, output_kind:str, string_data:an
         string_data: string_data,
         entry: entry,
         functions: functions
+    )
+
+mir_tagged_module(
+    source:str, statements:[num], count:int
+) -> TaggedMachineModule:
+    (source:source, statements:statements, count:count)
+
+_mir_tagged_instruction(
+    kind:str, index:num=0, value:num=0
+) -> TaggedMachineInstruction:
+    (kind:kind, index:index, value:value)
+
+mir_tagged_module_statement(
+    module:TaggedMachineModule, index:int
+) -> TaggedMachineStatement:
+    offset: index * 8
+    (
+        name:vkf_utf8_slice(
+            module.source,
+            module.statements.(offset),
+            module.statements.(offset + 1)
+        ),
+        instructions:[
+            _mir_tagged_instruction("load_local", 0),
+            _mir_tagged_instruction(
+                "push_f64", value:module.statements.(offset + 3)
+            ),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("return_f64")
+        ],
+        max_stack:2
     )
 
 mir_numeric_parameter_multiply_instructions(right_value:num):
