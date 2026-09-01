@@ -130,27 +130,33 @@ function volumeSample(tree, primitiveId, position, detailLevel, footprint) {
   const weights = SCALE_WAVELENGTHS.map((wavelength, scale) => (
     detailLevel >= scale ? filterWeight(wavelength, footprint) : 0
   ));
-  const ringWarp = weights[0] * sampleSpatialCorrelation2Reference(
-    tree.ringNode,
-    [path, radial],
-    { correlationLength: 1.5, mean: 0, amplitude: 0.08 },
-  );
+  const ringWarp = weights[0] > 0
+    ? weights[0] * sampleSpatialCorrelation2Reference(
+      tree.ringNode,
+      [path, radial],
+      { correlationLength: 1.5, mean: 0, amplitude: 0.08 },
+    )
+    : 0;
   const ring = 0.5 + 0.5 * weights[0] * Math.cos(
     2 * Math.PI * (radial / tree.ringSpacing + ringWarp),
   );
-  const rayVariation = sampleSpatialCorrelation2Reference(
-    tree.rayNode,
-    [path, radial],
-    { correlationLength: 0.3, mean: 0, amplitude: 0.12 },
-  );
+  const rayVariation = weights[1] > 0
+    ? sampleSpatialCorrelation2Reference(
+      tree.rayNode,
+      [path, radial],
+      { correlationLength: 0.3, mean: 0, amplitude: 0.12 },
+    )
+    : 0;
   const ray = weights[1] * (
     Math.abs(Math.cos(tree.rayCount * angle + rayVariation)) ** 12
   );
-  const fiberNoise = sampleSpatialCorrelation2Reference(
-    tree.fiberNode,
-    [path + u * 0.31, v],
-    { correlationLength: SCALE_WAVELENGTHS[2], mean: 0, amplitude: 1 },
-  );
+  const fiberNoise = weights[2] > 0
+    ? sampleSpatialCorrelation2Reference(
+      tree.fiberNode,
+      [path + u * 0.31, v],
+      { correlationLength: SCALE_WAVELENGTHS[2], mean: 0, amplitude: 1 },
+    )
+    : 0;
   const fiber = 0.5 + 0.5 * weights[2] * fiberNoise;
   const latewood = clampUnit(1 - ring);
   const density = clampUnit(0.38 + 0.34 * latewood + 0.08 * ray + 0.04 * fiber);
