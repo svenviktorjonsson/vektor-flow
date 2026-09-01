@@ -77,14 +77,22 @@ test("linked self-hosted lexer emits the identifier-number parity fixture", () =
       (token) => token.kind === "IDENT" || token.kind === "NUMBER",
     );
     assert.equal(expected.length, 4);
-    assert.deepEqual(executed.stdout.trim().split(/\r?\n/u), expected.flatMap(
-      (token) => [
-        token.kind,
-        String(token.value),
-        String(token.location.line),
-        String(token.location.column),
-      ],
-    ));
+    const lines = executed.stdout.trim().split(/\r?\n/u);
+    assert.equal(lines.length, 16);
+    const observed = Array.from({ length: 4 }, (_, index) => ({
+      kind: lines[index * 4],
+      value: lines[index * 4] === "NUMBER"
+        ? Number(lines[index * 4 + 1])
+        : lines[index * 4 + 1],
+      line: Number(lines[index * 4 + 2]),
+      column: Number(lines[index * 4 + 3]),
+    }));
+    assert.deepEqual(observed, expected.map((token) => ({
+      kind: token.kind,
+      value: token.value,
+      line: token.location.line,
+      column: token.location.column,
+    })));
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
