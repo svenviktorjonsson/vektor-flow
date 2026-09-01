@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
 import {
   createForestPopulationReference,
@@ -87,6 +88,13 @@ function decodedNormal(bytes, pixel) {
   return [0, 1, 2].map((component) => bytes[offset + component] / 127.5 - 1);
 }
 
+function sha256(bytes) {
+  return createHash('sha256')
+    .update(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+    .digest('hex')
+    .toUpperCase();
+}
+
 test('wood cut materials derive bounded normal and roughness planes from coherent cut grids', () => {
   const surfaces = makeCutSurfaces();
   const endGrain = packWoodCutMaterialPacketReference(surfaces.endGrain);
@@ -116,4 +124,33 @@ test('wood cut materials derive bounded normal and roughness planes from coheren
       sideGrain.roughnessR8[middleRow + column],
     );
   }
+});
+
+test('unchanged wood cut surfaces retain exact bounded material packets', () => {
+  const { endGrain: surface } = makeCutSurfaces();
+  const first = packWoodCutMaterialPacketReference(surface);
+  const retained = packWoodCutMaterialPacketReference(surface);
+
+  assert.strictEqual(retained, first);
+  assert.strictEqual(retained.normalRgba8, first.normalRgba8);
+  assert.strictEqual(retained.roughnessR8, first.roughnessR8);
+  assert.equal(retained.vectorBytes, surface.sourceGrid.sampleCount * 5);
+});
+
+test('wood cut channel images have deterministic orientation-specific hashes', () => {
+  const surfaces = makeCutSurfaces();
+  const endGrain = packWoodCutMaterialPacketReference(surfaces.endGrain);
+  const sideGrain = packWoodCutMaterialPacketReference(surfaces.sideGrain);
+
+  assert.deepEqual({
+    endNormal: sha256(endGrain.normalRgba8),
+    endRoughness: sha256(endGrain.roughnessR8),
+    sideNormal: sha256(sideGrain.normalRgba8),
+    sideRoughness: sha256(sideGrain.roughnessR8),
+  }, {
+    endNormal: '3509090CE388ECD8562F62586B6EC0154150BE71BA1561B9DACBA8A37247F2E3',
+    endRoughness: 'F65A8E2E06DC27F9E0DB270EFF88370D07AF0C4477129C44053A385B2A1E4E58',
+    sideNormal: '84E44E512EA80E1E52EF126629FDC7FD98D18A50593CC45D9248436F1AEE6F66',
+    sideRoughness: 'CC802886530DCBE7A81D28FBA0BF531F32344A70640B8D33E780F509784E8CB8',
+  });
 });
