@@ -50,6 +50,10 @@ function materialPacket() {
       0.8, 0.5, 0.2, 1,
       1.0, 1.0, 1.0, 1,
     ]),
+    normalRgba8: new Uint8ClampedArray([
+      127, 127, 255, 255,
+      127, 127, 255, 255,
+    ]),
     roughnessR8: new Uint8Array([96, 224]),
   });
 }
@@ -102,6 +106,24 @@ test('white-furnace evaluation is retained and rejects over-budget material befo
     () => evaluateWoodCutWhiteFurnaceReference(material, { sampleBudget: 1 }),
     /exceeds sampleBudget/,
   );
+});
+
+test('filtered tangent normals feed the local-incidence energy reference', () => {
+  const flat = materialPacket();
+  const tilted = Object.freeze({
+    ...materialPacket(),
+    id: 'wood:test:tilted:2x1:material',
+    normalRgba8: new Uint8ClampedArray([
+      255, 127, 128, 255,
+      127, 127, 255, 255,
+    ]),
+  });
+  const flatOracle = evaluateWoodCutWhiteFurnaceReference(flat, { sampleBudget: 2 });
+  const tiltedOracle = evaluateWoodCutWhiteFurnaceReference(tilted, { sampleBudget: 2 });
+
+  assert.ok(tiltedOracle.minimumLocalCosine < flatOracle.minimumLocalCosine);
+  assert.notDeepEqual(energyAt(tiltedOracle, 0, 0), energyAt(flatOracle, 0, 0));
+  assert.equal(tiltedOracle.violations, 0);
 });
 
 test('every current end-grain and side-grain refinement level remains energy conserving', () => {

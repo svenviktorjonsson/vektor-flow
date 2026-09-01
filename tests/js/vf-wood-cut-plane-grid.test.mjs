@@ -126,6 +126,8 @@ test('packed cut grid carries its normalized plane coordinates', () => {
   assert.deepEqual(grid.axisV, trunk.radialV);
   assert.equal(grid.width, 0.4);
   assert.equal(grid.height, 0.2);
+  assert.equal(grid.detailLevel, 1);
+  assert.equal(grid.footprint, 0.04);
   assert.ok(Object.isFrozen(grid.center));
   assert.ok(Object.isFrozen(grid.axisU));
   assert.ok(Object.isFrozen(grid.axisV));

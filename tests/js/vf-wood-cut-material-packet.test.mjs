@@ -95,6 +95,52 @@ function sha256(bytes) {
     .toUpperCase();
 }
 
+function syntheticSurface(footprint) {
+  const rows = 5;
+  const columns = 5;
+  const sampleCount = rows * columns;
+  const positions = new Float32Array(sampleCount * 3);
+  const growthCoordinates = new Float32Array(sampleCount * 3);
+  const baseColors = new Float32Array(sampleCount * 4).fill(0.5);
+  const surfaceChannels = new Float32Array(sampleCount * 5);
+  for (let pixel = 0; pixel < sampleCount; pixel += 1) {
+    surfaceChannels[pixel * 5] = pixel === 12 ? 1 : 0;
+    surfaceChannels[pixel * 5 + 3] = pixel === 12 ? 1 : 0;
+    surfaceChannels[pixel * 5 + 4] = 0.7;
+  }
+  const sourceGrid = Object.freeze({
+    kind: 'wood-cut-plane-grid:v1',
+    sampleCount,
+    rows,
+    columns,
+    width: 4,
+    height: 4,
+    detailLevel: 2,
+    footprint,
+  });
+  return Object.freeze({
+    kind: 'wood-cut-surface-packet:v1',
+    id: `wood:synthetic:${footprint}`,
+    orientation: 'end-grain',
+    sourceGrid,
+    imageWidth: columns,
+    imageHeight: rows,
+    positions,
+    growthCoordinates,
+    baseColors,
+    surfaceChannels,
+  });
+}
+
+function totalNormalTilt(packet) {
+  let total = 0;
+  for (let pixel = 0; pixel < packet.imageWidth * packet.imageHeight; pixel += 1) {
+    const normal = decodedNormal(packet.normalRgba8, pixel);
+    total += Math.hypot(normal[0], normal[1]);
+  }
+  return total;
+}
+
 test('wood cut materials derive bounded normal and roughness planes from coherent cut grids', () => {
   const surfaces = makeCutSurfaces();
   const endGrain = packWoodCutMaterialPacketReference(surfaces.endGrain);
@@ -135,6 +181,16 @@ test('unchanged wood cut surfaces retain exact bounded material packets', () => 
   assert.strictEqual(retained.normalRgba8, first.normalRgba8);
   assert.strictEqual(retained.roughnessR8, first.roughnessR8);
   assert.equal(retained.vectorBytes, surface.sourceGrid.sampleCount * 5);
+});
+
+test('wood normal derivatives filter detail below the requested footprint', () => {
+  const fine = packWoodCutMaterialPacketReference(syntheticSurface(0));
+  const filtered = packWoodCutMaterialPacketReference(syntheticSurface(2));
+
+  assert.deepEqual(fine.normalFilterRadius, [0, 0]);
+  assert.deepEqual(filtered.normalFilterRadius, [1, 1]);
+  assert.ok(Object.isFrozen(filtered.normalFilterRadius));
+  assert.ok(totalNormalTilt(filtered) < totalNormalTilt(fine));
 });
 
 test('wood cut channel images have deterministic orientation-specific hashes', () => {
