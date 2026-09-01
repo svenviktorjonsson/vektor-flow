@@ -50,6 +50,7 @@ TaggedTwoStatementModule: (kind:str, body:[TaggedBinaryOpNode:2], span:Span)
 TaggedTwoStatementResult: (module:TaggedTwoStatementModule, diagnostics:any)
 TaggedThreeStatementModule: (kind:str, body:[TaggedBinaryOpNode:3], span:Span)
 TaggedThreeStatementResult: (module:TaggedThreeStatementModule, diagnostics:any)
+TaggedStatementStorage: (source:str, rows:[num], count:int)
 DottedIndexNode: (kind:str, base:any, indices:any, span:Span)
 MatchArmNode: (kind:str, condition:any, body:any)
 MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bit, catch:bit)
@@ -340,6 +341,68 @@ append_tagged_third_statement(
         span:span(result.module.span.start, stop)
     )
     (module:parsed_module, diagnostics:result.diagnostics)
+
+tagged_statement_storage(source:str) -> TaggedStatementStorage:
+    [num] rows: []
+    (source:source, rows:rows, count:0)
+
+append_tagged_statement(
+    storage:TaggedStatementStorage,
+    identifier_start:int,
+    identifier_stop:int,
+    operator_code:int,
+    value:num,
+    left_line:int,
+    left_column:int,
+    right_line:int,
+    right_column:int
+) -> TaggedStatementStorage:
+    [num] row: [
+        identifier_start,
+        identifier_stop,
+        operator_code,
+        value,
+        left_line,
+        left_column,
+        right_line,
+        right_column
+    ]
+    (
+        source:storage.source,
+        rows:storage.rows & row,
+        count:storage.count + 1
+    )
+
+tagged_statement_operator(operator_code:num) -> str:
+    operator_code??
+        1 => "+"
+        "unknown"
+
+tagged_statement_node(
+    storage:TaggedStatementStorage, index:int
+) -> TaggedBinaryOpNode:
+    offset: index * 8
+    left_where: location(
+        "<self-hosted>", storage.rows.(offset + 4), storage.rows.(offset + 5)
+    )
+    right_where: location(
+        "<self-hosted>", storage.rows.(offset + 6), storage.rows.(offset + 7)
+    )
+    binary_op_node(
+        tagged_statement_operator(storage.rows.(offset + 2)),
+        identifier_node(
+            vkf_utf8_slice(
+                storage.source,
+                storage.rows.(offset),
+                storage.rows.(offset + 1)
+            ),
+            span(left_where, left_where)
+        ),
+        number_literal(
+            storage.rows.(offset + 3), span(right_where, right_where)
+        ),
+        span(left_where, right_where)
+    )
 
 parse_type_annotation(cursor:ParseCursor):
     current: peek(cursor)
