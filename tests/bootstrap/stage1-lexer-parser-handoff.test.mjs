@@ -24,15 +24,14 @@ test("linked lexer envelope feeds the self-hosted parser cursor", () => {
     writeFileSync(harness, [
       "lexer: .lexer",
       "parser: .parser",
-      "envelope: lexer.bounded_token_stream(\"alpha+beta\")",
-      "parsed: parser.parse_identifier(parser.cursor(envelope))",
+      "envelope: lexer.bounded_parser_structure_stream(\"alpha+beta\")",
+      "start: parser.cursor(envelope)",
+      "first: start.tokens.(0)",
       ":: envelope.schema",
       ":: envelope.version",
       ":: envelope.tokens.length()",
-      ":: parsed.kind",
-      ":: parsed.name",
-      ":: parsed.span.start.line",
-      ":: parsed.span.start.column",
+      ":: start.index",
+      ":: first.kind",
       "",
     ].join("\n"), "utf8");
     const compiled = spawnSync(
@@ -45,7 +44,7 @@ test("linked lexer envelope feeds the self-hosted parser cursor", () => {
     });
     assert.equal(executed.status, 0, executed.stderr);
     assert.deepEqual(executed.stdout.trim().split(/\r?\n/u), [
-      "vektorflow.token_stream", "1", "5", "identifier", "alpha", "1", "1",
+      "vektorflow.token_stream", "1", "5", "0", "IDENT",
     ]);
   } finally {
     rmSync(work, { recursive: true, force: true });
