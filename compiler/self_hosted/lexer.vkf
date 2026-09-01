@@ -8,6 +8,7 @@ LexResult: (tokens:any, errors:any)
 ScannerState: (name:str, token_kind:str, starts:any, stops:any, emits:bit)
 TaggedTokenValue: (tag:str, text:str, number:num)
 TaggedParserToken: (kind:str, value:TaggedTokenValue, location:any)
+TaggedTokenTape: (source:str, rows:[num], count:int)
 
 token(kind:str, value:any, line:num, column:num):
     (kind: kind, value: value, line: line, column: column)
@@ -439,6 +440,80 @@ bounded_two_expression_stream(source:str):
         )
     ]
     (schema:"vektorflow.token_stream", version:1, tokens:tokens)
+
+tagged_token_tape(source:str) -> TaggedTokenTape:
+    [num] rows: []
+    (source:source, rows:rows, count:0)
+
+_append_tagged_token(
+    tape:TaggedTokenTape,
+    kind_code:int,
+    start:int,
+    stop:int,
+    value:num,
+    line:num,
+    column:num
+) -> TaggedTokenTape:
+    [num] row: [kind_code, start, stop, value, line, column]
+    (source:tape.source, rows:tape.rows & row, count:tape.count + 1)
+
+_scan_tagged_statement_tokens(
+    cursor:StringCursor, tape:TaggedTokenTape, expected:int
+) -> TaggedTokenTape:
+    cursor.eof?
+        final_tape: tape
+        (expected = 3)?
+            .final_tape: _append_tagged_token(
+                final_tape, 4, cursor.position, cursor.position,
+                0, cursor.line, cursor.column
+            )
+        @: _append_tagged_token(
+            final_tape, 5, cursor.position, cursor.position,
+            0, cursor.line, cursor.column
+        )
+    is_whitespace(cursor.peek())?
+        @: _scan_tagged_statement_tokens(cursor.advance(), tape, expected)
+    is_newline(cursor.peek())?
+        newline_tape: tape
+        (expected = 3)?
+            .newline_tape: _append_tagged_token(
+                newline_tape, 4, cursor.position, cursor.position,
+                0, cursor.line, cursor.column
+            )
+            @: _scan_tagged_statement_tokens(
+                cursor.advance(), newline_tape, 0
+            )
+        @: _scan_tagged_statement_tokens(cursor.advance(), tape, expected)
+    (expected = 0)?
+        is_identifier_start(cursor.peek())?! "identifier token expected"
+        identifier_stop: _lexer_skip_identifier(cursor)
+        next_tape: _append_tagged_token(
+            tape, 1, cursor.position, identifier_stop.position,
+            0, cursor.line, cursor.column
+        )
+        @: _scan_tagged_statement_tokens(identifier_stop, next_tape, 1)
+    (expected = 1)?
+        (cursor.peek() = "+")?! "plus token expected"
+        operator_stop: cursor.advance()
+        next_tape: _append_tagged_token(
+            tape, 2, cursor.position, operator_stop.position,
+            0, cursor.line, cursor.column
+        )
+        @: _scan_tagged_statement_tokens(operator_stop, next_tape, 2)
+    (expected = 2)?
+        is_number_start(cursor.peek())?! "number token expected"
+        number: number_token(cursor.source, cursor.position)
+        number_stop: _lexer_skip_number(cursor)
+        next_tape: _append_tagged_token(
+            tape, 3, cursor.position, number_stop.position,
+            number.value, cursor.line, cursor.column
+        )
+        @: _scan_tagged_statement_tokens(number_stop, next_tape, 3)
+    false?! "newline or EOF expected after expression"
+    tape
+
+tagged_statement_token_tape(source:str) -> TaggedTokenTape:
+    _scan_tagged_statement_tokens(StringCursor(source), tagged_token_tape(source), 0)
 
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
