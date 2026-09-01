@@ -45,11 +45,11 @@ function gridIndices(rows, columns) {
       const bottomLeft = topLeft + columns;
       indices.set([
         topLeft,
-        bottomLeft,
-        topLeft + 1,
         topLeft + 1,
         bottomLeft,
+        topLeft + 1,
         bottomLeft + 1,
+        bottomLeft,
       ], offset);
       offset += 6;
     }
