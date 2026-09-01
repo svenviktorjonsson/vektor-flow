@@ -5,6 +5,7 @@ const MAX_GGX_COVERAGE_SUBDIVISIONS = 89;
 const MAX_GGX_MESH_TRIANGLES = 4096;
 const MAX_GGX_AZIMUTH_PROBES = 64;
 const MAX_GGX_MATERIAL_PROFILES = 4;
+const MAX_GGX_REFINEMENT_DEMANDS = 64;
 const REFERENCE_GGX_ANISOTROPY = 0.65;
 const REFERENCE_GGX_MIN_ALPHA = 0.08;
 const packetCache = new WeakMap();
@@ -961,5 +962,61 @@ export function selectWoodRefinementGgxProfileReference(
     maximumSpecularError,
     maximumReflectedRgbError,
     vectorBytes: 0,
+  });
+}
+
+export function selectWoodRefinementGgxProfileBatchReference(
+  sourceConvergence,
+  demandValues,
+  { demandBudget },
+) {
+  if (!Array.isArray(demandValues) || demandValues.length === 0) {
+    throw new TypeError('wood quality demands are required');
+  }
+  if (
+    !Number.isSafeInteger(demandBudget)
+    || demandBudget < 0
+    || demandBudget > MAX_GGX_REFINEMENT_DEMANDS
+  ) {
+    throw new RangeError(
+      `wood demandBudget must be an integer from 0 to ${MAX_GGX_REFINEMENT_DEMANDS}`,
+    );
+  }
+  const demandCount = demandValues.length;
+  if (demandCount > demandBudget) {
+    throw new RangeError('wood quality demands exceed demandBudget');
+  }
+  const selectedRefinements = new Uint32Array(demandCount);
+  const selectedDetailLevels = new Uint32Array(demandCount);
+  const specularErrors = new Float32Array(demandCount);
+  const reflectedRgbErrors = new Float32Array(demandCount);
+  const sourcePackets = [];
+  for (let demand = 0; demand < demandCount; demand += 1) {
+    const selection = selectWoodRefinementGgxProfileReference(
+      sourceConvergence,
+      demandValues[demand],
+    );
+    selectedRefinements[demand] = selection.selectedRefinement;
+    selectedDetailLevels[demand] = selection.selectedDetailLevel;
+    specularErrors[demand] = selection.specularError;
+    reflectedRgbErrors[demand] = selection.reflectedRgbError;
+    sourcePackets.push(selection.sourcePacket);
+  }
+
+  return Object.freeze({
+    kind: 'wood-cut-refinement-ggx-selection-batch:v1',
+    sourceConvergence,
+    demands: Object.freeze(Array.from(demandValues)),
+    demandCount,
+    demandBudget,
+    sourcePackets: Object.freeze(sourcePackets),
+    selectedRefinements,
+    selectedDetailLevels,
+    specularErrors,
+    reflectedRgbErrors,
+    vectorBytes: selectedRefinements.byteLength
+      + selectedDetailLevels.byteLength
+      + specularErrors.byteLength
+      + reflectedRgbErrors.byteLength,
   });
 }
