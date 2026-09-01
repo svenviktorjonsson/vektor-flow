@@ -81,3 +81,52 @@ test('wood growth coordinates keep trunk and branch attachment positions continu
     assert.ok(Math.abs(coordinates.pathOffsets[branch] - attachment) < 1e-5);
   }
 });
+
+test('wood growth coordinates refine lazily with stable segment identities and hard bounds', () => {
+  const forest = realizeForestPatchesReference(
+    createForestPopulationReference(IDENTITY),
+    { patches: [[-2, 3]], treeBudget: 32 },
+  );
+  const planner = createTreeGeometryPlannerReference(IDENTITY);
+  const coarse = planTreeGeometryReference(planner, forest, {
+    treeIndices: [0],
+    detailLevels: [0],
+    primitiveBudget: 64,
+  });
+  const refined = planTreeGeometryReference(planner, forest, {
+    treeIndices: [0],
+    detailLevels: [2],
+    primitiveBudget: 64,
+  });
+  const field = createWoodGrowthCoordinateFieldReference();
+  const coarseCoordinates = realizeWoodGrowthCoordinatesReference(field, coarse, {
+    segmentBudget: 64,
+  });
+  const refinedCoordinates = realizeWoodGrowthCoordinatesReference(field, refined, {
+    segmentBudget: 64,
+  });
+  const recreated = realizeWoodGrowthCoordinatesReference(
+    createWoodGrowthCoordinateFieldReference(),
+    refined,
+    { segmentBudget: 64 },
+  );
+  const bounded = realizeWoodGrowthCoordinatesReference(field, refined, {
+    segmentBudget: 2,
+  });
+  const empty = realizeWoodGrowthCoordinatesReference(field, refined, {
+    segmentBudget: 0,
+  });
+
+  assert.equal(coarseCoordinates.segmentCount, 1);
+  assert.strictEqual(refinedCoordinates.segments[0], coarseCoordinates.segments[0]);
+  assert.deepEqual(recreated, refinedCoordinates);
+  assert.equal(bounded.segmentCount, 2);
+  assert.equal(bounded.vectorBytes, 136);
+  assert.equal(bounded.truncated, true);
+  assert.equal(empty.segmentCount, 0);
+  assert.equal(empty.vectorBytes, 0);
+  assert.equal(empty.truncated, true);
+  assert.throws(() => realizeWoodGrowthCoordinatesReference(field, refined, {
+    segmentBudget: 65537,
+  }), /segmentBudget/);
+});
