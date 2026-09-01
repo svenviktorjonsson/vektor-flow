@@ -66,18 +66,69 @@ function serveOverlay(scenePath, port) {
   });
 }
 
+function verifyPacketScene(scenePath, frameId, verification) {
+  if (!verification) return null;
+  const packetsPath = path.join(path.dirname(scenePath), "vf-runtime-packets.json");
+  const packets = JSON.parse(fs.readFileSync(packetsPath, "utf8"));
+  const displayPacket = packets.find(({ kind }) => kind === "display.replace");
+  const scene = displayPacket && displayPacket.payload && displayPacket.payload.display &&
+    displayPacket.payload.display.geom && displayPacket.payload.display.geom[frameId];
+  if (!scene) throw new Error(`verification scene ${frameId} is missing`);
+  const mesh = (scene.meshes || []).find(({ id }) => id === verification.meshId);
+  if (!mesh) throw new Error(`verification mesh ${verification.meshId} is missing`);
+  if (verification.kind === "constant-line-width") {
+    const z = mesh.vertices.filter((_, index) => index % 10 === 2);
+    const result = {
+      kind: verification.kind,
+      meshId: verification.meshId,
+      topology: mesh.topology,
+      renderMode: mesh.render_mode,
+      markerSpace: mesh.marker_space,
+      edgeWidth: mesh.edge_width,
+      vertexWidths: mesh.vertex_widths || null,
+      vertexCount: mesh.vertices.length / 10,
+      segmentCount: mesh.indices.length / 2,
+      allZZero: z.every((value) => value === 0),
+    };
+    if (result.topology !== "line-list" || result.renderMode !== "line" ||
+        result.markerSpace !== "pixel" || result.edgeWidth !== 1 ||
+        result.vertexWidths !== null || result.vertexCount < 256 ||
+        result.segmentCount !== result.vertexCount - 1 || !result.allZZero) {
+      throw new Error(`constant-line-width verification failed: ${JSON.stringify(result)}`);
+    }
+    return result;
+  }
+  return { kind: verification.kind, meshId: verification.meshId };
+}
+
+async function analyzeSurfaceTextures(page, pageState, frameId, verification) {
+  if (!verification || verification.kind !== "mirror-subject") return null;
+  const result = await cdp(page, pageState, "Runtime.evaluate", {
+    returnByValue: true,
+    awaitPromise: true,
+    expression: `(async () => {
+      const test = window.VfDisplay && window.VfDisplay.__test;
+      if (!test || typeof test.analyzeSurfaceTextures !== "function") return null;
+      return await test.analyzeSurfaceTextures(${JSON.stringify(frameId)}, 50);
+    })()`,
+  });
+  return result.result.value;
+}
+
 async function main() {
   const scenePath = path.resolve(process.argv[2] || "");
   const frameId = process.argv[3] || "";
   const requireRenderer = process.argv[4] !== "frame-only";
   const cdpPort = Number(process.argv[5] || "9480");
   const compositeOutputPath = process.argv[6] ? path.resolve(process.argv[6]) : "";
+  const sceneVerification = process.argv[7] ? JSON.parse(process.argv[7]) : null;
   if (!process.argv[2] || !frameId) {
     throw new Error("usage: node run_staged_ui_example.js <scene> <frame-id> [renderer|frame-only] [cdp-port] [composite-output.png]");
   }
   const edgePath = process.env.VF_EDGE_PATH || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
   if (!fs.existsSync(edgePath)) throw new Error(`edge missing at ${edgePath}`);
   const served = await serveOverlay(scenePath, cdpPort + 1000);
+  const packetVerification = verifyPacketScene(scenePath, frameId, sceneVerification);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "vf-shipped-ui-"));
   const edge = spawn(edgePath, [
     `--user-data-dir=${profile}`,
@@ -141,6 +192,10 @@ async function main() {
       throw new Error(`staged UI never became ready: ${JSON.stringify(evidence)}`);
     }
     await delay(1000);
+    evidence.sceneVerification = packetVerification;
+    evidence.surfaceVerification = await analyzeSurfaceTextures(
+      page, pageState, frameId, sceneVerification,
+    );
     const screenshot = await cdp(page, pageState, "Page.captureScreenshot", { format: "png", fromSurface: true });
     const screenshotBytes = Buffer.from(screenshot.data, "base64");
     evidence.composite_sha256 = crypto.createHash("sha256").update(screenshotBytes).digest("hex");

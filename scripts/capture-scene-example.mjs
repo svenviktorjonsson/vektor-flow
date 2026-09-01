@@ -29,6 +29,14 @@ function run(command, args = [], input) {
 }
 
 const exampleRoot = path.join(repositoryRoot, "examples", "scene_gallery", exampleId);
+const galleryManifest = JSON.parse(await readFile(
+  path.join(repositoryRoot, "examples", "scene_gallery", "manifest.json"),
+  "utf8",
+));
+const manifestExample = galleryManifest.examples.find(({ id }) => id === exampleId);
+if (!manifestExample) throw new Error(`scene gallery manifest is missing ${exampleId}`);
+const { capture } = manifestExample;
+const sceneVerification = capture.verification || null;
 const workRoot = path.join(repositoryRoot, ".w", "scene-gallery", exampleId);
 const artifactRoot = path.join(workRoot, "artifact");
 const overlayWeb = path.join(artifactRoot, "vf-ui");
@@ -53,13 +61,14 @@ const staging = JSON.parse(run(nativeSceneStager, [
   "--typed-ir", typedIrPath,
 ]));
 const scenePath = path.join(overlayWeb, ...staging.page_rel.split("/"));
-const capture = JSON.parse(run(process.execPath, [
+const captureEvidence = JSON.parse(run(process.execPath, [
   path.join(repositoryRoot, "tests", "helpers", "run_staged_ui_example.js"),
   scenePath,
   frameId,
   "renderer",
   String(port),
   mediaPath,
+  JSON.stringify(sceneVerification),
 ]));
 const media = await readFile(mediaPath);
 const normalizedSource = Buffer.from(source.replaceAll("\r\n", "\n"));
@@ -68,5 +77,5 @@ process.stdout.write(JSON.stringify({
   sourceSha256: createHash("sha256").update(normalizedSource).digest("hex"),
   mediaPath: path.relative(repositoryRoot, mediaPath).replaceAll(path.sep, "/"),
   mediaSha256: createHash("sha256").update(media).digest("hex"),
-  capture,
+  capture: captureEvidence,
 }));
