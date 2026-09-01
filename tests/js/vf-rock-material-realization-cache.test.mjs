@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   createRockMaterialFieldReference,
@@ -32,4 +33,16 @@ test('an unchanged stone surface demand reuses its realized immutable material s
   assert.notStrictEqual(recreated, first);
   assert.deepEqual(recreated, first);
   assert.ok(Object.isFrozen(first));
+});
+
+test('stone material realization has a fixed least-recently-used working-set cap', async () => {
+  const source = await readFile(
+    new URL('../../web/vf-ui/vf-rock-material-field.mjs', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(source, /const MAX_REALIZED_MATERIAL_SAMPLES = 2048;/);
+  assert.match(source, /materialSamples\.delete\(cacheKey\);\s*materialSamples\.set\(cacheKey, cached\);/s);
+  assert.match(source, /materialSamples\.size > MAX_REALIZED_MATERIAL_SAMPLES/);
+  assert.match(source, /materialSamples\.delete\(materialSamples\.keys\(\)\.next\(\)\.value\)/);
 });
