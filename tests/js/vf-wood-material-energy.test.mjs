@@ -113,6 +113,23 @@ test('anisotropic GGX reference integrates the complete white-furnace hemisphere
   }
 });
 
+test('GGX furnace reports a bounded paired-quadrature convergence delta', () => {
+  const material = Object.freeze({
+    ...materialPacket(),
+    imageWidth: 1,
+    imageHeight: 1,
+    baseColors: new Float32Array([0.8, 0.5, 0.2, 1]),
+    normalRgba8: new Uint8ClampedArray([127, 127, 255, 255]),
+    roughnessR8: new Uint8Array([128]),
+  });
+  const oracle = evaluateWoodCutGgxWhiteFurnaceReference(material, { sampleBudget: 1 });
+  assert.ok(oracle.coarseHemisphereSamples >= 1024);
+  for (const profile of oracle.profiles) {
+    assert.ok(profile.maximumQuadratureDelta >= 0);
+    assert.ok(profile.maximumQuadratureDelta <= 0.01);
+  }
+});
+
 test('wood dielectric partition stays inside the white-furnace energy budget', () => {
   const material = materialPacket();
   const oracle = evaluateWoodCutWhiteFurnaceReference(material, { sampleBudget: 2 });
