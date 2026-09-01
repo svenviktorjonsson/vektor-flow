@@ -7,6 +7,21 @@ const source = fs.readFileSync(
   path.join(__dirname, "../../web/vf-ui/geom/vf-geom-wgpu.js"),
   "utf8"
 );
+const nativeSceneSource = fs.readFileSync(
+  path.join(__dirname, "../../web/vf-ui/vf-native-scene.js"),
+  "utf8"
+);
+
+assert.match(
+  nativeSceneSource,
+  /if \(String\(mesh\.id \|\| ""\) === String\(hostMeshId \|\| ""\)\) \{ continue; \}/u,
+  "an active screen host must never enter its own surface world"
+);
+assert.match(
+  nativeSceneSource,
+  /return maxSide <= \(Number\(clip\.epsilon \|\| 0\.0\) \|\| 0\.0\);/u,
+  "coplanar mirror trim must not reappear in the reflected pass"
+);
 
 const context = vm.createContext({
   console,

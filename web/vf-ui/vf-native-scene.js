@@ -865,7 +865,7 @@
       ], clip.planeNormal);
       if (side > maxSide) { maxSide = side; }
     }
-    return maxSide < -(Number(clip.epsilon || 0.0) || 0.0);
+    return maxSide <= (Number(clip.epsilon || 0.0) || 0.0);
   }
 
   function filterReflectedSourceMeshes(meshSpecs, camera, seconds) {
