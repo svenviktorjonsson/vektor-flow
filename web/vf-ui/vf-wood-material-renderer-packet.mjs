@@ -1,6 +1,7 @@
 const MAX_TRIANGLES = 131072;
 const MAX_GGX_VERTICES = 65536;
 const MAX_GGX_BATCH_SAMPLES = 4096;
+const MAX_GGX_COVERAGE_SUBDIVISIONS = 89;
 const REFERENCE_GGX_ANISOTROPY = 0.65;
 const REFERENCE_GGX_MIN_ALPHA = 0.08;
 const packetCache = new WeakMap();
@@ -396,5 +397,81 @@ export function evaluateWoodTriangleGgxBatchReference(
       + surfaceNormals.byteLength
       + specularBrdf.byteLength
       + reflectedRgb.byteLength,
+  });
+}
+
+export function evaluateWoodTriangleGgxCoverageReference(
+  packet,
+  {
+    triangle,
+    subdivisions,
+    viewDirection,
+    lightDirection,
+    sampleBudget,
+  },
+) {
+  if (
+    !Number.isSafeInteger(subdivisions)
+    || subdivisions < 1
+    || subdivisions > MAX_GGX_COVERAGE_SUBDIVISIONS
+  ) {
+    throw new RangeError(
+      `wood GGX subdivisions must be an integer from 1 to ${MAX_GGX_COVERAGE_SUBDIVISIONS}`,
+    );
+  }
+  if (
+    !Number.isSafeInteger(sampleBudget)
+    || sampleBudget < 0
+    || sampleBudget > MAX_GGX_BATCH_SAMPLES
+  ) {
+    throw new RangeError(
+      `wood GGX sampleBudget must be an integer from 0 to ${MAX_GGX_BATCH_SAMPLES}`,
+    );
+  }
+  const sampleCount = (subdivisions + 1) * (subdivisions + 2) / 2;
+  if (sampleCount > sampleBudget) {
+    throw new RangeError('wood triangle GGX coverage exceeds sampleBudget');
+  }
+
+  const barycentricSamples = [];
+  const barycentricWeights = new Float32Array(sampleCount * 3);
+  let sampleIndex = 0;
+  for (let tangentStep = 0; tangentStep <= subdivisions; tangentStep += 1) {
+    for (
+      let bitangentStep = 0;
+      bitangentStep <= subdivisions - tangentStep;
+      bitangentStep += 1
+    ) {
+      const barycentric = [
+        tangentStep / subdivisions,
+        bitangentStep / subdivisions,
+        (subdivisions - tangentStep - bitangentStep) / subdivisions,
+      ];
+      barycentricSamples.push(barycentric);
+      barycentricWeights.set(barycentric, sampleIndex * 3);
+      sampleIndex += 1;
+    }
+  }
+  const batch = evaluateWoodTriangleGgxBatchReference(packet, {
+    triangle,
+    barycentricSamples,
+    viewDirection,
+    lightDirection,
+    sampleBudget,
+  });
+
+  return Object.freeze({
+    kind: 'wood-cut-triangle-ggx-coverage:v1',
+    sourcePacket: packet,
+    triangle,
+    subdivisions,
+    sampleCount,
+    sampleBudget,
+    barycentricWeights,
+    positions: batch.positions,
+    surfaceNormals: batch.surfaceNormals,
+    specularBrdf: batch.specularBrdf,
+    reflectedRgb: batch.reflectedRgb,
+    vectorBytes: barycentricWeights.byteLength + batch.vectorBytes,
   });
 }
