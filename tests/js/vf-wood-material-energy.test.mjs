@@ -151,7 +151,7 @@ test('every current end-grain and side-grain refinement level remains energy con
     { detailLevel: 1, footprint: 0.07 },
     { detailLevel: 2, footprint: 0 },
   ];
-  const fineHashes = {};
+  const refinementEvidence = {};
   for (const refinement of refinements) {
     for (const [orientation, axisV, height] of [
       ['end-grain', trunk.radialV, trunk.radius * 1.2],
@@ -178,13 +178,43 @@ test('every current end-grain and side-grain refinement level remains energy con
       assert.equal(oracle.violations, 0);
       assert.ok(oracle.minimumEnergy >= 0);
       assert.ok(oracle.maximumEnergy <= 1);
-      if (refinement.detailLevel === 2) {
-        fineHashes[orientation] = sha256(oracle.energyRgb);
-      }
+      refinementEvidence[`${refinement.detailLevel}:${orientation}`] = {
+        normalRadius: material.normalFilterRadius,
+        normal: sha256(material.normalRgba8),
+        energy: sha256(oracle.energyRgb),
+      };
     }
   }
-  assert.deepEqual(fineHashes, {
-    'end-grain': '2060F14A57FCED2F8E06DDA597E0334F6D0B3E3FCFE5A0FBF5E793A4B99DF2CA',
-    'side-grain': 'FE066CE5801A801EACEF16261BEB41B3480433D2257656356FC0128406BC60D2',
+  assert.deepEqual(refinementEvidence, {
+    '0:end-grain': {
+      normalRadius: [1, 1],
+      normal: '372C43A8FF89CC72A7A8CF53A9B2B6BEF55F7AFA376441249BC7F3238915CAA9',
+      energy: '591DB2C18EA9E3AAD3BAC0AC16DD969D8BFDEB58455193C1F925E0B6D941C06E',
+    },
+    '0:side-grain': {
+      normalRadius: [1, 0],
+      normal: '372C43A8FF89CC72A7A8CF53A9B2B6BEF55F7AFA376441249BC7F3238915CAA9',
+      energy: '591DB2C18EA9E3AAD3BAC0AC16DD969D8BFDEB58455193C1F925E0B6D941C06E',
+    },
+    '1:end-grain': {
+      normalRadius: [0, 0],
+      normal: '62381071B0DD79322A6768E7C8C1E3749B0774430DFD0F9B3B7321B972F5ACEA',
+      energy: 'D244A0FBFE32936DAF7450AF3A7BE0365992E53425B9BB67E4E51CEF39E22C2F',
+    },
+    '1:side-grain': {
+      normalRadius: [0, 0],
+      normal: 'A4DE96CFB543AFCB7870943FF69B5F5DBB8CA0D33F0573818F4C6C1A697822BE',
+      energy: '27FA6629D19243A1051BC203F180D4177CA1445CFE13DAC321B1765E99021C55',
+    },
+    '2:end-grain': {
+      normalRadius: [0, 0],
+      normal: '3509090CE388ECD8562F62586B6EC0154150BE71BA1561B9DACBA8A37247F2E3',
+      energy: '2060F14A57FCED2F8E06DDA597E0334F6D0B3E3FCFE5A0FBF5E793A4B99DF2CA',
+    },
+    '2:side-grain': {
+      normalRadius: [0, 0],
+      normal: '84E44E512EA80E1E52EF126629FDC7FD98D18A50593CC45D9248436F1AEE6F66',
+      energy: 'FE066CE5801A801EACEF16261BEB41B3480433D2257656356FC0128406BC60D2',
+    },
   });
 });
