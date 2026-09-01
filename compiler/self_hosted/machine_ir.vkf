@@ -218,6 +218,14 @@ mir_tagged_closed_statement(
         max_stack:2
     )
 
+mir_tagged_closed_statement_from_previous_binding(
+    module:TaggedMachineModule,
+    expression_index:int
+) -> TaggedMachineStatement:
+    (expression_index > 0)?! "closed Machine IR expression has no preceding binding"
+    (expression_index < module.count)?! "closed Machine IR expression index is out of range"
+    mir_tagged_closed_statement(module, expression_index - 1, expression_index)
+
 mir_assemble_closed_tagged_module(
     statement:TaggedMachineStatement,
     validated_max_stack:num
