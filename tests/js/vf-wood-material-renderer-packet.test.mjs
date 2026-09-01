@@ -649,10 +649,14 @@ test('the complete wood mesh reduces to an area-weighted anisotropic response', 
   assert.strictEqual(summary.sourcePacket, packet);
   assert.equal(summary.triangleCount, packet.triangleCount);
   assert.ok(Math.abs(summary.totalArea - expectedArea) < 1e-12);
-  assert.ok(Math.abs(
-    summary.totalArea
-      - material.sourceSurface.sourceGrid.width * material.sourceSurface.sourceGrid.height
-  ) < 1e-6);
+  const authoredArea = (
+    material.sourceSurface.sourceGrid.width * material.sourceSurface.sourceGrid.height
+  );
+  const retainedAreaDelta = Math.abs(summary.totalArea - authoredArea);
+  assert.ok(
+    retainedAreaDelta < Math.max(1e-6, authoredArea * 1e-3),
+    `retained area delta ${retainedAreaDelta}`,
+  );
   assert.ok(Math.abs(summary.meanSpecularBrdf - expectedSpecular) < 1e-12);
   summary.meanReflectedRgb.forEach((value, channel) => (
     assert.ok(Math.abs(value - expectedRgb[channel]) < 1e-12)

@@ -543,3 +543,59 @@ export function evaluateWoodMeshGgxCentroidsReference(
       + reflectedRgb.byteLength,
   });
 }
+
+function retainedTriangleArea(packet, triangle) {
+  const points = [0, 1, 2].map((corner) => {
+    const vertex = packet.indices[triangle * 3 + corner];
+    return Array.from(packet.positions.subarray(vertex * 3, vertex * 3 + 3));
+  });
+  const firstEdge = points[1].map((value, component) => (
+    value - points[0][component]
+  ));
+  const secondEdge = points[2].map((value, component) => (
+    value - points[0][component]
+  ));
+  return Math.hypot(...cross(firstEdge, secondEdge)) * 0.5;
+}
+
+export function evaluateWoodMeshGgxAreaSummaryReference(
+  packet,
+  { viewDirection, lightDirection, triangleBudget },
+) {
+  const sourceCentroids = evaluateWoodMeshGgxCentroidsReference(packet, {
+    viewDirection,
+    lightDirection,
+    triangleBudget,
+  });
+  const triangleCount = sourceCentroids.triangleCount;
+  const triangleAreas = new Float32Array(triangleCount);
+  const reflectedSum = [0, 0, 0];
+  let totalArea = 0;
+  let specularSum = 0;
+  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+    const area = retainedTriangleArea(packet, triangle);
+    if (!Number.isFinite(area) || !(area > 0)) {
+      throw new RangeError(`wood mesh triangle ${triangle} must have positive finite area`);
+    }
+    triangleAreas[triangle] = area;
+    totalArea += area;
+    specularSum += sourceCentroids.specularBrdf[triangle] * area;
+    for (let channel = 0; channel < 3; channel += 1) {
+      reflectedSum[channel] += (
+        sourceCentroids.reflectedRgb[triangle * 3 + channel] * area
+      );
+    }
+  }
+
+  return Object.freeze({
+    kind: 'wood-cut-mesh-ggx-area-summary:v1',
+    sourcePacket: packet,
+    sourceCentroids,
+    triangleCount,
+    triangleAreas,
+    totalArea,
+    meanSpecularBrdf: specularSum / totalArea,
+    meanReflectedRgb: Object.freeze(reflectedSum.map((value) => value / totalArea)),
+    vectorBytes: sourceCentroids.vectorBytes + triangleAreas.byteLength,
+  });
+}
