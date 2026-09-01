@@ -753,3 +753,84 @@ export function evaluateWoodOrientationGgxProfilesReference(
       + meanReflectedRgb.byteLength,
   });
 }
+
+export function evaluateWoodRefinementGgxProfilesReference(
+  packetValues,
+  {
+    azimuths,
+    viewCosine,
+    triangleBudget,
+    refinementBudget,
+    probeBudget,
+  },
+) {
+  if (!Array.isArray(packetValues) || packetValues.length === 0) {
+    throw new TypeError('wood refinement profiles require material packets');
+  }
+  if (
+    !Number.isSafeInteger(refinementBudget)
+    || refinementBudget < 0
+    || refinementBudget > MAX_GGX_MATERIAL_PROFILES
+  ) {
+    throw new RangeError(
+      `wood refinementBudget must be an integer from 0 to ${MAX_GGX_MATERIAL_PROFILES}`,
+    );
+  }
+  const refinementCount = packetValues.length;
+  if (refinementCount > refinementBudget) {
+    throw new RangeError('wood refinement profiles exceed refinementBudget');
+  }
+  const orientation = String(packetValues[0]?.sourceMaterial?.orientation || '');
+  const detailLevelValues = packetValues.map((packet, refinement) => {
+    if (String(packet?.sourceMaterial?.orientation || '') !== orientation) {
+      throw new RangeError('wood refinement profiles must share one orientation');
+    }
+    const detailLevel = packet?.sourceMaterial?.sourceSurface?.sourceGrid?.detailLevel;
+    if (!Number.isSafeInteger(detailLevel) || detailLevel < 0) {
+      throw new RangeError(`wood refinement ${refinement} requires a retained detailLevel`);
+    }
+    if (refinement > 0 && detailLevel <= (
+      packetValues[refinement - 1].sourceMaterial.sourceSurface.sourceGrid.detailLevel
+    )) {
+      throw new RangeError('wood refinement detailLevels must be strictly increasing');
+    }
+    return detailLevel;
+  });
+  const family = evaluateWoodOrientationGgxProfilesReference(packetValues, {
+    azimuths,
+    viewCosine,
+    triangleBudget,
+    materialBudget: refinementBudget,
+    probeBudget,
+  });
+  const detailLevels = new Uint32Array(detailLevelValues);
+  let maximumAdjacentSpecularDelta = 0;
+  for (let refinement = 1; refinement < refinementCount; refinement += 1) {
+    for (let probe = 0; probe < family.probeCount; probe += 1) {
+      maximumAdjacentSpecularDelta = Math.max(
+        maximumAdjacentSpecularDelta,
+        Math.abs(
+          family.meanSpecularBrdf[refinement * family.probeCount + probe]
+            - family.meanSpecularBrdf[(refinement - 1) * family.probeCount + probe]
+        ),
+      );
+    }
+  }
+
+  return Object.freeze({
+    kind: 'wood-cut-refinement-ggx-profiles:v1',
+    sourcePackets: family.sourcePackets,
+    orientation,
+    refinementCount,
+    refinementBudget,
+    detailLevels,
+    probeCount: family.probeCount,
+    probeBudget: family.probeBudget,
+    viewCosine,
+    azimuths: family.azimuths,
+    meanSpecularBrdf: family.meanSpecularBrdf,
+    meanReflectedRgb: family.meanReflectedRgb,
+    maximumAdjacentSpecularDelta,
+    vectorBytes: detailLevels.byteLength + family.vectorBytes,
+  });
+}
