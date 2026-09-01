@@ -203,6 +203,22 @@ identifier_number_tokens(source:str):
     fourth: number_token(source, fourth_start.position)
     (first:first, second:second, third:third, fourth:fourth)
 
+plus_token(source:str, start:int) -> Token:
+    cursor: _lexer_cursor_at(StringCursor(source), start)
+    cursor.eof?
+        false?! "plus start is outside the source"
+    (cursor.peek() = "+")?! "plus token must contain +"
+    token("PLUS", null, cursor.line, cursor.column)
+
+identifier_plus_tokens(source:str):
+    first_start: _lexer_skip_layout(StringCursor(source))
+    first: identifier_token(source, first_start.position)
+    operator_start: _lexer_skip_identifier(first_start)
+    operator: plus_token(source, operator_start.position)
+    third_start: _lexer_skip_layout(operator_start.advance())
+    third: identifier_token(source, third_start.position)
+    (first:first, operator:operator, third:third)
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
@@ -281,6 +297,7 @@ lexer_capability:
         "linked identifier token producer using StringCursor methods",
         "linked whitespace-skipping identifier pair producer",
         "linked identifier and decimal number token stream producer",
+        "linked plus operator token stream producer",
         "character class helpers",
         "token kind catalog",
         "scan_whitespace",
