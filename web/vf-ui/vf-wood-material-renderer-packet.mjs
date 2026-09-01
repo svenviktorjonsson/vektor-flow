@@ -126,6 +126,20 @@ function normalize(vector) {
   return vector.map((component) => component / length);
 }
 
+function dot(left, right) {
+  return left.reduce((sum, value, component) => (
+    sum + value * right[component]
+  ), 0);
+}
+
+function cross(left, right) {
+  return [
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0],
+  ];
+}
+
 function interpolate(values, components, vertexIndices, barycentric) {
   return Array.from({ length: components }, (_, component) => (
     vertexIndices.reduce((sum, vertex, corner) => (
@@ -213,5 +227,110 @@ export function sampleWoodMaterialTriangleReference(
       vertexIndices,
       barycentric,
     )[0],
+  });
+}
+
+function requireDirection(value, name) {
+  if (
+    !Array.isArray(value)
+    || value.length !== 3
+    || value.some((component) => !Number.isFinite(component))
+    || !(Math.hypot(...value) > 1e-12)
+  ) {
+    throw new RangeError(`${name} must be a finite non-zero vector`);
+  }
+  return normalize(value);
+}
+
+function ggxLambda(x, y, z, alphaX, alphaY) {
+  return (
+    Math.sqrt(1 + (
+      alphaX * alphaX * x * x
+      + alphaY * alphaY * y * y
+    ) / (z * z)) - 1
+  ) * 0.5;
+}
+
+export function evaluateWoodFaceGgxResponseReference(
+  sample,
+  { viewDirection: viewValue, lightDirection: lightValue },
+) {
+  if (
+    !sample
+    || sample.kind !== 'wood-cut-anisotropic-face-sample:v1'
+    || !sample.sourcePacket?.tangentFrame
+    || !Array.isArray(sample.surfaceNormal)
+    || !Array.isArray(sample.baseColor)
+    || !(sample.alphaX > 0)
+    || !(sample.alphaY > 0)
+  ) {
+    throw new TypeError('wood cut anisotropic face sample is required');
+  }
+  const normal = sample.surfaceNormal;
+  const sourceFrame = sample.sourcePacket.tangentFrame;
+  const tangent = normalize(sourceFrame.tangent.map((value, component) => (
+    value - normal[component] * dot(sourceFrame.tangent, normal)
+  )));
+  let bitangent = normalize(cross(normal, tangent));
+  if (dot(bitangent, sourceFrame.bitangent) < 0) {
+    bitangent = bitangent.map((component) => -component);
+  }
+  const view = requireDirection(viewValue, 'wood GGX viewDirection');
+  const light = requireDirection(lightValue, 'wood GGX lightDirection');
+  const viewZ = dot(view, normal);
+  const lightZ = dot(light, normal);
+  if (!(viewZ > 1e-8) || !(lightZ > 1e-8)) {
+    throw new RangeError('wood GGX directions must lie above the sampled face');
+  }
+  const halfway = normalize(view.map((value, component) => (
+    value + light[component]
+  )));
+  const local = (direction) => [
+    dot(direction, tangent),
+    dot(direction, bitangent),
+    dot(direction, normal),
+  ];
+  const [viewX, viewY] = local(view);
+  const [lightX, lightY] = local(light);
+  const [halfX, halfY, halfZ] = local(halfway);
+  const scaledHalfLengthSquared = (
+    halfX * halfX / (sample.alphaX * sample.alphaX)
+    + halfY * halfY / (sample.alphaY * sample.alphaY)
+    + halfZ * halfZ
+  );
+  const distribution = 1 / (
+    Math.PI
+    * sample.alphaX
+    * sample.alphaY
+    * scaledHalfLengthSquared
+    * scaledHalfLengthSquared
+  );
+  const maskingShadowing = 1 / (
+    1
+    + ggxLambda(viewX, viewY, viewZ, sample.alphaX, sample.alphaY)
+    + ggxLambda(lightX, lightY, lightZ, sample.alphaX, sample.alphaY)
+  );
+  const viewHalf = Math.max(0, dot(view, halfway));
+  const fresnel = 0.04 + 0.96 * ((1 - viewHalf) ** 5);
+  const specularBrdf = (
+    distribution
+    * maskingShadowing
+    * fresnel
+    / (4 * viewZ * lightZ)
+  );
+  const diffuseBrdf = (1 - fresnel) / Math.PI;
+  const reflectedRgb = sample.baseColor.slice(0, 3).map((baseColor) => (
+    (baseColor * diffuseBrdf + specularBrdf) * lightZ
+  ));
+
+  return Object.freeze({
+    kind: 'wood-cut-anisotropic-ggx-response:v1',
+    sourceSample: sample,
+    distribution,
+    maskingShadowing,
+    fresnel,
+    diffuseBrdf,
+    specularBrdf,
+    reflectedRgb: Object.freeze(reflectedRgb),
   });
 }
