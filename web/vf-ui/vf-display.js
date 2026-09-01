@@ -12587,9 +12587,31 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
         setKey: function (key, code, down) {
           var k = String(key || "").toLowerCase();
           var c = String(code || "");
-          if (k) { _vfInputKeys[k] = down === true; }
-          if (c) { _vfInputCodes[c] = down === true; }
+          var nextDown = down === true;
+          var wasDown = (k && _vfInputKeys[k] === true) || (c && _vfInputCodes[c] === true);
+          if (nextDown === wasDown) { return false; }
+          if (nextDown) {
+            if (k) { _vfInputKeys[k] = true; }
+            if (c) { _vfInputCodes[c] = true; }
+          } else {
+            if (k) { delete _vfInputKeys[k]; }
+            if (c) { delete _vfInputCodes[c]; }
+          }
           this.seq = (Number(this.seq || 0) + 1) >>> 0;
+          return true;
+        },
+        releaseAll: function () {
+          var keys = Object.keys(_vfInputKeys);
+          var codes = Object.keys(_vfInputCodes);
+          if (keys.length === 0 && codes.length === 0) { return false; }
+          for (var keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+            delete _vfInputKeys[keys[keyIndex]];
+          }
+          for (var codeIndex = 0; codeIndex < codes.length; codeIndex += 1) {
+            delete _vfInputCodes[codes[codeIndex]];
+          }
+          this.seq = (Number(this.seq || 0) + 1) >>> 0;
+          return true;
         },
         isDown: function (keyOrCode) {
           var raw = String(keyOrCode || "");
@@ -12604,8 +12626,11 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     }
 
     function keyEvt(evtName, e) {
+      if (evtName === "key_down" && e && e.repeat === true) { return; }
       if (global.VfInput && typeof global.VfInput.setKey === "function") {
-        global.VfInput.setKey(e && e.key, e && e.code, evtName === "key_down");
+        if (global.VfInput.setKey(e && e.key, e && e.code, evtName === "key_down") === false) {
+          return;
+        }
       }
       if (nativeGameCameraOwnsKey(e)) {
         return;
@@ -12617,6 +12642,7 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
         }
         if (keyId) { _vfPostedKeyDown[keyId] = true; }
       } else if (evtName === "key_up" && keyId) {
+        if (_vfPostedKeyDown[keyId] !== true) { return; }
         delete _vfPostedKeyDown[keyId];
       }
       postEvent({
@@ -12633,6 +12659,20 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
 
     global.addEventListener("keydown", function(e) { keyEvt("key_down", e); }, { passive: true, capture: true });
     global.addEventListener("keyup",   function(e) { keyEvt("key_up",   e); }, { passive: true, capture: true });
+    function releaseHeldInput() {
+      if (global.VfInput && typeof global.VfInput.releaseAll === "function") {
+        global.VfInput.releaseAll();
+      }
+      _vfPostedKeyDown = Object.create(null);
+    }
+    global.addEventListener("blur", releaseHeldInput, { passive: true, capture: true });
+    if (global.document && typeof global.document.addEventListener === "function") {
+      global.document.addEventListener("visibilitychange", function () {
+        if (global.document.visibilityState === "hidden") {
+          releaseHeldInput();
+        }
+      }, { passive: true, capture: true });
+    }
     global.addEventListener("keydown", function(e) {
       var key = String(e && e.key || "").toLowerCase();
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && key === "g" && !targetIsEditable(e.target)) {

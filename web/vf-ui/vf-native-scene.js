@@ -8923,6 +8923,7 @@
       global.addEventListener("keydown", function (ev) {
         var key = String(ev && ev.key || "");
         if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "ArrowUp" && key !== "ArrowDown") { return; }
+        if (ev && ev.repeat === true) { return; }
         var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
         var activeState = activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
           ? global.__vfNativeSceneCameraControls.states[activeFrameId]
