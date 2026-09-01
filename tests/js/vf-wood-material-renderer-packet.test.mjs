@@ -175,3 +175,37 @@ test('renderer packet aligns the proven anisotropic GGX lobe to its cut-plane fr
     packet.ggxLobe.alphaX.byteLength + packet.ggxLobe.alphaY.byteLength,
   );
 });
+
+test('renderer packet rejects an over-capacity GGX vertex plane before realization', () => {
+  const material = proceduralSideGrainMaterial();
+  const vertexCount = 65537;
+  const oversizedGrid = Object.freeze({
+    ...material.sourceSurface.sourceGrid,
+    rows: 1,
+    columns: vertexCount,
+    sampleCount: vertexCount,
+  });
+  const oversizedSurface = Object.freeze({
+    ...material.sourceSurface,
+    sourceGrid: oversizedGrid,
+    positions: new Float32Array(vertexCount * 3),
+    indices: new Uint32Array(),
+  });
+  const oversizedMaterial = Object.freeze({
+    ...material,
+    sourceSurface: oversizedSurface,
+    positions: oversizedSurface.positions,
+    baseColors: new Float32Array(vertexCount * 4),
+    normalRgba8: new Uint8ClampedArray(vertexCount * 4),
+    roughnessR8: new Uint8Array(vertexCount),
+    imageWidth: vertexCount,
+    imageHeight: 1,
+  });
+
+  assert.throws(
+    () => adaptWoodCutMaterialToTriangleFacesReference(oversizedMaterial, {
+      triangleBudget: 0,
+    }),
+    /wood cut material exceeds GGX vertex capacity 65536/,
+  );
+});
