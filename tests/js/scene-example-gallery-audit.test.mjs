@@ -43,12 +43,13 @@ test("2D Frame.add plots omit the 3D z field", () => {
 
 test("the first 2D plot is one x/y line with default constant pixel width", () => {
   const source = sources.get("01-line-plot");
-  const x = JSON.parse(bracketField(source, "x"));
-  const y = JSON.parse(bracketField(source, "y"));
   const violations = [];
-  if (!x.every(Number.isFinite)) violations.push("x is not one flat numeric vector");
-  if (!y.every(Number.isFinite)) violations.push("y is not one flat numeric vector");
-  if (x.length !== y.length) violations.push("x/y vector lengths differ");
+  if (!/x\s*:\s*\[\.\.[1-9][0-9]{2,}\]/u.test(source)) {
+    violations.push("x is not generated from a dense vector range");
+  }
+  if (!/:\.math/u.test(source) || !/y\s*:\s*0\.85\s*\*\s*sin\(x\s*\*\s*pi\)/u.test(source)) {
+    violations.push("math is not spilled before applying a padded sin curve to x");
+  }
   if (/\bz\s*:/u.test(source)) violations.push("z is present");
   if (/(?:\bw\s*:|(?:line|stroke|pixel)_?width\s*:)/u.test(source)) {
     violations.push("explicit w/width is present");

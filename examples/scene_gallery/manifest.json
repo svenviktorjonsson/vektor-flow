@@ -10,16 +10,22 @@
         "plot"
       ],
       "source": "01-line-plot/app.vkf",
-      "sourceSha256": "1c33f9c359af04e3cfa30a3a071a78e6df8dc3429d9d7a25064ec5df42084f10",
+      "sourceSha256": "a05384f20bff074480f412d02c5d08f1296acdf3d389012f38570ee24f1dc4a0",
       "media": {
         "path": "docs/public/images/scene-gallery/01-line-plot.png",
-        "sha256": "ca2664413bd2d3049bfcbb4e0a1361898f33d581a97a5ad51143f071c212d144"
+        "sha256": "e6975e110ea0a38cbea0a308dfebbd02daf5375fb8ff278eee4a6480e38d436f"
       },
       "capture": {
         "hidden": true,
         "applicationJavaScript": false,
         "api": "Page.captureScreenshot",
-        "frame": "frame_0"
+        "frame": "frame_0",
+        "verification": {
+          "kind": "constant-line-width",
+          "meshId": "sine",
+          "width": "default",
+          "constant": true
+        }
       }
     },
     {
@@ -302,10 +308,10 @@
         "color"
       ],
       "source": "14-layered-bands/app.vkf",
-      "sourceSha256": "c98e12c67f3663a34cd943fc85dcd20747f77b7076e30ebec5ce2d2d5a9b3062",
+      "sourceSha256": "3ca8f75890523c110434004b5e7ce46548ecce47c0d4ed2016b3cc0fd717a746",
       "media": {
         "path": "docs/public/images/scene-gallery/14-layered-bands.png",
-        "sha256": "156b2853d93044163f748c29b285630a6d45e14579a2bbef76b8a03275420eb1"
+          "sha256": "b52ac89b99fdfaf58f7cc2cdbab350801aceef434e90408529d844d87f9a39fd"
       },
       "capture": {
         "hidden": true,
@@ -393,10 +399,10 @@
         "polar-coordinates"
       ],
       "source": "18-polar-ribbon/app.vkf",
-      "sourceSha256": "7953dd326765396fa4a2a66308b1590ffecdd571d56a78930d959de9892d847a",
+      "sourceSha256": "161f3e2efce50f79ce288a15147b5a974c1bc547df94e800841889ebd66b0566",
       "media": {
         "path": "docs/public/images/scene-gallery/18-polar-ribbon.png",
-        "sha256": "0cb6b66ea5560ba268745c270255b28bc37b497b79222a0f1445e4a5705bec79"
+          "sha256": "efac9edf84d5c2b157fc0286ef4ca393614f2ba960825b9c737a8b89434e690e"
       },
       "capture": {
         "hidden": true,
