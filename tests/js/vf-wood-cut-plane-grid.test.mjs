@@ -130,3 +130,38 @@ test('packed cut grid carries its normalized plane coordinates', () => {
   assert.ok(Object.isFrozen(grid.axisU));
   assert.ok(Object.isFrozen(grid.axisV));
 });
+
+test('cut grid reports its hard budget and rejects over-budget planes before sampling', () => {
+  const { field, coordinates } = makeWoodVolume();
+  const trunk = coordinates.segments[0];
+  const options = {
+    field,
+    coordinates,
+    segmentIndex: 0,
+    center: pointOnSegment(trunk, trunk.length * 0.5),
+    axisU: trunk.radialU,
+    axisV: trunk.radialV,
+    width: trunk.radius,
+    height: trunk.radius,
+    columns: 2,
+    rows: 2,
+    detailLevel: 0,
+    footprint: 0.3,
+    sampleBudget: 4,
+  };
+  const bounded = packWoodCutPlaneGridReference(options);
+
+  assert.equal(bounded.budget, 4);
+  assert.equal(bounded.truncated, false);
+  assert.throws(() => packWoodCutPlaneGridReference({
+    ...options,
+    field: null,
+    sampleBudget: 3,
+  }), /exceeds sampleBudget/);
+  assert.throws(() => packWoodCutPlaneGridReference({
+    ...options,
+    rows: 257,
+    columns: 256,
+    sampleBudget: 65536,
+  }), /exceeds sampleBudget/);
+});
