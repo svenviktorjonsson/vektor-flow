@@ -1,7 +1,13 @@
 # VKF Style Guide
 
-This guide covers VKF-specific choices between equivalent valid forms. General
-software-design advice does not belong here.
+This guide covers canonical VKF forms and repository documentation style.
+General software-design advice does not belong here.
+
+## Documentation
+
+Wrap Markdown prose at 80 columns. Leave code fences, tables, badges, HTML,
+link targets, and generated markers intact when wrapping would damage their
+syntax or generated form.
 
 ## Functions And Returns
 
@@ -36,7 +42,8 @@ ret: (..3 >> $^2)
 ```
 
 Semicolons are suitable for a short multi-row stage. Each semicolon begins a
-new row at the stage's current logical indentation; following spaces are ignored:
+new row at the stage's current logical indentation; following spaces are
+ignored:
 
 ```vkf
 ret: (array >> doubled: $ * 2; doubled + 1)
