@@ -1,5 +1,6 @@
 const MAX_TRIANGLES = 131072;
 const MAX_GGX_VERTICES = 65536;
+const MAX_GGX_BATCH_SAMPLES = 4096;
 const REFERENCE_GGX_ANISOTROPY = 0.65;
 const REFERENCE_GGX_MIN_ALPHA = 0.08;
 const packetCache = new WeakMap();
@@ -332,5 +333,68 @@ export function evaluateWoodFaceGgxResponseReference(
     diffuseBrdf,
     specularBrdf,
     reflectedRgb: Object.freeze(reflectedRgb),
+  });
+}
+
+export function evaluateWoodTriangleGgxBatchReference(
+  packet,
+  {
+    triangle,
+    barycentricSamples,
+    viewDirection,
+    lightDirection,
+    sampleBudget,
+  },
+) {
+  if (!Array.isArray(barycentricSamples)) {
+    throw new TypeError('wood GGX barycentricSamples must be an array');
+  }
+  if (
+    !Number.isSafeInteger(sampleBudget)
+    || sampleBudget < 0
+    || sampleBudget > MAX_GGX_BATCH_SAMPLES
+  ) {
+    throw new RangeError(
+      `wood GGX sampleBudget must be an integer from 0 to ${MAX_GGX_BATCH_SAMPLES}`,
+    );
+  }
+  const sampleCount = barycentricSamples.length;
+  if (sampleCount > sampleBudget) {
+    throw new RangeError('wood triangle GGX batch exceeds sampleBudget');
+  }
+
+  const positions = new Float32Array(sampleCount * 3);
+  const surfaceNormals = new Float32Array(sampleCount * 3);
+  const specularBrdf = new Float32Array(sampleCount);
+  const reflectedRgb = new Float32Array(sampleCount * 3);
+  for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+    const sample = sampleWoodMaterialTriangleReference(packet, {
+      triangle,
+      barycentric: barycentricSamples[sampleIndex],
+    });
+    const response = evaluateWoodFaceGgxResponseReference(sample, {
+      viewDirection,
+      lightDirection,
+    });
+    positions.set(sample.position, sampleIndex * 3);
+    surfaceNormals.set(sample.surfaceNormal, sampleIndex * 3);
+    specularBrdf[sampleIndex] = response.specularBrdf;
+    reflectedRgb.set(response.reflectedRgb, sampleIndex * 3);
+  }
+
+  return Object.freeze({
+    kind: 'wood-cut-triangle-ggx-batch:v1',
+    sourcePacket: packet,
+    triangle,
+    sampleCount,
+    sampleBudget,
+    positions,
+    surfaceNormals,
+    specularBrdf,
+    reflectedRgb,
+    vectorBytes: positions.byteLength
+      + surfaceNormals.byteLength
+      + specularBrdf.byteLength
+      + reflectedRgb.byteLength,
   });
 }
