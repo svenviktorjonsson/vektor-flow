@@ -5,12 +5,13 @@
 #include <string>
 #include <string_view>
 
-struct VkfCursor {
+struct StringCursor {
     std::string_view source;
     std::string_view file;
-    std::size_t index;
+    std::size_t position;
     std::size_t line;
     std::size_t column;
+    bool eof;
 };
 
 namespace vkf_string_detail {
@@ -111,14 +112,15 @@ inline std::string vkf_string_slice_bytes(
     return std::string(source.substr(start_byte, stop_byte - start_byte));
 }
 
-inline VkfCursor vkf_cursor_advance_scalar(VkfCursor cursor) {
-    const std::string scalar = vkf_string_peek_scalar(cursor.source, cursor.index);
-    cursor.index += scalar.size();
+inline StringCursor vkf_cursor_advance_scalar(StringCursor cursor) {
+    const std::string scalar = vkf_string_peek_scalar(cursor.source, cursor.position);
+    cursor.position += scalar.size();
     if (scalar == "\n") {
         cursor.line += 1;
         cursor.column = 1;
     } else {
         cursor.column += 1;
     }
+    cursor.eof = vkf_string_eof(cursor.source, cursor.position);
     return cursor;
 }

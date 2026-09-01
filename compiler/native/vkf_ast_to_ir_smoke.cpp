@@ -3198,9 +3198,23 @@ private:
                 return vf::JsonValue(std::move(block));
             }
             std::string primitive_callee;
+            std::string instance_method_callee;
+            vf::JsonValue instance_method_owner;
             if (string_field(callee_ast, "kind", "call.callee") == "identifier") {
                 primitive_callee = primitive_type_name(
                     string_field(callee_ast, "name", "call.callee"), env);
+            } else if (string_field(callee_ast, "kind", "call.callee") == "attribute") {
+                const auto& owner_ast = object_of(
+                    field(callee_ast, "object", "method callee"), "method owner");
+                if (string_field(owner_ast, "kind", "method owner") == "identifier" &&
+                    env.get(string_field(owner_ast, "name", "method owner")) == "StringCursor") {
+                    const std::string method = string_field(callee_ast, "name", "method callee");
+                    if (method == "peek" || method == "advance" || method == "slice") {
+                        instance_method_callee = "_string_cursor_" + method;
+                        instance_method_owner = lower_expr(
+                            field(callee_ast, "object", "method callee"), env);
+                    }
+                }
             }
             vf::JsonValue callee = lower_expr(field(object, "callee", "call"), env);
             if (!primitive_callee.empty()) {
@@ -3235,6 +3249,15 @@ private:
                 arg_types.push_back(argument_type);
                 argument_type_names.push_back(argument_type.as_string());
                 args.push_back(std::move(lowered_arg));
+            }
+            if (!instance_method_callee.empty()) {
+                argument_type_names.insert(argument_type_names.begin(), "StringCursor");
+                arg_types.insert(arg_types.begin(), vf::JsonValue("StringCursor"));
+                args.insert(args.begin(), std::move(instance_method_owner));
+                auto method_callee = node("load");
+                method_callee["name"] = vf::JsonValue(instance_method_callee);
+                method_callee["type"] = vf::JsonValue("any");
+                callee = vf::JsonValue(std::move(method_callee));
             }
             if (string_field(callee_ast, "kind", "call.callee") == "attribute") {
                 const auto& owner_ast = object_of(
@@ -3400,10 +3423,13 @@ private:
                     call_type = symbolic_function->return_type;
                 }
             }
-            if (string_field(callee_ast, "kind", "call.callee") == "identifier") {
-                const std::string callee_name = primitive_callee.empty()
-                    ? string_field(callee_ast, "name", "call.callee")
-                    : primitive_callee;
+            if (string_field(callee_ast, "kind", "call.callee") == "identifier" ||
+                !instance_method_callee.empty()) {
+                const std::string callee_name = !instance_method_callee.empty()
+                    ? instance_method_callee
+                    : (primitive_callee.empty()
+                        ? string_field(callee_ast, "name", "call.callee")
+                        : primitive_callee);
                 static const std::set<std::string> elementwise_math_functions{
                     "tan", "sec", "cot", "csc", "sinh", "cosh", "tanh",
                     "lg", "lg2", "asinh", "acosh", "atanh", "atan", "asin",

@@ -4,27 +4,38 @@
 # during bootstrap only. Target: replace old Python lexer with VKF-owned lexer.
 
 Token: (kind:str, value:any, line:num, column:num)
-Cursor: (source:str, file:str, index:num, line:num, column:num)
 LexResult: (tokens:any, errors:any)
 ScannerState: (name:str, token_kind:str, starts:any, stops:any, emits:bit)
-CursorSlice: (start:Cursor, stop:Cursor, text:str)
 
 token(kind:str, value:any, line:num, column:num):
     (kind: kind, value: value, line: line, column: column)
 
-cursor(source:str, file:str):
-    (source: source, file: file, index: 0, line: 1, column: 1)
+StringCursor(source:str):
+    bit at_eof: vkf_string_eof(source, 0)
+    (source: source, position: 0, line: 1, column: 1,
+     eof: at_eof)
 
-eof(cursor:Cursor):
-    vkf_string_eof(cursor.source, cursor.index)
+CursorSlice: (start:StringCursor, stop:StringCursor, text:str)
 
-peek(cursor:Cursor):
-    vkf_string_peek_scalar(cursor.source, cursor.index)
+_string_cursor_peek(cursor:StringCursor) -> str:
+    vkf_string_peek_scalar(cursor.source, cursor.position)
 
-advance(cursor:Cursor):
+_string_cursor_advance(cursor:StringCursor) -> StringCursor:
     vkf_cursor_advance_scalar(cursor)
 
-consume_while(cursor:Cursor, predicate_name:str):
+_string_cursor_slice(cursor:StringCursor, start:num, stop:num) -> str:
+    vkf_utf8_slice(cursor.source, start, stop)
+
+_lexer_peek(cursor:StringCursor) -> str:
+    cursor.peek()
+
+_lexer_advance(cursor:StringCursor) -> StringCursor:
+    cursor.advance()
+
+_lexer_slice(cursor:StringCursor, start:num, stop:num) -> str:
+    cursor.slice(start, stop)
+
+consume_while(cursor:StringCursor, predicate_name:str):
     consume_while_primitive(cursor, predicate_name)
 
 is_digit(ch:str):
@@ -111,7 +122,7 @@ identifier_number_parity_fixture:
     source: "alpha 123 beta45 6.7"
     expected_tokens: ["IDENT:alpha", "NUMBER:123", "IDENT:beta45", "NUMBER:6.7", "EOF"]
     notes: [
-        "fixture is a source-level contract until VKF string indexing and slicing exist",
+        "StringCursor owns scalar-safe position, peek, advance, slice, and EOF",
         "token stream should match old Python lexer for identifier and number tokens"
     ]
     :
@@ -132,6 +143,9 @@ lexer_capability:
         "token data model",
         "cursor data model",
         "cursor helper shapes",
+        "public StringCursor source constructor",
+        "UTF-8 scalar-safe peek advance and slice",
+        "byte position and EOF update after each advance",
         "character class helpers",
         "token kind catalog",
         "scan_whitespace",
@@ -146,12 +160,6 @@ lexer_capability:
         "native lexer contract artifact lexes curated fixtures without Python lexer fallback"
     ]
     missing: [
-        "vkf_string_byte_len primitive VKF binding",
-        "vkf_string_eof primitive VKF binding",
-        "vkf_string_peek_scalar primitive VKF binding",
-        "vkf_string_scalar_width primitive VKF binding",
-        "vkf_string_slice_bytes primitive VKF binding",
-        "vkf_cursor_advance_scalar primitive VKF binding",
         "consume_while_primitive loop support",
         "predicate dispatch by name",
         "full VKF indent stack implementation",
@@ -160,12 +168,6 @@ lexer_capability:
         "full VKF token stream json implementation"
     ]
     language_pressure: [
-        "vkf_string_byte_len for O(1) source byte length",
-        "vkf_string_eof for cursor EOF checks",
-        "vkf_string_peek_scalar for Unicode scalar peek",
-        "vkf_string_scalar_width for byte offset advance",
-        "vkf_string_slice_bytes for token text capture",
-        "vkf_cursor_advance_scalar updates line and column",
         "first-class predicate functions would replace predicate_name strings"
     ]
     percent: 96
