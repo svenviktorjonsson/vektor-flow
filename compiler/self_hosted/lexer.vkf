@@ -104,6 +104,28 @@ identifier_token(source:str, start:int) -> Token:
     is_identifier_start(cursor.peek())?! "identifier token must start with a letter or underscore"
     _lexer_scan_identifier(cursor, start, cursor.line, cursor.column)
 
+_lexer_skip_layout(cursor:StringCursor) -> StringCursor:
+    cursor.eof?
+        @: cursor
+    (is_whitespace(cursor.peek()) \/ is_newline(cursor.peek()))?
+        @: _lexer_skip_layout(cursor.advance())
+    cursor
+
+_lexer_skip_identifier(cursor:StringCursor) -> StringCursor:
+    cursor.eof?
+        @: cursor
+    is_ident_continue(cursor.peek())?
+        @: _lexer_skip_identifier(cursor.advance())
+    cursor
+
+identifier_pair(source:str):
+    first_start: _lexer_skip_layout(StringCursor(source))
+    first: identifier_token(source, first_start.position)
+    after_first: _lexer_skip_identifier(first_start)
+    second_start: _lexer_skip_layout(after_first)
+    second: identifier_token(source, second_start.position)
+    (first:first, second:second)
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
@@ -180,6 +202,7 @@ lexer_capability:
         "UTF-8 scalar-safe peek advance and slice",
         "byte position and EOF update after each advance",
         "linked identifier token producer using StringCursor methods",
+        "linked whitespace-skipping identifier pair producer",
         "character class helpers",
         "token kind catalog",
         "scan_whitespace",
