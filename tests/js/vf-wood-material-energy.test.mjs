@@ -4,6 +4,40 @@ import assert from 'node:assert/strict';
 import {
   evaluateWoodCutWhiteFurnaceReference,
 } from '../../web/vf-ui/vf-wood-material-energy.mjs';
+import {
+  createForestPopulationReference,
+  realizeForestPatchesReference,
+} from '../../web/vf-ui/vf-forest-population.mjs';
+import {
+  createTreeGeometryPlannerReference,
+  planTreeGeometryReference,
+} from '../../web/vf-ui/vf-tree-geometry-plan.mjs';
+import {
+  createWoodGrowthCoordinateFieldReference,
+  realizeWoodGrowthCoordinatesReference,
+} from '../../web/vf-ui/vf-wood-growth-coordinates.mjs';
+import {
+  createWoodVolumeFieldReference,
+} from '../../web/vf-ui/vf-wood-volume-field.mjs';
+import {
+  packWoodCutPlaneGridReference,
+} from '../../web/vf-ui/vf-wood-cut-plane-grid.mjs';
+import {
+  packWoodCutSurfacePacketReference,
+} from '../../web/vf-ui/vf-wood-cut-surface-packet.mjs';
+import {
+  packWoodCutMaterialPacketReference,
+} from '../../web/vf-ui/vf-wood-cut-material-packet.mjs';
+
+const IDENTITY = Object.freeze({
+  generator: 'vkf.conditioned',
+  version: 1,
+  seed: Object.freeze([0x1f83d9ab, 0x5be0cd19]),
+  domain: 'material',
+  hierarchy: Object.freeze(['world:boreal', 'forest:north-slope']),
+  lod: 0,
+  channel: 'population',
+});
 
 function materialPacket() {
   return Object.freeze({
@@ -60,4 +94,59 @@ test('white-furnace evaluation is retained and rejects over-budget material befo
     () => evaluateWoodCutWhiteFurnaceReference(material, { sampleBudget: 1 }),
     /exceeds sampleBudget/,
   );
+});
+
+test('every current end-grain and side-grain refinement level remains energy conserving', () => {
+  const forest = realizeForestPatchesReference(
+    createForestPopulationReference(IDENTITY),
+    { patches: [[-2, 3]], treeBudget: 32 },
+  );
+  const geometry = planTreeGeometryReference(
+    createTreeGeometryPlannerReference(IDENTITY),
+    forest,
+    { treeIndices: [0], detailLevels: [2], primitiveBudget: 64 },
+  );
+  const coordinates = realizeWoodGrowthCoordinatesReference(
+    createWoodGrowthCoordinateFieldReference(),
+    geometry,
+    { segmentBudget: 64 },
+  );
+  const field = createWoodVolumeFieldReference(IDENTITY);
+  const trunk = coordinates.segments[0];
+  const center = trunk.origin.map((origin, component) => (
+    origin + trunk.axis[component] * trunk.length * 0.42
+  ));
+  const refinements = [
+    { detailLevel: 0, footprint: 0.30 },
+    { detailLevel: 1, footprint: 0.07 },
+    { detailLevel: 2, footprint: 0 },
+  ];
+  for (const refinement of refinements) {
+    for (const [orientation, axisV, height] of [
+      ['end-grain', trunk.radialV, trunk.radius * 1.2],
+      ['side-grain', trunk.axis, trunk.length * 0.4],
+    ]) {
+      const grid = packWoodCutPlaneGridReference({
+        field,
+        coordinates,
+        segmentIndex: 0,
+        center,
+        axisU: trunk.radialU,
+        axisV,
+        width: trunk.radius * 1.2,
+        height,
+        columns: 5,
+        rows: 5,
+        ...refinement,
+        sampleBudget: 25,
+      });
+      const surface = packWoodCutSurfacePacketReference(grid, orientation);
+      const material = packWoodCutMaterialPacketReference(surface);
+      const oracle = evaluateWoodCutWhiteFurnaceReference(material, { sampleBudget: 25 });
+
+      assert.equal(oracle.violations, 0);
+      assert.ok(oracle.minimumEnergy >= 0);
+      assert.ok(oracle.maximumEnergy <= 1);
+    }
+  }
 });
