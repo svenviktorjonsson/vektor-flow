@@ -124,3 +124,23 @@ test('renderer packet consumes every procedural wood cell as two complete triang
     assert.ok(signedArea > 0, `triangle ${triangle} must be non-degenerate and front-facing`);
   }
 });
+
+test('renderer packet rejects a face index outside the procedural vertex set', () => {
+  const material = proceduralSideGrainMaterial();
+  const invalidIndices = material.sourceSurface.indices.slice();
+  invalidIndices[0] = material.imageWidth * material.imageHeight;
+  const invalidMaterial = Object.freeze({
+    ...material,
+    sourceSurface: Object.freeze({
+      ...material.sourceSurface,
+      indices: invalidIndices,
+    }),
+  });
+
+  assert.throws(
+    () => adaptWoodCutMaterialToTriangleFacesReference(invalidMaterial, {
+      triangleBudget: 32,
+    }),
+    /triangle index 0 must reference a retained vertex/,
+  );
+});
