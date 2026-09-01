@@ -111,3 +111,60 @@ test('trunk and branch sample the same volume at their shared attachment', () =>
   assert.ok(Math.abs(trunk.fiber - branch.fiber) < 1e-6);
   assert.deepEqual(trunk.baseColor, branch.baseColor);
 });
+
+test('wood volume demand filters fine scales without changing deterministic identity', () => {
+  const forest = realizeForestPatchesReference(
+    createForestPopulationReference(IDENTITY),
+    { patches: [[-2, 3]], treeBudget: 32 },
+  );
+  const geometry = planTreeGeometryReference(
+    createTreeGeometryPlannerReference(IDENTITY),
+    forest,
+    { treeIndices: [0], detailLevels: [2], primitiveBudget: 64 },
+  );
+  const coordinates = realizeWoodGrowthCoordinatesReference(
+    createWoodGrowthCoordinateFieldReference(),
+    geometry,
+    { segmentBudget: 64 },
+  );
+  const trunk = coordinates.segments[0];
+  const point = pointOnSegment(trunk, trunk.length * 0.31, trunk.radius * 0.37);
+  const field = createWoodVolumeFieldReference(IDENTITY);
+  const coarse = sampleWoodVolumeReference(
+    field,
+    coordinates,
+    0,
+    point,
+    { detailLevel: 0, footprint: 0 },
+  );
+  const fine = sampleWoodVolumeReference(
+    field,
+    coordinates,
+    0,
+    point,
+    { detailLevel: 2, footprint: 0 },
+  );
+  const filtered = sampleWoodVolumeReference(
+    field,
+    coordinates,
+    0,
+    point,
+    { detailLevel: 2, footprint: 0.3 },
+  );
+  const recreated = sampleWoodVolumeReference(
+    createWoodVolumeFieldReference(IDENTITY),
+    coordinates,
+    0,
+    point,
+    { detailLevel: 2, footprint: 0 },
+  );
+
+  assert.equal(coarse.activeScales, 1);
+  assert.equal(fine.activeScales, 3);
+  assert.equal(filtered.activeScales, 0);
+  assert.equal(filtered.ring, 0.5);
+  assert.equal(filtered.ray, 0);
+  assert.equal(filtered.fiber, 0.5);
+  assert.notDeepEqual(coarse.baseColor, fine.baseColor);
+  assert.deepEqual(recreated, fine);
+});
