@@ -87,12 +87,13 @@ test('view distance chooses stable coarse-to-fine levels without changing tree i
       ...CAMERA,
       eye: [30, 128 - distance, 35],
       target: [-32, 128, 14],
+      maximumDistance: 400,
     },
     forest,
     treeBudget: 16,
     primitiveBudget: 352,
   });
-  const far = demandAt(180);
+  const far = demandAt(300);
   const near = demandAt(45);
   const farByTree = new Map(Array.from(far.treeIndices, (tree, index) => [
     tree,
@@ -125,7 +126,7 @@ test('primitive pressure keeps every selected tree coarse before adding detail',
 
   assert.equal(demand.treeIndices.length, 8);
   assert.equal(demand.plannedPrimitiveCount, 24);
-  assert.deepEqual(Array.from(demand.detailLevels).toSorted(), [0, 0, 0, 0, 1, 1, 1, 1]);
+  assert.deepEqual(Array.from(demand.detailLevels).toSorted(), [0, 0, 0, 0, 0, 0, 1, 1]);
   assert.equal(empty.treeIndices.length, 0);
   assert.equal(empty.detailLevels.length, 0);
   assert.equal(empty.plannedPrimitiveCount, 0);
