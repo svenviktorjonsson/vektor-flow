@@ -495,6 +495,21 @@ parse_tagged_binding_add_subtract(
     [num:3] values: [token_rows.(15), token_rows.(39), token_rows.(51)]
     (kind:"add_subtract", values:values)
 
+parse_tagged_binding_add_divide(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedNestedAddition:
+    (token_count = 11)?! "division tracer expects binding, expression, and EOF"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 6 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 1 /\ token_rows.(30) = 2 /\
+        token_rows.(36) = 3 /\ token_rows.(42) = 9 /\
+        token_rows.(48) = 3 /\ token_rows.(54) = 4 /\
+        token_rows.(60) = 5)?! "division tracer token shape mismatch"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(25), token_rows.(26)))?! "division expression does not match its binding"
+    [num:3] values: [token_rows.(15), token_rows.(39), token_rows.(51)]
+    (kind:"add_divide", values:values)
+
 tagged_module_statement(
     module:TaggedStatementModule, index:int
 ) -> TaggedBinaryOpNode:

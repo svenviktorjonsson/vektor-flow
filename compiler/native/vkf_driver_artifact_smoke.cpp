@@ -618,6 +618,8 @@ inline constexpr const char* kClosedAddMultiplyPipelineComponent =
     "machine_ir.closed_add_multiply.typed_module_pipeline";
 inline constexpr const char* kClosedAddSubtractPipelineComponent =
     "machine_ir.closed_add_subtract.typed_module_pipeline";
+inline constexpr const char* kClosedAddDividePipelineComponent =
+    "machine_ir.closed_add_divide.typed_module_pipeline";
 
 std::vector<std::string> tracer_observation_lines(
     const std::string& observation,
@@ -944,6 +946,52 @@ vkf::machine_ir::Module parse_closed_add_subtract_observation(
     return module;
 }
 
+vkf::machine_ir::Module parse_closed_add_divide_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(
+        observation, 15, "closed add-divide tracer");
+    const std::vector<std::pair<std::size_t, std::string>> fixed{
+        {0, "vektorflow.machine_ir"}, {1, "4"}, {2, "f64"}, {3, "1"},
+        {4, "$entry"}, {5, "3"}, {6, "push_f64"}, {8, "push_f64"},
+        {10, "push_f64"}, {12, "divide_f64"}, {13, "add_f64"},
+        {14, "return_f64"}};
+    for (const auto& [index, expected] : fixed) {
+        require_tracer_leaf(lines, index, expected);
+    }
+
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure(
+            "closed add-divide tracer source identity has the wrong byte width");
+    }
+    const auto instruction = [](vkf::machine_ir::Opcode opcode, double value = 0.0) {
+        vkf::machine_ir::Instruction result;
+        result.opcode = opcode;
+        result.f64 = value;
+        return result;
+    };
+
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions = {
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[7], 7)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[9], 9)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[11], 11)),
+        instruction(vkf::machine_ir::Opcode::DivideF64),
+        instruction(vkf::machine_ir::Opcode::AddF64),
+        instruction(vkf::machine_ir::Opcode::ReturnF64)};
+    entry.max_stack = 3;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
 vkf::machine_ir::Module parse_conditional_tracer_observation(
     const std::string& observation,
     const std::string& source_graph_fingerprint
@@ -1175,7 +1223,10 @@ vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
                 parent.string());
         }
     }
-    auto machine_module = component == kClosedAddSubtractPipelineComponent
+    auto machine_module = component == kClosedAddDividePipelineComponent
+        ? parse_closed_add_divide_observation(
+            observation, source_graph_fingerprint)
+        : component == kClosedAddSubtractPipelineComponent
         ? parse_closed_add_subtract_observation(
             observation, source_graph_fingerprint)
         : component == kClosedAddMultiplyPipelineComponent
@@ -1251,6 +1302,7 @@ vf::JsonValue::Object dispatch_internal_stage_component(
         && component != kClosedNestedAdditionPipelineComponent
         && component != kClosedAddMultiplyPipelineComponent
         && component != kClosedAddSubtractPipelineComponent
+        && component != kClosedAddDividePipelineComponent
 #endif
     ) {
         throw DriverFailure("unknown internal Stage component: " + component);
@@ -1309,7 +1361,8 @@ vf::JsonValue::Object dispatch_internal_stage_component(
         component == kClosedBindingPipelineComponent ||
         component == kClosedNestedAdditionPipelineComponent ||
         component == kClosedAddMultiplyPipelineComponent ||
-        component == kClosedAddSubtractPipelineComponent) {
+        component == kClosedAddSubtractPipelineComponent ||
+        component == kClosedAddDividePipelineComponent) {
         return dispatch_internal_typed_module_pipeline(
             component, artifact, source, oracle, selected, provenance,
             source_graph_fingerprint, executed.stdout_text);
