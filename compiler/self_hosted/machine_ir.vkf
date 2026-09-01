@@ -290,6 +290,20 @@ mir_tagged_add_multiply(values:[num:3]) -> TaggedNestedMachineStatement:
         max_stack:3
     )
 
+mir_tagged_add_subtract(values:[num:3]) -> TaggedNestedMachineStatement:
+    (
+        name:"\$entry",
+        instructions:[
+            _mir_tagged_instruction("push_f64", value:values.0),
+            _mir_tagged_instruction("push_f64", value:values.1),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("push_f64", value:values.2),
+            _mir_tagged_instruction("subtract_f64"),
+            _mir_tagged_instruction("return_f64")
+        ],
+        max_stack:2
+    )
+
 mir_assemble_closed_nested_module(
     statement:TaggedNestedMachineStatement,
     validated_max_stack:num

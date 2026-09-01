@@ -493,12 +493,14 @@ _scan_tagged_statement_tokens(
         )
         @: _scan_tagged_statement_tokens(identifier_stop, next_tape, 1)
     (expected = 1)?
-        (cursor.peek() = "+" \/ cursor.peek() = ":" \/ cursor.peek() = "*")?! "plus token expected"
+        (cursor.peek() = "+" \/ cursor.peek() = ":" \/ cursor.peek() = "*" \/ cursor.peek() = "-")?! "plus token expected"
         kind_code: 2
         cursor.peek() = ":"?
             .kind_code: 6
         cursor.peek() = "*"?
             .kind_code: 7
+        cursor.peek() = "-"?
+            .kind_code: 8
         operator_stop: cursor.advance()
         next_tape: _append_tagged_token(
             tape, kind_code, cursor.position, operator_stop.position,
@@ -514,10 +516,12 @@ _scan_tagged_statement_tokens(
             number.value, cursor.line, cursor.column
         )
         @: _scan_tagged_statement_tokens(number_stop, next_tape, 3)
-    (expected = 3 /\ (cursor.peek() = "+" \/ cursor.peek() = "*"))?
+    (expected = 3 /\ (cursor.peek() = "+" \/ cursor.peek() = "*" \/ cursor.peek() = "-"))?
         kind_code: 2
         cursor.peek() = "*"?
             .kind_code: 7
+        cursor.peek() = "-"?
+            .kind_code: 8
         operator_stop: cursor.advance()
         next_tape: _append_tagged_token(
             tape, kind_code, cursor.position, operator_stop.position,
