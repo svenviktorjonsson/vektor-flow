@@ -7572,6 +7572,18 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       return clusteredCameraFromMatrices(view, projection, this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID);
     },
 
+    _planShadowLightSlots: function (sceneLights) {
+      var slots = [null, null, null, null];
+      var lights = Array.isArray(sceneLights) ? sceneLights : [];
+      for (var lightIndex = 0; lightIndex < Math.min(4, lights.length); lightIndex += 1) {
+        var light = lights[lightIndex];
+        if (light && light.casts_shadow !== false) {
+          slots[lightIndex] = light;
+        }
+      }
+      return slots;
+    },
+
     _prepareShadowMapsForScene: function (enc, mesh, t, frameWidth, frameHeight, clusteredCamera) {
       if (!mesh || !Array.isArray(this._parts) || !this._parts.length || !sharedWgpu) {
         this._lastActiveLightCount = 0;
@@ -7588,15 +7600,13 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._planClusteredLightsForFrame(this._clusteredLightsForScene(sceneLights, mesh), clusteredCamera);
       this._lastActiveLightCount = Math.min(4, sceneLights.length);
       maybeLogResolvedLights(this, "shadow_prepare", sceneLights);
-      var activeLights = [];
-      for (var li = 0; li < sceneLights.length && activeLights.length < 4; li += 1) {
-        if (sceneLights[li] && sceneLights[li].casts_shadow !== false) {
-          activeLights.push(sceneLights[li]);
-        }
-      }
+      var activeLights = this._planShadowLightSlots(sceneLights);
+      var activeShadowLightCount = activeLights.reduce(function (count, light) {
+        return count + (light ? 1 : 0);
+      }, 0);
       var casterParts = shadowCasterParts(this._parts, this._offscreenFrame !== true);
       var contactParts = planarContactParts(this._parts);
-      if (!casterParts.length || !activeLights.length) {
+      if (!casterParts.length || !activeShadowLightCount) {
         this._shadowDepthView0 = null;
         this._shadowDepthView1 = null;
         this._shadowDepthView2 = null;
@@ -7669,7 +7679,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var shadowState1 = prepareLightShadow(this, 1, activeLights[1] || null);
       var shadowState2 = prepareLightShadow(this, 2, activeLights[2] || null);
       var shadowState3 = prepareLightShadow(this, 3, activeLights[3] || null);
-      this._lastShadowCacheHit = activeLights.length ? (cacheHits / activeLights.length) : 0.0;
+      this._lastShadowCacheHit = activeShadowLightCount ? (cacheHits / activeShadowLightCount) : 0.0;
       this._lastShadowCacheHitCount = cacheHits;
       var shadowDrawCount = 0;
       this._shadowDepthView0 = shadowState0.view || null;
