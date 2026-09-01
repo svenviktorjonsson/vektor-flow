@@ -8,6 +8,10 @@
 
 namespace vf {
 
+bool ReleaseHostMessageContainsType(
+    std::wstring_view message,
+    std::wstring_view type);
+
 struct ReleaseHostHitRect {
     std::int32_t left = 0;
     std::int32_t top = 0;

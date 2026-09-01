@@ -43,7 +43,14 @@ test("shipped overlay targets use the thin resource host source set", () => {
 test("thin release host maps packaged resources without legacy semantic transports", () => {
   const source = readFileSync(hostPath, "utf8");
   assert.match(source, /SetVirtualHostNameToFolderMapping/);
-  assert.match(source, /CreateCoreWebView2Controller/);
+  assert.match(source, /CreateCoreWebView2CompositionController/);
+  assert.doesNotMatch(source, /->CreateCoreWebView2Controller\(/);
+  assert.match(source, /SendMouseInput/);
+  assert.match(source, /SetWindowRgn/);
+  assert.match(source, /ClearHostInputRegionForDrag/);
+  assert.match(source, /WS_EX_APPWINDOW/);
+  assert.doesNotMatch(source, /WS_EX_TOOLWINDOW/);
+  assert.match(source, /WM_SETICON/);
   assert.match(source, /WM_NCHITTEST/);
   assert.match(source, /HTTRANSPARENT/);
   assert.match(source, /ApplyHitRegionAdapterMessage/);

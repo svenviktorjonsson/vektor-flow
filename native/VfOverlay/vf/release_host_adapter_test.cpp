@@ -15,6 +15,12 @@ int Fail(const char* message) {
 }  // namespace
 
 int main() {
+    if (!vf::ReleaseHostMessageContainsType(LR"({"type":"close"})", L"close") ||
+        !vf::ReleaseHostMessageContainsType(LR"("{\"type\":\"close\"}")", L"close") ||
+        vf::ReleaseHostMessageContainsType(LR"({"type":"restore"})", L"close")) {
+        return Fail("host message type decoding mismatch");
+    }
+
     vf::ReleaseHostAdapter adapter;
     if (!adapter.ApplyHitRegionAdapterMessage(
             LR"({"type":"vf_host_hit_regions_v1","data":"10,20,30,40;100,200,160,260"})")) {
@@ -31,6 +37,13 @@ int main() {
     }
     if (!adapter.IsInteractivePoint(10, 20)) {
         return Fail("rejected arena partially mutated retained regions");
+    }
+    if (!adapter.ApplyHitRegionAdapterMessage(
+            LR"({"type":"vf_host_hit_regions_v1","data":""})")) {
+        return Fail("empty hit-region arena rejected");
+    }
+    if (!adapter.HitRegions().empty() || adapter.IsInteractivePoint(10, 20)) {
+        return Fail("empty hit-region arena did not clear retained regions");
     }
 
     std::array<std::byte, 512> arena{};

@@ -54,7 +54,61 @@ bool ParseI32(std::wstring_view text, std::int32_t* value) {
     return result.ec == std::errc{} && result.ptr == end;
 }
 
+bool DecodeJsonString(std::wstring_view encoded, std::wstring* decoded) {
+    if (decoded == nullptr) return false;
+    while (!encoded.empty() &&
+           (encoded.front() == L' ' || encoded.front() == L'\t' ||
+            encoded.front() == L'\r' || encoded.front() == L'\n')) {
+        encoded.remove_prefix(1u);
+    }
+    while (!encoded.empty() &&
+           (encoded.back() == L' ' || encoded.back() == L'\t' ||
+            encoded.back() == L'\r' || encoded.back() == L'\n')) {
+        encoded.remove_suffix(1u);
+    }
+    if (encoded.size() < 2u || encoded.front() != L'"' || encoded.back() != L'"') {
+        return false;
+    }
+    decoded->clear();
+    decoded->reserve(encoded.size() - 2u);
+    for (std::size_t index = 1u; index + 1u < encoded.size(); ++index) {
+        wchar_t ch = encoded[index];
+        if (ch != L'\\') {
+            decoded->push_back(ch);
+            continue;
+        }
+        if (++index + 1u >= encoded.size()) return false;
+        switch (encoded[index]) {
+        case L'"': decoded->push_back(L'"'); break;
+        case L'\\': decoded->push_back(L'\\'); break;
+        case L'/': decoded->push_back(L'/'); break;
+        case L'b': decoded->push_back(L'\b'); break;
+        case L'f': decoded->push_back(L'\f'); break;
+        case L'n': decoded->push_back(L'\n'); break;
+        case L'r': decoded->push_back(L'\r'); break;
+        case L't': decoded->push_back(L'\t'); break;
+        default: return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace
+
+bool ReleaseHostMessageContainsType(
+    std::wstring_view message,
+    std::wstring_view expected_type) {
+    std::wstring decoded;
+    for (int depth = 0; depth < 2; ++depth) {
+        std::wstring_view actual_type;
+        if (ExtractQuotedField(message, L"type", &actual_type)) {
+            return actual_type == expected_type;
+        }
+        if (!DecodeJsonString(message, &decoded)) return false;
+        message = decoded;
+    }
+    return false;
+}
 
 bool ReleaseHostAdapter::ApplyHitRegionAdapterMessage(std::wstring_view message) {
     std::wstring_view type;
