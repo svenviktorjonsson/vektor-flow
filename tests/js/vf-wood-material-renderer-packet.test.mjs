@@ -31,6 +31,7 @@ import {
 import {
   adaptWoodCutMaterialToTriangleFacesReference,
   evaluateWoodFaceGgxResponseReference,
+  evaluateWoodMeshGgxAreaSummaryReference,
   evaluateWoodMeshGgxCentroidsReference,
   evaluateWoodTriangleGgxBatchReference,
   evaluateWoodTriangleGgxCoverageReference,
@@ -590,4 +591,74 @@ test('every complete wood face contributes one bounded anisotropic centroid resp
       response.reflectedRgb.map(Math.fround),
     );
   }
+});
+
+function triangleArea(packet, triangle) {
+  const points = [0, 1, 2].map((corner) => {
+    const vertex = packet.indices[triangle * 3 + corner];
+    return Array.from(packet.positions.subarray(vertex * 3, vertex * 3 + 3));
+  });
+  const firstEdge = points[1].map((value, component) => (
+    value - points[0][component]
+  ));
+  const secondEdge = points[2].map((value, component) => (
+    value - points[0][component]
+  ));
+  return Math.hypot(...cross(firstEdge, secondEdge)) * 0.5;
+}
+
+test('the complete wood mesh reduces to an area-weighted anisotropic response', () => {
+  const material = proceduralSideGrainMaterial();
+  const packet = adaptWoodCutMaterialToTriangleFacesReference(material, {
+    triangleBudget: 32,
+  });
+  const viewDirection = normalize(packet.tangentFrame.normal.map((value, component) => (
+    value + packet.tangentFrame.tangent[component] * 0.2
+  )));
+  const lightDirection = normalize(packet.tangentFrame.normal.map((value, component) => (
+    value + packet.tangentFrame.bitangent[component] * 0.15
+  )));
+  const summary = evaluateWoodMeshGgxAreaSummaryReference(packet, {
+    viewDirection,
+    lightDirection,
+    triangleBudget: 32,
+  });
+  const centroids = evaluateWoodMeshGgxCentroidsReference(packet, {
+    viewDirection,
+    lightDirection,
+    triangleBudget: 32,
+  });
+  const expectedRgb = [0, 0, 0];
+  let expectedArea = 0;
+  let expectedSpecular = 0;
+  for (let triangle = 0; triangle < packet.triangleCount; triangle += 1) {
+    const area = triangleArea(packet, triangle);
+    assert.equal(summary.triangleAreas[triangle], Math.fround(area));
+    expectedArea += area;
+    expectedSpecular += centroids.specularBrdf[triangle] * area;
+    for (let channel = 0; channel < 3; channel += 1) {
+      expectedRgb[channel] += centroids.reflectedRgb[triangle * 3 + channel] * area;
+    }
+  }
+  expectedSpecular /= expectedArea;
+  expectedRgb.forEach((_, channel) => {
+    expectedRgb[channel] /= expectedArea;
+  });
+
+  assert.equal(summary.kind, 'wood-cut-mesh-ggx-area-summary:v1');
+  assert.strictEqual(summary.sourcePacket, packet);
+  assert.equal(summary.triangleCount, packet.triangleCount);
+  assert.ok(Math.abs(summary.totalArea - expectedArea) < 1e-12);
+  assert.ok(Math.abs(
+    summary.totalArea
+      - material.sourceSurface.sourceGrid.width * material.sourceSurface.sourceGrid.height
+  ) < 1e-6);
+  assert.ok(Math.abs(summary.meanSpecularBrdf - expectedSpecular) < 1e-12);
+  summary.meanReflectedRgb.forEach((value, channel) => (
+    assert.ok(Math.abs(value - expectedRgb[channel]) < 1e-12)
+  ));
+  assert.equal(
+    summary.vectorBytes,
+    summary.sourceCentroids.vectorBytes + summary.triangleAreas.byteLength,
+  );
 });
