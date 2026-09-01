@@ -1,5 +1,6 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_x64_backend.hpp"
+#include "compiler/native/vkf_x64_dce.hpp"
 #include "compiler/native/vkf_elf_writer.hpp"
 #include "compiler/native/vkf_pe_writer.hpp"
 #include "compiler/native/vkf_machine_ir.hpp"
@@ -9077,8 +9078,20 @@ private:
                 if (position == start || assigned_locals.empty()) {
                     return std::nullopt;
                 }
+                if (!std::all_of(
+                        at.begin() + static_cast<std::ptrdiff_t>(start),
+                        at.begin() + static_cast<std::ptrdiff_t>(position),
+                        vkf::x64::static_cursor_dce_may_scan)) {
+                    return std::nullopt;
+                }
                 const auto interaction = match_static_vector3_interaction(position);
                 if (!interaction) return std::nullopt;
+                if (!std::all_of(
+                        at.begin() + static_cast<std::ptrdiff_t>(interaction->start),
+                        at.begin() + static_cast<std::ptrdiff_t>(interaction->end + 1u),
+                        vkf::x64::static_cursor_dce_may_scan)) {
+                    return std::nullopt;
+                }
                 std::sort(assigned_locals.begin(), assigned_locals.end());
                 assigned_locals.erase(
                     std::unique(assigned_locals.begin(), assigned_locals.end()),
@@ -9086,9 +9099,19 @@ private:
                 for (const auto local : assigned_locals) {
                     for (std::size_t following = interaction->end + 1u;
                          following < at.size(); ++following) {
+                        if (!vkf::x64::static_cursor_dce_may_scan(at[following])) {
+                            return std::nullopt;
+                        }
                         const auto following_interaction =
                             match_static_vector3_interaction(following);
                         if (following_interaction) {
+                            if (!std::all_of(
+                                    at.begin() + static_cast<std::ptrdiff_t>(following),
+                                    at.begin() + static_cast<std::ptrdiff_t>(
+                                        following_interaction->end + 1u),
+                                    vkf::x64::static_cursor_dce_may_scan)) {
+                                return std::nullopt;
+                            }
                             following = following_interaction->end;
                             continue;
                         }
@@ -9106,6 +9129,10 @@ private:
                             *at[following + 1u].index_local == local &&
                             !at[following + 1u].may_error &&
                             at[following + 2u].opcode == Opcode::Drop) {
+                            if (!vkf::x64::static_cursor_dce_may_scan(at[following + 1u]) ||
+                                !vkf::x64::static_cursor_dce_may_scan(at[following + 2u])) {
+                                return std::nullopt;
+                            }
                             following += 2u;
                             continue;
                         }
@@ -10098,11 +10125,23 @@ private:
                     }
                     break;
                 }
+                if (!std::all_of(
+                        at.begin() + static_cast<std::ptrdiff_t>(start),
+                        at.begin() + static_cast<std::ptrdiff_t>(position),
+                        vkf::x64::static_cursor_dce_may_scan)) {
+                    return std::nullopt;
+                }
                 const auto consumed_end =
                     match_packed_scaled_vector3_update(position);
                 if (position == start || assigned_locals.empty() ||
                     !consumed_end ||
                     !static_integral_local_before(position, at[position].index)) {
+                    return std::nullopt;
+                }
+                if (!std::all_of(
+                        at.begin() + static_cast<std::ptrdiff_t>(position),
+                        at.begin() + static_cast<std::ptrdiff_t>(*consumed_end + 1u),
+                        vkf::x64::static_cursor_dce_may_scan)) {
                     return std::nullopt;
                 }
                 std::sort(assigned_locals.begin(), assigned_locals.end());
@@ -10112,9 +10151,19 @@ private:
                 for (const auto local : assigned_locals) {
                     for (std::size_t following = *consumed_end + 1u;
                          following < at.size(); ++following) {
+                        if (!vkf::x64::static_cursor_dce_may_scan(at[following])) {
+                            return std::nullopt;
+                        }
                         const auto following_update =
                             match_packed_scaled_vector3_update(following);
                         if (following_update) {
+                            if (!std::all_of(
+                                    at.begin() + static_cast<std::ptrdiff_t>(following),
+                                    at.begin() + static_cast<std::ptrdiff_t>(
+                                        *following_update + 1u),
+                                    vkf::x64::static_cursor_dce_may_scan)) {
+                                return std::nullopt;
+                            }
                             following = *following_update;
                             continue;
                         }
@@ -10132,6 +10181,10 @@ private:
                             *at[following + 1u].index_local == local &&
                             !at[following + 1u].may_error &&
                             at[following + 2u].opcode == Opcode::Drop) {
+                            if (!vkf::x64::static_cursor_dce_may_scan(at[following + 1u]) ||
+                                !vkf::x64::static_cursor_dce_may_scan(at[following + 2u])) {
+                                return std::nullopt;
+                            }
                             following += 2u;
                             continue;
                         }
@@ -10145,6 +10198,10 @@ private:
                             for (std::size_t wrapped = target->second;
                                  wrapped < following; ++wrapped) {
                                 const auto& wrapped_candidate = at[wrapped];
+                                if (!vkf::x64::static_cursor_dce_may_scan(
+                                        wrapped_candidate)) {
+                                    return std::nullopt;
+                                }
                                 if (wrapped_candidate.opcode == Opcode::StoreLocal &&
                                     wrapped_candidate.index == local) {
                                     overwritten = true;
