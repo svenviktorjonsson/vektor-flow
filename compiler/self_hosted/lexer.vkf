@@ -219,6 +219,19 @@ identifier_plus_tokens(source:str):
     third: identifier_token(source, third_start.position)
     (first:first, operator:operator, third:third)
 
+identifier_plus_stream(source:str):
+    first_start: _lexer_skip_layout(StringCursor(source))
+    first: identifier_token(source, first_start.position)
+    operator_start: _lexer_skip_identifier(first_start)
+    operator: plus_token(source, operator_start.position)
+    third_start: _lexer_skip_layout(operator_start.advance())
+    third: identifier_token(source, third_start.position)
+    stream_end: _lexer_skip_identifier(third_start)
+    stream_end.eof?! "bounded identifier-plus stream must end after the third token"
+    newline: token("NEWLINE", null, stream_end.line, stream_end.column)
+    eof: token("EOF", null, stream_end.line, stream_end.column)
+    (first:first, operator:operator, third:third, newline:newline, eof:eof)
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
@@ -298,6 +311,7 @@ lexer_capability:
         "linked whitespace-skipping identifier pair producer",
         "linked identifier and decimal number token stream producer",
         "linked plus operator token stream producer",
+        "bounded linked token stream with NEWLINE and EOF",
         "character class helpers",
         "token kind catalog",
         "scan_whitespace",
