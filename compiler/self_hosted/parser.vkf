@@ -283,6 +283,25 @@ parse_tagged_binary_result(
     parsed_module: module_node([expression], span(start, stop))
     (module:parsed_module, diagnostics:[])
 
+parse_tagged_two_statement_result(
+    first_left:TaggedParseCursor,
+    first_operator:TaggedParseCursor,
+    first_right:TaggedParseCursor,
+    second_left:TaggedParseCursor,
+    second_operator:TaggedParseCursor,
+    second_right:TaggedParseCursor
+) -> ParseResult:
+    start: location(first_left.file, first_left.line, first_left.column)
+    stop: location(second_right.file, second_right.line, second_right.column)
+    first: parse_tagged_binary_expression(
+        first_left, first_operator, first_right
+    )
+    second: parse_tagged_binary_expression(
+        second_left, second_operator, second_right
+    )
+    parsed_module: module_node([first, second], span(start, stop))
+    (module:parsed_module, diagnostics:[])
+
 parse_type_annotation(cursor:ParseCursor):
     current: peek(cursor)
     current.kind??
@@ -410,7 +429,8 @@ parser_capability:
         "tagged_at_end",
         "tagged_binary_operator",
         "parse_tagged_binary_expression",
-        "parse_tagged_binary_result"
+        "parse_tagged_binary_result",
+        "parse_tagged_two_statement_result"
     ]
     diagnostics: ["file", "line", "column", "span", "unsupported-syntax"]
     ast_nodes: [

@@ -348,6 +348,98 @@ bounded_parser_expression_stream(source:str):
     ]
     (schema:"vektorflow.token_stream", version:1, tokens:tokens)
 
+two_identifier_plus_number_stream(source:str):
+    first_left_start: _lexer_skip_layout(StringCursor(source))
+    first_left: identifier_token(source, first_left_start.position)
+    first_operator_start: _lexer_skip_identifier(first_left_start)
+    first_operator: plus_token(source, first_operator_start.position)
+    first_right_start: _lexer_skip_layout(first_operator_start.advance())
+    first_right: number_token(source, first_right_start.position)
+    separator_start: _lexer_skip_number(first_right_start)
+    is_newline(separator_start.peek())?! "two-expression stream requires a newline separator"
+    separator: token("NEWLINE", null, separator_start.line, separator_start.column)
+    second_left_start: _lexer_skip_layout(separator_start)
+    second_left: identifier_token(source, second_left_start.position)
+    second_operator_start: _lexer_skip_identifier(second_left_start)
+    second_operator: plus_token(source, second_operator_start.position)
+    second_right_start: _lexer_skip_layout(second_operator_start.advance())
+    second_right: number_token(source, second_right_start.position)
+    stream_end: _lexer_skip_number(second_right_start)
+    stream_end.eof?! "bounded two-expression stream must end after the second number"
+    newline: token("NEWLINE", null, stream_end.line, stream_end.column)
+    eof: token("EOF", null, stream_end.line, stream_end.column)
+    (
+        first_left:first_left,
+        first_operator:first_operator,
+        first_right:first_right,
+        separator:separator,
+        second_left:second_left,
+        second_operator:second_operator,
+        second_right:second_right,
+        newline:newline,
+        eof:eof
+    )
+
+bounded_two_expression_stream(source:str):
+    result: two_identifier_plus_number_stream(source)
+    tokens: [
+        _tagged_parser_token(
+            result.first_left.kind,
+            _tagged_parser_value("text", result.first_left.value, 0),
+            result.first_left.line,
+            result.first_left.column
+        ),
+        _tagged_parser_token(
+            result.first_operator.kind,
+            _tagged_parser_value("null", "", 0),
+            result.first_operator.line,
+            result.first_operator.column
+        ),
+        _tagged_parser_token(
+            result.first_right.kind,
+            _tagged_parser_value("number", "", result.first_right.value),
+            result.first_right.line,
+            result.first_right.column
+        ),
+        _tagged_parser_token(
+            result.separator.kind,
+            _tagged_parser_value("null", "", 0),
+            result.separator.line,
+            result.separator.column
+        ),
+        _tagged_parser_token(
+            result.second_left.kind,
+            _tagged_parser_value("text", result.second_left.value, 0),
+            result.second_left.line,
+            result.second_left.column
+        ),
+        _tagged_parser_token(
+            result.second_operator.kind,
+            _tagged_parser_value("null", "", 0),
+            result.second_operator.line,
+            result.second_operator.column
+        ),
+        _tagged_parser_token(
+            result.second_right.kind,
+            _tagged_parser_value("number", "", result.second_right.value),
+            result.second_right.line,
+            result.second_right.column
+        ),
+        _tagged_parser_token(
+            result.newline.kind,
+            _tagged_parser_value("null", "", 0),
+            result.newline.line,
+            result.newline.column
+        ),
+        _tagged_parser_token(
+            result.eof.kind,
+            _tagged_parser_value("null", "", 0),
+            result.eof.line,
+            result.eof.column
+        )
+    ]
+    (schema:"vektorflow.token_stream", version:1, tokens:tokens)
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
