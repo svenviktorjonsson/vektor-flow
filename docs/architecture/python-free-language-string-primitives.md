@@ -48,8 +48,9 @@ cursor APIs:
 - `vkf_string_peek_scalar(source:str, byte_index:num) -> str`: return Unicode
   scalar at byte index without advancing; error on invalid UTF-8 or mid-scalar
   index.
-- `vkf_cursor_advance_scalar(cursor:StringCursor) -> StringCursor`: validate
-  one complete scalar and atomically update position, EOF, line, and column.
+- `vkf_utf8_advance(source:str, byte_index:num) -> num`: validate one complete
+  scalar and return its next byte boundary. The VKF-authored cursor method uses
+  this result to update position, EOF, line, and column together.
 - `vkf_utf8_slice(source:str, start_byte:num, stop_byte:num) -> str`:
   return substring for byte range; error if either boundary splits a scalar.
 
@@ -85,7 +86,7 @@ bytes. Required targets:
 
 - `vkf_string_eof`: O(1).
 - `vkf_string_peek_scalar`: O(1) for ASCII, bounded by one UTF-8 scalar decode.
-- `vkf_cursor_advance_scalar`: O(1), bounded by one UTF-8 scalar decode.
+- `vkf_utf8_advance`: O(1), bounded by one UTF-8 scalar decode.
 - `vkf_utf8_slice`: O(n) in slice byte length, no extra full-source scan.
 
 Small-file lexer target remains under 250 ms as part of fresh compile budget.
