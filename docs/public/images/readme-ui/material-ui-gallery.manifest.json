@@ -110,14 +110,14 @@
         "meshId": "studio_floor",
         "width": 1024,
         "height": 886,
-        "warmPixels": 25340,
+        "warmPixels": 51922,
         "warmBbox": [
           352,
-          269,
-          538,
+          77,
+          742,
           716
         ],
-        "sha256": "93e5b2960ae9b604e9e5e19f0d71ba8b3567e761230027a9e39949335b8c6919"
+        "sha256": "1891f00d8cb9d7e9cf3a3e371b884434590af52d48c84f0ad70ef3e51ef1feea"
       },
       {
         "meshId": "upright_mirror",
@@ -136,14 +136,14 @@
     "composite_states": [
       {
         "view": "stanford-bunny",
-        "sha256": "e35b43a3f0e6c89e752e6ee3e9abdaf140566a0b88d3018c2a11e392c6869d43",
+        "sha256": "bc3d85506203e02d6021c7239e9c7c7b03146da251a4e7fae716e1d30829f370",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
       },
       {
         "view": "stanford-bunny-detail",
-        "sha256": "c931e42d2dffd31384f00c51c9174bb1382b8c70acabbfc98fba019e3b666130",
+        "sha256": "836954771f1889ca458fdb16f27725b6753e1cd152557d082ae7dcec8dbde660",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
@@ -151,7 +151,7 @@
     ]
   },
   "sources": {
-    "examples/material_ui_gallery/app.vkf": "ee9ae58f672f9a9ac9645d507bc59a1444e38631f250f8eda2dac7067d52f2ab",
+    "examples/material_ui_gallery/app.vkf": "df848974d7ad999c977df29d3ee3889cbe2a83af4e2002cb36c2a0b25d23f64d",
     "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md": "4a98e19a914f6eb96af760f848434a7a542b5fa259a8d9865ccaaebb4415b26d",
     "examples/material_ui_gallery/assets/source/bun_zipper.ply": "b1acc63bece78444aa2e15bdcc72371a201279b98c6f5d4b74c993d02f0566fe",
     "compiler/native/vkf_retained_scene_packet.hpp": "a14a19257de088944c6bbb5bab014f53243a14fb5f74266a08b7f8884d343560",
@@ -168,12 +168,12 @@
   },
   "media": {
     "docs/public/images/readme-ui/material-ui-gallery.png": {
-      "sha256": "c931e42d2dffd31384f00c51c9174bb1382b8c70acabbfc98fba019e3b666130",
+      "sha256": "836954771f1889ca458fdb16f27725b6753e1cd152557d082ae7dcec8dbde660",
       "width": 1376,
       "height": 861
     },
     "docs/public/images/readme-ui/material-ui-gallery.webp": {
-      "sha256": "2333487637c61f2eb6718dbe3156271748178f5f1d3f106fa739b55d1e27bc7b",
+      "sha256": "17811d213c169ba57574fc4a7767ce85f4e4eab8623bda756cf356975c4c2c1f",
       "width": 1376,
       "height": 861,
       "frames": 2,
@@ -181,7 +181,7 @@
       "lossless": true
     },
     "docs/public/images/readme-ui/material-ui-gallery-renderer.webp": {
-      "sha256": "1c5224d7e3e4b9b703bfad18f2f1c75f3283e30132be8ef1ebc3added9e98515",
+      "sha256": "84e1cb554267f69ef12436da8bb864ed7ed63915cb48c85501fb8c55df7fa49e",
       "width": 1278,
       "height": 700,
       "frames": 2,

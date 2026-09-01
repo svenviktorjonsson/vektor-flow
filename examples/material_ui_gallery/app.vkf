@@ -42,9 +42,9 @@ native_scene:(
     ),
     (
         id:"upright_mirror", center:[0.65, 3.25, 1.78], size:[5.4, 3.56],
-        rotation:[90.0, 0.0, 0.0], color:[0.72, 0.84, 1.0, 0.88],
-        alpha:0.88, transparent:true, reflectivity:0.92, roughness:0.04,
-        surface_system:(kind:"screen", reflectivity:0.92,
+        rotation:[90.0, 0.0, 0.0], color:[0.02, 0.02, 0.025, 1.0],
+        alpha:1.0, reflectivity:1.0, roughness:0.01,
+        surface_system:(kind:"screen", reflectivity:1.0,
             flip_y:true, scale:[1.0, 1.0], camera:(fov:43.0,
                 up:[0.0, 0.0, 1.0], mirror_of:(
                     frame_id:"material_gallery_frame", mesh_id:"upright_mirror",
@@ -52,7 +52,7 @@ native_scene:(
         casts_shadow:false, receives_shadow:true, no_backface_specular:true
     ),
     (id:"mirror_backing", center:[0.65, 3.28, 1.78], size:[5.56, 3.72],
-        rotation:[90.0, 0.0, 0.0], color:[0.10, 0.32, 0.52, 1.0],
+        rotation:[90.0, 0.0, 0.0], color:[0.025, 0.028, 0.035, 1.0],
         casts_shadow:false, receives_shadow:false, no_backface_specular:true)],
     meshes:[(
         id:"stanford_bunny", kind:"field_mesh",

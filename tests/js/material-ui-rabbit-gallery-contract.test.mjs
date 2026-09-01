@@ -80,6 +80,11 @@ test("Stanford Bunny studio has checker continuity, physical mirrors, and shadow
   assert.match(source, /plane:\([\s\S]*?texture:\(kind:"checker"/u);
   assert.match(source, /id:"studio_floor"[\s\S]*?mesh_id:"studio_floor"/u);
   assert.match(source, /id:"upright_mirror"[\s\S]*?mesh_id:"upright_mirror"/u);
+  assert.match(source,
+    /id:"upright_mirror"[\s\S]*?alpha:1\.0, reflectivity:1\.0, roughness:0\.01/u);
+  assert.match(source,
+    /id:"upright_mirror"[\s\S]*?surface_system:\(kind:"screen", reflectivity:1\.0/u);
+  assert.doesNotMatch(source, /transparent:true/u);
   assert.match(source, /id:"mirror_backing"[\s\S]*?center:\[0\.65, 3\.28, 1\.78\]/u);
   assert.match(source, /id:"sun_key"[\s\S]*?intensity:58\.0[\s\S]*?casts_shadow:true/u);
   assert.match(source, /receiver_mesh:"plane_0"[\s\S]*?occluders:\["stanford_bunny"\]/u);

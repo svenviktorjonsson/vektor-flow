@@ -13,16 +13,16 @@
     "pairs": [
       {
         "view": "stanford-bunny",
-        "renderer_sha256": "248d32643c09fca6be11177c5ba92f3d08504eefa321712507a37a4c16c2f4b6",
-        "composite_sha256": "e35b43a3f0e6c89e752e6ee3e9abdaf140566a0b88d3018c2a11e392c6869d43",
+        "renderer_sha256": "77b65faa1d438a81904e0a4a04834f374e3b80771c925aaea0396d4bba5d303a",
+        "composite_sha256": "bc3d85506203e02d6021c7239e9c7c7b03146da251a4e7fae716e1d30829f370",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
       },
       {
         "view": "stanford-bunny-detail",
-        "renderer_sha256": "f36d142398df90b0085e0e517f32e9ff458e278034759c2a0e9620f764ff1b79",
-        "composite_sha256": "c931e42d2dffd31384f00c51c9174bb1382b8c70acabbfc98fba019e3b666130",
+        "renderer_sha256": "b183a59aaeac4a1f761d395c900bdb46fffd92d35a4a4c6025e96381e958671d",
+        "composite_sha256": "836954771f1889ca458fdb16f27725b6753e1cd152557d082ae7dcec8dbde660",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
@@ -30,7 +30,7 @@
     ]
   },
   "sources": {
-    "examples/material_ui_gallery/app.vkf": "ee9ae58f672f9a9ac9645d507bc59a1444e38631f250f8eda2dac7067d52f2ab",
+    "examples/material_ui_gallery/app.vkf": "df848974d7ad999c977df29d3ee3889cbe2a83af4e2002cb36c2a0b25d23f64d",
     "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md": "4a98e19a914f6eb96af760f848434a7a542b5fa259a8d9865ccaaebb4415b26d",
     "examples/material_ui_gallery/assets/source/bun_zipper.ply": "b1acc63bece78444aa2e15bdcc72371a201279b98c6f5d4b74c993d02f0566fe",
     "compiler/native/vkf_retained_scene_packet.hpp": "a14a19257de088944c6bbb5bab014f53243a14fb5f74266a08b7f8884d343560",
@@ -47,24 +47,24 @@
   },
   "media": {
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.png": {
-      "sha256": "c931e42d2dffd31384f00c51c9174bb1382b8c70acabbfc98fba019e3b666130",
+      "sha256": "836954771f1889ca458fdb16f27725b6753e1cd152557d082ae7dcec8dbde660",
       "width": 1376,
       "height": 861
     },
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.png": {
-      "sha256": "f36d142398df90b0085e0e517f32e9ff458e278034759c2a0e9620f764ff1b79",
+      "sha256": "b183a59aaeac4a1f761d395c900bdb46fffd92d35a4a4c6025e96381e958671d",
       "width": 1278,
       "height": 700
     },
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.gif": {
-      "sha256": "2a924a143aa413e94ed06290cfe0e4d15ed2c78b93dc713e8df77de21380199e",
+      "sha256": "1defbb78b0bb9208c650802e6581c46a1beb1f77fb8a45e0527a49e2598e5b19",
       "width": 1376,
       "height": 861,
       "frames": 2,
       "loop": true
     },
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.gif": {
-      "sha256": "d46a6b62f42a84ef89f3298783659f6ebcc9a5523cb697198291d1665a3b687a",
+      "sha256": "a3b705c9007683a17f2f470d460f75f9e22f3a3cb29bc393a885d2721e464311",
       "width": 1278,
       "height": 700,
       "frames": 2,
