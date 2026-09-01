@@ -1,3 +1,7 @@
+#include "vkf_static_html_bundle.hpp"
+#include "vkf_retained_scene_packet.hpp"
+#include "vkf_world_mesh_packet.hpp"
+
 #include <cstdint>
 #include <algorithm>
 #include <array>
@@ -25,11 +29,13 @@ constexpr const char* kNativeSceneCompilerVersion = "vkf-native-scene-compiler-0
 struct Args {
     std::filesystem::path source;
     std::filesystem::path overlay_web;
+    std::filesystem::path typed_ir;
     std::string scene_config_json = "{}";
     std::string runtime_packets_json = "[]";
     std::string geom_transport_json = "{}";
     std::string geom_state_json = "{}";
     std::string event_program_json = "{}";
+    std::vector<vf::static_html::Bundle> static_html_bundles;
     bool scene_config_supplied = false;
     bool runtime_packets_supplied = false;
 };
@@ -42,7 +48,9 @@ struct ArenaExternalization {
 struct CompiledUiSceneBundle {
     std::string scene_config_json;
     std::string runtime_packets_json;
+    std::string event_program_json = "{}";
     std::string provenance;
+    std::vector<vf::static_html::Bundle> static_html_bundles;
 };
 
 struct ArtifactInputProvenance {
@@ -494,6 +502,9 @@ public:
         const char ch = source_[pos_];
         if (ch == '(') {
             return parse_object(')');
+        }
+        if (ch == '{') {
+            return parse_object('}');
         }
         if (ch == '[') {
             return parse_array();
@@ -1125,12 +1136,15 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
         "vf-frame.css",
         "vf-runtime-shell.js",
         "vf-runtime-packet-contract.js",
+        "vf-retained-event-adapter.js",
         "vf-runtime-source.js",
+        "vf-html-components.js",
         "vf-runtime-scene.js",
         "vf-runtime-flow.js",
         "vf-render-clock.js",
         "vf-frame.js",
         "vf-widgets.js",
+        "vf-static-html-loader.js",
         "vf-shared-runtime.js",
         "vf-gpu-runtime.js",
         "vf-native-scene.js",
@@ -1543,6 +1557,17 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
         mesh_jsons.push_back("{\"id\":\"plane_0\",\"kind\":\"quad\",\"properties\":" +
             vkf_literal_to_json(*plane) + ",\"embedding\":" + native_scene_mesh_embedding_json("quad") + "}");
     }
+    if (const VkfLiteralValue* surfaces = object_field(root, "surfaces")) {
+        if (surfaces->kind == VkfLiteralKind::Array) {
+            for (std::size_t i = 0; i < surfaces->array.size(); ++i) {
+                const VkfLiteralValue& surface = surfaces->array[i];
+                const std::string id = literal_string_or(surface, "id", "surface_" + std::to_string(i));
+                mesh_jsons.push_back("{\"id\":\"" + json_escape(id) + "\",\"kind\":\"quad\",\"properties\":" +
+                    vkf_literal_to_json(surface) + ",\"embedding\":" + native_scene_mesh_embedding_json("quad") + "}");
+                occluder_ids.push_back(id);
+            }
+        }
+    }
     if (const VkfLiteralValue* cubes = object_field(root, "cubes")) {
         if (cubes->kind == VkfLiteralKind::Array) {
             for (std::size_t i = 0; i < cubes->array.size(); ++i) {
@@ -1607,7 +1632,7 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
         }
         out << light_jsons[i];
     }
-    out << "],\"timing\":" << literal_json_or(root, "timing", "{\"fps\":60,\"duration_seconds\":8.0,\"boundary\":\"repeat\"")
+    out << "],\"timing\":" << literal_json_or(root, "timing", "{\"fps\":60,\"duration_seconds\":8.0,\"boundary\":\"repeat\"}")
         << ",\"render_options\":{"
         << "\"show_light_markers\":" << literal_json_or(root, "show_light_markers", "false") << ","
         << "\"light_flares\":" << literal_json_or(root, "light_flares", "false") << ","
@@ -2326,7 +2351,8 @@ std::string html_text(
     const std::string& scene_config_json,
     const std::string& scene_config_filename = "",
     const std::string& arena_filename = "",
-    const std::string& runtime_asset_version = ""
+    const std::string& runtime_asset_version = "",
+    bool has_static_html = false
 ) {
     const std::string asset_query = runtime_asset_version.empty() ? "" : ("?v=" + json_escape(runtime_asset_version));
     const std::string native_scene_runtime_config =
@@ -2335,12 +2361,15 @@ std::string html_text(
         "sceneStyleDeps:[{href:\"vf-frame.css\"},{href:\"vf-chess.css\"}],"
         "sceneScriptDeps:["
         "\"vf-runtime-packet-contract.js\","
+        "\"vf-retained-event-adapter.js\","
         "\"vf-runtime-source.js\","
+        "\"vf-html-components.js\","
         "\"vf-runtime-scene.js\","
         "\"vf-runtime-flow.js\","
         "\"vf-render-clock.js\","
         "\"vf-frame.js\","
         "\"vf-widgets.js\","
+        "\"vf-static-html-loader.js\","
         "\"vf-shared-runtime.js\","
         "\"vf-gpu-runtime.js\","
         "\"vf-axis3d-kernel.js\","
@@ -2361,7 +2390,11 @@ std::string html_text(
     if (trim_left_copy(scene_config_json) == "[]") {
         return std::string("<!DOCTYPE html>\n")
             + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
-            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
+            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\""
+            + (has_static_html
+                ? " data-vf-static-html-loads=\"vf-static-html-loads.json\""
+                : "")
+            + ">"
             + native_scene_runtime_config
             + "<script src=\"../../vf-runtime-shell.js" + asset_query + "\"></script>"
             + "</body></html>\n";
@@ -2491,6 +2524,673 @@ std::optional<std::string> extract_vkf_string_binding(const std::string& source,
     return std::nullopt;
 }
 
+void flatten_retained_html_numeric_value(
+    const VkfLiteralValue& value,
+    std::vector<double>& out
+) {
+    if (value.kind == VkfLiteralKind::Number) {
+        try {
+            const double number = std::stod(value.text);
+            if (!std::isfinite(number)) {
+                throw StagerError("retained HTML Frame geometry must be finite");
+            }
+            out.push_back(number);
+            return;
+        } catch (const StagerError&) {
+            throw;
+        } catch (...) {
+            throw StagerError("retained HTML Frame geometry must be numeric");
+        }
+    }
+    if (value.kind == VkfLiteralKind::Array) {
+        for (const auto& item : value.array) {
+            flatten_retained_html_numeric_value(item, out);
+        }
+        return;
+    }
+    if (value.kind == VkfLiteralKind::Object) {
+        const std::string kind = literal_string_or(value, "kind", "");
+        if (kind == "const") {
+            const VkfLiteralValue* nested = object_field(value, "value");
+            if (nested) {
+                flatten_retained_html_numeric_value(*nested, out);
+                return;
+            }
+        }
+        if (kind == "list") {
+            const VkfLiteralValue* nested = object_field(value, "items");
+            if (nested) {
+                flatten_retained_html_numeric_value(*nested, out);
+                return;
+            }
+        }
+    }
+    throw StagerError("retained HTML Frame geometry must be numeric");
+}
+
+std::optional<CompiledUiSceneBundle> try_compile_retained_scene_packets(
+    const std::filesystem::path& typed_ir_path,
+    const std::filesystem::path& source_path
+) {
+    if (typed_ir_path.empty()) return std::nullopt;
+    try {
+        const auto root = vf::parse_json(read_file_bytes(typed_ir_path));
+        const auto packets = vkf::retained_scene::compile_packets(root);
+        if (!packets.has_value()) return std::nullopt;
+        CompiledUiSceneBundle bundle;
+        bundle.scene_config_json = "[]";
+        bundle.runtime_packets_json = vf::json_stringify(*packets, -1);
+        const auto event_program = vkf::retained_scene::compile_event_program(
+            root, *packets);
+        if (event_program.has_value()) {
+            bundle.event_program_json = vf::json_stringify(*event_program, -1);
+        }
+        bundle.provenance = "vkf-retained-scene-lowering";
+        std::map<std::uint64_t, bool> loaded_frames;
+        for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
+            std::filesystem::path resource_path(load.resource);
+            if (resource_path.is_absolute()) {
+                throw StagerError("Frame.load resource path must be source-relative");
+            }
+            if (loaded_frames[load.frame_id]) {
+                throw StagerError("Frame.load initial slice accepts one load per Frame");
+            }
+            loaded_frames[load.frame_id] = true;
+            bundle.static_html_bundles.push_back(vf::static_html::collect(
+                source_path, source_path.parent_path() / resource_path,
+                "frame_" + std::to_string(load.frame_id)));
+        }
+        return bundle;
+    } catch (const vkf::retained_scene::Error& error) {
+        throw StagerError(error.what());
+    } catch (const vf::static_html::Error& error) {
+        throw StagerError(error.what());
+    }
+}
+
+std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
+    const std::filesystem::path& typed_ir_path,
+    const std::filesystem::path& source_path
+) {
+    if (typed_ir_path.empty()) return std::nullopt;
+    const std::string typed_ir_text = read_file_bytes(typed_ir_path);
+    VkfLiteralParser parser(typed_ir_text, 0);
+    const VkfLiteralValue module = parser.parse_value();
+    const VkfLiteralValue* program = object_field(module, "ui_program");
+    if (!program) return std::nullopt;
+    if (program->kind != VkfLiteralKind::Object ||
+        literal_string_or(*program, "schema", "") != "vektor-flow/ui-program") {
+        throw StagerError("typed UI program has an unsupported schema");
+    }
+    const VkfLiteralValue* operations = object_field(*program, "operations");
+    if (!operations || operations->kind != VkfLiteralKind::Array) {
+        throw StagerError("typed UI operations must be an array");
+    }
+    bool has_attachment = false;
+    for (const auto& operation : operations->array) {
+        const std::string kind = literal_string_or(operation, "kind", "");
+        if (kind == "load" || kind == "__vf_internal_attach_html_tree") {
+            has_attachment = true;
+            break;
+        }
+    }
+    if (!has_attachment) return std::nullopt;
+
+    const auto require_field = [](const VkfLiteralValue& value,
+                                  const std::string& key,
+                                  const std::string& context) -> const VkfLiteralValue& {
+        const VkfLiteralValue* found = object_field(value, key);
+        if (!found) throw StagerError("missing " + key + " in " + context);
+        return *found;
+    };
+    const auto require_number = [](const VkfLiteralValue& value,
+                                   const std::string& context) -> double {
+        if (value.kind != VkfLiteralKind::Number) {
+            throw StagerError("expected number for " + context);
+        }
+        try {
+            const double number = std::stod(value.text);
+            if (!std::isfinite(number)) throw StagerError("non-finite " + context);
+            return number;
+        } catch (const StagerError&) {
+            throw;
+        } catch (...) {
+            throw StagerError("invalid number for " + context);
+        }
+    };
+    const auto require_frame_id = [&](const VkfLiteralValue& value,
+                                      const std::string& context) -> std::uint64_t {
+        const double number = require_number(value, context);
+        if (number < 0.0 || std::floor(number) != number ||
+            number > static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
+            throw StagerError("invalid " + context);
+        }
+        return static_cast<std::uint64_t>(number);
+    };
+
+    struct FrameRect {
+        double x;
+        double y;
+        double w;
+        double h;
+    };
+    std::map<std::uint64_t, FrameRect> frames;
+    std::map<std::uint64_t, std::vector<std::string>> component_trees;
+    std::map<std::uint64_t, vf::static_html::Bundle> static_bundles;
+    for (const auto& operation : operations->array) {
+        const std::string kind = literal_string_or(operation, "kind", "");
+        if (kind == "show") continue;
+        if (kind == "add_frame") {
+            if (literal_string_or(operation, "parent_kind", "") != "display") {
+                throw StagerError(
+                    "retained HTML attachment requires a Display-owned Frame");
+            }
+            const std::uint64_t frame_id = require_frame_id(
+                require_field(operation, "frame_id", "typed UI add_frame"),
+                "typed UI frame id");
+            std::vector<double> pos;
+            std::vector<double> size;
+            flatten_retained_html_numeric_value(
+                require_field(operation, "pos", "typed UI add_frame"), pos);
+            flatten_retained_html_numeric_value(
+                require_field(operation, "size", "typed UI add_frame"), size);
+            if (pos.size() != 2 || size.size() != 2) {
+                throw StagerError(
+                    "retained HTML attachment requires two-dimensional Frame geometry");
+            }
+            frames[frame_id] = {
+                pos[0], pos[1], size[0], size[1]};
+            continue;
+        }
+        if (kind == "load") {
+            const VkfLiteralValue& target = require_field(
+                operation, "target", "Frame.load target");
+            if (literal_string_or(target, "kind", "") != "frame") {
+                throw StagerError("Frame.load requires a Frame target");
+            }
+            const std::uint64_t frame_id = require_frame_id(
+                require_field(target, "id", "Frame.load target"),
+                "Frame.load frame id");
+            const VkfLiteralValue& resource = require_field(
+                operation, "resource", "Frame.load operation");
+            if (resource.kind != VkfLiteralKind::String) {
+                throw StagerError("Frame.load resource must be a string");
+            }
+            std::filesystem::path resource_path(resource.text);
+            if (resource_path.is_absolute()) {
+                throw StagerError("Frame.load resource path must be source-relative");
+            }
+            if (static_bundles.find(frame_id) != static_bundles.end()) {
+                throw StagerError("Frame.load initial slice accepts one load per Frame");
+            }
+            resource_path = source_path.parent_path() / resource_path;
+            try {
+                static_bundles.emplace(frame_id, vf::static_html::collect(
+                    source_path, resource_path, "frame_" + std::to_string(frame_id)));
+            } catch (const vf::static_html::Error& error) {
+                throw StagerError(error.what());
+            }
+            continue;
+        }
+        if (kind == "__vf_internal_attach_html_tree") {
+            const VkfLiteralValue& target = require_field(
+                operation, "target", "internal component-tree attachment");
+            if (literal_string_or(target, "kind", "") != "frame") {
+                throw StagerError(
+                    "internal component-tree attachment requires a Frame target");
+            }
+            const std::uint64_t frame_id = require_frame_id(
+                require_field(target, "id", "internal component-tree target"),
+                "internal component-tree frame id");
+            if (component_trees.find(frame_id) != component_trees.end()) {
+                throw StagerError(
+                    "internal component-tree attachment accepts one tree per Frame");
+            }
+            const VkfLiteralValue& identities = require_field(
+                operation, "identities", "internal component-tree attachment");
+            if (identities.kind != VkfLiteralKind::Array || identities.array.empty()) {
+                throw StagerError(
+                    "internal component-tree attachment requires component identities");
+            }
+            std::vector<std::string> tree;
+            for (const auto& identity : identities.array) {
+                if (identity.kind != VkfLiteralKind::String ||
+                    (identity.text != "Div" && identity.text != "Button")) {
+                    throw StagerError(
+                        "internal component-tree attachment only accepts compiled Div and Button identities");
+                }
+                tree.push_back(identity.text);
+            }
+            component_trees.emplace(frame_id, std::move(tree));
+            continue;
+        }
+        throw StagerError(
+            "retained HTML attachment does not combine UI operation `" + kind + "`");
+    }
+
+    std::ostringstream commands;
+    bool first_command = true;
+    std::set<std::uint64_t> target_frames;
+    for (const auto& entry : component_trees) target_frames.insert(entry.first);
+    for (const auto& entry : static_bundles) target_frames.insert(entry.first);
+    for (const std::uint64_t target_frame : target_frames) {
+        const auto frame = frames.find(target_frame);
+        if (frame == frames.end()) {
+            throw StagerError(
+                "retained HTML target was not created by Display.add_frame");
+        }
+        if (!first_command) commands << ",";
+        first_command = false;
+        const std::string frame_id = "frame_" + std::to_string(target_frame);
+        commands << "{\"kind\":\"frame_upsert\",\"id\":\""
+                 << json_escape(frame_id)
+                 << "\",\"payload\":{\"spec\":{\"id\":\""
+                 << json_escape(frame_id)
+                 << "\",\"title\":\"\",\"title_align\":\"left\",";
+        commands << "\"rect\":{\"x\":" << std::setprecision(15) << frame->second.x
+                 << ",\"y\":" << frame->second.y
+                 << ",\"w\":" << frame->second.w
+                 << ",\"h\":" << frame->second.h << "},";
+        commands << "\"flags\":{\"draggable\":true,\"dockable\":true,"
+                 << "\"resizable\":true,\"closable\":true,\"use_browser\":true},"
+                 << "\"alpha\":1,\"master\":false,\"dock_location\":\"tl\","
+                 << "\"anchor\":\"tl\",\"body\":null,\"body_transparent\":false,"
+                 << "\"body_layout\":null,\"parent_id\":null,\"aspect\":null,"
+                 << "\"frameless\":false";
+        const auto tree = component_trees.find(target_frame);
+        if (tree != component_trees.end()) {
+            commands << ",\"__vf_internal_html_components\":[";
+            for (std::size_t index = 0; index < tree->second.size(); ++index) {
+                if (index > 0) commands << ",";
+                commands << "\"" << json_escape(tree->second[index]) << "\"";
+            }
+            commands << "]";
+        }
+        commands << "}}}";
+    }
+
+    CompiledUiSceneBundle bundle;
+    bundle.scene_config_json = "[]";
+    bundle.runtime_packets_json =
+        "[{\"seq\":1,\"kind\":\"scene.replace\",\"payload\":{\"commands\":[" +
+        commands.str() + "]}},{\"seq\":2,\"kind\":\"ui_state.replace\"," +
+        "\"payload\":{\"state\":{}}},{\"seq\":3,\"kind\":\"display.replace\"," +
+        "\"payload\":{\"display\":{\"screen\":[],\"frames\":{},\"geom\":{}}}}]";
+    bundle.provenance = "vkf-retained-html-tree-lowering";
+    for (auto& entry : static_bundles) {
+        bundle.static_html_bundles.push_back(std::move(entry.second));
+    }
+    return bundle;
+}
+
+class TypedWorldValueEvaluator {
+public:
+    explicit TypedWorldValueEvaluator(const VkfLiteralValue& module) {
+        const VkfLiteralValue* body = object_field(module, "body");
+        if (!body || body->kind != VkfLiteralKind::Array) {
+            throw StagerError("typed World module body must be an array");
+        }
+        for (const auto& statement : body->array) {
+            const std::string kind = literal_string_or(statement, "kind", "");
+            const std::string name = literal_string_or(statement, "name", "");
+            if (kind == "function" && !name.empty()) functions_[name] = &statement;
+            if (kind == "store_binding" && !name.empty()) bindings_[name] = &statement;
+        }
+    }
+
+    VkfLiteralValue evaluate(const VkfLiteralValue& expression) {
+        std::map<std::string, VkfLiteralValue> locals;
+        std::map<std::string, bool> active_bindings;
+        return evaluate(expression, locals, active_bindings, 0);
+    }
+
+private:
+    using Locals = std::map<std::string, VkfLiteralValue>;
+
+    static const VkfLiteralValue& require_field(
+        const VkfLiteralValue& value,
+        const std::string& key,
+        const std::string& context
+    ) {
+        const VkfLiteralValue* found = object_field(value, key);
+        if (!found) throw StagerError("typed World value is missing " + key + " in " + context);
+        return *found;
+    }
+
+    VkfLiteralValue evaluate(
+        const VkfLiteralValue& expression,
+        Locals& locals,
+        std::map<std::string, bool>& active_bindings,
+        std::size_t depth
+    ) {
+        if (depth > 64) throw StagerError("typed World value evaluation exceeded its bound");
+        if (expression.kind != VkfLiteralKind::Object) {
+            throw StagerError("typed World value expression must be an object");
+        }
+        const std::string kind = literal_string_or(expression, "kind", "");
+        if (kind == "const") {
+            return require_field(expression, "value", "const");
+        }
+        if (kind == "list" || kind == "tuple") {
+            const VkfLiteralValue& items = require_field(expression, "items", kind);
+            if (items.kind != VkfLiteralKind::Array) {
+                throw StagerError("typed World " + kind + " items must be an array");
+            }
+            VkfLiteralValue result;
+            result.kind = VkfLiteralKind::Array;
+            for (const auto& item : items.array) {
+                result.array.push_back(evaluate(item, locals, active_bindings, depth + 1));
+            }
+            return result;
+        }
+        if (kind == "record") {
+            const VkfLiteralValue& fields = require_field(expression, "fields", "record");
+            if (fields.kind != VkfLiteralKind::Array) {
+                throw StagerError("typed World record fields must be an array");
+            }
+            VkfLiteralValue result;
+            result.kind = VkfLiteralKind::Object;
+            for (const auto& field_value : fields.array) {
+                const std::string name = literal_string_or(field_value, "name", "");
+                if (name.empty()) throw StagerError("typed World record field must have a name");
+                result.object.push_back({
+                    name,
+                    evaluate(
+                        require_field(field_value, "value", "record field"),
+                        locals,
+                        active_bindings,
+                        depth + 1)
+                });
+            }
+            return result;
+        }
+        if (kind == "load") {
+            const std::string name = literal_string_or(expression, "name", "");
+            const auto local = locals.find(name);
+            if (local != locals.end()) return local->second;
+            const auto binding = bindings_.find(name);
+            if (binding == bindings_.end()) {
+                throw StagerError("typed World value references unknown binding " + name);
+            }
+            if (active_bindings[name]) {
+                throw StagerError("typed World value binding cycle at " + name);
+            }
+            active_bindings[name] = true;
+            VkfLiteralValue result = evaluate(
+                require_field(*binding->second, "value", "store_binding"),
+                locals,
+                active_bindings,
+                depth + 1);
+            active_bindings[name] = false;
+            return result;
+        }
+        if (kind == "field_access") {
+            VkfLiteralValue subject = evaluate(
+                require_field(expression, "object", "field_access"),
+                locals,
+                active_bindings,
+                depth + 1);
+            const std::string field_name = literal_string_or(expression, "field", "");
+            const VkfLiteralValue* selected = object_field(subject, field_name);
+            if (!selected) {
+                throw StagerError("typed World value has no field " + field_name);
+            }
+            return *selected;
+        }
+        if (kind == "binary_op") {
+            const std::string op = literal_string_or(expression, "op", "");
+            VkfLiteralValue left = evaluate(
+                require_field(expression, "left", "binary_op"),
+                locals,
+                active_bindings,
+                depth + 1);
+            VkfLiteralValue right = evaluate(
+                require_field(expression, "right", "binary_op"),
+                locals,
+                active_bindings,
+                depth + 1);
+            if (op != "STAR" || left.kind != VkfLiteralKind::Number ||
+                right.kind != VkfLiteralKind::Number) {
+                throw StagerError("typed World value only supports numeric multiplication");
+            }
+            VkfLiteralValue result;
+            result.kind = VkfLiteralKind::Number;
+            std::ostringstream number;
+            number << std::setprecision(17) << std::stod(left.text) * std::stod(right.text);
+            result.text = number.str();
+            return result;
+        }
+        if (kind == "call") {
+            const VkfLiteralValue& callee = require_field(expression, "callee", "call");
+            if (literal_string_or(callee, "kind", "") != "load") {
+                throw StagerError("typed World value call requires a named function");
+            }
+            const std::string function_name = literal_string_or(callee, "name", "");
+            const auto function = functions_.find(function_name);
+            if (function == functions_.end()) {
+                throw StagerError("typed World value calls unknown function " + function_name);
+            }
+            const VkfLiteralValue& params = require_field(*function->second, "params", "function");
+            const VkfLiteralValue& args = require_field(expression, "args", "call");
+            if (params.kind != VkfLiteralKind::Array || args.kind != VkfLiteralKind::Array ||
+                params.array.size() != args.array.size()) {
+                throw StagerError("typed World value call arity mismatch for " + function_name);
+            }
+            Locals function_locals;
+            for (std::size_t index = 0; index < params.array.size(); ++index) {
+                const std::string param_name = literal_string_or(params.array[index], "name", "");
+                if (param_name.empty()) throw StagerError("typed World function parameter has no name");
+                function_locals[param_name] = evaluate(
+                    args.array[index], locals, active_bindings, depth + 1);
+            }
+            const VkfLiteralValue& block = require_field(*function->second, "body", "function");
+            const VkfLiteralValue& statements = require_field(block, "body", "function block");
+            if (statements.kind != VkfLiteralKind::Array || statements.array.empty()) {
+                throw StagerError("typed World function has no result " + function_name);
+            }
+            const VkfLiteralValue& tail = statements.array.back();
+            const std::string tail_kind = literal_string_or(tail, "kind", "");
+            const std::string result_field = tail_kind == "return" ? "value" : "expr";
+            if (tail_kind != "return" && tail_kind != "expr_stmt") {
+                throw StagerError("typed World function result must be a return or expression");
+            }
+            return evaluate(
+                require_field(tail, result_field, "function result"),
+                function_locals,
+                active_bindings,
+                depth + 1);
+        }
+        throw StagerError("unsupported typed World value expression " + kind);
+    }
+
+    std::map<std::string, const VkfLiteralValue*> functions_;
+    std::map<std::string, const VkfLiteralValue*> bindings_;
+};
+
+std::vector<double> typed_world_numeric_values(
+    const VkfLiteralValue& value,
+    const std::string& context
+) {
+    std::vector<double> values;
+    const auto flatten = [&](const auto& self, const VkfLiteralValue& item) -> void {
+        if (item.kind == VkfLiteralKind::Number) {
+            try {
+                const double number = std::stod(item.text);
+                if (!std::isfinite(number)) throw StagerError(context + " must be finite");
+                values.push_back(number);
+                return;
+            } catch (const StagerError&) {
+                throw;
+            } catch (...) {
+                throw StagerError(context + " must be numeric");
+            }
+        }
+        if (item.kind == VkfLiteralKind::Array) {
+            for (const auto& child : item.array) self(self, child);
+            return;
+        }
+        throw StagerError(context + " must contain only numbers");
+    };
+    flatten(flatten, value);
+    return values;
+}
+
+std::string typed_world_number_array_json(const std::vector<double>& values) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) out << ",";
+        out << std::setprecision(17) << values[index];
+    }
+    out << "]";
+    return out.str();
+}
+
+std::optional<CompiledUiSceneBundle> try_compile_typed_world_presentation(
+    const std::filesystem::path& typed_ir_path
+) {
+    if (typed_ir_path.empty()) return std::nullopt;
+    const std::string typed_ir_text = read_file_bytes(typed_ir_path);
+    VkfLiteralParser parser(typed_ir_text, 0);
+    const VkfLiteralValue module = parser.parse_value();
+    const VkfLiteralValue* world_program = object_field(module, "__vf_internal_world");
+    const VkfLiteralValue* ui_program = object_field(module, "ui_program");
+    if (!world_program || !ui_program) return std::nullopt;
+    if (literal_string_or(*ui_program, "schema", "") != "vektor-flow/ui-program") {
+        throw StagerError("typed World UI program has an unsupported schema");
+    }
+    const VkfLiteralValue* worlds = object_field(*world_program, "worlds");
+    const VkfLiteralValue* world_operations = object_field(*world_program, "operations");
+    const VkfLiteralValue* operations = object_field(*ui_program, "operations");
+    if (!worlds || worlds->kind != VkfLiteralKind::Array || worlds->array.size() != 1 ||
+        !world_operations || world_operations->kind != VkfLiteralKind::Array ||
+        world_operations->array.size() != 1 || !operations ||
+        operations->kind != VkfLiteralKind::Array || operations->array.size() != 3) {
+        throw StagerError("the first typed World presentation requires one World, object, and layer");
+    }
+    const VkfLiteralValue& world = worlds->array.front();
+    const double world_dimension = literal_number_or(world, "dimension", -1.0);
+    if (literal_number_or(*world_program, "version", -1.0) != 1.0 ||
+        literal_number_or(*ui_program, "version", -1.0) != 1.0 ||
+        literal_number_or(world, "id", -1.0) != 0.0 ||
+        (world_dimension != 2.0 && world_dimension != 3.0)) {
+        throw StagerError("the first typed World presentation requires dimension 2 or 3");
+    }
+    for (const std::string option : {"em", "gravity", "rigid_collisions"}) {
+        const VkfLiteralValue* value = object_field(world, option);
+        if (!value || value->kind != VkfLiteralKind::Bool || value->bool_value) {
+            throw StagerError(
+                "the first typed World presentation requires `" + option + ":false`");
+        }
+    }
+    const VkfLiteralValue& add = operations->array[0];
+    if (literal_string_or(add, "kind", "") != "add" ||
+        literal_string_or(operations->array[1], "kind", "") != "push" ||
+        literal_string_or(operations->array[2], "kind", "") != "show") {
+        throw StagerError("typed World presentation requires ordered add, push, show operations");
+    }
+    const VkfLiteralValue* source = object_field(add, "source");
+    if (!source || literal_string_or(*source, "kind", "") != "world_embedding" ||
+        literal_number_or(*source, "world_id", -1.0) != 0.0 ||
+        literal_number_or(*source, "object_id", -1.0) != 0.0) {
+        throw StagerError("typed World layer source does not match its retained object");
+    }
+    const VkfLiteralValue& world_add = world_operations->array.front();
+    if (literal_string_or(world_add, "kind", "") != "add" ||
+        literal_number_or(world_add, "world_id", -1.0) != 0.0 ||
+        literal_number_or(world_add, "object_id", -1.0) != 0.0 ||
+        literal_string_or(world_add, "object_type", "") !=
+            literal_string_or(*source, "object_type", "")) {
+        throw StagerError("typed World object operation does not match its layer source");
+    }
+    const VkfLiteralValue* channels = object_field(add, "channels");
+    if (!channels || channels->kind != VkfLiteralKind::Array) {
+        throw StagerError("typed World layer requires presentation channels");
+    }
+
+    TypedWorldValueEvaluator evaluator(module);
+    std::map<std::string, std::vector<double>> channel_values;
+    for (const auto& channel : channels->array) {
+        const std::string name = literal_string_or(channel, "name", "");
+        if (name != "p" && name != "c" && name != "s" &&
+            name != "positions" && name != "topology" &&
+            name != "color" && name != "material") {
+            throw StagerError("typed World layer contains an unsupported channel " + name);
+        }
+        if (channel_values.find(name) != channel_values.end()) {
+            throw StagerError("typed World layer contains duplicate channel " + name);
+        }
+        const VkfLiteralValue* value = object_field(channel, "value");
+        if (!value) throw StagerError("typed World channel " + name + " has no value");
+        channel_values[name] = typed_world_numeric_values(
+            evaluator.evaluate(*value), "typed World channel " + name);
+    }
+
+    const std::string frame_id = "world_0_view_0";
+    const std::string mesh_id = "world_0_layer_0";
+    const std::string frame = axis_deck_frame_command_json(
+        frame_id, "", 0.0, 0.0, 1.0, 1.0);
+    std::string mesh_json;
+    std::string materials_suffix;
+    const bool particle_channels = channel_values.size() == 3 &&
+        channel_values.count("p") == 1 && channel_values.count("c") == 1 &&
+        channel_values.count("s") == 1;
+    const bool mesh_channels = channel_values.size() == 4 &&
+        channel_values.count("positions") == 1 && channel_values.count("topology") == 1 &&
+        channel_values.count("color") == 1 && channel_values.count("material") == 1;
+    if (particle_channels) {
+        const auto& position = channel_values["p"];
+        const auto& color = channel_values["c"];
+        const auto& size = channel_values["s"];
+        if (world_dimension != 2.0 || position.size() != 2 ||
+            color.size() != 4 || size.size() != 1) {
+            throw StagerError(
+                "the first typed World particle requires dimension 2, one position, RGBA color, and size");
+        }
+        const std::vector<double> vertices{
+            position[0], position[1], 0.0,
+            0.0, 0.0, 1.0,
+            color[0], color[1], color[2], color[3]
+        };
+        std::ostringstream mesh;
+        mesh << "{\"type\":\"field_mesh\",\"id\":\"" << mesh_id
+             << "\",\"topology\":\"point-list\",\"render_mode\":\"marker_impostor\","
+             << "\"marker_space\":\"world\",\"mode3d\":false,\"vertices\":"
+             << typed_world_number_array_json(vertices)
+             << ",\"indices\":[0],\"vertex_size\":" << std::setprecision(17) << size[0]
+             << ",\"depth_write\":false,\"no_lighting\":true,\"pickable\":true,\"layer_id\":0}";
+        mesh_json = mesh.str();
+    } else if (mesh_channels) {
+        if (world_dimension != 3.0) {
+            throw StagerError("typed World mesh channels require dimension 3");
+        }
+        try {
+            const auto mesh = vkf::world_mesh::compile(
+                channel_values["positions"], channel_values["topology"],
+                channel_values["color"], channel_values["material"]);
+            mesh_json = vkf::world_mesh::mesh_json(mesh, mesh_id, 0);
+            materials_suffix = ",\"materials\":" + vkf::world_mesh::materials_json(mesh);
+        } catch (const std::exception& error) {
+            throw StagerError(error.what());
+        }
+    } else {
+        throw StagerError(
+            "typed World layer requires either p/c/s or positions/topology/color/material channels");
+    }
+    const std::string geom = "{\"" + frame_id + "\":{\"frame\":\"" + frame_id +
+        "\",\"meshes\":[" + mesh_json + "],\"texts\":[]" + materials_suffix + "}}";
+
+    CompiledUiSceneBundle bundle;
+    bundle.scene_config_json = "[]";
+    bundle.runtime_packets_json =
+        "[{\"seq\":1,\"kind\":\"scene.replace\",\"payload\":{\"commands\":[" +
+        frame + "]}},{\"seq\":2,\"kind\":\"ui_state.replace\",\"payload\":{\"state\":{}}},"
+        "{\"seq\":3,\"kind\":\"display.replace\",\"payload\":{\"display\":{"
+        "\"screen\":[],\"frames\":{},\"geom\":" + geom + "}}}]";
+    bundle.provenance = "vkf-world-ui-program-lowering";
+    return bundle;
+}
+
 Args parse_args(int argc, char** argv) {
     Args args;
     for (int i = 1; i < argc; ++i) {
@@ -2506,6 +3206,8 @@ Args parse_args(int argc, char** argv) {
             args.source = require_value(arg);
         } else if (arg == "--overlay-web") {
             args.overlay_web = require_value(arg);
+        } else if (arg == "--typed-ir") {
+            args.typed_ir = require_value(arg);
         } else if (arg == "--scene-config") {
             args.scene_config_json = require_value(arg);
             args.scene_config_supplied = true;
@@ -2521,7 +3223,7 @@ Args parse_args(int argc, char** argv) {
         } else if (arg == "--help" || arg == "-h") {
             throw StagerError(
                 "usage: vkf_native_scene_artifact_stager --source file.vkf --overlay-web webdir "
-                "--scene-config json [--runtime-packets json]");
+                "[--typed-ir typed-ir.json] --scene-config json [--runtime-packets json]");
         } else {
             throw StagerError("unknown argument " + arg);
         }
@@ -2563,7 +3265,20 @@ int run(int argc, char** argv) {
             scene_config_provenance.path = slash_path(config_path);
             scene_config_provenance.source_hash_checked = true;
         } else {
-            auto compiled_ui_scene = try_compile_native_scene_from_source(source_text, effective.overlay_web);
+            auto compiled_ui_scene = try_compile_retained_scene_packets(
+                effective.typed_ir, absolute_source);
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_retained_html_tree(
+                    effective.typed_ir, absolute_source);
+            }
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_typed_world_presentation(
+                    effective.typed_ir);
+            }
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_native_scene_from_source(
+                    source_text, effective.overlay_web);
+            }
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_axis_mode_deck_from_source(source_text);
             }
@@ -2576,6 +3291,9 @@ int run(int argc, char** argv) {
                     "compile the UI scene through compiler/self_hosted/native_scene_compiler.vkf before staging");
             }
             effective.scene_config_json = compiled_ui_scene->scene_config_json;
+            effective.event_program_json = compiled_ui_scene->event_program_json;
+            effective.static_html_bundles = std::move(
+                compiled_ui_scene->static_html_bundles);
             scene_config_provenance.source = compiled_ui_scene->provenance;
             scene_config_provenance.source_hash_checked = true;
             if (!effective.runtime_packets_supplied) {
@@ -2646,7 +3364,12 @@ int run(int argc, char** argv) {
         page_rel,
         scene_config_provenance,
         runtime_packets_provenance));
-    write_file(session_dir / "vkf-scene.html", html_text(effective.scene_config_json, config_filename, arena_filename, runtime_asset_version), true);
+    write_file(session_dir / "vkf-scene.html", html_text(
+        effective.scene_config_json,
+        config_filename,
+        arena_filename,
+        runtime_asset_version,
+        !effective.static_html_bundles.empty()), true);
     write_file(session_dir / "vf-launch-manifest.json", native_scene_launch_manifest_json(effective.scene_config_json), true);
     if (multi_view_scene) {
         write_file(session_dir / config_filename, effective.scene_config_json + "\n");
@@ -2658,6 +3381,21 @@ int run(int argc, char** argv) {
     write_file(session_dir / "vf-geom-ledger-transport.json", effective.geom_transport_json, true);
     write_file(session_dir / "vf-geom-ledger-state.json", effective.geom_state_json, true);
     write_file(session_dir / "vf-event-program.json", effective.event_program_json, true);
+    if (!effective.static_html_bundles.empty()) {
+        std::ostringstream mounts;
+        mounts << "[";
+        for (std::size_t index = 0; index < effective.static_html_bundles.size(); ++index) {
+            if (index > 0) mounts << ",";
+            const auto& bundle = effective.static_html_bundles[index];
+            mounts << "{\"frame_id\":\"" << json_escape(bundle.frame_id)
+                   << "\",\"resource\":\"" << json_escape(bundle.entry) << "\"}";
+            for (const auto& resource : bundle.resources) {
+                write_file(session_dir / resource.name, resource.bytes);
+            }
+        }
+        mounts << "]\n";
+        write_file(session_dir / "vf-static-html-loads.json", mounts.str(), true);
+    }
 
     std::cout << "{"
               << "\"status\":\"compiled\","

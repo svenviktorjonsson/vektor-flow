@@ -76,7 +76,7 @@ static SourceArgs parse_source_args(int argc, char** argv) {
         return {normalize_source_text(read_file(path)), argc > 3 ? argv[3] : path};
     }
     return {
-        argc > 1 ? argv[1] : "alpha 123 beta45 6.7",
+        normalize_source_text(argc > 1 ? argv[1] : "alpha 123 beta45 6.7"),
         argc > 2 ? argv[2] : "<cursor-smoke>",
     };
 }

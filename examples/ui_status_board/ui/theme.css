@@ -1,0 +1,20 @@
+:root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+body { margin: 0; background: transparent; }
+.status-board {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 1.25rem;
+  color: #f3f5ff;
+  background: rgba(21, 23, 39, 0.96);
+  border: 1px solid rgba(187, 195, 255, 0.24);
+  border-radius: 1rem;
+}
+.eyebrow { color: #aab2ee; font-size: 0.72rem; letter-spacing: 0.11em; text-transform: uppercase; }
+h1 { margin: 0.35rem 0 1.2rem; font-size: 1.4rem; }
+ul { display: grid; gap: 0.65rem; padding: 0; list-style: none; }
+li { display: grid; grid-template-columns: auto 1fr auto; gap: 0.6rem; align-items: center; padding: 0.65rem; background: rgba(255, 255, 255, 0.055); border-radius: 0.6rem; }
+.dot { width: 0.65rem; height: 0.65rem; border-radius: 50%; }
+.healthy { background: #33dc8f; }
+.warning { background: #ffad33; }
+.offline { background: #f55266; }
+p:last-child { color: #b8bdd8; line-height: 1.45; }

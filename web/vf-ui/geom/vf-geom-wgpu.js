@@ -17,6 +17,17 @@
   var _vfGeomLastLogTime = 0;
   var _vfGeomSuppressedCount = 0;
   var _vfGeomLogThrottleMs = 250;
+  var clusteredLightPlannerPromise = null;
+  var DEFAULT_CLUSTERED_LIGHT_GRID = Object.freeze({
+    xSlices: 16,
+    ySlices: 9,
+    depthSlices: 24,
+    nearDepth: 0.05,
+    farDepth: 500
+  });
+  var DEFAULT_CLUSTERED_LIGHT_CAP = 64;
+  var MAX_INTERNAL_GEOMETRY_EMITTERS = 32;
+  var MAX_INTERNAL_GEOMETRY_POINTS = 8;
 
   function wlog(level, text) {
     var s = "[vf-geom-wgpu] " + String(text);
@@ -100,6 +111,239 @@
     return rel;
   }
 
+  function clusteredLightPlannerFrom(value) {
+    if (typeof value === "function") {
+      return { planClusteredLights: value, planViewClusteredLights: null };
+    }
+    if (value && typeof value.planClusteredLights === "function") {
+      return {
+        planClusteredLights: value.planClusteredLights,
+        planViewClusteredLights: typeof value.planViewClusteredLights === "function"
+          ? value.planViewClusteredLights
+          : null
+      };
+    }
+    return null;
+  }
+
+  function loadClusteredLightPlanner() {
+    var injected = clusteredLightPlannerFrom(global.VfClusteredLightPlan);
+    if (injected) { return Promise.resolve(injected); }
+    if (!clusteredLightPlannerPromise) {
+      clusteredLightPlannerPromise = import(runtimeAssetUrl("vf-clustered-light-plan.mjs")).then(function (moduleApi) {
+        var planner = clusteredLightPlannerFrom(moduleApi);
+        if (!planner) {
+          throw new Error("clustered-light module does not export planClusteredLights");
+        }
+        return planner;
+      });
+    }
+    return clusteredLightPlannerPromise;
+  }
+
+  function conservativeClusteredLightInputs(lights, grid) {
+    var source = Array.isArray(lights) ? lights : [];
+    var out = new Array(source.length);
+    for (var i = 0; i < source.length; i += 1) {
+      var light = source[i] || {};
+      out[i] = {
+        id: i,
+        kind: normalizeLightKind(light.kind),
+        bounds: {
+          minX: -1,
+          maxX: 1,
+          minY: -1,
+          maxY: 1,
+          minDepth: Number(grid.nearDepth),
+          maxDepth: Number(grid.farDepth)
+        }
+      };
+    }
+    return out;
+  }
+
+  function projectedApertureEnvelopePoints(light, position, range) {
+    var aperture;
+    try {
+      aperture = requirePlanarPacket(light && light.projected_aperture, "clustered projected aperture");
+    } catch (_) {
+      return null;
+    }
+    var points = [position.slice()];
+    for (var i = 0; i < aperture.points.length; i += 1) {
+      var local = aperture.points[i];
+      var corner = addVec3(
+        aperture.planePoint,
+        addVec3(scaleVec3(aperture.uAxis, local[0]), scaleVec3(aperture.vAxis, local[1]))
+      );
+      var ray = subVec3(corner, position);
+      var distance = Math.sqrt(dotVec3(ray, ray));
+      if (!(distance > 1e-9) || !Number.isFinite(distance)) { return null; }
+      points.push(corner);
+      points.push(addVec3(position, scaleVec3(ray, range / distance)));
+    }
+    return points;
+  }
+
+  function projectedClusteredLightInputs(lights) {
+    var source = Array.isArray(lights) ? lights : [];
+    var out = new Array(source.length);
+    for (var i = 0; i < source.length; i += 1) {
+      var light = source[i] || {};
+      var isGeometry = light.kind === "geometry" && Array.isArray(light.geometry_points);
+      var kind = isGeometry ? "geometry" : normalizeLightKind(light.kind);
+      var range = Number(light.range);
+      var position = light.pos;
+      if (!Array.isArray(position) || position.length < 3 ||
+          !Number.isFinite(range) || !(range > 0.0)) {
+        return null;
+      }
+      var projected = {
+        id: i,
+        kind: kind,
+        position: [Number(position[0]), Number(position[1]), Number(position[2])],
+        radius: range,
+        range: range
+      };
+      if (!projected.position.every(Number.isFinite)) { return null; }
+      if (kind === "geometry") {
+        projected.points = light.geometry_points.map(function (point) {
+          return [Number(point[0]), Number(point[1]), Number(point[2])];
+        });
+        if (projected.points.length < 3 || !projected.points.every(function (point) {
+          return point.every(Number.isFinite);
+        })) { return null; }
+        delete projected.position;
+        delete projected.radius;
+      } else if (kind === "projected") {
+        projected.points = projectedApertureEnvelopePoints(light, projected.position, range);
+        if (!projected.points) { return null; }
+        delete projected.position;
+        delete projected.radius;
+        delete projected.range;
+      } else if (kind === "spot") {
+        projected.direction = Array.isArray(light.direction_f32)
+          ? [Number(light.direction_f32[0]), Number(light.direction_f32[1]), Number(light.direction_f32[2])]
+          : null;
+        projected.outerConeCos = Number(light.outer_cone_cos);
+        if (!projected.direction || !projected.direction.every(Number.isFinite) ||
+            !Number.isFinite(projected.outerConeCos)) {
+          return null;
+        }
+      } else if (kind !== "point") {
+        return null;
+      }
+      out[i] = projected;
+    }
+    return out;
+  }
+
+  function clusteredCameraFromMatrices(viewMatrix, projectionMatrix, grid) {
+    if (!viewMatrix || viewMatrix.length !== 16 || !projectionMatrix || projectionMatrix.length !== 16) {
+      return null;
+    }
+    var nearDepth = Number(grid && grid.nearDepth);
+    var farDepth = Number(grid && grid.farDepth);
+    if (!Number.isFinite(nearDepth) || !(nearDepth > 0.0) ||
+        !Number.isFinite(farDepth) || !(farDepth > nearDepth)) {
+      return null;
+    }
+    return {
+      viewMatrix: Array.prototype.slice.call(viewMatrix),
+      projectionMatrix: Array.prototype.slice.call(projectionMatrix),
+      nearDepth: nearDepth,
+      farDepth: farDepth
+    };
+  }
+
+  function packClusteredLightPlan(plan, grid, cap, lightCount) {
+    var offsets = plan && plan.clusterOffsets ? plan.clusterOffsets : new Uint32Array(0);
+    var lightIds = plan && plan.lightIds ? plan.lightIds : new Uint32Array(0);
+    var packed = new Uint32Array(10 + offsets.length + lightIds.length);
+    var packedFloats = new Float32Array(packed.buffer);
+    packed[0] = Math.max(0, Number(grid && grid.xSlices || 0) || 0) >>> 0;
+    packed[1] = Math.max(0, Number(grid && grid.ySlices || 0) || 0) >>> 0;
+    packed[2] = Math.max(0, Number(grid && grid.depthSlices || 0) || 0) >>> 0;
+    packed[3] = Math.max(0, Number(cap || 0) || 0) >>> 0;
+    packed[4] = Math.max(0, Number(plan && plan.clusterCount || 0) || 0) >>> 0;
+    packed[5] = Math.max(0, Number(plan && plan.assignmentCount || 0) || 0) >>> 0;
+    packed[6] = Math.max(0, Number(plan && plan.overflowAssignmentCount || 0) || 0) >>> 0;
+    packed[7] = Math.max(0, Number(lightCount || 0) || 0) >>> 0;
+    packedFloats[8] = Math.max(Number.EPSILON, Number(grid && grid.nearDepth || 0.05) || 0.05);
+    packedFloats[9] = Math.max(packedFloats[8] + Number.EPSILON, Number(grid && grid.farDepth || 500) || 500);
+    packed.set(offsets, 10);
+    packed.set(lightIds, 10 + offsets.length);
+    return packed;
+  }
+
+  function packClusteredLightRecords(lights) {
+    var source = Array.isArray(lights) ? lights : [];
+    var recordFloats = 48;
+    var packed = new Float32Array(Math.max(recordFloats, source.length * recordFloats));
+    function component(values, index, fallback) {
+      var value = Number(values && values[index]);
+      return Number.isFinite(value) ? value : fallback;
+    }
+    for (var i = 0; i < source.length; i += 1) {
+      var light = source[i] || {};
+      var base = i * recordFloats;
+      packed[base + 0] = component(light.pos, 0, 0.0);
+      packed[base + 1] = component(light.pos, 1, 0.0);
+      packed[base + 2] = component(light.pos, 2, 0.0);
+      packed[base + 3] = Math.max(0.0, Number(light.range || 0.0) || 0.0);
+      packed[base + 4] = component(light.color_f32, 0, 0.0);
+      packed[base + 5] = component(light.color_f32, 1, 0.0);
+      packed[base + 6] = component(light.color_f32, 2, 0.0);
+      packed[base + 7] = Math.max(0.0, Number(light.intensity || 0.0) || 0.0);
+      packed[base + 8] = component(light.direction_f32, 0, 0.0);
+      packed[base + 9] = component(light.direction_f32, 1, 0.0);
+      packed[base + 10] = component(light.direction_f32, 2, -1.0);
+      packed[base + 11] = Math.max(0.0, Number(light.kind_code || 0.0) || 0.0);
+      packed[base + 12] = Number(light.inner_cone_cos == null ? -1.0 : light.inner_cone_cos) || -1.0;
+      packed[base + 13] = Number(light.outer_cone_cos == null ? -1.0 : light.outer_cone_cos) || -1.0;
+      packed[base + 14] = Math.max(0.0, Number(light.source_radius || 0.0) || 0.0);
+      packed[base + 15] = Math.max(0.0, Number(light.spread == null ? 1.0 : light.spread) || 0.0);
+      if (packed[base + 11] >= 2.5) {
+        packed[base + 12] = Math.max(0.0, Number(light.geometry_area || 0.0) || 0.0);
+        packed[base + 13] = Math.max(0.0, Number(light.geometry_radius || 0.0) || 0.0);
+        packed[base + 14] = light.geometry_two_sided === true ? 1.0 : 0.0;
+        packed[base + 15] = 0.0;
+      }
+      if (packed[base + 11] >= 1.5 && light.projected_aperture) {
+        var aperture = light.projected_aperture;
+        var packet = requirePlanarPacket(aperture, "clustered projected aperture");
+        var count = Math.min(MAX_LIGHT_APERTURE_POINTS, packet.points.length);
+        packed[base + 16] = component(packet.planePoint, 0, 0.0);
+        packed[base + 17] = component(packet.planePoint, 1, 0.0);
+        packed[base + 18] = component(packet.planePoint, 2, 0.0);
+        packed[base + 19] = Math.max(0.0, Number(aperture.clip_epsilon || 0.0) || 0.0);
+        packed[base + 20] = component(packet.planeNormal, 0, 0.0);
+        packed[base + 21] = component(packet.planeNormal, 1, 0.0);
+        packed[base + 22] = component(packet.planeNormal, 2, 1.0);
+        packed[base + 23] = count;
+        packed[base + 24] = component(packet.uAxis, 0, 0.0);
+        packed[base + 25] = component(packet.uAxis, 1, 0.0);
+        packed[base + 26] = component(packet.uAxis, 2, 0.0);
+        packed[base + 27] = Math.max(0.0, Number(light.source_radius || 0.0) || 0.0);
+        packed[base + 28] = component(packet.vAxis, 0, 0.0);
+        packed[base + 29] = component(packet.vAxis, 1, 0.0);
+        packed[base + 30] = component(packet.vAxis, 2, 0.0);
+        packed[base + 31] = Math.max(0.0, Number(light.spread == null ? 1.0 : light.spread) || 0.0);
+        for (var pointIndex = 0; pointIndex < count; pointIndex += 1) {
+          packed[base + 32 + (pointIndex * 2)] = component(packet.points[pointIndex], 0, 0.0);
+          packed[base + 33 + (pointIndex * 2)] = component(packet.points[pointIndex], 1, 0.0);
+        }
+      }
+    }
+    return packed;
+  }
+
+  function nextStorageCapacity(requiredBytes) {
+    var capacity = 16;
+    while (capacity < requiredBytes) { capacity *= 2; }
+    return capacity;
+  }
+
   async function createChessFontAtlas(device) {
     if (!global.fetch || !global.createImageBitmap) {
       failFast("chess_board texture font requires fetch and createImageBitmap");
@@ -138,6 +382,29 @@
     return global.performance && typeof global.performance.now === "function"
       ? global.performance.now()
       : Date.now();
+  }
+
+  function surfaceTargetAllocationBytes(format, width, height) {
+    var formatBytes = {
+      r8unorm: 1,
+      rg8unorm: 2,
+      rgba8unorm: 4,
+      "rgba8unorm-srgb": 4,
+      bgra8unorm: 4,
+      "bgra8unorm-srgb": 4,
+      rgb10a2unorm: 4,
+      rg11b10ufloat: 4,
+      rgba16float: 8,
+      rgba32float: 16
+    };
+    var colorBytes = formatBytes[String(format || "").toLowerCase()] || 4;
+    var pixels = Math.max(0, width | 0) * Math.max(0, height | 0);
+    var resolvedColorBytes = pixels * colorBytes;
+    var multisampledColorBytes = pixels * colorBytes * SAMPLE_COUNT;
+    // depth24plus storage is implementation-defined. Track its logical
+    // 32-bit attachment footprint so receipts are deterministic across GPUs.
+    var multisampledDepthBytes = pixels * 4 * SAMPLE_COUNT;
+    return resolvedColorBytes + multisampledColorBytes + multisampledDepthBytes;
   }
 
   function chessLagDebugEnabled() {
@@ -880,6 +1147,23 @@ struct Scene {
 @group(0) @binding(8) var fontSampler: sampler;
 @group(0) @binding(9) var fontAtlas: texture_2d<f32>;
 
+struct ClusteredLightRecord {
+  position_range: vec4<f32>,
+  color_intensity: vec4<f32>,
+  direction_kind: vec4<f32>,
+  spot: vec4<f32>,
+  aperture_plane_clip: vec4<f32>,
+  aperture_normal_count: vec4<f32>,
+  aperture_u_radius: vec4<f32>,
+  aperture_v_spread: vec4<f32>,
+  aperture_points01: vec4<f32>,
+  aperture_points23: vec4<f32>,
+  aperture_points45: vec4<f32>,
+  aperture_points67: vec4<f32>,
+}
+@group(1) @binding(0) var<storage, read> clusteredLightPlan: array<u32>;
+@group(1) @binding(1) var<storage, read> clusteredLightRecords: array<ClusteredLightRecord>;
+
 struct Vin {
   @location(0) pos   : vec3<f32>,
   @location(1) normal: vec3<f32>,
@@ -1012,6 +1296,162 @@ fn spotlightFactor(coneDir: vec3<f32>, pointDir: vec3<f32>, innerCos: f32, outer
   let inner = max(innerCos, outerCos);
   let outer = min(innerCos, outerCos);
   return smoothstep(outer, inner, c);
+}
+
+struct ClusteredDirectLightSum {
+  diffuse: vec3<f32>,
+  specular: vec3<f32>,
+}
+
+fn clusteredAperturePoint(light: ClusteredLightRecord, index: u32) -> vec2<f32> {
+  if (index == 0u) { return light.aperture_points01.xy; }
+  if (index == 1u) { return light.aperture_points01.zw; }
+  if (index == 2u) { return light.aperture_points23.xy; }
+  if (index == 3u) { return light.aperture_points23.zw; }
+  if (index == 4u) { return light.aperture_points45.xy; }
+  if (index == 5u) { return light.aperture_points45.zw; }
+  if (index == 6u) { return light.aperture_points67.xy; }
+  return light.aperture_points67.zw;
+}
+
+fn clusteredProjectedApertureFactor(worldPos: vec3<f32>, light: ClusteredLightRecord) -> f32 {
+  if (light.direction_kind.w < 1.5 || light.direction_kind.w >= 2.5) {
+    return 1.0;
+  }
+  let apertureCount = min(u32(light.aperture_normal_count.w + 0.5), 8u);
+  if (apertureCount < 3u) {
+    return 0.0;
+  }
+  let lightPos = light.position_range.xyz;
+  let planePoint = light.aperture_plane_clip.xyz;
+  let planeNormal = normalize(light.aperture_normal_count.xyz);
+  let ray = worldPos - lightPos;
+  let denom = dot(planeNormal, ray);
+  if (abs(denom) <= 1e-6) {
+    return 0.0;
+  }
+  let t = dot(planePoint - lightPos, planeNormal) / denom;
+  if (t <= 1e-4 || t >= (1.0 - 1e-4)) {
+    return 0.0;
+  }
+  let hit = lightPos + (t * ray);
+  let rel = hit - planePoint;
+  let local = vec2<f32>(
+    dot(rel, normalize(light.aperture_u_radius.xyz)),
+    dot(rel, normalize(light.aperture_v_spread.xyz))
+  );
+  let lightToPlane = max(abs(dot(planePoint - lightPos, planeNormal)), 1e-4);
+  let lightSide = dot(lightPos - planePoint, planeNormal);
+  let pointSide = dot(worldPos - planePoint, planeNormal);
+  let receiverSide = -sign(lightSide) * pointSide;
+  let clipEpsilon = light.aperture_plane_clip.w;
+  if (receiverSide <= clipEpsilon) {
+    return 0.0;
+  }
+  let receiverGap = max(0.0, receiverSide - clipEpsilon);
+  let softness = light.aperture_u_radius.w * (receiverGap / lightToPlane) * light.aperture_v_spread.w;
+  if (apertureCount == 4u) {
+    var minX = 1e9;
+    var maxX = -1e9;
+    var minY = 1e9;
+    var maxY = -1e9;
+    for (var qi: u32 = 0u; qi < apertureCount; qi = qi + 1u) {
+      let p = clusteredAperturePoint(light, qi);
+      minX = min(minX, p.x);
+      maxX = max(maxX, p.x);
+      minY = min(minY, p.y);
+      maxY = max(maxY, p.y);
+    }
+    let insideX = smoothstep(minX, minX + softness, local.x) * (1.0 - smoothstep(maxX - softness, maxX, local.x));
+    let insideY = smoothstep(minY, minY + softness, local.y) * (1.0 - smoothstep(maxY - softness, maxY, local.y));
+    return insideX * insideY;
+  }
+  var occPos = 1.0;
+  var occNeg = 1.0;
+  for (var index: u32 = 0u; index < apertureCount; index = index + 1u) {
+    let a = clusteredAperturePoint(light, index);
+    let b = clusteredAperturePoint(light, (index + 1u) % apertureCount);
+    let side = cross2(a, b, local);
+    let edgeLen = length(b - a);
+    occPos = occPos * edgeOcclusion(side, edgeLen, softness);
+    occNeg = occNeg * edgeOcclusion(-side, edgeLen, softness);
+  }
+  return max(occPos, occNeg);
+}
+
+fn clusteredGeometryEmitterFactor(light: ClusteredLightRecord, L: vec3<f32>) -> f32 {
+  if (light.direction_kind.w < 2.5) {
+    return 1.0;
+  }
+  let rawFacing = dot(normalize(light.direction_kind.xyz), -L);
+  let facing = select(max(rawFacing, 0.0), abs(rawFacing), light.spot.z >= 0.5);
+  return max(light.spot.x, 0.0) * facing;
+}
+
+fn clusteredReceiverIndex(worldPos: vec3<f32>) -> u32 {
+  let xSlices = max(clusteredLightPlan[0u], 1u);
+  let ySlices = max(clusteredLightPlan[1u], 1u);
+  let depthSlices = max(clusteredLightPlan[2u], 1u);
+  let rawClip = sc.mvp * vec4<f32>(worldPos, 1.0);
+  let ndc = rawClip.xy / max(abs(rawClip.w), 1e-6);
+  let x = u32(clamp(floor(((ndc.x * 0.5) + 0.5) * f32(xSlices)), 0.0, f32(xSlices - 1u)));
+  let y = u32(clamp(floor(((ndc.y * 0.5) + 0.5) * f32(ySlices)), 0.0, f32(ySlices - 1u)));
+  let nearDepth = max(bitcast<f32>(clusteredLightPlan[8u]), 1e-6);
+  let farDepth = max(bitcast<f32>(clusteredLightPlan[9u]), nearDepth + 1e-6);
+  let viewDepth = clamp(dot(worldPos - sc.cam_pos, sc.depth_params.yzw), nearDepth, farDepth);
+  let logarithmicDepth = log(viewDepth / nearDepth) / max(log(farDepth / nearDepth), 1e-6);
+  let z = u32(clamp(floor(logarithmicDepth * f32(depthSlices)), 0.0, f32(depthSlices - 1u)));
+  return ((z * ySlices) + y) * xSlices + x;
+}
+
+fn clusteredAdditionalDirectLights(
+  base: vec3<f32>,
+  alpha: f32,
+  worldPos: vec3<f32>,
+  N: vec3<f32>,
+  V: vec3<f32>,
+  specularScale: f32
+) -> ClusteredDirectLightSum {
+  var result: ClusteredDirectLightSum;
+  result.diffuse = vec3<f32>(0.0);
+  result.specular = vec3<f32>(0.0);
+  let clusterCount = clusteredLightPlan[4u];
+  if (clusterCount == 0u || clusteredLightPlan[7u] <= 4u) {
+    return result;
+  }
+  let clusterIndex = min(clusteredReceiverIndex(worldPos), clusterCount - 1u);
+  let offsetsBase = 10u;
+  let start = clusteredLightPlan[offsetsBase + clusterIndex];
+  let end = clusteredLightPlan[offsetsBase + clusterIndex + 1u];
+  let retainedCount = min(end - start, clusteredLightPlan[3u]);
+  let lightIdsBase = offsetsBase + clusterCount + 1u;
+  for (var retainedIndex = 0u; retainedIndex < retainedCount; retainedIndex = retainedIndex + 1u) {
+    let lightId = clusteredLightPlan[lightIdsBase + start + retainedIndex];
+    if (lightId < 4u) {
+      continue;
+    }
+    if (lightId >= clusteredLightPlan[7u]) {
+      continue;
+    }
+    let light = clusteredLightRecords[lightId];
+    let toLight = light.position_range.xyz - worldPos;
+    let distance = max(length(toLight), 1e-6);
+    let L = toLight / distance;
+    let attenuation = lightAttenuation(distance, light.color_intensity.w, light.position_range.w);
+    let spot = spotlightFactor(light.direction_kind.xyz, -L, light.spot.x, light.spot.y, light.direction_kind.w);
+    let projected = clusteredProjectedApertureFactor(worldPos, light);
+    let geometry = clusteredGeometryEmitterFactor(light, L);
+    let litScale = attenuation * spot * projected * geometry;
+    let diffuseFactor = max(dot(N, L), 0.0);
+    result.diffuse += (litScale * diffuseFactor) * light.color_intensity.rgb * base;
+    if (light.direction_kind.w < 1.5) {
+      let H = normalize(L + V);
+      let specularFactor = pow(max(dot(N, H), 0.0), 40.0);
+      result.specular += (litScale * specularFactor) * light.color_intensity.rgb *
+        (1.8 * specularScale * alpha * sc.specular_strength);
+    }
+  }
+  return result;
 }
 
 fn projectedApertureFactor0(worldPos: vec3<f32>, lightPos: vec3<f32>, kindCode: f32) -> f32 {
@@ -2658,6 +3098,11 @@ fn shadeLitBaseScaled(base: vec3<f32>, alpha: f32, worldPos: vec3<f32>, inputNor
       specular += (litScale3 * spec3) * lc3 * (1.8 * specularScale * a * sc.specular_strength);
     }
   }
+  if (!suppressBackfaceLighting && clusteredLightPlan[7u] > 4u) {
+    let clustered = clusteredAdditionalDirectLights(base, a, worldPos, N, V, specularScale);
+    diffuse += clustered.diffuse;
+    specular += clustered.specular;
+  }
   if (sc.light_count == 0u) {
     return vec4f(base, a);
   }
@@ -3490,7 +3935,21 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
             }
           ],
         });
-        var plLayout = device.createPipelineLayout({ bindGroupLayouts: [bindLayout] });
+        var clusteredLightBindLayout = device.createBindGroupLayout({
+          entries: [
+            {
+              binding: 0,
+              visibility: GPUShaderStage.FRAGMENT,
+              buffer: { type: "read-only-storage" }
+            },
+            {
+              binding: 1,
+              visibility: GPUShaderStage.FRAGMENT,
+              buffer: { type: "read-only-storage" }
+            }
+          ]
+        });
+        var plLayout = device.createPipelineLayout({ bindGroupLayouts: [bindLayout, clusteredLightBindLayout] });
         var shadowBindLayout = device.createBindGroupLayout({
           entries: [{
             binding: 0,
@@ -3717,6 +4176,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           pipeTri, pipeTriCull, pipeLine, pipeTriAlpha, pipeTriAlphaCull, pipeTriAlphaDepth, pipeTriMultiply, pipeTriAdditive,
           pipeSphereInst, pipeCylinderInst, pipePointImpostor, pipePointImpostorDepth, pipeLineImpostor, pipeLineImpostorDepth, pipeFlare, flareQuadBuf,
           surfaceSampler, defaultSurfaceView, fontSampler, chessFontAtlas, shadowSampler, defaultShadowView,
+          clusteredLightBindLayout,
           pipeShadow0, pipeShadow1, shadowBindLayout,
           pipePick, pickBindLayout,
           frameBlitBindLayout, pipeFrameBlit
@@ -3736,7 +4196,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   // ---------------------------------------------------------------------------
   // Build scene uniform buffer (560 bytes)
   // ---------------------------------------------------------------------------
-  function buildUniform(mvp, model, camera, lights, lightModel, alphaMul, meshLike) {
+  function buildUniform(mvp, model, camera, lights, lightModel, alphaMul, meshLike, cameraForward) {
     var buf = new ArrayBuffer(UB_SIZE);
     var f32 = new Float32Array(buf);
     var u32 = new Uint32Array(buf);
@@ -4186,6 +4646,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       ? authoredDepthOffset
       : (Number.isFinite(automaticDepthOffset) ? automaticDepthOffset : 0.0);
     f32[depthParamsBase + 0] = Math.max(-0.001, Math.min(0.001, depthOffset));
+    var clusteredCameraForward = normalizeVec3(cameraForward, [0.0, 0.0, -1.0]);
+    f32[depthParamsBase + 1] = clusteredCameraForward[0];
+    f32[depthParamsBase + 2] = clusteredCameraForward[1];
+    f32[depthParamsBase + 3] = clusteredCameraForward[2];
 
     return f32;
   }
@@ -5008,6 +5472,103 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     if (raw === "spotlight") { return "spot"; }
     if (raw !== "point" && raw !== "spot" && raw !== "projected") { return "point"; }
     return raw;
+  }
+
+  function normalizeInternalGeometryEmitter(emitter, index) {
+    if (!emitter || typeof emitter !== "object") { return null; }
+    var sourcePoints = Array.isArray(emitter.points) ? emitter.points : [];
+    if (sourcePoints.length < 3 || sourcePoints.length > MAX_INTERNAL_GEOMETRY_POINTS) { return null; }
+    var points = [];
+    for (var pointIndex = 0; pointIndex < sourcePoints.length; pointIndex += 1) {
+      var sourcePoint = sourcePoints[pointIndex];
+      if (!Array.isArray(sourcePoint) || sourcePoint.length < 3) { return null; }
+      var point = [Number(sourcePoint[0]), Number(sourcePoint[1]), Number(sourcePoint[2])];
+      if (!point.every(Number.isFinite)) { return null; }
+      points.push(point);
+    }
+    var center = [0.0, 0.0, 0.0];
+    for (var centerIndex = 0; centerIndex < points.length; centerIndex += 1) {
+      center[0] += points[centerIndex][0];
+      center[1] += points[centerIndex][1];
+      center[2] += points[centerIndex][2];
+    }
+    center = center.map(function (value) { return value / points.length; });
+    var newell = [0.0, 0.0, 0.0];
+    for (var normalIndex = 0; normalIndex < points.length; normalIndex += 1) {
+      var current = points[normalIndex];
+      var next = points[(normalIndex + 1) % points.length];
+      newell[0] += (current[1] - next[1]) * (current[2] + next[2]);
+      newell[1] += (current[2] - next[2]) * (current[0] + next[0]);
+      newell[2] += (current[0] - next[0]) * (current[1] + next[1]);
+    }
+    var newellLength = Math.sqrt(dotVec3(newell, newell));
+    if (!(newellLength > 1e-9) || !Number.isFinite(newellLength)) { return null; }
+    var normal = scaleVec3(newell, 1.0 / newellLength);
+    var area = 0.0;
+    for (var triangleIndex = 1; triangleIndex + 1 < points.length; triangleIndex += 1) {
+      var edgeA = subVec3(points[triangleIndex], points[0]);
+      var edgeB = subVec3(points[triangleIndex + 1], points[0]);
+      var triangleCross = crossVec3(edgeA, edgeB);
+      area += 0.5 * Math.sqrt(dotVec3(triangleCross, triangleCross));
+    }
+    var radius = 0.0;
+    for (var radiusIndex = 0; radiusIndex < points.length; radiusIndex += 1) {
+      var offset = subVec3(points[radiusIndex], center);
+      radius = Math.max(radius, Math.sqrt(dotVec3(offset, offset)));
+    }
+    var range = Number(emitter.range);
+    var intensity = Number(emitter.intensity);
+    var colorInput = Array.isArray(emitter.color_f32) ? emitter.color_f32 : [];
+    var color = [Number(colorInput[0]), Number(colorInput[1]), Number(colorInput[2]), Number(colorInput[3])];
+    if (!(area > 1e-9) || !Number.isFinite(area) ||
+        !(range > 0.0) || !Number.isFinite(range) ||
+        !(intensity >= 0.0) || !Number.isFinite(intensity) ||
+        !color.slice(0, 3).every(Number.isFinite)) {
+      return null;
+    }
+    if (!Number.isFinite(color[3])) { color[3] = 1.0; }
+    return {
+      id: String(emitter.id || ("geometry-emitter-" + String(index))),
+      kind: "geometry",
+      kind_code: 3.0,
+      pos: center,
+      direction_f32: normal,
+      color_f32: color,
+      intensity: intensity,
+      range: range,
+      inner_cone_cos: -1.0,
+      outer_cone_cos: -1.0,
+      source_radius: 0.0,
+      spread: 1.0,
+      casts_shadow: false,
+      show_marker: false,
+      geometry_points: points,
+      geometry_area: area,
+      geometry_radius: radius,
+      geometry_two_sided: emitter.two_sided === true
+    };
+  }
+
+  function appendInternalGeometryEmitters(lights, meshLike) {
+    var source = Array.isArray(lights) ? lights : [];
+    var emitters = Array.isArray(meshLike && meshLike._geometry_emitters)
+      ? meshLike._geometry_emitters
+      : [];
+    if (!emitters.length) { return source; }
+    var out = source.slice();
+    while (out.length < 4) {
+      out.push({
+        id: "", kind: "point", kind_code: 0.0, pos: [0, 0, 0],
+        direction_f32: [0, 0, -1], color_f32: [0, 0, 0, 1],
+        intensity: 0.0, range: 0.0, inner_cone_cos: -1.0, outer_cone_cos: -1.0
+      });
+    }
+    var retained = Math.min(MAX_INTERNAL_GEOMETRY_EMITTERS, emitters.length);
+    for (var i = 0; i < retained; i += 1) {
+      var normalized = normalizeInternalGeometryEmitter(emitters[i], i);
+      if (normalized) { out.push(normalized); }
+    }
+    return out;
   }
 
   function radiansFromDegrees(value, fallbackDeg) {
@@ -6266,9 +6827,159 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     this._pickH         = 0;
     this._pickPending   = false;   // readback in flight
     this._pickCallback  = null;    // fn(object_id, simplex_id, x, y) called after readback
+    this._renderEvidenceSequence = 0;
+    this._lastSurfacePassCount = 0;
+    this._lastShadowDrawCount = 0;
+    this._lastShadowCacheHitCount = 0;
+    this._lastActiveLightCount = 0;
+    this._clusteredLightPlanner = clusteredLightPlannerFrom(global.VfClusteredLightPlan);
+    this._clusteredLightGrid = Object.assign({}, DEFAULT_CLUSTERED_LIGHT_GRID);
+    this._clusteredLightMaxLightsPerCluster = DEFAULT_CLUSTERED_LIGHT_CAP;
+    this._clusteredLightPlan = null;
+    this._lastPlannedLightCount = 0;
+    this._clusteredLightBindLayout = null;
+    this._clusteredLightBindGroup = null;
+    this._clusteredLightClusterBuffer = null;
+    this._clusteredLightRecordBuffer = null;
+    this._clusteredLightClusterCapacity = 0;
+    this._clusteredLightRecordCapacity = 0;
+    this._clusteredLightStorageBytes = 0;
+    this._clusteredLightRecordStorageBytes = 0;
   }
 
   VfGeomWgpu.prototype = {
+    _debugRenderEvidence: function () {
+      var targetPixels = 0;
+      var targetBytes = 0;
+      var parts = Array.isArray(this._parts) ? this._parts : [];
+      for (var i = 0; i < parts.length; i += 1) {
+        var part = parts[i];
+        if (!part || !part.surfaceColorTex) { continue; }
+        targetPixels += Math.max(0, Number(part.surfaceAllocatedPixels || 0) || 0);
+        targetBytes += Math.max(0, Number(part.surfaceAllocatedBytes || 0) || 0);
+      }
+      return {
+        schema: "vf-render-evidence/1",
+        frameId: String(this._frameId || ""),
+        frameSequence: Math.max(0, Number(this._renderEvidenceSequence || 0) || 0),
+        width: Math.max(0, Number(this._canvas && this._canvas.width || 0) || 0),
+        height: Math.max(0, Number(this._canvas && this._canvas.height || 0) || 0),
+        format: String(this._format || ""),
+        sampleCount: SAMPLE_COUNT,
+        surfacePasses: Math.max(0, Number(this._lastSurfacePassCount || 0) || 0),
+        surfaceTargetPixels: targetPixels,
+        surfaceTargetBytes: targetBytes,
+        shadowDraws: Math.max(0, Number(this._lastShadowDrawCount || 0) || 0),
+        shadowCacheHits: Math.max(0, Number(this._lastShadowCacheHitCount || 0) || 0),
+        activeLights: Math.max(0, Number(this._lastActiveLightCount || 0) || 0),
+        plannedLights: Math.max(0, Number(this._lastPlannedLightCount || 0) || 0),
+        lightClusters: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.clusterCount || 0) || 0),
+        lightClusterAssignments: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.assignmentCount || 0) || 0),
+        lightClusterOverflowAssignments: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.overflowAssignmentCount || 0) || 0),
+        lightClusterOverflowClusters: Math.max(0, Number(this._clusteredLightPlan && this._clusteredLightPlan.overflowClusterCount || 0) || 0),
+        lightClusterCap: Math.max(0, Number(this._clusteredLightMaxLightsPerCluster || 0) || 0),
+        lightClusterStorageBytes: Math.max(0, Number(this._clusteredLightStorageBytes || 0) || 0),
+        lightRecordStorageBytes: Math.max(0, Number(this._clusteredLightRecordStorageBytes || 0) || 0)
+      };
+    },
+
+    _clusteredLightsForScene: function (lights, meshLike) {
+      return appendInternalGeometryEmitters(lights, meshLike);
+    },
+
+    _planClusteredLightsForFrame: function (lights, camera) {
+      var planner = this._clusteredLightPlanner || clusteredLightPlannerFrom(global.VfClusteredLightPlan);
+      if (!planner || typeof planner.planClusteredLights !== "function") {
+        this._clusteredLightPlan = null;
+        this._lastPlannedLightCount = 0;
+        return null;
+      }
+      this._clusteredLightPlanner = planner;
+      var grid = this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID;
+      var inputs = conservativeClusteredLightInputs(lights, grid);
+      var capacity = this._clusteredLightMaxLightsPerCluster || DEFAULT_CLUSTERED_LIGHT_CAP;
+      var projectedInputs = camera && typeof planner.planViewClusteredLights === "function"
+        ? projectedClusteredLightInputs(lights)
+        : null;
+      var plan = null;
+      if (projectedInputs) {
+        try {
+          plan = planner.planViewClusteredLights({
+            grid: grid,
+            camera: camera,
+            lights: projectedInputs,
+            maxLightsPerCluster: capacity
+          });
+        } catch (_) {
+          plan = null;
+        }
+      }
+      if (!plan) {
+        plan = planner.planClusteredLights({
+          grid: grid,
+          lights: inputs,
+          maxLightsPerCluster: capacity
+        });
+      }
+      this._clusteredLightPlan = plan;
+      this._lastPlannedLightCount = inputs.length;
+      if (this._device) {
+        this._uploadClusteredLightStorage(plan, lights);
+      }
+      return plan;
+    },
+
+    _uploadClusteredLightStorage: function (plan, lights) {
+      if (!this._device || !this._clusteredLightBindLayout) { return; }
+      var grid = this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID;
+      var cap = this._clusteredLightMaxLightsPerCluster || DEFAULT_CLUSTERED_LIGHT_CAP;
+      var lightCount = Array.isArray(lights) ? lights.length : 0;
+      var clusterData = packClusteredLightPlan(plan, grid, cap, lightCount);
+      var recordData = packClusteredLightRecords(lights);
+      var clusterBytes = clusterData.byteLength;
+      var recordBytes = recordData.byteLength;
+      var rebuilt = false;
+      if (!this._clusteredLightClusterBuffer || this._clusteredLightClusterCapacity < clusterBytes) {
+        if (this._clusteredLightClusterBuffer) { try { this._clusteredLightClusterBuffer.destroy(); } catch (_) {} }
+        this._clusteredLightClusterCapacity = nextStorageCapacity(clusterBytes);
+        this._clusteredLightClusterBuffer = this._device.createBuffer({
+          label: "vf-clustered-light-plan",
+          size: this._clusteredLightClusterCapacity,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        rebuilt = true;
+      }
+      if (!this._clusteredLightRecordBuffer || this._clusteredLightRecordCapacity < recordBytes) {
+        if (this._clusteredLightRecordBuffer) { try { this._clusteredLightRecordBuffer.destroy(); } catch (_) {} }
+        this._clusteredLightRecordCapacity = nextStorageCapacity(recordBytes);
+        this._clusteredLightRecordBuffer = this._device.createBuffer({
+          label: "vf-clustered-light-records",
+          size: this._clusteredLightRecordCapacity,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        });
+        rebuilt = true;
+      }
+      this._device.queue.writeBuffer(this._clusteredLightClusterBuffer, 0, clusterData);
+      this._device.queue.writeBuffer(this._clusteredLightRecordBuffer, 0, recordData);
+      this._clusteredLightStorageBytes = clusterBytes;
+      this._clusteredLightRecordStorageBytes = lightCount * 48 * Float32Array.BYTES_PER_ELEMENT;
+      if (rebuilt || !this._clusteredLightBindGroup) {
+        this._clusteredLightBindGroup = this._device.createBindGroup({
+          layout: this._clusteredLightBindLayout,
+          entries: [
+            { binding: 0, resource: { buffer: this._clusteredLightClusterBuffer } },
+            { binding: 1, resource: { buffer: this._clusteredLightRecordBuffer } }
+          ]
+        });
+      }
+    },
+
+    _bindClusteredLightStorage: function (pass) {
+      if (pass && this._clusteredLightBindGroup && typeof pass.setBindGroup === "function") {
+        pass.setBindGroup(1, this._clusteredLightBindGroup);
+      }
+    },
+
     _markPresentedFirstFrame: function () {
       var canvas = this._canvas;
       if (canvas && canvas.style) {
@@ -6664,6 +7375,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (part.surfaceMsaaTex) { try { part.surfaceMsaaTex.destroy(); } catch(_){} }
       part.surfaceW = w;
       part.surfaceH = h;
+      part.surfaceAllocatedPixels = w * h;
+      part.surfaceAllocatedBytes = surfaceTargetAllocationBytes(this._format, w, h);
       part.surfaceColorTex = this._device.createTexture({
         size: { width: w, height: h, depthOrArrayLayers: 1 },
         format: this._format,
@@ -6813,14 +7526,67 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       part.shadow_contact3 = contactOccluder3 || null;
     },
 
-    _prepareShadowMapsForScene: function (enc, mesh, t, frameWidth, frameHeight) {
-      if (!mesh || !Array.isArray(this._parts) || !this._parts.length || !sharedWgpu) { return [null, null]; }
+    _clusteredCameraForBatchScene: function (mesh, t, aspect) {
+      var sceneCamera = mesh && mesh.camera ? mesh.camera : null;
+      var parts = Array.isArray(this._parts) ? this._parts : [];
+      var hasLitPart = false;
+      for (var partIndex = 0; partIndex < parts.length; partIndex += 1) {
+        var partMesh = parts[partIndex] && parts[partIndex].mesh;
+        if (!partMesh || partMesh.visible === false || partMesh.no_lighting === true) { continue; }
+        hasLitPart = true;
+        if (partMesh.mode3d === false || (partMesh.camera && partMesh.camera !== sceneCamera)) { return null; }
+        var surfaceKind = String(partMesh.surface_system && partMesh.surface_system.kind || "").toLowerCase().trim();
+        if (surfaceKind === "screen") { return null; }
+      }
+      if (!hasLitPart) { return null; }
+
+      var MmBatch = getMath();
+      var camera = sceneCamera || {};
+      var renderAspect = Math.max(1e-6, Number(aspect || 1) || 1);
+      var projection;
+      if (Array.isArray(camera.projection_matrix) && camera.projection_matrix.length === 16 &&
+          (camera._mirrorDebug || cameraProjectionMatrixMatchesRenderAspect(camera, renderAspect))) {
+        projection = new Float32Array(camera.projection_matrix);
+      } else {
+        var fov = camera.fov !== undefined ? Number(camera.fov) : 45;
+        projection = MmBatch.mat4PerspectiveZ01(fov * Math.PI / 180, renderAspect, 0.05, 500);
+      }
+      if (camera.flip_x === true) {
+        projection[0] = -projection[0];
+        projection[4] = -projection[4];
+        projection[8] = -projection[8];
+        projection[12] = -projection[12];
+      }
+
+      var view;
+      if (Array.isArray(camera.view_matrix) && camera.view_matrix.length === 16) {
+        view = new Float32Array(camera.view_matrix);
+      } else if (!sceneCamera) {
+        view = MmBatch.mat4Mul(
+          MmBatch.mat4Translation(0, 0, -5),
+          MmBatch.mat4RotationY(t * 0.0008)
+        );
+      } else {
+        view = mat4LookAt(camera.pos || [0, 0, 5], camera.target || [0, 0, 0], camera.up || [0, 1, 0]);
+      }
+      return clusteredCameraFromMatrices(view, projection, this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID);
+    },
+
+    _prepareShadowMapsForScene: function (enc, mesh, t, frameWidth, frameHeight, clusteredCamera) {
+      if (!mesh || !Array.isArray(this._parts) || !this._parts.length || !sharedWgpu) {
+        this._lastActiveLightCount = 0;
+        this._lastShadowCacheHitCount = 0;
+        this._lastShadowDrawCount = 0;
+        return [null, null];
+      }
       var MmLocal = getMath();
       var sceneLights = resolveSceneLights(
         lightsForRenderer(mesh.lights || [], this._offscreenFrame === true),
         sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
         t
       );
+      this._planClusteredLightsForFrame(this._clusteredLightsForScene(sceneLights, mesh), clusteredCamera);
+      this._lastActiveLightCount = Math.min(4, sceneLights.length);
       maybeLogResolvedLights(this, "shadow_prepare", sceneLights);
       var activeLights = [];
       for (var li = 0; li < sceneLights.length && activeLights.length < 4; li += 1) {
@@ -6839,6 +7605,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           this._applyShadowStateToPart(this._parts[noShadowPi], null, null, null, null);
         }
         this._lastShadowCacheHit = 0.0;
+        this._lastShadowCacheHitCount = 0;
         this._lastShadowDrawCount = 0;
         return [null, null];
       }
@@ -6903,6 +7670,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       var shadowState2 = prepareLightShadow(this, 2, activeLights[2] || null);
       var shadowState3 = prepareLightShadow(this, 3, activeLights[3] || null);
       this._lastShadowCacheHit = activeLights.length ? (cacheHits / activeLights.length) : 0.0;
+      this._lastShadowCacheHitCount = cacheHits;
       var shadowDrawCount = 0;
       this._shadowDepthView0 = shadowState0.view || null;
       this._shadowDepthView1 = shadowState1.view || null;
@@ -6922,10 +7690,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         );
       }
       var drawShadowPass = function (renderer, slot, shadowData, partsForShadow) {
-        if (!shadowData) { return; }
+        if (!shadowData) { return 0; }
         var depthView = renderer["_shadowDepthView" + String(slot)] || null;
         var pipe = slot === 1 ? sharedWgpu.pipeShadow1 : sharedWgpu.pipeShadow0;
-        if (!depthView || !pipe) { return; }
+        if (!depthView || !pipe) { return 0; }
+        var drawCount = 0;
         var pass = enc.beginRenderPass({
           colorAttachments: [],
           depthStencilAttachment: {
@@ -6972,12 +7741,13 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           pass.setVertexBuffer(0, part.vb);
           pass.setIndexBuffer(part.ib, "uint32");
           pass.drawIndexed(part.ibCount, 1, 0, 0, 0);
+          drawCount += 1;
         }
         pass.end();
+        return drawCount;
       };
       if (shadowState0.shadow && !shadowState0.cacheHit) {
-        drawShadowPass(this, 0, shadowState0.shadow, shadowState0.casterParts || []);
-        shadowDrawCount += 1;
+        shadowDrawCount += drawShadowPass(this, 0, shadowState0.shadow, shadowState0.casterParts || []);
         lightCaches[shadowState0.cacheSlot] = {
           key: shadowState0.cacheKey,
           shadow: shadowState0.shadow,
@@ -6986,8 +7756,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         };
       }
       if (shadowState1.shadow && !shadowState1.cacheHit) {
-        drawShadowPass(this, 1, shadowState1.shadow, shadowState1.casterParts || []);
-        shadowDrawCount += 1;
+        shadowDrawCount += drawShadowPass(this, 1, shadowState1.shadow, shadowState1.casterParts || []);
         lightCaches[shadowState1.cacheSlot] = {
           key: shadowState1.cacheKey,
           shadow: shadowState1.shadow,
@@ -6996,8 +7765,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         };
       }
       if (shadowState2.shadow && !shadowState2.cacheHit) {
-        drawShadowPass(this, 2, shadowState2.shadow, shadowState2.casterParts || []);
-        shadowDrawCount += 1;
+        shadowDrawCount += drawShadowPass(this, 2, shadowState2.shadow, shadowState2.casterParts || []);
         lightCaches[shadowState2.cacheSlot] = {
           key: shadowState2.cacheKey,
           shadow: shadowState2.shadow,
@@ -7006,8 +7774,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         };
       }
       if (shadowState3.shadow && !shadowState3.cacheHit) {
-        drawShadowPass(this, 3, shadowState3.shadow, shadowState3.casterParts || []);
-        shadowDrawCount += 1;
+        shadowDrawCount += drawShadowPass(this, 3, shadowState3.shadow, shadowState3.casterParts || []);
         lightCaches[shadowState3.cacheSlot] = {
           key: shadowState3.cacheKey,
           shadow: shadowState3.shadow,
@@ -7181,7 +7948,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         meshForUniform = meshForUniform === partMesh ? Object.assign({}, partMesh) : meshForUniform;
         meshForUniform._depthOrderOffset = autoDepthOffset;
       }
-      var ubPart = buildUniform(mvpPart, modelMatPart, posPart, lightsNormPart, lmIntPart, resolveAlphaMul(partMesh), meshForUniform);
+      var cameraForwardPart = normalizeVec3(subVec3(targetPart, posPart), [0.0, 0.0, -1.0]);
+      var ubPart = buildUniform(mvpPart, modelMatPart, posPart, lightsNormPart, lmIntPart, resolveAlphaMul(partMesh), meshForUniform, cameraForwardPart);
       this._device.queue.writeBuffer(part.uniformBuf, 0, ubPart);
       this._ensurePartBindGroup(part);
       var partBlendMode = String(partMesh.blend_mode || "");
@@ -7218,6 +7986,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           );
       pass.setPipeline(pipePart);
       pass.setBindGroup(0, part.bindGroup);
+      this._bindClusteredLightStorage(pass);
       pass.setVertexBuffer(0, part.vb);
       if (part.instanceBuf && part.instanceCount > 0) {
         pass.setVertexBuffer(1, part.instanceBuf);
@@ -7443,6 +8212,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
     },
 
     _renderSurfacePasses: function (enc, sceneMesh, t, width, height) {
+      this._lastSurfacePassCount = 0;
       if (!this._parts || !this._parts.length) { return; }
       var MmBatch = getMath();
       for (var i = 0; i < this._parts.length; i++) {
@@ -7577,6 +8347,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           true,
           { reflectionClip: renderCamera && renderCamera._mirrorRenderClip ? renderCamera._mirrorRenderClip : null }
         );
+        this._lastSurfacePassCount += 1;
         this._ensurePartBindGroup(part);
       }
     },
@@ -8167,7 +8938,8 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         perfSample.physics = this._stepScenePhysics(shadowEncBatch, mesh, t);
         perfSample.physics_ms = perfNowMs() - perfStageStart;
         perfStageStart = perfNowMs();
-        var preparedShadows = this._prepareShadowMapsForScene(shadowEncBatch, mesh, t, wBatch, hBatch);
+        var clusteredCameraBatch = this._clusteredCameraForBatchScene(mesh, t, aspBatch);
+        var preparedShadows = this._prepareShadowMapsForScene(shadowEncBatch, mesh, t, wBatch, hBatch, clusteredCameraBatch);
         perfSample.shadow_prepare = perfNowMs() - perfStageStart;
         perfSample.shadow_cache_hit = Number(this._lastShadowCacheHit || 0.0);
         if (((preparedShadows[0] || preparedShadows[1] || preparedShadows[2] || preparedShadows[3]) && Number(this._lastShadowDrawCount || 0) > 0) || Number(perfSample.physics || 0) > 0) {
@@ -8230,6 +9002,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution),
           t
         );
+        this._lastActiveLightCount = Math.min(4, sceneLights.length);
         maybeLogResolvedLights(this, "flares", sceneLights);
         perfStageStart = perfNowMs();
         this._drawGpuLightFlares(encBatch, mesh, sceneMvp, scenePos, sceneLights, wBatch, hBatch, this._frameColorView);
@@ -8321,6 +9094,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         this._markPresentedFirstFrame();
         perfSample.submit = perfNowMs() - perfStageStart;
         perfSample.total = perfNowMs() - perfTotalStart;
+        this._renderEvidenceSequence += 1;
         var perfStats = ensurePerfStats(this);
         this._lastPerfSample = clonePerfSample(perfSample);
         publishPerfSample(this, perfSample);
@@ -8410,12 +9184,18 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       // --- Lights ---
       var rawLights = mesh.no_lighting === true ? [] : lightsForMesh((mesh.lights || []), this._offscreenFrame === true, mesh);
       var lightsNorm = resolveSceneLights(rawLights, sceneMeshForLightResolution(mesh, this._parts, this._scenePartSpecsForLightResolution), t);
+      this._planClusteredLightsForFrame(this._clusteredLightsForScene(lightsNorm, mesh), clusteredCameraFromMatrices(
+        viewMat,
+        projMat,
+        this._clusteredLightGrid || DEFAULT_CLUSTERED_LIGHT_GRID
+      ));
       maybeLogResolvedLights(this, "main", lightsNorm);
       var lmName = mesh.light_model || (lightsNorm[0] && lightsNorm[0].model) || "blinn_phong";
       var lmInt  = LIGHT_MODELS[lmName] !== undefined ? LIGHT_MODELS[lmName] : 2;
 
       // --- Build + upload uniform ---
-      var ub = buildUniform(mvp, modelMat, pos, lightsNorm, lmInt, resolveAlphaMul(mesh), mesh);
+      var cameraForward = normalizeVec3(subVec3(target, pos), [0.0, 0.0, -1.0]);
+      var ub = buildUniform(mvp, modelMat, pos, lightsNorm, lmInt, resolveAlphaMul(mesh), mesh, cameraForward);
       this._device.queue.writeBuffer(this._uniformBuf, 0, ub);
       // --- Draw ---
       this._ensureDepth();
@@ -8456,6 +9236,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           );
       pass.setPipeline(pipe);
       pass.setBindGroup(0, this._bindGroup);
+      this._bindClusteredLightStorage(pass);
       pass.setVertexBuffer(0, this._vb);
       pass.setIndexBuffer(this._ib, "uint32");
       pass.drawIndexed(this._ibCount, 1, 0, 0, 0);
@@ -8715,6 +9496,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       this._frameBlitBindGroup = null;
       this._frameBlitSourceView = null;
       if (this._uniformBuf){ try { this._uniformBuf.destroy(); } catch(_){} this._uniformBuf = null; }
+      if (this._clusteredLightClusterBuffer) { try { this._clusteredLightClusterBuffer.destroy(); } catch(_){} this._clusteredLightClusterBuffer = null; }
+      if (this._clusteredLightRecordBuffer) { try { this._clusteredLightRecordBuffer.destroy(); } catch(_){} this._clusteredLightRecordBuffer = null; }
+      this._clusteredLightBindGroup = null;
+      this._clusteredLightStorageBytes = 0;
+      this._clusteredLightRecordStorageBytes = 0;
       if (this._flareInstBuf){ try { this._flareInstBuf.destroy(); } catch(_){} this._flareInstBuf = null; this._flareInstBufSize = 0; }
       if (this._shadowDepthTex0) { try { this._shadowDepthTex0.destroy(); } catch(_){} this._shadowDepthTex0 = null; }
       if (this._shadowDepthTex1) { try { this._shadowDepthTex1.destroy(); } catch(_){} this._shadowDepthTex1 = null; }
@@ -8746,12 +9532,18 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
   VfGeomWgpu.prototype.init = async function () {
     var c = this._canvas;
     var sg;
+    try { this._clusteredLightPlanner = await loadClusteredLightPlanner(); }
+    catch (plannerError) {
+      wlog("error", "init clustered lights: " + (plannerError && plannerError.message ? plannerError.message : plannerError));
+      return false;
+    }
     try { sg = await getSharedWgpu(); }
     catch (e) { wlog("error", "init: " + (e && e.message ? e.message : e)); return false; }
     if (!sg) { return false; }
     this._device     = sg.device;
     this._format     = sg.format;
     this._bindLayout = sg.bindLayout;
+    this._clusteredLightBindLayout = sg.clusteredLightBindLayout;
     this._pipeTri    = sg.pipeTri;
     this._pipeLine   = sg.pipeLine;
     this._pipeTriAlpha = sg.pipeTriAlpha || null;
@@ -8773,6 +9565,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       return false;
     }
     try {
+      this._uploadClusteredLightStorage(null, []);
       this._uniformBuf = this._device.createBuffer({
         size: UB_SIZE,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,

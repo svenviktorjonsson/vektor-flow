@@ -1,3 +1,9 @@
+import {
+  RETAINED_POINT_COMPONENTS,
+  RETAINED_POINT_DATA,
+  RETAINED_POINT_REDRAW,
+} from './internal/vf-retained-point-cloud-camera.mjs';
+
 const DEFAULT_COLOR = Object.freeze([0.396, 0.91, 1, 0.92]);
 
 export function projectPointCloud3DToScreen(positions, count, projection, output = null) {
@@ -43,11 +49,21 @@ export function createScreenSpacePointCloudRenderer(canvas) {
   let zAxisLocation = null;
   let points = new Float32Array();
   let components = 2;
+  let worldMode = false;
   let projection = null;
   let count = 0;
   let pointSize = 4;
   let color = [...DEFAULT_COLOR];
+  const projectionScratch = {
+    worldOrigin: new Float64Array(3),
+    screenOrigin: new Float64Array(2),
+    xAxis: new Float64Array(2),
+    yAxis: new Float64Array(2),
+    zAxis: new Float64Array(2)
+  };
+  const colorScratch = new Float64Array(4);
   let capacityBytes = 0;
+  let pointDataDirty = false;
   let destroyed = false;
 
   async function initialize() {
@@ -84,8 +100,10 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     if (!Number.isInteger(nextCount) || nextCount < 0 || nextPoints.length < nextCount * 2) {
       throw new RangeError('screen point count exceeds the packed buffer');
     }
+    pointDataDirty = true;
     points = nextPoints;
     components = 2;
+    worldMode = false;
     projection = null;
     count = nextCount;
     pointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
@@ -96,16 +114,35 @@ export function createScreenSpacePointCloudRenderer(canvas) {
   function setWorldPoints(nextPoints, nextProjection, options = {}) {
     assertAlive();
     if (!(nextPoints instanceof Float32Array)) throw new TypeError('world points must be a Float32Array');
-    const nextCount = options.count == null ? nextPoints.length / 3 : Number(options.count);
-    if (!Number.isInteger(nextCount) || nextCount < 0 || nextPoints.length < nextCount * 3) {
+    const nextComponents = options[RETAINED_POINT_COMPONENTS] === 2 ? 2 : 3;
+    const nextCount = options.count == null ? nextPoints.length / nextComponents : Number(options.count);
+    if (!Number.isInteger(nextCount) || nextCount < 0 || nextPoints.length < nextCount * nextComponents) {
       throw new RangeError('world point count exceeds the packed buffer');
     }
+    const retainPointData = options[RETAINED_POINT_DATA] === true;
+    const nextPointDataDirty = pointDataDirty
+      || !retainPointData
+      || points !== nextPoints
+      || components !== nextComponents
+      || !worldMode
+      || count !== nextCount;
+    const normalizedProjection = normalizeProjection(nextProjection, projection, projectionScratch);
+    const nextPointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
+    const nextColor = normalizeColor(options.color ?? color, color, colorScratch);
+    if (!nextPointDataDirty
+      && projection === normalizedProjection
+      && pointSize === nextPointSize
+      && color === nextColor) {
+      return;
+    }
+    pointDataDirty = nextPointDataDirty;
     points = nextPoints;
-    components = 3;
+    components = nextComponents;
+    worldMode = true;
     count = nextCount;
-    projection = normalizeProjection(nextProjection);
-    pointSize = Math.max(1, Number(options.pointSize ?? pointSize) || 1);
-    color = normalizeColor(options.color ?? color);
+    projection = normalizedProjection;
+    pointSize = nextPointSize;
+    color = nextColor;
     render();
   }
 
@@ -130,15 +167,19 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     if (requiredBytes > capacityBytes) {
       capacityBytes = growCapacity(capacityBytes, requiredBytes);
       gl.bufferData(gl.ARRAY_BUFFER, capacityBytes, gl.DYNAMIC_DRAW);
+      pointDataDirty = true;
     }
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, points, 0, count * components);
+    if (pointDataDirty) {
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, points, 0, count * components);
+      pointDataDirty = false;
+    }
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, components, gl.FLOAT, false, 0, 0);
     gl.uniform2f(viewportLocation, canvas.width, canvas.height);
     gl.uniform1f(pointSizeLocation, pointSize);
     gl.uniform4fv(colorLocation, color);
-    gl.uniform1i(worldModeLocation, components === 3 ? 1 : 0);
-    if (components === 3) {
+    gl.uniform1i(worldModeLocation, worldMode ? 1 : 0);
+    if (worldMode) {
       gl.uniform3fv(worldOriginLocation, projection.worldOrigin);
       gl.uniform2fv(screenOriginLocation, projection.screenOrigin);
       gl.uniform2fv(xAxisLocation, projection.xAxis);
@@ -158,23 +199,54 @@ export function createScreenSpacePointCloudRenderer(canvas) {
     program = null;
     points = new Float32Array();
     count = 0;
+    worldMode = false;
+    pointDataDirty = false;
   }
 
   function assertAlive() {
     if (destroyed) throw new Error('screen-space point-cloud renderer is destroyed');
   }
 
-  return Object.freeze({ initialize, setPoints, setWorldPoints, resize, destroy, get backend() { return gl ? 'webgl2-points' : null; } });
+  return Object.freeze({
+    initialize,
+    setPoints,
+    setWorldPoints,
+    resize,
+    destroy,
+    [RETAINED_POINT_REDRAW]: render,
+    get backend() { return gl ? 'webgl2-points' : null; },
+  });
 }
 
-function normalizeProjection(value) {
-  return Object.freeze({
-    worldOrigin: Object.freeze(finiteVector(value?.worldOrigin, 3, 'worldOrigin')),
-    screenOrigin: Object.freeze(finiteVector(value?.screenOrigin, 2, 'screenOrigin')),
-    xAxis: Object.freeze(finiteVector(value?.xAxis, 2, 'xAxis')),
-    yAxis: Object.freeze(finiteVector(value?.yAxis, 2, 'yAxis')),
-    zAxis: Object.freeze(finiteVector(value?.zAxis, 2, 'zAxis'))
-  });
+function normalizeProjection(value, current, scratch) {
+  const worldOrigin = normalizeVector(value?.worldOrigin, 3, 'worldOrigin', current?.worldOrigin, scratch.worldOrigin);
+  const screenOrigin = normalizeVector(value?.screenOrigin, 2, 'screenOrigin', current?.screenOrigin, scratch.screenOrigin);
+  const xAxis = normalizeVector(value?.xAxis, 2, 'xAxis', current?.xAxis, scratch.xAxis);
+  const yAxis = normalizeVector(value?.yAxis, 2, 'yAxis', current?.yAxis, scratch.yAxis);
+  const zAxis = normalizeVector(value?.zAxis, 2, 'zAxis', current?.zAxis, scratch.zAxis);
+  if (current
+    && worldOrigin === current.worldOrigin
+    && screenOrigin === current.screenOrigin
+    && xAxis === current.xAxis
+    && yAxis === current.yAxis
+    && zAxis === current.zAxis) {
+    return current;
+  }
+  return Object.freeze({ worldOrigin, screenOrigin, xAxis, yAxis, zAxis });
+}
+
+function normalizeVector(value, length, name, current, scratch) {
+  if (!Array.isArray(value) || value.length < length) throw new TypeError(`${name} must contain ${length} values`);
+  for (let index = 0; index < length; index += 1) scratch[index] = Number(value[index]);
+  for (let index = 0; index < length; index += 1) {
+    if (!Number.isFinite(scratch[index])) throw new TypeError(`${name} values must be finite`);
+  }
+  if (current?.length === length) {
+    let unchanged = true;
+    for (let index = 0; index < length; index += 1) unchanged &&= current[index] === scratch[index];
+    if (unchanged) return current;
+  }
+  return Object.freeze(Array.from(scratch));
 }
 
 function finiteVector(value, length, name) {
@@ -184,9 +256,17 @@ function finiteVector(value, length, name) {
   return result;
 }
 
-function normalizeColor(value) {
-  if (!Array.isArray(value) && !ArrayBuffer.isView(value)) return [...DEFAULT_COLOR];
-  return [0, 1, 2, 3].map((index) => Math.max(0, Math.min(1, Number(value[index] ?? (index === 3 ? 1 : 0)) || 0)));
+function normalizeColor(value, current = null, scratch = new Float64Array(4)) {
+  const source = Array.isArray(value) || ArrayBuffer.isView(value) ? value : DEFAULT_COLOR;
+  for (let index = 0; index < 4; index += 1) {
+    scratch[index] = Math.max(0, Math.min(1, Number(source[index] ?? (index === 3 ? 1 : 0)) || 0));
+  }
+  if (current?.length === 4) {
+    let unchanged = true;
+    for (let index = 0; index < 4; index += 1) unchanged &&= current[index] === scratch[index];
+    if (unchanged) return current;
+  }
+  return Array.from(scratch);
 }
 
 function growCapacity(current, required) {

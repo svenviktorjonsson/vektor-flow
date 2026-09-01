@@ -9,8 +9,8 @@ const source = fs.readFileSync(
 
 assert.ok(source.includes("let nw = resizeState.sw + dx"));
 assert.ok(source.includes("let nh = resizeState.sh + dy"));
-assert.ok(source.includes("nw = Math.max(resizeState.minW, nw);"));
-assert.ok(source.includes("nh = Math.max(resizeState.minH, nh);"));
+assert.ok(source.includes("nw = Math.min(resizeState.maxW, Math.max(resizeState.minW, nw));"));
+assert.ok(source.includes("nh = Math.min(resizeState.maxH, Math.max(resizeState.minH, nh));"));
 assert.ok(!source.includes("lockAspect"));
 assert.ok(!source.includes("resizeState.aspectRatio"));
 

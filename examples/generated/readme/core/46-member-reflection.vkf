@@ -1,8 +1,10 @@
 point: (x:3, y:4)
-record_members: (:point.)
-vector_members: [:point.]
+field_types: (:point.)
+value_keys: [:point]
+type_keys: [:point.]
 member_names: {:point.}
 
-:: record_members
-:: vector_members
+:: field_types
+:: value_keys
+:: type_keys
 :: member_names

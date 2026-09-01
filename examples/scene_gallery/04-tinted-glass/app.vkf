@@ -1,0 +1,13 @@
+: .ui.display
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])
+frame.set_geom_options(background:[0.012, 0.018, 0.032, 1], unified_renderer:true, combine_transparent:true)
+frame.add_camera(pos:[4.8, -7.2, 3.8], target:[0, 1.1, 1.1], up:[0, 0, 1], fov:42)
+frame.add_light(id:"key", kind:"point", pos:[-2.5, -2.8, 5.5], target:[0, 1, 1], color:[1, 0.82, 0.62, 1], intensity:32, range:18, casts_shadow:true)
+frame.add(x:[[-4, 4], [-4, 4]], y:[[-2, -2], [4, 4]], z:[[0, 0], [0, 0]], id:"floor", color:[0.08, 0.12, 0.2, 1], roughness:0.72, receives_lighting:true)
+frame.add(x:[[-2.5, 2.5], [-2.5, 2.5]], y:[[3.5, 3.5], [3.5, 3.5]], z:[[0.2, 0.2], [3.4, 3.4]], id:"backdrop", color:[0.9, 0.22, 0.08, 1], roughness:0.45, receives_lighting:true)
+frame.add(
+    x:[[-1.8, 2.1], [-1.8, 2.1]], y:[[0.2, 0.7], [0.2, 0.7]], z:[[0.25, 0.25], [3.0, 3.0]],
+    id:"glass", color:[0.08, 0.78, 0.96, 0.52], alpha:0.52, transparent:true, depth_write:false,
+    reflectivity:0.28, roughness:0.1, specular_strength:0.84, casts_shadow:true, receives_lighting:true
+)

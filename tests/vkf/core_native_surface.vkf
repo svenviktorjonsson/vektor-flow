@@ -177,13 +177,13 @@ operator_overload_family_selects_by_parameter_type() -> bit:
     OverloadPoint right: (x:5,)
     (+(left, 4) = 7 /\ (left + 4) = 7 /\ (left + right) = 8)?!
 
-type_container_spills_preserve_structure_and_exact_element_type() -> bit:
+record_reflection_distinguishes_field_types_and_ordered_keys() -> bit:
     point: (x:3, y:4)
     record_type: (:point.)
-    vector_type: [:point.]
+    vector_keys: [:point.]
     member_names: {:point.}
-    (record_type == (x:0, y:0). /\ vector_type == [int:2] /\
-     record_type. == type /\ vector_type. == type /\
+    (record_type == (x:0, y:0). /\ vector_keys == ["x", "y"] /\
+     record_type. == type /\ vector_keys. == [str:2] /\
      member_names == {"x":1, "y":1})?!
 
 primitive_type_values_can_be_aliased_called_and_reflected() -> bit:
@@ -250,9 +250,9 @@ tuple_type_spill_produces_component_type_values() -> bit:
     (expanded == repeated /\ repeated == spilled /\
      expanded. == type /\ repeated. == type /\ spilled. == type)?!
 
-nominal_type_vector_spill_preserves_homogeneous_backing_shape() -> bit:
-    vector_type: [:Point]
-    (vector_type == [num:2] /\ vector_type. == type)?!
+nominal_type_vector_spill_returns_ordered_backing_keys() -> bit:
+    vector_keys: [:Point]
+    (vector_keys == ["x", "y"] /\ vector_keys. == [str:2])?!
 
 multiset_type_literal_is_distinct_from_counted_type_values() -> bit:
     multiset_type: {int}

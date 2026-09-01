@@ -40,6 +40,14 @@
     return true;
   }
 
+  function encodeNativeHitRegionArena(hitRegions) {
+    return (Array.isArray(hitRegions) ? hitRegions : []).map(function (region) {
+      return [region.left, region.top, region.right, region.bottom].map(function (value) {
+        return String(Math.trunc(Number(value) || 0));
+      }).join(",");
+    }).join(";");
+  }
+
   function geometrySignature(shapes, active) {
     return JSON.stringify({ active: active || "none", shapes: shapes || [] });
   }
@@ -221,7 +229,7 @@
      * Publish overlay input geometry. The product UI owns visual rendering; native overlay hosts own
      * transparent presentation and click-through from this explicit geometry stream.
      * @param {HTMLElement} layer
-     * @param {{ stageAlpha?: number, active?: string, hitRegions?: object[], dragActive?: boolean }} o
+     * @param {{ stageAlpha?: number, active?: string, hitRegions?: object[], dragActive?: boolean, resizeActive?: boolean }} o
      */
     postNativeHostLayout(layer, o) {
       o = o || {};
@@ -348,7 +356,12 @@
         contentReady,
         toolbarPx: 160,
         dragActive: o.dragActive === true,
+        resizeActive: o.resizeActive === true,
         hitRegions: hitRegions,
+      });
+      postWebViewMessage({
+        type: "vf_host_hit_regions_v1",
+        data: encodeNativeHitRegionArena(hitRegions),
       });
       if (!overlayShapes.length && VfFrame._lastTransparentOverlayShapeCount > 0 && o.clearOverlayGeometry !== true) {
         return;
@@ -1084,6 +1097,7 @@
           VfFrame.postNativeHostLayout(layer, {
             stageAlpha: 0,
             dragActive: !!(extra && extra.dragActive),
+            resizeActive: !!(extra && extra.resizeActive),
           });
         }
       }
@@ -1160,8 +1174,8 @@
         const dy = e.clientY - resizeState.sy;
         let nw = resizeState.sw + dx;
         let nh = resizeState.sh + dy;
-        nw = Math.max(resizeState.minW, nw);
-        nh = Math.max(resizeState.minH, nh);
+        nw = Math.min(resizeState.maxW, Math.max(resizeState.minW, nw));
+        nh = Math.min(resizeState.maxH, Math.max(resizeState.minH, nh));
         root.classList.add("vf-frame--user-sized");
         root.dataset.vfFrameResizing = "1";
         window.__vfFrameResizeClockPaused = true;
@@ -1181,7 +1195,7 @@
             },
           }));
         } catch (_) {}
-        postHitRegionsToHostImpl();
+        postHitRegionsToHostImpl({ resizeActive: true });
       }
       function onResizeEnd(e) {
         if (!resizeState || e.pointerId !== resizeState.pid) return;
@@ -1224,6 +1238,12 @@
           const r = root.getBoundingClientRect();
           const minW = 200;
           const minH = minContentHeight();
+          const isNestedLayer = !!(layer && layer.classList && layer.classList.contains("vf-frame__overlay"));
+          const lcs = global.getComputedStyle ? global.getComputedStyle(layer) : null;
+          const padR = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
+          const padB = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
+          const maxW = Math.max(minW, layer.clientWidth - root.offsetLeft - padR);
+          const maxH = Math.max(minH, layer.clientHeight - root.offsetTop - padB);
           resizeState = {
             pid: e.pointerId,
             sx: e.clientX,
@@ -1232,12 +1252,15 @@
             sh: r.height,
             minW,
             minH,
+            maxW,
+            maxH,
           };
           root.dataset.vfFrameResizing = "1";
           window.__vfFrameResizeClockPaused = true;
           try {
             resizeGrip.setPointerCapture(e.pointerId);
           } catch (_) {}
+          postHitRegionsToHostImpl({ resizeActive: true });
         });
         resizeGrip.addEventListener("pointermove", onResizeMove);
         resizeGrip.addEventListener("pointerup", onResizeEnd);
@@ -1326,5 +1349,8 @@
   };
 
   VfFrame.normalizeMinimizedDockKey = VfFrame.normalizeDockLocationKey;
+  VfFrame.__test = Object.assign(VfFrame.__test || {}, {
+    encodeNativeHitRegionArena: encodeNativeHitRegionArena,
+  });
   global.VfFrame = VfFrame;
 })(typeof window !== "undefined" ? window : this);

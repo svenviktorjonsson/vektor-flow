@@ -1,0 +1,30 @@
+: .ui.display
+: .physics
+
+Particle(position:[num:2], color:[num:4], radius:num, mass:num):
+    (
+        position:position,
+        color:color,
+        radius:radius,
+        mass:mass
+    )
+
+embedding(particle:Particle):
+    (
+        p_u:[particle.position],
+        c_uc:[particle.color],
+        s_u:[particle.radius * 2],
+        s_mode:data
+    )
+
+w: World(
+    dim:2,
+    em:false,
+    gravity:false,
+    rigid_collisions:false
+)
+w.add(Particle([0, 1], [1, 0, 0, 1], 2, 1))
+
+d: Display(dim:2)
+view: d.append_world(w, embedding)
+d.show()

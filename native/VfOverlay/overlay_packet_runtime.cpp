@@ -1222,6 +1222,7 @@ bool OverlayPacketRuntime::LoadEventProgramFile(const std::wstring& pathW, std::
         event_counters_.clear();
         event_values_.clear();
         plot_committed_meshes_.clear();
+        retained_event_geometry_.clear();
     }
     if (!event_rules_.empty())
         Log("Event program loaded: rules=" + std::to_string(event_rules_.size()));
@@ -1559,6 +1560,68 @@ bool OverlayPacketRuntime::ExecuteEventProgramForInputEvent(const std::string& e
                 if (action.op == "set_widget_state") {
                     for (const auto& entry : action.state)
                         framePatch[entry.first] = entry.second;
+                    continue;
+                }
+                if (action.op == "retained_layer_patch" && !action.target.empty()) {
+                    const auto meshId = action.state.find("mesh_id");
+                    const auto layerId = action.state.find("layer_id");
+                    const auto property = action.state.find("property");
+                    const auto valueSpec = action.state.find("value");
+                    const auto initialGeom = action.state.find("geom");
+                    if (meshId == action.state.end() || !meshId->second.is_string() ||
+                        layerId == action.state.end() || !layerId->second.is_number() ||
+                        property == action.state.end() || !property->second.is_string() ||
+                        valueSpec == action.state.end() || !valueSpec->second.is_object() ||
+                        initialGeom == action.state.end() || !initialGeom->second.is_object()) {
+                        continue;
+                    }
+                    const std::string propertyName = property->second.as_string();
+                    if (propertyName != "visible" && propertyName != "alpha" &&
+                        propertyName != "reflectivity" && propertyName != "roughness" &&
+                        propertyName != "specular_strength") {
+                        continue;
+                    }
+                    auto geometry = retained_event_geometry_.find(action.target);
+                    if (geometry == retained_event_geometry_.end()) {
+                        geometry = retained_event_geometry_.emplace(
+                            action.target, initialGeom->second).first;
+                    }
+                    auto& geometryObject = geometry->second.as_object();
+                    const auto meshes = geometryObject.find("meshes");
+                    if (meshes == geometryObject.end() || !meshes->second.is_array()) continue;
+                    const auto& descriptor = valueSpec->second.as_object();
+                    const auto descriptorKind = descriptor.find("kind");
+                    if (descriptorKind == descriptor.end() || !descriptorKind->second.is_string()) continue;
+                    vf::JsonValue resolvedValue;
+                    if (descriptorKind->second.as_string() == "const") {
+                        const auto literal = descriptor.find("value");
+                        if (literal == descriptor.end()) continue;
+                        resolvedValue = literal->second;
+                    } else if (descriptorKind->second.as_string() == "event_field") {
+                        const auto fieldName = descriptor.find("field");
+                        if (fieldName == descriptor.end() || !fieldName->second.is_string()) continue;
+                        const auto eventValue = object.find(fieldName->second.as_string());
+                        if (eventValue == object.end()) continue;
+                        resolvedValue = eventValue->second;
+                    } else {
+                        continue;
+                    }
+                    bool patched = false;
+                    for (auto& meshValue : meshes->second.as_array()) {
+                        if (!meshValue.is_object()) continue;
+                        auto& mesh = meshValue.as_object();
+                        const auto id = mesh.find("id");
+                        const auto layer = mesh.find("layer_id");
+                        const bool idMatch = id != mesh.end() && id->second.is_string() &&
+                            id->second.as_string() == meshId->second.as_string();
+                        const bool layerMatch = layer != mesh.end() && layer->second.is_number() &&
+                            layer->second.as_number() == layerId->second.as_number();
+                        if (!idMatch && !layerMatch) continue;
+                        mesh[propertyName] = resolvedValue;
+                        patched = true;
+                        break;
+                    }
+                    if (patched) displayGeomPatch[action.target] = geometry->second;
                     continue;
                 }
                 if (action.op == "display_frame_ops" && !action.target.empty()) {

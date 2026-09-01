@@ -13,14 +13,16 @@ vkf -e ':: "hello, world"'
 The installed compiler/runtime has no Python, C++ compiler, or assembler
 dependency.
 
-The installer is strict-native. It ships direct core plus `math`, `stat`,
-`random`, `time`, `io`, `collections`, `errors`, `system`, `process`, and
-`regex`. The partial `physics`, `ui`, and `symbolic` modules are absent;
-unsupported imports hard-fail instead of activating a compatibility path.
+The 0.4.0 Windows package is strict-native. It ships direct core; the verified
+scientific standard libraries, including `linalg`, `physics`, SI units, and
+`symbolic`; and the compiled UI/WebGPU runtime. Static HTML and CSS may describe
+the interface, while application behavior remains compiled VKF. The package
+does not activate a compatibility fallback or require Python, Node, a C++
+toolchain, an assembler, or a bundled third-party runtime DLL.
 
-Current development packages add native `physics`, `physics.units` (SI), and
-`symbolic`; only `ui` remains excluded there. This does not change the contents
-of an already-published 0.3.0 download.
+VKF 0.4.0 remains a release candidate until the platform, performance, package,
+and publication gates complete and the `v0.4.0` tag exists. The already
+published 0.3.0 archives are unchanged.
 
 1. Download and extract the Windows package
 2. Open PowerShell in the extracted folder

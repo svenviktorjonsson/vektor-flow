@@ -1,0 +1,454 @@
+{
+  "schema": "vkf.scene-example-gallery/1",
+  "examples": [
+    {
+      "id": "01-line-plot",
+      "title": "Line plot",
+      "dimension": 2,
+      "features": [
+        "2d",
+        "plot"
+      ],
+      "source": "01-line-plot/app.vkf",
+      "sourceSha256": "1c33f9c359af04e3cfa30a3a071a78e6df8dc3429d9d7a25064ec5df42084f10",
+      "media": {
+        "path": "docs/public/images/scene-gallery/01-line-plot.png",
+        "sha256": "ca2664413bd2d3049bfcbb4e0a1361898f33d581a97a5ad51143f071c212d144"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "02-lit-surface",
+      "title": "Illuminated surface",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "surface",
+        "lighting"
+      ],
+      "source": "02-lit-surface/app.vkf",
+      "sourceSha256": "5a1c57978787967e551be808df27da4f11db5623132cf5e5f2820c26e0a21c7c",
+      "media": {
+        "path": "docs/public/images/scene-gallery/02-lit-surface.png",
+        "sha256": "3845e20efe24939a7b8c16404aaf3efa581ce3b23865ac6e5a45b1690fa85690"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "03-mirror",
+      "title": "Planar mirror",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "mirror",
+        "reflection"
+      ],
+      "source": "03-mirror/app.vkf",
+      "sourceSha256": "21463d888e544844c613bcd5a9485fd7f9be99bf7089d89a1d90c2aa9a6c0f5d",
+      "media": {
+        "path": "docs/public/images/scene-gallery/03-mirror.png",
+        "sha256": "ab596f202469b4adea2685193fa52fdc323acaa1b67e939686f814cb260999f3"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "04-tinted-glass",
+      "title": "Tinted glass",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "transparency",
+        "tinted-glass"
+      ],
+      "source": "04-tinted-glass/app.vkf",
+      "sourceSha256": "fa43b7bbdf277f548350a7de4e75ed9897966437f983d58a098c83a2f40a7a93",
+      "media": {
+        "path": "docs/public/images/scene-gallery/04-tinted-glass.png",
+        "sha256": "2f9f73f23576702eb9816374cb8832684f7b14c46666bf19a44a9810f5dd32b0"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "05-checker-texture",
+      "title": "Checker texture",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "texture",
+        "checker"
+      ],
+      "source": "05-checker-texture/app.vkf",
+      "sourceSha256": "0f7b3dc64402244c0522d73e63b26c5708dc067aa6103a9ed6e6b7993bb1d5f0",
+      "media": {
+        "path": "docs/public/images/scene-gallery/05-checker-texture.png",
+        "sha256": "a427d522d68d536e305a75bcbf513135ac2633768135e75277c0cc0f7b585b71"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "06-shadows",
+      "title": "Cast shadows",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "lighting",
+        "shadows"
+      ],
+      "source": "06-shadows/app.vkf",
+      "sourceSha256": "c546df46ca85b7766f29d715cf65e1d80492889aa0b44a1b44c2f875787879cf",
+      "media": {
+        "path": "docs/public/images/scene-gallery/06-shadows.png",
+        "sha256": "5cc7fdc16472155732c1f7636748a2af8b386cc617ee1a54a4ca09c2e17ace45"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "07-multiple-lights",
+      "title": "Warm and cool lights",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "lighting",
+        "multiple-lights"
+      ],
+      "source": "07-multiple-lights/app.vkf",
+      "sourceSha256": "c54710e182b46ef9e9bae391306dc7d3b65f3ffc7b39d60850199b618f03fc48",
+      "media": {
+        "path": "docs/public/images/scene-gallery/07-multiple-lights.png",
+        "sha256": "71dc90afb48017069c6ef1063946faa4c3a74da7e4fd05dbee5712133ff76379"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "08-grass",
+      "title": "Grass material",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "texture",
+        "grass"
+      ],
+      "source": "08-grass/app.vkf",
+      "sourceSha256": "073689b4422d98ba06602f91d3ad86daa3f2b3da0affd14a661800823640a2b3",
+      "media": {
+        "path": "docs/public/images/scene-gallery/08-grass.png",
+        "sha256": "2780dfaf1fe6c3d26e7f5c545743f60fd199c55e4327fa9f7e3e95d6b3ee7280"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "09-html-controls",
+      "title": "HTML controls",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "html",
+        "css",
+        "events"
+      ],
+      "source": "09-html-controls/app.vkf",
+      "sourceSha256": "71608452917292364f05d24dd0b8fee966c9a5ece60ccadbd1fe88baefc068ba",
+      "media": {
+        "path": "docs/public/images/scene-gallery/09-html-controls.png",
+        "sha256": "07693c29ac1e787420e57f416c27a0b7cd2cce3b4e28ebfa7601430c75244d62"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "10-sun-reflection",
+      "title": "Sun reflection",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "lighting",
+        "specular",
+        "sun-reflection"
+      ],
+      "source": "10-sun-reflection/app.vkf",
+      "sourceSha256": "2987845050a27dea0d319003aa21cd99e1371c9970a36685eb1d585fbbcd981f",
+      "media": {
+        "path": "docs/public/images/scene-gallery/10-sun-reflection.png",
+        "sha256": "853c94acc8ea8e2b49b098fcb4ed495cd0e915162ecc0c579d833ccc2fd17d30"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "solkatt_frame"
+      }
+    },
+    {
+      "id": "11-roughness",
+      "title": "Roughness",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "lighting",
+        "roughness",
+        "specular"
+      ],
+      "source": "11-roughness/app.vkf",
+      "sourceSha256": "596f7f73c3e5c84ece7e949b065d7e6214ef47197cdc7427dca0937593216031",
+      "media": {
+        "path": "docs/public/images/scene-gallery/11-roughness.png",
+        "sha256": "934436ff8901f3644c1c421c8958f37cb8baa15d4937e2648804cd38cc276f8f"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "roughness_frame"
+      }
+    },
+    {
+      "id": "12-layered-glass",
+      "title": "Layered glass",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "texture",
+        "transparency",
+        "mirror"
+      ],
+      "source": "12-layered-glass/app.vkf",
+      "sourceSha256": "32e6819c984ffae9ea309394afd3612fa17807e78584840dcc2982b1ed4f4e42",
+      "media": {
+        "path": "docs/public/images/scene-gallery/12-layered-glass.png",
+        "sha256": "d5aef464bf573e38e951bc2c23788fba93bcc65319f40cd593efdd1818ab5f44"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "layered_frame"
+      }
+    },
+    {
+      "id": "13-saddle-plot",
+      "title": "Saddle plot",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "plot",
+        "multivector",
+        "lighting"
+      ],
+      "source": "13-saddle-plot/app.vkf",
+      "sourceSha256": "9a9919b1738bb4af6c4e891aefd4957cbe599a4d5a881bfef6d2877b03cf182d",
+      "media": {
+        "path": "docs/public/images/scene-gallery/13-saddle-plot.png",
+        "sha256": "60a872ed9ec718a0df2b68151aac30a3d415b26240cfea5b650f85231a1cd47e"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "14-layered-bands",
+      "title": "Layered bands",
+      "dimension": 2,
+      "features": [
+        "2d",
+        "plot",
+        "layers",
+        "color"
+      ],
+      "source": "14-layered-bands/app.vkf",
+      "sourceSha256": "c98e12c67f3663a34cd943fc85dcd20747f77b7076e30ebec5ce2d2d5a9b3062",
+      "media": {
+        "path": "docs/public/images/scene-gallery/14-layered-bands.png",
+        "sha256": "156b2853d93044163f748c29b285630a6d45e14579a2bbef76b8a03275420eb1"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "15-spot-light",
+      "title": "Spot light",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "lighting",
+        "spot-light",
+        "shadows"
+      ],
+      "source": "15-spot-light/app.vkf",
+      "sourceSha256": "2c996d41ac30f6d78bbe15101019bb5809ea9e50a32803c382b76e4addffed6d",
+      "media": {
+        "path": "docs/public/images/scene-gallery/15-spot-light.png",
+        "sha256": "e1fbddfd45b89e4d0be32931cf97350b73f8acbb6dc94104e653f461fcef20e3"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "spot_frame"
+      }
+    },
+    {
+      "id": "16-dice-texture",
+      "title": "Procedural dice",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "texture",
+        "procedural",
+        "shadows"
+      ],
+      "source": "16-dice-texture/app.vkf",
+      "sourceSha256": "f07b5e1aaed47610d8ab76da949af2a78b0e5845f870453b688acea5a37d5978",
+      "media": {
+        "path": "docs/public/images/scene-gallery/16-dice-texture.png",
+        "sha256": "980a0f088ae80b8abc6ef1f4e1e7804d30addd36c308af8f890a0378999bcac6"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "dice_frame"
+      }
+    },
+    {
+      "id": "17-world-embedding",
+      "title": "World embedding",
+      "dimension": 2,
+      "features": [
+        "2d",
+        "world",
+        "embedding",
+        "markers"
+      ],
+      "source": "17-world-embedding/app.vkf",
+      "sourceSha256": "c67bf4eec04d5639c948ef0ad9f5ee836b25a4c208cc13c4672a5a9d2dff4b7f",
+      "media": {
+        "path": "docs/public/images/scene-gallery/17-world-embedding.png",
+        "sha256": "1f51349d30a98e2021588d6fce0f79fccbdef1c42be875d78a20e0f45cc9b17e"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "world_0_view_0"
+      }
+    },
+    {
+      "id": "18-polar-ribbon",
+      "title": "Polar ribbon",
+      "dimension": 2,
+      "features": [
+        "2d",
+        "plot",
+        "polar-coordinates"
+      ],
+      "source": "18-polar-ribbon/app.vkf",
+      "sourceSha256": "7953dd326765396fa4a2a66308b1590ffecdd571d56a78930d959de9892d847a",
+      "media": {
+        "path": "docs/public/images/scene-gallery/18-polar-ribbon.png",
+        "sha256": "0cb6b66ea5560ba268745c270255b28bc37b497b79222a0f1445e4a5705bec79"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "frame_0"
+      }
+    },
+    {
+      "id": "19-wireframe-points",
+      "title": "Wireframe points",
+      "dimension": 3,
+      "features": [
+        "3d",
+        "wireframe",
+        "point-data"
+      ],
+      "source": "19-wireframe-points/app.vkf",
+      "sourceSha256": "13f782011fb1b6e18b72e0e864388ea3c43c70d5abbf82a20d9adb6c7932943d",
+      "media": {
+        "path": "docs/public/images/scene-gallery/19-wireframe-points.png",
+        "sha256": "b55505a1860a4755a97fe6dafd8d87b2b28492c262d7b0ffc4d43f985ff952ec"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "wireframe_points"
+      }
+    },
+    {
+      "id": "20-rigid-body-snapshot",
+      "title": "Rigid-body snapshot",
+      "dimension": 2,
+      "features": [
+        "2d",
+        "physics",
+        "rigid-body",
+        "animation"
+      ],
+      "source": "20-rigid-body-snapshot/app.vkf",
+      "sourceSha256": "be14147a0497182b4af5cde88634c36a2d7d60bc8ff69331fb146a25387af150",
+      "media": {
+        "path": "docs/public/images/scene-gallery/20-rigid-body-snapshot.png",
+        "sha256": "2b6042c07400bae59165fcaed077888241c1d5f164d9dd8cdd64f0eb259373d5"
+      },
+      "capture": {
+        "hidden": true,
+        "applicationJavaScript": false,
+        "api": "Page.captureScreenshot",
+        "frame": "rigid_snapshot"
+      }
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+NamedOrderedRecord: (first:int, label:str, enabled:bit)
+
+OrderedRecord(x:num, label:str, enabled:bit): (x:x, label:label, enabled:enabled)
+
+# Empty record `[str:0]` reflection is covered by ordered-record-keys.test.mjs;
+# the native backend does not yet lower an empty record scope identity.
+
+anonymous_record_keys_preserve_declaration_order() -> bit:
+    value: (z:3, label:"three", enabled:true)
+    ([:value] == ["z", "label", "enabled"] /\
+     [:value.] == ["z", "label", "enabled"])?!
+
+named_record_keys_preserve_declaration_order() -> bit:
+    NamedOrderedRecord value: (first:1, label:"one", enabled:false)
+    ([:value] == ["first", "label", "enabled"] /\
+     [:value.] == ["first", "label", "enabled"])?!
+
+nominal_record_value_and_type_keys_are_symmetric() -> bit:
+    value: OrderedRecord(4, "four", true)
+    ([:value] == ["x", "label", "enabled"] /\
+     [:value.] == ["x", "label", "enabled"] /\
+     [:OrderedRecord] == ["x", "label", "enabled"])?!
+
+record_field_type_and_multiset_reflection_are_unchanged() -> bit:
+    value: OrderedRecord(4, "four", true)
+    ((:value.) == (x:0.0, label:"", enabled:false). /\
+     {:value} == {"x":1, "label":1, "enabled":1} /\
+     {:value.} == {"x":1, "label":1, "enabled":1})?!
+
+tuple_and_vector_spills_keep_positional_values() -> bit:
+    tuple_values: (1, 2, 3)
+    vector_values: [1, 2, 3]
+    ([:tuple_values] == [1, 2, 3] /\ [:vector_values] == [1, 2, 3] /\
+     [:tuple_values.] == [int:3])?!

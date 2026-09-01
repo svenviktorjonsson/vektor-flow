@@ -155,7 +155,9 @@
       runtimeSource: null,
       runtimeFlow: null,
       sharedBufferEntries: Object.create(null),
-      sharedBufferBridgeInstalled: false
+      sharedBufferBridgeInstalled: false,
+      hostEventArenaBuffer: null,
+      hostEventArenaMeta: null
     };
 
     function resetSceneBootState() {
@@ -244,6 +246,19 @@
       }
       global.chrome.webview.addEventListener("sharedbufferreceived", function(ev) {
         var meta = ev && ev.additionalData ? ev.additionalData : null;
+        if (meta && String(meta.type || "") === "vf_host_event_arena_v1") {
+          if (typeof ev.getBuffer !== "function") { return; }
+          try {
+            var hostArenaOrPromise = ev.getBuffer();
+            Promise.resolve(hostArenaOrPromise).then(function(buffer) {
+              tryReleaseSharedBuffer(state.hostEventArenaBuffer);
+              state.hostEventArenaBuffer = buffer;
+              state.hostEventArenaMeta = meta;
+              global.__vfHostEventArena = { buffer: buffer, meta: meta };
+            }).catch(function() {});
+          } catch (_) {}
+          return;
+        }
         if (!meta || String(meta.type || "") !== "vf_geom_ledger_shared_buffer") {
           return;
         }
@@ -302,6 +317,10 @@
         resolveSharedBufferWaiters(entry);
       });
       global.addEventListener("beforeunload", function() {
+        tryReleaseSharedBuffer(state.hostEventArenaBuffer);
+        state.hostEventArenaBuffer = null;
+        state.hostEventArenaMeta = null;
+        global.__vfHostEventArena = null;
         var keys = Object.keys(state.sharedBufferEntries);
         for (var i = 0; i < keys.length; i += 1) {
           var entry = state.sharedBufferEntries[keys[i]];
@@ -745,6 +764,7 @@
         runtimeLog: runtimeLog,
         getRuntimeSource: getRuntimeSource,
         applySceneCommands: applySceneCommands,
+        applyInternalHtmlPatchPacket: applyInternalHtmlPatchPacket,
         state: state
       });
       return state.runtimeFlow;
@@ -787,6 +807,14 @@
         return;
       }
       adapter.applySceneCommands(data);
+    }
+
+    function applyInternalHtmlPatchPacket(packet) {
+      var adapter = getSceneAdapter();
+      if (!adapter || !adapter.applyInternalHtmlPatchPacket) {
+        throw new Error("private retained HTML patch scene adapter unavailable");
+      }
+      adapter.applyInternalHtmlPatchPacket(packet);
     }
 
     function routeRuntimePacket(packet) {

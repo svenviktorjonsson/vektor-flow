@@ -15,11 +15,15 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include <cJSON.h>
+
 #include "embedded_vf_ui_assets.hpp"
+#include "compiler/native/vkf_ui_package_contract.hpp"
 #include "vf_overlay_host.hpp"
 
 namespace fs = std::filesystem;
@@ -27,8 +31,6 @@ namespace fs = std::filesystem;
 namespace {
 
 std::string ReadFileBytes(const fs::path& path);
-const char kSceneBundleHeader[] = "VKF_SCENE_BUNDLE_V1\n";
-const char kSceneBundleFooter[] = "VKF_SCENE_BUNDLE_END_V1";
 const char kNativeSceneCompilerVersion[] = "vkf-native-scene-compiler-0.1";
 
 std::wstring Quote(const std::wstring& value) {
@@ -68,6 +70,48 @@ std::wstring Utf8ToWide(const std::string& text) {
     std::wstring out(static_cast<size_t>(required), L'\0');
     MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), out.data(), required);
     return out;
+}
+
+std::string JsonString(const std::string& text) {
+    std::string out = "\"";
+    for (const unsigned char ch : text) {
+        switch (ch) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (ch < 0x20u) {
+                    const char hex[] = "0123456789abcdef";
+                    out += "\\u00";
+                    out.push_back(hex[(ch >> 4u) & 0x0fu]);
+                    out.push_back(hex[ch & 0x0fu]);
+                } else {
+                    out.push_back(static_cast<char>(ch));
+                }
+        }
+    }
+    out += "\"";
+    return out;
+}
+
+bool WriteStdoutBytes(const std::string& text) {
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (!output || output == INVALID_HANDLE_VALUE) return false;
+    std::size_t offset = 0;
+    while (offset < text.size()) {
+        DWORD written = 0;
+        const DWORD requested = static_cast<DWORD>(std::min<std::size_t>(
+            text.size() - offset, static_cast<std::size_t>(0x7fffffffu)));
+        if (!WriteFile(output, text.data() + offset, requested, &written, nullptr) || written == 0) {
+            return false;
+        }
+        offset += written;
+    }
+    return true;
 }
 
 std::wstring ToLowerAscii(std::wstring value) {
@@ -383,10 +427,6 @@ int Fail(const std::wstring& message) {
     return 1;
 }
 
-fs::path SourceFromRunnerExe(const fs::path& self) {
-    return self.parent_path() / (self.stem().wstring() + L".vkf");
-}
-
 fs::path TargetExeForSource(const fs::path& source) {
     return source.parent_path() / (source.stem().wstring() + L".exe");
 }
@@ -567,7 +607,7 @@ bool SafeBundleRelativePath(const std::string& relUtf8, fs::path* out) {
 }
 
 std::string AppendedSceneBundlePayload(const std::string& exeBytes) {
-    const std::string footerMagic(kSceneBundleFooter, sizeof(kSceneBundleFooter) - 1);
+    const std::string footerMagic(vkf::ui_package::bundle_footer);
     if (exeBytes.size() < footerMagic.size() + 8) {
         return {};
     }
@@ -606,13 +646,20 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
     const std::vector<fs::path> runtimeFiles = {
         L"index.html",
         L"vf-frame.css",
+        L"vf-chess.css",
         L"vf-runtime-shell.js",
         L"vf-runtime-packet-contract.js",
+        L"vf-retained-event-adapter.js",
         L"vf-runtime-source.js",
+        L"vf-html-components.js",
         L"vf-runtime-scene.js",
         L"vf-runtime-flow.js",
         L"vf-render-clock.js",
         L"vf-frame.js",
+        L"vf-widgets.js",
+        L"vf-static-html-loader.js",
+        L"vf-shared-runtime.js",
+        L"vf-gpu-runtime.js",
         L"vf-display.js",
         L"vf-native-scene.js",
         L"vf-axis3d-kernel.js",
@@ -628,6 +675,9 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
         L"geom/vf-geom-parametric-surface.js",
         L"geom/vf-geom-frame-adapter.js",
         L"geom/vf-geom-wgpu.js",
+        L"geom/vf-clustered-light-plan.mjs",
+        L"geom/vf-light-view-bounds.mjs",
+        L"assets/fonts/NotoSans-Regular-chess-sdf.png",
     };
     for (const fs::path& rel : runtimeFiles) {
         const fs::path file = webRoot / rel;
@@ -643,8 +693,19 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
         return a.generic_string() < b.generic_string();
     });
 
-    std::string payload(kSceneBundleHeader, sizeof(kSceneBundleHeader) - 1);
-    AppendU32(payload, static_cast<std::uint32_t>(files.size()));
+    std::string payload(vkf::ui_package::bundle_header);
+    AppendU32(payload, static_cast<std::uint32_t>(files.size() + 1u));
+    const std::string provenancePath = "vf-package-provenance.json";
+    const std::string entry = "sessions/" + WideToUtf8(slug) + "/vkf-scene.html";
+    const std::string provenance =
+        "{\"schema\":\"vektorflow.internal.ui_package_provenance\","
+        "\"version\":1,\"compiler\":\"vkf\","
+        "\"packager\":\"vkf-ui-package-v1\",\"entry\":" +
+        JsonString(entry) + "}\n";
+    AppendU32(payload, static_cast<std::uint32_t>(provenancePath.size()));
+    AppendU64(payload, static_cast<std::uint64_t>(provenance.size()));
+    payload += provenancePath;
+    payload += provenance;
     for (const fs::path& file : files) {
         const fs::path rel = fs::relative(file, webRoot, ec);
         if (ec) { return {}; }
@@ -670,7 +731,7 @@ int AppendCompiledSceneBundleToExe(const fs::path& exe, const fs::path& webRoot,
     out.write(payload.data(), static_cast<std::streamsize>(payload.size()));
     std::string footer;
     AppendU64(footer, static_cast<std::uint64_t>(payload.size()));
-    footer.append(kSceneBundleFooter, sizeof(kSceneBundleFooter) - 1);
+    footer += vkf::ui_package::bundle_footer;
     out.write(footer.data(), static_cast<std::streamsize>(footer.size()));
     if (!out) {
         return Fail(L"native compile failed while finalizing embedded scene bundle in " + exe.wstring());
@@ -683,7 +744,7 @@ bool ExtractAppendedSceneBundle(const fs::path& exe, const fs::path& webRoot) {
     if (payload.empty()) {
         return true;
     }
-    const std::string header(kSceneBundleHeader, sizeof(kSceneBundleHeader) - 1);
+    const std::string header(vkf::ui_package::bundle_header);
     if (payload.compare(0, header.size(), header) != 0) {
         return false;
     }
@@ -728,6 +789,137 @@ std::string Fnv1a64Hex(const std::string& bytes) {
     std::ostringstream out;
     out << std::hex << std::setw(16) << std::setfill('0') << hash;
     return out.str();
+}
+
+struct CompiledSceneBundleEntry {
+    fs::path relative;
+    std::string bytes;
+};
+
+struct ParsedCompiledSceneBundle {
+    std::string payloadHash;
+    fs::path entry;
+    std::vector<CompiledSceneBundleEntry> entries;
+};
+
+bool ParseCompiledSceneProvenance(const std::string& bytes, fs::path* entry) {
+    if (!entry) {
+        return false;
+    }
+    cJSON* root = cJSON_ParseWithLength(bytes.data(), bytes.size());
+    if (!root || !cJSON_IsObject(root) || cJSON_GetArraySize(root) != 5) {
+        cJSON_Delete(root);
+        return false;
+    }
+    cJSON* schema = cJSON_GetObjectItemCaseSensitive(root, "schema");
+    cJSON* version = cJSON_GetObjectItemCaseSensitive(root, "version");
+    cJSON* compiler = cJSON_GetObjectItemCaseSensitive(root, "compiler");
+    cJSON* packager = cJSON_GetObjectItemCaseSensitive(root, "packager");
+    cJSON* entryItem = cJSON_GetObjectItemCaseSensitive(root, "entry");
+    const bool valid =
+        cJSON_IsString(schema) && std::string(schema->valuestring) == "vektorflow.internal.ui_package_provenance" &&
+        cJSON_IsNumber(version) && version->valuedouble == 1.0 &&
+        cJSON_IsString(compiler) && std::string(compiler->valuestring) == "vkf" &&
+        cJSON_IsString(packager) && std::string(packager->valuestring) == "vkf-ui-package-v1" &&
+        cJSON_IsString(entryItem) && SafeBundleRelativePath(entryItem->valuestring, entry);
+    cJSON_Delete(root);
+    return valid;
+}
+
+bool ParseAppendedSceneBundle(const fs::path& exe, ParsedCompiledSceneBundle* parsed) {
+    if (!parsed) {
+        return false;
+    }
+    const std::string payload = AppendedSceneBundlePayload(ReadFileBytes(exe));
+    const std::string header(vkf::ui_package::bundle_header);
+    if (payload.empty() || payload.compare(0, header.size(), header) != 0) {
+        return false;
+    }
+    size_t pos = header.size();
+    std::uint32_t count = 0;
+    if (!ReadU32(payload, &pos, &count) || count == 0 || count > 4096) {
+        return false;
+    }
+    ParsedCompiledSceneBundle next{};
+    next.payloadHash = Fnv1a64Hex(payload);
+    std::set<std::string> paths;
+    const std::string provenancePath = "vf-package-provenance.json";
+    std::string provenance;
+    for (std::uint32_t index = 0; index < count; index += 1) {
+        std::uint32_t pathLen = 0;
+        std::uint64_t dataLen = 0;
+        if (!ReadU32(payload, &pos, &pathLen) || !ReadU64(payload, &pos, &dataLen) ||
+            pathLen == 0 || pos + pathLen > payload.size()) {
+            return false;
+        }
+        const std::string relativeUtf8 = payload.substr(pos, pathLen);
+        pos += pathLen;
+        if (dataLen > payload.size() - pos || !paths.insert(relativeUtf8).second) {
+            return false;
+        }
+        CompiledSceneBundleEntry entry{};
+        if (!SafeBundleRelativePath(relativeUtf8, &entry.relative)) {
+            return false;
+        }
+        entry.bytes = payload.substr(pos, static_cast<size_t>(dataLen));
+        pos += static_cast<size_t>(dataLen);
+        if (relativeUtf8 == provenancePath) {
+            provenance = entry.bytes;
+        }
+        next.entries.push_back(std::move(entry));
+    }
+    if (pos != payload.size() || provenance.empty() || !ParseCompiledSceneProvenance(provenance, &next.entry)) {
+        return false;
+    }
+    const std::string entryUtf8 = next.entry.generic_string();
+    if (paths.find(entryUtf8) == paths.end()) {
+        return false;
+    }
+    for (const std::string& relative : paths) {
+        size_t slash = relative.find('/');
+        while (slash != std::string::npos) {
+            if (paths.find(relative.substr(0, slash)) != paths.end()) {
+                return false;
+            }
+            slash = relative.find('/', slash + 1);
+        }
+    }
+    *parsed = std::move(next);
+    return true;
+}
+
+bool ExtractCompiledSceneBundle(const ParsedCompiledSceneBundle& bundle, const fs::path& webRoot) {
+    std::error_code ec;
+    bool current = fs::is_directory(webRoot, ec);
+    for (const auto& entry : bundle.entries) {
+        const fs::path cached = webRoot / entry.relative;
+        if (!current || !fs::is_regular_file(cached, ec) || ReadFileBytes(cached) != entry.bytes) {
+            current = false;
+            break;
+        }
+    }
+    if (current) {
+        return true;
+    }
+
+    const fs::path temporary = webRoot.parent_path() /
+        (webRoot.filename().wstring() + L".tmp-" + std::to_wstring(GetCurrentProcessId()));
+    fs::remove_all(temporary, ec);
+    ec.clear();
+    for (const auto& entry : bundle.entries) {
+        if (!WriteFileBytesIfChanged(temporary / entry.relative, entry.bytes)) {
+            fs::remove_all(temporary, ec);
+            return false;
+        }
+    }
+    fs::remove_all(webRoot, ec);
+    ec.clear();
+    fs::rename(temporary, webRoot, ec);
+    if (ec) {
+        fs::remove_all(temporary, ec);
+        return false;
+    }
+    return true;
 }
 
 std::string NativeSceneSourceTreeBytes(const fs::path& source) {
@@ -880,14 +1072,15 @@ int LaunchProcess(const fs::path& exe, const std::wstring& args, const fs::path&
     return static_cast<int>(exitCode);
 }
 
-int StageNativeSceneArtifacts(const fs::path& source, const fs::path& self) {
+int StageNativeSceneArtifacts(
+    const fs::path& source,
+    const fs::path& typedIr,
+    const fs::path& self
+) {
     std::error_code ec;
     fs::path repoRoot = FindRepoRootFrom(source);
     if (repoRoot.empty()) {
         repoRoot = FindRepoRootFrom(self);
-    }
-    if (repoRoot.empty()) {
-        return Fail(L"could not locate repository root for native scene staging");
     }
     const fs::path overlayWeb = FindRuntimeWebRoot(repoRoot, self);
     if (overlayWeb.empty()) {
@@ -899,7 +1092,8 @@ int StageNativeSceneArtifacts(const fs::path& source, const fs::path& self) {
     }
     const std::wstring args =
         L"--source " + Quote(fs::absolute(source, ec).wstring()) +
-        L" --overlay-web " + Quote(overlayWeb.wstring());
+        L" --overlay-web " + Quote(overlayWeb.wstring()) +
+        L" --typed-ir " + Quote(fs::absolute(typedIr, ec).wstring());
     return LaunchProcess(stager, args, stager.parent_path(), true);
 }
 
@@ -967,12 +1161,52 @@ struct NativeSceneBundle {
     fs::path page;
 };
 
+bool TryResolveEmbeddedSceneBundle(const fs::path& self, NativeSceneBundle* bundle, bool reportErrors) {
+    auto report = [&](const std::wstring& message) {
+        if (reportErrors) {
+            Fail(message);
+        }
+    };
+    ParsedCompiledSceneBundle parsed{};
+    if (!ParseAppendedSceneBundle(self, &parsed)) {
+        report(L"embedded compiled scene bundle is invalid in " + self.wstring());
+        return false;
+    }
+    const fs::path appData = LocalAppDataPath();
+    if (appData.empty()) {
+        report(L"LOCALAPPDATA is not set; cannot create private VKF application cache");
+        return false;
+    }
+    const fs::path webRoot = appData / L"vektor-flow" / L"vkf" / L"apps" / Utf8ToWide(parsed.payloadHash);
+    if (!ExtractCompiledSceneBundle(parsed, webRoot)) {
+        report(L"failed to extract embedded compiled scene bundle from " + self.wstring());
+        return false;
+    }
+    std::error_code ec;
+    const fs::path page = webRoot / parsed.entry;
+    if (!fs::exists(page, ec) || !fs::is_regular_file(page, ec)) {
+        report(L"embedded compiled scene bundle did not contain its provenance entry page");
+        return false;
+    }
+    if (bundle) {
+        bundle->source.clear();
+        bundle->repoRoot.clear();
+        bundle->webRoot = webRoot;
+        bundle->page = page;
+    }
+    return true;
+}
+
 bool TryResolveCurrentSceneBundle(const fs::path& source, const fs::path& self, NativeSceneBundle* bundle, bool reportErrors = true) {
     auto report = [&](const std::wstring& message) {
         if (reportErrors) {
             Fail(message);
         }
     };
+    if (HasAppendedSceneBundle(self)) {
+        return TryResolveEmbeddedSceneBundle(self, bundle, reportErrors);
+    }
+
     std::error_code ec;
     const fs::path absoluteSource = fs::absolute(source, ec);
     if (ec || !fs::exists(absoluteSource, ec)) {
@@ -994,27 +1228,12 @@ bool TryResolveCurrentSceneBundle(const fs::path& source, const fs::path& self, 
         report(L"overlay web assets not found; build native/VfOverlay first");
         return false;
     }
-    const bool embeddedSceneBundle = HasAppendedSceneBundle(self);
     if (!ExtractAppendedSceneBundle(self, webRoot)) {
         report(L"embedded compiled scene bundle is invalid in " + self.wstring());
         return false;
     }
 
     const fs::path page = SessionPageForWebRoot(webRoot, absoluteSource);
-    if (embeddedSceneBundle) {
-        if (!fs::exists(page, ec) || !fs::is_regular_file(page, ec)) {
-            report(L"embedded compiled scene bundle did not contain scene page: " + page.wstring());
-            return false;
-        }
-        if (bundle) {
-            bundle->source = absoluteSource;
-            bundle->repoRoot = repoRoot;
-            bundle->webRoot = webRoot;
-            bundle->page = page;
-        }
-        return true;
-    }
-
     const fs::path manifest = ManifestPathForSource(absoluteSource);
     const std::string sourceHash = Fnv1a64Hex(NativeSceneSourceTreeBytes(absoluteSource));
     if (!ManifestCurrentForSource(manifest, sourceHash)) {
@@ -1045,7 +1264,12 @@ int RunCompiledScene(const fs::path& source) {
     if (!TryResolveCurrentSceneBundle(source, CurrentExePath(), &bundle)) {
         return 1;
     }
-    const std::wstring pageArg = SessionPageArgForSource(bundle.source);
+    std::error_code ec;
+    const fs::path relativePage = fs::relative(bundle.page, bundle.webRoot, ec);
+    if (ec || relativePage.empty()) {
+        return Fail(L"compiled scene entry is outside its runtime root");
+    }
+    const std::wstring pageArg = relativePage.generic_wstring();
     const int result = VfOverlayRunDll(GetModuleHandleW(nullptr), pageArg.c_str(), bundle.webRoot.wstring().c_str(), SW_SHOW);
     if (result != 0) {
         return Fail(L"VKF overlay host failed: " + std::to_wstring(result));
@@ -1053,26 +1277,35 @@ int RunCompiledScene(const fs::path& source) {
     return 0;
 }
 
-int BuildOrRun(const fs::path& source, bool compileOnly) {
+int BuildPackage(
+    const fs::path& source,
+    const fs::path& typedIr,
+    const fs::path& requestedOutput
+) {
     std::error_code ec;
     const fs::path absoluteSource = fs::absolute(source, ec);
     if (ec || !fs::exists(absoluteSource, ec)) {
         return Fail(L"source not found: " + source.wstring());
     }
+    const fs::path absoluteTypedIr = fs::absolute(typedIr, ec);
+    if (ec || !fs::exists(absoluteTypedIr, ec)) {
+        return Fail(L"typed UI IR not found: " + typedIr.wstring());
+    }
     const fs::path self = CurrentExePath();
 
+    const int stageResult = StageNativeSceneArtifacts(absoluteSource, absoluteTypedIr, self);
+    if (stageResult != 0) {
+        return stageResult;
+    }
     NativeSceneBundle bundle{};
-    if (!TryResolveCurrentSceneBundle(absoluteSource, self, &bundle, false)) {
-        const int stageResult = StageNativeSceneArtifacts(absoluteSource, self);
-        if (stageResult != 0) {
-            return stageResult;
-        }
-        if (!TryResolveCurrentSceneBundle(absoluteSource, self, &bundle)) {
-            return 1;
-        }
+    if (!TryResolveCurrentSceneBundle(absoluteSource, self, &bundle)) {
+        return 1;
     }
 
-    const fs::path target = TargetExeForSource(absoluteSource);
+    const fs::path target = fs::absolute(requestedOutput, ec);
+    if (ec || target.empty()) {
+        return Fail(L"invalid UI application output path");
+    }
     const fs::path runnerTemplate = RunnerTemplateForCompiledScene(self);
     const int exeResult = EnsureExampleExeCurrent(runnerTemplate, absoluteSource, target);
     if (exeResult != 0) {
@@ -1082,33 +1315,51 @@ int BuildOrRun(const fs::path& source, bool compileOnly) {
     if (appendResult != 0) {
         return appendResult;
     }
-    if (compileOnly) {
-        return 0;
-    }
-    return LaunchProcess(target, L"", target.parent_path(), false);
+    const fs::path manifest = ManifestPathForSource(absoluteSource);
+    fs::remove(manifest, ec);
+    ec.clear();
+    fs::remove(manifest.parent_path(), ec);
+    const std::string summary =
+        "{\"status\":\"compiled\",\"artifact_path\":" +
+        JsonString(target.string()) +
+        ",\"ui_application\":true,\"provenance\":\"vkf-ui-package-v1\"}\n";
+    return WriteStdoutBytes(summary)
+        ? 0
+        : Fail(L"failed to report private UI package result");
 }
 
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
-    if (argc >= 2) {
-        const std::wstring first = argv[1] ? argv[1] : L"";
-        if (first == L"--help" || first == L"-h") {
-            std::wcout << L"usage: vkf [--compile-only] <example.vkf>\n"
-                       << L"       .\\example.exe\n\n"
-                       << L"Native runtime only. No Python fallback." << std::endl;
-            return 0;
+    if (argc >= 2 && std::wstring(argv[1] ? argv[1] : L"") == L"--package") {
+        fs::path source;
+        fs::path typedIr;
+        fs::path output;
+        for (int index = 2; index < argc; ++index) {
+            const std::wstring arg = argv[index] ? argv[index] : L"";
+            if (index + 1 >= argc) {
+                return Fail(L"invalid private UI package invocation");
+            }
+            const fs::path value(argv[++index] ? argv[index] : L"");
+            if (arg == L"--source" && source.empty()) {
+                source = value;
+            } else if (arg == L"--typed-ir" && typedIr.empty()) {
+                typedIr = value;
+            } else if (arg == L"--output" && output.empty()) {
+                output = value;
+            } else {
+                return Fail(L"invalid private UI package invocation");
+            }
         }
-        if ((first == L"--compile-only" || first == L"--no-launch") && argc >= 3) {
-            return BuildOrRun(fs::path(argv[2] ? argv[2] : L""), true);
+        if (source.empty() || typedIr.empty() || output.empty()) {
+            return Fail(L"invalid private UI package invocation");
         }
-        return BuildOrRun(fs::path(first), false);
+        return BuildPackage(source, typedIr, output);
     }
 
     const fs::path self = CurrentExePath();
-    const std::wstring stem = ToLowerAscii(self.stem().wstring());
-    if (stem == L"vkf") {
-        return Fail(L"missing source file. usage: vkf [--compile-only] <example.vkf>");
+    if (argc == 1 && HasAppendedSceneBundle(self)) {
+        return RunCompiledScene({});
     }
-    return RunCompiledScene(SourceFromRunnerExe(self));
+    return Fail(L"private VKF UI runtime helper cannot be invoked directly");
 }

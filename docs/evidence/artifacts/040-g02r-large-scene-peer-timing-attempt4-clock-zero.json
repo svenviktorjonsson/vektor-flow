@@ -1,0 +1,1812 @@
+{
+  "schema": "vkf.large-scene-peer-timing-evidence",
+  "schemaVersion": 1,
+  "status": "withheld-timing-execution-failed",
+  "performanceClaim": false,
+  "executionError": "Error: timing phase failed for orthographic-points-100k-static/plotly-scattergl\n    at assertCorrectness (file:///C:/Users/viktor.jonsson/OneDrive%20-%20CellMax%20Technologies%20AB/Documents/Repositories/svenviktorjonsson/vektor-flow/.worktrees/0.4/040-g02r-peer-timing/benchmarks/large-scene-visualization/timing-matrix.mjs:46:11)\n    at buildTimingEvidence (file:///C:/Users/viktor.jonsson/OneDrive%20-%20CellMax%20Technologies%20AB/Documents/Repositories/svenviktorjonsson/vektor-flow/.worktrees/0.4/040-g02r-peer-timing/benchmarks/large-scene-visualization/timing-matrix.mjs:174:5)\n    at main (file:///C:/Users/viktor.jonsson/OneDrive%20-%20CellMax%20Technologies%20AB/Documents/Repositories/svenviktorjonsson/vektor-flow/.worktrees/0.4/040-g02r-peer-timing/tests/helpers/run_large_scene_peer_timing_matrix.mjs:116:19)\n    at file:///C:/Users/viktor.jonsson/OneDrive%20-%20CellMax%20Technologies%20AB/Documents/Repositories/svenviktorjonsson/vektor-flow/.worktrees/0.4/040-g02r-peer-timing/tests/helpers/run_large_scene_peer_timing_matrix.mjs:140:1\n    at ModuleJob.run (node:internal/modules/esm/module_job:377:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:691:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)",
+  "sourceCommit": "9dc598586e7d1b9bef6cb3acb5c46da276d47195",
+  "versions": {
+    "vkf": "0.3.0",
+    "deck-gl": "9.3.11",
+    "vtk-js": "36.10.0",
+    "plotly-scattergl": "4.0.0",
+    "esbuild": "0.25.9"
+  },
+  "environment": {
+    "operatingSystem": "Windows_NT 10.0.26200",
+    "architecture": "x64",
+    "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+    "browser": "Microsoft Edge",
+    "browserVersion": "152.0.0.0",
+    "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+    "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+    "webglVendor": "Google Inc. (Intel)",
+    "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "viewport": [
+      1280,
+      720
+    ],
+    "devicePixelRatio": 1,
+    "powerMode": "not-recorded"
+  },
+  "rotatedOrder": [
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-100k-static"
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-100k-static"
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-100k-static"
+    },
+    {
+      "implementation": "plotly-scattergl",
+      "workload": "orthographic-points-100k-static"
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-1m-pan"
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-1m-pan"
+    },
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-1m-pan"
+    }
+  ],
+  "rawPreflightLanes": [
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-100k-static",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vkf",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "0.4.0-dev",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 8573
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.04407041181388194,
+              "artifactSha256": "3f67d3d257eaaa98491b3946f9bee9f665bc6bd5a7b3e2864f4014964b9781b1"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-100k-static",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "deck-gl",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "9.3.11",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 10011
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.010223807150032405,
+              "artifactSha256": "cf3161d026527b035bd3d40ebe2eebe426260e9b1654ece89cdb095007947d4a"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-100k-static",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vtk-js",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "36.10.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 13633
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.03600691057741645,
+              "artifactSha256": "1bd421f05a04d121c13b788c9049521ab24e37981f72c243d9a3ac0750454763"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "plotly-scattergl",
+      "workload": "orthographic-points-100k-static",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "plotly-scattergl",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "4.0.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 1.0 (OpenGL ES 2.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 8411
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.0059668879449600865,
+              "artifactSha256": "a2bdcad0b10a3167ffe2564b6b402b880626c3f229b36b67e5e0c8099dc94b49"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 1.0 (OpenGL ES 2.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-1m-pan",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "deck-gl",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "9.3.11",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 8336
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.0048712101730051804,
+              "artifactSha256": "cb186f8015df3d66eac8d2065e030538d9d962cf5021b4b9823fb1d9ea356cc5"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.004457162796461467,
+              "artifactSha256": "e49ac83acb42e6238823e25c0f4e792dafece17c2a791605502a61bbbd351090"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.004891243039746862,
+              "artifactSha256": "9cb2e282eeda2fa3b6899c22527aea44d13b1948d2ba5c88dd434d6a92387689"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.004449198016663991,
+              "artifactSha256": "8df6b849e0fa47bee7bb95db4f094b7989a839b1fdf57b253a1638609a8e9709"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.004733544978371418,
+              "artifactSha256": "9acda8785d7ca3814c8e03da3d0cad1ee5ff0952e415fbc7664232667d6b900c"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-1m-pan",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vtk-js",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "36.10.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 9063
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.019919383577071126,
+              "artifactSha256": "206fc50a45b4fcb61fa901d954b85c5ae3dcfe498d80e791eec8180452ded761"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.020374711533077128,
+              "artifactSha256": "7e9025ab2314bea63d480f565dafb3207fd5612bd99e701f201e7218d65843a5"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.02049683090765031,
+              "artifactSha256": "90a5e8a6c3a417c61acf0a276ccb1554b543c12ef2fa0273fa64fa0244f39c19"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.020547915282659313,
+              "artifactSha256": "d797d58645d70c39d53fe06e5b1901e3f3ec9cdefa7b58fdafc5253b6e610e6d"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.02124621002236382,
+              "artifactSha256": "10298dffbe97ac1ddf516fbce68e8425b1e2b9eaf21c12df49adbfe06621561c"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-1m-pan",
+      "phase": "preflight",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vkf",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "0.4.0-dev",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 8366
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.02667192358363535,
+              "artifactSha256": "cf341b55513c85182e752e7612011fd55fd215f326afe3e305ae73e9f74631c7"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.02726878595291049,
+              "artifactSha256": "9abe27843e8947b80617a4dd5178b846d30fd5f7895f89636aeebbd9036efaa7"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.02708892926937545,
+              "artifactSha256": "26f023649c90cd4a2b1a516274a0b8158e102467b911ebc46483812afaffcebb"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.027796917983359926,
+              "artifactSha256": "e8d9901fb623fd473c17462b07f0452ef2de28ffe2ccf4e5246d5dd0c1d7f5c2"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.027700207798188714,
+              "artifactSha256": "da686e0c333834806d111b71493280343efc5b6c0a03af69098ae3267f7f6afd"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": null,
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    }
+  ],
+  "rawTimingLanes": [
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-100k-static",
+      "phase": "timing",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vkf",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "0.4.0-dev",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 7206
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.04407041181388194,
+              "artifactSha256": "3f67d3d257eaaa98491b3946f9bee9f665bc6bd5a7b3e2864f4014964b9781b1"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": {
+          "startedAtSequence": 2,
+          "samplesMs": [
+            0.015000104904174805,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.019999980926513672,
+            0.014999985694885254,
+            0.015000104904174805,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.04999995231628418,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.005000114440917969,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.004999995231628418,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.010000109672546387,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.034999966621398926,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.03000009059906006,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.004999995231628418,
+            0.015000104904174805,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.029999971389770508,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.015000104904174805,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.015000104904174805,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.010000109672546387,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.010000109672546387,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.004999995231628418,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.009999990463256836,
+            0.014999985694885254,
+            0.009999990463256836,
+            0.004999995231628418
+          ],
+          "measuredGpuFrames": 120,
+          "gpuCompletionCalls": 181
+        },
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-100k-static",
+      "phase": "timing",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "deck-gl",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "9.3.11",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 8233
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.010223807150032405,
+              "artifactSha256": "cf3161d026527b035bd3d40ebe2eebe426260e9b1654ece89cdb095007947d4a"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": {
+          "startedAtSequence": 2,
+          "samplesMs": [
+            1.3299999237060547,
+            1.5799999237060547,
+            1.8849999904632568,
+            2.6050000190734863,
+            1.25,
+            1.0950000286102295,
+            1.1799999475479126,
+            0.9249999523162842,
+            0.6450001001358032,
+            0.5349999666213989,
+            0.6449999809265137,
+            0.9199999570846558,
+            1.3199999332427979,
+            1.1100000143051147,
+            1.0099999904632568,
+            0.9550000429153442,
+            0.8349999189376831,
+            0.8149999380111694,
+            0.7350000143051147,
+            1.2799999713897705,
+            1.0149999856948853,
+            1.0250000953674316,
+            0.875,
+            0.8849999904632568,
+            0.7849999666213989,
+            0.7100000381469727,
+            0.5999999046325684,
+            0.5149999856948853,
+            0.43999993801116943,
+            0.45500004291534424,
+            1.9550000429153442,
+            0.6399999856948853,
+            0.8349999189376831,
+            0.8250000476837158,
+            0.7999999523162842,
+            0.8300000429153442,
+            0.8999999761581421,
+            0.9600000381469727,
+            1.340000033378601,
+            1.5299999713897705,
+            1.2000000476837158,
+            1.284999966621399,
+            0.8799999952316284,
+            1.1950000524520874,
+            1.215000033378601,
+            1.1999999284744263,
+            2.034999966621399,
+            1.5800000429153442,
+            1.2599999904632568,
+            0.6949999332427979,
+            0.8100000619888306,
+            1.8299999237060547,
+            1.3900001049041748,
+            1.409999966621399,
+            1.4500000476837158,
+            1.0049999952316284,
+            1.659999966621399,
+            2.4149999618530273,
+            1.5800000429153442,
+            1.4800000190734863,
+            1.3450000286102295,
+            1.434999942779541,
+            1.475000023841858,
+            1.8600000143051147,
+            1.6449999809265137,
+            2.0299999713897705,
+            2.209999918937683,
+            1.9550000429153442,
+            0.8799999952316284,
+            0.8049999475479126,
+            0.6750000715255737,
+            1.1150000095367432,
+            1.1749999523162842,
+            1.9550000429153442,
+            2.1100000143051147,
+            1.0850000381469727,
+            0.8899999856948853,
+            0.7899999618530273,
+            0.7599999904632568,
+            0.7350000143051147,
+            0.9850000143051147,
+            1.1449999809265137,
+            0.7950000762939453,
+            0.7299998998641968,
+            1.9700000286102295,
+            1.1299999952316284,
+            1.1850000619888306,
+            1.2200000286102295,
+            1.9850000143051147,
+            1.1100000143051147,
+            1.024999976158142,
+            1.0149999856948853,
+            0.9950000047683716,
+            1.1749999523162842,
+            1.225000023841858,
+            1.0700000524520874,
+            0.7100000381469727,
+            1.149999976158142,
+            0.6949999332427979,
+            0.5800000429153442,
+            0.5700000524520874,
+            1.125,
+            1.0799999237060547,
+            1.90500009059906,
+            1.274999976158142,
+            0.7899999618530273,
+            0.8400000333786011,
+            0.6899999380111694,
+            0.8350000381469727,
+            0.9199999570846558,
+            0.8599998950958252,
+            1.78000009059906,
+            0.6649999618530273,
+            0.9099999666213989,
+            0.8100000619888306,
+            0.9099999666213989,
+            0.9600000381469727,
+            0.8550000190734863,
+            0.8049999475479126,
+            0.8400000333786011
+          ],
+          "measuredGpuFrames": 120,
+          "gpuCompletionCalls": 181
+        },
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-100k-static",
+      "phase": "timing",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vtk-js",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "36.10.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 10947
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.03600691057741645,
+              "artifactSha256": "1bd421f05a04d121c13b788c9049521ab24e37981f72c243d9a3ac0750454763"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": {
+          "startedAtSequence": 2,
+          "samplesMs": [
+            0.2549999952316284,
+            0.25,
+            0.23500001430511475,
+            0.1799999475479126,
+            0.20000004768371582,
+            0.2999999523162842,
+            0.25,
+            0.2250000238418579,
+            0.19499993324279785,
+            1.5350000858306885,
+            0.6749999523162842,
+            3.6449999809265137,
+            4.560000061988831,
+            4.100000023841858,
+            0.9500000476837158,
+            0.9599999189376831,
+            0.4950000047683716,
+            0.6100000143051147,
+            0.36000001430511475,
+            0.25,
+            0.8250000476837158,
+            2.0049999952316284,
+            0.7400000095367432,
+            0.44999992847442627,
+            0.6550000905990601,
+            1.3350000381469727,
+            0.35500001907348633,
+            0.7899999618530273,
+            0.8400000333786011,
+            0.6100000143051147,
+            0.8299999237060547,
+            0.2900000810623169,
+            0.26999998092651367,
+            0.23500001430511475,
+            0.25,
+            0.19499993324279785,
+            0.1700000762939453,
+            0.1799999475479126,
+            0.1700000762939453,
+            0.35500001907348633,
+            0.36500000953674316,
+            0.2399998903274536,
+            0.19000005722045898,
+            0.23000001907348633,
+            0.4249999523162842,
+            0.875,
+            0.33000004291534424,
+            0.25,
+            0.2999999523162842,
+            0.1700000762939453,
+            0.16999995708465576,
+            0.16999995708465576,
+            0.17500007152557373,
+            0.23500001430511475,
+            0.17499995231628418,
+            0.16499996185302734,
+            0.1650000810623169,
+            0.16999995708465576,
+            0.20000004768371582,
+            0.2049999237060547,
+            0.1650000810623169,
+            0.16999995708465576,
+            0.18500006198883057,
+            0.15999996662139893,
+            0.24000000953674316,
+            0.20000004768371582,
+            1.1799999475479126,
+            0.7799999713897705,
+            0.5700000524520874,
+            0.29499995708465576,
+            0.9750000238418579,
+            0.30000007152557373,
+            0.2749999761581421,
+            0.23500001430511475,
+            0.2099999189376831,
+            0.1950000524520874,
+            0.18499994277954102,
+            0.21500003337860107,
+            0.1950000524520874,
+            0.18499994277954102,
+            0.4700000286102295,
+            0.36500000953674316,
+            0.28999996185302734,
+            0.25,
+            0.20000004768371582,
+            0.2250000238418579,
+            0.23500001430511475,
+            0.4099999666213989,
+            0.17499995231628418,
+            0.1650000810623169,
+            0.2549999952316284,
+            0.18999993801116943,
+            0.19000005722045898,
+            0.18499994277954102,
+            0.25,
+            0.33000004291534424,
+            0.5400000810623169,
+            0.26999998092651367,
+            0.2099999189376831,
+            0.2200000286102295,
+            0.1950000524520874,
+            0.18499994277954102,
+            0.1950000524520874,
+            0.18499994277954102,
+            0.25,
+            0.20500004291534424,
+            0.15999996662139893,
+            0.2950000762939453,
+            0.25,
+            0.21999990940093994,
+            0.24500000476837158,
+            0.2549999952316284,
+            0.20000004768371582,
+            0.31000006198883057,
+            0.22999989986419678,
+            0.2250000238418579,
+            0.4099999666213989,
+            0.23500001430511475,
+            0.2850000858306885,
+            0.18499994277954102
+          ],
+          "measuredGpuFrames": 120,
+          "gpuCompletionCalls": 181
+        },
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "plotly-scattergl",
+      "workload": "orthographic-points-100k-static",
+      "phase": "timing",
+      "exitCode": 1,
+      "passed": false,
+      "result": {
+        "ok": false,
+        "error": "Error: high-resolution clock did not advance across one completed GPU frame\n    at runCorrectnessThenTiming (http://127.0.0.1:61291/large-scene-peer-bundle.mjs:194610:15)\n    at async execute (http://127.0.0.1:61291/large-scene-peer-bundle.mjs:194679:18)",
+        "logs": []
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-1m-pan",
+      "phase": "timing",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "deck-gl",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "9.3.11",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 7383
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.0048712101730051804,
+              "artifactSha256": "cb186f8015df3d66eac8d2065e030538d9d962cf5021b4b9823fb1d9ea356cc5"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.004457162796461467,
+              "artifactSha256": "e49ac83acb42e6238823e25c0f4e792dafece17c2a791605502a61bbbd351090"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.004891243039746862,
+              "artifactSha256": "9cb2e282eeda2fa3b6899c22527aea44d13b1948d2ba5c88dd434d6a92387689"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.004449198016663991,
+              "artifactSha256": "8df6b849e0fa47bee7bb95db4f094b7989a839b1fdf57b253a1638609a8e9709"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.004733544978371418,
+              "artifactSha256": "9acda8785d7ca3814c8e03da3d0cad1ee5ff0952e415fbc7664232667d6b900c"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": {
+          "startedAtSequence": 2,
+          "samplesMs": [
+            0.7849999666213989,
+            0.7000000476837158,
+            0.6200000047683716,
+            0.8700000047683716,
+            0.6950000524520874,
+            0.6200000047683716,
+            0.6499999761581421,
+            0.6999999284744263,
+            1.53000009059906,
+            1.1399999856948853,
+            0.7450000047683716,
+            0.9599999189376831,
+            0.6550000905990601,
+            0.6100000143051147,
+            0.5549999475479126,
+            0.5800000429153442,
+            0.7549999952316284,
+            1.2699999809265137,
+            1.2949999570846558,
+            0.6950000524520874,
+            0.6749999523162842,
+            0.6050000190734863,
+            0.565000057220459,
+            0.6050000190734863,
+            0.559999942779541,
+            0.5099999904632568,
+            1.065000057220459,
+            1.2450000047683716,
+            0.9099999666213989,
+            1.5750000476837158,
+            0.7400000095367432,
+            0.684999942779541,
+            0.5750000476837158,
+            0.5799999237060547,
+            0.5250000953674316,
+            0.5950000286102295,
+            0.6599999666213989,
+            0.5149999856948853,
+            0.7849999666213989,
+            1.3050000667572021,
+            2.2450000047683716,
+            1.5049999952316284,
+            0.9700000286102295,
+            0.6399999856948853,
+            0.5699999332427979,
+            0.5550000667572021,
+            0.5049999952316284,
+            0.7200000286102295,
+            0.5199999809265137,
+            0.5049999952316284,
+            0.5249999761581421,
+            0.6200000047683716,
+            1.1800000667572021,
+            0.5049999952316284,
+            0.8700000047683716,
+            0.7399998903274536,
+            0.6150000095367432,
+            0.6100000143051147,
+            1.3700000047683716,
+            0.8949999809265137,
+            0.7400000095367432,
+            0.7700001001358032,
+            0.6499999761581421,
+            1.1749999523162842,
+            0.6000000238418579,
+            0.5549999475479126,
+            0.5100001096725464,
+            0.5399999618530273,
+            0.5099999904632568,
+            0.75,
+            0.684999942779541,
+            0.5850000381469727,
+            0.5249999761581421,
+            0.46000003814697266,
+            1.600000023841858,
+            0.6349999904632568,
+            0.565000057220459,
+            0.5099999904632568,
+            0.47499990463256836,
+            0.4650000333786011,
+            0.5349999666213989,
+            0.5099999904632568,
+            0.46000003814697266,
+            1.0049999952316284,
+            0.8799999952316284,
+            1.15500009059906,
+            0.5499999523162842,
+            0.4750000238418579,
+            0.49000000953674316,
+            0.49000000953674316,
+            0.48500001430511475,
+            0.49000000953674316,
+            0.5849999189376831,
+            0.8200000524520874,
+            0.8199999332427979,
+            0.75,
+            1.5700000524520874,
+            0.6449999809265137,
+            0.5800000429153442,
+            0.5849999189376831,
+            0.6100000143051147,
+            0.5300000905990601,
+            0.4649999141693115,
+            0.625,
+            0.6150000095367432,
+            0.5700000524520874,
+            0.5799999237060547,
+            1.3700000047683716,
+            0.875,
+            0.6550000905990601,
+            0.5949999094009399,
+            0.5150001049041748,
+            0.4950000047683716,
+            0.5699999332427979,
+            0.5149999856948853,
+            0.7200000286102295,
+            0.5299999713897705,
+            0.5250000953674316,
+            0.5,
+            1.1150000095367432
+          ],
+          "measuredGpuFrames": 120,
+          "gpuCompletionCalls": 185
+        },
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-1m-pan",
+      "phase": "timing",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vtk-js",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "36.10.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 4577
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.019919383577071126,
+              "artifactSha256": "206fc50a45b4fcb61fa901d954b85c5ae3dcfe498d80e791eec8180452ded761"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.020374711533077128,
+              "artifactSha256": "7e9025ab2314bea63d480f565dafb3207fd5612bd99e701f201e7218d65843a5"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.02049683090765031,
+              "artifactSha256": "90a5e8a6c3a417c61acf0a276ccb1554b543c12ef2fa0273fa64fa0244f39c19"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.020547915282659313,
+              "artifactSha256": "d797d58645d70c39d53fe06e5b1901e3f3ec9cdefa7b58fdafc5253b6e610e6d"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.02124621002236382,
+              "artifactSha256": "10298dffbe97ac1ddf516fbce68e8425b1e2b9eaf21c12df49adbfe06621561c"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": {
+          "startedAtSequence": 2,
+          "samplesMs": [
+            0.3250000476837158,
+            0.375,
+            0.30000007152557373,
+            0.22999989986419678,
+            0.19000005722045898,
+            0.20000004768371582,
+            0.1799999475479126,
+            0.24500000476837158,
+            0.18499994277954102,
+            0.21500003337860107,
+            0.20000004768371582,
+            0.13999998569488525,
+            0.12999999523162842,
+            0.18500006198883057,
+            0.2049999237060547,
+            0.18000006675720215,
+            0.18499994277954102,
+            0.5099999904632568,
+            0.2549999952316284,
+            0.30000007152557373,
+            0.23000001907348633,
+            0.26999998092651367,
+            0.24000000953674316,
+            0.1799999475479126,
+            0.13499999046325684,
+            0.12999999523162842,
+            0.11500000953674316,
+            0.12000000476837158,
+            0.13999998569488525,
+            0.1400001049041748,
+            0.4799998998641968,
+            0.21000003814697266,
+            0.1549999713897705,
+            0.13999998569488525,
+            0.15000009536743164,
+            0.13499999046325684,
+            0.5199999809265137,
+            0.39499998092651367,
+            0.4650000333786011,
+            0.5049999952316284,
+            0.3700000047683716,
+            0.4049999713897705,
+            0.33000004291534424,
+            0.2849999666213989,
+            0.375,
+            0.3450000286102295,
+            0.2999999523162842,
+            0.2850000858306885,
+            0.26999998092651367,
+            0.3299999237060547,
+            0.3200000524520874,
+            0.375,
+            0.26499998569488525,
+            0.3450000286102295,
+            0.5099999904632568,
+            0.3450000286102295,
+            0.26999998092651367,
+            0.24000000953674316,
+            0.2250000238418579,
+            0.21499991416931152,
+            0.3900001049041748,
+            0.309999942779541,
+            0.2549999952316284,
+            0.2549999952316284,
+            0.21000003814697266,
+            0.20000004768371582,
+            0.18999993801116943,
+            0.30500006675720215,
+            0.16499996185302734,
+            0.13499999046325684,
+            1.159999966621399,
+            0.39499998092651367,
+            0.2799999713897705,
+            0.2250000238418579,
+            0.25999999046325684,
+            0.2049999237060547,
+            0.23000001907348633,
+            0.20000004768371582,
+            0.19499993324279785,
+            0.20000004768371582,
+            0.1950000524520874,
+            0.19499993324279785,
+            0.20500004291534424,
+            0.19999992847442627,
+            0.1700000762939453,
+            0.13499999046325684,
+            0.16499996185302734,
+            0.33500003814697266,
+            0.18999993801116943,
+            0.18000006675720215,
+            0.26999998092651367,
+            0.20000004768371582,
+            0.3999999761581421,
+            0.5,
+            0.41499996185302734,
+            0.4650000333786011,
+            0.2999999523162842,
+            0.23500001430511475,
+            0.24000000953674316,
+            0.23500001430511475,
+            0.23000001907348633,
+            0.23000001907348633,
+            0.3299999237060547,
+            0.4249999523162842,
+            0.38499999046325684,
+            0.2799999713897705,
+            0.2749999761581421,
+            0.31499993801116943,
+            0.40000009536743164,
+            0.3599998950958252,
+            0.19000005722045898,
+            0.15999996662139893,
+            0.13499999046325684,
+            0.11500000953674316,
+            0.15500009059906006,
+            0.11499989032745361,
+            0.1099998950958252,
+            0.15000009536743164,
+            0.11500000953674316,
+            0.15999996662139893
+          ],
+          "measuredGpuFrames": 120,
+          "gpuCompletionCalls": 185
+        },
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-1m-pan",
+      "phase": "timing",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vkf",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "0.4.0-dev",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Intel)",
+          "renderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        },
+        "clock": {
+          "crossOriginIsolated": true,
+          "minimumPositiveDeltaMs": 0.004999995231628418,
+          "reads": 100000,
+          "positiveReads": 8389
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.02667192358363535,
+              "artifactSha256": "cf341b55513c85182e752e7612011fd55fd215f326afe3e305ae73e9f74631c7"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.02726878595291049,
+              "artifactSha256": "9abe27843e8947b80617a4dd5178b846d30fd5f7895f89636aeebbd9036efaa7"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.02708892926937545,
+              "artifactSha256": "26f023649c90cd4a2b1a516274a0b8158e102467b911ebc46483812afaffcebb"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.027796917983359926,
+              "artifactSha256": "e8d9901fb623fd473c17462b07f0452ef2de28ffe2ccf4e5246d5dd0c1d7f5c2"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.027700207798188714,
+              "artifactSha256": "da686e0c333834806d111b71493280343efc5b6c0a03af69098ae3267f7f6afd"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": {
+          "startedAtSequence": 2,
+          "samplesMs": [
+            0.04499995708465576,
+            0.03500008583068848,
+            0.02499997615814209,
+            0.029999971389770508,
+            0.029999971389770508,
+            0.02500009536743164,
+            0.02499997615814209,
+            0.019999980926513672,
+            0.02499997615814209,
+            0.03500008583068848,
+            0.029999971389770508,
+            0.02499997615814209,
+            0.034999966621398926,
+            0.04500007629394531,
+            0.02499997615814209,
+            0.029999971389770508,
+            0.02499997615814209,
+            0.02500009536743164,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.034999966621398926,
+            0.02499997615814209,
+            0.02500009536743164,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.020000100135803223,
+            0.034999966621398926,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.014999985694885254,
+            0.02500009536743164,
+            0.02499997615814209,
+            0.034999966621398926,
+            0.039999961853027344,
+            0.03000009059906006,
+            0.07499992847442627,
+            0.03000009059906006,
+            0.02499997615814209,
+            0.029999971389770508,
+            0.019999980926513672,
+            0.019999980926513672,
+            0.02500009536743164,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.034999966621398926,
+            0.11500000953674316,
+            0.02499997615814209,
+            0.03500008583068848,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.029999971389770508,
+            0.02500009536743164,
+            0.02499997615814209,
+            0.019999980926513672,
+            0.029999971389770508,
+            0.02499997615814209,
+            0.019999980926513672,
+            0.03000009059906006,
+            0.02499997615814209,
+            0.029999971389770508,
+            0.060000061988830566,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.029999971389770508,
+            0.02499997615814209,
+            0.02500009536743164,
+            0.029999971389770508,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.02500009536743164,
+            0.019999980926513672,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.019999980926513672,
+            0.02500009536743164,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.02499997615814209,
+            0.0700000524520874,
+            0.02499997615814209,
+            0.04999995231628418,
+            0.03500008583068848,
+            0.059999942779541016,
+            0.060000061988830566,
+            0.3700000047683716,
+            0.15999996662139893,
+            0.059999942779541016,
+            0.05000007152557373,
+            0.039999961853027344,
+            0.05000007152557373,
+            0.039999961853027344,
+            0.039999961853027344,
+            0.03500008583068848,
+            0.04499995708465576,
+            0.034999966621398926,
+            0.03500008583068848,
+            0.029999971389770508,
+            0.034999966621398926,
+            0.029999971389770508,
+            0.04500007629394531,
+            0.034999966621398926,
+            0.029999971389770508,
+            0.029999971389770508,
+            0.02500009536743164,
+            0.04499995708465576,
+            0.02499997615814209,
+            0.03500008583068848,
+            0.029999971389770508,
+            0.039999961853027344,
+            0.034999966621398926,
+            0.03000009059906006,
+            0.04499995708465576,
+            0.034999966621398926,
+            0.03000009059906006,
+            0.039999961853027344,
+            0.6549999713897705,
+            0.05500006675720215,
+            0.029999971389770508
+          ],
+          "measuredGpuFrames": 120,
+          "gpuCompletionCalls": 185
+        },
+        "environment": {
+          "operatingSystem": "Windows_NT 10.0.26200",
+          "architecture": "x64",
+          "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+          "browser": "Microsoft Edge",
+          "browserVersion": "152.0.0.0",
+          "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+          "gpu": "Google Inc. (Intel); ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "webglVersion": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "webglVendor": "Google Inc. (Intel)",
+          "webglRenderer": "ANGLE (Intel, Intel(R) Graphics (0x00007D41) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "viewport": [
+            1280,
+            720
+          ],
+          "devicePixelRatio": 1,
+          "powerMode": "not-recorded"
+        }
+      },
+      "stderr": ""
+    }
+  ]
+}

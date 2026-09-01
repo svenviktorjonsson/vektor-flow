@@ -1,0 +1,12 @@
+: .ui.display
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.1, 0.1], size:[0.42, 0.5])
+frame.load("main.html")
+show_details: Button(id:"show-details")
+detail: Input(id:"detail")
+(event: show_details.events.get())??>
+    ButtonEvent => :: event
+    ButtonClicked => :: event
+(slider_event: detail.events.get())??>
+    SliderEvent => :: slider_event
+    SliderValueChanged => :: slider_event

@@ -605,21 +605,51 @@ z: num(1, 2)
 
 Postfix `.` produces a first-class type value. A structured type can be spilled
 into another type container: `(:Point)` exposes a nominal type's backing record
-type, while `[:Point]` produces a fixed-vector type when every backing field has
-one exact type. Likewise, `[:(1, 2, 3).]`, `[int, int, int]`, and `[int:3]` are
-the same `[int:3]` type value. Mixed type values such as `[int, num]` have type
-`[type:2]`; they remain type data and do not promote to a numeric vector. A
-primitive type may also be spilled into scope.
+type. For a closed record value `a`, `[:a]` and `[:a.]` both return its accessible
+field names in declaration order as an exact `[str:N]` vector. Spilling a nominal
+record type, such as `[:Point]`, returns the same ordered keys. Record key
+reflection discards field values and never coerces heterogeneous fields to one
+value type. `{:a}` and `{:a.}` return the same keys as a `multiset<str>`, without
+an ordering guarantee, while `(:a.)` retains field-type reflection as a record
+type value.
+
+This record-specific rule does not change positional type vectors. For example,
+`[:(1, 2, 3).]`, `[int, int, int]`, and `[int:3]` remain the same `[int:3]` type
+value. Mixed type values such as `[int, num]` have type `[type:2]`; they remain
+type data and do not promote to a numeric vector. A primitive type may also be
+spilled into scope.
+
+Compatibility note for 0.4.0: `[:a.]` and `[:Point]` no longer produce a
+homogeneous vector type from record field types. Use `(:a.)` or `(:Point)` for
+record field-type reflection.
+
+A string selects a record field structurally: `a.(name)` returns that one field,
+where `name` may be a runtime `str`. A fixed selector vector distributes in
+selector order: `a.(["x", "label"])` returns a fixed vector when the selected
+field types have one normal common target, and otherwise returns a tuple. Normal
+numeric promotion applies, so `int` and `num` fields share a `num` result. This
+also makes `a.([:a])` the explicit declaration-order extraction of unnamed field
+values. A dynamic selector is accepted only when every accessible field has one
+statically guaranteed common result type. Real record fields take precedence
+over an overload of `.`, while absent literal names retain the existing overload
+fallback. The overload is `__getattr__`-like rather than `__getattribute__`-like:
+a dynamic selector also reads a real field first and calls the overload only when
+the key is absent. Its result must share the selector's normal common target type.
+Repeated fixed keys preserve repeated lanes in exact selector order. Fixed
+unknown keys are diagnosed before the subject is materialized when no `.`
+overload can provide them; otherwise each missing lane uses that fallback.
 
 <!-- readme-example: core/46-member-reflection.vkf -->
 ```vkf
 point: (x:3, y:4)
-record_members: (:point.)
-vector_members: [:point.]
+field_types: (:point.)
+value_keys: [:point]
+type_keys: [:point.]
 member_names: {:point.}
 
-:: record_members
-:: vector_members
+:: field_types
+:: value_keys
+:: type_keys
 :: member_names
 ```
 
@@ -629,7 +659,8 @@ member_names: {:point.}
 
 ```text
 (x:int, y:int)
-[int:2]
+[x, y]
+[x, y]
 {x:1, y:1}
 ```
 
@@ -932,8 +963,8 @@ overloads with one name construct the same nominal type. Postfix `.` on an
 instance returns that nominal type; explicitly spilling a record instance before
 reflection, `(:value).`, reveals its structural type. Bare `..` remains the range
 operator. A nominal type itself may be spilled: `(:Point)` is its backing record
-type, `(:Point).` is `type`, and `[:Point]` is the corresponding fixed-vector
-type when its fields are homogeneous.
+type, `(:Point).` is `type`, and `[:Point]` is the declaration-order `[str:N]`
+vector of its backing record's accessible field names.
 
 <!-- readme-example: core/49-nominal-constructors.vkf -->
 ```vkf
@@ -971,7 +1002,7 @@ Point
 (x:num, y:num)
 (x:num, y:num)
 type
-[num:2]
+[x, y]
 true
 [int:3]
 (x:num, y:num)
@@ -1508,6 +1539,12 @@ Pair pair: (x:3, y:4)
 ### 8.1 Fixed Shapes
 
 Fixed vector shapes nest, survive calls, and compose through compile-time size expressions. Dynamic vectors use `[T]` and expose runtime storage.
+
+Fixed rectangular vector values expose `.shape` as a fixed integer vector and
+`.ndim` as the scalar integer rank. Shape dimensions run from the outermost
+vector on the left to the innermost vector on the right:
+`[[1, 2, 3], [4, 5, 6]].shape` is `[2, 3]` and its `.ndim` is `2`. Dynamic and
+jagged vectors do not expose these attributes in this release.
 
 <!-- readme-example: core/40-fixed-shapes.vkf -->
 ```vkf

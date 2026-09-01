@@ -1,7 +1,10 @@
 #include "vf/ui_runtime_contract.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <limits>
+#include <set>
 #include <stdexcept>
 
 namespace vf {
@@ -111,6 +114,46 @@ void validate_input_event_object(const JsonObject& event) {
     }
 }
 
+void validate_internal_html_patch_record(const JsonObject& patch) {
+    require_allowed_keys(patch, {"version", "owner", "target", "mutation"}, "private retained HTML patch");
+    if (require_uint64(require_object_field(patch, "version"), "version") != 1U) {
+        throw std::runtime_error("private retained HTML patch version must be 1");
+    }
+
+    const JsonObject& owner = require_object_field(patch, "owner").as_object();
+    require_allowed_keys(owner, {"kind", "id"}, "private retained HTML patch owner");
+    const std::string& owner_kind = require_object_field(owner, "kind").as_string();
+    if (owner_kind != "frame" && owner_kind != "display") {
+        throw std::runtime_error("private retained HTML patch owner kind must be frame or display");
+    }
+    if (require_object_field(owner, "id").as_string().empty()) {
+        throw std::runtime_error("private retained HTML patch owner id must not be empty");
+    }
+
+    static_cast<void>(require_uint64(require_object_field(patch, "target"), "target"));
+    const JsonObject& mutation = require_object_field(patch, "mutation").as_object();
+    require_allowed_keys(mutation, {"tag", "name", "value"}, "private retained HTML patch mutation");
+    const std::uint64_t tag = require_uint64(require_object_field(mutation, "tag"), "tag");
+    const std::string& name = require_object_field(mutation, "name").as_string();
+    static_cast<void>(require_object_field(mutation, "value").as_string());
+    const bool event_handler_name = name.size() >= 2 &&
+        (name[0] == 'o' || name[0] == 'O') &&
+        (name[1] == 'n' || name[1] == 'N');
+    if (tag == 1U) {
+        if (!name.empty()) {
+            throw std::runtime_error("private retained HTML text mutation name must be empty");
+        }
+        return;
+    }
+    if (tag == 2U) {
+        if (name.empty() || event_handler_name) {
+            throw std::runtime_error("private retained HTML attribute mutation name is invalid");
+        }
+        return;
+    }
+    throw std::runtime_error("private retained HTML patch mutation tag is invalid");
+}
+
 SceneReplacePacketPayload parse_scene_replace_payload(const JsonValue::Object& payload) {
     require_allowed_keys(payload, {"commands"}, "scene.replace payload");
     const JsonValue& commands = require_object_field(payload, "commands");
@@ -157,6 +200,17 @@ InputEventPacketPayload parse_input_event_payload(const JsonValue::Object& paylo
     const JsonObject& event_object = event.as_object();
     validate_input_event_object(event_object);
     return InputEventPacketPayload{event_object};
+}
+
+InternalHtmlPatchPacketPayload parse_internal_html_patch_payload(const JsonValue::Object& payload) {
+    require_allowed_keys(
+        payload,
+        {"__vf_internal_retained_html_patch"},
+        "private retained HTML patch payload");
+    const JsonObject& patch =
+        require_object_field(payload, "__vf_internal_retained_html_patch").as_object();
+    validate_internal_html_patch_record(patch);
+    return InternalHtmlPatchPacketPayload{patch};
 }
 
 JsonValue packet_payload_to_json(const UiRuntimePacketPayload& payload) {
@@ -268,6 +322,8 @@ UiRuntimePacketSnapshot build_snapshot_from_packets(
         case UiRuntimePacketKind::InputEvent:
             snapshot.input_event_packets.push_back(*AsInputEventPacketPayload(packet));
             break;
+        case UiRuntimePacketKind::InternalHtmlPatch:
+            break;
         }
     }
 
@@ -290,6 +346,8 @@ const char* ToString(UiRuntimePacketKind kind) {
         return "widget.append_text";
     case UiRuntimePacketKind::InputEvent:
         return "input.event";
+    case UiRuntimePacketKind::InternalHtmlPatch:
+        return "__vf_internal_html.patch";
     default:
         return "unknown";
     }
@@ -313,6 +371,9 @@ UiRuntimePacketKind ParseUiRuntimePacketKind(std::string_view kind) {
     }
     if (kind == "input.event") {
         return UiRuntimePacketKind::InputEvent;
+    }
+    if (kind == "__vf_internal_html.patch") {
+        return UiRuntimePacketKind::InternalHtmlPatch;
     }
     throw std::runtime_error("unknown ui runtime packet kind: " + std::string(kind));
 }
@@ -348,6 +409,12 @@ JsonValue ToJsonValue(const WidgetAppendTextPacketPayload& payload) {
 
 JsonValue ToJsonValue(const InputEventPacketPayload& payload) {
     return JsonValue::Object{{"event", JsonValue(payload.event)}};
+}
+
+JsonValue ToJsonValue(const InternalHtmlPatchPacketPayload& payload) {
+    return JsonValue::Object{
+        {"__vf_internal_retained_html_patch", JsonValue(payload.patch)},
+    };
 }
 
 JsonValue ToJsonValue(const UiRuntimePacket& packet) {
@@ -392,6 +459,7 @@ bool IsUiRuntimeReplacePacketKind(UiRuntimePacketKind kind) noexcept {
     case UiRuntimePacketKind::GeomColorPatch:
     case UiRuntimePacketKind::WidgetAppendText:
     case UiRuntimePacketKind::InputEvent:
+    case UiRuntimePacketKind::InternalHtmlPatch:
         return false;
     }
     return false;
@@ -824,6 +892,11 @@ const InputEventPacketPayload* AsInputEventPacketPayload(const UiRuntimePacket& 
     return std::get_if<InputEventPacketPayload>(&packet.payload);
 }
 
+const InternalHtmlPatchPacketPayload* AsInternalHtmlPatchPacketPayload(
+    const UiRuntimePacket& packet) noexcept {
+    return std::get_if<InternalHtmlPatchPacketPayload>(&packet.payload);
+}
+
 const JsonValue::Object& GetInputEventObject(const InputEventPacketPayload& payload) noexcept {
     return payload.event;
 }
@@ -850,6 +923,418 @@ std::optional<std::string> GetInputEventFrameId(const InputEventPacketPayload& p
 
 std::optional<std::string> GetInputEventWidgetId(const InputEventPacketPayload& payload) {
     return GetInputEventStringField(payload, "widget_id");
+}
+
+struct InternalOwnerEventInteraction {
+    InputEventPacketPayload event;
+    std::vector<bool> resolved;
+    std::optional<std::size_t> stop_after;
+    bool prevent_default = false;
+    bool finalized = false;
+};
+
+void InternalOwnerEventQueue::Push(InputEventPacketPayload payload) {
+    values_.push_back(std::move(payload));
+}
+
+void InternalOwnerEventQueue::PushLedger(
+    std::shared_ptr<InternalOwnerEventInteraction> interaction,
+    InputEventPacketPayload payload) {
+    ledger_values_.push_back({std::move(interaction), std::move(payload)});
+}
+
+std::optional<InputEventPacketPayload> InternalOwnerEventQueue::Get() {
+    if (ledger_ != nullptr) {
+        return ledger_->GetFromQueue(*this);
+    }
+    if (values_.empty()) {
+        return std::nullopt;
+    }
+    InputEventPacketPayload payload = std::move(values_.front());
+    values_.pop_front();
+    return payload;
+}
+
+std::size_t InternalOwnerEventQueue::Size() const noexcept {
+    if (ledger_ != nullptr) {
+        return ledger_values_.size();
+    }
+    return values_.size();
+}
+
+bool InternalOwnerEventQueue::Empty() const noexcept {
+    if (ledger_ != nullptr) {
+        return ledger_values_.empty();
+    }
+    return values_.empty();
+}
+
+InternalButtonClickedOwnerQueues::InternalButtonClickedOwnerQueues(
+    std::string button_id,
+    std::string frame_id,
+    std::string display_id)
+    : InternalButtonClickedOwnerQueues(
+          std::move(button_id),
+          std::vector<std::string>{std::move(frame_id)},
+          std::move(display_id),
+          "ButtonClicked") {}
+
+InternalButtonClickedOwnerQueues::InternalButtonClickedOwnerQueues(
+    std::string button_id,
+    std::vector<std::string> frame_ids,
+    std::string display_id)
+    : InternalButtonClickedOwnerQueues(
+          std::move(button_id),
+          std::move(frame_ids),
+          std::move(display_id),
+          "ButtonClicked") {}
+
+InternalButtonClickedOwnerQueues::InternalButtonClickedOwnerQueues(
+    std::string component_id,
+    std::vector<std::string> frame_ids,
+    std::string display_id,
+    std::string expected_event)
+    : component_id_(std::move(component_id)),
+      expected_event_(std::move(expected_event)),
+      frame_ids_(std::move(frame_ids)),
+      display_id_(std::move(display_id)),
+      frames_(frame_ids_.size()) {
+    if (component_id_.empty() || expected_event_.empty() ||
+        frame_ids_.empty() || display_id_.empty()) {
+        throw std::runtime_error("internal component owner ids and event must not be empty");
+    }
+    for (const std::string& frame_id : frame_ids_) {
+        if (frame_id.empty()) {
+            throw std::runtime_error("internal component owner ids must not be empty");
+        }
+    }
+    button_.ledger_ = this;
+    button_.ledger_index_ = 0;
+    for (std::size_t index = 0; index < frames_.size(); ++index) {
+        frames_[index].ledger_ = this;
+        frames_[index].ledger_index_ = index + 1;
+    }
+    display_.ledger_ = this;
+    display_.ledger_index_ = frames_.size() + 1;
+}
+
+void InternalButtonClickedOwnerQueues::ConsumeRuntimePacket(const UiRuntimePacket& packet) {
+    ValidateUiRuntimePacket(packet);
+    const InputEventPacketPayload* payload = AsInputEventPacketPayload(packet);
+    if (packet.kind != UiRuntimePacketKind::InputEvent || payload == nullptr) {
+        throw std::runtime_error("internal owner event queues require an input.event packet");
+    }
+    if (packet.seq <= last_sequence_) {
+        throw std::runtime_error("internal owner event packet sequence must increase");
+    }
+    const std::optional<std::string> widget_id = GetInputEventWidgetId(*payload);
+    const std::optional<std::string> frame_id = GetInputEventFrameId(*payload);
+    if (GetInputEventName(*payload) != expected_event_ ||
+        !widget_id.has_value() || *widget_id != component_id_ ||
+        !frame_id.has_value() || *frame_id != frame_ids_.front()) {
+        throw std::runtime_error(expected_event_ +
+            " owner event does not match its bound owners");
+    }
+
+    const std::size_t owner_count = frames_.size() + 2;
+    auto interaction = std::make_shared<InternalOwnerEventInteraction>();
+    interaction->event = *payload;
+    interaction->resolved.resize(owner_count, false);
+    last_sequence_ = packet.seq;
+    button_.PushLedger(interaction, *payload);
+    for (InternalOwnerEventQueue& frame : frames_) {
+        frame.PushLedger(interaction, *payload);
+    }
+    display_.PushLedger(std::move(interaction), *payload);
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Button() noexcept {
+    return button_;
+}
+
+InternalSliderValueChangedOwnerQueues::InternalSliderValueChangedOwnerQueues(
+    std::string input_id,
+    std::string frame_id,
+    std::string display_id)
+    : InternalSliderValueChangedOwnerQueues(
+          std::move(input_id),
+          std::vector<std::string>{std::move(frame_id)},
+          std::move(display_id)) {}
+
+InternalSliderValueChangedOwnerQueues::InternalSliderValueChangedOwnerQueues(
+    std::string input_id,
+    std::vector<std::string> frame_ids,
+    std::string display_id)
+    : InternalButtonClickedOwnerQueues(
+          std::move(input_id),
+          std::move(frame_ids),
+          std::move(display_id),
+          "SliderValueChanged") {}
+
+InternalOwnerEventQueue& InternalSliderValueChangedOwnerQueues::Input() noexcept {
+    return Button();
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Frame() noexcept {
+    return frames_.front();
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Frame(std::size_t index) {
+    if (index >= frames_.size()) {
+        throw std::runtime_error("internal owner event Frame index is out of range");
+    }
+    return frames_[index];
+}
+
+std::size_t InternalButtonClickedOwnerQueues::FrameCount() const noexcept {
+    return frames_.size();
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::Display() noexcept {
+    return display_;
+}
+
+InternalOwnerEventQueue& InternalButtonClickedOwnerQueues::OwnerQueue(std::size_t index) {
+    if (index == 0) return button_;
+    if (index <= frames_.size()) return frames_[index - 1];
+    if (index == frames_.size() + 1) return display_;
+    throw std::runtime_error("internal owner event queue index is out of range");
+}
+
+void InternalButtonClickedOwnerQueues::FinalizeInteraction(
+    const std::shared_ptr<InternalOwnerEventInteraction>& interaction) {
+    if (interaction->finalized) return;
+    const std::size_t last_owner = interaction->stop_after.value_or(
+        interaction->resolved.size() - 1);
+    for (std::size_t index = 0; index <= last_owner; ++index) {
+        if (!interaction->resolved[index]) return;
+    }
+    interaction->finalized = true;
+    if (!interaction->prevent_default) {
+        default_events_.push_back(interaction->event);
+    }
+}
+
+void InternalButtonClickedOwnerQueues::CompleteActive(
+    InternalOwnerEventQueue& owner,
+    bool prevent_default,
+    bool stop_propagation) {
+    if (owner.ledger_ != this || !owner.ledger_active_.has_value()) {
+        throw std::runtime_error("internal owner event completion requires an active event");
+    }
+    std::shared_ptr<InternalOwnerEventInteraction> interaction =
+        owner.ledger_active_->interaction;
+    if (prevent_default) interaction->prevent_default = true;
+    if (stop_propagation && !interaction->stop_after.has_value()) {
+        interaction->stop_after = owner.ledger_index_;
+        for (std::size_t later = owner.ledger_index_ + 1;
+             later < interaction->resolved.size();
+             ++later) {
+            InternalOwnerEventQueue& later_owner = OwnerQueue(later);
+            later_owner.ledger_values_.erase(
+                std::remove_if(
+                    later_owner.ledger_values_.begin(),
+                    later_owner.ledger_values_.end(),
+                    [&](const InternalOwnerEventQueue::LedgerEntry& entry) {
+                        return entry.interaction == interaction;
+                    }),
+                later_owner.ledger_values_.end());
+        }
+    }
+    interaction->resolved[owner.ledger_index_] = true;
+    owner.ledger_active_.reset();
+    FinalizeInteraction(interaction);
+}
+
+std::optional<InputEventPacketPayload> InternalButtonClickedOwnerQueues::GetFromQueue(
+    InternalOwnerEventQueue& owner) {
+    if (owner.ledger_ != this) {
+        throw std::runtime_error("internal owner event queue is not bound to this ledger");
+    }
+    if (owner.ledger_active_.has_value()) {
+        CompleteActive(owner, false, false);
+    }
+    while (!owner.ledger_values_.empty()) {
+        InternalOwnerEventQueue::LedgerEntry& entry = owner.ledger_values_.front();
+        const std::shared_ptr<InternalOwnerEventInteraction> interaction = entry.interaction;
+        if (interaction->stop_after.has_value() &&
+            owner.ledger_index_ > *interaction->stop_after) {
+            owner.ledger_values_.pop_front();
+            continue;
+        }
+        for (std::size_t earlier = 0; earlier < owner.ledger_index_; ++earlier) {
+            if (interaction->resolved[earlier]) continue;
+            InternalOwnerEventQueue& earlier_owner = OwnerQueue(earlier);
+            if (earlier_owner.ledger_active_.has_value() &&
+                earlier_owner.ledger_active_->interaction == interaction) {
+                CompleteActive(earlier_owner, false, false);
+            }
+        }
+        for (std::size_t pending = 0; pending < owner.ledger_index_; ++pending) {
+            if (!interaction->resolved[pending]) return std::nullopt;
+        }
+        owner.ledger_active_ = std::move(owner.ledger_values_.front());
+        owner.ledger_values_.pop_front();
+        return owner.ledger_active_->payload;
+    }
+    return std::nullopt;
+}
+
+void InternalButtonClickedOwnerQueues::CompleteInternalOwnerEvent(
+    InternalOwnerEventQueue& owner,
+    bool prevent_default,
+    bool stop_propagation) {
+    CompleteActive(owner, prevent_default, stop_propagation);
+}
+
+std::optional<InputEventPacketPayload>
+InternalButtonClickedOwnerQueues::TakeInternalDefaultEvent() {
+    if (default_events_.empty()) return std::nullopt;
+    InputEventPacketPayload event = std::move(default_events_.front());
+    default_events_.pop_front();
+    return event;
+}
+
+InternalGeometryPickOwnerQueues::InternalGeometryPickOwnerQueues(
+    std::uint64_t layer_id,
+    std::string frame_id,
+    std::string display_id)
+    : layer_id_(layer_id),
+      frame_id_(std::move(frame_id)),
+      display_id_(std::move(display_id)) {
+    if (display_id_.empty() || layer_id_ > 9007199254740991ULL) {
+        throw std::runtime_error("internal geometry pick owner ids must not be empty");
+    }
+}
+
+void InternalGeometryPickOwnerQueues::ConsumeRuntimePacket(const UiRuntimePacket& packet) {
+    ValidateUiRuntimePacket(packet);
+    const InputEventPacketPayload* payload = AsInputEventPacketPayload(packet);
+    if (packet.kind != UiRuntimePacketKind::InputEvent || payload == nullptr) {
+        throw std::runtime_error("internal owner event queues require an input.event packet");
+    }
+    if (packet.seq <= last_sequence_) {
+        throw std::runtime_error("internal owner event packet sequence must increase");
+    }
+    const JsonValue* target_value = FindInputEventField(*payload, "target");
+    if (GetInputEventName(*payload) != "MouseButtonPressed" ||
+        target_value == nullptr || !target_value->is_object()) {
+        throw std::runtime_error("geometry pick target does not match its bound Layer");
+    }
+    const JsonObject& target = target_value->as_object();
+    const JsonValue* raw_layer_id = find_object_field(target, "layer_id");
+    const JsonValue* raw_type = find_object_field(target, "type");
+    if (raw_layer_id == nullptr || !raw_layer_id->is_number() ||
+        raw_type == nullptr || !raw_type->is_string()) {
+        throw std::runtime_error("geometry pick target does not match its bound Layer");
+    }
+    const double layer_id = raw_layer_id->as_number();
+    const std::string& type = raw_type->as_string();
+    if (!std::isfinite(layer_id) || layer_id < 0.0 ||
+        std::floor(layer_id) != layer_id ||
+        layer_id != static_cast<double>(layer_id_) ||
+        (type != "Face" && type != "Edge" && type != "Vertex")) {
+        throw std::runtime_error("geometry pick target does not match its bound Layer");
+    }
+    std::size_t topology_index_count = 0;
+    for (const auto& [name, value] : target) {
+        if (name == "layer_id" || name == "type") continue;
+        ++topology_index_count;
+        const auto first = static_cast<unsigned char>(name.empty() ? '\0' : name.front());
+        bool valid_name = !name.empty() && (std::isalpha(first) || name.front() == '_');
+        for (std::size_t index = 1; valid_name && index < name.size(); ++index) {
+            const auto character = static_cast<unsigned char>(name[index]);
+            valid_name = std::isalnum(character) || name[index] == '_';
+        }
+        if (!valid_name || !value.is_number() || !std::isfinite(value.as_number()) ||
+            value.as_number() < 0.0 || value.as_number() > 9007199254740991.0 ||
+            std::floor(value.as_number()) != value.as_number()) {
+            throw std::runtime_error("geometry pick target topology indices are malformed");
+        }
+    }
+    if (topology_index_count == 0) {
+        throw std::runtime_error("geometry pick target topology indices are malformed");
+    }
+
+    InputEventPacketPayload display_payload = *payload;
+    display_payload.event.erase("event");
+    last_sequence_ = packet.seq;
+    if (!frame_id_.empty()) {
+        InputEventPacketPayload frame_payload = *payload;
+        frame_payload.event.erase("event");
+        frame_.Push(std::move(frame_payload));
+    }
+    display_.Push(std::move(display_payload));
+}
+
+InternalOwnerEventQueue& InternalGeometryPickOwnerQueues::Frame() noexcept {
+    return frame_;
+}
+
+InternalOwnerEventQueue& InternalGeometryPickOwnerQueues::Display() noexcept {
+    return display_;
+}
+
+namespace {
+
+std::string retained_id_key(const InternalRetainedId& id) {
+    if (const auto* text = std::get_if<std::string>(&id)) {
+        if (text->empty()) {
+            throw std::runtime_error("retained descendant id must not be empty");
+        }
+        return "s:" + *text;
+    }
+    return "n:" + std::to_string(std::get<std::uint64_t>(id));
+}
+
+void collect_retained_ids(
+    const std::vector<InternalRetainedNode>& nodes,
+    std::set<std::string>& ids
+) {
+    for (const auto& node : nodes) {
+        const std::string key = retained_id_key(node.id);
+        if (!ids.insert(key).second) {
+            const std::string display = key.substr(2);
+            throw std::runtime_error("duplicate retained descendant id `" + display + "`");
+        }
+        collect_retained_ids(node.children, ids);
+    }
+}
+
+const InternalRetainedNode* find_retained_descendant(
+    const std::vector<InternalRetainedNode>& nodes,
+    const InternalRetainedId& id
+) noexcept {
+    for (const auto& node : nodes) {
+        if (node.id == id) return &node;
+        if (const auto* nested = find_retained_descendant(node.children, id)) return nested;
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+InternalRetainedOwnerLookup::InternalRetainedOwnerLookup(
+    std::vector<InternalRetainedNode> descendants)
+    : descendants_(std::move(descendants)) {
+    std::set<std::string> ids;
+    collect_retained_ids(descendants_, ids);
+}
+
+const InternalRetainedNode* InternalRetainedOwnerLookup::Get(
+    const InternalRetainedId& id) const noexcept {
+    return find_retained_descendant(descendants_, id);
+}
+
+const InternalRetainedNode* InternalRetainedOwnerLookup::GetFrom(
+    const InternalRetainedNode& owner,
+    const InternalRetainedId& id) const noexcept {
+    return find_retained_descendant(owner.children, id);
+}
+
+const std::vector<InternalRetainedNode>&
+InternalRetainedOwnerLookup::Descendants() const noexcept {
+    return descendants_;
 }
 
 std::optional<double> GetInputEventNumberField(const InputEventPacketPayload& payload, std::string_view key) {
@@ -1091,6 +1576,15 @@ void ValidateUiRuntimePacket(const UiRuntimePacket& packet) {
             throw std::runtime_error("input.event packet kind/payload mismatch");
         }
         validate_input_event_object(payload->event);
+        static_cast<void>(ToJsonValue(*payload));
+        break;
+    }
+    case UiRuntimePacketKind::InternalHtmlPatch: {
+        const auto* payload = AsInternalHtmlPatchPacketPayload(packet);
+        if (payload == nullptr) {
+            throw std::runtime_error("private retained HTML patch packet kind/payload mismatch");
+        }
+        validate_internal_html_patch_record(payload->patch);
         static_cast<void>(ToJsonValue(*payload));
         break;
     }
@@ -1343,6 +1837,9 @@ UiRuntimePacket ParseUiRuntimePacket(const JsonValue& value) {
         break;
     case UiRuntimePacketKind::InputEvent:
         packet.payload = parse_input_event_payload(payload);
+        break;
+    case UiRuntimePacketKind::InternalHtmlPatch:
+        packet.payload = parse_internal_html_patch_payload(payload);
         break;
     }
 

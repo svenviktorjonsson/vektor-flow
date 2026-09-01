@@ -1,0 +1,182 @@
+: .ui.display
+
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.035, 0.055], size:[0.73, 0.87])
+frame.set_geom_options(
+    background:[0.012, 0.018, 0.032, 1.0],
+    unified_renderer:true,
+    combine_transparent:true
+)
+frame.add_camera(
+    pos:[5.4, -7.6, 4.8],
+    target:[0.0, 1.0, 1.15],
+    up:[0.0, 0.0, 1.0],
+    fov:43.0
+)
+frame.add_light(
+    id:"warm_key",
+    kind:"point",
+    pos:[-2.8, -2.6, 5.8],
+    target:[0.0, 1.0, 0.8],
+    color:[1.0, 0.78, 0.56, 1.0],
+    intensity:34.0,
+    range:18.0,
+    casts_shadow:true,
+    model:"blinn_phong",
+    source_radius:0.22
+)
+frame.add_light(
+    id:"cool_fill",
+    kind:"point",
+    pos:[3.8, -0.8, 3.4],
+    target:[0.0, 1.2, 1.0],
+    color:[0.36, 0.66, 1.0, 1.0],
+    intensity:17.0,
+    range:16.0,
+    casts_shadow:false,
+    model:"blinn_phong",
+    source_radius:0.18
+)
+frame.add_light(
+    id:"mirror_rim",
+    kind:"point",
+    pos:[0.2, 3.4, 4.6],
+    target:[0.0, 1.0, 1.4],
+    color:[0.72, 0.88, 1.0, 1.0],
+    intensity:22.0,
+    range:14.0,
+    casts_shadow:true,
+    model:"blinn_phong",
+    source_radius:0.14
+)
+
+studio_floor: frame.add(
+    x:[[-4.2, 4.2], [-4.2, 4.2]],
+    y:[[-2.2, -2.2], [4.5, 4.5]],
+    z:[[0.0, 0.0], [0.0, 0.0]],
+    id:"studio_floor",
+    color:[1.0, 1.0, 1.0, 1.0],
+    texture:(
+        kind:"checker",
+        scale:[5.0, 4.0],
+        color_a:[0.055, 0.075, 0.11, 1.0],
+        color_b:[0.30, 0.36, 0.46, 1.0]
+    ),
+    roughness:0.72,
+    specular_strength:0.22,
+    casts_shadow:false,
+    receives_shadow:true,
+    receives_lighting:true
+)
+
+studio_backdrop: frame.add(
+    x:[[-4.2, 4.2], [-4.2, 4.2]],
+    y:[[4.45, 4.45], [4.45, 4.45]],
+    z:[[0.0, 0.0], [4.2, 4.2]],
+    id:"studio_backdrop",
+    color:[0.07, 0.10, 0.17, 1.0],
+    roughness:0.84,
+    specular_strength:0.12,
+    casts_shadow:false,
+    receives_shadow:true,
+    receives_lighting:true
+)
+
+sculpture_panel: frame.add(
+    x:[[-1.8, 0.25], [-1.25, 0.80]],
+    y:[[0.35, 1.05], [0.35, 1.05]],
+    z:[[0.18, 0.42], [2.85, 3.05]],
+    id:"sculpture_panel",
+    color:[0.96, 0.24, 0.12, 1.0],
+    roughness:0.28,
+    specular_strength:0.72,
+    casts_shadow:true,
+    receives_shadow:true,
+    receives_lighting:true,
+    visible:true
+)
+
+mirror_wall: frame.add(
+    x:[[-3.25, 3.25], [-3.25, 3.25]],
+    y:[[4.35, 4.35], [4.35, 4.35]],
+    z:[[0.15, 0.15], [3.85, 3.85]],
+    id:"mirror_wall",
+    color:[0.72, 0.82, 0.96, 1.0],
+    alpha:0.08,
+    transparent:true,
+    reflectivity:0.88,
+    roughness:0.06,
+    surface_system:(
+        kind:"screen",
+        reflectivity:0.88,
+        reverse_facing:true,
+        flip_y:true,
+        scale:[1.0, 1.0],
+        camera:(
+            fov:43.0,
+            up:[0.0, 0.0, 1.0],
+            mirror_of:(
+                frame_id:"frame_0",
+                mesh_id:"mirror_wall",
+                reflect_eye_only:true,
+                lock_aperture_camera:true,
+                controls_enabled:false
+            )
+        )
+    ),
+    casts_shadow:true,
+    receives_shadow:true,
+    receives_lighting:true,
+    visible:true
+)
+
+glass_panel: frame.add(
+    x:[[0.55, 3.15], [0.55, 3.15]],
+    y:[[0.05, 0.55], [0.05, 0.55]],
+    z:[[0.28, 0.28], [2.95, 2.95]],
+    id:"glass_panel",
+    color:[0.14, 0.78, 0.94, 0.48],
+    alpha:0.08,
+    transparent:true,
+    depth_write:false,
+    reflectivity:0.24,
+    roughness:0.12,
+    specular_strength:0.84,
+    casts_shadow:true,
+    receives_shadow:true,
+    receives_lighting:true,
+    visible:true
+)
+
+controls: display.add_frame(pos:[0.785, 0.055], size:[0.18, 0.87])
+controls.load("ui/main.html")
+
+view_lighting: Button(id:"view-lighting")
+view_mirror: Button(id:"view-mirror")
+view_glass: Button(id:"view-glass")
+view_all: Button(id:"view-all")
+glass_alpha: Input(id:"glass-alpha")
+
+(lighting_event: view_lighting.events.get())??>
+    ButtonClicked =>
+        mirror_wall.alpha: 0.08
+        glass_panel.alpha: 0.08
+
+(mirror_event: view_mirror.events.get())??>
+    ButtonClicked =>
+        mirror_wall.alpha: 1.0
+        glass_panel.alpha: 0.08
+
+(glass_event: view_glass.events.get())??>
+    ButtonClicked =>
+        mirror_wall.alpha: 0.08
+        glass_panel.alpha: 0.62
+
+(all_event: view_all.events.get())??>
+    ButtonClicked =>
+        mirror_wall.alpha: 1.0
+        glass_panel.alpha: 0.48
+
+(slider_event: glass_alpha.events.get())??>
+    SliderValueChanged =>
+        glass_panel.alpha: slider_event.value

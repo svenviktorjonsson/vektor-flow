@@ -34,6 +34,23 @@ test("published archive contains an executable symbolic kernel", async () => {
     assert.ok(names.has("web/vf-ui/artifacts/vkf-symbolic-kernel.json"));
     assert.ok(names.has("web/vf-ui/vf-symbolic-plot-controller.mjs"));
 
+    const gallery = JSON.parse(readFileSync(
+      join(root, "examples", "scene_gallery", "manifest.json"),
+      "utf8",
+    ));
+    assert.ok(names.has("README.md"));
+    assert.ok(names.has("examples/scene_gallery/manifest.json"));
+    for (const example of gallery.examples) {
+      assert.ok(
+        names.has(`examples/scene_gallery/${example.source}`),
+        `package is missing source for ${example.id}`,
+      );
+      assert.ok(
+        names.has(example.media.path),
+        `package is missing capture for ${example.id}`,
+      );
+    }
+
     const initialized = runNpm(["init", "--yes"], work, cache);
     assert.equal(initialized.status, 0, initialized.stderr);
     const installed = runNpm(

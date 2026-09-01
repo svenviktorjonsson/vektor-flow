@@ -15,7 +15,9 @@
     "ui_state.replace": true,
     "display.replace": true,
     "geom.color.patch": true,
-    "widget.append_text": true
+    "widget.append_text": true,
+    "input.event": true,
+    "__vf_internal_html.patch": true
   };
 
   var BOOTSTRAP_COALESCE_KINDS = {
@@ -23,6 +25,12 @@
     "ui_state.replace": true,
     "display.replace": true
   };
+
+  function hasExactKeys(value, keys) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) { return false; }
+    var actual = Object.keys(value);
+    return actual.length === keys.length && actual.every(function(key) { return keys.indexOf(key) >= 0; });
+  }
 
   function validatePacketPayload(kind, payload, phase) {
     kind = String(kind || "");
@@ -51,12 +59,488 @@
     ) {
       return phase === "source" ? "malformed geom.color.patch packet" : "geom.color.patch packet missing color payload";
     }
+    if (kind === "input.event") {
+      var event = payload && payload.event;
+      if (!event || typeof event !== "object" || typeof event.event !== "string" || !event.event ||
+          (event.widget_id != null && (typeof event.widget_id !== "string" || !event.widget_id)) ||
+          (event.frame_id != null && (typeof event.frame_id !== "string" || !event.frame_id))) {
+        return phase === "source" ? "malformed input.event packet" : "input.event packet missing event payload";
+      }
+    }
+    if (kind === "__vf_internal_html.patch") {
+      var patch = payload && payload.__vf_internal_retained_html_patch;
+      var owner = patch && patch.owner;
+      var mutation = patch && patch.mutation;
+      if (!hasExactKeys(payload, ["__vf_internal_retained_html_patch"]) ||
+          !hasExactKeys(patch, ["version", "owner", "target", "mutation"]) || patch.version !== 1 ||
+          !hasExactKeys(owner, ["kind", "id"]) ||
+          !owner || (owner.kind !== "frame" && owner.kind !== "display") ||
+          typeof owner.id !== "string" || !owner.id ||
+          !Number.isInteger(patch.target) || patch.target < 0 ||
+          !hasExactKeys(mutation, ["tag", "name", "value"]) ||
+          !mutation || (mutation.tag !== 1 && mutation.tag !== 2) ||
+          typeof mutation.name !== "string" || typeof mutation.value !== "string" ||
+          (mutation.tag === 1 && mutation.name !== "") ||
+          (mutation.tag === 2 && (!mutation.name || /^on/i.test(mutation.name)))) {
+        return "private retained HTML patch is malformed";
+      }
+    }
     return "";
+  }
+
+  function createQueue() {
+    var values = [];
+    var head = 0;
+    return {
+      push: function(value) {
+        values.push(value);
+      },
+      get: function() {
+        if (head >= values.length) return null;
+        var value = values[head];
+        head += 1;
+        if (head >= 64 && head * 2 >= values.length) {
+          values = values.slice(head);
+          head = 0;
+        }
+        return value;
+      }
+    };
+  }
+
+  function requireOwnerId(value, name) {
+    if (typeof value !== "string" || !value) {
+      throw new TypeError("internal owner event queues require " + name);
+    }
+    return value;
+  }
+
+  function createInternalComponentOwnerQueues(options) {
+    options = options || {};
+    var componentKind = requireOwnerId(options.componentKind, "componentKind");
+    var componentId = requireOwnerId(options.componentId, "componentId");
+    var expectedEvent = requireOwnerId(options.expectedEvent, "expectedEvent");
+    var componentKey = String(options.componentKey || "component");
+    var frameIds = Array.isArray(options.frameIds)
+      ? options.frameIds.map(function(id) { return requireOwnerId(id, "frameIds"); })
+      : [requireOwnerId(options.frameId, "frameId")];
+    if (frameIds.length === 0) {
+      throw new TypeError("internal owner event queues require frameIds");
+    }
+    var frameId = frameIds[0];
+    var displayId = requireOwnerId(options.displayId, "displayId");
+    var ownerQueues = [];
+    var ownerObjects = [];
+    var defaultValues = [];
+    var defaultHead = 0;
+    var lastSequence = 0;
+
+    function finalizeInteraction(interaction) {
+      if (interaction.finalized) return;
+      var lastOwner = interaction.stopAfter == null
+        ? ownerQueues.length - 1
+        : interaction.stopAfter;
+      for (var index = 0; index <= lastOwner; index += 1) {
+        if (!interaction.resolved[index]) return;
+      }
+      interaction.finalized = true;
+      if (!interaction.preventDefault) {
+        defaultValues.push(Object.freeze(Object.assign({}, interaction.event)));
+      }
+    }
+
+    function completeDelivery(queue, directives) {
+      if (!queue.active) {
+        throw new TypeError("internal owner event completion requires an active event");
+      }
+      var interaction = queue.active.interaction;
+      if (directives.preventDefault) interaction.preventDefault = true;
+      if (directives.stopPropagation && interaction.stopAfter == null) {
+        interaction.stopAfter = queue.index;
+        for (var later = queue.index + 1; later < ownerQueues.length; later += 1) {
+          var laterQueue = ownerQueues[later];
+          laterQueue.values = laterQueue.values.slice(laterQueue.head).filter(function(delivery) {
+            return delivery.interaction !== interaction;
+          });
+          laterQueue.head = 0;
+        }
+      }
+      interaction.resolved[queue.index] = true;
+      queue.active = null;
+      finalizeInteraction(interaction);
+    }
+
+    function queueGet(queue) {
+      if (queue.active) {
+        completeDelivery(queue, { preventDefault: false, stopPropagation: false });
+      }
+      while (queue.head < queue.values.length) {
+        var delivery = queue.values[queue.head];
+        var interaction = delivery.interaction;
+        if (interaction.stopAfter != null && queue.index > interaction.stopAfter) {
+          queue.head += 1;
+          continue;
+        }
+        for (var earlier = 0; earlier < queue.index; earlier += 1) {
+          if (interaction.resolved[earlier]) continue;
+          var earlierQueue = ownerQueues[earlier];
+          if (earlierQueue.active && earlierQueue.active.interaction === interaction) {
+            completeDelivery(earlierQueue, { preventDefault: false, stopPropagation: false });
+          }
+        }
+        for (var pending = 0; pending < queue.index; pending += 1) {
+          if (!interaction.resolved[pending]) return null;
+        }
+        queue.head += 1;
+        queue.active = delivery;
+        if (queue.head >= 64 && queue.head * 2 >= queue.values.length) {
+          queue.values = queue.values.slice(queue.head);
+          queue.head = 0;
+        }
+        return delivery.payload;
+      }
+      return null;
+    }
+
+    function owner(kind, id) {
+      var queue = { index: ownerQueues.length, values: [], head: 0, active: null };
+      ownerQueues.push(queue);
+      var value = Object.freeze({
+        kind: kind,
+        id: id,
+        events: Object.freeze({ get: function() { return queueGet(queue); } })
+      });
+      ownerObjects.push(value);
+      return value;
+    }
+
+    var componentOwner = owner(componentKind, componentId);
+    var frameOwners = frameIds.map(function(id) { return owner("Frame", id); });
+    var displayOwner = owner("Display", displayId);
+    var queues = {
+      frame: frameOwners[0],
+      frames: Object.freeze(frameOwners.slice()),
+      display: displayOwner,
+      completeInternalOwnerEvent: function(ownerValue, directives) {
+        var ownerIndex = ownerObjects.indexOf(ownerValue);
+        if (ownerIndex < 0) {
+          throw new TypeError("internal owner event completion requires a bound owner");
+        }
+        directives = directives == null ? {} : directives;
+        if (!directives || typeof directives !== "object" || Array.isArray(directives) ||
+            Object.keys(directives).some(function(key) {
+              return key !== "preventDefault" && key !== "stopPropagation";
+            }) ||
+            (directives.preventDefault != null && typeof directives.preventDefault !== "boolean") ||
+            (directives.stopPropagation != null && typeof directives.stopPropagation !== "boolean")) {
+          throw new TypeError("internal owner event completion is malformed");
+        }
+        completeDelivery(ownerQueues[ownerIndex], {
+          preventDefault: directives.preventDefault === true,
+          stopPropagation: directives.stopPropagation === true
+        });
+      },
+      takeInternalDefaultEvent: function() {
+        if (defaultHead >= defaultValues.length) return null;
+        var value = defaultValues[defaultHead];
+        defaultHead += 1;
+        return value;
+      },
+      consumeRuntimePacket: function(packet) {
+        if (!packet || packet.kind !== "input.event" ||
+            !Number.isSafeInteger(packet.seq) || packet.seq <= lastSequence) {
+          throw new TypeError("internal owner event queues require increasing input.event packets");
+        }
+        var payloadError = validatePacketPayload("input.event", packet.payload, "route");
+        if (payloadError) {
+          throw new TypeError(payloadError);
+        }
+        var event = packet.payload.event;
+        if (event.event !== expectedEvent || event.widget_id !== componentId || event.frame_id !== frameId) {
+          throw new TypeError(expectedEvent + " owner event does not match its bound owners");
+        }
+
+        var interactionEvent = Object.freeze(Object.assign({}, event));
+        var interaction = {
+          event: interactionEvent,
+          preventDefault: false,
+          stopAfter: null,
+          resolved: ownerQueues.map(function() { return false; }),
+          finalized: false
+        };
+        var events = ownerQueues.map(function(queue) {
+          var payload = Object.freeze(Object.assign({}, interactionEvent));
+          queue.values.push({ interaction: interaction, payload: payload });
+          return payload;
+        });
+        lastSequence = packet.seq;
+        return events[0];
+      }
+    };
+    queues[componentKey] = componentOwner;
+    return Object.freeze(queues);
+  }
+
+  function createInternalButtonClickedOwnerQueues(options) {
+    options = options || {};
+    return createInternalComponentOwnerQueues({
+      componentKind: "Button",
+      componentId: requireOwnerId(options.buttonId, "buttonId"),
+      componentKey: "button",
+      expectedEvent: "ButtonClicked",
+      frameId: options.frameId,
+      frameIds: options.frameIds,
+      displayId: options.displayId
+    });
+  }
+
+  function createInternalSliderValueChangedOwnerQueues(options) {
+    options = options || {};
+    return createInternalComponentOwnerQueues({
+      componentKind: "Input",
+      componentId: requireOwnerId(options.inputId, "inputId"),
+      componentKey: "input",
+      expectedEvent: "SliderValueChanged",
+      frameId: options.frameId,
+      frameIds: options.frameIds,
+      displayId: options.displayId
+    });
+  }
+
+  function requireLayerId(value) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new TypeError("internal geometry pick owner queues require layerId");
+    }
+    return value;
+  }
+
+  function cloneGeometryPickEvent(event, layerId) {
+    var target = event && event.target;
+    if (!event || event.event !== "MouseButtonPressed" ||
+        !target || typeof target !== "object" || Array.isArray(target) ||
+        !Number.isSafeInteger(target.layer_id) || target.layer_id !== layerId ||
+        (target.type !== "Face" && target.type !== "Edge" && target.type !== "Vertex")) {
+      throw new TypeError("geometry pick target does not match its bound Layer");
+    }
+    var topologyKeys = Object.keys(target).filter(function(key) {
+      return key !== "layer_id" && key !== "type";
+    });
+    if (topologyKeys.length === 0 || topologyKeys.some(function(key) {
+      return !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ||
+        !Number.isSafeInteger(target[key]) || target[key] < 0;
+    })) {
+      throw new TypeError("geometry pick target topology indices are malformed");
+    }
+    var targetCopy = {};
+    Object.keys(target).forEach(function(key) { targetCopy[key] = target[key]; });
+    targetCopy = Object.freeze(targetCopy);
+    var eventCopy = {};
+    Object.keys(event).forEach(function(key) {
+      if (key !== "event" && key !== "target") { eventCopy[key] = event[key]; }
+    });
+    eventCopy.target = targetCopy;
+    return Object.freeze(eventCopy);
+  }
+
+  function createInternalGeometryPickOwnerQueues(options) {
+    options = options || {};
+    var layerId = requireLayerId(options.layerId);
+    var frameId = options.frameId == null ? "" : requireOwnerId(options.frameId, "frameId");
+    var displayId = requireOwnerId(options.displayId, "displayId");
+    var frameQueue = frameId ? createQueue() : null;
+    var displayQueue = createQueue();
+    var lastSequence = 0;
+
+    function owner(kind, id, queue) {
+      return Object.freeze({
+        kind: kind,
+        id: id,
+        events: Object.freeze({ get: queue.get })
+      });
+    }
+
+    var queues = {
+      display: owner("Display", displayId, displayQueue),
+      consumeRuntimePacket: function(packet) {
+        if (!packet || packet.kind !== "input.event" ||
+            !Number.isSafeInteger(packet.seq) || packet.seq <= lastSequence) {
+          throw new TypeError("internal owner event queues require increasing input.event packets");
+        }
+        var payloadError = validatePacketPayload("input.event", packet.payload, "route");
+        if (payloadError) { throw new TypeError(payloadError); }
+        var event = packet.payload.event;
+        var frameEvent = frameQueue ? cloneGeometryPickEvent(event, layerId) : null;
+        var displayEvent = cloneGeometryPickEvent(event, layerId);
+        lastSequence = packet.seq;
+        if (frameQueue) { frameQueue.push(frameEvent); }
+        displayQueue.push(displayEvent);
+        return frameEvent || displayEvent;
+      }
+    };
+    if (frameQueue) { queues.frame = owner("Frame", frameId, frameQueue); }
+    return Object.freeze(queues);
+  }
+
+  function resolveInternalOwnerEventPoll(poll, owners) {
+    var owner = poll && poll.owner;
+    var boundOwner = owner && owners && owners[owner.name];
+    var buttonPoll = poll && poll.owner_kind === "Button" &&
+      poll.type === "ButtonEvent|null" && owner && owner.type === "ui_component<Button>";
+    var sliderPoll = poll && poll.owner_kind === "Input" &&
+      poll.type === "SliderEvent|null" && owner && owner.type === "ui_component<Input>";
+    var displayPoll = poll && poll.owner_kind === "Display" &&
+      poll.type === "DisplayEvent|null" && owner && owner.type === "Display<2>";
+    if (!poll || poll.kind !== "ui_owner_event_get" || (!buttonPoll && !sliderPoll && !displayPoll) ||
+        !owner || owner.kind !== "load" ||
+        !boundOwner || boundOwner.kind !== poll.owner_kind || !boundOwner.events ||
+        typeof boundOwner.events.get !== "function") {
+      throw new TypeError("internal owner event poll is malformed");
+    }
+    return boundOwner;
+  }
+
+  function executeInternalOwnerEventPoll(poll, owners) {
+    return resolveInternalOwnerEventPoll(poll, owners).events.get();
+  }
+
+  function createInternalOwnerEventLoopExecution(plan, owners) {
+    var planKeys = plan && typeof plan === "object" && !Array.isArray(plan)
+      ? Object.keys(plan)
+      : [];
+    var eventTypes = plan && plan.event_types;
+    var validEventTypes = Array.isArray(eventTypes) && eventTypes.length > 0 &&
+      eventTypes.every(function(eventType) {
+        return eventType === "ButtonEvent" || eventType === "ButtonClicked" ||
+          eventType === "SliderEvent" || eventType === "SliderValueChanged";
+      });
+    if (!plan || planKeys.length !== 3 ||
+        planKeys.some(function(key) {
+          return key !== "binding" && key !== "poll" && key !== "event_types";
+        }) ||
+        typeof plan.binding !== "string" || !plan.binding || !validEventTypes ||
+        !owners || typeof owners.completeInternalOwnerEvent !== "function") {
+      throw new TypeError("internal owner event loop is malformed");
+    }
+    var boundOwner;
+    try {
+      boundOwner = resolveInternalOwnerEventPoll(plan.poll, owners);
+    } catch (error) {
+      throw new TypeError("internal owner event loop is malformed");
+    }
+    var active = false;
+    var ended = false;
+    return Object.freeze({
+      next: function() {
+        if (active) {
+          throw new TypeError("internal owner event loop branch is not complete");
+        }
+        if (ended) return null;
+        var event = boundOwner.events.get();
+        if (event === null) {
+          ended = true;
+          return null;
+        }
+        active = true;
+        var eventType = event.event;
+        var branchIndex = eventTypes.indexOf(eventType);
+        if (branchIndex < 0 && eventType === "ButtonClicked") {
+          branchIndex = eventTypes.indexOf("ButtonEvent");
+        }
+        if (branchIndex < 0 && eventType === "SliderValueChanged") {
+          branchIndex = eventTypes.indexOf("SliderEvent");
+        }
+        return Object.freeze({
+          binding: plan.binding,
+          event_type: eventType,
+          branch_index: branchIndex < 0 ? null : branchIndex,
+          event: event
+        });
+      },
+      complete: function(directives) {
+        if (!active) {
+          throw new TypeError("internal owner event loop branch is not active");
+        }
+        owners.completeInternalOwnerEvent(boundOwner, directives);
+        active = false;
+      }
+    });
+  }
+
+  function cloneRetainedEventValue(value) {
+    if (value === null || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(cloneRetainedEventValue);
+    var result = {};
+    Object.keys(value).forEach(function(key) {
+      result[key] = cloneRetainedEventValue(value[key]);
+    });
+    return result;
+  }
+
+  function createInternalRetainedEventProgramExecution(program) {
+    if (!program || program.schema !== "vektor-flow/retained-event-program" ||
+        program.version !== 1 || !Array.isArray(program.rules)) {
+      throw new TypeError("internal retained event program is malformed");
+    }
+    var geometry = Object.create(null);
+    var sequence = 0;
+    return Object.freeze({
+      dispatch: function(event) {
+        if (!event || typeof event.event !== "string" || typeof event.widget_id !== "string") {
+          throw new TypeError("internal retained event is malformed");
+        }
+        var geomPatch = {};
+        for (var ruleIndex = 0; ruleIndex < program.rules.length; ruleIndex += 1) {
+          var rule = program.rules[ruleIndex];
+          if (!rule || rule.event !== event.event || rule.widget_id !== event.widget_id ||
+              !Array.isArray(rule.actions)) continue;
+          for (var actionIndex = 0; actionIndex < rule.actions.length; actionIndex += 1) {
+            var action = rule.actions[actionIndex];
+            var state = action && action.state;
+            if (!action || action.op !== "retained_layer_patch" ||
+                typeof action.target !== "string" || !action.target ||
+                !state || typeof state !== "object" || !Array.isArray(state.geom && state.geom.meshes) ||
+                typeof state.mesh_id !== "string" || typeof state.property !== "string" ||
+                !state.value || typeof state.value !== "object") {
+              throw new TypeError("internal retained layer patch is malformed");
+            }
+            if (!geometry[action.target]) geometry[action.target] = cloneRetainedEventValue(state.geom);
+            var mesh = geometry[action.target].meshes.find(function(candidate) {
+              return candidate && (candidate.id === state.mesh_id || candidate.layer_id === state.layer_id);
+            });
+            if (!mesh) throw new TypeError("internal retained layer patch target is missing");
+            var value;
+            if (state.value.kind === "const") {
+              value = cloneRetainedEventValue(state.value.value);
+            } else if (state.value.kind === "event_field" &&
+                       typeof state.value.field === "string" &&
+                       Object.prototype.hasOwnProperty.call(event, state.value.field)) {
+              value = cloneRetainedEventValue(event[state.value.field]);
+            } else {
+              throw new TypeError("internal retained layer patch value is malformed");
+            }
+            mesh[state.property] = value;
+            geomPatch[action.target] = cloneRetainedEventValue(geometry[action.target]);
+          }
+        }
+        if (Object.keys(geomPatch).length === 0) return null;
+        return {
+          seq: ++sequence,
+          kind: "display.replace",
+          payload: { display: { screen: [], frames: {}, geom: geomPatch } }
+        };
+      }
+    });
   }
 
   return {
     PACKET_KINDS: PACKET_KINDS,
     BOOTSTRAP_COALESCE_KINDS: BOOTSTRAP_COALESCE_KINDS,
-    validatePacketPayload: validatePacketPayload
+    validatePacketPayload: validatePacketPayload,
+    createInternalButtonClickedOwnerQueues: createInternalButtonClickedOwnerQueues,
+    createInternalSliderValueChangedOwnerQueues: createInternalSliderValueChangedOwnerQueues,
+    createInternalGeometryPickOwnerQueues: createInternalGeometryPickOwnerQueues,
+    executeInternalOwnerEventPoll: executeInternalOwnerEventPoll,
+    createInternalOwnerEventLoopExecution: createInternalOwnerEventLoopExecution,
+    createInternalRetainedEventProgramExecution: createInternalRetainedEventProgramExecution
   };
 }));
