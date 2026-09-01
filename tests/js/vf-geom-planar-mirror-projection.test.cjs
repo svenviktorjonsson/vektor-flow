@@ -104,15 +104,15 @@ for (const subject of [
 const corners = util.resolvePlanarMirrorGeometry(mirror, 0, "projection oracle").corners;
 for (const point of Object.values(corners)) {
   const ndc = project(camera._mirrorViewProjection, point);
-  close(ndc[0], -point[0] / 2);
+  close(ndc[0], point[0] / 2);
   close(ndc[1], point[2] / 2 - 1);
 }
 
 const mirrorLeft = project(camera._mirrorViewProjection, [-1, -2, 2]);
 const mirrorRight = project(camera._mirrorViewProjection, [1, -2, 2]);
 assert.ok(
-  mirrorLeft[0] > mirrorRight[0],
-  "the mirror must reverse its horizontal axis exactly once"
+  mirrorLeft[0] < mirrorRight[0],
+  "the mirror projector must preserve world X at the shared floor edge"
 );
 const mirrorLow = project(camera._mirrorViewProjection, [0, -2, 1]);
 const mirrorHigh = project(camera._mirrorViewProjection, [0, -2, 3]);
@@ -154,8 +154,8 @@ const galleryCamera = util.createPlanarMirrorAdapter().buildRenderCamera({
 const galleryLeft = project(galleryCamera._mirrorViewProjection, [-1, 0, 1.8]);
 const galleryRight = project(galleryCamera._mirrorViewProjection, [1, 0, 1.8]);
 assert.ok(
-  galleryLeft[0] > galleryRight[0],
-  "the real rotated gallery quad must reverse X exactly once"
+  galleryLeft[0] < galleryRight[0],
+  "the real rotated gallery quad must preserve the checker seam across X"
 );
 const galleryLow = project(galleryCamera._mirrorViewProjection, [0, 0, 0.8]);
 const galleryHigh = project(galleryCamera._mirrorViewProjection, [0, 0, 2.8]);

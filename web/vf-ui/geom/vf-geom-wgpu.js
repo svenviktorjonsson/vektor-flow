@@ -876,6 +876,9 @@ fn fs_blit(in : VOut) -> @location(0) vec4<f32> {
           failFast("mirror aperture camera requires an active camera");
         }
         var plane = derivePlanarSurfaceWorldFrame(part, timeMs, math);
+        if (dotVec3(plane.normal, subVec3(surfaceCamera.pos, plane.point)) < 0.0) {
+          plane.normal = scaleVec3(plane.normal, -1.0);
+        }
         plane = canonicalizePlanarFrameAxes(
           plane,
           Array.isArray(plane.points) ? plane.points : [],
@@ -965,6 +968,9 @@ fn fs_blit(in : VOut) -> @location(0) vec4<f32> {
           failFast("mirror surface_system requires an active surface camera");
         }
         var plane = derivePlanarSurfaceWorldFrame(part, timeMs, math);
+        if (dotVec3(plane.normal, subVec3(surfaceCamera.pos, plane.point)) < 0.0) {
+          plane.normal = scaleVec3(plane.normal, -1.0);
+        }
         plane = canonicalizePlanarFrameAxes(
           plane,
           Array.isArray(plane.points) ? plane.points : [],
@@ -1015,6 +1021,11 @@ fn fs_blit(in : VOut) -> @location(0) vec4<f32> {
         var clipResult = tryApplyObliqueNearPlaneZ01(projection, clipPlaneCamera);
         projection = clipResult.projection;
         var viewProjection = math.mat4Mul(projection, view);
+        var projectionFlipU = mirrorProjectionNeedsUFlip(viewProjection, plane);
+        if (projectionFlipU) {
+          projection = flipProjectionMatrixX(projection);
+          viewProjection = math.mat4Mul(projection, view);
+        }
         return {
           pos: reflectedPos,
           target: returnedTarget,
