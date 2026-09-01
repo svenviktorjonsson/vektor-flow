@@ -157,6 +157,12 @@ _mir_tagged_instruction(
 ) -> TaggedMachineInstruction:
     (kind:kind, index:index, value:value)
 
+_mir_tagged_binary_kind(operator_code:num) -> str:
+    operator_code??
+        1 => "add_f64"
+        3 => "subtract_f64"
+        "unknown"
+
 mir_tagged_module_statement(
     module:TaggedMachineModule, index:int
 ) -> TaggedMachineStatement:
@@ -172,7 +178,9 @@ mir_tagged_module_statement(
             _mir_tagged_instruction(
                 "push_f64", value:module.statements.(offset + 3)
             ),
-            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction(
+                _mir_tagged_binary_kind(module.statements.(offset + 2))
+            ),
             _mir_tagged_instruction("return_f64")
         ],
         max_stack:2
