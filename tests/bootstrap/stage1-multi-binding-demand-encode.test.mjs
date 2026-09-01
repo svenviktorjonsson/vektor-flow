@@ -13,7 +13,7 @@ const nativeBin = process.env.VKF_NATIVE_BIN
 const compiler = join(nativeBin, `vkf-strict${suffix}`);
 const newline = process.platform === "win32" ? "\r\n" : "\n";
 
-test("a later binding-expression pair is demanded and encoded from a multi-pair module", () => {
+function runDemand({ sourceText, statementCount, resolver }) {
   const rootWork = join(root, ".work");
   mkdirSync(rootWork, { recursive: true });
   const work = mkdtempSync(join(rootWork, "i125-multi-binding-"));
@@ -35,7 +35,7 @@ test("a later binding-expression pair is demanded and encoded from a multi-pair 
       "typed: .typed_ir",
       "mir: .machine_ir",
       "validation: .machine_ir_validation",
-      'tokens: lexer.tagged_statement_token_tape("unused: 10\\nunused + 2\\nvalue: 31\\nvalue + 1")',
+      `tokens: lexer.tagged_statement_token_tape(${JSON.stringify(sourceText)})`,
       "parsed: parser.parse_tagged_token_tape(tokens.source, tokens.rows, tokens.count)",
       "typed_module: typed.typed_tagged_module(",
       "    parsed.module.body.source, parsed.module.body.rows, parsed.module.body.count",
@@ -43,8 +43,8 @@ test("a later binding-expression pair is demanded and encoded from a multi-pair 
       "dynamic_module: mir.mir_tagged_module(",
       "    typed_module.source, typed_module.statements, typed_module.count",
       ")",
-      '(dynamic_module.count = 4)?! "multi-binding parser did not reach EOF"',
-      "closed: mir.mir_tagged_closed_statement_from_previous_binding(dynamic_module, 3)",
+      `(dynamic_module.count = ${statementCount})?! "multi-binding parser did not reach EOF"`,
+      `closed: mir.${resolver}`,
       "maximum: validation.machine_ir_tagged_statement_stack_maximum(",
       "    closed.instructions.0.kind, closed.instructions.1.kind,",
       "    closed.instructions.2.kind, closed.instructions.3.kind",
@@ -99,4 +99,20 @@ test("a later binding-expression pair is demanded and encoded from a multi-pair 
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+test("a later binding-expression pair is demanded and encoded from a multi-pair module", () => {
+  runDemand({
+    sourceText: "unused: 10\nunused + 2\nvalue: 31\nvalue + 1",
+    statementCount: 4,
+    resolver: "mir_tagged_closed_statement_from_previous_binding(dynamic_module, 3)",
+  });
+});
+
+test("demand searches past an unrelated binding for the matching prior dependency", () => {
+  runDemand({
+    sourceText: "value: 31\nother: 10\nvalue + 1",
+    statementCount: 3,
+    resolver: "mir_tagged_closed_statement_from_prior_binding(dynamic_module, 2)",
+  });
 });
