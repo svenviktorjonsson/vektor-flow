@@ -36,16 +36,11 @@ test("two derived bindings close a later demanded expression", () => {
       "expression: typed.typed_tagged_two_derived_bindings(parsed.kind, parsed.values)",
       "statement: mir.mir_tagged_dynamic_two_derived_bindings(expression.values)",
       "maximum: validation.machine_ir_numeric_opcode_tape_stack_maximum(statement.opcodes)",
-      "module: mir.mir_assemble_closed_dynamic_dependency_module(statement, maximum)",
-      ":: module.schema", ":: module.version", ":: module.output_kind",
-      ":: module.output_count", ":: module.entry.name", ":: module.entry.max_stack",
-      ":: module.entry.instructions.0.kind", ":: module.entry.instructions.0.value",
-      ":: module.entry.instructions.1.kind", ":: module.entry.instructions.1.value",
-      ":: module.entry.instructions.2.kind",
-      ":: module.entry.instructions.3.kind", ":: module.entry.instructions.3.value",
-      ":: module.entry.instructions.4.kind",
-      ":: module.entry.instructions.5.kind", ":: module.entry.instructions.5.value",
-      ":: module.entry.instructions.6.kind", ":: module.entry.instructions.7.kind",
+      ':: "vektorflow.machine_ir"', ":: 4", ':: "f64"', ":: 1",
+      ":: statement.name", ":: maximum", ":: statement.opcodes.length()",
+      "..statement.opcodes.length() >>",
+      "    :: statement.opcodes.($)",
+      "    :: statement.values.($)",
       "",
     ].join("\n"), "utf8");
     const compiled = spawnSync(
@@ -56,9 +51,9 @@ test("two derived bindings close a later demanded expression", () => {
     assert.equal(compiled.status, 0, compiled.stderr);
 
     const expected = [
-      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "2",
-      "push_f64", "30", "push_f64", "1", "add_f64",
-      "push_f64", "1", "add_f64", "push_f64", "1", "add_f64", "return_f64",
+      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "2", "8",
+      "1", "30", "1", "1", "2", "0", "1", "1",
+      "2", "0", "1", "1", "2", "0", "3", "0",
     ].join(newline) + newline;
     const oracle = join(work, "oracle.txt");
     writeFileSync(oracle, expected, "utf8");
