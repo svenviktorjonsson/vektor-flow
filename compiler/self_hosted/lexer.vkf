@@ -299,6 +299,41 @@ bounded_parser_tagged_stream(source:str):
     ]
     (schema:"vektorflow.token_stream", version:1, tokens:tokens)
 
+identifier_plus_number_stream(source:str):
+    first_start: _lexer_skip_layout(StringCursor(source))
+    first: identifier_token(source, first_start.position)
+    operator_start: _lexer_skip_identifier(first_start)
+    operator: plus_token(source, operator_start.position)
+    third_start: _lexer_skip_layout(operator_start.advance())
+    third: number_token(source, third_start.position)
+    stream_end: _lexer_skip_number(third_start)
+    stream_end.eof?! "bounded identifier-plus-number stream must end after the number"
+    (first:first, operator:operator, third:third)
+
+bounded_parser_expression_stream(source:str):
+    result: identifier_plus_number_stream(source)
+    tokens: [
+        _tagged_parser_token(
+            result.first.kind,
+            _tagged_parser_value("text", result.first.value, 0),
+            result.first.line,
+            result.first.column
+        ),
+        _tagged_parser_token(
+            result.operator.kind,
+            _tagged_parser_value("null", "", 0),
+            result.operator.line,
+            result.operator.column
+        ),
+        _tagged_parser_token(
+            result.third.kind,
+            _tagged_parser_value("number", "", result.third.value),
+            result.third.line,
+            result.third.column
+        )
+    ]
+    (schema:"vektorflow.token_stream", version:1, tokens:tokens)
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
@@ -382,6 +417,7 @@ lexer_capability:
         "bounded linked LexResult token container",
         "versioned linked token structure envelope for parser cursor handoff",
         "tagged text and number token values for homogeneous parser transport",
+        "bounded identifier-plus-number tagged expression stream",
         "character class helpers",
         "token kind catalog",
         "scan_whitespace",
