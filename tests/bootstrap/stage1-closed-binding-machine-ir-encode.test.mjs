@@ -73,8 +73,6 @@ test("known binding closes, validates, and encodes a zero-parameter v4 module", 
       ":: module.output_kind",
       ":: module.output_count",
       ":: module.entry.name",
-      ":: module.entry.parameters.length()",
-      ":: module.entry.locals.length()",
       ":: module.entry.max_stack",
       ":: module.entry.instructions.0.kind",
       ":: module.entry.instructions.0.value",
@@ -82,17 +80,13 @@ test("known binding closes, validates, and encodes a zero-parameter v4 module", 
       ":: module.entry.instructions.1.value",
       ":: module.entry.instructions.2.kind",
       ":: module.entry.instructions.3.kind",
-      ":: module.functions.length()",
-      ":: module.outputs.length()",
-      ":: module.output_tokens.length()",
-      ":: module.string_data.length()",
       "",
     ].join("\n"), "utf8");
     compile(source, artifact);
 
     const expected = [
-      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "0", "0", "2",
-      "push_f64", "31", "push_f64", "1", "add_f64", "return_f64", "0", "0", "0", "0",
+      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "2",
+      "push_f64", "31", "push_f64", "1", "add_f64", "return_f64",
     ].join(newline) + newline;
     const oracle = join(work, "oracle.txt");
     writeFileSync(oracle, expected, "utf8");

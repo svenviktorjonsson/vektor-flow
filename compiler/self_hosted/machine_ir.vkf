@@ -185,6 +185,63 @@ mir_assemble_tagged_statement_module(
         functions:[]
     )
 
+mir_tagged_closed_statement(
+    module:TaggedMachineModule,
+    binding_index:int,
+    expression_index:int
+) -> TaggedMachineStatement:
+    binding_offset: binding_index * 8
+    expression_offset: expression_index * 8
+    (module.statements.(binding_offset + 2) = 2)?! "closed Machine IR binding row is not a binding"
+    (module.statements.(expression_offset + 2) = 1)?! "closed Machine IR expression row is not an addition"
+    (vkf_utf8_slice(
+        module.source,
+        module.statements.(binding_offset),
+        module.statements.(binding_offset + 1)
+    ) = vkf_utf8_slice(
+        module.source,
+        module.statements.(expression_offset),
+        module.statements.(expression_offset + 1)
+    ))?! "closed Machine IR expression does not match its binding"
+    (
+        name:"\$entry",
+        instructions:[
+            _mir_tagged_instruction(
+                "push_f64", value:module.statements.(binding_offset + 3)
+            ),
+            _mir_tagged_instruction(
+                "push_f64", value:module.statements.(expression_offset + 3)
+            ),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("return_f64")
+        ],
+        max_stack:2
+    )
+
+mir_assemble_closed_tagged_module(
+    statement:TaggedMachineStatement,
+    validated_max_stack:num
+) -> MachineModule:
+    (validated_max_stack = statement.max_stack)?! "closed Machine IR stack maximum does not match validation"
+    entry: mir_function(
+        statement.name,
+        [],
+        [],
+        statement.instructions,
+        validated_max_stack
+    )
+    (
+        schema:"vektorflow.machine_ir",
+        version:4,
+        output_kind:"f64",
+        output_count:1,
+        outputs:[],
+        output_tokens:[],
+        string_data:[],
+        entry:entry,
+        functions:[]
+    )
+
 mir_numeric_parameter_multiply_instructions(right_value:num):
     [
         mir_load_local(0),
