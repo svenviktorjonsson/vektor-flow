@@ -40,6 +40,7 @@ import {
   evaluateWoodTriangleGgxBatchReference,
   evaluateWoodTriangleGgxCoverageReference,
   sampleWoodMaterialTriangleReference,
+  selectWoodRefinementGgxProfileBatchReference,
   selectWoodRefinementGgxProfileReference,
 } from '../../web/vf-ui/vf-wood-material-renderer-packet.mjs';
 
@@ -973,4 +974,81 @@ test('quality budgets select the coarsest sufficient wood refinement', () => {
     assert.ok(selection.reflectedRgbError <= selection.maximumReflectedRgbError);
     assert.equal(selection.vectorBytes, 0);
   }
+});
+
+test('bounded wood quality demands remain selection-order independent', () => {
+  const detailLevels = [0, 1, 2];
+  const packets = detailLevels.map((detailLevel) => (
+    adaptWoodCutMaterialToTriangleFacesReference(
+      proceduralWoodMaterial('side-grain', detailLevel),
+      { triangleBudget: 32 },
+    )
+  ));
+  const refinements = evaluateWoodRefinementGgxProfilesReference(packets, {
+    azimuths: [0, Math.PI / 2],
+    viewCosine: 0.72,
+    triangleBudget: 32,
+    refinementBudget: 3,
+    probeBudget: 2,
+  });
+  const convergence = evaluateWoodRefinementGgxConvergenceReference(refinements);
+  const demands = detailLevels.map((_, refinement) => Object.freeze({
+    maximumSpecularError: convergence.maximumSpecularError[refinement],
+    maximumReflectedRgbError:
+      convergence.maximumReflectedRgbError[refinement],
+  }));
+  const canonical = selectWoodRefinementGgxProfileBatchReference(
+    convergence,
+    demands,
+    { demandBudget: 3 },
+  );
+  const order = [2, 0, 1];
+  const reordered = selectWoodRefinementGgxProfileBatchReference(
+    convergence,
+    order.map((index) => demands[index]),
+    { demandBudget: 3 },
+  );
+
+  assert.equal(canonical.kind, 'wood-cut-refinement-ggx-selection-batch:v1');
+  assert.strictEqual(canonical.sourceConvergence, convergence);
+  assert.equal(canonical.demandCount, 3);
+  assert.equal(canonical.demandBudget, 3);
+  assert.deepEqual(Array.from(canonical.selectedRefinements), detailLevels);
+  assert.deepEqual(Array.from(canonical.selectedDetailLevels), detailLevels);
+  assert.deepEqual(canonical.sourcePackets, packets);
+  assert.deepEqual(
+    Array.from(reordered.selectedRefinements),
+    order.map((index) => canonical.selectedRefinements[index]),
+  );
+  assert.deepEqual(
+    Array.from(reordered.selectedDetailLevels),
+    order.map((index) => canonical.selectedDetailLevels[index]),
+  );
+  assert.deepEqual(
+    reordered.sourcePackets,
+    order.map((index) => canonical.sourcePackets[index]),
+  );
+  assert.deepEqual(
+    Array.from(reordered.specularErrors),
+    order.map((index) => canonical.specularErrors[index]),
+  );
+  assert.deepEqual(
+    Array.from(reordered.reflectedRgbErrors),
+    order.map((index) => canonical.reflectedRgbErrors[index]),
+  );
+  assert.equal(
+    canonical.vectorBytes,
+    canonical.selectedRefinements.byteLength
+      + canonical.selectedDetailLevels.byteLength
+      + canonical.specularErrors.byteLength
+      + canonical.reflectedRgbErrors.byteLength,
+  );
+  assert.throws(
+    () => selectWoodRefinementGgxProfileBatchReference(
+      convergence,
+      demands,
+      { demandBudget: 2 },
+    ),
+    /wood quality demands exceed demandBudget/,
+  );
 });
