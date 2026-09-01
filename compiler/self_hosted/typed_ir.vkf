@@ -125,6 +125,44 @@ typed_tagged_module_statement(
         type:"any"
     )
 
+typed_tagged_binding(
+    module:TypedTaggedModule, index:int
+) -> TypedStoreBinding:
+    offset: index * 8
+    typed_store_binding(
+        vkf_utf8_slice(
+            module.source,
+            module.statements.(offset),
+            module.statements.(offset + 1)
+        ),
+        typed_const(module.statements.(offset + 3), "int"),
+        "int"
+    )
+
+typed_tagged_bound_statement(
+    module:TypedTaggedModule,
+    index:int,
+    binding:TypedStoreBinding
+) -> TypedTaggedBinaryOp:
+    offset: index * 8
+    str name: vkf_utf8_slice(
+        module.source,
+        module.statements.(offset),
+        module.statements.(offset + 1)
+    )
+    str resolved_type: "any"
+    name = binding.name?
+        .resolved_type: binding.type
+    (
+        kind:"binary_op",
+        left:typed_load(name, resolved_type),
+        left_type:resolved_type,
+        op:typed_tagged_operator(module.statements.(offset + 2)),
+        right:typed_const(module.statements.(offset + 3), "int"),
+        right_type:"int",
+        type:resolved_type
+    )
+
 function_symbol(name:str, param_types:any, return_type:str, signature:str):
     (name: name, param_types: param_types, return_type: return_type, signature: signature)
 

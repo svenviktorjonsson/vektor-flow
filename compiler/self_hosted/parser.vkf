@@ -380,6 +380,12 @@ tagged_statement_operator(operator_code:num) -> str:
         1 => "+"
         "unknown"
 
+tagged_statement_operator_code(token_kind:num) -> num:
+    token_kind??
+        2 => 1
+        6 => 2
+        0
+
 tagged_statement_node(
     storage:TaggedStatementStorage, index:int
 ) -> TaggedBinaryOpNode:
@@ -417,12 +423,13 @@ parse_tagged_token_tape(
     last_where: first_where
     (index < token_count /\ token_rows.(index * 6) != 5)?>
         left_offset: index * 6
+        operator_offset: (index + 1) * 6
         right_offset: (index + 2) * 6
         .storage: append_tagged_statement(
             storage,
             token_rows.(left_offset + 1),
             token_rows.(left_offset + 2),
-            1,
+            tagged_statement_operator_code(token_rows.(operator_offset)),
             token_rows.(right_offset + 3),
             token_rows.(left_offset + 4),
             token_rows.(left_offset + 5),

@@ -493,10 +493,13 @@ _scan_tagged_statement_tokens(
         )
         @: _scan_tagged_statement_tokens(identifier_stop, next_tape, 1)
     (expected = 1)?
-        (cursor.peek() = "+")?! "plus token expected"
+        (cursor.peek() = "+" \/ cursor.peek() = ":")?! "plus token expected"
+        kind_code: 2
+        cursor.peek() = ":"?
+            .kind_code: 6
         operator_stop: cursor.advance()
         next_tape: _append_tagged_token(
-            tape, 2, cursor.position, operator_stop.position,
+            tape, kind_code, cursor.position, operator_stop.position,
             0, cursor.line, cursor.column
         )
         @: _scan_tagged_statement_tokens(operator_stop, next_tape, 2)
