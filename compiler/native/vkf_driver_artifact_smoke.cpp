@@ -1564,6 +1564,32 @@ void collect_linked_aliased_modules(
     }
 }
 
+std::string rewrite_module_type_surface(
+    const std::string& surface,
+    const std::map<std::string, std::string>& symbols
+) {
+    std::string rewritten;
+    rewritten.reserve(surface.size());
+    for (std::size_t index = 0; index < surface.size();) {
+        const unsigned char first = static_cast<unsigned char>(surface[index]);
+        if (!(std::isalpha(first) || surface[index] == '_')) {
+            rewritten.push_back(surface[index++]);
+            continue;
+        }
+        std::size_t stop = index + 1;
+        while (stop < surface.size()) {
+            const unsigned char next = static_cast<unsigned char>(surface[stop]);
+            if (!(std::isalnum(next) || surface[stop] == '_')) break;
+            ++stop;
+        }
+        const std::string identifier = surface.substr(index, stop - index);
+        const auto replacement = std::isupper(first) ? symbols.find(identifier) : symbols.end();
+        rewritten += replacement == symbols.end() ? identifier : replacement->second;
+        index = stop;
+    }
+    return rewritten;
+}
+
 vf::JsonValue rewrite_module_symbols(
     const vf::JsonValue& value,
     const std::map<std::string, std::string>& symbols
@@ -1580,12 +1606,17 @@ vf::JsonValue rewrite_module_symbols(
     }
     const auto kind = rewritten.find("kind");
     const auto name = rewritten.find("name");
-    if (kind != rewritten.end() && kind->second.is_string() && name != rewritten.end() && name->second.is_string()
-        && (kind->second.as_string() == "identifier" ||
-            kind->second.as_string() == "function_definition" ||
-            kind->second.as_string() == "type_annotation")) {
-        const auto replacement = symbols.find(name->second.as_string());
-        if (replacement != symbols.end()) name->second = replacement->second;
+    if (kind != rewritten.end() && kind->second.is_string() &&
+        name != rewritten.end() && name->second.is_string()) {
+        if (kind->second.as_string() == "type_annotation") {
+            name->second = vf::JsonValue(
+                rewrite_module_type_surface(name->second.as_string(), symbols));
+        } else if (kind->second.as_string() == "identifier" ||
+                   kind->second.as_string() == "function_definition" ||
+                   kind->second.as_string() == "type_alias") {
+            const auto replacement = symbols.find(name->second.as_string());
+            if (replacement != symbols.end()) name->second = replacement->second;
+        }
     }
     return vf::JsonValue(std::move(rewritten));
 }
@@ -1994,6 +2025,13 @@ vf::JsonValue link_spilled_file_modules(
                 const std::string mangled = "__vkf_module_" + imported.alias + "__" + name->second.as_string();
                 symbols[name->second.as_string()] = mangled;
                 exports[imported.alias][name->second.as_string()] = mangled;
+            }
+            if (kind != object.end() && kind->second.is_string() &&
+                kind->second.as_string() == "type_alias" &&
+                name != object.end() && name->second.is_string()) {
+                const std::string mangled = "__vkf_module_" + imported.alias + "__" +
+                    name->second.as_string();
+                symbols[name->second.as_string()] = mangled;
             }
             if (kind != object.end() && kind->second.is_string() &&
                 kind->second.as_string() == "bind") {

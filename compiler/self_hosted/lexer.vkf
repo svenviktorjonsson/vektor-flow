@@ -237,6 +237,24 @@ bounded_lex(source:str):
     tokens: [stream.first, stream.operator, stream.third, stream.newline, stream.eof]
     (tokens:tokens, errors:[])
 
+_lexer_stream_token(kind:str, line:num, column:num):
+    (
+        kind:kind,
+        value:null,
+        location:(file:"<self-hosted>", line:line, column:column)
+    )
+
+bounded_parser_structure_stream(source:str):
+    result: bounded_lex(source)
+    tokens: [
+        _lexer_stream_token(result.tokens.(0).kind, result.tokens.(0).line, result.tokens.(0).column),
+        _lexer_stream_token(result.tokens.(1).kind, result.tokens.(1).line, result.tokens.(1).column),
+        _lexer_stream_token(result.tokens.(2).kind, result.tokens.(2).line, result.tokens.(2).column),
+        _lexer_stream_token(result.tokens.(3).kind, result.tokens.(3).line, result.tokens.(3).column),
+        _lexer_stream_token(result.tokens.(4).kind, result.tokens.(4).line, result.tokens.(4).column)
+    ]
+    (schema:"vektorflow.token_stream", version:1, tokens:tokens)
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
@@ -318,6 +336,7 @@ lexer_capability:
         "linked plus operator token stream producer",
         "bounded linked token stream with NEWLINE and EOF",
         "bounded linked LexResult token container",
+        "versioned linked token structure envelope for parser cursor handoff",
         "character class helpers",
         "token kind catalog",
         "scan_whitespace",

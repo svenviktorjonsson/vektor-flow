@@ -732,8 +732,15 @@ inline void refine_parameter_from_argument(ValueLayout& current, const ValueLayo
         const auto supplied = candidate.selectors.find(name);
         if (supplied == candidate.selectors.end()) continue;
         auto field_layout = record_field_layout(current, name, current_slice);
-        merge_inferred_layout(
-            field_layout, record_field_layout(candidate, name, supplied->second));
+        const auto supplied_layout = record_field_layout(candidate, name, supplied->second);
+        const bool expands_container = supplied_layout.kind == ValueKind::Aggregate ||
+            supplied_layout.kind == ValueKind::DynamicF64List ||
+            supplied_layout.kind == ValueKind::NumericMultiset ||
+            supplied_layout.kind == ValueKind::StringMultiset ||
+            supplied_layout.kind == ValueKind::Range;
+        if (field_layout.kind != ValueKind::Any || expands_container) {
+            merge_inferred_layout(field_layout, supplied_layout);
+        }
         assign_record_field_layout(current, name, field_layout);
     }
 }
@@ -15507,6 +15514,11 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                     parameter_type == "null" || parameter_type == "str";
                 const bool known_aggregate_parameter = explicit_parameter_layout.kind != ValueKind::Numeric ||
                     !explicit_parameter_layout.selectors.empty();
+                const bool contains_any_record_field =
+                    is_record_layout(explicit_parameter_layout) && std::any_of(
+                        explicit_parameter_layout.selectors.begin(),
+                        explicit_parameter_layout.selectors.end(),
+                        [](const auto& selector) { return selector.second.kind == ValueKind::Any; });
                 const bool complex_capable_fixed_vector =
                     parameter_type.rfind("[num:", 0) == 0 && parameter_type.back() == ']';
                 const bool inferred_parameter = !elementwise_math_function && (parameter_type == "any" ||
@@ -15514,6 +15526,7 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                     complex_capable_fixed_vector ||
                     symbolic_vector_shape(parameter_type) ||
                     explicit_parameter_layout.kind == ValueKind::StringMultiset ||
+                    contains_any_record_field ||
                     (!known_scalar_parameter && !known_aggregate_parameter));
                 signature.parameter_is_any.push_back(inferred_parameter);
                 std::vector<std::string> full_projections;
@@ -15536,11 +15549,12 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
                     signature.variadic_positional_index = signature.parameters.size();
                     signature.parameters.push_back({1, ValueKind::DynamicF64List, {}});
                 } else {
-                    if (inferred_parameter && complex_capable_fixed_vector) {
+                    if (inferred_parameter &&
+                        (complex_capable_fixed_vector || contains_any_record_field)) {
                         auto parameter_layout = explicit_parameter_layout;
                         const auto inferred_layout = inferred_parameter_layout(
                             statement, signature.parameter_names.back(), &full_projections);
-                        if (!is_record_layout(inferred_layout)) {
+                        if (!contains_any_record_field && !is_record_layout(inferred_layout)) {
                             merge_inferred_layout(parameter_layout, inferred_layout);
                         }
                         signature.parameters.push_back(std::move(parameter_layout));
