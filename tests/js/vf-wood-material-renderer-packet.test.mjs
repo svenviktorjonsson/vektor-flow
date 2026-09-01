@@ -30,6 +30,7 @@ import {
 } from '../../web/vf-ui/vf-wood-material-energy.mjs';
 import {
   adaptWoodCutMaterialToTriangleFacesReference,
+  evaluateWoodFaceGgxResponseReference,
   sampleWoodMaterialTriangleReference,
 } from '../../web/vf-ui/vf-wood-material-renderer-packet.mjs';
 
@@ -301,4 +302,84 @@ test('renderer resolves one complete wood face into an anisotropic shading sampl
   assert.ok(Math.abs(sample.alphaX - expectedAlphaX) < 1e-7);
   assert.ok(Math.abs(sample.alphaY - expectedAlphaY) < 1e-7);
   assert.ok(sample.alphaX > sample.alphaY);
+});
+
+function dot(left, right) {
+  return left.reduce((sum, value, component) => (
+    sum + value * right[component]
+  ), 0);
+}
+
+function cross(left, right) {
+  return [
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0],
+  ];
+}
+
+test('one wood face evaluates a tangent-oriented anisotropic GGX response', () => {
+  const material = proceduralSideGrainMaterial();
+  const packet = adaptWoodCutMaterialToTriangleFacesReference(material, {
+    triangleBudget: 32,
+  });
+  const sample = sampleWoodMaterialTriangleReference(packet, {
+    triangle: 7,
+    barycentric: [0.2, 0.3, 0.5],
+  });
+  const normal = sample.surfaceNormal;
+  const tangent = normalize(packet.tangentFrame.tangent.map((value, component) => (
+    value - normal[component] * dot(packet.tangentFrame.tangent, normal)
+  )));
+  let bitangent = normalize(cross(normal, tangent));
+  if (dot(bitangent, packet.tangentFrame.bitangent) < 0) {
+    bitangent = bitangent.map((component) => -component);
+  }
+  const cosine = 0.72;
+  const sine = Math.sqrt(1 - cosine * cosine);
+  const directionAlong = (axis) => normalize(normal.map((value, component) => (
+    value * cosine + axis[component] * sine
+  )));
+  const tangentDirection = directionAlong(tangent);
+  const bitangentDirection = directionAlong(bitangent);
+  const alongTangent = evaluateWoodFaceGgxResponseReference(sample, {
+    viewDirection: tangentDirection,
+    lightDirection: tangentDirection,
+  });
+  const alongBitangent = evaluateWoodFaceGgxResponseReference(sample, {
+    viewDirection: bitangentDirection,
+    lightDirection: bitangentDirection,
+  });
+  const swappedAxes = Object.freeze({
+    ...sample,
+    alphaX: sample.alphaY,
+    alphaY: sample.alphaX,
+  });
+  const swappedAlongBitangent = evaluateWoodFaceGgxResponseReference(swappedAxes, {
+    viewDirection: bitangentDirection,
+    lightDirection: bitangentDirection,
+  });
+
+  assert.equal(alongTangent.kind, 'wood-cut-anisotropic-ggx-response:v1');
+  assert.strictEqual(alongTangent.sourceSample, sample);
+  for (const value of [
+    alongTangent.distribution,
+    alongTangent.maskingShadowing,
+    alongTangent.fresnel,
+    alongTangent.diffuseBrdf,
+    alongTangent.specularBrdf,
+  ]) {
+    assert.ok(Number.isFinite(value) && value > 0);
+  }
+  assert.ok(alongTangent.maskingShadowing <= 1);
+  assert.ok(alongTangent.fresnel >= 0.04 && alongTangent.fresnel <= 1);
+  assert.ok(alongTangent.reflectedRgb.every((value) => (
+    Number.isFinite(value) && value > 0
+  )));
+  assert.ok(Math.abs(
+    alongTangent.specularBrdf - alongBitangent.specularBrdf
+  ) > 1e-4);
+  assert.ok(Math.abs(
+    alongTangent.specularBrdf - swappedAlongBitangent.specularBrdf
+  ) < 1e-10);
 });
