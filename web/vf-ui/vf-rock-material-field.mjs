@@ -53,7 +53,8 @@ function float64Key(value) {
 }
 
 function materialSampleKey(surfaceCoordinates, detailLevel, footprint) {
-  return `${float64Key(surfaceCoordinates[0])}/${float64Key(surfaceCoordinates[1])}/${detailLevel}/${float64Key(footprint)}`;
+  const octaveCount = effectiveOctaveCount(detailLevel, footprint);
+  return `${float64Key(surfaceCoordinates[0])}/${float64Key(surfaceCoordinates[1])}/${octaveCount}/${float64Key(footprint)}`;
 }
 
 function filterWeight(wavelength, footprint) {
@@ -63,8 +64,17 @@ function filterWeight(wavelength, footprint) {
   return ratio * ratio * (3 - 2 * ratio);
 }
 
+function effectiveOctaveCount(detailLevel, footprint) {
+  const demandedOctaves = Math.min(MAX_OCTAVES, detailLevel + 2);
+  let octaveCount = 0;
+  for (let octave = 0; octave < demandedOctaves; octave += 1) {
+    if (filterWeight(2 ** -octave, footprint) > 0) octaveCount = octave + 1;
+  }
+  return octaveCount;
+}
+
 function rawGeology(node, surfaceCoordinates, detailLevel, footprint) {
-  const octaveCount = Math.min(MAX_OCTAVES, detailLevel + 2);
+  const octaveCount = effectiveOctaveCount(detailLevel, footprint);
   let weighted = 0;
   let totalWeight = 0;
   for (let octave = 0; octave < octaveCount; octave += 1) {
