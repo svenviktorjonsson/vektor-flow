@@ -36,6 +36,11 @@ function requireMaterial(material) {
   ) {
     throw new TypeError('wood cut material with complete triangle surface is required');
   }
+  for (let index = 0; index < surface.indices.length; index += 1) {
+    if (surface.indices[index] >= vertexCount) {
+      throw new RangeError(`triangle index ${index} must reference a retained vertex`);
+    }
+  }
   return { surface, grid, vertexCount, triangleCount };
 }
 
