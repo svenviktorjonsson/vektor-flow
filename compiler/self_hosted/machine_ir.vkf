@@ -72,6 +72,12 @@ TaggedDependencyMachineStatement: (
     instructions:TaggedDependencyMachineInstructions,
     max_stack:num
 )
+TaggedDynamicMachineStatement: (
+    name:str,
+    opcodes:[num],
+    values:[num],
+    max_stack:num
+)
 
 NumericFunctionConstInput: (kind:str, value:num, type:str)
 NumericFunctionLoadInput: (kind:str, name:str, type:str)
@@ -345,6 +351,66 @@ mir_tagged_two_derived_bindings(
             _mir_tagged_instruction("return_f64")
         ],
         max_stack:2
+    )
+
+mir_tagged_dynamic_two_derived_bindings(
+    values:[num:4]
+) -> TaggedDynamicMachineStatement:
+    [num] opcodes: [1, 1, 2, 1, 2, 1, 2, 3]
+    [num] instruction_values: [
+        values.0, values.1, 0, values.2, 0, values.3, 0, 0
+    ]
+    (
+        name:"\$entry",
+        opcodes:opcodes,
+        values:instruction_values,
+        max_stack:2
+    )
+
+mir_dynamic_opcode_kind(code:num) -> str:
+    code = 1?
+        @: "push_f64"
+    code = 2?
+        @: "add_f64"
+    (code = 3)?! "dynamic dependency instruction has an unknown opcode"
+    "return_f64"
+
+mir_assemble_closed_dynamic_dependency_module(
+    statement:TaggedDynamicMachineStatement,
+    validated_max_stack:num
+) -> MachineModule:
+    (validated_max_stack = statement.max_stack)?! "dynamic dependency Machine IR stack maximum does not match validation"
+    [TaggedMachineInstruction:8] instructions: [
+        _mir_tagged_instruction(mir_dynamic_opcode_kind(statement.opcodes.0), value:statement.values.0),
+        _mir_tagged_instruction(mir_dynamic_opcode_kind(statement.opcodes.1), value:statement.values.1),
+        _mir_tagged_instruction(mir_dynamic_opcode_kind(statement.opcodes.2), value:statement.values.2),
+        _mir_tagged_instruction(mir_dynamic_opcode_kind(statement.opcodes.3), value:statement.values.3),
+        _mir_tagged_instruction(mir_dynamic_opcode_kind(statement.opcodes.4), value:statement.values.4),
+        _mir_tagged_instruction(mir_dynamic_opcode_kind(statement.opcodes.5), value:statement.values.5),
+        _mir_tagged_instruction(mir_dynamic_opcode_kind(statement.opcodes.6), value:statement.values.6),
+        _mir_tagged_instruction(mir_dynamic_opcode_kind(statement.opcodes.7), value:statement.values.7)
+    ]
+    entry: (
+        name:statement.name,
+        parameters:[],
+        locals:[],
+        owned_f64_list_locals:[],
+        owned_string_locals:[],
+        parameter_mask_local:null,
+        may_error:false,
+        instructions:instructions,
+        max_stack:validated_max_stack
+    )
+    (
+        schema:"vektorflow.machine_ir",
+        version:4,
+        output_kind:"f64",
+        output_count:1,
+        outputs:[],
+        output_tokens:[],
+        string_data:[],
+        entry:entry,
+        functions:[]
     )
 
 mir_assemble_closed_dependency_module(
