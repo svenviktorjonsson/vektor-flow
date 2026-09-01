@@ -26,6 +26,9 @@ import {
   packWoodCutMaterialPacketReference,
 } from '../../web/vf-ui/vf-wood-cut-material-packet.mjs';
 import {
+  evaluateWoodCutGgxWhiteFurnaceReference,
+} from '../../web/vf-ui/vf-wood-material-energy.mjs';
+import {
   adaptWoodCutMaterialToTriangleFacesReference,
 } from '../../web/vf-ui/vf-wood-material-renderer-packet.mjs';
 
@@ -142,5 +145,33 @@ test('renderer packet rejects a face index outside the procedural vertex set', (
       triangleBudget: 32,
     }),
     /triangle index 0 must reference a retained vertex/,
+  );
+});
+
+test('renderer packet aligns the proven anisotropic GGX lobe to its cut-plane frame', () => {
+  const material = proceduralSideGrainMaterial();
+  const packet = adaptWoodCutMaterialToTriangleFacesReference(material, {
+    triangleBudget: 32,
+  });
+  const furnace = evaluateWoodCutGgxWhiteFurnaceReference(material, {
+    sampleBudget: 25,
+  });
+  const provenAnisotropic = furnace.profiles.find((profile) => (
+    profile.kind === 'anisotropic-ggx'
+  ));
+
+  assert.equal(packet.ggxLobe.kind, 'wood-cut-anisotropic-ggx-lobe:v1');
+  assert.equal(packet.ggxLobe.anisotropy, provenAnisotropic.anisotropy);
+  assert.deepEqual(packet.ggxLobe.axisOrder, ['tangent', 'bitangent']);
+  assert.deepEqual(packet.ggxLobe.alphaX, provenAnisotropic.alphaX);
+  assert.deepEqual(packet.ggxLobe.alphaY, provenAnisotropic.alphaY);
+  assert.equal(packet.ggxLobe.alphaX.length, packet.vertexCount);
+  assert.equal(packet.ggxLobe.alphaY.length, packet.vertexCount);
+  assert.ok(packet.ggxLobe.alphaX.every((alpha, sample) => (
+    alpha > packet.ggxLobe.alphaY[sample]
+  )));
+  assert.equal(
+    packet.ggxLobe.vectorBytes,
+    packet.ggxLobe.alphaX.byteLength + packet.ggxLobe.alphaY.byteLength,
   );
 });
