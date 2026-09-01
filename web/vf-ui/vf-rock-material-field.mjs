@@ -8,6 +8,8 @@ import {
 } from './vf-spatial-correlation.mjs';
 
 const fieldState = new WeakMap();
+const floatBitsBuffer = new ArrayBuffer(8);
+const floatBitsView = new DataView(floatBitsBuffer);
 const MAX_OCTAVES = 6;
 const DERIVATIVE_STEP = 1e-4;
 const DARK_COLOR = Object.freeze([0.22, 0.19, 0.15]);
@@ -42,6 +44,15 @@ function requireOptions({ detailLevel, footprint }) {
   if (!Number.isFinite(footprint) || footprint < 0) {
     throw new RangeError('rock material footprint must be finite and non-negative');
   }
+}
+
+function float64Key(value) {
+  floatBitsView.setFloat64(0, value, true);
+  return `${floatBitsView.getUint32(4, true).toString(16)}:${floatBitsView.getUint32(0, true).toString(16)}`;
+}
+
+function materialSampleKey(surfaceCoordinates, detailLevel, footprint) {
+  return `${float64Key(surfaceCoordinates[0])}/${float64Key(surfaceCoordinates[1])}/${detailLevel}/${float64Key(footprint)}`;
 }
 
 function filterWeight(wavelength, footprint) {
@@ -87,7 +98,7 @@ export function createRockMaterialFieldReference(identity) {
     identity: root,
     maxOctaves: MAX_OCTAVES,
   });
-  fieldState.set(field, { node });
+  fieldState.set(field, { node, materialSamples: new Map() });
   return field;
 }
 
@@ -126,6 +137,9 @@ export function sampleRockMaterialReference(
   }
   requireSurfaceCoordinates(surfaceCoordinates);
   requireOptions({ detailLevel, footprint });
+  const cacheKey = materialSampleKey(surfaceCoordinates, detailLevel, footprint);
+  const cached = state.materialSamples.get(cacheKey);
+  if (cached) return cached;
   const geology = rawGeology(
     state.node,
     surfaceCoordinates,
@@ -151,7 +165,7 @@ export function sampleRockMaterialReference(
     DARK_COLOR[2] + (WEATHERED_COLOR[2] - DARK_COLOR[2]) * weathering,
     1,
   ]);
-  return Object.freeze({
+  const sample = Object.freeze({
     geology,
     weathering,
     baseColor,
@@ -160,6 +174,8 @@ export function sampleRockMaterialReference(
     derivative: Object.freeze([derivativeU, derivativeV]),
     tangentNormal: normalizedTangentNormal(derivativeU, derivativeV),
   });
+  state.materialSamples.set(cacheKey, sample);
+  return sample;
 }
 
 function requireRadii(radii) {
