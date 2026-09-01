@@ -32,6 +32,7 @@ import {
   adaptWoodCutMaterialToTriangleFacesReference,
   evaluateWoodFaceGgxResponseReference,
   evaluateWoodMeshGgxAreaSummaryReference,
+  evaluateWoodMeshGgxAzimuthProfileReference,
   evaluateWoodMeshGgxCentroidsReference,
   evaluateWoodTriangleGgxBatchReference,
   evaluateWoodTriangleGgxCoverageReference,
@@ -664,5 +665,60 @@ test('the complete wood mesh reduces to an area-weighted anisotropic response', 
   assert.equal(
     summary.vectorBytes,
     summary.sourceCentroids.vectorBytes + summary.triangleAreas.byteLength,
+  );
+});
+
+test('the complete wood mesh exposes a bounded tangent-oriented azimuth profile', () => {
+  const material = proceduralSideGrainMaterial();
+  const packet = adaptWoodCutMaterialToTriangleFacesReference(material, {
+    triangleBudget: 32,
+  });
+  const azimuths = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
+  const viewCosine = 0.72;
+  const profile = evaluateWoodMeshGgxAzimuthProfileReference(packet, {
+    azimuths,
+    viewCosine,
+    triangleBudget: 32,
+    probeBudget: 4,
+  });
+  const viewSine = Math.sqrt(1 - viewCosine * viewCosine);
+  const summaries = azimuths.map((azimuth) => {
+    const direction = normalize(packet.tangentFrame.normal.map((normal, component) => (
+      normal * viewCosine
+      + packet.tangentFrame.tangent[component] * viewSine * Math.cos(azimuth)
+      + packet.tangentFrame.bitangent[component] * viewSine * Math.sin(azimuth)
+    )));
+    return evaluateWoodMeshGgxAreaSummaryReference(packet, {
+      viewDirection: direction,
+      lightDirection: direction,
+      triangleBudget: 32,
+    });
+  });
+
+  assert.equal(profile.kind, 'wood-cut-mesh-ggx-azimuth-profile:v1');
+  assert.strictEqual(profile.sourcePacket, packet);
+  assert.equal(profile.probeCount, azimuths.length);
+  assert.equal(profile.probeBudget, 4);
+  assert.equal(profile.viewCosine, viewCosine);
+  assert.deepEqual(Array.from(profile.azimuths), azimuths.map(Math.fround));
+  assert.deepEqual(
+    Array.from(profile.meanSpecularBrdf),
+    summaries.map((summary) => Math.fround(summary.meanSpecularBrdf)),
+  );
+  assert.deepEqual(
+    Array.from(profile.meanReflectedRgb),
+    summaries.flatMap((summary) => summary.meanReflectedRgb.map(Math.fround)),
+  );
+  assert.ok(summaries.every((summary) => (
+    Math.abs(summary.totalArea - profile.totalArea) < 1e-12
+  )));
+  assert.ok(Math.abs(
+    profile.meanSpecularBrdf[0] - profile.meanSpecularBrdf[1]
+  ) > 1e-4);
+  assert.equal(
+    profile.vectorBytes,
+    profile.azimuths.byteLength
+      + profile.meanSpecularBrdf.byteLength
+      + profile.meanReflectedRgb.byteLength,
   );
 });
