@@ -4,6 +4,131 @@ import { installWebGpuFixtureTracker } from '../retention-ledger.mjs';
 export const VKF_MARKER_IMPOSTOR_VERSION = '0.4.0';
 const ORTHO_SCALE = 1.1;
 
+const FLAT_OPAQUE_MARKER_SHADER = `
+struct Scene {
+  mvp: mat4x4<f32>,
+  model: mat4x4<f32>,
+  cam_pos: vec3<f32>,
+  _pad0: f32,
+}
+@group(0) @binding(0) var<uniform> scene: Scene;
+
+struct MarkerInput {
+  @location(0) position: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) base_color: vec4<f32>,
+  @location(3) center_radius: vec4<f32>,
+  @location(4) color: vec4<f32>,
+}
+struct MarkerOutput {
+  @builtin(position) clip: vec4<f32>,
+  @location(0) local: vec2<f32>,
+  @location(1) color: vec4<f32>,
+}
+
+@vertex fn flatPointVertex(input: MarkerInput) -> MarkerOutput {
+  var output: MarkerOutput;
+  output.clip = scene.mvp * vec4<f32>(input.center_radius.xyz, 1.0);
+  output.local = vec2<f32>(0.0);
+  output.color = input.color;
+  return output;
+}
+
+@vertex fn analyticCircleVertex(input: MarkerInput) -> MarkerOutput {
+  let center = input.center_radius.xyz;
+  let radius = input.center_radius.w;
+  let view_direction = normalize(scene.cam_pos - center);
+  var reference_up = vec3<f32>(0.0, 0.0, 1.0);
+  if (abs(dot(view_direction, reference_up)) >= 0.92) {
+    reference_up = vec3<f32>(0.0, 1.0, 0.0);
+  }
+  let right = normalize(cross(reference_up, view_direction));
+  let up = normalize(cross(view_direction, right));
+  let world = center
+    + (right * input.position.x * radius)
+    + (up * input.position.y * radius);
+  var output: MarkerOutput;
+  output.clip = scene.mvp * vec4<f32>(world, 1.0);
+  output.local = input.position.xy;
+  output.color = input.color;
+  return output;
+}
+
+@fragment fn flatPointFragment(input: MarkerOutput) -> @location(0) vec4<f32> {
+  return input.color;
+}
+
+@fragment fn analyticCircleFragment(input: MarkerOutput) -> @location(0) vec4<f32> {
+  let radial = length(input.local);
+  let edge = max(fwidth(radial), 1e-4);
+  let mask = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, radial);
+  if (mask <= 1e-4) { discard; }
+  return vec4<f32>(input.color.rgb * mask, mask);
+}
+`;
+
+export function createVkfFlatOpaqueMarkerPipeline(renderer, pointSizePx) {
+  if (pointSizePx !== 1 && pointSizePx !== 4) {
+    throw new RangeError('VKF exact marker pipeline requires a 1px or 4px lane');
+  }
+  const device = renderer?._device;
+  if (!device || !renderer._bindLayout || !renderer._clusteredLightBindLayout || !renderer._format) {
+    throw new Error('VKF exact marker pipeline requires an initialized renderer');
+  }
+  const module = device.createShaderModule({
+    code: FLAT_OPAQUE_MARKER_SHADER,
+    label: 'vkf-retained-cloud-flat-opaque-marker',
+  });
+  const layout = device.createPipelineLayout({
+    bindGroupLayouts: [renderer._bindLayout, renderer._clusteredLightBindLayout],
+  });
+  const analytic = pointSizePx === 4;
+  const target = { format: renderer._format };
+  if (analytic) {
+    target.blend = {
+      color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    };
+  }
+  return device.createRenderPipeline({
+    label: analytic
+      ? 'vkf-retained-cloud-analytic-circle'
+      : 'vkf-retained-cloud-discrete-point',
+    layout,
+    vertex: {
+      module,
+      entryPoint: analytic ? 'analyticCircleVertex' : 'flatPointVertex',
+      buffers: [{
+        arrayStride: 40,
+        attributes: [
+          { shaderLocation: 0, format: 'float32x3', offset: 0 },
+          { shaderLocation: 1, format: 'float32x3', offset: 12 },
+          { shaderLocation: 2, format: 'float32x4', offset: 24 },
+        ],
+      }, {
+        arrayStride: 32,
+        stepMode: 'instance',
+        attributes: [
+          { shaderLocation: 3, format: 'float32x4', offset: 0 },
+          { shaderLocation: 4, format: 'float32x4', offset: 16 },
+        ],
+      }],
+    },
+    fragment: {
+      module,
+      entryPoint: analytic ? 'analyticCircleFragment' : 'flatPointFragment',
+      targets: [target],
+    },
+    primitive: { topology: analytic ? 'triangle-list' : 'point-list' },
+    multisample: { count: INDICATOR_PROTOCOL.renderState.sampleCount },
+    depthStencil: {
+      format: 'depth24plus',
+      depthWriteEnabled: true,
+      depthCompare: 'less',
+    },
+  });
+}
+
 export function bgraRowsToRgba(source, width, height, bytesPerRow, format = 'bgra8unorm') {
   if (!(source instanceof Uint8Array) || source.byteLength < bytesPerRow * height) {
     throw new TypeError('texture readback must contain every padded row');
@@ -63,21 +188,26 @@ export function createVkfMarkerScene(fixture, pointSizePx, viewport) {
   const far = 500;
   const halfWidth = ORTHO_SCALE * aspect;
   const inverseDepth = 1 / (near - far);
+  const discrete = pointSizePx === 1;
   const mesh = {
     id: 'retained-cloud-marker-impostor',
     mode3d: true,
     label: 'retained-cloud-marker-impostor',
-    vertices: new Float32Array([
-      -1.06, -1.06, 0, 0, 0, 1, 1, 1, 1, 1,
-       1.06, -1.06, 0, 0, 0, 1, 1, 1, 1, 1,
-       1.06,  1.06, 0, 0, 0, 1, 1, 1, 1, 1,
-      -1.06,  1.06, 0, 0, 0, 1, 1, 1, 1, 1,
-    ]),
-    indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+    vertices: discrete
+      ? new Float32Array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
+      : new Float32Array([
+        -1.06, -1.06, 0, 0, 0, 1, 1, 1, 1, 1,
+         1.06, -1.06, 0, 0, 0, 1, 1, 1, 1, 1,
+         1.06,  1.06, 0, 0, 0, 1, 1, 1, 1, 1,
+        -1.06,  1.06, 0, 0, 0, 1, 1, 1, 1, 1,
+      ]),
+    indices: discrete
+      ? new Uint32Array([0])
+      : new Uint32Array([0, 1, 2, 0, 2, 3]),
     instances,
     instance_count: fixture.pointCount,
     instance_kind: 'point-impostor',
-    topology: 'triangle-list',
+    topology: discrete ? 'point-list' : 'triangle-list',
     static_vertices: true,
     static_indices: true,
     static_instances: true,
@@ -85,10 +215,10 @@ export function createVkfMarkerScene(fixture, pointSizePx, viewport) {
     rotation: [0, 0, 0],
     scale: [1, 1, 1],
     alpha: 1,
-    transparent: true,
+    transparent: !discrete,
     overlay_expanded: true,
     depth_write: true,
-    no_lighting: false,
+    no_lighting: true,
     no_cull: true,
     pickable: false,
   };
@@ -172,6 +302,9 @@ export function createVkfMarkerImpostorAdapter(host, fixture, options = {}) {
       renderer._renderOnDemand = true;
       const initialized = await renderer.init();
       if (initialized !== true) throw new Error('shipped VfGeomWgpu initialization failed');
+      const markerPipeline = createVkfFlatOpaqueMarkerPipeline(renderer, lane.pointSizePx);
+      renderer._pipePointImpostor = markerPipeline;
+      renderer._pipePointImpostorDepth = markerPipeline;
       renderer._renderContent(performance.now());
       await renderer._device.queue.onSubmittedWorkDone();
       fixtureBuffer = renderer._parts?.[0]?.instanceBuf ?? null;
@@ -193,7 +326,7 @@ export function createVkfMarkerImpostorAdapter(host, fixture, options = {}) {
           + scene.parts[0].vertices.byteLength
           + scene.parts[0].indices.byteLength,
         jsHeapBytes: performance.memory?.usedJSHeapSize ?? null,
-        backend: 'shipped vf-geom-wgpu.js marker_impostor',
+        backend: 'shipped vf-geom-wgpu.js internal exact flat marker',
       };
     },
     async submitFrame(frame) {

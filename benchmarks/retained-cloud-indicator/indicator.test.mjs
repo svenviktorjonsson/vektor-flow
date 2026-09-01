@@ -21,6 +21,7 @@ import {
 } from './correctness.mjs';
 import {
   bgraRowsToRgba,
+  createVkfFlatOpaqueMarkerPipeline,
   createVkfMarkerScene,
   updateVkfOrbit,
   vkfMarkerInstances,
@@ -400,7 +401,7 @@ test('deterministic region oracle rejects reduced data and wrong orbit cameras',
   assert.equal(reducedData.passed, false);
 });
 
-test('VKF marker_impostor prepares immutable XYZ+RGBA instances once and orbits by camera only', () => {
+test('VKF benchmark selects exact flat opaque primitives while retaining instances', () => {
   const fixture = createCloudFixture(2);
   const instances = vkfMarkerInstances(fixture, 4, [1280, 720]);
   assert.equal(instances.length, 16);
@@ -410,22 +411,51 @@ test('VKF marker_impostor prepares immutable XYZ+RGBA instances once and orbits 
     [...fixture.colors.slice(0, 3)],
   );
   assert.equal(instances[7], 1, 'fixture alpha stays unchanged for the zero-light material path');
-  const scene = createVkfMarkerScene(fixture, 4, [1280, 720]);
-  const retained = scene.parts[0].instances;
-  const revision = scene.__revision;
-  updateVkfOrbit(scene, 25);
-  assert.equal(scene.parts[0].instances, retained);
-  assert.equal(scene.__revision, revision);
-  assert.ok(scene.camera.pos[0] > 2.9);
-  assert.ok(Math.abs(scene.camera.pos[2]) < 1e-12);
-  assert.equal(scene.parts[0].instance_kind, 'point-impostor');
-  assert.equal(scene.parts[0].static_instances, true);
-  assert.equal(scene.parts[0].transparent, true);
-  assert.equal(scene.parts[0].overlay_expanded, true);
-  assert.equal(scene.parts[0].no_lighting, false);
-  assert.equal(scene.parts[0].camera, scene.camera);
-  assert.equal(scene.camera.projection_matrix.length, 16);
-  assert.ok(Math.abs(scene.camera.projection_matrix[5] - (1 / 1.1)) < 1e-7);
+  const discrete = createVkfMarkerScene(fixture, 1, [1280, 720]);
+  const analytic = createVkfMarkerScene(fixture, 4, [1280, 720]);
+  assert.equal(discrete.parts[0].topology, 'point-list');
+  assert.equal(discrete.parts[0].indices.length, 1);
+  assert.equal(discrete.parts[0].transparent, false);
+  assert.equal(analytic.parts[0].topology, 'triangle-list');
+  assert.equal(analytic.parts[0].indices.length, 6);
+  assert.equal(analytic.parts[0].transparent, true);
+  assert.equal(discrete.parts[0].no_lighting, true);
+  assert.equal(analytic.parts[0].no_lighting, true);
+
+  const retained = analytic.parts[0].instances;
+  const revision = analytic.__revision;
+  updateVkfOrbit(analytic, 25);
+  assert.equal(analytic.parts[0].instances, retained);
+  assert.equal(analytic.__revision, revision);
+  assert.ok(analytic.camera.pos[0] > 2.9);
+  assert.ok(Math.abs(analytic.camera.pos[2]) < 1e-12);
+  assert.equal(analytic.parts[0].instance_kind, 'point-impostor');
+  assert.equal(analytic.parts[0].static_instances, true);
+  assert.equal(analytic.parts[0].overlay_expanded, true);
+  assert.equal(analytic.parts[0].camera, analytic.camera);
+  assert.equal(analytic.camera.projection_matrix.length, 16);
+  assert.ok(Math.abs(analytic.camera.projection_matrix[5] - (1 / 1.1)) < 1e-7);
+
+  let descriptor;
+  const renderer = {
+    _bindLayout: {},
+    _clusteredLightBindLayout: {},
+    _format: 'bgra8unorm',
+    _device: {
+      createShaderModule(value) { return value; },
+      createPipelineLayout(value) { return value; },
+      createRenderPipeline(value) { descriptor = value; return value; },
+    },
+  };
+  createVkfFlatOpaqueMarkerPipeline(renderer, 1);
+  assert.equal(descriptor.primitive.topology, 'point-list');
+  assert.equal(descriptor.fragment.entryPoint, 'flatPointFragment');
+  assert.equal(descriptor.fragment.targets[0].blend, undefined);
+  assert.equal(descriptor.depthStencil.depthWriteEnabled, true);
+  createVkfFlatOpaqueMarkerPipeline(renderer, 4);
+  assert.equal(descriptor.primitive.topology, 'triangle-list');
+  assert.equal(descriptor.fragment.entryPoint, 'analyticCircleFragment');
+  assert.equal(descriptor.fragment.targets[0].blend.color.srcFactor, 'one');
 });
 
 test('raw WebGPU floor mutates only its bounded orbit uniform', () => {
