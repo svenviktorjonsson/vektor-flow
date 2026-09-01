@@ -37,6 +37,17 @@ NullLiteralNode: (kind:str, span:Span)
 IdentifierNode: (kind:str, name:str, span:Span)
 CallNode: (kind:str, callee:any, args:any, span:Span)
 BinaryOpNode: (kind:str, op:str, left:any, right:any, span:Span)
+TaggedBinaryOpNode: (
+    kind:str,
+    op:str,
+    left:IdentifierNode,
+    right:NumberLiteralNode,
+    span:Span
+)
+TaggedSingleStatementModule: (kind:str, body:[TaggedBinaryOpNode:1], span:Span)
+TaggedSingleStatementResult: (module:TaggedSingleStatementModule, diagnostics:any)
+TaggedTwoStatementModule: (kind:str, body:[TaggedBinaryOpNode:2], span:Span)
+TaggedTwoStatementResult: (module:TaggedTwoStatementModule, diagnostics:any)
 DottedIndexNode: (kind:str, base:any, indices:any, span:Span)
 MatchArmNode: (kind:str, condition:any, body:any)
 MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bit, catch:bit)
@@ -262,7 +273,7 @@ parse_tagged_binary_expression(
     left:TaggedParseCursor,
     operator:TaggedParseCursor,
     right:TaggedParseCursor
-) -> BinaryOpNode:
+) -> TaggedBinaryOpNode:
     start: location(left.file, left.line, left.column)
     stop: location(right.file, right.line, right.column)
     binary_op_node(
@@ -276,12 +287,27 @@ parse_tagged_binary_result(
     left:TaggedParseCursor,
     operator:TaggedParseCursor,
     right:TaggedParseCursor
-) -> ParseResult:
+) -> TaggedSingleStatementResult:
     start: location(left.file, left.line, left.column)
     stop: location(right.file, right.line, right.column)
     expression: parse_tagged_binary_expression(left, operator, right)
     parsed_module: module_node([expression], span(start, stop))
     (module:parsed_module, diagnostics:[])
+
+append_tagged_binary_statement(
+    result:TaggedSingleStatementResult,
+    left:TaggedParseCursor,
+    operator:TaggedParseCursor,
+    right:TaggedParseCursor
+) -> TaggedTwoStatementResult:
+    stop: location(right.file, right.line, right.column)
+    expression: parse_tagged_binary_expression(left, operator, right)
+    parsed_module: (
+        kind:"module",
+        body:[result.module.body.(0), expression],
+        span:span(result.module.span.start, stop)
+    )
+    (module:parsed_module, diagnostics:result.diagnostics)
 
 parse_tagged_two_statement_result(
     first_left:TaggedParseCursor,
@@ -290,17 +316,13 @@ parse_tagged_two_statement_result(
     second_left:TaggedParseCursor,
     second_operator:TaggedParseCursor,
     second_right:TaggedParseCursor
-) -> ParseResult:
-    start: location(first_left.file, first_left.line, first_left.column)
-    stop: location(second_right.file, second_right.line, second_right.column)
-    first: parse_tagged_binary_expression(
+) -> TaggedTwoStatementResult:
+    first_result: parse_tagged_binary_result(
         first_left, first_operator, first_right
     )
-    second: parse_tagged_binary_expression(
-        second_left, second_operator, second_right
+    append_tagged_binary_statement(
+        first_result, second_left, second_operator, second_right
     )
-    parsed_module: module_node([first, second], span(start, stop))
-    (module:parsed_module, diagnostics:[])
 
 parse_type_annotation(cursor:ParseCursor):
     current: peek(cursor)
@@ -430,6 +452,7 @@ parser_capability:
         "tagged_binary_operator",
         "parse_tagged_binary_expression",
         "parse_tagged_binary_result",
+        "append_tagged_binary_statement",
         "parse_tagged_two_statement_result"
     ]
     diagnostics: ["file", "line", "column", "span", "unsupported-syntax"]
