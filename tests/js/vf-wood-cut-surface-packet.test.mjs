@@ -111,3 +111,18 @@ test('end-grain and side-grain packets preserve coherent cut pixels', () => {
     );
   }
 });
+
+test('surface packet triangulates the grid without copying its material vectors', () => {
+  const { endGrain: grid } = makeCutGrids();
+  const packet = packWoodCutSurfacePacketReference(grid, 'end-grain');
+
+  assert.strictEqual(packet.positions, grid.positions);
+  assert.strictEqual(packet.growthCoordinates, grid.growthCoordinates);
+  assert.strictEqual(packet.baseColors, grid.baseColors);
+  assert.strictEqual(packet.surfaceChannels, grid.surfaceChannels);
+  assert.ok(packet.indices instanceof Uint32Array);
+  assert.equal(packet.indices.length, (5 - 1) * (5 - 1) * 6);
+  assert.deepEqual(Array.from(packet.indices.slice(0, 6)), [0, 5, 1, 1, 5, 6]);
+  assert.deepEqual(packet.normal, [0, 0, 1]);
+  assert.equal(packet.vectorBytes, packet.imageBytes + packet.indices.byteLength);
+});
