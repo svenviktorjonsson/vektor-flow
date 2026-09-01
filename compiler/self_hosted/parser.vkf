@@ -13,6 +13,8 @@ TokenStreamEnvelope: (schema:str, version:num, tokens:any)
 Diagnostic: (code:str, message:str, file:str, line:num, column:num, span:Span)
 ParseCursor: (envelope:TokenStreamEnvelope, tokens:any, index:num, diagnostics:any)
 ParseResult: (module:any, diagnostics:any)
+TaggedTokenValue: (tag:str, text:str, number:num)
+TaggedParserToken: (kind:str, value:TaggedTokenValue, location:Location)
 
 ModuleNode: (kind:str, body:any, span:Span)
 BindNode: (kind:str, target:any, annotation:any, value:any, span:Span)
@@ -188,6 +190,18 @@ parse_identifier(cursor:ParseCursor):
         "IDENT" => identifier_node(current.value, span(current.location, current.location))
         unsupported_syntax(cursor, "expected identifier")
 
+parse_tagged_identifier(current:TaggedParserToken) -> IdentifierNode:
+    identifier_node(
+        current.value.text,
+        span(current.location, current.location)
+    )
+
+parse_tagged_number(current:TaggedParserToken) -> NumberLiteralNode:
+    number_literal(
+        current.value.number,
+        span(current.location, current.location)
+    )
+
 parse_type_annotation(cursor:ParseCursor):
     current: peek(cursor)
     current.kind??
@@ -305,6 +319,7 @@ parser_capability:
         "matches normalized bootstrap parser AST for comparison and boolean operator chains"
     ]
     helpers: ["cursor", "peek", "peek_kind", "advance", "expect", "at_end"]
+    tagged_value_helpers: ["parse_tagged_identifier", "parse_tagged_number"]
     diagnostics: ["file", "line", "column", "span", "unsupported-syntax"]
     ast_nodes: [
         "module",

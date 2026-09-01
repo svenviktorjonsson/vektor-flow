@@ -6,6 +6,8 @@
 Token: (kind:str, value:any, line:num, column:num)
 LexResult: (tokens:any, errors:any)
 ScannerState: (name:str, token_kind:str, starts:any, stops:any, emits:bit)
+TaggedTokenValue: (tag:str, text:str, number:num)
+TaggedParserToken: (kind:str, value:TaggedTokenValue, location:any)
 
 token(kind:str, value:any, line:num, column:num):
     (kind: kind, value: value, line: line, column: column)
@@ -255,6 +257,48 @@ bounded_parser_structure_stream(source:str):
     ]
     (schema:"vektorflow.token_stream", version:1, tokens:tokens)
 
+_tagged_parser_value(tag:str, text:str, number:num) -> TaggedTokenValue:
+    (tag:tag, text:text, number:number)
+
+_tagged_parser_token(
+    kind:str, value:TaggedTokenValue, line:num, column:num
+) -> TaggedParserToken:
+    (
+        kind:kind,
+        value:value,
+        location:(file:"<self-hosted>", line:line, column:column)
+    )
+
+bounded_parser_tagged_stream(source:str):
+    result: identifier_number_tokens(source)
+    tokens: [
+        _tagged_parser_token(
+            result.first.kind,
+            _tagged_parser_value("text", result.first.value, 0),
+            result.first.line,
+            result.first.column
+        ),
+        _tagged_parser_token(
+            result.second.kind,
+            _tagged_parser_value("number", "", result.second.value),
+            result.second.line,
+            result.second.column
+        ),
+        _tagged_parser_token(
+            result.third.kind,
+            _tagged_parser_value("text", result.third.value, 0),
+            result.third.line,
+            result.third.column
+        ),
+        _tagged_parser_token(
+            result.fourth.kind,
+            _tagged_parser_value("number", "", result.fourth.value),
+            result.fourth.line,
+            result.fourth.column
+        )
+    ]
+    (schema:"vektorflow.token_stream", version:1, tokens:tokens)
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
@@ -337,6 +381,7 @@ lexer_capability:
         "bounded linked token stream with NEWLINE and EOF",
         "bounded linked LexResult token container",
         "versioned linked token structure envelope for parser cursor handoff",
+        "tagged text and number token values for homogeneous parser transport",
         "character class helpers",
         "token kind catalog",
         "scan_whitespace",
