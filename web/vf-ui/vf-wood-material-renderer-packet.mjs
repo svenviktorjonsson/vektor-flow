@@ -904,3 +904,62 @@ export function evaluateWoodRefinementGgxConvergenceReference(sourceProfiles) {
       + maximumReflectedRgbError.byteLength,
   });
 }
+
+export function selectWoodRefinementGgxProfileReference(
+  sourceConvergence,
+  { maximumSpecularError, maximumReflectedRgbError },
+) {
+  const refinementCount = Number(sourceConvergence?.refinementCount);
+  const sourceProfiles = sourceConvergence?.sourceProfiles;
+  if (
+    sourceConvergence?.kind !== 'wood-cut-refinement-ggx-convergence:v1'
+    || !Number.isSafeInteger(refinementCount)
+    || refinementCount <= 0
+    || refinementCount > MAX_GGX_MATERIAL_PROFILES
+    || !(sourceConvergence.maximumSpecularError instanceof Float32Array)
+    || sourceConvergence.maximumSpecularError.length !== refinementCount
+    || !(sourceConvergence.maximumReflectedRgbError instanceof Float32Array)
+    || sourceConvergence.maximumReflectedRgbError.length !== refinementCount
+    || sourceProfiles?.kind !== 'wood-cut-refinement-ggx-profiles:v1'
+    || !(sourceProfiles.detailLevels instanceof Uint32Array)
+    || sourceProfiles.detailLevels.length !== refinementCount
+    || !Array.isArray(sourceProfiles.sourcePackets)
+    || sourceProfiles.sourcePackets.length !== refinementCount
+  ) {
+    throw new TypeError('bounded wood refinement GGX convergence is required');
+  }
+  if (!Number.isFinite(maximumSpecularError) || maximumSpecularError < 0) {
+    throw new RangeError('maximumSpecularError must be finite and non-negative');
+  }
+  if (!Number.isFinite(maximumReflectedRgbError) || maximumReflectedRgbError < 0) {
+    throw new RangeError('maximumReflectedRgbError must be finite and non-negative');
+  }
+  let selectedRefinement = -1;
+  for (let refinement = 0; refinement < refinementCount; refinement += 1) {
+    if (
+      sourceConvergence.maximumSpecularError[refinement] <= maximumSpecularError
+      && sourceConvergence.maximumReflectedRgbError[refinement]
+        <= maximumReflectedRgbError
+    ) {
+      selectedRefinement = refinement;
+      break;
+    }
+  }
+  if (selectedRefinement < 0) {
+    throw new RangeError('wood refinement quality budget cannot be satisfied');
+  }
+
+  return Object.freeze({
+    kind: 'wood-cut-refinement-ggx-selection:v1',
+    sourceConvergence,
+    sourcePacket: sourceProfiles.sourcePackets[selectedRefinement],
+    selectedRefinement,
+    selectedDetailLevel: sourceProfiles.detailLevels[selectedRefinement],
+    specularError: sourceConvergence.maximumSpecularError[selectedRefinement],
+    reflectedRgbError:
+      sourceConvergence.maximumReflectedRgbError[selectedRefinement],
+    maximumSpecularError,
+    maximumReflectedRgbError,
+    vectorBytes: 0,
+  });
+}
