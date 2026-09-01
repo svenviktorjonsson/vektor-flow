@@ -4,7 +4,9 @@ param(
     [string]$ReleaseRoot,
     [string]$WorkRoot = "build/native-release-module-trace",
     [ValidateRange(250, 10000)]
-    [int]$TraceMilliseconds = 2000
+    [int]$TraceMilliseconds = 2000,
+    [ValidateRange(1000, 900000)]
+    [int]$CompileTimeoutMilliseconds = 600000
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,18 +102,20 @@ try {
         [pscustomobject]@{ ids = $ids; rows = $rows }
     }
 
-    function Trace-HiddenProcess([string]$Name, [string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory) {
+    function Trace-HiddenProcess([string]$Name, [string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory, [switch]$WaitForExit) {
         $process = Start-Process `
             -FilePath $Executable `
             -ArgumentList $Arguments `
             -WorkingDirectory $WorkingDirectory `
             -WindowStyle Hidden `
             -PassThru
-        $deadline = [DateTime]::UtcNow.AddMilliseconds($TraceMilliseconds)
+        $deadlineMilliseconds = if ($WaitForExit) { $CompileTimeoutMilliseconds } else { $TraceMilliseconds }
+        $deadline = [DateTime]::UtcNow.AddMilliseconds($deadlineMilliseconds)
         $modulePaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
         $processPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
         [void]$modulePaths.Add([System.IO.Path]::GetFullPath($Executable))
         [void]$processPaths.Add([System.IO.Path]::GetFullPath($Executable))
+        $timedOut = $false
         try {
             do {
                 $tree = Get-ProcessTreeIds $process.Id
@@ -130,6 +134,7 @@ try {
                 Start-Sleep -Milliseconds 50
                 $process.Refresh()
             } while ([DateTime]::UtcNow -lt $deadline -and -not $process.HasExited)
+            $timedOut = $WaitForExit -and -not $process.HasExited
         } finally {
             $process.Refresh()
             if (-not $process.HasExited) {
@@ -146,6 +151,15 @@ try {
                 }
             }
         }
+        if ($timedOut) {
+            throw "hidden trace process '$Name' timed out after $CompileTimeoutMilliseconds ms"
+        }
+        if ($WaitForExit) {
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) {
+                throw "hidden trace process '$Name' exited with code $($process.ExitCode)"
+            }
+        }
         [pscustomobject]@{
             name = $Name
             executable = $Executable
@@ -155,7 +169,7 @@ try {
     }
 
     $uiCompileArguments = @("-b", ('"' + $uiSource + '"'), "-o", ('"' + $uiProgram + '"'))
-    $uiCompileTrace = Trace-HiddenProcess "toolchain-free-ui-compile" $compiler $uiCompileArguments $uiRoot
+    $uiCompileTrace = Trace-HiddenProcess "toolchain-free-ui-compile" $compiler $uiCompileArguments $uiRoot -WaitForExit
     if (-not (Test-Path -LiteralPath $uiProgram -PathType Leaf)) {
         throw "could not build module-trace UI program"
     }
