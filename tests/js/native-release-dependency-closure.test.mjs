@@ -151,6 +151,12 @@ test(
 test("Windows release module trace uses valid helper execution paths", () => {
   const source = readFileSync(moduleTracer, "utf8");
   assert.match(source, /Trace-HiddenProcess\s+"toolchain-free-ui-compile"/);
+  assert.match(
+    source,
+    /Trace-HiddenProcess\s+"toolchain-free-ui-compile"[^\r\n]*-WaitForExit/,
+    "UI compilation must finish rather than being killed at the runtime sampling deadline",
+  );
+  assert.match(source, /CompileTimeoutMilliseconds/);
   assert.match(source, /Trace-HiddenProcess\s+"native-scene-artifact-stage"/);
   assert.doesNotMatch(source, /Trace-HiddenProcess\s+"vkf-(?:runner|ui-package|native-scene-artifact-stager)"/);
   assert.match(source, /VektorFlowModuleTrace-/);
