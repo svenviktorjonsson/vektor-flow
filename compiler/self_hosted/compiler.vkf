@@ -4,6 +4,31 @@
 # smoke consumes typed IR JSON from the parser/IR pipeline and owns the build
 # directory manifest without host fallback hooks.
 
+lexer: .lexer
+parser: .parser
+typed: .typed_ir
+mir: .machine_ir
+validation: .machine_ir_validation
+
+compile_tagged_dependency_tape(source:str):
+    tokens: lexer.tagged_statement_token_tape(source)
+    parsed: parser.parse_tagged_two_derived_bindings(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_two_derived_bindings(
+        parsed.kind, parsed.values
+    )
+    statement: mir.mir_tagged_dynamic_two_derived_bindings(expression.values)
+    maximum: validation.machine_ir_numeric_opcode_tape_stack_maximum(
+        statement.opcodes
+    )
+    (
+        name:statement.name,
+        opcodes:statement.opcodes,
+        values:statement.values,
+        max_stack:maximum
+    )
+
 CompilerArtifactManifest: (
     source_path:str,
     source_sha256:str,
