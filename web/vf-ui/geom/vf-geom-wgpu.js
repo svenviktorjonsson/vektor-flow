@@ -7864,12 +7864,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
         };
         reflectedCamera._mirrorRenderClip = mirrorRenderClip;
       }
-      if (surfaceCamera.lock_aperture_camera === true) {
-        reflectedCamera = this._buildPlanarSurfaceApertureCamera(part, sceneMesh, reflectedCamera, t, targetAspect);
-        if (reflectedCamera && mirrorRenderClip) {
-          reflectedCamera._mirrorRenderClip = mirrorRenderClip;
-        }
-      }
+      // buildRenderCamera already binds the off-axis frustum to the four
+      // mirror corners and moves the near plane onto the mirror. Rebuilding
+      // an aperture camera here discarded that oblique near-plane clip.
       if (reflectedCamera && typeof reflectedCamera === "object" && surfaceCamera.flip_x === true) {
         reflectedCamera.flip_x = true;
       }
@@ -8020,6 +8017,9 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       if (!this._parts || !this._parts.length) { return; }
       options = options && typeof options === "object" ? options : {};
       var skipOverlayExpanded = options.skipOverlayExpanded === true;
+      var surfaceDependencyIndex = Number.isFinite(Number(options.surfaceDependencyIndex))
+        ? Number(options.surfaceDependencyIndex)
+        : -1;
       var reflectionClip = options.reflectionClip && typeof options.reflectionClip === "object" ? options.reflectionClip : null;
       var reflectionClipPoint = reflectionClip && Array.isArray(reflectionClip.planePoint)
         ? vec3Or(reflectionClip.planePoint, [0.0, 0.0, 0.0])
@@ -8095,11 +8095,25 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           if (!partMesh) { continue; }
           if (partMesh.visible === false) { continue; }
           if (omitObjectId && Number(part.objectId || 0) === Number(omitObjectId || 0)) { continue; }
-          if (skipSurfaceParts && partMesh.surface_system) { continue; }
           if (skipOverlayExpanded && partMesh.overlay_expanded === true) { continue; }
           if (isRejectedByReflectionClip(part)) { continue; }
           if (isLateTransparent(part) !== lateStage) { continue; }
-          this._drawSingleScenePart(pass, sceneMesh, part, t, aspect, overrideCamera || null, MmBatch, width, height);
+          var reflectedSurfaceMesh = null;
+          if (skipSurfaceParts && partMesh.surface_system && !(partIndex < surfaceDependencyIndex)) {
+            reflectedSurfaceMesh = partMesh;
+            partMesh = Object.assign({}, partMesh);
+            partMesh.surface_system = null;
+            partMesh._surfaceTextureReady = false;
+            partMesh._surfaceProjectorMatrix = null;
+            part.mesh = partMesh;
+          }
+          try {
+            this._drawSingleScenePart(pass, sceneMesh, part, t, aspect, overrideCamera || null, MmBatch, width, height);
+          } finally {
+            if (reflectedSurfaceMesh) {
+              part.mesh = reflectedSurfaceMesh;
+            }
+          }
         }
       }
       pass.end();
@@ -8365,7 +8379,10 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
           renderCamera,
           part.objectId,
           true,
-          { reflectionClip: renderCamera && renderCamera._mirrorRenderClip ? renderCamera._mirrorRenderClip : null }
+          {
+            reflectionClip: renderCamera && renderCamera._mirrorRenderClip ? renderCamera._mirrorRenderClip : null,
+            surfaceDependencyIndex: i
+          }
         );
         this._lastSurfacePassCount += 1;
         this._ensurePartBindGroup(part);
