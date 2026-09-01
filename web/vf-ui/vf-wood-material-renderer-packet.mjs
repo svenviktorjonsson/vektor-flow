@@ -1020,3 +1020,81 @@ export function selectWoodRefinementGgxProfileBatchReference(
       + reflectedRgbErrors.byteLength,
   });
 }
+
+export function createWoodRefinementGgxSelectionCacheReference(
+  sourceConvergence,
+  { entryBudget },
+) {
+  if (sourceConvergence?.kind !== 'wood-cut-refinement-ggx-convergence:v1') {
+    throw new TypeError('bounded wood refinement GGX convergence is required');
+  }
+  if (
+    !Number.isSafeInteger(entryBudget)
+    || entryBudget <= 0
+    || entryBudget > MAX_GGX_REFINEMENT_DEMANDS
+  ) {
+    throw new RangeError(
+      `wood entryBudget must be an integer from 1 to ${MAX_GGX_REFINEMENT_DEMANDS}`,
+    );
+  }
+  const entries = new Map();
+  let hits = 0;
+  let misses = 0;
+  let evictions = 0;
+  const demandKey = ({ maximumSpecularError, maximumReflectedRgbError }) => {
+    if (!Number.isFinite(maximumSpecularError) || maximumSpecularError < 0) {
+      throw new RangeError('maximumSpecularError must be finite and non-negative');
+    }
+    if (!Number.isFinite(maximumReflectedRgbError) || maximumReflectedRgbError < 0) {
+      throw new RangeError('maximumReflectedRgbError must be finite and non-negative');
+    }
+    return `${maximumSpecularError}|${maximumReflectedRgbError}`;
+  };
+
+  return Object.freeze({
+    kind: 'wood-cut-refinement-ggx-selection-cache:v1',
+    sourceConvergence,
+    entryBudget,
+    demand(demand) {
+      const key = demandKey(demand);
+      const retained = entries.get(key);
+      if (retained) {
+        hits += 1;
+        return Object.freeze({
+          demandKey: key,
+          cacheHit: true,
+          evictedDemandKey: null,
+          selection: retained,
+        });
+      }
+      const selection = selectWoodRefinementGgxProfileReference(
+        sourceConvergence,
+        demand,
+      );
+      let evictedDemandKey = null;
+      if (entries.size === entryBudget) {
+        evictedDemandKey = entries.keys().next().value;
+        entries.delete(evictedDemandKey);
+        evictions += 1;
+      }
+      entries.set(key, selection);
+      misses += 1;
+      return Object.freeze({
+        demandKey: key,
+        cacheHit: false,
+        evictedDemandKey,
+        selection,
+      });
+    },
+    snapshot() {
+      return Object.freeze({
+        entryCount: entries.size,
+        entryBudget,
+        demandKeys: Object.freeze(Array.from(entries.keys())),
+        hits,
+        misses,
+        evictions,
+      });
+    },
+  });
+}
