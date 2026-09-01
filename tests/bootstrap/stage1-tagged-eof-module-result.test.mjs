@@ -26,7 +26,7 @@ test("parser consumes token tape through EOF into an unbounded module result", (
       "lexer: .lexer",
       "parser: .parser",
       `tokens: lexer.tagged_statement_token_tape(${JSON.stringify(source)})`,
-      "result: parser.parse_tagged_token_tape(tokens)",
+      "result: parser.parse_tagged_token_tape(tokens.source, tokens.rows, tokens.count)",
       "first: parser.tagged_module_statement(result.module, 0)",
       "last: parser.tagged_module_statement(result.module, 31)",
       ":: result.module.kind",
