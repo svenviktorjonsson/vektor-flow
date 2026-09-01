@@ -18,6 +18,16 @@ TypedExprStmt: (kind:str, expr:any)
 TypedList: (kind:str, items:any, element_type:str, type:str)
 TypedRecord: (kind:str, fields:any, type:str)
 TypedFieldAccess: (kind:str, object:any, field:str, object_type:str, type:str)
+TypedTaggedModule: (kind:str, source:str, statements:[num], count:int)
+TypedTaggedBinaryOp: (
+    kind:str,
+    left:TypedLoad,
+    left_type:str,
+    op:str,
+    right:TypedConst,
+    right_type:str,
+    type:str
+)
 FunctionSymbol: (name:str, param_types:any, return_type:str, signature:str)
 SymbolicTypeFacts: (symbolic:bit, shape:str, surface:str, scalar_domain:str, base_surface:str, exponent_surface:str, domain_surface:str, codomain_surface:str)
 TypedExpressionFacts: (mode:str, value_type:str, symbolic_type:SymbolicTypeFacts, symbolic_node_kind:str, free_variables:any)
@@ -78,6 +88,42 @@ typed_record(fields:any, type:str):
 
 typed_field_access(object:any, field:str, object_type:str, type:str):
     (kind: "field_access", object: object, field: field, object_type: object_type, type: type)
+
+typed_tagged_module(
+    source:str, statements:[num], count:int
+) -> TypedTaggedModule:
+    (
+        kind:"typed_module",
+        source:source,
+        statements:statements,
+        count:count
+    )
+
+typed_tagged_operator(operator_code:num) -> str:
+    operator_code??
+        1 => "PLUS"
+        "UNKNOWN"
+
+typed_tagged_module_statement(
+    module:TypedTaggedModule, index:int
+) -> TypedTaggedBinaryOp:
+    offset: index * 8
+    (
+        kind:"binary_op",
+        left:typed_load(
+            vkf_utf8_slice(
+                module.source,
+                module.statements.(offset),
+                module.statements.(offset + 1)
+            ),
+            "any"
+        ),
+        left_type:"any",
+        op:typed_tagged_operator(module.statements.(offset + 2)),
+        right:typed_const(module.statements.(offset + 3), "int"),
+        right_type:"int",
+        type:"any"
+    )
 
 function_symbol(name:str, param_types:any, return_type:str, signature:str):
     (name: name, param_types: param_types, return_type: return_type, signature: signature)
