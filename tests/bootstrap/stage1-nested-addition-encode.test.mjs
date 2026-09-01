@@ -13,7 +13,10 @@ const nativeBin = process.env.VKF_NATIVE_BIN
 const compiler = join(nativeBin, `vkf-strict${suffix}`);
 const newline = process.platform === "win32" ? "\r\n" : "\n";
 
-test("a prior numeric binding closes and encodes a nested addition", () => {
+function runArithmetic({
+  sourceText, parserFunction, typedFunction, machineFunction,
+  component, expected, expectedStdout,
+}) {
   const rootWork = join(root, ".work");
   mkdirSync(rootWork, { recursive: true });
   const work = mkdtempSync(join(rootWork, "i127-nested-addition-"));
@@ -31,12 +34,12 @@ test("a prior numeric binding closes and encodes a nested addition", () => {
       "typed: .typed_ir",
       "mir: .machine_ir",
       "validation: .machine_ir_validation",
-      'tokens: lexer.tagged_statement_token_tape("value: 31\\nvalue + 1 + 2")',
-      "parsed: parser.parse_tagged_binding_nested_addition(",
+      `tokens: lexer.tagged_statement_token_tape(${JSON.stringify(sourceText)})`,
+      `parsed: parser.${parserFunction}(`,
       "    tokens.source, tokens.rows, tokens.count",
       ")",
-      "expression: typed.typed_tagged_nested_addition(parsed.kind, parsed.values)",
-      "statement: mir.mir_tagged_nested_addition(expression.values)",
+      `expression: typed.${typedFunction}(parsed.kind, parsed.values)`,
+      `statement: mir.${machineFunction}(expression.values)`,
       "maximum: validation.machine_ir_nested_addition_stack_maximum(",
       "    statement.instructions.0.kind, statement.instructions.1.kind,",
       "    statement.instructions.2.kind, statement.instructions.3.kind,",
@@ -67,20 +70,15 @@ test("a prior numeric binding closes and encodes a nested addition", () => {
     );
     assert.equal(compiled.status, 0, compiled.stderr);
 
-    const expected = [
-      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "2",
-      "push_f64", "31", "push_f64", "1", "add_f64",
-      "push_f64", "2", "add_f64", "return_f64",
-    ].join(newline) + newline;
     const oracle = join(work, "oracle.txt");
-    writeFileSync(oracle, expected, "utf8");
+    writeFileSync(oracle, expected.join(newline) + newline, "utf8");
     const output = join(work, `nested${suffix}`);
     const provenance = join(work, "provenance.json");
     const dispatched = spawnSync(
       compiler,
       [
         "--vkf-internal-stage-component",
-        "machine_ir.closed_nested_addition.typed_module_pipeline",
+        component,
         artifact, source, oracle, output, provenance,
       ],
       { cwd: root, encoding: "utf8", timeout: 10_000, windowsHide: true },
@@ -91,9 +89,41 @@ test("a prior numeric binding closes and encodes a nested addition", () => {
       cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true,
     });
     assert.equal(executed.status, 0, executed.stderr);
-    assert.equal(executed.stdout, `34${newline}`);
+    assert.equal(executed.stdout, `${expectedStdout}${newline}`);
     assert.equal(JSON.parse(readFileSync(provenance, "utf8")).exact_oracle_match, true);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+test("a prior numeric binding closes and encodes a nested addition", () => {
+  runArithmetic({
+    sourceText: "value: 31\nvalue + 1 + 2",
+    parserFunction: "parse_tagged_binding_nested_addition",
+    typedFunction: "typed_tagged_nested_addition",
+    machineFunction: "mir_tagged_nested_addition",
+    component: "machine_ir.closed_nested_addition.typed_module_pipeline",
+    expected: [
+      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "2",
+      "push_f64", "31", "push_f64", "1", "add_f64",
+      "push_f64", "2", "add_f64", "return_f64",
+    ],
+    expectedStdout: 34,
+  });
+});
+
+test("multiplication binds before addition in a closed mixed expression", () => {
+  runArithmetic({
+    sourceText: "value: 31\nvalue + 1 * 2",
+    parserFunction: "parse_tagged_binding_add_multiply",
+    typedFunction: "typed_tagged_add_multiply",
+    machineFunction: "mir_tagged_add_multiply",
+    component: "machine_ir.closed_add_multiply.typed_module_pipeline",
+    expected: [
+      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "3",
+      "push_f64", "31", "push_f64", "1", "push_f64", "2",
+      "multiply_f64", "add_f64", "return_f64",
+    ],
+    expectedStdout: 33,
+  });
 });
