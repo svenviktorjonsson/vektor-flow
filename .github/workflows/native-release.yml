@@ -510,6 +510,29 @@ jobs:
             benchmarks/symbolic-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.md
           if-no-files-found: error
 
+  visual-evidence:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify committed visual evidence
+        run: node tools/verify-040-release-evidence.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-visual-evidence-proof
+          path: |
+            docs/evidence/040-g09-head-large-scene-peer-timing.md
+            docs/evidence/artifacts/040-g09-large-scene-peer-timing.json
+            docs/evidence/040-retained-cloud-indicator.md
+            docs/evidence/artifacts/040-retained-cloud-indicator.json
+            docs/evidence/artifacts/040-retained-cloud-indicator-captures/
+          if-no-files-found: error
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
@@ -523,6 +546,7 @@ jobs:
       - examples-linux-x64
       - core-linux-x64
       - symbolic-comparison-linux-x64
+      - visual-evidence
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
