@@ -13,7 +13,7 @@ const nativeBin = process.env.VKF_NATIVE_BIN
 const compiler = join(nativeBin, `vkf-strict${suffix}`);
 const newline = process.platform === "win32" ? "\r\n" : "\n";
 
-function runDemand({ sourceText, statementCount, resolver }) {
+function runDemand({ sourceText, statementCount, resolver, expectedDiagnostic = null }) {
   const rootWork = join(root, ".work");
   mkdirSync(rootWork, { recursive: true });
   const work = mkdtempSync(join(rootWork, "i125-multi-binding-"));
@@ -88,6 +88,12 @@ function runDemand({ sourceText, statementCount, resolver }) {
       ],
       { cwd: root, encoding: "utf8", timeout: 10_000, windowsHide: true },
     );
+    if (expectedDiagnostic !== null) {
+      assert.notEqual(dispatched.status, 0, "unresolved dependency was encoded");
+      assert.match(dispatched.stderr, /VKF stage component failed/);
+      assert.ok(readFileSync(artifact).includes(Buffer.from(expectedDiagnostic)));
+      return;
+    }
     assert.equal(dispatched.status, 0, dispatched.stderr);
 
     const executed = spawnSync(output, [], {
@@ -114,5 +120,22 @@ test("demand searches past an unrelated binding for the matching prior dependenc
     sourceText: "value: 31\nother: 10\nvalue + 1",
     statementCount: 3,
     resolver: "mir_tagged_closed_statement_from_prior_binding(dynamic_module, 2)",
+  });
+});
+
+test("prior binding demand selects the nearest matching rebind", () => {
+  runDemand({
+    sourceText: "value: 5\nvalue: 31\nother: 10\nvalue + 1",
+    statementCount: 4,
+    resolver: "mir_tagged_closed_statement_from_prior_binding(dynamic_module, 3)",
+  });
+});
+
+test("prior binding demand rejects an expression with no matching dependency", () => {
+  runDemand({
+    sourceText: "other: 31\nvalue + 1",
+    statementCount: 2,
+    resolver: "mir_tagged_closed_statement_from_prior_binding(dynamic_module, 1)",
+    expectedDiagnostic: "closed Machine IR expression has no matching prior binding",
   });
 });
