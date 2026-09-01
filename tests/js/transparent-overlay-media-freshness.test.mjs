@@ -27,6 +27,42 @@ function littleEndianU16(bytes, offset) {
   return bytes[offset] | (bytes[offset + 1] << 8);
 }
 
+function gifFrameCount(bytes) {
+  let offset = 13;
+  if ((bytes[10] & 0x80) !== 0) {
+    offset += 3 * (2 ** ((bytes[10] & 0x07) + 1));
+  }
+  let frames = 0;
+  const skipSubBlocks = () => {
+    while (offset < bytes.length) {
+      const length = bytes[offset];
+      offset += 1;
+      if (length === 0) break;
+      offset += length;
+    }
+  };
+  while (offset < bytes.length) {
+    const marker = bytes[offset];
+    offset += 1;
+    if (marker === 0x3b) break;
+    if (marker === 0x21) {
+      offset += 1;
+      skipSubBlocks();
+      continue;
+    }
+    assert.equal(marker, 0x2c, `unexpected GIF block 0x${marker.toString(16)}`);
+    frames += 1;
+    const packed = bytes[offset + 8];
+    offset += 9;
+    if ((packed & 0x80) !== 0) {
+      offset += 3 * (2 ** ((packed & 0x07) + 1));
+    }
+    offset += 1;
+    skipSubBlocks();
+  }
+  return frames;
+}
+
 test("transparent overlay README capture remains tied to its executable sources", async () => {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   assert.equal(manifest.schema, "vkf-media-freshness/1");
@@ -34,7 +70,7 @@ test("transparent overlay README capture remains tied to its executable sources"
   assert.equal(manifest.capture.composite_api, "Page.captureScreenshot");
   assert.equal(manifest.capture.execution, "headless Edge WebGPU");
   assert.equal(manifest.capture.fixture, "examples/material_ui_gallery/app.vkf");
-  assert.equal(manifest.capture.pairs.length, 5);
+  assert.equal(manifest.capture.pairs.length, 2);
   for (const pair of manifest.capture.pairs) {
     assert.match(pair.renderer_sha256, /^[a-f0-9]{64}$/u);
     assert.match(pair.composite_sha256, /^[a-f0-9]{64}$/u);
@@ -79,13 +115,7 @@ test("transparent overlay README capture remains tied to its executable sources"
   assert.equal(littleEndianU16(gif, 6), gifSpec.width);
   assert.equal(littleEndianU16(gif, 8), gifSpec.height);
   assert.notEqual(gif.indexOf(Buffer.from("NETSCAPE2.0", "ascii")), -1, "GIF must loop in README");
-  let graphicControlBlocks = 0;
-  for (let offset = 0; offset < gif.length - 3; offset += 1) {
-    if (gif[offset] === 0x21 && gif[offset + 1] === 0xf9 && gif[offset + 2] === 0x04) {
-      graphicControlBlocks += 1;
-    }
-  }
-  assert.equal(graphicControlBlocks, gifSpec.frames);
+  assert.equal(gifFrameCount(gif), gifSpec.frames);
 
   const rendererGifSpec = manifest.media[
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.gif"

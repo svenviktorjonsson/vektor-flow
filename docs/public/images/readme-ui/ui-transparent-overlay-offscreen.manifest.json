@@ -5,51 +5,24 @@
     "composite_api": "Page.captureScreenshot",
     "execution": "headless Edge WebGPU",
     "fixture": "examples/material_ui_gallery/app.vkf",
-    "frame_id": "frame_0",
+    "frame_id": "material_gallery_frame",
     "interactions": [
-      "view-lighting",
-      "view-mirror",
-      "view-glass",
-      "view-all",
-      "glass-alpha=0.72"
+      "camera-default",
+      "camera-wheel-detail"
     ],
     "pairs": [
       {
-        "view": "view-lighting",
-        "renderer_sha256": "b10668dc122f0beafdb257d17f6f2ac5b8143a0a0fcf4fafc5e3bcb10f8bef55",
-        "composite_sha256": "25ccd3fafd73da7df2ccf5addcc71898dfcde87cb3afda5ba290e747db52796d",
+        "view": "stanford-bunny",
+        "renderer_sha256": "248d32643c09fca6be11177c5ba92f3d08504eefa321712507a37a4c16c2f4b6",
+        "composite_sha256": "e35b43a3f0e6c89e752e6ee3e9abdaf140566a0b88d3018c2a11e392c6869d43",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
       },
       {
-        "view": "view-mirror",
-        "renderer_sha256": "1318a8589724088a490dfd4e2dbdc713ff3f3db4216f2ec623b6b7e9de7d8522",
-        "composite_sha256": "17ff54de51a579eb42a9512e43b0f3033bbd61f1873d8379e5bba659b7a9c4b2",
-        "static_html": true,
-        "frame_chrome": true,
-        "webgpu_canvas": true
-      },
-      {
-        "view": "view-glass",
-        "renderer_sha256": "4b82a3f2303074c68c3fafa4a8d24425270a891f3300dcdbedc268b5f15638ff",
-        "composite_sha256": "705740d825ec7112ca3eb1340a71934376c1953e310977ba6a6c07b38804d38e",
-        "static_html": true,
-        "frame_chrome": true,
-        "webgpu_canvas": true
-      },
-      {
-        "view": "view-all",
-        "renderer_sha256": "1c259ef08b1e6259bee15896ea9cee61a3def942d5f9790b61b225d0cc53ff83",
-        "composite_sha256": "97b1fe387319894840f0f32e437153376c9ed8c40969690d7cce616a14953e09",
-        "static_html": true,
-        "frame_chrome": true,
-        "webgpu_canvas": true
-      },
-      {
-        "view": "glass-alpha-072",
-        "renderer_sha256": "f2e60fa7d550274d6b2e49f52278d2568b4e8f334c3d65f49482922aa18d4fed",
-        "composite_sha256": "665c59597f621b5ef1a4ba5eaba337598539cb98af36d9da73a3e4dfd1828941",
+        "view": "stanford-bunny-detail",
+        "renderer_sha256": "f36d142398df90b0085e0e517f32e9ff458e278034759c2a0e9620f764ff1b79",
+        "composite_sha256": "c931e42d2dffd31384f00c51c9174bb1382b8c70acabbfc98fba019e3b666130",
         "static_html": true,
         "frame_chrome": true,
         "webgpu_canvas": true
@@ -57,41 +30,44 @@
     ]
   },
   "sources": {
-    "examples/material_ui_gallery/app.vkf": "8a20affff3cc692ec0126e285fc6e29742ad1f692c5c531516b8222f17d953b7",
-    "examples/material_ui_gallery/ui/main.html": "a12423a7c3e026b9897d5859895c73ad23f578034896ddd28633e2fc2e02548e",
-    "examples/material_ui_gallery/ui/gallery.css": "9ea69c0983e62a3eebaf7d5540dc8cd4b3543a54d07122a17b79585a2990227c",
-    "compiler/native/vkf_retained_scene_packet.hpp": "a526f2326462d80c33c97cf9eb2ee3df68daa17f81099b1830ea49026d8d91d4",
-    "compiler/native/vkf_native_scene_artifact_stager.cpp": "2a557604ecc7b38342a6b9271c80391793bc1be0acd8353f1e5010b94f4083f5",
+    "examples/material_ui_gallery/app.vkf": "ee9ae58f672f9a9ac9645d507bc59a1444e38631f250f8eda2dac7067d52f2ab",
+    "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md": "4a98e19a914f6eb96af760f848434a7a542b5fa259a8d9865ccaaebb4415b26d",
+    "examples/material_ui_gallery/assets/source/bun_zipper.ply": "b1acc63bece78444aa2e15bdcc72371a201279b98c6f5d4b74c993d02f0566fe",
+    "compiler/native/vkf_retained_scene_packet.hpp": "a14a19257de088944c6bbb5bab014f53243a14fb5f74266a08b7f8884d343560",
+    "compiler/native/vkf_native_scene_artifact_stager.cpp": "f100375305c8bd34aa9a5d97ce930b4d777997067b73f6a758ab2185a0903a78",
     "web/vf-ui/vf-runtime-packet-contract.js": "b2081b36b47e997a42659396c092400b603835ab308f53a19c98ab8ab411e760",
     "web/vf-ui/vf-retained-event-adapter.js": "b7082ab7a277ece450781deb5e4a56f8e3dd33ef5f78c4a921fc47dfae2f001b",
     "web/vf-ui/vf-static-html-loader.js": "71bd12c268b023dab13be48d05caa6ee03048f0cddc761ddfc67c11390340775",
-    "tests/helpers/capture_material_ui_gallery.js": "c91ce146210092224bab2a071a3036959de7942d6227f0c29ac932660022bb8c",
+    "web/vf-ui/vf-display.js": "f6b7751f653e145eb9cc450c371bbc72153eaf25574ee99cded760870d6534fc",
+    "web/vf-ui/geom/vf-geom-wgpu.js": "67bc9b01faa1ba666775001fdaa712f794929a22c90ad4a8fb93e1b9baae2fd0",
+    "tests/helpers/capture_material_ui_gallery.js": "31088105b8bf99db528217e12be2e545b975c882f7d6402fef77b42a9e716201",
     "tools/build_material_ui_gallery_gif.py": "a95090699456b8bea9d56e783a03a45662e54292c8e00c3a317d23e99a6567c1",
-    "scripts/build-material-ui-gallery-media.mjs": "821304b7851dc83c126b5c5a89524a26dc03321b32fa25b33f66ed70964cdff8"
+    "tools/build_material_ui_gallery_webp.py": "19a402c6af17c2a56b57f7d190219d9d7bcf84e910dea10772eb21044f60b1e3",
+    "scripts/build-material-ui-gallery-media.mjs": "cf15bc8eb323d3e1d0dad4567c8852d964ca2e58709821e7322f9766fca85710"
   },
   "media": {
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.png": {
-      "sha256": "665c59597f621b5ef1a4ba5eaba337598539cb98af36d9da73a3e4dfd1828941",
+      "sha256": "c931e42d2dffd31384f00c51c9174bb1382b8c70acabbfc98fba019e3b666130",
       "width": 1376,
       "height": 861
     },
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.png": {
-      "sha256": "f2e60fa7d550274d6b2e49f52278d2568b4e8f334c3d65f49482922aa18d4fed",
-      "width": 1002,
-      "height": 708
+      "sha256": "f36d142398df90b0085e0e517f32e9ff458e278034759c2a0e9620f764ff1b79",
+      "width": 1278,
+      "height": 700
     },
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.gif": {
-      "sha256": "193720d10cf4a451871db5f9e63bc9b6963d4aee1a116263bd32724ec7c95250",
+      "sha256": "2a924a143aa413e94ed06290cfe0e4d15ed2c78b93dc713e8df77de21380199e",
       "width": 1376,
       "height": 861,
-      "frames": 5,
+      "frames": 2,
       "loop": true
     },
     "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.gif": {
-      "sha256": "c54fae40c3d3369cda23551fddda7ed81160da8a0a9e855c1ed3204cc482a0e1",
-      "width": 1002,
-      "height": 708,
-      "frames": 5,
+      "sha256": "d46a6b62f42a84ef89f3298783659f6ebcc9a5523cb697198291d1665a3b687a",
+      "width": 1278,
+      "height": 700,
+      "frames": 2,
       "loop": true
     }
   }

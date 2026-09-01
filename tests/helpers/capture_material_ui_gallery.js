@@ -4,8 +4,6 @@ const { spawn } = require("child_process");
 const os = require("os");
 const path = require("path");
 
-const views = ["view-lighting", "view-mirror", "view-glass", "view-all"];
-
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -99,7 +97,8 @@ async function openScene(scenePath, port, frameId) {
       status: window.VfDisplay && window.VfDisplay.geomFrameStatus
         ? window.VfDisplay.geomFrameStatus(${JSON.stringify(frameId)}) : null,
       loadError: window.__vfStaticHtmlLoadError ? String(window.__vfStaticHtmlLoadError) : null,
-      controls: !!document.getElementById("view-all")
+      controls: Array.from(document.querySelectorAll(".vf-frame__title"))
+        .some((node) => /Stanford Bunny/u.test(node.textContent || ""))
     }))()`);
     if (readiness && readiness.status && readiness.status.runningRenderers > 0 && readiness.controls) return runtime;
     if (readiness && readiness.loadError) {
@@ -136,13 +135,14 @@ async function captureFrame(runtime, frameId, outputPath) {
 
 async function captureComposite(runtime, outputPath) {
   const composition = await evaluate(runtime, `(() => {
-    const staticRoot = document.querySelector("[data-vf-static-html-root]");
+    const materialLabel = Array.from(document.querySelectorAll(".vf-frame__title"))
+      .find((node) => /Stanford Bunny/u.test(node.textContent || ""));
     const frameHeaders = Array.from(document.querySelectorAll(".vf-frame__header"));
     const canvas = document.querySelector("canvas.vf-geom-canvas");
     const canvasRect = canvas ? canvas.getBoundingClientRect() : null;
     return {
-      staticHtml: !!(staticRoot && staticRoot.getBoundingClientRect().width > 0),
-      frameChrome: frameHeaders.length >= 2 && frameHeaders.every((header) => header.getBoundingClientRect().height > 0),
+      staticHtml: !!(materialLabel && materialLabel.getBoundingClientRect().width > 0),
+      frameChrome: frameHeaders.length >= 1 && frameHeaders.every((header) => header.getBoundingClientRect().height > 0),
       webgpuCanvas: !!(canvasRect && canvasRect.width > 0 && canvasRect.height > 0),
       frameHeaderCount: frameHeaders.length,
       canvasWidth: canvasRect ? Math.round(canvasRect.width) : 0,
@@ -166,37 +166,101 @@ async function captureComposite(runtime, outputPath) {
   };
 }
 
+async function captureSurfaceTexture(runtime, frameId, meshId, outputPath) {
+  const result = await evaluate(runtime, `(async () => {
+    const renderer = window.__vfFrameRenderers && window.__vfFrameRenderers[${JSON.stringify(frameId)}];
+    if (!renderer || typeof renderer._debugReadSurfaceTexture !== "function") return null;
+    const surface = await renderer._debugReadSurfaceTexture(${JSON.stringify(meshId)});
+    if (!surface || !surface.width || !surface.height || !surface.pixels) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = surface.width;
+    canvas.height = surface.height;
+    const context = canvas.getContext("2d");
+    const image = context.createImageData(surface.width, surface.height);
+    image.data.set(surface.pixels);
+    context.putImageData(image, 0, 0);
+    let warmPixels = 0;
+    let minX = surface.width;
+    let minY = surface.height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let pixel = 0; pixel < surface.pixels.length; pixel += 4) {
+      const red = surface.pixels[pixel];
+      const green = surface.pixels[pixel + 1];
+      const blue = surface.pixels[pixel + 2];
+      if (red < 105 || red <= green + 10 || green <= blue + 8) continue;
+      const index = pixel / 4;
+      const x = index % surface.width;
+      const y = Math.floor(index / surface.width);
+      warmPixels += 1;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    return {
+      dataUrl: canvas.toDataURL("image/png"),
+      width: surface.width,
+      height: surface.height,
+      warmPixels,
+      warmBbox: maxX >= minX ? [minX, minY, maxX, maxY] : null
+    };
+  })()`, true);
+  if (!result || typeof result.dataUrl !== "string" || !result.dataUrl.startsWith("data:image/png;base64,")) {
+    throw new Error(`surface texture capture failed for ${meshId}`);
+  }
+  const bytes = Buffer.from(result.dataUrl.slice("data:image/png;base64,".length), "base64");
+  fs.writeFileSync(outputPath, bytes);
+  return {
+    meshId,
+    width: result.width,
+    height: result.height,
+    warmPixels: result.warmPixels,
+    warmBbox: result.warmBbox,
+    sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
 async function main() {
   const scenePath = process.argv[2];
   const outputDirectory = process.argv[3];
   const port = Number(process.argv[4] || "9237") || 9237;
-  const frameId = process.argv[5] || "frame_0";
+  const frameId = process.argv[5] || "material_gallery_frame";
   if (!scenePath || !outputDirectory) {
     throw new Error("usage: node capture_material_ui_gallery.js <scenePath> <outputDirectory> [port] [frameId]");
   }
   const rendererDirectory = path.join(outputDirectory, "renderer");
   const compositeDirectory = path.join(outputDirectory, "composite");
+  const surfaceDirectory = path.join(outputDirectory, "surface");
   fs.mkdirSync(rendererDirectory, { recursive: true });
   fs.mkdirSync(compositeDirectory, { recursive: true });
+  fs.mkdirSync(surfaceDirectory, { recursive: true });
   const runtime = await openScene(scenePath, port, frameId);
   const states = [];
   try {
     await delay(1200);
-    for (let index = 0; index < views.length; index += 1) {
-      const viewId = views[index];
-      const observed = await evaluate(runtime, `(async () => {
-        const button = document.getElementById(${JSON.stringify(viewId)});
-        if (!button) return { ok:false, reason:"button missing" };
-        button.click();
-        await new Promise((resolve) => setTimeout(resolve, 240));
-        if (window.__vfRetainedEventError) {
-          return { ok:false, reason:String(window.__vfRetainedEventError.message || window.__vfRetainedEventError) };
-        }
+    for (const [index, viewId] of ["stanford-bunny", "stanford-bunny-detail"].entries()) {
+      if (index > 0) {
+        await evaluate(runtime, `(async () => {
+          const canvas = document.querySelector("canvas.vf-geom-canvas");
+          canvas.dispatchEvent(new WheelEvent("wheel", {
+            deltaY:-180, bubbles:true, cancelable:true
+          }));
+          await new Promise((resolve) => setTimeout(resolve, 320));
+        })()`, true);
+      }
+      const observed = await evaluate(runtime, `(() => {
         const state = window.VfDisplay.__test.debugDynamicGeomFrameState(${JSON.stringify(frameId)});
-        return { ok:true, meshCount:state && state.renderer ? state.renderer.partCount : 0 };
-      })()`, true);
+        return {
+          ok:true,
+          meshCount:state && state.renderer ? state.renderer.partCount : 0
+        };
+      })()`);
       if (!observed || !observed.ok) {
         throw new Error(`compiled gallery event failed for ${viewId}: ${JSON.stringify(observed)}`);
+      }
+      if (observed.meshCount !== 5) {
+        throw new Error(`Stanford Bunny capture rendered ${observed.meshCount} of 5 meshes`);
       }
       const file = `${String(index).padStart(2, "0")}-${viewId}.png`;
       const rendererPath = path.join(rendererDirectory, file);
@@ -212,40 +276,50 @@ async function main() {
         ...composition,
       });
     }
-
-    const slider = await evaluate(runtime, `(async () => {
-      const input = document.getElementById("glass-alpha");
-      if (!input) return { ok:false, reason:"slider missing" };
-      input.value = "0.72";
-      input.dispatchEvent(new Event("input", { bubbles:true }));
-      await new Promise((resolve) => setTimeout(resolve, 240));
-      return { ok:!window.__vfRetainedEventError, value:Number(input.value) };
-    })()`, true);
-    if (!slider || !slider.ok || slider.value !== 0.72) {
-      throw new Error(`compiled gallery slider failed: ${JSON.stringify(slider)}`);
-    }
-    const sliderFile = "04-glass-alpha-072.png";
-    const sliderSha256 = await captureFrame(runtime, frameId, path.join(rendererDirectory, sliderFile));
-    const sliderComposition = await captureComposite(runtime, path.join(compositeDirectory, sliderFile));
-    states.push({
-      view: "glass-alpha-072",
-      rendererFile: `renderer/${sliderFile}`,
-      compositeFile: `composite/${sliderFile}`,
-      value: slider.value,
-      sha256: sliderSha256,
-      ...sliderComposition,
-    });
     if (new Set(states.map((state) => state.sha256)).size !== states.length) {
-      throw new Error("compiled gallery interactions did not produce distinct renderer views");
+      throw new Error("Stanford Bunny camera views are not visually distinct");
     }
-    if (new Set(states.map((state) => state.compositeSha256)).size !== states.length) {
-      throw new Error("compiled gallery interactions did not produce distinct composited views");
+
+    const surfaceTextures = [];
+    for (const threshold of [50, 90, 130]) {
+      const analysis = await evaluate(runtime, `(async () =>
+        window.VfDisplay.__test.analyzeSurfaceTextures(${JSON.stringify(frameId)}, ${threshold}))()`, true);
+      surfaceTextures.push({ threshold, surfaces: analysis });
+      for (const meshId of ["studio_floor", "upright_mirror"]) {
+        const surface = Array.isArray(analysis)
+          ? analysis.find((item) => item.meshId === meshId) : null;
+        const bbox = surface && surface.bbox;
+        const width = Array.isArray(bbox) ? bbox[2] - bbox[0] : bbox && bbox.width;
+        const height = Array.isArray(bbox) ? bbox[3] - bbox[1] : bbox && bbox.height;
+        const minimumSpan = meshId === "upright_mirror" && threshold === 130 ? 24 : 8;
+        if (!surface || !bbox || width < minimumSpan || height < minimumSpan) {
+          throw new Error(`mirror capture has no measurable ${meshId} texture at ${threshold}`);
+        }
+      }
+    }
+    const surfaceCaptures = [];
+    for (const meshId of ["studio_floor", "upright_mirror"]) {
+      surfaceCaptures.push(await captureSurfaceTexture(
+        runtime,
+        frameId,
+        meshId,
+        path.join(surfaceDirectory, `${meshId}.png`),
+      ));
+    }
+    const uprightCapture = surfaceCaptures.find((capture) => capture.meshId === "upright_mirror");
+    const warmBbox = uprightCapture && uprightCapture.warmBbox;
+    const warmWidth = Array.isArray(warmBbox) ? warmBbox[2] - warmBbox[0] : 0;
+    const warmHeight = Array.isArray(warmBbox) ? warmBbox[3] - warmBbox[1] : 0;
+    if (!uprightCapture || uprightCapture.warmPixels < 1000 || warmWidth < 24 || warmHeight < 24) {
+      throw new Error(`upright mirror has no distinct warm rabbit reflection: ${JSON.stringify(uprightCapture)}`);
     }
     process.stdout.write(JSON.stringify({
       captureApi: "VfDisplay.__test.captureGeomFrameDataUrl",
       execution: "headless",
       frameId,
       states,
+      surfaceTextures,
+      surfaceCaptures,
       still: states.at(-1).compositeFile,
     }));
   } finally {

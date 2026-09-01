@@ -7,8 +7,10 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..", "..");
 const sourcePath = "examples/material_ui_gallery/app.vkf";
 const source = readFileSync(resolve(root, sourcePath), "utf8");
-const html = readFileSync(
-  resolve(root, "examples/material_ui_gallery/ui/main.html"),
+const bunnyPath = "examples/material_ui_gallery/assets/source/bun_zipper.ply";
+const bunny = readFileSync(resolve(root, bunnyPath));
+const provenance = readFileSync(
+  resolve(root, "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md"),
   "utf8",
 );
 const builder = readFileSync(
@@ -56,46 +58,33 @@ function canonicalHash(text) {
     .digest("hex");
 }
 
-test("material gallery authors a recognizable rabbit mirror studio", () => {
-  const surfaces = new Map(calls("frame.add").map((call) => [idOf(call), call]));
-  const rabbitParts = [
-    "rabbit_body",
-    "rabbit_head",
-    "rabbit_ear_left",
-    "rabbit_ear_right",
-    "rabbit_tail",
-  ];
-  assert.deepEqual(
-    rabbitParts.filter((id) => !surfaces.has(id)),
-    [],
-    "rabbit silhouette must have body, head, two ears, and tail",
-  );
-  for (const id of rabbitParts) {
-    const part = surfaces.get(id);
-    for (const field of ["x:", "y:", "z:", "casts_shadow:true", "receives_lighting:true"]) {
-      assert.ok(part.includes(field), `${id} is missing ${field}`);
-    }
-  }
-  assert.equal(surfaces.has("sculpture_panel"), false);
-  assert.equal(surfaces.has("glass_panel"), false);
+test("material gallery loads the canonical full Stanford Bunny", () => {
+  const text = bunny.toString("utf8");
+  assert.match(text, /^ply\r?\nformat ascii 1\.0\r?\n/u);
+  assert.match(text, /^element vertex 35947$/mu);
+  assert.match(text, /^element face 69451$/mu);
+  assert.equal(createHash("sha256").update(bunny).digest("hex"),
+    "b1acc63bece78444aa2e15bdcc72371a201279b98c6f5d4b74c993d02f0566fe");
+  assert.match(provenance, /Stanford Computer Graphics Laboratory/u);
+  assert.match(provenance, /noncommercial restriction/u);
+  assert.match(source, /bunny:\s*load\("assets\/source\/bun_zipper\.ply"\)/u);
+  assert.match(source, /vertices:\s*bunny\.vertices/u);
+  assert.match(source, /indices:\s*bunny\.faces/u);
+  assert.doesNotMatch(source, /rabbit_(body|head|ear|tail)|frame\.add\(/u);
+});
 
-  const floor = surfaces.get("studio_floor");
-  assert.ok(floor, "checker/mirror floor is missing");
-  assert.match(floor, /texture:\s*\([\s\S]*?kind:\s*"checker"/u);
-  assert.match(floor, /surface_system:\s*\([\s\S]*?kind:\s*"screen"/u);
-  assert.match(floor, /mirror_of:\s*\([\s\S]*?mesh_id:\s*"studio_floor"/u);
-
-  const mirror = surfaces.get("upright_mirror");
-  assert.ok(mirror, "upright mirror is missing");
-  assert.match(mirror, /surface_system:\s*\([\s\S]*?kind:\s*"screen"/u);
-  assert.match(mirror, /mirror_of:\s*\([\s\S]*?mesh_id:\s*"upright_mirror"/u);
-
-  const strongLights = calls("frame.add_light").filter((call) => {
-    const intensity = Number(call.match(/\bintensity\s*:\s*([0-9.]+)/u)?.[1]);
-    return intensity >= 48 && /\bcasts_shadow\s*:\s*true/u.test(call);
-  });
-  assert.ok(strongLights.length >= 1, "studio needs a shadow-casting light at intensity >= 48");
-  assert.match(html, /rabbit/iu);
+test("Stanford Bunny studio has checker continuity, physical mirrors, and shadow", () => {
+  assert.match(source, /id:"stanford_bunny"[\s\S]*?topology:"triangle-list"/u);
+  assert.match(source, /id:"stanford_bunny"[\s\S]*?interpolation:true/u);
+  assert.match(source, /id:"stanford_bunny"[\s\S]*?casts_shadow:true/u);
+  assert.match(source, /plane:\([\s\S]*?texture:\(kind:"checker"/u);
+  assert.match(source, /id:"studio_floor"[\s\S]*?mesh_id:"studio_floor"/u);
+  assert.match(source, /id:"upright_mirror"[\s\S]*?mesh_id:"upright_mirror"/u);
+  assert.match(source, /id:"mirror_backing"[\s\S]*?center:\[0\.65, 3\.28, 1\.78\]/u);
+  assert.match(source, /id:"sun_key"[\s\S]*?intensity:58\.0[\s\S]*?casts_shadow:true/u);
+  assert.match(source, /receiver_mesh:"plane_0"[\s\S]*?occluders:\["stanford_bunny"\]/u);
+  assert.match(source, /receiver_mesh:"studio_floor"[\s\S]*?occluders:\["stanford_bunny"\]/u);
+  assert.match(source, /title:"Stanford Bunny material studio"/u);
 });
 
 test("rabbit gallery source remains linked to hidden capture evidence", () => {
@@ -106,12 +95,14 @@ test("rabbit gallery source remains linked to hidden capture evidence", () => {
   assert.equal(manifest.sources[sourcePath], canonicalHash(source));
   for (const linkedSource of [
     sourcePath,
-    "examples/material_ui_gallery/ui/main.html",
-    "examples/material_ui_gallery/ui/gallery.css",
+    bunnyPath,
+    "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md",
     "tests/helpers/capture_material_ui_gallery.js",
+    "web/vf-ui/vf-display.js",
+    "web/vf-ui/geom/vf-geom-wgpu.js",
   ]) {
     assert.ok(manifest.sources[linkedSource], `${linkedSource} is not hash-linked`);
     assert.ok(builder.includes(`"${linkedSource}"`), `${linkedSource} is not in the capture builder`);
   }
-  assert.ok(readme.indexOf(`(${sourcePath})`) < readme.indexOf("material-ui-gallery.gif"));
+  assert.ok(readme.indexOf(`(${sourcePath})`) < readme.indexOf("material-ui-gallery.webp"));
 });

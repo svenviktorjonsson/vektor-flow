@@ -42,16 +42,9 @@ await Promise.all([
 ]);
 
 const sourcePath = path.join(artifactRoot, "app.vkf");
-const sourceText = await readFile(sourcePath, "utf8");
-const tokens = run(executable("vkf_lexer_cursor_smoke"), [sourceText]);
-const ast = run(executable("vkf_parser_token_stream_smoke"), [], tokens);
-const typedIr = run(executable("vkf_ast_to_ir_smoke"), [], ast);
-const typedIrPath = path.join(artifactRoot, "app.typed-ir.json");
-await writeFile(typedIrPath, typedIr, "utf8");
 const summary = JSON.parse(run(nativeSceneStager, [
   "--source", sourcePath,
   "--overlay-web", overlayWeb,
-  "--typed-ir", typedIrPath,
 ]));
 const scenePath = path.join(overlayWeb, ...summary.page_rel.split("/"));
 const captureSummary = JSON.parse(run(
@@ -62,8 +55,8 @@ const captureSummary = JSON.parse(run(
 ));
 
 const stillDestination = path.join(mediaRoot, "material-ui-gallery.png");
-const gifDestination = path.join(mediaRoot, "material-ui-gallery.gif");
-const rendererGifDestination = path.join(mediaRoot, "material-ui-gallery-renderer.gif");
+const webpDestination = path.join(mediaRoot, "material-ui-gallery.webp");
+const rendererWebpDestination = path.join(mediaRoot, "material-ui-gallery-renderer.webp");
 const overlayStillDestination = path.join(mediaRoot, "ui-transparent-overlay-offscreen.png");
 const overlayRendererStillDestination = path.join(
   mediaRoot, "ui-transparent-overlay-offscreen-renderer.png",
@@ -79,36 +72,45 @@ await Promise.all([
   cp(path.join(captureRoot, finalState.rendererFile), overlayRendererStillDestination),
 ]);
 run("python", [
+  path.join(repositoryRoot, "tools", "build_material_ui_gallery_webp.py"),
+  path.join(captureRoot, "composite"),
+  webpDestination,
+]);
+run("python", [
+  path.join(repositoryRoot, "tools", "build_material_ui_gallery_webp.py"),
+  path.join(captureRoot, "renderer"),
+  rendererWebpDestination,
+]);
+run("python", [
   path.join(repositoryRoot, "tools", "build_material_ui_gallery_gif.py"),
   path.join(captureRoot, "composite"),
-  gifDestination,
+  overlayGifDestination,
 ]);
 run("python", [
   path.join(repositoryRoot, "tools", "build_material_ui_gallery_gif.py"),
   path.join(captureRoot, "renderer"),
-  rendererGifDestination,
-]);
-await Promise.all([
-  cp(gifDestination, overlayGifDestination),
-  cp(rendererGifDestination, overlayRendererGifDestination),
+  overlayRendererGifDestination,
 ]);
 const sourcePaths = [
   "examples/material_ui_gallery/app.vkf",
-  "examples/material_ui_gallery/ui/main.html",
-  "examples/material_ui_gallery/ui/gallery.css",
+  "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md",
+  "examples/material_ui_gallery/assets/source/bun_zipper.ply",
   "compiler/native/vkf_retained_scene_packet.hpp",
   "compiler/native/vkf_native_scene_artifact_stager.cpp",
   "web/vf-ui/vf-runtime-packet-contract.js",
   "web/vf-ui/vf-retained-event-adapter.js",
   "web/vf-ui/vf-static-html-loader.js",
+  "web/vf-ui/vf-display.js",
+  "web/vf-ui/geom/vf-geom-wgpu.js",
   "tests/helpers/capture_material_ui_gallery.js",
   "tools/build_material_ui_gallery_gif.py",
+  "tools/build_material_ui_gallery_webp.py",
   "scripts/build-material-ui-gallery-media.mjs",
 ];
 const mediaPaths = [
   "docs/public/images/readme-ui/material-ui-gallery.png",
-  "docs/public/images/readme-ui/material-ui-gallery.gif",
-  "docs/public/images/readme-ui/material-ui-gallery-renderer.gif",
+  "docs/public/images/readme-ui/material-ui-gallery.webp",
+  "docs/public/images/readme-ui/material-ui-gallery-renderer.webp",
 ];
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const sources = {};
@@ -120,11 +122,13 @@ const media = {};
 for (const relativePath of mediaPaths) {
   const bytes = await readFile(path.join(repositoryRoot, relativePath));
   const gif = relativePath.endsWith(".gif");
+  const webp = relativePath.endsWith(".webp");
+  const animated = gif || webp;
   media[relativePath] = {
     sha256: sha256(bytes),
-    width: gif ? bytes.readUInt16LE(6) : bytes.readUInt32BE(16),
-    height: gif ? bytes.readUInt16LE(8) : bytes.readUInt32BE(20),
-    ...(gif ? { frames: captureSummary.states.length, loop: true } : {}),
+    width: webp ? bytes.readUIntLE(24, 3) + 1 : gif ? bytes.readUInt16LE(6) : bytes.readUInt32BE(16),
+    height: webp ? bytes.readUIntLE(27, 3) + 1 : gif ? bytes.readUInt16LE(8) : bytes.readUInt32BE(20),
+    ...(animated ? { frames: captureSummary.states.length, loop: true, ...(webp ? { lossless: true } : {}) } : {}),
   };
 }
 const overlayMediaPaths = [
@@ -154,7 +158,9 @@ await writeFile(
       execution: "headless Edge WebGPU",
       fixture: "examples/material_ui_gallery/app.vkf",
       frame_id: captureSummary.frameId,
-      interactions: ["view-lighting", "view-mirror", "view-glass", "view-all", "glass-alpha=0.72"],
+      interactions: ["camera-default", "camera-wheel-detail"],
+      surface_textures: captureSummary.surfaceTextures,
+      surface_captures: captureSummary.surfaceCaptures,
       composite_states: captureSummary.states.map((state) => ({
         view: state.view,
         sha256: state.compositeSha256,
@@ -178,7 +184,7 @@ await writeFile(
       execution: "headless Edge WebGPU",
       fixture: "examples/material_ui_gallery/app.vkf",
       frame_id: captureSummary.frameId,
-      interactions: ["view-lighting", "view-mirror", "view-glass", "view-all", "glass-alpha=0.72"],
+      interactions: ["camera-default", "camera-wheel-detail"],
       pairs: captureSummary.states.map((state) => ({
         view: state.view,
         renderer_sha256: state.sha256,
@@ -196,6 +202,6 @@ await writeFile(
 process.stdout.write(JSON.stringify({
   ...captureSummary,
   still: path.relative(repositoryRoot, stillDestination).replaceAll(path.sep, "/"),
-  animation: path.relative(repositoryRoot, gifDestination).replaceAll(path.sep, "/"),
-  rendererAnimation: path.relative(repositoryRoot, rendererGifDestination).replaceAll(path.sep, "/"),
+  animation: path.relative(repositoryRoot, webpDestination).replaceAll(path.sep, "/"),
+  rendererAnimation: path.relative(repositoryRoot, rendererWebpDestination).replaceAll(path.sep, "/"),
 }));
