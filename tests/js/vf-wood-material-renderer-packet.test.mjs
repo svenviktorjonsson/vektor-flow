@@ -30,6 +30,7 @@ import {
 } from '../../web/vf-ui/vf-wood-material-energy.mjs';
 import {
   adaptWoodCutMaterialToTriangleFacesReference,
+  createWoodRefinementGgxSelectionCacheReference,
   evaluateWoodFaceGgxResponseReference,
   evaluateWoodMeshGgxAreaSummaryReference,
   evaluateWoodMeshGgxAzimuthProfileReference,
@@ -1051,4 +1052,63 @@ test('bounded wood quality demands remain selection-order independent', () => {
     ),
     /wood quality demands exceed demandBudget/,
   );
+});
+
+test('evicted wood quality demand regenerates the same retained profile', () => {
+  const detailLevels = [0, 1, 2];
+  const packets = detailLevels.map((detailLevel) => (
+    adaptWoodCutMaterialToTriangleFacesReference(
+      proceduralWoodMaterial('side-grain', detailLevel),
+      { triangleBudget: 32 },
+    )
+  ));
+  const refinements = evaluateWoodRefinementGgxProfilesReference(packets, {
+    azimuths: [0, Math.PI / 2],
+    viewCosine: 0.72,
+    triangleBudget: 32,
+    refinementBudget: 3,
+    probeBudget: 2,
+  });
+  const convergence = evaluateWoodRefinementGgxConvergenceReference(refinements);
+  const demands = detailLevels.map((_, refinement) => Object.freeze({
+    maximumSpecularError: convergence.maximumSpecularError[refinement],
+    maximumReflectedRgbError:
+      convergence.maximumReflectedRgbError[refinement],
+  }));
+  const cache = createWoodRefinementGgxSelectionCacheReference(convergence, {
+    entryBudget: 2,
+  });
+
+  const first = cache.demand(demands[0]);
+  assert.equal(cache.demand(demands[1]).cacheHit, false);
+  assert.equal(cache.demand(demands[1]).cacheHit, true);
+  const eviction = cache.demand(demands[2]);
+  const regenerated = cache.demand(demands[0]);
+
+  assert.equal(cache.kind, 'wood-cut-refinement-ggx-selection-cache:v1');
+  assert.strictEqual(cache.sourceConvergence, convergence);
+  assert.equal(cache.entryBudget, 2);
+  assert.equal(first.cacheHit, false);
+  assert.equal(eviction.cacheHit, false);
+  assert.equal(eviction.evictedDemandKey, first.demandKey);
+  assert.equal(regenerated.cacheHit, false);
+  assert.notStrictEqual(regenerated.selection, first.selection);
+  assert.strictEqual(regenerated.selection.sourcePacket, first.selection.sourcePacket);
+  assert.equal(
+    regenerated.selection.selectedDetailLevel,
+    first.selection.selectedDetailLevel,
+  );
+  assert.equal(regenerated.selection.specularError, first.selection.specularError);
+  assert.equal(
+    regenerated.selection.reflectedRgbError,
+    first.selection.reflectedRgbError,
+  );
+  assert.deepEqual(cache.snapshot(), {
+    entryCount: 2,
+    entryBudget: 2,
+    demandKeys: [eviction.demandKey, regenerated.demandKey],
+    hits: 1,
+    misses: 4,
+    evictions: 2,
+  });
 });
