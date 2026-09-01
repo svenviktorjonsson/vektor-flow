@@ -1590,19 +1590,91 @@ std::string rewrite_module_type_surface(
     return rewritten;
 }
 
-vf::JsonValue rewrite_module_symbols(
+std::optional<std::string> plain_identifier_name(const vf::JsonValue& value) {
+    if (!value.is_object()) return std::nullopt;
+    const auto& object = value.as_object();
+    const auto kind = object.find("kind");
+    const auto name = object.find("name");
+    if (kind == object.end() || !kind->second.is_string() ||
+        kind->second.as_string() != "identifier" ||
+        name == object.end() || !name->second.is_string()) {
+        return std::nullopt;
+    }
+    return name->second.as_string();
+}
+
+vf::JsonValue rewrite_module_symbols_scoped(
     const vf::JsonValue& value,
-    const std::map<std::string, std::string>& symbols
+    const std::map<std::string, std::string>& symbols,
+    const std::set<std::string>& shadowed,
+    bool local_scope
 ) {
     if (value.is_array()) {
         vf::JsonValue::Array rewritten;
-        for (const auto& item : value.as_array()) rewritten.push_back(rewrite_module_symbols(item, symbols));
+        for (const auto& item : value.as_array()) {
+            rewritten.push_back(rewrite_module_symbols_scoped(
+                item, symbols, shadowed, local_scope));
+        }
         return vf::JsonValue(std::move(rewritten));
     }
     if (!value.is_object()) return value;
+    const auto& source = value.as_object();
+    const auto source_kind = source.find("kind");
+    const std::string kind_name = source_kind != source.end() && source_kind->second.is_string()
+        ? source_kind->second.as_string() : "";
     vf::JsonValue::Object rewritten;
-    for (const auto& [key, child] : value.as_object()) {
-        rewritten[key] = rewrite_module_symbols(child, symbols);
+    if (kind_name == "function_definition") {
+        auto function_scope = shadowed;
+        const auto params = source.find("params");
+        if (params != source.end() && params->second.is_array()) {
+            for (const auto& param : params->second.as_array()) {
+                if (!param.is_object()) continue;
+                const auto name = param.as_object().find("name");
+                if (name != param.as_object().end() && name->second.is_string()) {
+                    function_scope.insert(name->second.as_string());
+                }
+            }
+        }
+        for (const auto& [key, child] : source) {
+            rewritten[key] = rewrite_module_symbols_scoped(
+                child, symbols, key == "body" ? function_scope : shadowed,
+                key == "body");
+        }
+    } else if (kind_name == "block") {
+        for (const auto& [key, child] : source) {
+            if (key != "statements" || !child.is_array()) {
+                rewritten[key] = rewrite_module_symbols_scoped(
+                    child, symbols, shadowed, local_scope);
+                continue;
+            }
+            auto block_scope = shadowed;
+            vf::JsonValue::Array statements;
+            for (const auto& statement : child.as_array()) {
+                statements.push_back(rewrite_module_symbols_scoped(
+                    statement, symbols, block_scope, true));
+                if (!statement.is_object()) continue;
+                const auto target = statement.as_object().find("target");
+                if (target == statement.as_object().end()) continue;
+                const auto bound = plain_identifier_name(target->second);
+                if (bound) block_scope.insert(*bound);
+            }
+            rewritten[key] = vf::JsonValue(std::move(statements));
+        }
+    } else if (local_scope && kind_name == "bind") {
+        for (const auto& [key, child] : source) {
+            const auto bound = key == "target" ? plain_identifier_name(child) : std::nullopt;
+            if (bound) {
+                rewritten[key] = child;
+            } else {
+                rewritten[key] = rewrite_module_symbols_scoped(
+                    child, symbols, shadowed, local_scope);
+            }
+        }
+    } else {
+        for (const auto& [key, child] : source) {
+            rewritten[key] = rewrite_module_symbols_scoped(
+                child, symbols, shadowed, local_scope);
+        }
     }
     const auto kind = rewritten.find("kind");
     const auto name = rewritten.find("name");
@@ -1614,11 +1686,19 @@ vf::JsonValue rewrite_module_symbols(
         } else if (kind->second.as_string() == "identifier" ||
                    kind->second.as_string() == "function_definition" ||
                    kind->second.as_string() == "type_alias") {
-            const auto replacement = symbols.find(name->second.as_string());
+            const auto replacement = shadowed.find(name->second.as_string()) != shadowed.end()
+                ? symbols.end() : symbols.find(name->second.as_string());
             if (replacement != symbols.end()) name->second = replacement->second;
         }
     }
     return vf::JsonValue(std::move(rewritten));
+}
+
+vf::JsonValue rewrite_module_symbols(
+    const vf::JsonValue& value,
+    const std::map<std::string, std::string>& symbols
+) {
+    return rewrite_module_symbols_scoped(value, symbols, {}, false);
 }
 
 vf::JsonValue rewrite_aliased_module_calls(
