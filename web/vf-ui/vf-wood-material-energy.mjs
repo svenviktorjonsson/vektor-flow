@@ -3,8 +3,8 @@ const DIELECTRIC_F0 = 0.04;
 const COSINE_PROBES = Object.freeze([1, 0.75, 0.5, 0.25, 0]);
 const GGX_ANISOTROPY = 0.65;
 const GGX_MIN_ALPHA = 0.08;
-const GGX_POLAR_SAMPLES = 48;
-const GGX_AZIMUTH_SAMPLES = 96;
+const GGX_POLAR_SAMPLES = 96;
+const GGX_AZIMUTH_SAMPLES = 192;
 const GGX_VIEW_PROBES = Object.freeze([
   Object.freeze({ cosine: 1, azimuth: 0 }),
   Object.freeze({ cosine: 0.5, azimuth: 0 }),
@@ -99,7 +99,14 @@ function ggxDistribution(half, alphaX, alphaY) {
   return 1 / (Math.PI * alphaX * alphaY * scaledLengthSquared * scaledLengthSquared);
 }
 
-function integrateGgxHemisphere(viewCosine, viewAzimuth, alphaX, alphaY) {
+function integrateGgxHemisphere(
+  viewCosine,
+  viewAzimuth,
+  alphaX,
+  alphaY,
+  polarSamples = GGX_POLAR_SAMPLES,
+  azimuthSamples = GGX_AZIMUTH_SAMPLES,
+) {
   const cosine = Math.max(1e-4, viewCosine);
   const sine = Math.sqrt(Math.max(0, 1 - cosine * cosine));
   const view = [
@@ -108,14 +115,14 @@ function integrateGgxHemisphere(viewCosine, viewAzimuth, alphaX, alphaY) {
     cosine,
   ];
   const lambdaView = ggxLambda(view, alphaX, alphaY);
-  const sampleWeight = 2 * Math.PI / (GGX_POLAR_SAMPLES * GGX_AZIMUTH_SAMPLES);
+  const sampleWeight = 2 * Math.PI / (polarSamples * azimuthSamples);
   let unitReflectorEnergy = 0;
   let dielectricSpecularEnergy = 0;
-  for (let polar = 0; polar < GGX_POLAR_SAMPLES; polar += 1) {
-    const lightCosine = (polar + 0.5) / GGX_POLAR_SAMPLES;
+  for (let polar = 0; polar < polarSamples; polar += 1) {
+    const lightCosine = (polar + 0.5) / polarSamples;
     const lightSine = Math.sqrt(1 - lightCosine * lightCosine);
-    for (let azimuth = 0; azimuth < GGX_AZIMUTH_SAMPLES; azimuth += 1) {
-      const lightAzimuth = (azimuth + 0.5) * 2 * Math.PI / GGX_AZIMUTH_SAMPLES;
+    for (let azimuth = 0; azimuth < azimuthSamples; azimuth += 1) {
+      const lightAzimuth = (azimuth + 0.5) * 2 * Math.PI / azimuthSamples;
       const light = [
         lightSine * Math.cos(lightAzimuth),
         lightSine * Math.sin(lightAzimuth),
@@ -156,6 +163,7 @@ function realizeGgxProfile(material, sampleCount, kind, anisotropy) {
   const aspect = Math.sqrt(1 - 0.9 * anisotropy);
   let minimumEnergy = Infinity;
   let maximumEnergy = -Infinity;
+  let maximumQuadratureDelta = 0;
   let violations = 0;
   for (let sample = 0; sample < sampleCount; sample += 1) {
     const normal = decodedNormal(material, sample);
@@ -171,6 +179,19 @@ function realizeGgxProfile(material, sampleCount, kind, anisotropy) {
         viewProbe.azimuth,
         alphaX[sample],
         alphaY[sample],
+      );
+      const [coarseUnitEnergy, coarseSpecularEnergy] = integrateGgxHemisphere(
+        localProbeCosine(normal, viewProbe),
+        viewProbe.azimuth,
+        alphaX[sample],
+        alphaY[sample],
+        GGX_POLAR_SAMPLES / 2,
+        GGX_AZIMUTH_SAMPLES / 2,
+      );
+      maximumQuadratureDelta = Math.max(
+        maximumQuadratureDelta,
+        Math.abs(unitEnergy - coarseUnitEnergy),
+        Math.abs(specularEnergy - coarseSpecularEnergy),
       );
       unitReflectorEnergy[profileOffset] = unitEnergy;
       dielectricSpecularEnergy[profileOffset] = specularEnergy;
@@ -201,6 +222,7 @@ function realizeGgxProfile(material, sampleCount, kind, anisotropy) {
     combinedEnergyRgb,
     minimumEnergy,
     maximumEnergy,
+    maximumQuadratureDelta,
     violations,
     vectorBytes: alphaX.byteLength
       + alphaY.byteLength
@@ -229,6 +251,7 @@ export function evaluateWoodCutGgxWhiteFurnaceReference(
     dielectricF0: DIELECTRIC_F0,
     viewProbes: GGX_VIEW_PROBES,
     hemisphereSamples: GGX_POLAR_SAMPLES * GGX_AZIMUTH_SAMPLES,
+    coarseHemisphereSamples: GGX_POLAR_SAMPLES * GGX_AZIMUTH_SAMPLES / 4,
     sampleCount,
     profiles,
     vectorBytes: profiles.reduce((bytes, profile) => bytes + profile.vectorBytes, 0),
