@@ -126,3 +126,15 @@ test('surface packet triangulates the grid without copying its material vectors'
   assert.deepEqual(packet.normal, [0, 0, 1]);
   assert.equal(packet.vectorBytes, packet.imageBytes + packet.indices.byteLength);
 });
+
+test('unchanged cut grids retain exact orientation-specific surface packets', () => {
+  const { endGrain: grid } = makeCutGrids();
+  const first = packWoodCutSurfacePacketReference(grid, 'end-grain');
+  const retained = packWoodCutSurfacePacketReference(grid, 'end-grain');
+  const side = packWoodCutSurfacePacketReference(grid, 'side-grain');
+
+  assert.strictEqual(retained, first);
+  assert.notStrictEqual(side, first);
+  assert.strictEqual(side.positions, first.positions);
+  assert.notStrictEqual(side.imageRgba8, first.imageRgba8);
+});
