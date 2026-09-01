@@ -56,11 +56,24 @@ const rectangularSurfaceSource = [
 
 const linePlotSource = [
   ": .ui.display",
-  "math:.math",
+  ":.math",
   "display: Display(dim:2)",
   "frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])",
-  "x: [..512] / 512 * 2 * math.pi - math.pi",
-  "line: frame.add(x:x, y:math.sin(x), id:\"sine\", color:[0.12, 0.72, 1.0, 1.0])",
+  "x: [..512] / 256 - 1",
+  "line: frame.add(x:x, y:sin(x * pi), id:\"sine\", color:[0.12, 0.72, 1.0, 1.0])",
+].join("\n");
+
+const rangeSurfaceSource = [
+  ": .ui.display",
+  ":.math",
+  "display: Display(dim:2)",
+  "frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])",
+  "u: ([..32] / 32 * 2 * pi) -> u",
+  "v: ([..24] / 24 * pi) -> v",
+  "x: cos(u) * sin(v)",
+  "y: sin(u) * sin(v)",
+  "z: cos(v)",
+  "surface: frame.add(x:x, y:y, z:z, id:\"sphere\", color:[0.2, 0.7, 1.0, 1.0])",
 ].join("\n");
 
 test("approved Frame add calls lower to retained scene operations instead of no-ops", () => {
@@ -146,6 +159,19 @@ test("Frame add stages flat x/y vectors as one constant-width 2D polyline", asyn
     path.join(sessionDirectory, "vf-runtime-packets.json"),
     "utf8",
   ));
+  const wasmSummary = JSON.parse(stage("vkf_wasm_artifact_smoke", undefined, [
+    "--source", source,
+    "--typed-ir", typedIrPath,
+  ]));
+  const [bytes, manifest] = await Promise.all([
+    readFile(wasmSummary.artifact_path),
+    readFile(wasmSummary.manifest_path, "utf8").then(JSON.parse),
+  ]);
+  const wasmPackets = JSON.parse(
+    runtimeBridge.instantiateWasmRuntime({ bytes, manifest })
+      .readBinding("$ui$compiled$packets"),
+  );
+  assert.deepEqual(wasmPackets, packets);
   const mesh = packets[2].payload.display.geom.frame_0.meshes[0];
   assert.equal(mesh.topology, "line-list");
   assert.equal(mesh.render_mode, "line");
@@ -161,6 +187,52 @@ test("Frame add stages flat x/y vectors as one constant-width 2D polyline", asyn
     mesh.vertices.filter((_, index) => index % 10 === 2),
     new Array(513).fill(0),
   );
+});
+
+test("Frame add broadcasts dense range axes into a smooth surface", async () => {
+  assert.ok(nativeSceneStager, "VKF_NATIVE_SCENE_STAGER must name the focused stager executable");
+  const typedIr = compile(rangeSurfaceSource);
+  const root = path.join(workRoot, "range-surface");
+  const source = path.join(root, "range-surface.vkf");
+  const typedIrPath = path.join(root, "range-surface.typed-ir.json");
+  const overlayWeb = path.join(root, "vf-ui");
+  await mkdir(root, { recursive: true });
+  await Promise.all([
+    writeFile(source, `${rangeSurfaceSource}\n`, "utf8"),
+    writeFile(typedIrPath, `${JSON.stringify(typedIr)}\n`, "utf8"),
+    cp(path.join(repositoryRoot, "web", "vf-ui"), overlayWeb, { recursive: true }),
+  ]);
+
+  const nativeSummary = JSON.parse(stage(nativeSceneStager, undefined, [
+    "--source", source,
+    "--overlay-web", overlayWeb,
+    "--typed-ir", typedIrPath,
+  ]));
+  const sessionDirectory = path.dirname(path.join(
+    overlayWeb,
+    ...nativeSummary.page_rel.split("/"),
+  ));
+  const nativePackets = JSON.parse(await readFile(
+    path.join(sessionDirectory, "vf-runtime-packets.json"),
+    "utf8",
+  ));
+  const wasmSummary = JSON.parse(stage("vkf_wasm_artifact_smoke", undefined, [
+    "--source", source,
+    "--typed-ir", typedIrPath,
+  ]));
+  const [bytes, manifest] = await Promise.all([
+    readFile(wasmSummary.artifact_path),
+    readFile(wasmSummary.manifest_path, "utf8").then(JSON.parse),
+  ]);
+  const wasmPackets = JSON.parse(
+    runtimeBridge.instantiateWasmRuntime({ bytes, manifest })
+      .readBinding("$ui$compiled$packets"),
+  );
+  assert.deepEqual(wasmPackets, nativePackets);
+  const mesh = nativePackets[2].payload.display.geom.frame_0.meshes[0];
+  assert.equal(mesh.topology, "triangle-list");
+  assert.equal(mesh.vertices.length, 33 * 25 * 10);
+  assert.equal(mesh.indices.length, 32 * 24 * 6);
 });
 
 test("native and WASM stage the same executable retained material scene", async () => {

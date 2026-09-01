@@ -2,8 +2,10 @@
 
 #include "native/VfOverlay/vf/json.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -73,11 +75,126 @@ inline vf::JsonValue evaluate(
     EvaluationContext* context = nullptr
 );
 
+inline bool is_axis_value(const vf::JsonValue& value) {
+    if (!value.is_object()) return false;
+    const auto& object = value.as_object();
+    return object.find("__vkf_axes") != object.end() &&
+        object.find("values") != object.end();
+}
+
+inline std::vector<std::string> axis_keys(const vf::JsonValue& value) {
+    std::vector<std::string> result;
+    if (!is_axis_value(value)) return result;
+    const auto& raw = field(value.as_object(), "__vkf_axes", "retained axis value");
+    if (!raw.is_array()) throw Error("retained axis keys must be an array");
+    result.reserve(raw.as_array().size());
+    for (const auto& item : raw.as_array()) {
+        if (!item.is_string()) throw Error("retained axis keys must be strings");
+        result.push_back(item.as_string());
+    }
+    return result;
+}
+
+inline const vf::JsonValue& axis_data(const vf::JsonValue& value) {
+    return field(value.as_object(), "values", "retained axis value");
+}
+
+inline vf::JsonValue axis_value(
+    const std::vector<std::string>& axes,
+    vf::JsonValue values
+) {
+    vf::JsonValue::Array raw_axes;
+    raw_axes.reserve(axes.size());
+    for (const auto& axis : axes) raw_axes.push_back(vf::JsonValue(axis));
+    return vf::JsonValue(vf::JsonValue::Object{
+        {"__vkf_axes", vf::JsonValue(std::move(raw_axes))},
+        {"values", std::move(values)},
+    });
+}
+
+inline std::size_t axis_extent(
+    const vf::JsonValue& value,
+    std::size_t depth,
+    const std::string& axis
+) {
+    const vf::JsonValue* current = &axis_data(value);
+    for (std::size_t index = 0; index <= depth; ++index) {
+        if (!current->is_array() || current->as_array().empty()) {
+            throw Error("retained axis `" + axis + "` must contain values");
+        }
+        if (index == depth) return current->as_array().size();
+        current = &current->as_array().front();
+    }
+    return 0;
+}
+
+inline const vf::JsonValue& axis_element(
+    const vf::JsonValue& value,
+    const std::vector<std::string>& union_axes,
+    const std::vector<std::size_t>& union_indices
+) {
+    if (!is_axis_value(value)) return value;
+    const auto axes = axis_keys(value);
+    const vf::JsonValue* current = &axis_data(value);
+    for (const auto& axis : axes) {
+        const auto found = std::find(union_axes.begin(), union_axes.end(), axis);
+        if (found == union_axes.end() || !current->is_array()) {
+            throw Error("retained axis broadcasting lost `" + axis + "`");
+        }
+        const std::size_t index = union_indices[
+            static_cast<std::size_t>(std::distance(union_axes.begin(), found))];
+        if (index >= current->as_array().size()) {
+            throw Error("retained axis broadcasting exceeded `" + axis + "`");
+        }
+        current = &current->as_array()[index];
+    }
+    return *current;
+}
+
 inline vf::JsonValue elementwise_binary(
     const vf::JsonValue& left,
     const vf::JsonValue& right,
     const std::string& op
 ) {
+    const auto left_axes = axis_keys(left);
+    const auto right_axes = axis_keys(right);
+    if (!left_axes.empty() || !right_axes.empty()) {
+        std::vector<std::string> axes = left_axes;
+        for (const auto& axis : right_axes) {
+            if (std::find(axes.begin(), axes.end(), axis) == axes.end()) axes.push_back(axis);
+        }
+        std::map<std::string, std::size_t> extents;
+        const auto collect = [&](const vf::JsonValue& value) {
+            const auto keys = axis_keys(value);
+            for (std::size_t depth = 0; depth < keys.size(); ++depth) {
+                const std::size_t extent = axis_extent(value, depth, keys[depth]);
+                const auto found = extents.find(keys[depth]);
+                if (found != extents.end() && found->second != extent) {
+                    throw Error("retained axis `" + keys[depth] + "` has mismatched extents");
+                }
+                extents[keys[depth]] = extent;
+            }
+        };
+        collect(left);
+        collect(right);
+        std::vector<std::size_t> indices(axes.size(), 0);
+        std::function<vf::JsonValue(std::size_t)> build = [&](std::size_t depth) {
+            if (depth == axes.size()) {
+                return elementwise_binary(
+                    axis_element(left, axes, indices),
+                    axis_element(right, axes, indices),
+                    op);
+            }
+            vf::JsonValue::Array values;
+            values.reserve(extents.at(axes[depth]));
+            for (std::size_t index = 0; index < extents.at(axes[depth]); ++index) {
+                indices[depth] = index;
+                values.push_back(build(depth + 1));
+            }
+            return vf::JsonValue(std::move(values));
+        };
+        return axis_value(axes, build(0));
+    }
     if (left.is_array() || right.is_array()) {
         vf::JsonValue::Array result;
         if (left.is_array() && right.is_array()) {
@@ -122,6 +239,9 @@ inline vf::JsonValue elementwise_math(
     const vf::JsonValue& value,
     const std::string& function
 ) {
+    if (is_axis_value(value)) {
+        return axis_value(axis_keys(value), elementwise_math(axis_data(value), function));
+    }
     if (value.is_array()) {
         vf::JsonValue::Array result;
         result.reserve(value.as_array().size());
@@ -171,6 +291,13 @@ inline vf::JsonValue evaluate(const vf::JsonValue& raw, EvaluationContext* conte
                 evaluate(field(record_field, "value", "retained scene record field"), context);
         }
         return vf::JsonValue(std::move(result));
+    }
+    if (kind == "axis_align") {
+        const auto& axis = field(value, "axis_key", "retained axis alignment");
+        if (!axis.is_string()) throw Error("retained axis alignment requires a string key");
+        return axis_value(
+            {axis.as_string()},
+            evaluate(field(value, "value", "retained axis alignment"), context));
     }
     if (kind == "load") {
         if (context == nullptr) throw Error("retained scene cannot resolve a binding here");
@@ -334,12 +461,68 @@ inline vf::JsonValue frame_command(
     });
 }
 
+inline vf::JsonValue broadcast_axis_value(
+    const vf::JsonValue& value,
+    const std::vector<std::string>& axes,
+    const std::map<std::string, std::size_t>& extents
+) {
+    if (!is_axis_value(value)) return value;
+    std::vector<std::size_t> indices(axes.size(), 0);
+    std::function<vf::JsonValue(std::size_t)> build = [&](std::size_t depth) {
+        if (depth == axes.size()) {
+            return axis_element(value, axes, indices);
+        }
+        vf::JsonValue::Array values;
+        values.reserve(extents.at(axes[depth]));
+        for (std::size_t index = 0; index < extents.at(axes[depth]); ++index) {
+            indices[depth] = index;
+            values.push_back(build(depth + 1));
+        }
+        return vf::JsonValue(std::move(values));
+    };
+    return build(0);
+}
+
+inline void align_coordinates(
+    vf::JsonValue& x,
+    vf::JsonValue& y,
+    std::optional<vf::JsonValue>& z
+) {
+    std::vector<std::string> axes;
+    std::map<std::string, std::size_t> extents;
+    const auto collect = [&](const vf::JsonValue& value) {
+        const auto keys = axis_keys(value);
+        for (std::size_t depth = 0; depth < keys.size(); ++depth) {
+            const std::size_t extent = axis_extent(value, depth, keys[depth]);
+            const auto found = extents.find(keys[depth]);
+            if (found != extents.end() && found->second != extent) {
+                throw Error("retained axis `" + keys[depth] + "` has mismatched extents");
+            }
+            extents[keys[depth]] = extent;
+            if (std::find(axes.begin(), axes.end(), keys[depth]) == axes.end()) {
+                axes.push_back(keys[depth]);
+            }
+        }
+    };
+    collect(x);
+    collect(y);
+    if (z.has_value()) collect(*z);
+    if (axes.empty()) return;
+    x = broadcast_axis_value(x, axes, extents);
+    y = broadcast_axis_value(y, axes, extents);
+    if (z.has_value()) *z = broadcast_axis_value(*z, axes, extents);
+}
+
 inline vf::JsonValue material_mesh(
     const vf::JsonValue::Object& properties,
     std::uint64_t layer_id
 ) {
-    const auto& x_value = field(properties, "x", "Frame.add");
-    const auto& y_value = field(properties, "y", "Frame.add");
+    auto x_value = field(properties, "x", "Frame.add");
+    auto y_value = field(properties, "y", "Frame.add");
+    std::optional<vf::JsonValue> z_value;
+    const auto z_property = properties.find("z");
+    if (z_property != properties.end()) z_value = z_property->second;
+    align_coordinates(x_value, y_value, z_value);
     const bool line = x_value.is_array() && !x_value.as_array().empty() &&
         x_value.as_array().front().is_number();
     if (line) {
@@ -354,9 +537,8 @@ inline vf::JsonValue material_mesh(
         }
         std::vector<double> z(x.size(), 0.0);
         bool mode3d = false;
-        const auto z_entry = properties.find("z");
-        if (z_entry != properties.end()) {
-            z = numeric_vector(z_entry->second, "Frame.add z");
+        if (z_value.has_value()) {
+            z = numeric_vector(*z_value, "Frame.add z");
             if (z.size() != x.size()) {
                 throw Error("retained Frame.add x, y, and z lines must have the same length");
             }
@@ -409,9 +591,10 @@ inline vf::JsonValue material_mesh(
         }
         return vf::JsonValue(std::move(mesh));
     }
-    const auto x = numeric_grid(field(properties, "x", "Frame.add"), "Frame.add x");
-    const auto y = numeric_grid(field(properties, "y", "Frame.add"), "Frame.add y");
-    const auto z = numeric_grid(field(properties, "z", "Frame.add"), "Frame.add z");
+    if (!z_value.has_value()) throw Error("Frame.add surface is missing `z`");
+    const auto x = numeric_grid(x_value, "Frame.add x");
+    const auto y = numeric_grid(y_value, "Frame.add y");
+    const auto z = numeric_grid(*z_value, "Frame.add z");
     const auto color = numbers(field(properties, "color", "Frame.add"), "Frame.add color");
     if (x.rows != y.rows || x.rows != z.rows ||
         x.columns != y.columns || x.columns != z.columns) {

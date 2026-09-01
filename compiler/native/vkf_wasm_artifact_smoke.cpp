@@ -368,7 +368,15 @@ EvaluatedBindingValue apply_binary_binding_op(
         if (op == "STAR") {
             return lhs * rhs;
         }
-        throw WasmArtifactFailure("wasm computed binding only supports PLUS, MINUS, and STAR");
+        if (op == "SLASH") {
+            if (rhs == 0.0) throw WasmArtifactFailure("wasm computed binding divides by zero");
+            return lhs / rhs;
+        }
+        if (op == "CARET" || op == "POWER") {
+            return std::pow(lhs, rhs);
+        }
+        throw WasmArtifactFailure(
+            "wasm computed binding only supports numeric arithmetic");
     };
     if (!left.is_array && !right.is_array) {
         EvaluatedBindingValue out;
@@ -430,20 +438,13 @@ EvaluatedBindingValue evaluate_binding_value(
         return out;
     }
     if (kind == "axis_align") {
-        EvaluatedBindingValue out;
-        out.is_array = true;
+        EvaluatedBindingValue out = evaluate_binding_value(
+            field(object, "value", "axis_align"), bindings);
+        if (!out.is_array || !out.axis_key.empty()) {
+            throw WasmArtifactFailure(
+                "wasm axis_align binding requires one unaligned vector value");
+        }
         out.axis_key = string_field(object, "axis_key", "axis_align");
-        const auto& inner = object_of(field(object, "value", "axis_align"), "axis_align.value");
-        if (string_field(inner, "kind", "axis_align.value") != "list") {
-            throw WasmArtifactFailure("wasm axis_align binding requires a list value");
-        }
-        for (const auto& item_value : array_of(field(inner, "items", "list"), "list.items")) {
-            const EvaluatedBindingValue item = evaluate_binding_value(item_value, bindings);
-            if (item.is_array) {
-                throw WasmArtifactFailure("wasm axis_align binding only supports scalar items");
-            }
-            out.array_values.push_back(item.scalar_value);
-        }
         return out;
     }
     if (kind == "load") {
@@ -466,14 +467,23 @@ EvaluatedBindingValue evaluate_binding_value(
     }
     if (kind == "call") {
         const auto& callee = object_of(field(object, "callee", "call"), "call.callee");
-        if (string_field(callee, "kind", "call.callee") != "field_access") {
-            throw WasmArtifactFailure("wasm computed binding only supports stdlib math field access calls");
-        }
-        const std::string field_name = string_field(callee, "field", "call.callee");
-        const auto& base = object_of(field(callee, "object", "call.callee.object"), "call.callee.object");
-        if (string_field(base, "kind", "call.callee.object") != "load"
-            || string_field(base, "name", "call.callee.object") != "math") {
-            throw WasmArtifactFailure("wasm computed binding only supports math intrinsic calls");
+        const std::string callee_kind = string_field(callee, "kind", "call.callee");
+        std::string field_name;
+        if (callee_kind == "stdlib_function" &&
+            string_field(callee, "module", "call.callee") == "math") {
+            field_name = string_field(callee, "name", "call.callee");
+        } else if (callee_kind == "field_access") {
+            field_name = string_field(callee, "field", "call.callee");
+            const auto& base = object_of(
+                field(callee, "object", "call.callee.object"), "call.callee.object");
+            if (string_field(base, "kind", "call.callee.object") != "load" ||
+                string_field(base, "name", "call.callee.object") != "math") {
+                throw WasmArtifactFailure(
+                    "wasm computed binding only supports math intrinsic calls");
+            }
+        } else {
+            throw WasmArtifactFailure(
+                "wasm computed binding only supports stdlib math calls");
         }
         const auto& args = array_of(field(object, "args", "call"), "call.args");
         if (args.size() != 1 || (field_name != "sin" && field_name != "cos")) {
