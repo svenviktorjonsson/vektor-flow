@@ -31,6 +31,7 @@ import {
 import {
   adaptWoodCutMaterialToTriangleFacesReference,
   evaluateWoodFaceGgxResponseReference,
+  evaluateWoodTriangleGgxBatchReference,
   sampleWoodMaterialTriangleReference,
 } from '../../web/vf-ui/vf-wood-material-renderer-packet.mjs';
 
@@ -382,4 +383,72 @@ test('one wood face evaluates a tangent-oriented anisotropic GGX response', () =
   assert.ok(Math.abs(
     alongTangent.specularBrdf - swappedAlongBitangent.specularBrdf
   ) < 1e-10);
+});
+
+test('one complete wood face batches bounded anisotropic shading probes', () => {
+  const material = proceduralSideGrainMaterial();
+  const packet = adaptWoodCutMaterialToTriangleFacesReference(material, {
+    triangleBudget: 32,
+  });
+  const triangle = 7;
+  const barycentricSamples = [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+    [1 / 3, 1 / 3, 1 / 3],
+  ];
+  const viewDirection = normalize(packet.tangentFrame.normal.map((value, component) => (
+    value + packet.tangentFrame.tangent[component] * 0.2
+  )));
+  const lightDirection = normalize(packet.tangentFrame.normal.map((value, component) => (
+    value + packet.tangentFrame.bitangent[component] * 0.15
+  )));
+  const batch = evaluateWoodTriangleGgxBatchReference(packet, {
+    triangle,
+    barycentricSamples,
+    viewDirection,
+    lightDirection,
+    sampleBudget: 4,
+  });
+
+  assert.equal(batch.kind, 'wood-cut-triangle-ggx-batch:v1');
+  assert.strictEqual(batch.sourcePacket, packet);
+  assert.equal(batch.triangle, triangle);
+  assert.equal(batch.sampleCount, barycentricSamples.length);
+  assert.equal(batch.sampleBudget, 4);
+  assert.equal(batch.positions.length, batch.sampleCount * 3);
+  assert.equal(batch.surfaceNormals.length, batch.sampleCount * 3);
+  assert.equal(batch.specularBrdf.length, batch.sampleCount);
+  assert.equal(batch.reflectedRgb.length, batch.sampleCount * 3);
+  assert.equal(
+    batch.vectorBytes,
+    batch.positions.byteLength
+      + batch.surfaceNormals.byteLength
+      + batch.specularBrdf.byteLength
+      + batch.reflectedRgb.byteLength,
+  );
+
+  barycentricSamples.forEach((barycentric, sampleIndex) => {
+    const sample = sampleWoodMaterialTriangleReference(packet, {
+      triangle,
+      barycentric,
+    });
+    const response = evaluateWoodFaceGgxResponseReference(sample, {
+      viewDirection,
+      lightDirection,
+    });
+    assert.deepEqual(
+      Array.from(batch.positions.subarray(sampleIndex * 3, sampleIndex * 3 + 3)),
+      sample.position.map(Math.fround),
+    );
+    assert.deepEqual(
+      Array.from(batch.surfaceNormals.subarray(sampleIndex * 3, sampleIndex * 3 + 3)),
+      sample.surfaceNormal.map(Math.fround),
+    );
+    assert.equal(batch.specularBrdf[sampleIndex], Math.fround(response.specularBrdf));
+    assert.deepEqual(
+      Array.from(batch.reflectedRgb.subarray(sampleIndex * 3, sampleIndex * 3 + 3)),
+      response.reflectedRgb.map(Math.fround),
+    );
+  });
 });
