@@ -130,6 +130,28 @@ test('GGX furnace reports a bounded paired-quadrature convergence delta', () => 
   }
 });
 
+test('GGX anisotropy responds to tangent direction while isotropy remains rotation invariant', () => {
+  const material = Object.freeze({
+    ...materialPacket(),
+    imageWidth: 1,
+    imageHeight: 1,
+    baseColors: new Float32Array([0.8, 0.5, 0.2, 1]),
+    normalRgba8: new Uint8ClampedArray([127, 127, 255, 255]),
+    roughnessR8: new Uint8Array([128]),
+  });
+  const oracle = evaluateWoodCutGgxWhiteFurnaceReference(material, { sampleBudget: 1 });
+  const [isotropic, anisotropic] = oracle.profiles;
+
+  assert.ok(Math.abs(
+    isotropic.unitReflectorEnergy[1] - isotropic.unitReflectorEnergy[2],
+  ) <= 1e-6);
+  assert.ok(Math.abs(
+    anisotropic.unitReflectorEnergy[1] - anisotropic.unitReflectorEnergy[2],
+  ) >= 1e-3);
+  assert.equal(isotropic.alphaX[0], isotropic.alphaY[0]);
+  assert.ok(anisotropic.alphaX[0] > anisotropic.alphaY[0]);
+});
+
 test('wood dielectric partition stays inside the white-furnace energy budget', () => {
   const material = materialPacket();
   const oracle = evaluateWoodCutWhiteFurnaceReference(material, { sampleBudget: 2 });
