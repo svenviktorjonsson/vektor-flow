@@ -100,3 +100,33 @@ test('transverse and longitudinal grids pack intersecting samples from one cache
     assert.strictEqual(transverse.samples[sampleIndex], longitudinal.samples[sampleIndex]);
   }
 });
+
+test('packed cut grid carries its normalized plane coordinates', () => {
+  const { field, coordinates } = makeWoodVolume();
+  const trunk = coordinates.segments[0];
+  const center = pointOnSegment(trunk, trunk.length * 0.25);
+  const grid = packWoodCutPlaneGridReference({
+    field,
+    coordinates,
+    segmentIndex: 0,
+    center,
+    axisU: trunk.radialU.map((value) => value * 3),
+    axisV: trunk.radialV.map((value) => value * 2),
+    width: 0.4,
+    height: 0.2,
+    columns: 3,
+    rows: 3,
+    detailLevel: 1,
+    footprint: 0.04,
+    sampleBudget: 9,
+  });
+
+  assert.deepEqual(grid.center, center);
+  assert.deepEqual(grid.axisU, trunk.radialU);
+  assert.deepEqual(grid.axisV, trunk.radialV);
+  assert.equal(grid.width, 0.4);
+  assert.equal(grid.height, 0.2);
+  assert.ok(Object.isFrozen(grid.center));
+  assert.ok(Object.isFrozen(grid.axisU));
+  assert.ok(Object.isFrozen(grid.axisV));
+});
