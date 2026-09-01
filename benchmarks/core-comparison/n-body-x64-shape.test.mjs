@@ -34,6 +34,19 @@ function countRaxImmediateMaterializations(code) {
   return count;
 }
 
+function countHighRegisterFixedPairLoads(code) {
+  let count = 0;
+  for (let offset = 0; offset + 4 < code.length; offset += 1) {
+    const highRegisterMovupd = code[offset] === 0x66 &&
+      code[offset + 1] === 0x44 &&
+      code[offset + 2] === 0x0f &&
+      code[offset + 3] === 0x10;
+    const rbpDisp32 = (code[offset + 4] & 0xc7) === 0x85;
+    if (highRegisterMovupd && rbpDisp32) count += 1;
+  }
+  return count;
+}
+
 test('fixed n-body interactions elide runtime static-index materialization', () => {
   const driver = process.env.VKF_NBODY_NATIVE_DRIVER;
   assert.ok(driver, 'VKF_NBODY_NATIVE_DRIVER must name the focused native compiler');
@@ -45,6 +58,11 @@ test('fixed n-body interactions elide runtime static-index materialization', () 
     assert.ok(
       materializations <= 177,
       `fixed n-body artifact retained ${materializations} immediate materializations; expected at most 177`
+    );
+    const promotedPairs = countHighRegisterFixedPairLoads(code);
+    assert.ok(
+      promotedPairs >= 15,
+      `fixed n-body artifact promoted ${promotedPairs} position pairs; expected at least 15`
     );
   } finally {
     rmSync(workRoot, { recursive: true, force: true });
