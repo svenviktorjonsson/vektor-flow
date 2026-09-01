@@ -34,6 +34,7 @@ import {
   evaluateWoodMeshGgxAreaSummaryReference,
   evaluateWoodMeshGgxAzimuthProfileReference,
   evaluateWoodMeshGgxCentroidsReference,
+  evaluateWoodOrientationGgxProfilesReference,
   evaluateWoodTriangleGgxBatchReference,
   evaluateWoodTriangleGgxCoverageReference,
   sampleWoodMaterialTriangleReference,
@@ -49,7 +50,7 @@ const IDENTITY = Object.freeze({
   channel: 'population',
 });
 
-function proceduralSideGrainMaterial() {
+function proceduralWoodMaterial(orientation) {
   const forest = realizeForestPatchesReference(
     createForestPopulationReference(IDENTITY),
     { patches: [[-2, 3]], treeBudget: 32 },
@@ -68,15 +69,16 @@ function proceduralSideGrainMaterial() {
   const center = trunk.origin.map((origin, component) => (
     origin + trunk.axis[component] * trunk.length * 0.42
   ));
+  const endGrain = orientation === 'end-grain';
   const grid = packWoodCutPlaneGridReference({
     field: createWoodVolumeFieldReference(IDENTITY),
     coordinates,
     segmentIndex: 0,
     center,
     axisU: trunk.radialU,
-    axisV: trunk.axis,
+    axisV: endGrain ? trunk.radialV : trunk.axis,
     width: trunk.radius * 1.2,
-    height: trunk.length * 0.4,
+    height: endGrain ? trunk.radius * 1.2 : trunk.length * 0.4,
     columns: 5,
     rows: 5,
     detailLevel: 2,
@@ -84,8 +86,12 @@ function proceduralSideGrainMaterial() {
     sampleBudget: 25,
   });
   return packWoodCutMaterialPacketReference(
-    packWoodCutSurfacePacketReference(grid, 'side-grain'),
+    packWoodCutSurfacePacketReference(grid, orientation),
   );
+}
+
+function proceduralSideGrainMaterial() {
+  return proceduralWoodMaterial('side-grain');
 }
 
 function triangleNormal(positions, indices, triangle) {
@@ -720,5 +726,67 @@ test('the complete wood mesh exposes a bounded tangent-oriented azimuth profile'
     profile.azimuths.byteLength
       + profile.meanSpecularBrdf.byteLength
       + profile.meanReflectedRgb.byteLength,
+  );
+});
+
+test('coherent end-grain and side-grain cuts retain distinct bounded GGX profiles', () => {
+  const packets = ['end-grain', 'side-grain'].map((orientation) => (
+    adaptWoodCutMaterialToTriangleFacesReference(
+      proceduralWoodMaterial(orientation),
+      { triangleBudget: 32 },
+    )
+  ));
+  const azimuths = [0, Math.PI / 2];
+  const viewCosine = 0.72;
+  const family = evaluateWoodOrientationGgxProfilesReference(packets, {
+    azimuths,
+    viewCosine,
+    triangleBudget: 32,
+    materialBudget: 2,
+    probeBudget: 2,
+  });
+  const independent = packets.map((packet) => (
+    evaluateWoodMeshGgxAzimuthProfileReference(packet, {
+      azimuths,
+      viewCosine,
+      triangleBudget: 32,
+      probeBudget: 2,
+    })
+  ));
+
+  assert.equal(family.kind, 'wood-cut-orientation-ggx-profiles:v1');
+  assert.deepEqual(family.sourcePackets, packets);
+  assert.deepEqual(family.orientations, ['end-grain', 'side-grain']);
+  assert.equal(family.materialCount, 2);
+  assert.equal(family.materialBudget, 2);
+  assert.equal(family.probeCount, 2);
+  assert.equal(family.probeBudget, 2);
+  assert.equal(family.viewCosine, viewCosine);
+  assert.deepEqual(Array.from(family.azimuths), azimuths.map(Math.fround));
+  assert.deepEqual(
+    Array.from(family.meanSpecularBrdf),
+    independent.flatMap((profile) => Array.from(profile.meanSpecularBrdf)),
+  );
+  assert.deepEqual(
+    Array.from(family.meanReflectedRgb),
+    independent.flatMap((profile) => Array.from(profile.meanReflectedRgb)),
+  );
+  let expectedMaximumDelta = 0;
+  for (let probe = 0; probe < family.probeCount; probe += 1) {
+    expectedMaximumDelta = Math.max(
+      expectedMaximumDelta,
+      Math.abs(
+        family.meanSpecularBrdf[probe]
+          - family.meanSpecularBrdf[family.probeCount + probe]
+      ),
+    );
+  }
+  assert.equal(family.maximumSpecularDelta, expectedMaximumDelta);
+  assert.ok(family.maximumSpecularDelta > 1e-4);
+  assert.equal(
+    family.vectorBytes,
+    family.azimuths.byteLength
+      + family.meanSpecularBrdf.byteLength
+      + family.meanReflectedRgb.byteLength,
   );
 });
