@@ -201,6 +201,7 @@ export function selectTreeViewDemandReference({
 
   const byIndex = selected.map((candidate, rank) => ({
     ...candidate,
+    wantedDetailLevel: candidate.detailLevel,
     detailLevel: levels[rank],
   })).sort((first, second) => first.treeIndex - second.treeIndex);
   const treeIndices = Uint32Array.from(byIndex, ({ treeIndex }) => treeIndex);
@@ -211,10 +212,9 @@ export function selectTreeViewDemandReference({
       + (detailLevel >= 1 ? BRANCH_PRIMITIVES : 0)
       + (detailLevel >= 2 ? FOLIAGE_PRIMITIVES : 0)
     ), 0);
-  const detailTruncated = byIndex.some(({ detailLevel, treeIndex }) => {
-    const wanted = selected.find((candidate) => candidate.treeIndex === treeIndex).detailLevel;
-    return detailLevel < wanted;
-  });
+  const detailTruncated = byIndex.some(({ detailLevel, wantedDetailLevel }) => (
+    detailLevel < wantedDetailLevel
+  ));
 
   return Object.freeze({
     kind: 'tree-view-demand:v1',

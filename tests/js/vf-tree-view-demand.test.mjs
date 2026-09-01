@@ -78,6 +78,19 @@ test('camera demand emits a bounded canonical request consumable by the tree pla
   assert.ok(plan.primitiveCount <= 256);
   assert.equal(demand.scannedTreeCount, forest.treeCount);
   assert.ok(demand.visibleTreeCount >= demand.treeIndices.length);
+  assert.deepEqual(Array.from(demand.treeIndices), [
+    1, 3, 18, 19, 62, 64, 66, 69, 74, 75, 77, 80,
+    81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 93, 124,
+  ]);
+  assert.deepEqual(Array.from(demand.detailLevels), [
+    1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 2, 2,
+    1, 1, 2, 1, 2, 1, 1, 2, 1, 1, 1, 1,
+  ]);
+  assert.equal(demand.plannedPrimitiveCount, 256);
+  assert.equal(demand.vectorBytes, 120);
+  assert.equal(demand.visibleTreeCount, 126);
+  assert.equal(demand.culledTreeCount, 0);
+  assert.equal(demand.truncated, true);
 });
 
 test('view distance chooses stable coarse-to-fine levels without changing tree identities', () => {
@@ -126,6 +139,8 @@ test('primitive pressure keeps every selected tree coarse before adding detail',
 
   assert.equal(demand.treeIndices.length, 8);
   assert.equal(demand.plannedPrimitiveCount, 24);
+  assert.deepEqual(Array.from(demand.treeIndices), [62, 66, 69, 77, 80, 83, 85, 89]);
+  assert.deepEqual(Array.from(demand.detailLevels), [0, 0, 0, 1, 0, 0, 1, 0]);
   assert.deepEqual(Array.from(demand.detailLevels).toSorted(), [0, 0, 0, 0, 0, 0, 1, 1]);
   assert.equal(empty.treeIndices.length, 0);
   assert.equal(empty.detailLevels.length, 0);
