@@ -32,6 +32,7 @@ import {
   adaptWoodCutMaterialToTriangleFacesReference,
   evaluateWoodFaceGgxResponseReference,
   evaluateWoodTriangleGgxBatchReference,
+  evaluateWoodTriangleGgxCoverageReference,
   sampleWoodMaterialTriangleReference,
 } from '../../web/vf-ui/vf-wood-material-renderer-packet.mjs';
 
@@ -451,4 +452,77 @@ test('one complete wood face batches bounded anisotropic shading probes', () => 
       response.reflectedRgb.map(Math.fround),
     );
   });
+});
+
+test('one complete wood face covers a deterministic barycentric GGX lattice', () => {
+  const material = proceduralSideGrainMaterial();
+  const packet = adaptWoodCutMaterialToTriangleFacesReference(material, {
+    triangleBudget: 32,
+  });
+  const triangle = 7;
+  const subdivisions = 3;
+  const sampleCount = 10;
+  const viewDirection = normalize(packet.tangentFrame.normal.map((value, component) => (
+    value + packet.tangentFrame.tangent[component] * 0.2
+  )));
+  const lightDirection = normalize(packet.tangentFrame.normal.map((value, component) => (
+    value + packet.tangentFrame.bitangent[component] * 0.15
+  )));
+  const coverage = evaluateWoodTriangleGgxCoverageReference(packet, {
+    triangle,
+    subdivisions,
+    viewDirection,
+    lightDirection,
+    sampleBudget: sampleCount,
+  });
+  const expectedBarycentric = [];
+  for (let tangentStep = 0; tangentStep <= subdivisions; tangentStep += 1) {
+    for (
+      let bitangentStep = 0;
+      bitangentStep <= subdivisions - tangentStep;
+      bitangentStep += 1
+    ) {
+      expectedBarycentric.push([
+        tangentStep / subdivisions,
+        bitangentStep / subdivisions,
+        (subdivisions - tangentStep - bitangentStep) / subdivisions,
+      ]);
+    }
+  }
+  const scalarBatch = evaluateWoodTriangleGgxBatchReference(packet, {
+    triangle,
+    barycentricSamples: expectedBarycentric,
+    viewDirection,
+    lightDirection,
+    sampleBudget: sampleCount,
+  });
+
+  assert.equal(coverage.kind, 'wood-cut-triangle-ggx-coverage:v1');
+  assert.strictEqual(coverage.sourcePacket, packet);
+  assert.equal(coverage.triangle, triangle);
+  assert.equal(coverage.subdivisions, subdivisions);
+  assert.equal(coverage.sampleCount, sampleCount);
+  assert.equal(coverage.sampleBudget, sampleCount);
+  assert.deepEqual(
+    Array.from(coverage.barycentricWeights),
+    expectedBarycentric.flat().map(Math.fround),
+  );
+  assert.deepEqual(coverage.positions, scalarBatch.positions);
+  assert.deepEqual(coverage.surfaceNormals, scalarBatch.surfaceNormals);
+  assert.deepEqual(coverage.specularBrdf, scalarBatch.specularBrdf);
+  assert.deepEqual(coverage.reflectedRgb, scalarBatch.reflectedRgb);
+  assert.equal(
+    coverage.vectorBytes,
+    coverage.barycentricWeights.byteLength + scalarBatch.vectorBytes,
+  );
+  const corners = new Set([
+    '1,0,0',
+    '0,1,0',
+    '0,0,1',
+  ]);
+  expectedBarycentric.forEach((weights) => corners.delete(weights.join(',')));
+  assert.equal(corners.size, 0);
+  assert.ok(expectedBarycentric.some((weights) => (
+    weights.every((weight) => Math.abs(weight - 1 / 3) < 1e-12)
+  )));
 });
