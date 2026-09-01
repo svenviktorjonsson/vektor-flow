@@ -3457,6 +3457,11 @@ fn fs_line_impostor(i: LineImpostorVOut) -> @location(0) vec4<f32> {
   if (mask <= 1e-4) {
     discard;
   }
+  let instAlpha = abs(i.color.a);
+  if (i.color.a < 0.0) {
+    let alpha = instAlpha * mask * sc.alpha_mul;
+    return vec4<f32>(i.color.rgb * alpha, alpha);
+  }
   var front = normalize(cross(i.axis, i.perp));
   let viewDir = normalize(sc.cam_pos - i.world_pos);
   if (dot(front, viewDir) < 0.0) {
@@ -3470,7 +3475,7 @@ fn fs_line_impostor(i: LineImpostorVOut) -> @location(0) vec4<f32> {
     let tipLight = smoothstep(0.12, 1.0, t);
     baseColor = baseColor * (0.72 + (0.42 * tipLight)) + vec3<f32>(0.025, 0.045, 0.010) * centerRib;
   }
-  return shadeLitBase(baseColor, i.color.a * mask, i.world_pos, normal, false);
+  return shadeLitBase(baseColor, instAlpha * mask, i.world_pos, normal, false);
 }
 `;
 

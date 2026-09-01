@@ -1678,6 +1678,14 @@
       return space === "pixel" ? "pixel" : "world";
     }
 
+    function shouldUseAnalyticLineStroke(spec) {
+      return !!spec &&
+        spec.mode3d === false &&
+        String(spec.topology || "") === "line-list" &&
+        fieldMeshRenderMode(spec) === "line" &&
+        fieldMeshMarkerSpace(spec) === "pixel";
+    }
+
   function buildExpandedPointMesh(spec, camera, lights) {
     var sizingCamera = camera && camera._marker_size_camera ? camera._marker_size_camera : camera;
     var verts = spec.vertices || [];
@@ -2053,6 +2061,7 @@
     var inst = new Float32Array(segmentCount * 12);
     var viewportHeight = markerViewportHeight(sizingCamera, Number(sizingCamera && sizingCamera.viewport_height_px) || 0);
     var markerSpace = fieldMeshMarkerSpace(spec);
+    var strokeRadiusScale = shouldUseAnalyticLineStroke(spec) ? 0.5 : 1.0;
     for (var si = 0; si < segmentCount; si += 1) {
       var aIdx = Number(inds[si * 2]);
       var bIdx = Number(inds[(si * 2) + 1]);
@@ -2078,15 +2087,18 @@
       var aWidth = hasVertexWidths ? Number(vertexWidths[aIdx] || 0) : edgeRadius;
       var bWidth = hasVertexWidths ? Number(vertexWidths[bIdx] || 0) : edgeRadius;
       var aRadius = markerSpace === "pixel"
-        ? impostorWorldRadius(sizingCamera, viewportHeight, [ax, ay, az], aWidth)
-        : aWidth;
+        ? impostorWorldRadius(sizingCamera, viewportHeight, [ax, ay, az], aWidth * strokeRadiusScale)
+        : (aWidth * strokeRadiusScale);
       var bRadius = markerSpace === "pixel"
-        ? impostorWorldRadius(sizingCamera, viewportHeight, [bx, by, bz], bWidth)
-        : bWidth;
+        ? impostorWorldRadius(sizingCamera, viewportHeight, [bx, by, bz], bWidth * strokeRadiusScale)
+        : (bWidth * strokeRadiusScale);
       var cr = Number(verts[aBase + 6] == null ? 0.8 : verts[aBase + 6]);
       var cg = Number(verts[aBase + 7] == null ? 0.8 : verts[aBase + 7]);
       var cb = Number(verts[aBase + 8] == null ? 0.8 : verts[aBase + 8]);
       var ca = Number(verts[aBase + 9] == null ? 1.0 : verts[aBase + 9]);
+      if (mesh.mode3d === false || spec.receives_lighting === false || spec.no_lighting === true) {
+        ca = -Math.max(1e-4, Math.abs(ca));
+      }
       var base = si * 12;
       inst[base + 0] = ax;
       inst[base + 1] = ay;
@@ -2289,6 +2301,9 @@
     var viewportHeight = Number(viewportHeightPx || 0);
     if (!cam || !(viewportHeight > 0)) {
       return pxRadius;
+    }
+    if (String(cam.projection || "").toLowerCase() === "orthographic") {
+      return pxRadius * ((2 * Math.max(1e-6, Number(cam.ortho_scale) || 1)) / viewportHeight);
     }
     var depth = cameraDepth(cam, point);
     var verticalScale = cameraVerticalScale(cam);
@@ -2581,8 +2596,9 @@
     if (spec.type !== "field_mesh") { return false; }
     var topology = String(spec.topology || "");
     var renderMode = fieldMeshRenderMode(spec);
-    return renderMode === "marker_impostor" &&
-      (topology === "point-list" || topology === "line-list");
+    return (renderMode === "marker_impostor" &&
+      (topology === "point-list" || topology === "line-list")) ||
+      shouldUseAnalyticLineStroke(spec);
   }
 
   // Build a single-mesh object for the renderer from a spec
@@ -2644,13 +2660,13 @@
           : buildExpandedPointMesh(spec, camera, lights);
       } else if (
         topology === "line-list" &&
-        renderMode !== "line" &&
+        (renderMode !== "line" || shouldUseAnalyticLineStroke(spec)) &&
         (
           Number(spec.edge_width || 0) > 0 ||
           (Array.isArray(spec.vertex_widths) && spec.vertex_widths.length > 0)
         )
       ) {
-        mesh = renderMode === "marker_impostor"
+        mesh = (renderMode === "marker_impostor" || shouldUseAnalyticLineStroke(spec))
           ? buildAnalyticLineImpostorMesh(spec, camera, lights)
           : buildExpandedLineMesh(spec, camera, lights);
       }
@@ -10818,15 +10834,25 @@
       vlog("warn", "updateGeomFrame [" + fid + "]: VfGeomWgpu not loaded — geom skipped");
       return;
     }
+    var frameFit = fittedFrameContentRect(frameEl, geomFrameHost(frameEl, fid));
+    var viewportWidth = Math.max(1, Math.round(frameFit.width || 1));
+    var viewportHeight = Math.max(1, Math.round(frameFit.height || 1));
     var effectiveCamera = camera
-      ? (function () {
-          var fit = fittedFrameContentRect(frameEl, geomFrameHost(frameEl, fid));
-          return Object.assign({}, camera, {
-            viewport_width_px: Math.max(1, Math.round(fit.width || 1)),
-            viewport_height_px: Math.max(1, Math.round(fit.height || 1))
-          });
-        })()
-      : null;
+      ? Object.assign({}, camera, {
+          viewport_width_px: viewportWidth,
+          viewport_height_px: viewportHeight
+        })
+      : (renderableSpecs.some(shouldUseAnalyticLineStroke)
+          ? {
+              pos: [0, 0, 5],
+              target: [0, 0, 0],
+              up: [0, 1, 0],
+              projection: "orthographic",
+              ortho_scale: 1,
+              viewport_width_px: viewportWidth,
+              viewport_height_px: viewportHeight
+            }
+          : null);
     var unifiedScene = geomSpec && (
       geomSpec.unified_renderer === true ||
       renderableSpecs.some(geomSpecNeedsUnifiedRenderer)
