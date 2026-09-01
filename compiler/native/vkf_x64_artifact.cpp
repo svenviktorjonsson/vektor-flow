@@ -957,8 +957,8 @@ private:
     std::map<std::string, std::size_t> offsets_;
     std::vector<CallPatch> calls_;
     Code code_;
-    std::int32_t saved_xmm6_displacement_ = 0;
-    std::int32_t saved_xmm7_displacement_ = 0;
+    std::array<std::int32_t, 7> saved_xmm_displacements_{};
+    unsigned saved_xmm_register_count_ = 0;
     std::int32_t saved_rbx_displacement_ = 0;
     std::int32_t saved_rsi_displacement_ = 0;
     std::int32_t saved_rdi_displacement_ = 0;
@@ -2564,7 +2564,8 @@ private:
         store_xmm(0, frame.displacement(plan.counter_local));
     }
 
-    static Frame make_frame(const vkf::machine_ir::Function& function, bool entry) {
+    static Frame make_frame(const vkf::machine_ir::Function& function, bool entry,
+                            bool fixed_pair_registers) {
         constexpr auto target = vkf::target::host_x64_contract();
         Frame frame;
         frame.local_count = static_cast<unsigned>(function.locals.size());
@@ -2614,7 +2615,7 @@ private:
         });
         frame.saved_xmm_slot = frame.scratch_slot + frame.scratch_slots;
 #ifdef _WIN32
-        frame.saved_xmm_slots = 4u;
+        frame.saved_xmm_slots = fixed_pair_registers ? 14u : 4u;
 #endif
         frame.saved_gpr_slot = frame.saved_xmm_slot + frame.saved_xmm_slots;
         frame.error_pointer_slot = frame.saved_gpr_slot + frame.saved_gpr_slots;
@@ -2632,12 +2633,17 @@ private:
         code_.raw({0x55, 0x48, 0x89, 0xe5});
         emit_stack_allocation(code_, frame.frame_bytes);
 #ifdef _WIN32
-        code_.raw({0xf3, 0x0f, 0x7f, 0xb5});
-        code_.i32(frame.displacement(frame.saved_xmm_slot));
-        code_.raw({0xf3, 0x0f, 0x7f, 0xbd});
-        code_.i32(frame.displacement(frame.saved_xmm_slot + 2u));
-        saved_xmm6_displacement_ = frame.displacement(frame.saved_xmm_slot);
-        saved_xmm7_displacement_ = frame.displacement(frame.saved_xmm_slot + 2u);
+        saved_xmm_register_count_ = frame.saved_xmm_slots / 2u;
+        for (unsigned index = 0; index < saved_xmm_register_count_; ++index) {
+            const unsigned xmm = 6u + index;
+            code_.byte(0xf3);
+            if (xmm >= 8u) code_.byte(0x44);
+            code_.raw({0x0f, 0x7f,
+                       static_cast<unsigned>(0x85u + (xmm & 7u) * 8u)});
+            saved_xmm_displacements_[index] =
+                frame.displacement(frame.saved_xmm_slot + index * 2u);
+            code_.i32(saved_xmm_displacements_[index]);
+        }
 #endif
         code_.raw({0x48, 0x89, 0x9d});
         code_.i32(frame.displacement(frame.saved_gpr_slot));
@@ -2661,10 +2667,14 @@ private:
 
     void epilogue() {
 #ifdef _WIN32
-        code_.raw({0xf3, 0x0f, 0x6f, 0xb5});
-        code_.i32(saved_xmm6_displacement_);
-        code_.raw({0xf3, 0x0f, 0x6f, 0xbd});
-        code_.i32(saved_xmm7_displacement_);
+        for (unsigned index = 0; index < saved_xmm_register_count_; ++index) {
+            const unsigned xmm = 6u + index;
+            code_.byte(0xf3);
+            if (xmm >= 8u) code_.byte(0x44);
+            code_.raw({0x0f, 0x6f,
+                       static_cast<unsigned>(0x85u + (xmm & 7u) * 8u)});
+            code_.i32(saved_xmm_displacements_[index]);
+        }
 #endif
         code_.raw({0x48, 0x8b, 0x9d});
         code_.i32(saved_rbx_displacement_);
@@ -5760,7 +5770,21 @@ private:
     }
 
     void emit_function(const vkf::machine_ir::Function& function, bool entry) {
-        const Frame frame = make_frame(function, entry);
+        using vkf::machine_ir::Opcode;
+        const auto opcode_count = [&](Opcode opcode) {
+            return static_cast<unsigned>(std::count_if(
+                function.instructions.begin(), function.instructions.end(),
+                [opcode](const auto& instruction) {
+                    return instruction.opcode == opcode;
+                }));
+        };
+        // Reserve five high XMM registers only for functions with enough fixed
+        // indexed vector work to form at least one packed interaction pair.
+        const bool fixed_pair_registers = policy_.packed_dot_reductions &&
+            policy_.fused_multiply_add && vkf::target::host_x64_supports_fma() &&
+            opcode_count(Opcode::SqrtF64) >= 2u &&
+            opcode_count(Opcode::StoreF64LocalsIndex) >= 12u;
+        const Frame frame = make_frame(function, entry, fixed_pair_registers);
         if (!entry && policy_.integer_function_tier &&
             is_integer_function_candidate(function)) {
             emit_integer_function(function, frame);
@@ -9126,6 +9150,12 @@ private:
                 }
                 return interaction;
             };
+        struct FixedPositionPairCache {
+            bool active = false;
+            std::uint32_t base = 0;
+            std::uint32_t width = 0;
+        };
+        FixedPositionPairCache fixed_position_pair_cache;
         const auto emit_two_static_vector3_interactions =
             [&](std::size_t start) -> std::optional<std::size_t> {
                 using vkf::machine_ir::Opcode;
@@ -9213,6 +9243,30 @@ private:
                                   at[plan->start + 79u].argument_count,
                                   "invalid packed second mass index");
                 }
+                const auto position_width = at[first->start + 1u].argument_count;
+                const bool cacheable_positions = fixed_pair_registers &&
+                    position_width == at[second->start + 1u].argument_count &&
+                    position_width % 3u == 0u && position_width / 3u <= 5u &&
+                    first->first_vector_index % 3u == 0u &&
+                    first->second_vector_index % 3u == 0u &&
+                    second->first_vector_index % 3u == 0u &&
+                    second->second_vector_index % 3u == 0u;
+                if (!cacheable_positions) {
+                    fixed_position_pair_cache = {};
+                } else if (!fixed_position_pair_cache.active ||
+                           fixed_position_pair_cache.base != first->position_x ||
+                           fixed_position_pair_cache.width != position_width) {
+                    for (unsigned body = 0; body < position_width / 3u; ++body) {
+                        const unsigned destination = 8u + body;
+                        code_.raw({0x66, 0x44, 0x0f, 0x10,
+                                   static_cast<unsigned>(
+                                       0x85u + (destination & 7u) * 8u)});
+                        code_.i32(frame.displacement(
+                            first->position_x + body * 3u + 1u));
+                    }
+                    fixed_position_pair_cache = {
+                        true, first->position_x, position_width};
+                }
                 const auto emit_separator = [&] {
                     for (std::size_t position = first->end + 1u;
                          position < second->start;) {
@@ -9239,6 +9293,12 @@ private:
                 const auto load_pair = [&](std::uint32_t base,
                                            std::uint32_t index,
                                            unsigned destination) {
+                    if (fixed_position_pair_cache.active &&
+                        base == fixed_position_pair_cache.base && index % 3u == 0u &&
+                        index < fixed_position_pair_cache.width) {
+                        move_xmm(destination, 8u + index / 3u);
+                        return;
+                    }
                     code_.raw({0x66, 0x0f, 0x10,
                                static_cast<unsigned>(0x85u + destination * 8u)});
                     code_.i32(frame.displacement(base + index + 1u));
@@ -10569,6 +10629,9 @@ private:
                     instruction_index = *paired_interactions;
                     continue;
                 }
+                // A non-paired region may mutate the aggregate or cross a
+                // control-flow boundary, so cached fixed lanes cannot escape.
+                fixed_position_pair_cache = {};
                 const auto pair_interaction =
                     emit_vector3_pair_interaction(instruction_index);
                 if (pair_interaction) {
