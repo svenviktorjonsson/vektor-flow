@@ -77,18 +77,39 @@ test("Stanford Bunny studio has checker continuity, physical mirrors, and shadow
   assert.match(source, /id:"stanford_bunny"[\s\S]*?topology:"triangle-list"/u);
   assert.match(source, /id:"stanford_bunny"[\s\S]*?interpolation:true/u);
   assert.match(source, /id:"stanford_bunny"[\s\S]*?casts_shadow:true/u);
-  assert.match(source, /plane:\([\s\S]*?texture:\(kind:"checker"/u);
-  assert.match(source, /id:"studio_floor"[\s\S]*?mesh_id:"studio_floor"/u);
+  assert.match(source,
+    /id:"studio_floor"[\s\S]*?texture:\(kind:"checker"[\s\S]*?mesh_id:"studio_floor"/u);
+  assert.match(source,
+    /id:"studio_floor", center:\[0\.0, 3\.25, 0\.0\], size:\[7\.4, 14\.0\]/u);
+  assert.match(source,
+    /id:"studio_floor"[\s\S]*?texture:\(kind:"checker", scale:\[8\.0, 16\.0\]/u);
   assert.match(source, /id:"upright_mirror"[\s\S]*?mesh_id:"upright_mirror"/u);
   assert.match(source,
     /id:"upright_mirror"[\s\S]*?alpha:1\.0, reflectivity:1\.0, roughness:0\.01/u);
   assert.match(source,
     /id:"upright_mirror"[\s\S]*?surface_system:\(kind:"screen", reflectivity:1\.0/u);
+  const uprightMirror = source.match(
+    /id:"upright_mirror"[\s\S]*?casts_shadow:true/u,
+  )?.[0] ?? "";
+  assert.match(uprightMirror, /flip_y:true/u);
+  assert.doesNotMatch(uprightMirror, /flip_x:true/u,
+    "the physical mirror camera already reverses X; a texture flip would undo it");
   assert.doesNotMatch(source, /transparent:true/u);
-  assert.match(source, /id:"mirror_backing"[\s\S]*?center:\[0\.65, 3\.28, 1\.78\]/u);
+  assert.equal(source.match(/kind:"checker"/gu)?.length, 1,
+    "the studio has one checkerboard material, not overlapping floors");
+  assert.doesNotMatch(source, /\bplane:\(/u);
+  assert.match(source,
+    /id:"sun_key", kind:"point", pos:\[-5\.2, 0\.3, 7\.4\]/u,
+    "the high key stays laterally outside the mirror so its rear edge is visible");
   assert.match(source, /id:"sun_key"[\s\S]*?intensity:58\.0[\s\S]*?casts_shadow:true/u);
-  assert.match(source, /receiver_mesh:"plane_0"[\s\S]*?occluders:\["stanford_bunny"\]/u);
-  assert.match(source, /receiver_mesh:"studio_floor"[\s\S]*?occluders:\["stanford_bunny"\]/u);
+  assert.match(source, /id:"sky_fill"[\s\S]*?intensity:6\.0[\s\S]*?casts_shadow:false/u,
+    "fill light must not wash out the Bunny shadow");
+  assert.match(source, /id:"mirror_sun"[\s\S]*?intensity:92\.0/u,
+    "the mirror-projected sunlight must remain visible over direct illumination");
+  assert.match(source,
+    /id:"mirror_sun"[\s\S]*?reflect_of_light_id:"sun_key"[\s\S]*?reflect_mirror_mesh_id:"upright_mirror"/u);
+  assert.match(source,
+    /receiver_mesh:"studio_floor"[\s\S]*?occluders:\["stanford_bunny", "upright_mirror"\]/u);
   assert.match(source, /title:"Stanford Bunny material studio"/u);
 });
 

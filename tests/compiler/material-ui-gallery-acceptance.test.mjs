@@ -40,14 +40,20 @@ test("material gallery stages the full Stanford Bunny and mirror studio", async 
   assert.equal(meshes.stanford_bunny.topology, "triangle-list");
   assert.equal(meshes.stanford_bunny.interpolation, true);
   assert.equal(meshes.stanford_bunny.casts_shadow, true);
-  assert.equal(meshes.plane_0.texture.kind, "checker");
+  assert.equal(meshes.studio_floor.texture.kind, "checker");
+  assert.deepEqual(meshes.studio_floor.center, [0, 3.25, 0]);
+  assert.deepEqual(meshes.studio_floor.size, [7.4, 14]);
+  assert.deepEqual(meshes.studio_floor.texture.scale, [8, 16]);
   assert.equal(meshes.studio_floor.surface_system.kind, "screen");
   assert.equal(meshes.upright_mirror.surface_system.kind, "screen");
-  assert.deepEqual(config.shadow_receivers.map(({ receiver_mesh: id }) => id), [
-    "plane_0", "studio_floor",
-  ]);
-  assert.ok(config.shadow_receivers.every(({ occluders }) => occluders[0] === "stanford_bunny"));
-  assert.equal(config.lights.filter((light) => light.properties.casts_shadow).length, 1);
+  assert.equal(meshes.upright_mirror.casts_shadow, true);
+  assert.deepEqual(config.shadow_receivers.map(({ receiver_mesh: id }) => id), ["studio_floor"]);
+  assert.ok(config.shadow_receivers.every(({ occluders }) =>
+    JSON.stringify(occluders) === JSON.stringify(["stanford_bunny", "upright_mirror"])));
+  assert.equal(config.lights.filter((light) => light.properties.casts_shadow).length, 2);
+  const mirrorSun = config.lights.find((light) => light.id === "mirror_sun").properties;
+  assert.equal(mirrorSun.reflect_of_light_id, "sun_key");
+  assert.equal(mirrorSun.reflect_mirror_mesh_id, "upright_mirror");
   const frame = packets[0].payload.commands[0].payload.spec;
   assert.equal(frame.title, "Stanford Bunny material studio");
   assert.ok(frame.body.some(({ id }) => id === "material-studio"));

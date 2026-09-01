@@ -15,24 +15,16 @@ native_scene:(
             grid:[1, 0, 1, 12], align:"stretch")
     ],
     background:[0.012, 0.018, 0.032, 1.0],
-    camera:(pos:[5.2, -7.8, 4.6], target:[0.0, 0.45, 1.45],
+    camera:(pos:[0.0, -8.3, 4.6], target:[0.0, 0.45, 1.45],
         up:[0.0, 0.0, 1.0], fov:43.0, controls_mode:"orbit"),
-    plane:(
-        center:[0.0, 0.7], size:10.0, z:0.0,
-        color:[0.82, 0.88, 0.96, 1.0],
-        texture:(kind:"checker", scale:[8.0, 8.0],
-            color_a:[0.035, 0.05, 0.075, 1.0],
-            color_b:[0.34, 0.39, 0.48, 1.0]),
-        roughness:0.42, specular_strength:0.34,
-        casts_shadow:false, receives_shadow:true
-    ),
     surfaces:[(
-        id:"studio_floor", center:[0.0, 0.7, 0.012], size:[7.4, 6.4],
-        color:[0.82, 0.88, 0.96, 1.0],
-        texture:(kind:"checker", scale:[7.0, 7.0],
-            color_a:[0.035, 0.05, 0.075, 1.0],
-            color_b:[0.34, 0.39, 0.48, 1.0]),
-        surface_system:(kind:"screen", reflectivity:0.16,
+        id:"studio_floor", center:[0.0, 3.25, 0.0], size:[7.4, 14.0],
+        color:[1.0, 1.0, 1.0, 1.0],
+        texture:(kind:"checker", scale:[8.0, 16.0],
+            color_a:[0.025, 0.035, 0.055, 1.0],
+            color_b:[0.68, 0.72, 0.80, 1.0]),
+        reflectivity:0.18,
+        surface_system:(kind:"screen", reflectivity:0.18,
             flip_y:true, scale:[1.0, 1.0], camera:(fov:43.0,
                 up:[0.0, 0.0, 1.0], mirror_of:(
                     frame_id:"material_gallery_frame", mesh_id:"studio_floor",
@@ -41,7 +33,7 @@ native_scene:(
         casts_shadow:false, receives_shadow:true, no_backface_specular:true
     ),
     (
-        id:"upright_mirror", center:[0.65, 3.25, 1.78], size:[5.4, 3.56],
+        id:"upright_mirror", center:[0.0, 3.25, 1.85], size:[7.4, 3.7],
         rotation:[90.0, 0.0, 0.0], color:[0.02, 0.02, 0.025, 1.0],
         alpha:1.0, reflectivity:1.0, roughness:0.01,
         surface_system:(kind:"screen", reflectivity:1.0,
@@ -49,40 +41,40 @@ native_scene:(
                 up:[0.0, 0.0, 1.0], mirror_of:(
                     frame_id:"material_gallery_frame", mesh_id:"upright_mirror",
                     controls_enabled:false))),
-        casts_shadow:false, receives_shadow:true, no_backface_specular:true
-    ),
-    (id:"mirror_backing", center:[0.65, 3.28, 1.78], size:[5.56, 3.72],
-        rotation:[90.0, 0.0, 0.0], color:[0.025, 0.028, 0.035, 1.0],
-        casts_shadow:false, receives_shadow:false, no_backface_specular:true)],
+        casts_shadow:true, receives_shadow:true, no_backface_specular:true
+    )],
     meshes:[(
         id:"stanford_bunny", kind:"field_mesh",
         vertices:bunny.vertices, indices:bunny.faces,
         topology:"triangle-list", center:[0.27, 0.15, -0.51],
-        scale:[16.0, 16.0, 16.0], rotation:[90.0, 0.0, 0.0],
+        scale:[16.0, 16.0, 16.0], rotation:[90.0, 0.0, -90.0],
         color:[0.94, 0.62, 0.30, 1.0], use_vertex_color:false,
         interpolation:true, repair_winding:true, no_cull:false,
         roughness:0.40, specular_strength:0.40,
         casts_shadow:true, receives_shadow:true, receives_lighting:true
     )],
     lights:[
-        (id:"sun_key", kind:"point", pos:[-3.8, -2.5, 4.8],
+        (id:"sun_key", kind:"point", pos:[-5.2, 0.3, 7.4],
             target:[0.0, 0.3, 1.5], color:[1.0, 0.78, 0.58, 1.0],
             intensity:58.0, range:20.0, casts_shadow:true,
             model:"blinn_phong", source_radius:0.08),
         (id:"sky_fill", kind:"point", pos:[4.0, -1.0, 4.2],
             target:[0.0, 0.5, 1.7], color:[0.34, 0.68, 1.0, 1.0],
-            intensity:20.0, range:17.0, casts_shadow:false,
-            model:"blinn_phong", source_radius:0.18)
+            intensity:6.0, range:17.0, casts_shadow:false,
+            model:"blinn_phong", source_radius:0.18),
+        (id:"mirror_sun", kind:"projected",
+            reflect_of_light_id:"sun_key",
+            reflect_mirror_mesh_id:"upright_mirror",
+            aperture_face_id:"upright_mirror",
+            color:[1.0, 0.78, 0.58, 1.0], intensity:92.0,
+            range:20.0, casts_shadow:true, model:"blinn_phong",
+            source_radius:0.08, spread:1.0)
     ],
     shadow:(enabled:true, color:[0.0, 0.0, 0.0, 0.82], lift:0.002),
     shadow_receivers:[(
-        receiver_mesh:"plane_0", occluders:["stanford_bunny"],
-        lights:["sun_key"], policy_kind:"light_camera_depth_map",
-        policy_softness:"shadow_map_bias"
-    ),
-    (
-        receiver_mesh:"studio_floor", occluders:["stanford_bunny"],
-        lights:["sun_key"], policy_kind:"light_camera_depth_map",
+        receiver_mesh:"studio_floor", occluders:["stanford_bunny", "upright_mirror"],
+        lights:["sun_key", "mirror_sun"],
+        policy_kind:"light_camera_depth_map",
         policy_softness:"shadow_map_bias"
     )],
     timing:(fps:30, duration_seconds:2.0, boundary:"stop"),
