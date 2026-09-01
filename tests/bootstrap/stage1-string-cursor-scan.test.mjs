@@ -50,7 +50,10 @@ test("compiled StringCursor identifier scan matches the canonical lexer", () => 
       windowsHide: true,
     });
     assert.equal(canonical.status, 0, canonical.stderr);
-    const expected = JSON.parse(canonical.stdout).tokens[0];
+    const expected = JSON.parse(canonical.stdout).tokens.find(
+      (token) => token.kind === "IDENT",
+    );
+    assert.notEqual(expected, undefined);
 
     assert.deepEqual(executed.stdout.trim().split(/\r?\n/u), [
       expected.kind,
@@ -60,10 +63,50 @@ test("compiled StringCursor identifier scan matches the canonical lexer", () => 
       "2",
       "6",
       "true",
+      "🙂",
       "2",
       "1",
       "true",
     ]);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("compiled StringCursor slice rejects a boundary inside a scalar", () => {
+  const workRoot = join(root, ".work");
+  mkdirSync(workRoot, { recursive: true });
+  const work = mkdtempSync(join(workRoot, "i100-cursor-boundary-"));
+  try {
+    const source = join(work, "mid-scalar.vkf");
+    const artifact = join(work, `mid-scalar${executableSuffix}`);
+    writeFileSync(source, [
+      "StringCursor(source:str):",
+      "    bit at_eof: vkf_string_eof(source, 0)",
+      "    (source:source, position:0, line:1, column:1, eof:at_eof)",
+      "",
+      "_string_cursor_slice(cursor:StringCursor, start:int, stop:int) -> str:",
+      "    vkf_utf8_slice(cursor.source, start, stop)",
+      "",
+      "cursor: StringCursor(\"é\")",
+      ":: cursor.slice(1, 2)",
+      "",
+    ].join("\n"), "utf8");
+    const compiled = spawnSync(
+      compiler,
+      ["-b", source, "-o", artifact, "--optimizer-policy", "mask-0"],
+      { cwd: root, encoding: "utf8", timeout: 20_000, windowsHide: true },
+    );
+    assert.equal(compiled.status, 0, compiled.stderr);
+
+    const executed = spawnSync(artifact, [], {
+      cwd: work,
+      encoding: "utf8",
+      timeout: 3_000,
+      windowsHide: true,
+    });
+    assert.notEqual(executed.status, 0, "mid-scalar slice unexpectedly executed");
+    assert.equal(executed.stdout, "");
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

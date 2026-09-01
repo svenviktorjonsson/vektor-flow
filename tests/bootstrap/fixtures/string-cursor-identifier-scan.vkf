@@ -16,7 +16,7 @@ _string_cursor_advance(cursor:StringCursor) -> StringCursor:
     (source:cursor.source, position:next_position,
      line:cursor.line, column:cursor.column + 1, eof:next_eof)
 
-_string_cursor_slice(cursor:StringCursor, start:num, stop:num) -> str:
+_string_cursor_slice(cursor:StringCursor, start:int, stop:int) -> str:
     vkf_utf8_slice(cursor.source, start, stop)
 
 is_identifier_continue(ch:str) -> bit:
@@ -46,6 +46,7 @@ after_two: after_one.advance()
 :: after_one.position
 :: after_two.position
 :: after_two.eof
+:: unicode_cursor.slice(2, 6)
 
 newline_start: StringCursor("\n")
 newline_end: newline_start.advance()

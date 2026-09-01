@@ -10281,6 +10281,193 @@ inline ValueLayout lower_expression(
         }
         const std::string symbol = string_field(callee, "name", "callee");
         const auto signature = signatures.find(symbol);
+        if (signature == signatures.end() && symbol == "vkf_utf8_slice") {
+            if (args.size() != 3 ||
+                !array_of(field(expression, "named_args", "UTF-8 slice"),
+                    "UTF-8 slice named args").empty() ||
+                !array_of(field(expression, "spread_args", "UTF-8 slice"),
+                    "UTF-8 slice spread args").empty()) {
+                throw LoweringFailure("machine IR vkf_utf8_slice requires source, start, and stop");
+            }
+            const auto& source_expression = object_of(args[0], "UTF-8 slice source");
+            const auto source = lower_expression(
+                source_expression, builder, signatures, strings);
+            if (source.kind != ValueKind::String || source.width != 2) {
+                throw LoweringFailure("machine IR vkf_utf8_slice source must be str");
+            }
+            const auto source_local = builder.add_borrowed_temporary(source);
+            emit_store_local_component(builder, source_local + 1u);
+            emit_store_local_component(builder, source_local);
+            const auto start = lower_expression(
+                object_of(args[1], "UTF-8 slice start"), builder, signatures, strings);
+            require_scalar(start, "machine IR vkf_utf8_slice start");
+            const auto start_local = builder.add_borrowed_temporary({});
+            emit_store_local_component(builder, start_local);
+            const auto stop = lower_expression(
+                object_of(args[2], "UTF-8 slice stop"), builder, signatures, strings);
+            require_scalar(stop, "machine IR vkf_utf8_slice stop");
+            const auto stop_local = builder.add_borrowed_temporary({});
+            emit_store_local_component(builder, stop_local);
+
+            const auto byte_count = builder.add_borrowed_temporary({});
+            emit_load_local_component(builder, source_local + 1u);
+            builder.emit({Opcode::Duplicate});
+            Instruction zero;
+            zero.opcode = Opcode::PushF64;
+            zero.f64 = 0.0;
+            builder.emit(std::move(zero));
+            builder.emit({Opcode::OrderedGreaterEqualF64});
+            const auto length_ready = builder.next_label();
+            Instruction borrowed_length;
+            borrowed_length.opcode = Opcode::JumpIfTrue;
+            borrowed_length.label = length_ready;
+            builder.emit(std::move(borrowed_length));
+            builder.emit({Opcode::NegateF64});
+            Instruction one;
+            one.opcode = Opcode::PushF64;
+            one.f64 = 1.0;
+            builder.emit(std::move(one));
+            builder.emit({Opcode::SubtractF64});
+            Instruction length_label;
+            length_label.opcode = Opcode::Label;
+            length_label.label = length_ready;
+            builder.emit(std::move(length_label));
+            emit_store_local_component(builder, byte_count);
+
+            const auto emit_assertion = [&](const std::string& message) {
+                Instruction check;
+                check.opcode = Opcode::AssertTruthy;
+                check.index = strings.intern(message);
+                check.byte_count = static_cast<std::uint32_t>(message.size());
+                check.error_type_mask = value_error_mask;
+                if (const auto handler = builder.error_handler()) {
+                    check.has_error_handler = true;
+                    check.label = *handler;
+                    check.error_value_local = *builder.error_value_local();
+                    check.error_type_local = *builder.error_type_local();
+                }
+                builder.emit(std::move(check));
+                builder.emit({Opcode::Drop});
+            };
+            emit_load_local_component(builder, start_local);
+            Instruction range_zero;
+            range_zero.opcode = Opcode::PushF64;
+            range_zero.f64 = 0.0;
+            builder.emit(std::move(range_zero));
+            builder.emit({Opcode::OrderedGreaterEqualF64});
+            emit_assertion("invalid UTF-8 slice range");
+            emit_load_local_component(builder, stop_local);
+            emit_load_local_component(builder, start_local);
+            builder.emit({Opcode::OrderedGreaterEqualF64});
+            emit_assertion("invalid UTF-8 slice range");
+            emit_load_local_component(builder, stop_local);
+            emit_load_local_component(builder, byte_count);
+            builder.emit({Opcode::OrderedLessEqualF64});
+            emit_assertion("invalid UTF-8 slice range");
+
+            const auto boundary = builder.add_borrowed_temporary({});
+            Instruction boundary_zero;
+            boundary_zero.opcode = Opcode::PushF64;
+            boundary_zero.f64 = 0.0;
+            builder.emit(std::move(boundary_zero));
+            emit_store_local_component(builder, boundary);
+            const auto boundary_loop = builder.next_label();
+            const auto boundary_done = builder.next_label();
+            Instruction boundary_label;
+            boundary_label.opcode = Opcode::Label;
+            boundary_label.label = boundary_loop;
+            builder.emit(std::move(boundary_label));
+            emit_load_local_component(builder, boundary);
+            emit_load_local_component(builder, start_local);
+            builder.emit({Opcode::OrderedLessF64});
+            Instruction boundary_exit;
+            boundary_exit.opcode = Opcode::JumpIfFalse;
+            boundary_exit.label = boundary_done;
+            builder.emit(std::move(boundary_exit));
+            emit_load_local_component(builder, source_local);
+            emit_load_local_component(builder, source_local + 1u);
+            emit_load_local_component(builder, boundary);
+            builder.emit({Opcode::DecodeUtf8At});
+            emit_store_local_component(builder, boundary);
+            builder.emit({Opcode::Drop});
+            Instruction boundary_repeat;
+            boundary_repeat.opcode = Opcode::Jump;
+            boundary_repeat.label = boundary_loop;
+            builder.emit(std::move(boundary_repeat));
+            Instruction boundary_finish;
+            boundary_finish.opcode = Opcode::Label;
+            boundary_finish.label = boundary_done;
+            builder.emit(std::move(boundary_finish));
+            emit_load_local_component(builder, boundary);
+            emit_load_local_component(builder, start_local);
+            builder.emit({Opcode::OrderedEqualF64});
+            emit_assertion("slice boundary splits UTF-8 scalar");
+
+            const ValueLayout string_layout{2, ValueKind::String, {}};
+            const auto result_local = builder.add_owned_temporary(string_layout);
+            emit_static_string(builder, strings, "");
+            builder.emit({Opcode::CloneString});
+            emit_store_local_component(builder, result_local + 1u);
+            emit_store_local_component(builder, result_local);
+            const auto cursor = builder.add_borrowed_temporary({});
+            emit_load_local_component(builder, start_local);
+            emit_store_local_component(builder, cursor);
+            const auto loop = builder.next_label();
+            const auto finish = builder.next_label();
+            Instruction loop_label;
+            loop_label.opcode = Opcode::Label;
+            loop_label.label = loop;
+            builder.emit(std::move(loop_label));
+            emit_load_local_component(builder, cursor);
+            emit_load_local_component(builder, stop_local);
+            builder.emit({Opcode::OrderedLessF64});
+            Instruction done;
+            done.opcode = Opcode::JumpIfFalse;
+            done.label = finish;
+            builder.emit(std::move(done));
+            emit_load_local_component(builder, source_local);
+            emit_load_local_component(builder, source_local + 1u);
+            emit_load_local_component(builder, cursor);
+            builder.emit({Opcode::DecodeUtf8At});
+            emit_store_local_component(builder, cursor);
+            builder.emit({Opcode::FormatChrString});
+            const auto scalar_local = builder.add_borrowed_temporary(string_layout);
+            emit_store_local_component(builder, scalar_local + 1u);
+            emit_store_local_component(builder, scalar_local);
+            emit_load_local_component(builder, result_local);
+            emit_load_local_component(builder, result_local + 1u);
+            builder.emit({Opcode::CloneString});
+            emit_load_local_component(builder, scalar_local);
+            emit_load_local_component(builder, scalar_local + 1u);
+            Instruction concat;
+            concat.opcode = Opcode::ConcatStrings;
+            concat.owns_left = true;
+            concat.owns_right = true;
+            builder.emit(std::move(concat));
+            emit_release_layout_local(builder, result_local, string_layout);
+            emit_store_local_component(builder, result_local + 1u);
+            emit_store_local_component(builder, result_local);
+            Instruction repeat;
+            repeat.opcode = Opcode::Jump;
+            repeat.label = loop;
+            builder.emit(std::move(repeat));
+            Instruction finish_label;
+            finish_label.opcode = Opcode::Label;
+            finish_label.label = finish;
+            builder.emit(std::move(finish_label));
+            emit_load_local_component(builder, cursor);
+            emit_load_local_component(builder, stop_local);
+            builder.emit({Opcode::OrderedEqualF64});
+            emit_assertion("slice boundary splits UTF-8 scalar");
+            emit_load_local_component(builder, result_local);
+            emit_load_local_component(builder, result_local + 1u);
+            builder.emit({Opcode::CloneString});
+            emit_release_layout_local(builder, result_local, string_layout);
+            if (expression_transfers_string_value(source_expression, signatures)) {
+                emit_release_layout_local(builder, source_local, source);
+            }
+            return string_layout;
+        }
         if (signature == signatures.end() &&
             (symbol == "vkf_string_eof" || symbol == "vkf_string_peek_scalar" ||
              symbol == "vkf_utf8_advance")) {
