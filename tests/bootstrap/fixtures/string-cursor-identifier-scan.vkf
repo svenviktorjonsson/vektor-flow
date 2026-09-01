@@ -22,16 +22,19 @@ _string_cursor_slice(cursor:StringCursor, start:num, stop:num) -> str:
 is_identifier_continue(ch:str) -> bit:
     (ch >= "a" /\ ch <= "z") \/ (ch >= "A" /\ ch <= "Z") \/ (ch >= "0" /\ ch <= "9") \/ ch = "_"
 
-scan_identifier(cursor:StringCursor, value:str) -> Token:
+scan_identifier(cursor:StringCursor, start:int) -> Token:
     cursor.eof?
-        @: (kind:"IDENT", value:value, line:1, column:1)
+        @: (kind:"IDENT", value:cursor.slice(start, cursor.position),
+            line:cursor.line, column:start + 1)
     is_identifier_continue(cursor.peek())?
-        ch: cursor.peek()
-        @: scan_identifier(cursor.advance(), value & ch)
-    (kind:"IDENT", value:value, line:1, column:1)
+        @: scan_identifier(cursor.advance(), start)
+    (kind:"IDENT", value:cursor.slice(start, cursor.position),
+     line:cursor.line, column:start + 1)
 
-source: "alpha "
-observed: scan_identifier(StringCursor(source), "")
+source: " alpha "
+before_identifier: StringCursor(source)
+identifier_start: before_identifier.advance()
+observed: scan_identifier(identifier_start, identifier_start.position)
 :: observed.kind
 :: observed.value
 :: observed.line

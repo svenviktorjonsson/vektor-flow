@@ -42,7 +42,7 @@ test("compiled StringCursor identifier scan matches the canonical lexer", () => 
     assert.equal(executed.status, 0, executed.stderr);
 
     const source = join(work, "source.vkf");
-    writeFileSync(source, "alpha ", "utf8");
+    writeFileSync(source, " alpha ", "utf8");
     const canonical = spawnSync(lexer, ["--file", source, "<i99>"], {
       cwd: work,
       encoding: "utf8",
