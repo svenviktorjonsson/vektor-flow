@@ -4,6 +4,7 @@ const MAX_GGX_BATCH_SAMPLES = 4096;
 const MAX_GGX_COVERAGE_SUBDIVISIONS = 89;
 const MAX_GGX_MESH_TRIANGLES = 4096;
 const MAX_GGX_AZIMUTH_PROBES = 64;
+const MAX_GGX_MATERIAL_PROFILES = 4;
 const REFERENCE_GGX_ANISOTROPY = 0.65;
 const REFERENCE_GGX_MIN_ALPHA = 0.08;
 const packetCache = new WeakMap();
@@ -669,6 +670,84 @@ export function evaluateWoodMeshGgxAzimuthProfileReference(
     azimuths,
     meanSpecularBrdf,
     meanReflectedRgb,
+    vectorBytes: azimuths.byteLength
+      + meanSpecularBrdf.byteLength
+      + meanReflectedRgb.byteLength,
+  });
+}
+
+export function evaluateWoodOrientationGgxProfilesReference(
+  packetValues,
+  {
+    azimuths: azimuthValues,
+    viewCosine,
+    triangleBudget,
+    materialBudget,
+    probeBudget,
+  },
+) {
+  if (!Array.isArray(packetValues) || packetValues.length === 0) {
+    throw new TypeError('wood orientation profiles require material packets');
+  }
+  if (
+    !Number.isSafeInteger(materialBudget)
+    || materialBudget < 0
+    || materialBudget > MAX_GGX_MATERIAL_PROFILES
+  ) {
+    throw new RangeError(
+      `wood materialBudget must be an integer from 0 to ${MAX_GGX_MATERIAL_PROFILES}`,
+    );
+  }
+  const materialCount = packetValues.length;
+  if (materialCount > materialBudget) {
+    throw new RangeError('wood orientation profiles exceed materialBudget');
+  }
+  const probeCount = Array.isArray(azimuthValues) ? azimuthValues.length : 0;
+  const azimuths = new Float32Array(probeCount);
+  const meanSpecularBrdf = new Float32Array(materialCount * probeCount);
+  const meanReflectedRgb = new Float32Array(materialCount * probeCount * 3);
+  const orientations = [];
+  for (let material = 0; material < materialCount; material += 1) {
+    const packet = packetValues[material];
+    const profile = evaluateWoodMeshGgxAzimuthProfileReference(packet, {
+      azimuths: azimuthValues,
+      viewCosine,
+      triangleBudget,
+      probeBudget,
+    });
+    if (material === 0) azimuths.set(profile.azimuths);
+    orientations.push(String(packet.sourceMaterial?.orientation || ''));
+    meanSpecularBrdf.set(profile.meanSpecularBrdf, material * probeCount);
+    meanReflectedRgb.set(profile.meanReflectedRgb, material * probeCount * 3);
+  }
+  let maximumSpecularDelta = 0;
+  for (let left = 0; left < materialCount; left += 1) {
+    for (let right = left + 1; right < materialCount; right += 1) {
+      for (let probe = 0; probe < probeCount; probe += 1) {
+        maximumSpecularDelta = Math.max(
+          maximumSpecularDelta,
+          Math.abs(
+            meanSpecularBrdf[left * probeCount + probe]
+              - meanSpecularBrdf[right * probeCount + probe]
+          ),
+        );
+      }
+    }
+  }
+
+  return Object.freeze({
+    kind: 'wood-cut-orientation-ggx-profiles:v1',
+    sourcePackets: Object.freeze(Array.from(packetValues)),
+    orientations: Object.freeze(orientations),
+    materialCount,
+    materialBudget,
+    probeCount,
+    probeBudget,
+    viewCosine,
+    azimuths,
+    meanSpecularBrdf,
+    meanReflectedRgb,
+    maximumSpecularDelta,
     vectorBytes: azimuths.byteLength
       + meanSpecularBrdf.byteLength
       + meanReflectedRgb.byteLength,
