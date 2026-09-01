@@ -98,3 +98,37 @@ test('tree packet runtime bounds active memory and releases removed tree packets
   assert.strictEqual(runtime.packets()[0], coarse.packets[1]);
   assert.equal(renders.length, 3);
 });
+
+test('tree packet runtime rejects over-budget deltas without mutating the active cache', () => {
+  const forest = realizeForestPatchesReference(
+    createForestPopulationReference(IDENTITY),
+    { patches: [[-2, 3]], treeBudget: 32 },
+  );
+  const geometry = planTreeGeometryReference(
+    createTreeGeometryPlannerReference(IDENTITY),
+    forest,
+    { treeIndices: [0], detailLevels: [2], primitiveBudget: 64 },
+  );
+  const materials = realizeTreeMaterialsReference(
+    createTreeMaterialFieldReference(IDENTITY),
+    forest,
+    geometry,
+    { materialBudget: 64 },
+  );
+  const state = adaptTreeWorkingSetsToRetainedPacketsReference(geometry, materials);
+  const renders = [];
+  const runtime = createTreePacketRuntimeCacheReference({
+    byteBudget: state.packets[0].vectorBytes - 1,
+    requestRender: (...args) => renders.push(args),
+  });
+
+  assert.throws(() => runtime.applyDelta(state.delta), /requires 1562 bytes; budget is 1561/);
+  assert.deepEqual(runtime.packets(), []);
+  assert.deepEqual(runtime.status(), {
+    packetCount: 0,
+    primitiveCount: 0,
+    bytes: 0,
+    byteBudget: 1561,
+  });
+  assert.deepEqual(renders, []);
+});
