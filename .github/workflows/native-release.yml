@@ -251,16 +251,16 @@ jobs:
           node benchmarks/policy-landscape/run.mjs
           --compiler=build/native-compiler-clang/bin/vkf-strict.exe
           --runs=200
-          --output=benchmarks/policy-landscape/evidence/windows-x64-v0.4.0-ci-${{ github.run_id }}
+          --output=benchmarks/policy-landscape/evidence/windows-x64-v${{ env.VKF_RELEASE_VERSION }}-ci-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-x64-policy-landscape-proof
           path: |
-            benchmarks/policy-landscape/evidence/windows-x64-v0.4.0-ci-${{ github.run_id }}.json
-            benchmarks/policy-landscape/evidence/windows-x64-v0.4.0-ci-${{ github.run_id }}.md
-            benchmarks/policy-landscape/evidence/windows-x64-v0.4.0-ci-${{ github.run_id }}.svg
+            benchmarks/policy-landscape/evidence/windows-x64-v${{ env.VKF_RELEASE_VERSION }}-ci-${{ github.run_id }}.json
+            benchmarks/policy-landscape/evidence/windows-x64-v${{ env.VKF_RELEASE_VERSION }}-ci-${{ github.run_id }}.md
+            benchmarks/policy-landscape/evidence/windows-x64-v${{ env.VKF_RELEASE_VERSION }}-ci-${{ github.run_id }}.svg
           if-no-files-found: error
 
   examples-windows-x64:
