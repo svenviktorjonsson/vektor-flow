@@ -1581,7 +1581,9 @@ vf::JsonValue rewrite_module_symbols(
     const auto kind = rewritten.find("kind");
     const auto name = rewritten.find("name");
     if (kind != rewritten.end() && kind->second.is_string() && name != rewritten.end() && name->second.is_string()
-        && (kind->second.as_string() == "identifier" || kind->second.as_string() == "function_definition")) {
+        && (kind->second.as_string() == "identifier" ||
+            kind->second.as_string() == "function_definition" ||
+            kind->second.as_string() == "type_annotation")) {
         const auto replacement = symbols.find(name->second.as_string());
         if (replacement != symbols.end()) name->second = replacement->second;
     }

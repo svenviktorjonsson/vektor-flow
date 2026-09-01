@@ -77,6 +77,33 @@ is_number_start(ch:str):
 is_number_continue(ch:str):
     is_digit(ch) \/ ch = "." \/ ch = "e" \/ ch = "E" \/ ch = "+" \/ ch = "-"
 
+_lexer_cursor_at(cursor:StringCursor, target:int) -> StringCursor:
+    cursor.position >= target?
+        (cursor.position = target)?! "identifier start splits a UTF-8 scalar"
+        @: cursor
+    cursor.eof?
+        false?! "identifier start is outside the source"
+    _lexer_cursor_at(cursor.advance(), target)
+
+_lexer_scan_identifier(
+    cursor:StringCursor,
+    start:int,
+    line:int,
+    column:int
+) -> Token:
+    cursor.eof?
+        @: token("IDENT", cursor.slice(start, cursor.position), line, column)
+    is_ident_continue(cursor.peek())?
+        @: _lexer_scan_identifier(cursor.advance(), start, line, column)
+    token("IDENT", cursor.slice(start, cursor.position), line, column)
+
+identifier_token(source:str, start:int) -> Token:
+    cursor: _lexer_cursor_at(StringCursor(source), start)
+    cursor.eof?
+        false?! "identifier start is outside the source"
+    is_identifier_start(cursor.peek())?! "identifier token must start with a letter or underscore"
+    _lexer_scan_identifier(cursor, start, cursor.line, cursor.column)
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 
@@ -152,6 +179,7 @@ lexer_capability:
         "public StringCursor source constructor",
         "UTF-8 scalar-safe peek advance and slice",
         "byte position and EOF update after each advance",
+        "linked identifier token producer using StringCursor methods",
         "character class helpers",
         "token kind catalog",
         "scan_whitespace",

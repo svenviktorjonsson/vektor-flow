@@ -66,8 +66,15 @@ std::optional<std::vector<std::string>> tuple_type_descriptor_expansion(
 );
 
 bool is_nominal_constructor_name(const std::string& name) {
-    const auto first_public = std::find_if(
-        name.begin(), name.end(), [](unsigned char ch) { return ch != '_'; });
+    auto first_public = name.begin();
+    if (name.rfind("__vkf_module_", 0) == 0) {
+        const auto separator = name.rfind("__");
+        if (separator != std::string::npos) {
+            first_public = name.begin() + static_cast<std::ptrdiff_t>(separator + 2);
+        }
+    }
+    first_public = std::find_if(
+        first_public, name.end(), [](unsigned char ch) { return ch != '_'; });
     return first_public != name.end() &&
         std::isupper(static_cast<unsigned char>(*first_public));
 }
@@ -1554,9 +1561,7 @@ vf::JsonValue coerce_value_to_type(vf::JsonValue value, const std::string& targe
             return value;
         }
     }
-    if (!target_type.empty()
-        && std::isupper(static_cast<unsigned char>(target_type.front()))
-        && starts_with(source_type, "record{")) {
+    if (is_nominal_constructor_name(target_type) && starts_with(source_type, "record{")) {
         object["type"] = vf::JsonValue(target_type);
         return value;
     }
@@ -3199,6 +3204,7 @@ private:
             }
             std::string primitive_callee;
             std::string instance_method_callee;
+            std::string instance_method_owner_type;
             vf::JsonValue instance_method_owner;
             if (string_field(callee_ast, "kind", "call.callee") == "identifier") {
                 primitive_callee = primitive_type_name(
@@ -3206,11 +3212,24 @@ private:
             } else if (string_field(callee_ast, "kind", "call.callee") == "attribute") {
                 const auto& owner_ast = object_of(
                     field(callee_ast, "object", "method callee"), "method owner");
-                if (string_field(owner_ast, "kind", "method owner") == "identifier" &&
-                    env.get(string_field(owner_ast, "name", "method owner")) == "StringCursor") {
+                const std::string owner_type = string_field(
+                    owner_ast, "kind", "method owner") == "identifier"
+                    ? env.get(string_field(owner_ast, "name", "method owner"))
+                    : "";
+                const bool string_cursor = owner_type == "StringCursor" ||
+                    (owner_type.size() > std::string("__StringCursor").size() &&
+                     owner_type.compare(
+                         owner_type.size() - std::string("__StringCursor").size(),
+                         std::string("__StringCursor").size(), "__StringCursor") == 0);
+                if (string_cursor) {
                     const std::string method = string_field(callee_ast, "name", "method callee");
                     if (method == "peek" || method == "advance" || method == "slice") {
-                        instance_method_callee = "_string_cursor_" + method;
+                        const std::string prefix = owner_type == "StringCursor"
+                            ? ""
+                            : owner_type.substr(
+                                0, owner_type.size() - std::string("StringCursor").size());
+                        instance_method_callee = prefix + "_string_cursor_" + method;
+                        instance_method_owner_type = owner_type;
                         instance_method_owner = lower_expr(
                             field(callee_ast, "object", "method callee"), env);
                     }
@@ -3251,8 +3270,10 @@ private:
                 args.push_back(std::move(lowered_arg));
             }
             if (!instance_method_callee.empty()) {
-                argument_type_names.insert(argument_type_names.begin(), "StringCursor");
-                arg_types.insert(arg_types.begin(), vf::JsonValue("StringCursor"));
+                argument_type_names.insert(
+                    argument_type_names.begin(), instance_method_owner_type);
+                arg_types.insert(
+                    arg_types.begin(), vf::JsonValue(instance_method_owner_type));
                 args.insert(args.begin(), std::move(instance_method_owner));
                 auto method_callee = node("load");
                 method_callee["name"] = vf::JsonValue(instance_method_callee);
@@ -4996,6 +5017,12 @@ private:
             const bool vector_object = starts_with(object_type, "list<") ||
                 (object_type.size() >= 2 && object_type.front() == '[' && object_type.back() == ']');
             const bool length_object = vector_object || symbolic_expression_type(object_type);
+            std::string field_source_type = object_type;
+            const auto nominal_representation = nominal_representations_.find(field_source_type);
+            if (nominal_representation != nominal_representations_.end()) {
+                field_source_type = nominal_representation->second;
+            }
+            field_source_type = resolve_type_alias(field_source_type);
             if (vector_object && field_name != "length") {
                 throw IRFailure(
                     "vector member " + field_name + " is not an index; use .(" +
@@ -5008,7 +5035,7 @@ private:
             out["type"] = vf::JsonValue(
                 length_object && field_name == "length"
                 ? "fn()->int"
-                : field_type_from_record(object_type, field_name));
+                : field_type_from_record(field_source_type, field_name));
             return vf::JsonValue(std::move(out));
         }
         if (kind == "dotted_index") {
