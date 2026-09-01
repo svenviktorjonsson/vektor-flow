@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
 import {
   createForestPopulationReference,
@@ -84,6 +85,13 @@ function byte(value) {
   return Math.round(Math.max(0, Math.min(1, value)) * 255);
 }
 
+function sha256(bytes) {
+  return createHash('sha256')
+    .update(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+    .digest('hex')
+    .toUpperCase();
+}
+
 test('end-grain and side-grain packets preserve coherent cut pixels', () => {
   const grids = makeCutGrids();
   const endGrain = packWoodCutSurfacePacketReference(grids.endGrain, 'end-grain');
@@ -98,6 +106,14 @@ test('end-grain and side-grain packets preserve coherent cut pixels', () => {
   assert.equal(endGrain.imageHeight, 5);
   assert.ok(endGrain.imageRgba8 instanceof Uint8ClampedArray);
   assert.equal(endGrain.imageRgba8.length, 25 * 4);
+  assert.equal(
+    sha256(endGrain.imageRgba8),
+    '42FB44A549BF93745A4044F1ADD5ED5B4C12EF3DAD0C6A89571B1AC0F5248820',
+  );
+  assert.equal(
+    sha256(sideGrain.imageRgba8),
+    '793F6F5ADA3FAFFAFF37A0D27E0F2A23DC9694B39CD5184C34DED0E31A9A2EF9',
+  );
   assert.deepEqual(Array.from(endGrain.imageRgba8.slice(0, 4)), (
     grids.endGrain.samples[0].baseColor.map(byte)
   ));
