@@ -6,38 +6,27 @@ const readmePath = resolve(root, "README.md");
 const manifestPath = resolve(root, "examples", "scene_gallery", "manifest.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 
-function escapeHtml(value) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
 function card(example, index) {
   const sourcePath = `examples/scene_gallery/${example.source}`;
   const source = readFileSync(resolve(root, sourcePath), "utf8")
     .replaceAll("\r\n", "\n")
     .trimEnd();
-  const title = escapeHtml(example.title);
+  const title = example.title;
   return `<!-- scene-example:${example.id}:start -->
-<table>
-  <thead>
-    <tr><th colspan="2">${String(index + 1).padStart(2, "0")} · <a href="${sourcePath}">${title}</a></th></tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td width="55%" valign="top"><pre><code class="language-vkf">${escapeHtml(source)}</code></pre></td>
-      <td width="45%" valign="top"><a href="${example.media.path}"><img src="${example.media.path}" alt="${title} full-compositor capture" width="100%"></a></td>
-    </tr>
-  </tbody>
-</table>
+### ${String(index + 1).padStart(2, "0")} · [${title}](${sourcePath})
+
+\`\`\`vkf
+${source}
+\`\`\`
+
+[![${title} full-compositor capture](${example.media.path})](${example.media.path})
 <!-- scene-example:${example.id}:end -->`;
 }
 
 const gallery = `<!-- scene-gallery:start -->
 ## Scene example gallery
 
-These 20 complete programs are deliberately small: the source is shown beside
+These 20 complete programs are deliberately small: each source is followed by
 its result, and each heading opens the executable source. The checked-in
 [capture manifest](examples/scene_gallery/manifest.json) hash-locks every source
 and PNG.
