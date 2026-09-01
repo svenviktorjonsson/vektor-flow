@@ -124,6 +124,46 @@ close(camera.up[0], 0);
 close(camera.up[1], 0);
 close(camera.up[2], 1);
 
+const galleryQuadMirror = {
+  id: "gallery_quad_mirror",
+  kind: "quad",
+  center: [0, 3.25, 1.85],
+  rotation: [90, 0, 0],
+  surface_system: { kind: "screen", flip_y: true },
+  vertices: new Float32Array([
+    ...vertex(-3.7, -1.85, 0),
+    ...vertex(3.7, -1.85, 0),
+    ...vertex(3.7, 1.85, 0),
+    ...vertex(-3.7, 1.85, 0),
+  ]),
+  indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+};
+const galleryViewer = {
+  pos: [5.2, -7.8, 4.6],
+  target: [0, 0.45, 1.45],
+  up: [0, 0, 1],
+  fov: 43,
+};
+const galleryCamera = util.createPlanarMirrorAdapter().buildRenderCamera({
+  part: { mesh: galleryQuadMirror },
+  surfaceCamera: galleryViewer,
+  timeMs: 0,
+  targetAspect: 1,
+  math: context.VfGeomMath,
+});
+const galleryLeft = project(galleryCamera._mirrorViewProjection, [-1, 0, 1.8]);
+const galleryRight = project(galleryCamera._mirrorViewProjection, [1, 0, 1.8]);
+assert.ok(
+  galleryLeft[0] > galleryRight[0],
+  "the real rotated gallery quad must reverse X exactly once"
+);
+const galleryLow = project(galleryCamera._mirrorViewProjection, [0, 0, 0.8]);
+const galleryHigh = project(galleryCamera._mirrorViewProjection, [0, 0, 2.8]);
+assert.ok(
+  galleryHigh[1] > galleryLow[1],
+  "the real rotated gallery quad must keep world Z up"
+);
+
 const behindMirror = project(camera._mirrorViewProjection, [0, 2, 2]);
 assert.ok(
   behindMirror[2] < 0 || behindMirror[2] > 1,

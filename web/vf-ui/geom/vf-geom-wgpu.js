@@ -1015,11 +1015,6 @@ fn fs_blit(in : VOut) -> @location(0) vec4<f32> {
         var clipResult = tryApplyObliqueNearPlaneZ01(projection, clipPlaneCamera);
         projection = clipResult.projection;
         var viewProjection = math.mat4Mul(projection, view);
-        var projectionFlipU = mirrorProjectionNeedsUFlip(viewProjection, plane);
-        if (projectionFlipU) {
-          projection = flipProjectionMatrixX(projection);
-          viewProjection = math.mat4Mul(projection, view);
-        }
         return {
           pos: reflectedPos,
           target: returnedTarget,
