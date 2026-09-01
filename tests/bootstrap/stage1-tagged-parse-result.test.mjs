@@ -28,6 +28,8 @@ test("tagged binary expression becomes a one-statement parse result", () => {
       "left: parser.tagged_cursor(envelope.tokens.(0))",
       "operator: parser.tagged_advance(left, envelope.tokens.(1))",
       "right: parser.tagged_advance(operator, envelope.tokens.(2))",
+      "newline: parser.tagged_advance(right, envelope.tokens.(3))",
+      "eof: parser.tagged_advance(newline, envelope.tokens.(4))",
       "result: parser.parse_tagged_binary_result(left, operator, right)",
       "statement: result.module.body.(0)",
       ":: result.module.kind",
@@ -37,6 +39,8 @@ test("tagged binary expression becomes a one-statement parse result", () => {
       ":: statement.left.name",
       ":: statement.right.value",
       ":: result.diagnostics.length()",
+      ":: eof.index",
+      ":: parser.tagged_at_end(eof)",
       "",
     ].join("\n"), "utf8");
 
@@ -50,7 +54,7 @@ test("tagged binary expression becomes a one-statement parse result", () => {
     });
     assert.equal(executed.status, 0, executed.stderr);
     assert.deepEqual(executed.stdout.trim().split(/\r?\n/u), [
-      "module", "1", "binary_op", "+", "alpha", "42", "0",
+      "module", "1", "binary_op", "+", "alpha", "42", "0", "4", "true",
     ]);
   } finally {
     rmSync(work, { recursive: true, force: true });
