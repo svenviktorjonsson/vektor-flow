@@ -319,7 +319,7 @@
                 if (layer._vfMasterTeardown) { return; }
                 if (runtimeAllowsHostExit() &&
                     countExitTrackedFrames(layer) === 0 &&
-                    (!runtimeHasStandaloneDisplayContent() || runtimeSceneDeclaresFrames())) {
+                    !runtimeHasStandaloneDisplayContent()) {
                   postExitToHost();
                 }
               }

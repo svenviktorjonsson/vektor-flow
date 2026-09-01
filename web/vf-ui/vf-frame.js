@@ -670,6 +670,25 @@
       }
     },
 
+    headerDragBounds(options) {
+      const o = options || {};
+      const layerWidth = Math.max(0, Number(o.layerWidth) || 0);
+      const layerHeight = Math.max(0, Number(o.layerHeight) || 0);
+      const frameWidth = Math.max(1, Number(o.frameWidth) || 1);
+      const headerHeight = Math.max(1, Number(o.headerHeight) || 1);
+      const padLeft = Math.max(0, Number(o.padLeft) || 0);
+      const padRight = Math.max(0, Number(o.padRight) || 0);
+      const padTop = Math.max(0, Number(o.padTop) || 0);
+      const padBottom = Math.max(0, Number(o.padBottom) || 0);
+      const reachableWidth = Math.min(frameWidth, 64);
+      return {
+        minLeft: padLeft - (frameWidth - reachableWidth),
+        maxLeft: layerWidth - padRight - reachableWidth,
+        minTop: padTop,
+        maxTop: Math.max(padTop, layerHeight - padBottom - headerHeight),
+      };
+    },
+
     /**
      * @param {{ root: HTMLElement, header: HTMLElement, layer: HTMLElement, onDragStart?: () => void, onDragMove?: () => void, onDragEnd?: () => void, shouldIgnoreDrag?: (e: PointerEvent) => boolean }} o
      */
@@ -755,14 +774,21 @@
         const padR = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
         const padT = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingTop ? lcs.paddingTop : "0") || 0));
         const padB = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
-        const minL = padL;
-        const minT = padT;
-        const maxL = Math.max(minL, layer.clientWidth - root.offsetWidth - padR);
-        const maxT = Math.max(minT, layer.clientHeight - root.offsetHeight - padB);
+        const bounds = VfFrame.headerDragBounds({
+          layerWidth: layer.clientWidth,
+          layerHeight: layer.clientHeight,
+          frameWidth: root.offsetWidth,
+          frameHeight: root.offsetHeight,
+          headerHeight: header.getBoundingClientRect().height || 32,
+          padLeft: padL,
+          padRight: padR,
+          padTop: padT,
+          padBottom: padB,
+        });
         let nl = drag.left + dx;
         let nt = drag.top + dy;
-        nl = Math.min(maxL, Math.max(minL, nl));
-        nt = Math.min(maxT, Math.max(minT, nt));
+        nl = Math.min(bounds.maxLeft, Math.max(bounds.minLeft, nl));
+        nt = Math.min(bounds.maxTop, Math.max(bounds.minTop, nt));
         drag.left = nl;
         drag.top = nt;
         root.style.left = nl + "px";
@@ -1312,7 +1338,11 @@
           }
           root.remove();
           if (typeof VfFrame.postEmptyNativeHostLayout === "function" && layer && layer.querySelectorAll(".vf-frame").length === 0) {
-            VfFrame.postEmptyNativeHostLayout(layer);
+            if (typeof globalThis !== "undefined" && globalThis.__vfHasStandaloneDisplayContent === true) {
+              VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
+            } else {
+              VfFrame.postEmptyNativeHostLayout(layer);
+            }
           }
           if (dockable) {
             try {
@@ -1325,7 +1355,7 @@
               if (rest && rest.length === 0) {
                 const wv = typeof globalThis !== "undefined" && globalThis.chrome && globalThis.chrome.webview;
                 if (wv && typeof wv.postMessage === "function") {
-                  wv.postMessage(JSON.stringify({ type: "close" }));
+                  wv.postMessage({ type: "close" });
                 }
               }
             } catch (_) {}
