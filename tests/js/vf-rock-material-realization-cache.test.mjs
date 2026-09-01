@@ -46,3 +46,24 @@ test('stone material realization has a fixed least-recently-used working-set cap
   assert.match(source, /materialSamples\.size > MAX_REALIZED_MATERIAL_SAMPLES/);
   assert.match(source, /materialSamples\.delete\(materialSamples\.keys\(\)\.next\(\)\.value\)/);
 });
+
+test('filtered-equivalent multiscale stone demands share one realization', () => {
+  const field = createRockMaterialFieldReference(IDENTITY);
+  const coordinate = [0.1875, -0.625];
+  const coarse = sampleRockMaterialReference(field, coordinate, {
+    detailLevel: 0,
+    footprint: 0.5,
+  });
+  const filteredFine = sampleRockMaterialReference(field, coordinate, {
+    detailLevel: 5,
+    footprint: 0.5,
+  });
+  const visibleFine = sampleRockMaterialReference(field, coordinate, {
+    detailLevel: 5,
+    footprint: 0.01,
+  });
+
+  assert.strictEqual(filteredFine, coarse);
+  assert.notStrictEqual(visibleFine, coarse);
+  assert.notEqual(visibleFine.geology, coarse.geology);
+});
