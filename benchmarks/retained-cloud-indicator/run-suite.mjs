@@ -76,8 +76,7 @@ async function runLane(query, pointSizePx, repeat, captureArtifacts) {
       VF_RETAINED_CLOUD_POINT_SIZE: String(pointSizePx),
       VF_RETAINED_CLOUD_IMPLEMENTATION: query,
       VF_RETAINED_CLOUD_CAPTURE_ARTIFACTS: captureArtifacts ? '1' : '0',
-      VF_RETAINED_CLOUD_ALLOW_CORRECTNESS_UNSUPPORTED:
-        query === 'vkf' ? '1' : '0',
+      VF_RETAINED_CLOUD_ALLOW_CORRECTNESS_UNSUPPORTED: '0',
       VF_RETAINED_CLOUD_GPU_MODE: 'hardware',
     },
     maxBuffer: 96 * 1024 * 1024,
@@ -189,7 +188,7 @@ async function main() {
       independentRunsPerRow: SUITE_REPEATS,
       executionOrder: 'repeat, then 1px/4px, then raw WebGPU/Three.js/deck.gl/VKF',
       noAdaptiveBatching: true,
-      provisionalDisposition: 'VKF 1px and 4px are correctness-unsupported/no timing pending Viktor decision',
+      vkfMarkerResponsibility: 'internal exact flat opaque path; correctness required before timing',
     },
     environmentKey,
     pinnedEnvironment,

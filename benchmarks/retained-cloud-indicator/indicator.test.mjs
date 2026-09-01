@@ -531,7 +531,10 @@ test('suite requires both sizes, every implementation, repeated runs, and one en
         })),
       }
     : row);
-  assert.equal(validateSuiteMatrix(provisional, environmentKey), true);
+  assert.throws(
+    () => validateSuiteMatrix(provisional, environmentKey),
+    /correctness gate/,
+  );
   assert.throws(() => validateSuiteMatrix(provisional.map((row) => row.implementation === 'three-js-webgl2'
     && row.pointSizePx === 1 ? { ...row, runs: provisional[6].runs } : row), environmentKey), /correctness gate/);
   assert.throws(() => validateSuiteMatrix(rows.slice(1), environmentKey), /both 1px and 4px/);
