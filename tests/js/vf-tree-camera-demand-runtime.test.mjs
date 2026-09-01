@@ -96,3 +96,54 @@ test('tree camera controller coalesces revisions before realizing packets', asyn
     bytes: 256 * 71,
   });
 });
+
+test('tree camera controller releases far-view packets and regenerates identities', async () => {
+  const forest = realizeForestPatchesReference(
+    createForestPopulationReference(IDENTITY),
+    {
+      patches: [[-2, 3], [-1, 3], [-2, 4], [-1, 4]],
+      treeBudget: 128,
+    },
+  );
+  const jobs = [];
+  const runtime = createTreePacketRuntimeCacheReference({
+    byteBudget: 256 * 71,
+  });
+  const controller = createTreeCameraDemandControllerReference({
+    identity: IDENTITY,
+    forest,
+    runtime,
+    schedule: (job) => jobs.push(job),
+    treeBudget: 24,
+    primitiveBudget: 256,
+  });
+  const run = async (revision, camera) => {
+    const completion = controller.request({ revision, camera });
+    jobs.shift()();
+    return completion;
+  };
+
+  const initial = await run(1, CAMERA);
+  const initialPackets = runtime.packets();
+  assert.equal(initial.runtime.bytes, 256 * 71);
+
+  const far = await run(2, { ...CAMERA, maximumDistance: 20 });
+  assert.equal(far.demandTreeCount, 0);
+  assert.equal(far.runtime.packetCount, 0);
+  assert.equal(far.runtime.bytes, 0);
+  assert.deepEqual(runtime.packets(), []);
+
+  const returned = await run(3, CAMERA);
+  const returnedPackets = runtime.packets();
+  assert.equal(returned.runtime.upload.bytes, 256 * 71);
+  assert.deepEqual(returnedPackets, initialPackets);
+  assert.ok(returnedPackets.every((packet, index) => packet !== initialPackets[index]));
+
+  assert.deepEqual(await controller.request({ revision: 3, camera: CAMERA }), {
+    status: 'stale',
+    revision: 3,
+    committedRevision: 3,
+    pendingRevision: null,
+  });
+  assert.equal(jobs.length, 0);
+});
