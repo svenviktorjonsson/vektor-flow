@@ -3,6 +3,7 @@ const MAX_GGX_VERTICES = 65536;
 const MAX_GGX_BATCH_SAMPLES = 4096;
 const MAX_GGX_COVERAGE_SUBDIVISIONS = 89;
 const MAX_GGX_MESH_TRIANGLES = 4096;
+const MAX_GGX_AZIMUTH_PROBES = 64;
 const REFERENCE_GGX_ANISOTROPY = 0.65;
 const REFERENCE_GGX_MIN_ALPHA = 0.08;
 const packetCache = new WeakMap();
@@ -597,5 +598,79 @@ export function evaluateWoodMeshGgxAreaSummaryReference(
     meanSpecularBrdf: specularSum / totalArea,
     meanReflectedRgb: Object.freeze(reflectedSum.map((value) => value / totalArea)),
     vectorBytes: sourceCentroids.vectorBytes + triangleAreas.byteLength,
+  });
+}
+
+export function evaluateWoodMeshGgxAzimuthProfileReference(
+  packet,
+  { azimuths: azimuthValues, viewCosine, triangleBudget, probeBudget },
+) {
+  if (
+    !packet
+    || packet.kind !== 'wood-cut-material-triangle-packet:v1'
+    || !packet.tangentFrame
+  ) {
+    throw new TypeError('wood cut material triangle packet is required');
+  }
+  if (
+    !Array.isArray(azimuthValues)
+    || azimuthValues.length === 0
+    || azimuthValues.some((azimuth) => !Number.isFinite(azimuth))
+  ) {
+    throw new RangeError('wood GGX azimuths must contain finite probes');
+  }
+  if (
+    !Number.isSafeInteger(probeBudget)
+    || probeBudget < 0
+    || probeBudget > MAX_GGX_AZIMUTH_PROBES
+  ) {
+    throw new RangeError(
+      `wood GGX probeBudget must be an integer from 0 to ${MAX_GGX_AZIMUTH_PROBES}`,
+    );
+  }
+  const probeCount = azimuthValues.length;
+  if (probeCount > probeBudget) {
+    throw new RangeError('wood mesh GGX azimuth profile exceeds probeBudget');
+  }
+  if (!Number.isFinite(viewCosine) || !(viewCosine > 0) || viewCosine > 1) {
+    throw new RangeError('wood GGX viewCosine must be finite in (0,1]');
+  }
+
+  const azimuths = new Float32Array(probeCount);
+  const meanSpecularBrdf = new Float32Array(probeCount);
+  const meanReflectedRgb = new Float32Array(probeCount * 3);
+  const viewSine = Math.sqrt(1 - viewCosine * viewCosine);
+  let totalArea = 0;
+  for (let probe = 0; probe < probeCount; probe += 1) {
+    const azimuth = azimuthValues[probe];
+    const direction = normalize(packet.tangentFrame.normal.map((normal, component) => (
+      normal * viewCosine
+      + packet.tangentFrame.tangent[component] * viewSine * Math.cos(azimuth)
+      + packet.tangentFrame.bitangent[component] * viewSine * Math.sin(azimuth)
+    )));
+    const summary = evaluateWoodMeshGgxAreaSummaryReference(packet, {
+      viewDirection: direction,
+      lightDirection: direction,
+      triangleBudget,
+    });
+    if (probe === 0) totalArea = summary.totalArea;
+    azimuths[probe] = azimuth;
+    meanSpecularBrdf[probe] = summary.meanSpecularBrdf;
+    meanReflectedRgb.set(summary.meanReflectedRgb, probe * 3);
+  }
+
+  return Object.freeze({
+    kind: 'wood-cut-mesh-ggx-azimuth-profile:v1',
+    sourcePacket: packet,
+    probeCount,
+    probeBudget,
+    viewCosine,
+    totalArea,
+    azimuths,
+    meanSpecularBrdf,
+    meanReflectedRgb,
+    vectorBytes: azimuths.byteLength
+      + meanSpecularBrdf.byteLength
+      + meanReflectedRgb.byteLength,
   });
 }
