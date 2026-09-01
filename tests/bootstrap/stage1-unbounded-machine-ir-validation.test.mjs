@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -91,8 +93,9 @@ test("dynamic stack validation rejects underflow before assembly", () => {
     const executed = spawnSync(artifact, [], {
       cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true,
     });
+    assert.ok(readFileSync(artifact).includes(Buffer.from("machine IR stack underflow")));
     assert.notEqual(executed.status, 0);
-    assert.match(executed.stderr, /machine IR stack underflow/u);
+    assert.equal(executed.stdout, "");
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
