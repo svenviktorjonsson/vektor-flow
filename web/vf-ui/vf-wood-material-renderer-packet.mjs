@@ -1,4 +1,5 @@
 const MAX_TRIANGLES = 131072;
+const MAX_GGX_VERTICES = 65536;
 const REFERENCE_GGX_ANISOTROPY = 0.65;
 const REFERENCE_GGX_MIN_ALPHA = 0.08;
 const packetCache = new WeakMap();
@@ -37,6 +38,11 @@ function requireMaterial(material) {
     || surface.normal.length !== 3
   ) {
     throw new TypeError('wood cut material with complete triangle surface is required');
+  }
+  if (vertexCount > MAX_GGX_VERTICES) {
+    throw new RangeError(
+      `wood cut material exceeds GGX vertex capacity ${MAX_GGX_VERTICES}`,
+    );
   }
   for (let index = 0; index < surface.indices.length; index += 1) {
     if (surface.indices[index] >= vertexCount) {
