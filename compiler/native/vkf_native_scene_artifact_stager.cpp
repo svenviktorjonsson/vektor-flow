@@ -491,8 +491,11 @@ struct VkfLiteralValue {
 
 class VkfLiteralParser {
 public:
-    VkfLiteralParser(const std::string& source, std::size_t pos)
-        : source_(source), pos_(pos) {}
+    VkfLiteralParser(
+        const std::string& source,
+        std::size_t pos,
+        const std::map<std::string, VkfLiteralValue>* symbols = nullptr
+    ) : source_(source), pos_(pos), symbols_(symbols) {}
 
     VkfLiteralValue parse_value() {
         skip_ws_and_comments();
@@ -532,6 +535,30 @@ public:
             if (ident == "null") {
                 return {};
             }
+            if (symbols_) {
+                const auto symbol = symbols_->find(ident);
+                if (symbol != symbols_->end()) {
+                    VkfLiteralValue value = symbol->second;
+                    skip_ws_and_comments();
+                    while (pos_ < source_.size() && source_[pos_] == '.') {
+                        ++pos_;
+                        skip_ws_and_comments();
+                        const std::string field_name = parse_identifier();
+                        if (value.kind != VkfLiteralKind::Object) {
+                            throw StagerError("native_scene load field access requires a struct: " + ident);
+                        }
+                        const auto field = std::find_if(
+                            value.object.begin(), value.object.end(),
+                            [&](const auto& item) { return item.first == field_name; });
+                        if (field == value.object.end()) {
+                            throw StagerError("native_scene load has no field `" + field_name + "`: " + ident);
+                        }
+                        value = field->second;
+                        skip_ws_and_comments();
+                    }
+                    return value;
+                }
+            }
             VkfLiteralValue value;
             value.kind = VkfLiteralKind::String;
             value.text = ident;
@@ -547,6 +574,7 @@ public:
 private:
     const std::string& source_;
     std::size_t pos_ = 0;
+    const std::map<std::string, VkfLiteralValue>* symbols_ = nullptr;
 
     static bool is_identifier_start(char ch) {
         return std::isalpha(static_cast<unsigned char>(ch)) || ch == '_';
@@ -1104,12 +1132,161 @@ std::string number_json(double value) {
     return out.str();
 }
 
-std::optional<VkfLiteralValue> try_parse_native_scene_literal(const std::string& source_text) {
+VkfLiteralValue numeric_literal(double value) {
+    VkfLiteralValue literal;
+    literal.kind = VkfLiteralKind::Number;
+    literal.text = number_json(value);
+    return literal;
+}
+
+VkfLiteralValue load_ascii_triangle_ply(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    if (!input) {
+        throw StagerError("native_scene load could not read " + path.string());
+    }
+    std::string line;
+    if (!std::getline(input, line) || line != "ply") {
+        throw StagerError("native_scene load requires a PLY header: " + path.string());
+    }
+    bool ascii = false;
+    std::size_t vertex_count = 0;
+    std::size_t face_count = 0;
+    std::vector<std::string> vertex_properties;
+    enum class Element { None, Vertex, Face } element = Element::None;
+    bool ended = false;
+    while (std::getline(input, line)) {
+        std::istringstream fields(line);
+        std::string keyword;
+        fields >> keyword;
+        if (keyword == "format") {
+            std::string format;
+            fields >> format;
+            ascii = format == "ascii";
+        } else if (keyword == "element") {
+            std::string name;
+            std::size_t count = 0;
+            fields >> name >> count;
+            element = name == "vertex" ? Element::Vertex : name == "face" ? Element::Face : Element::None;
+            if (element == Element::Vertex) vertex_count = count;
+            if (element == Element::Face) face_count = count;
+        } else if (keyword == "property" && element == Element::Vertex) {
+            std::string type;
+            std::string name;
+            fields >> type >> name;
+            if (type != "list") vertex_properties.push_back(name);
+        } else if (keyword == "end_header") {
+            ended = true;
+            break;
+        }
+    }
+    if (!ascii || !ended || vertex_count == 0 || face_count == 0) {
+        throw StagerError("native_scene load supports non-empty ASCII PLY triangle meshes only: " + path.string());
+    }
+    auto property_index = [&](const std::string& name) {
+        const auto found = std::find(vertex_properties.begin(), vertex_properties.end(), name);
+        if (found == vertex_properties.end()) {
+            throw StagerError("native_scene PLY is missing vertex property `" + name + "`: " + path.string());
+        }
+        return static_cast<std::size_t>(found - vertex_properties.begin());
+    };
+    const std::size_t x_index = property_index("x");
+    const std::size_t y_index = property_index("y");
+    const std::size_t z_index = property_index("z");
+    std::vector<std::array<double, 3>> positions(vertex_count);
+    for (std::size_t i = 0; i < vertex_count; ++i) {
+        if (!std::getline(input, line)) {
+            throw StagerError("native_scene PLY ended inside its vertex table: " + path.string());
+        }
+        std::istringstream values(line);
+        std::vector<double> row;
+        double value = 0.0;
+        while (values >> value) row.push_back(value);
+        if (row.size() < vertex_properties.size()) {
+            throw StagerError("native_scene PLY vertex row is shorter than its header: " + path.string());
+        }
+        positions[i] = {row[x_index], row[y_index], row[z_index]};
+    }
+    std::vector<std::size_t> indices;
+    indices.reserve(face_count * 3);
+    for (std::size_t i = 0; i < face_count; ++i) {
+        if (!std::getline(input, line)) {
+            throw StagerError("native_scene PLY ended inside its face table: " + path.string());
+        }
+        std::istringstream values(line);
+        std::size_t count = 0;
+        values >> count;
+        if (count != 3) {
+            throw StagerError("native_scene load requires triangulated PLY faces: " + path.string());
+        }
+        std::array<std::size_t, 3> face{};
+        if (!(values >> face[0] >> face[1] >> face[2]) ||
+            face[0] >= vertex_count || face[1] >= vertex_count || face[2] >= vertex_count) {
+            throw StagerError("native_scene PLY face index is invalid: " + path.string());
+        }
+        indices.insert(indices.end(), face.begin(), face.end());
+    }
+    std::vector<std::array<double, 3>> normals(vertex_count, {0.0, 0.0, 0.0});
+    for (std::size_t i = 0; i < indices.size(); i += 3) {
+        const auto& a = positions[indices[i]];
+        const auto& b = positions[indices[i + 1]];
+        const auto& c = positions[indices[i + 2]];
+        const std::array<double, 3> ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const std::array<double, 3> ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+        const std::array<double, 3> normal{
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        };
+        for (const std::size_t index : {indices[i], indices[i + 1], indices[i + 2]}) {
+            for (std::size_t axis = 0; axis < 3; ++axis) normals[index][axis] += normal[axis];
+        }
+    }
+    VkfLiteralValue vertices;
+    vertices.kind = VkfLiteralKind::Array;
+    vertices.array.reserve(vertex_count * 10);
+    for (std::size_t i = 0; i < vertex_count; ++i) {
+        const double length = std::sqrt(
+            normals[i][0] * normals[i][0] + normals[i][1] * normals[i][1] + normals[i][2] * normals[i][2]);
+        for (double coordinate : positions[i]) vertices.array.push_back(numeric_literal(coordinate));
+        for (double coordinate : normals[i]) vertices.array.push_back(numeric_literal(length > 0.0 ? coordinate / length : 0.0));
+        for (double channel : {1.0, 1.0, 1.0, 1.0}) vertices.array.push_back(numeric_literal(channel));
+    }
+    VkfLiteralValue faces;
+    faces.kind = VkfLiteralKind::Array;
+    faces.array.reserve(indices.size());
+    for (const std::size_t index : indices) faces.array.push_back(numeric_literal(static_cast<double>(index)));
+    VkfLiteralValue mesh;
+    mesh.kind = VkfLiteralKind::Object;
+    mesh.object.push_back({"vertices", std::move(vertices)});
+    mesh.object.push_back({"faces", std::move(faces)});
+    return mesh;
+}
+
+std::map<std::string, VkfLiteralValue> native_scene_loads(
+    const std::string& source_text,
+    const std::filesystem::path& source_path
+) {
+    static const std::regex load_pattern(
+        R"PLY(([A-Za-z_][A-Za-z0-9_]*)\s*:\s*load\(\s*"([^"]+\.ply)"\s*\))PLY",
+        std::regex::ECMAScript | std::regex::icase);
+    std::map<std::string, VkfLiteralValue> loads;
+    for (std::sregex_iterator it(source_text.begin(), source_text.end(), load_pattern), end; it != end; ++it) {
+        const std::filesystem::path requested = source_path.parent_path() / (*it)[2].str();
+        loads.emplace((*it)[1].str(), load_ascii_triangle_ply(requested.lexically_normal()));
+    }
+    return loads;
+}
+
+std::optional<VkfLiteralValue> try_parse_native_scene_literal(
+    const std::string& source_text,
+    const std::filesystem::path& source_path
+) {
     const std::size_t marker = source_text.find("native_scene:");
     if (marker == std::string::npos) {
         return std::nullopt;
     }
-    VkfLiteralParser parser(source_text, marker + std::string("native_scene:").size());
+    const auto loads = native_scene_loads(source_text, source_path);
+    VkfLiteralParser parser(source_text, marker + std::string("native_scene:").size(), &loads);
     VkfLiteralValue root = parser.parse_value();
     if (root.kind != VkfLiteralKind::Object) {
         throw StagerError("native_scene must be a field object wrapped in parens");
@@ -1672,9 +1849,10 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
 
 std::optional<CompiledUiSceneBundle> try_compile_native_scene_from_source(
     const std::string& source_text,
+    const std::filesystem::path& source_path,
     const std::filesystem::path& overlay_web
 ) {
-    auto root = try_parse_native_scene_literal(source_text);
+    auto root = try_parse_native_scene_literal(source_text, source_path);
     if (!root.has_value()) {
         return std::nullopt;
     }
@@ -3277,7 +3455,7 @@ int run(int argc, char** argv) {
             }
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_native_scene_from_source(
-                    source_text, effective.overlay_web);
+                    source_text, absolute_source, effective.overlay_web);
             }
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_axis_mode_deck_from_source(source_text);

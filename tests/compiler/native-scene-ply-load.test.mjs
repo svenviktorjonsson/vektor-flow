@@ -1,0 +1,48 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import test, { after } from "node:test";
+
+const root = path.resolve(import.meta.dirname, "../..");
+const stager = process.env.VKF_NATIVE_SCENE_STAGER;
+const work = path.join(root, ".w", `ply-load-${process.pid}`);
+
+after(() => rm(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+
+test("native scene load embeds an indexed ASCII PLY with smooth normals", async () => {
+  assert.ok(stager, "VKF_NATIVE_SCENE_STAGER is required");
+  const source = path.join(work, "scene.vkf");
+  const asset = path.join(work, "tetra.ply");
+  const overlay = path.join(work, "vf-ui");
+  await mkdir(work, { recursive: true });
+  await cp(path.join(root, "web", "vf-ui"), overlay, { recursive: true });
+  await writeFile(asset, [
+    "ply", "format ascii 1.0", "element vertex 4",
+    "property float x", "property float y", "property float z",
+    "element face 4", "property list uchar int vertex_indices", "end_header",
+    "0 0 0", "1 0 0", "0 1 0", "0 0 1",
+    "3 0 2 1", "3 0 1 3", "3 1 2 3", "3 2 0 3", "",
+  ].join("\n"));
+  await writeFile(source, [
+    'tetra: load("tetra.ply")',
+    "native_scene:(frame_id:\"ply_load\", meshes:[(",
+    '  id:"tetra", kind:"field_mesh", vertices:tetra.vertices,',
+    '  indices:tetra.faces, topology:"triangle-list", color:[1,1,1,1]',
+    ")])", "",
+  ].join("\n"));
+
+  const result = spawnSync(stager, ["--source", source, "--overlay-web", overlay], {
+    cwd: root, encoding: "utf8", windowsHide: true,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const summary = JSON.parse(result.stdout);
+  const page = await readFile(path.join(overlay, ...summary.page_rel.split("/")), "utf8");
+  const config = JSON.parse(page.match(/window\.__vfNativeSceneConfig=(\{.*?\});window\.__vfNativeSceneArenaUrl=/su)[1]);
+  const mesh = config.scene_ir.meshes.find(({ id }) => id === "tetra").properties;
+  assert.equal(mesh.vertices.length, 40, "four position/normal/RGBA vertices are embedded");
+  assert.equal(mesh.indices.length, 12, "four triangle faces are embedded");
+  assert.equal(mesh.vertices.type, "float32");
+  assert.equal(mesh.indices.type, "uint32");
+  assert.equal(mesh.topology, "triangle-list");
+});
