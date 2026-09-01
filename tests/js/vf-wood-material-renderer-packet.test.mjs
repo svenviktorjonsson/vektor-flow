@@ -31,6 +31,7 @@ import {
 import {
   adaptWoodCutMaterialToTriangleFacesReference,
   evaluateWoodFaceGgxResponseReference,
+  evaluateWoodMeshGgxCentroidsReference,
   evaluateWoodTriangleGgxBatchReference,
   evaluateWoodTriangleGgxCoverageReference,
   sampleWoodMaterialTriangleReference,
@@ -525,4 +526,68 @@ test('one complete wood face covers a deterministic barycentric GGX lattice', ()
   assert.ok(expectedBarycentric.some((weights) => (
     weights.every((weight) => Math.abs(weight - 1 / 3) < 1e-12)
   )));
+});
+
+test('every complete wood face contributes one bounded anisotropic centroid response', () => {
+  const material = proceduralSideGrainMaterial();
+  const packet = adaptWoodCutMaterialToTriangleFacesReference(material, {
+    triangleBudget: 32,
+  });
+  const viewDirection = normalize(packet.tangentFrame.normal.map((value, component) => (
+    value + packet.tangentFrame.tangent[component] * 0.2
+  )));
+  const lightDirection = normalize(packet.tangentFrame.normal.map((value, component) => (
+    value + packet.tangentFrame.bitangent[component] * 0.15
+  )));
+  const centroids = evaluateWoodMeshGgxCentroidsReference(packet, {
+    viewDirection,
+    lightDirection,
+    triangleBudget: 32,
+  });
+
+  assert.equal(centroids.kind, 'wood-cut-mesh-ggx-centroids:v1');
+  assert.strictEqual(centroids.sourcePacket, packet);
+  assert.equal(centroids.triangleCount, packet.triangleCount);
+  assert.equal(centroids.triangleBudget, 32);
+  assert.deepEqual(centroids.barycentric, [1 / 3, 1 / 3, 1 / 3]);
+  assert.deepEqual(
+    Array.from(centroids.triangleIndices),
+    Array.from({ length: packet.triangleCount }, (_, triangle) => triangle),
+  );
+  assert.equal(centroids.positions.length, packet.triangleCount * 3);
+  assert.equal(centroids.surfaceNormals.length, packet.triangleCount * 3);
+  assert.equal(centroids.specularBrdf.length, packet.triangleCount);
+  assert.equal(centroids.reflectedRgb.length, packet.triangleCount * 3);
+  assert.equal(
+    centroids.vectorBytes,
+    centroids.triangleIndices.byteLength
+      + centroids.positions.byteLength
+      + centroids.surfaceNormals.byteLength
+      + centroids.specularBrdf.byteLength
+      + centroids.reflectedRgb.byteLength,
+  );
+
+  for (let triangle = 0; triangle < packet.triangleCount; triangle += 1) {
+    const sample = sampleWoodMaterialTriangleReference(packet, {
+      triangle,
+      barycentric: centroids.barycentric,
+    });
+    const response = evaluateWoodFaceGgxResponseReference(sample, {
+      viewDirection,
+      lightDirection,
+    });
+    assert.deepEqual(
+      Array.from(centroids.positions.subarray(triangle * 3, triangle * 3 + 3)),
+      sample.position.map(Math.fround),
+    );
+    assert.deepEqual(
+      Array.from(centroids.surfaceNormals.subarray(triangle * 3, triangle * 3 + 3)),
+      sample.surfaceNormal.map(Math.fround),
+    );
+    assert.equal(centroids.specularBrdf[triangle], Math.fround(response.specularBrdf));
+    assert.deepEqual(
+      Array.from(centroids.reflectedRgb.subarray(triangle * 3, triangle * 3 + 3)),
+      response.reflectedRgb.map(Math.fround),
+    );
+  }
 });
