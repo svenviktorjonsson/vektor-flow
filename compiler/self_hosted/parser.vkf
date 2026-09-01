@@ -15,6 +15,18 @@ ParseCursor: (envelope:TokenStreamEnvelope, tokens:any, index:num, diagnostics:a
 ParseResult: (module:any, diagnostics:any)
 TaggedTokenValue: (tag:str, text:str, number:num)
 TaggedParserToken: (kind:str, value:TaggedTokenValue, location:Location)
+TaggedTokenVector: [TaggedParserToken:4]
+TaggedParseCursor: (
+    index:num,
+    bounded:bit,
+    kind:str,
+    value_tag:str,
+    text:str,
+    number:num,
+    file:str,
+    line:num,
+    column:num
+)
 
 ModuleNode: (kind:str, body:any, span:Span)
 BindNode: (kind:str, target:any, annotation:any, value:any, span:Span)
@@ -56,6 +68,34 @@ diagnostic(code:str, message:str, where:Location, stop:Location):
 
 cursor(envelope:TokenStreamEnvelope):
     (envelope: envelope, tokens: envelope.tokens, index: 0, diagnostics: [])
+
+tagged_cursor(first:TaggedParserToken) -> TaggedParseCursor:
+    (
+        index:0,
+        bounded:true,
+        kind:first.kind,
+        value_tag:first.value.tag,
+        text:first.value.text,
+        number:first.value.number,
+        file:first.location.file,
+        line:first.location.line,
+        column:first.location.column
+    )
+
+tagged_advance(
+    cursor:TaggedParseCursor, next:TaggedParserToken
+) -> TaggedParseCursor:
+    (
+        index:cursor.index + 1,
+        bounded:cursor.bounded,
+        kind:next.kind,
+        value_tag:next.value.tag,
+        text:next.value.text,
+        number:next.value.number,
+        file:next.location.file,
+        line:next.location.line,
+        column:next.location.column
+    )
 
 peek(cursor:ParseCursor):
     cursor.tokens.(cursor.index)
@@ -202,6 +242,14 @@ parse_tagged_number(current:TaggedParserToken) -> NumberLiteralNode:
         span(current.location, current.location)
     )
 
+parse_tagged_cursor_identifier(cursor:TaggedParseCursor) -> IdentifierNode:
+    where: location(cursor.file, cursor.line, cursor.column)
+    identifier_node(cursor.text, span(where, where))
+
+parse_tagged_cursor_number(cursor:TaggedParseCursor) -> NumberLiteralNode:
+    where: location(cursor.file, cursor.line, cursor.column)
+    number_literal(cursor.number, span(where, where))
+
 parse_type_annotation(cursor:ParseCursor):
     current: peek(cursor)
     current.kind??
@@ -319,7 +367,14 @@ parser_capability:
         "matches normalized bootstrap parser AST for comparison and boolean operator chains"
     ]
     helpers: ["cursor", "peek", "peek_kind", "advance", "expect", "at_end"]
-    tagged_value_helpers: ["parse_tagged_identifier", "parse_tagged_number"]
+    tagged_value_helpers: [
+        "tagged_cursor",
+        "tagged_advance",
+        "parse_tagged_identifier",
+        "parse_tagged_number",
+        "parse_tagged_cursor_identifier",
+        "parse_tagged_cursor_number"
+    ]
     diagnostics: ["file", "line", "column", "span", "unsupported-syntax"]
     ast_nodes: [
         "module",
