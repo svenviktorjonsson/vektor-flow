@@ -35,6 +35,7 @@ import {
   evaluateWoodMeshGgxAzimuthProfileReference,
   evaluateWoodMeshGgxCentroidsReference,
   evaluateWoodOrientationGgxProfilesReference,
+  evaluateWoodRefinementGgxProfilesReference,
   evaluateWoodTriangleGgxBatchReference,
   evaluateWoodTriangleGgxCoverageReference,
   sampleWoodMaterialTriangleReference,
@@ -50,7 +51,7 @@ const IDENTITY = Object.freeze({
   channel: 'population',
 });
 
-function proceduralWoodMaterial(orientation) {
+function proceduralWoodMaterial(orientation, detailLevel = 2) {
   const forest = realizeForestPatchesReference(
     createForestPopulationReference(IDENTITY),
     { patches: [[-2, 3]], treeBudget: 32 },
@@ -81,7 +82,7 @@ function proceduralWoodMaterial(orientation) {
     height: endGrain ? trunk.radius * 1.2 : trunk.length * 0.4,
     columns: 5,
     rows: 5,
-    detailLevel: 2,
+    detailLevel,
     footprint: 0,
     sampleBudget: 25,
   });
@@ -788,5 +789,72 @@ test('coherent end-grain and side-grain cuts retain distinct bounded GGX profile
     family.azimuths.byteLength
       + family.meanSpecularBrdf.byteLength
       + family.meanReflectedRgb.byteLength,
+  );
+});
+
+test('side-grain refinement levels retain distinct bounded GGX profiles', () => {
+  const detailLevels = [0, 1, 2];
+  const packets = detailLevels.map((detailLevel) => (
+    adaptWoodCutMaterialToTriangleFacesReference(
+      proceduralWoodMaterial('side-grain', detailLevel),
+      { triangleBudget: 32 },
+    )
+  ));
+  const azimuths = [0, Math.PI / 2];
+  const viewCosine = 0.72;
+  const refinements = evaluateWoodRefinementGgxProfilesReference(packets, {
+    azimuths,
+    viewCosine,
+    triangleBudget: 32,
+    refinementBudget: 3,
+    probeBudget: 2,
+  });
+  const independent = packets.map((packet) => (
+    evaluateWoodMeshGgxAzimuthProfileReference(packet, {
+      azimuths,
+      viewCosine,
+      triangleBudget: 32,
+      probeBudget: 2,
+    })
+  ));
+
+  assert.equal(refinements.kind, 'wood-cut-refinement-ggx-profiles:v1');
+  assert.deepEqual(refinements.sourcePackets, packets);
+  assert.equal(refinements.orientation, 'side-grain');
+  assert.equal(refinements.refinementCount, detailLevels.length);
+  assert.equal(refinements.refinementBudget, 3);
+  assert.deepEqual(Array.from(refinements.detailLevels), detailLevels);
+  assert.equal(refinements.probeCount, 2);
+  assert.equal(refinements.probeBudget, 2);
+  assert.equal(refinements.viewCosine, viewCosine);
+  assert.deepEqual(Array.from(refinements.azimuths), azimuths.map(Math.fround));
+  assert.deepEqual(
+    Array.from(refinements.meanSpecularBrdf),
+    independent.flatMap((profile) => Array.from(profile.meanSpecularBrdf)),
+  );
+  assert.deepEqual(
+    Array.from(refinements.meanReflectedRgb),
+    independent.flatMap((profile) => Array.from(profile.meanReflectedRgb)),
+  );
+  let expectedMaximumDelta = 0;
+  for (let refinement = 1; refinement < refinements.refinementCount; refinement += 1) {
+    for (let probe = 0; probe < refinements.probeCount; probe += 1) {
+      expectedMaximumDelta = Math.max(
+        expectedMaximumDelta,
+        Math.abs(
+          refinements.meanSpecularBrdf[refinement * refinements.probeCount + probe]
+            - refinements.meanSpecularBrdf[(refinement - 1) * refinements.probeCount + probe]
+        ),
+      );
+    }
+  }
+  assert.equal(refinements.maximumAdjacentSpecularDelta, expectedMaximumDelta);
+  assert.ok(refinements.maximumAdjacentSpecularDelta > 1e-5);
+  assert.equal(
+    refinements.vectorBytes,
+    refinements.detailLevels.byteLength
+      + refinements.azimuths.byteLength
+      + refinements.meanSpecularBrdf.byteLength
+      + refinements.meanReflectedRgb.byteLength,
   );
 });
