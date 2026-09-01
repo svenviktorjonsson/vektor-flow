@@ -834,3 +834,73 @@ export function evaluateWoodRefinementGgxProfilesReference(
     vectorBytes: detailLevels.byteLength + family.vectorBytes,
   });
 }
+
+export function evaluateWoodRefinementGgxConvergenceReference(sourceProfiles) {
+  const refinementCount = Number(sourceProfiles?.refinementCount);
+  const probeCount = Number(sourceProfiles?.probeCount);
+  if (
+    sourceProfiles?.kind !== 'wood-cut-refinement-ggx-profiles:v1'
+    || !Number.isSafeInteger(refinementCount)
+    || refinementCount <= 0
+    || refinementCount > MAX_GGX_MATERIAL_PROFILES
+    || !Number.isSafeInteger(probeCount)
+    || probeCount <= 0
+    || probeCount > MAX_GGX_AZIMUTH_PROBES
+    || !(sourceProfiles.detailLevels instanceof Uint32Array)
+    || sourceProfiles.detailLevels.length !== refinementCount
+    || !(sourceProfiles.meanSpecularBrdf instanceof Float32Array)
+    || sourceProfiles.meanSpecularBrdf.length !== refinementCount * probeCount
+    || !(sourceProfiles.meanReflectedRgb instanceof Float32Array)
+    || sourceProfiles.meanReflectedRgb.length !== refinementCount * probeCount * 3
+  ) {
+    throw new TypeError('bounded wood refinement GGX profiles are required');
+  }
+  const maximumSpecularError = new Float32Array(refinementCount);
+  const maximumReflectedRgbError = new Float32Array(refinementCount);
+  const referenceRefinement = refinementCount - 1;
+  const referenceSpecularOffset = referenceRefinement * probeCount;
+  const profileRgbLength = probeCount * 3;
+  const referenceRgbOffset = referenceRefinement * profileRgbLength;
+  for (let refinement = 0; refinement < refinementCount; refinement += 1) {
+    let specularError = 0;
+    let reflectedRgbError = 0;
+    for (let probe = 0; probe < probeCount; probe += 1) {
+      specularError = Math.max(specularError, Math.abs(
+        sourceProfiles.meanSpecularBrdf[refinement * probeCount + probe]
+          - sourceProfiles.meanSpecularBrdf[referenceSpecularOffset + probe]
+      ));
+    }
+    for (let component = 0; component < profileRgbLength; component += 1) {
+      reflectedRgbError = Math.max(reflectedRgbError, Math.abs(
+        sourceProfiles.meanReflectedRgb[refinement * profileRgbLength + component]
+          - sourceProfiles.meanReflectedRgb[referenceRgbOffset + component]
+      ));
+    }
+    maximumSpecularError[refinement] = specularError;
+    maximumReflectedRgbError[refinement] = reflectedRgbError;
+  }
+  let specularErrorStrictlyDecreases = true;
+  let reflectedRgbErrorStrictlyDecreases = true;
+  for (let refinement = 1; refinement < refinementCount; refinement += 1) {
+    specularErrorStrictlyDecreases &&= (
+      maximumSpecularError[refinement] < maximumSpecularError[refinement - 1]
+    );
+    reflectedRgbErrorStrictlyDecreases &&= (
+      maximumReflectedRgbError[refinement]
+        < maximumReflectedRgbError[refinement - 1]
+    );
+  }
+
+  return Object.freeze({
+    kind: 'wood-cut-refinement-ggx-convergence:v1',
+    sourceProfiles,
+    refinementCount,
+    referenceDetailLevel: sourceProfiles.detailLevels[referenceRefinement],
+    maximumSpecularError,
+    maximumReflectedRgbError,
+    specularErrorStrictlyDecreases,
+    reflectedRgbErrorStrictlyDecreases,
+    vectorBytes: maximumSpecularError.byteLength
+      + maximumReflectedRgbError.byteLength,
+  });
+}
