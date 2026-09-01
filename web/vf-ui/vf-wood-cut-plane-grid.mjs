@@ -126,6 +126,11 @@ export function packWoodCutPlaneGridReference({
 
   return Object.freeze({
     kind: 'wood-cut-plane-grid:v1',
+    center: Object.freeze(center),
+    axisU: Object.freeze(axisU),
+    axisV: Object.freeze(axisV),
+    width,
+    height,
     rows,
     columns,
     sampleCount,
