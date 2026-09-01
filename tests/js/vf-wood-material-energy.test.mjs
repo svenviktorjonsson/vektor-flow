@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 
 import {
   evaluateWoodCutWhiteFurnaceReference,
@@ -65,6 +66,13 @@ function near(actual, expected, tolerance = 1e-6) {
   });
 }
 
+function sha256(bytes) {
+  return createHash('sha256')
+    .update(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+    .digest('hex')
+    .toUpperCase();
+}
+
 test('wood dielectric partition stays inside the white-furnace energy budget', () => {
   const material = materialPacket();
   const oracle = evaluateWoodCutWhiteFurnaceReference(material, { sampleBudget: 2 });
@@ -121,6 +129,7 @@ test('every current end-grain and side-grain refinement level remains energy con
     { detailLevel: 1, footprint: 0.07 },
     { detailLevel: 2, footprint: 0 },
   ];
+  const fineHashes = {};
   for (const refinement of refinements) {
     for (const [orientation, axisV, height] of [
       ['end-grain', trunk.radialV, trunk.radius * 1.2],
@@ -147,6 +156,13 @@ test('every current end-grain and side-grain refinement level remains energy con
       assert.equal(oracle.violations, 0);
       assert.ok(oracle.minimumEnergy >= 0);
       assert.ok(oracle.maximumEnergy <= 1);
+      if (refinement.detailLevel === 2) {
+        fineHashes[orientation] = sha256(oracle.energyRgb);
+      }
     }
   }
+  assert.deepEqual(fineHashes, {
+    'end-grain': '30AB2A11FD08E2820CC255419E45A7B12F64461C6B69CD0155BD7C48C13583F6',
+    'side-grain': 'B5D08139AB8D21AB494440A15CC8E033CEDE8E1040FDAD851D8995014BDF9009',
+  });
 });
