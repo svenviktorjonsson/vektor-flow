@@ -38,9 +38,7 @@ test("two derived bindings close a later demanded expression", () => {
       "maximum: validation.machine_ir_numeric_opcode_tape_stack_maximum(statement.opcodes)",
       ':: "vektorflow.machine_ir"', ":: 4", ':: "f64"', ":: 1",
       ":: statement.name", ":: maximum", ":: statement.opcodes.length()",
-      "..statement.opcodes.length() >>",
-      "    :: statement.opcodes.($)",
-      "    :: statement.values.($)",
+      ":: statement.opcodes", ":: statement.values",
       "",
     ].join("\n"), "utf8");
     const compiled = spawnSync(
@@ -52,9 +50,13 @@ test("two derived bindings close a later demanded expression", () => {
 
     const expected = [
       "vektorflow.machine_ir", "4", "f64", "1", "$entry", "2", "8",
-      "1", "30", "1", "1", "2", "0", "1", "1",
-      "2", "0", "1", "1", "2", "0", "3", "0",
+      "[1, 1, 2, 1, 2, 1, 2, 3]", "[30, 1, 0, 1, 0, 1, 0, 0]",
     ].join(newline) + newline;
+    const observed = spawnSync(artifact, [], {
+      cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true,
+    });
+    assert.equal(observed.status, 0, JSON.stringify(observed));
+    assert.equal(observed.stdout, expected);
     const oracle = join(work, "oracle.txt");
     writeFileSync(oracle, expected, "utf8");
     const output = join(work, `chain${suffix}`);
@@ -75,6 +77,43 @@ test("two derived bindings close a later demanded expression", () => {
     assert.equal(executed.status, 0, executed.stderr);
     assert.equal(executed.stdout, `33${newline}`);
     assert.equal(JSON.parse(readFileSync(provenance, "utf8")).exact_oracle_match, true);
+
+    const compactSource = join(work, "compact-producer.vkf");
+    const compactArtifact = join(work, `compact-producer${suffix}`);
+    writeFileSync(compactSource, [
+      ':: "vektorflow.machine_ir"', ":: 4", ':: "f64"', ":: 1",
+      ':: "\\$entry"', ":: 2", ":: 4",
+      ":: [1, 1, 2, 3]", ":: [40, 2, 0, 0]", "",
+    ].join("\n"), "utf8");
+    const compactCompiled = spawnSync(
+      compiler,
+      ["-b", compactSource, "-o", compactArtifact, "--diagnostics", "--optimizer-policy", "mask-0"],
+      { cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true },
+    );
+    assert.equal(compactCompiled.status, 0, compactCompiled.stderr);
+    const compactExpected = [
+      "vektorflow.machine_ir", "4", "f64", "1", "$entry", "2", "4",
+      "[1, 1, 2, 3]", "[40, 2, 0, 0]",
+    ].join(newline) + newline;
+    const compactOracle = join(work, "compact-oracle.txt");
+    writeFileSync(compactOracle, compactExpected, "utf8");
+    const compactOutput = join(work, `compact${suffix}`);
+    const compactProvenance = join(work, "compact-provenance.json");
+    const compactDispatched = spawnSync(
+      compiler,
+      [
+        "--vkf-internal-stage-component",
+        "machine_ir.closed_dependency_chain.typed_module_pipeline",
+        compactArtifact, compactSource, compactOracle, compactOutput, compactProvenance,
+      ],
+      { cwd: root, encoding: "utf8", timeout: 10_000, windowsHide: true },
+    );
+    assert.equal(compactDispatched.status, 0, compactDispatched.stderr);
+    const compactExecuted = spawnSync(compactOutput, [], {
+      cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true,
+    });
+    assert.equal(compactExecuted.status, 0, compactExecuted.stderr);
+    assert.equal(compactExecuted.stdout, `42${newline}`);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

@@ -643,6 +643,26 @@ std::vector<std::string> tracer_observation_lines(
     return lines;
 }
 
+std::vector<std::string> dynamic_tracer_observation_lines(
+    const std::string& observation,
+    std::size_t minimum_count,
+    const std::string& tracer_name
+) {
+    std::vector<std::string> lines;
+    std::istringstream input(observation);
+    std::string line;
+    while (std::getline(input, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        lines.push_back(std::move(line));
+    }
+    if (lines.size() < minimum_count) {
+        throw DriverFailure(
+            tracer_name + " observation must contain at least " +
+            std::to_string(minimum_count) + " structural leaves");
+    }
+    return lines;
+}
+
 void require_tracer_leaf(
     const std::vector<std::string>& lines,
     std::size_t index,
@@ -998,15 +1018,69 @@ vkf::machine_ir::Module parse_closed_dependency_chain_observation(
     const std::string& observation,
     const std::string& source_graph_fingerprint
 ) {
-    const auto lines = tracer_observation_lines(
-        observation, 18, "closed dependency-chain tracer");
+    const auto lines = dynamic_tracer_observation_lines(
+        observation, 7, "closed dependency-chain tracer");
     const std::vector<std::pair<std::size_t, std::string>> fixed{
         {0, "vektorflow.machine_ir"}, {1, "4"}, {2, "f64"}, {3, "1"},
-        {4, "$entry"}, {5, "2"}, {6, "push_f64"}, {8, "push_f64"},
-        {10, "add_f64"}, {11, "push_f64"}, {13, "add_f64"},
-        {14, "push_f64"}, {16, "add_f64"}, {17, "return_f64"}};
+        {4, "$entry"}, {5, "2"}};
     for (const auto& [index, expected] : fixed) {
         require_tracer_leaf(lines, index, expected);
+    }
+
+    const auto parse_count = [&](std::size_t index) {
+        if (lines[index].empty() ||
+            lines[index].find_first_not_of("0123456789") != std::string::npos) {
+            throw DriverFailure(
+                "closed dependency-chain tracer leaf " +
+                std::to_string(index) + " must be an unsigned integer");
+        }
+        unsigned long long value = 0;
+        try {
+            value = std::stoull(lines[index]);
+        } catch (const std::exception&) {
+            throw DriverFailure(
+                "closed dependency-chain tracer leaf " +
+                std::to_string(index) + " must be an unsigned integer");
+        }
+        if (value > lines.size()) {
+            throw DriverFailure(
+                "closed dependency-chain tracer instruction count exceeds its payload");
+        }
+        return static_cast<std::size_t>(value);
+    };
+    const auto instruction_count = parse_count(6);
+    if (instruction_count == 0 || lines.size() != 9) {
+        throw DriverFailure(
+            "closed dependency-chain tracer instruction count does not match its payload");
+    }
+    const auto parse_tape = [&](std::size_t leaf) {
+        const auto& text = lines[leaf];
+        if (text.size() < 2 || text.front() != '[' || text.back() != ']') {
+            throw DriverFailure(
+                "closed dependency-chain tracer leaf " +
+                std::to_string(leaf) + " must be a numeric vector");
+        }
+        std::vector<double> result;
+        std::istringstream values(text.substr(1, text.size() - 2));
+        std::string value;
+        while (std::getline(values, value, ',')) {
+            const auto begin = value.find_first_not_of(" \t");
+            const auto end = value.find_last_not_of(" \t");
+            if (begin == std::string::npos) {
+                throw DriverFailure(
+                    "closed dependency-chain tracer leaf " +
+                    std::to_string(leaf) + " contains an empty value");
+            }
+            result.push_back(tracer_number(
+                value.substr(begin, end - begin + 1), leaf));
+        }
+        return result;
+    };
+    const auto opcodes = parse_tape(7);
+    const auto values = parse_tape(8);
+    if (opcodes.size() != instruction_count || values.size() != instruction_count) {
+        throw DriverFailure(
+            "closed dependency-chain tracer instruction count does not match its payload");
     }
 
     const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
@@ -1014,24 +1088,36 @@ vkf::machine_ir::Module parse_closed_dependency_chain_observation(
         throw DriverFailure(
             "closed dependency-chain tracer source identity has the wrong byte width");
     }
-    const auto instruction = [](vkf::machine_ir::Opcode opcode, double value = 0.0) {
-        vkf::machine_ir::Instruction result;
-        result.opcode = opcode;
-        result.f64 = value;
-        return result;
-    };
-
     vkf::machine_ir::Function entry;
     entry.name = "$entry";
-    entry.instructions = {
-        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[7], 7)),
-        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[9], 9)),
-        instruction(vkf::machine_ir::Opcode::AddF64),
-        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[12], 12)),
-        instruction(vkf::machine_ir::Opcode::AddF64),
-        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[15], 15)),
-        instruction(vkf::machine_ir::Opcode::AddF64),
-        instruction(vkf::machine_ir::Opcode::ReturnF64)};
+    entry.instructions.reserve(instruction_count);
+    for (std::size_t index = 0; index < instruction_count; ++index) {
+        const auto opcode = opcodes[index];
+        const auto value = values[index];
+        vkf::machine_ir::Instruction instruction;
+        if (opcode == 1.0) {
+            instruction.opcode = vkf::machine_ir::Opcode::PushF64;
+            instruction.f64 = value;
+        } else if (opcode == 2.0) {
+            if (value != 0.0) {
+                throw DriverFailure(
+                    "closed dependency-chain add opcode must have a zero payload");
+            }
+            instruction.opcode = vkf::machine_ir::Opcode::AddF64;
+        } else if (opcode == 3.0) {
+            if (value != 0.0) {
+                throw DriverFailure(
+                    "closed dependency-chain return opcode must have a zero payload");
+            }
+            instruction.opcode = vkf::machine_ir::Opcode::ReturnF64;
+        } else {
+            throw DriverFailure(
+                "unsupported closed dependency-chain tracer opcode " +
+                std::to_string(opcode) + " at instruction " +
+                std::to_string(index));
+        }
+        entry.instructions.push_back(std::move(instruction));
+    }
     entry.max_stack = 2;
 
     vkf::machine_ir::Module module;
