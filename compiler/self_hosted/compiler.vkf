@@ -409,6 +409,21 @@ _compile_printed_dynamic_division_expression_x64(
     )
     template_prefix & "j" & left_immediate & "j" & right_immediate & division_tail
 
+_compile_printed_dynamic_floor_division_expression_x64(
+    source:str, template_prefix:str, floor_division_tail:str
+) -> str:
+    statement: compile_tagged_printed_dynamic_mixed_arithmetic(source)
+    (statement.opcodes.length() = 4 /\ statement.opcodes.0 = 1 /\
+        statement.opcodes.1 = 1 /\ statement.opcodes.2 = 4 /\
+        statement.opcodes.3 = 3)?! "runtime floor-division emitter expects load-load-floor-divide-print"
+    str left_immediate: vkf_utf8_slice(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ", statement.values.0 - 65, statement.values.0 - 64
+    )
+    str right_immediate: vkf_utf8_slice(
+        "()*+,-./", statement.values.1 - 40, statement.values.1 - 39
+    )
+    template_prefix & "j" & left_immediate & "j" & right_immediate & floor_division_tail
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(
