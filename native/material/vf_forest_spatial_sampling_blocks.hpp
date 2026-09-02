@@ -139,6 +139,27 @@ EvaluateForestSpatialSamplingBlockReference(
     };
 }
 
+inline ForestSpatialSamplingBlockResult
+EvaluateForestSpatialIndexedBlockReference(
+    const ForestPopulationRealization& population,
+    double near_squared,
+    double far_squared,
+    const std::vector<ForestSpatialSamplePair>& pairs,
+    const ForestSpatialSamplingBlock& block
+) {
+    return {
+        block.first_sample,
+        AccumulateForestSpatialSamplingPairsReference(
+            population,
+            near_squared,
+            far_squared,
+            pairs,
+            block.first_sample,
+            block.sample_count
+        ),
+    };
+}
+
 inline ForestSpatialSamplingReport
 SampleForestSpatialQualityBlocksReference(
     const ForestPopulationRealization& population,

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace vf::material {
 
@@ -68,7 +69,14 @@ inline void ValidateForestSpatialSamplingRequestReference(
     }
 }
 
-inline std::pair<std::size_t, std::size_t>
+struct ForestSpatialSamplePair {
+    std::size_t first_index;
+    std::size_t second_index;
+
+    bool operator==(const ForestSpatialSamplePair&) const = default;
+};
+
+inline ForestSpatialSamplePair
 ForestSpatialSamplePairReference(
     std::uint64_t population_version,
     std::size_t tree_count,
@@ -88,6 +96,37 @@ ForestSpatialSamplePairReference(
     return {first_index, second_index};
 }
 
+inline void AccumulateForestSpatialPairReference(
+    const ForestPopulationRealization& population,
+    double near_squared,
+    double far_squared,
+    const ForestSpatialSamplePair& pair,
+    ForestSpatialSamplingAccumulator& result
+) {
+    const auto& first = population.trees[pair.first_index];
+    const auto& second = population.trees[pair.second_index];
+    const double dx = first.position[0] - second.position[0];
+    const double dy = first.position[1] - second.position[1];
+    const double distance_squared = dx * dx + dy * dy;
+    const double similarity = 1.0 - 0.5 * std::abs(
+        first.environment_variation -
+        second.environment_variation
+    );
+    if (distance_squared <= near_squared) {
+        ++result.near_pairs;
+        result.near_environment_sum += similarity;
+        result.near_same_species += static_cast<std::size_t>(
+            first.species_id == second.species_id
+        );
+    } else if (distance_squared >= far_squared) {
+        ++result.far_pairs;
+        result.far_environment_sum += similarity;
+        result.far_same_species += static_cast<std::size_t>(
+            first.species_id == second.species_id
+        );
+    }
+}
+
 inline ForestSpatialSamplingAccumulator
 AccumulateForestSpatialSamplingRangeReference(
     const ForestPopulationRealization& population,
@@ -99,34 +138,46 @@ AccumulateForestSpatialSamplingRangeReference(
 ) {
     ForestSpatialSamplingAccumulator result;
     for (std::size_t offset = 0; offset < sample_count; ++offset) {
-        const auto [first_index, second_index] =
-            ForestSpatialSamplePairReference(
+        const auto pair = ForestSpatialSamplePairReference(
                 population_version,
                 population.trees.size(),
                 first_sample + offset
             );
-        const auto& first = population.trees[first_index];
-        const auto& second = population.trees[second_index];
-        const double dx = first.position[0] - second.position[0];
-        const double dy = first.position[1] - second.position[1];
-        const double distance_squared = dx * dx + dy * dy;
-        const double similarity = 1.0 - 0.5 * std::abs(
-            first.environment_variation -
-            second.environment_variation
+        AccumulateForestSpatialPairReference(
+            population,
+            near_squared,
+            far_squared,
+            pair,
+            result
         );
-        if (distance_squared <= near_squared) {
-            ++result.near_pairs;
-            result.near_environment_sum += similarity;
-            result.near_same_species += static_cast<std::size_t>(
-                first.species_id == second.species_id
-            );
-        } else if (distance_squared >= far_squared) {
-            ++result.far_pairs;
-            result.far_environment_sum += similarity;
-            result.far_same_species += static_cast<std::size_t>(
-                first.species_id == second.species_id
-            );
-        }
+    }
+    return result;
+}
+
+inline ForestSpatialSamplingAccumulator
+AccumulateForestSpatialSamplingPairsReference(
+    const ForestPopulationRealization& population,
+    double near_squared,
+    double far_squared,
+    const std::vector<ForestSpatialSamplePair>& pairs,
+    std::size_t first_sample,
+    std::size_t sample_count
+) {
+    if (first_sample > pairs.size() ||
+        sample_count > pairs.size() - first_sample) {
+        throw std::invalid_argument(
+            "forest spatial pair range is invalid"
+        );
+    }
+    ForestSpatialSamplingAccumulator result;
+    for (std::size_t offset = 0; offset < sample_count; ++offset) {
+        AccumulateForestSpatialPairReference(
+            population,
+            near_squared,
+            far_squared,
+            pairs[first_sample + offset],
+            result
+        );
     }
     return result;
 }

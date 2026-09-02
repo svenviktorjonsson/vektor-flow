@@ -16,6 +16,7 @@ struct PreparedForestSpatialSamplingReference {
     double far_squared;
     std::size_t pair_budget;
     std::vector<ForestSpatialSamplingBlock> blocks;
+    std::vector<ForestSpatialSamplePair> sample_pairs;
 };
 
 inline PreparedForestSpatialSamplingReference
@@ -37,13 +38,27 @@ PrepareForestSpatialSamplingReference(
         block_size
     );
     const auto bytes = PackForestPopulationBytesReference(population);
+    const std::uint64_t population_version =
+        HashDeterministicPacketBytes(bytes);
+    std::vector<ForestSpatialSamplePair> sample_pairs;
+    sample_pairs.reserve(pair_budget);
+    for (std::size_t sample = 0; sample < pair_budget; ++sample) {
+        sample_pairs.push_back(
+            ForestSpatialSamplePairReference(
+                population_version,
+                population.trees.size(),
+                sample
+            )
+        );
+    }
     return {
         &population,
-        HashDeterministicPacketBytes(bytes),
+        population_version,
         near_distance * near_distance,
         far_distance * far_distance,
         pair_budget,
         std::move(blocks),
+        std::move(sample_pairs),
     };
 }
 
@@ -59,6 +74,7 @@ SampleForestSpatialQualityPreparedParallelReference(
         prepared.far_squared,
         prepared.pair_budget,
         prepared.blocks,
+        &prepared.sample_pairs,
         worker_count
     );
 }

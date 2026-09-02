@@ -132,11 +132,11 @@ private:
                     );
                     if (index >= prepared->blocks.size()) break;
                     completed_[index] =
-                        EvaluateForestSpatialSamplingBlockReference(
+                        EvaluateForestSpatialIndexedBlockReference(
                             *prepared->population,
-                            prepared->population_version,
                             prepared->near_squared,
                             prepared->far_squared,
+                            prepared->sample_pairs,
                             prepared->blocks[index]
                         );
                 }

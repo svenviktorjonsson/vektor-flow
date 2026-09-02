@@ -27,6 +27,7 @@ SampleForestSpatialQualityPreparedCoreReference(
     double far_squared,
     std::size_t pair_budget,
     const std::vector<ForestSpatialSamplingBlock>& blocks,
+    const std::vector<ForestSpatialSamplePair>* sample_pairs,
     std::size_t worker_count
 ) {
     if (worker_count == 0 || worker_count > 64) {
@@ -55,15 +56,29 @@ SampleForestSpatialQualityPreparedCoreReference(
                     for (std::size_t index = worker;
                          index < blocks.size();
                          index += active_workers) {
-                        results.push_back(
-                            EvaluateForestSpatialSamplingBlockReference(
-                                population,
-                                population_version,
-                                near_squared,
-                                far_squared,
-                                blocks[index]
-                            )
-                        );
+                        if (sample_pairs == nullptr) {
+                            results.push_back(
+                                EvaluateForestSpatialSamplingBlockReference(
+                                    population,
+                                    population_version,
+                                    near_squared,
+                                    far_squared,
+                                    blocks[index]
+                                )
+                            );
+                        } else {
+                            const auto result =
+                                EvaluateForestSpatialIndexedBlockReference(
+                                    population,
+                                    near_squared,
+                                    far_squared,
+                                    *sample_pairs,
+                                    blocks[index]
+                                );
+                            results.push_back(
+                                result
+                            );
+                        }
                     }
                     return results;
                 }
@@ -123,6 +138,7 @@ SampleForestSpatialQualityParallelReference(
         far_distance * far_distance,
         pair_budget,
         blocks,
+        nullptr,
         worker_count
     );
 }
