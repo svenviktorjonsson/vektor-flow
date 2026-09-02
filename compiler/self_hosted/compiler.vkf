@@ -454,7 +454,9 @@ _compile_printed_dynamic_power_expression_x64(
     )
     template_prefix & "j" & left_immediate & "j" & right_immediate & power_tail
 
-_compile_x64_printable_immediate(value:num) -> str:
+_compile_x64_bounded_immediate(value:num) -> str:
+    (value >= 1 /\ value <= 9)?
+        @: str(chr(value))
     (value >= 40 /\ value <= 47)?
         @: vkf_utf8_slice("()*+,-./", value - 40, value - 39)
     (value >= 48 /\ value <= 57)?
@@ -463,7 +465,7 @@ _compile_x64_printable_immediate(value:num) -> str:
         @: vkf_utf8_slice(":;<=>?@", value - 58, value - 57)
     (value >= 65 /\ value <= 90)?
         @: vkf_utf8_slice("ABCDEFGHIJKLMNOPQRSTUVWXYZ", value - 65, value - 64)
-    false?! "x64 tracer immediate is outside the locked printable range"
+    false?! "x64 tracer immediate is outside the locked byte range"
     ""
 
 _compile_printed_dynamic_mixed_expression_x64(
@@ -481,7 +483,7 @@ _compile_printed_dynamic_mixed_expression_x64(
     (index < statement.opcodes.length())?>
         .code: statement.opcodes.(index)
         code = 1?
-            .body: body & "j" & _compile_x64_printable_immediate(
+            .body: body & "j" & _compile_x64_bounded_immediate(
                 statement.values.(index)
             )
         code = 2?
@@ -501,6 +503,7 @@ _compile_printed_dynamic_integer_tape_x64(
     addition_code:str,
     multiplication_code:str,
     subtraction_code:str,
+    power_code:str,
     floor_division_code:str,
     remainder_code:str,
     print_tail:str
@@ -513,7 +516,7 @@ _compile_printed_dynamic_integer_tape_x64(
     (index < statement.opcodes.length())?>
         .code: statement.opcodes.(index)
         code = 1?
-            .body: body & "j" & _compile_x64_printable_immediate(
+            .body: body & "j" & _compile_x64_bounded_immediate(
                 statement.values.(index)
             )
         code = 2?
@@ -528,10 +531,13 @@ _compile_printed_dynamic_integer_tape_x64(
         code = 8?
             (~(remainder_code = ""))?! "integer x64 tracer remainder code is missing"
             .body: body & remainder_code
+        code = 9?
+            (~(power_code = ""))?! "integer x64 tracer power code is missing"
+            .body: body & power_code
         code = 3?
             (index + 1 = statement.opcodes.length())?! "integer x64 tracer print must terminate the tape"
             .body: body & print_tail
-        (code = 1 \/ code = 2 \/ code = 3 \/ code = 4 \/ code = 5 \/ code = 6 \/ code = 8)?! "integer x64 tracer encountered an unsupported opcode"
+        (code = 1 \/ code = 2 \/ code = 3 \/ code = 4 \/ code = 5 \/ code = 6 \/ code = 8 \/ code = 9)?! "integer x64 tracer encountered an unsupported opcode"
         .index+: 1
     template_prefix & body
 
@@ -545,7 +551,7 @@ _compile_printed_dynamic_arithmetic_chain_x64(
 ) -> str:
     _compile_printed_dynamic_integer_tape_x64(
         source, template_prefix, addition_code, multiplication_code,
-        subtraction_code, "", "", print_tail
+        subtraction_code, "", "", "", print_tail
     )
 
 _compile_printed_dynamic_remainder_chain_x64(
@@ -559,7 +565,7 @@ _compile_printed_dynamic_remainder_chain_x64(
 ) -> str:
     _compile_printed_dynamic_integer_tape_x64(
         source, template_prefix, addition_code, multiplication_code,
-        subtraction_code, "", remainder_code, print_tail
+        subtraction_code, "", "", remainder_code, print_tail
     )
 
 _compile_printed_dynamic_floor_division_chain_x64(
@@ -573,7 +579,21 @@ _compile_printed_dynamic_floor_division_chain_x64(
 ) -> str:
     _compile_printed_dynamic_integer_tape_x64(
         source, template_prefix, addition_code, multiplication_code,
-        subtraction_code, floor_division_code, "", print_tail
+        subtraction_code, "", floor_division_code, "", print_tail
+    )
+
+_compile_printed_dynamic_power_chain_x64(
+    source:str,
+    template_prefix:str,
+    addition_code:str,
+    multiplication_code:str,
+    subtraction_code:str,
+    power_code:str,
+    print_tail:str
+) -> str:
+    _compile_printed_dynamic_integer_tape_x64(
+        source, template_prefix, addition_code, multiplication_code,
+        subtraction_code, power_code, "", "", print_tail
     )
 
 compile_tagged_dependency_tape(source:str):
