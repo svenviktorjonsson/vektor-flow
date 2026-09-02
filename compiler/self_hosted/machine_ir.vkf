@@ -187,19 +187,40 @@ mir_tagged_module_statement(
         max_stack:2
     )
 
+_mir_tagged_machine_function(
+    module:TaggedMachineModule, index:int, max_stack:num
+) -> MachineFunction:
+    statement: mir_tagged_module_statement(module, index)
+    mir_function(
+        statement.name,
+        ["num"],
+        [],
+        statement.instructions,
+        max_stack
+    )
+
+_mir_tagged_module_functions(
+    module:TaggedMachineModule, index:int, entry_index:int
+) -> [MachineFunction]:
+    index >= module.count?
+        @: []
+    index = entry_index?
+        @: _mir_tagged_module_functions(module, index + 1, entry_index)
+    statement: mir_tagged_module_statement(module, index)
+    [MachineFunction] remaining: _mir_tagged_module_functions(
+        module, index + 1, entry_index
+    )
+    [MachineFunction] current: [
+        _mir_tagged_machine_function(module, index, statement.max_stack)
+    ]
+    current & remaining
+
 mir_assemble_tagged_statement_module(
     module:TaggedMachineModule,
     index:int,
     validated_max_stack:num
 ) -> MachineModule:
-    statement: mir_tagged_module_statement(module, index)
-    entry: mir_function(
-        statement.name,
-        ["num"],
-        [],
-        statement.instructions,
-        validated_max_stack
-    )
+    entry: _mir_tagged_machine_function(module, index, validated_max_stack)
     (
         schema:"vektorflow.machine_ir",
         version:4,
@@ -209,7 +230,7 @@ mir_assemble_tagged_statement_module(
         output_tokens:[],
         string_data:[],
         entry:entry,
-        functions:[]
+        functions:_mir_tagged_module_functions(module, 0, index)
     )
 
 mir_tagged_closed_statement(
