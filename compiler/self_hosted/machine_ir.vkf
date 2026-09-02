@@ -164,6 +164,7 @@ _mir_tagged_binary_kind(operator_code:num) -> str:
         4 => "multiply_f64"
         5 => "divide_f64"
         6 => "remainder_f64"
+        7 => "power_f64"
         "unknown"
 
 mir_tagged_module_statement(

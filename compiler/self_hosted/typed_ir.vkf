@@ -144,6 +144,7 @@ typed_tagged_operator(operator_code:num) -> str:
         4 => "STAR"
         5 => "SLASH"
         6 => "PERCENT"
+        7 => "CARET"
         "UNKNOWN"
 
 typed_tagged_module_statement(

@@ -384,6 +384,7 @@ tagged_statement_operator(operator_code:num) -> str:
         4 => "*"
         5 => "/"
         6 => "%"
+        7 => "^"
         "unknown"
 
 tagged_statement_operator_code(token_kind:num) -> num:
@@ -394,6 +395,7 @@ tagged_statement_operator_code(token_kind:num) -> num:
         7 => 4
         9 => 5
         10 => 6
+        11 => 7
         0
 
 tagged_statement_node(
