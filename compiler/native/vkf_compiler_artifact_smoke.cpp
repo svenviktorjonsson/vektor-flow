@@ -1359,10 +1359,6 @@ std::string eval_block_value(const vf::JsonValue& block, ValueTable& values, con
 std::string eval_match_stmt_value(const vf::JsonValue& value, ValueTable& values, const ImportTable& imports, const LocalFunctionTable& functions, const StdlibExportTable& stdlib_exports, const std::string& ctor_name = "", std::vector<std::string>* output_lines = nullptr);
 bool eval_condition_value(const vf::JsonValue& value, const ValueTable& values, const ImportTable& imports, const LocalFunctionTable& functions, const StdlibExportTable& stdlib_exports, const std::string& ctor_name = "");
 
-bool is_ui_placeholder(const std::string& rendered) {
-    return rendered.rfind("__ui_", 0) == 0;
-}
-
 double eval_numeric_value(const vf::JsonValue& value, const ValueTable& values, const ImportTable& imports, const LocalFunctionTable& functions, const StdlibExportTable& stdlib_exports, const std::string& ctor_name) {
     const auto& object = object_of(value, "typed IR numeric value");
     const std::string kind = string_field(object, "kind", "typed IR numeric value");
