@@ -45,6 +45,27 @@ compile_tagged_scalar_binding(source:str):
     (maximum = 1)?!
     module
 
+compile_tagged_closed_binding(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_closed_binding(
+        tokens.source, tokens.rows, tokens.count
+    )
+    typed_module: typed.typed_tagged_module(
+        parsed.source, parsed.rows, parsed.count
+    )
+    binding: typed.typed_tagged_binding(typed_module, 0)
+    expression: typed.typed_tagged_bound_statement(typed_module, 1, binding)
+    (expression.type = "int")?! "printed expression must load its binding"
+    dynamic_module: mir.mir_tagged_module(
+        typed_module.source, typed_module.statements, typed_module.count
+    )
+    closed: mir.mir_tagged_closed_statement(dynamic_module, 0, 1)
+    maximum: validation.machine_ir_tagged_statement_stack_maximum(
+        closed.instructions.0.kind, closed.instructions.1.kind,
+        closed.instructions.2.kind, closed.instructions.3.kind
+    )
+    mir.mir_assemble_closed_tagged_module(closed, maximum)
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(

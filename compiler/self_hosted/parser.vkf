@@ -628,6 +628,28 @@ parse_tagged_scalar_binding_output(
     (output_name = binding_name)?! "scalar output must load its binding"
     (binding_name:binding_name, value:token_rows.(15))
 
+parse_tagged_printed_closed_binding(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedStatementStorage:
+    (token_count = 11)?! "printed closed binding has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 2 /\
+        token_rows.(48) = 3 /\ token_rows.(54) = 4 /\
+        token_rows.(60) = 5)?! "printed closed binding source shape changed"
+    storage: tagged_statement_storage(source)
+    .storage: append_tagged_statement(
+        storage,
+        token_rows.(1), token_rows.(2), 2, token_rows.(15),
+        token_rows.(4), token_rows.(5), token_rows.(16), token_rows.(17)
+    )
+    append_tagged_statement(
+        storage,
+        token_rows.(37), token_rows.(38), 1, token_rows.(51),
+        token_rows.(40), token_rows.(41), token_rows.(52), token_rows.(53)
+    )
+
 parse_tagged_binding_nested_addition(
     source:str, token_rows:[num], token_count:int
 ) -> TaggedNestedAddition:

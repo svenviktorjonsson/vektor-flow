@@ -1668,6 +1668,7 @@ vf::JsonValue::Object dispatch_internal_stage_observation(
     const std::filesystem::path& provenance_path
 ) {
     if (component != kClosedDependencyChainPipelineComponent &&
+        component != kClosedBindingPipelineComponent &&
         component != kEmptyTypedModulePipelineComponent &&
         component != kScalarBindingPipelineComponent &&
         component != kTypedModulePipelineComponent &&
