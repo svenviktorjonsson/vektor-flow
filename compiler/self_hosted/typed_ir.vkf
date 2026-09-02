@@ -47,6 +47,9 @@ function_signature(params:any, return_type:str):
 typed_module(body:any):
     (kind: "typed_module", body: body)
 
+typed_empty_module():
+    typed_module([])
+
 typed_block(body:any):
     (kind: "block", body: body)
 

@@ -606,6 +606,8 @@ void require_safe_output_target(const std::filesystem::path& output);
 #ifdef VKF_X64_BACKEND_LIBRARY
 inline constexpr const char* kTypedModulePipelineComponent =
     "machine_ir.numeric_parameter_multiply.typed_module_pipeline";
+inline constexpr const char* kEmptyTypedModulePipelineComponent =
+    "machine_ir.empty.typed_module_pipeline";
 inline constexpr const char* kConditionalTypedModulePipelineComponent =
     "machine_ir.numeric_positive_conditional.typed_module_pipeline";
 inline constexpr const char* kLoopTypedModulePipelineComponent =
@@ -1339,6 +1341,42 @@ vkf::machine_ir::Module parse_loop_tracer_observation(
     return module;
 }
 
+vkf::machine_ir::Module parse_empty_module_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(
+        observation, 22, "empty module tracer");
+    const std::vector<std::string> expected{
+        "return_values", "0", "[]", "[]", "0", "false", "$entry",
+        "[]", "[]", "[]", "null", "[]", "false", "false", "[]",
+        "0", "none", "[]", "[]", "vektorflow.machine_ir", "77", "23",
+    };
+    for (std::size_t index = 0; index < expected.size(); ++index) {
+        require_tracer_leaf(lines, index, expected[index]);
+    }
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure(
+            "empty module tracer source identity has the wrong byte width");
+    }
+
+    vkf::machine_ir::Instruction return_values;
+    return_values.opcode = vkf::machine_ir::Opcode::ReturnValues;
+    return_values.result_count = 0;
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions = {return_values};
+    entry.max_stack = 0;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::None;
+    module.output_count = 0;
+    return module;
+}
+
 vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
     const std::string& component,
     const std::filesystem::path& artifact,
@@ -1360,7 +1398,9 @@ vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
                 parent.string());
         }
     }
-    auto machine_module = component == kClosedDependencyChainPipelineComponent
+    auto machine_module = component == kEmptyTypedModulePipelineComponent
+        ? parse_empty_module_observation(observation, source_graph_fingerprint)
+        : component == kClosedDependencyChainPipelineComponent
         ? parse_closed_dependency_chain_observation(
             observation, source_graph_fingerprint)
         : component == kClosedAddDividePipelineComponent
@@ -1436,6 +1476,7 @@ vf::JsonValue::Object dispatch_internal_stage_component(
         component != "machine_ir.numeric_parameter_multiply.module_lowering"
 #ifdef VKF_X64_BACKEND_LIBRARY
         && component != kTypedModulePipelineComponent
+        && component != kEmptyTypedModulePipelineComponent
         && component != kConditionalTypedModulePipelineComponent
         && component != kLoopTypedModulePipelineComponent
         && component != kClosedBindingPipelineComponent
@@ -1497,6 +1538,7 @@ vf::JsonValue::Object dispatch_internal_stage_component(
 
 #ifdef VKF_X64_BACKEND_LIBRARY
     if (component == kTypedModulePipelineComponent ||
+        component == kEmptyTypedModulePipelineComponent ||
         component == kConditionalTypedModulePipelineComponent ||
         component == kLoopTypedModulePipelineComponent ||
         component == kClosedBindingPipelineComponent ||
@@ -1564,6 +1606,7 @@ vf::JsonValue::Object dispatch_internal_stage_observation(
     const std::filesystem::path& provenance_path
 ) {
     if (component != kClosedDependencyChainPipelineComponent &&
+        component != kEmptyTypedModulePipelineComponent &&
         component != kTypedModulePipelineComponent &&
         component != kConditionalTypedModulePipelineComponent &&
         component != kLoopTypedModulePipelineComponent) {

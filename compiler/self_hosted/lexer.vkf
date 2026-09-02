@@ -636,6 +636,30 @@ _scan_tagged_function_tokens(
 tagged_numeric_function_token_tape(source:str) -> TaggedTokenTape:
     _scan_tagged_function_tokens(StringCursor(source), tagged_token_tape(source))
 
+_scan_tagged_comment_only_source(
+    cursor:StringCursor, in_comment:bit, saw_comment:bit
+) -> bit:
+    cursor.eof?
+        @: saw_comment
+    in_comment?
+        is_newline(cursor.peek())?
+            @: _scan_tagged_comment_only_source(
+                cursor.advance(), false, saw_comment
+            )
+        @: _scan_tagged_comment_only_source(
+            cursor.advance(), true, saw_comment
+        )
+    (is_whitespace(cursor.peek()) \/ is_newline(cursor.peek()))?
+        @: _scan_tagged_comment_only_source(
+            cursor.advance(), false, saw_comment
+        )
+    cursor.peek() = "#"?
+        @: _scan_tagged_comment_only_source(cursor.advance(), true, true)
+    false
+
+tagged_comment_only_source(source:str) -> bit:
+    _scan_tagged_comment_only_source(StringCursor(source), false, false)
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 

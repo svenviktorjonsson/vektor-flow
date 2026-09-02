@@ -191,6 +191,35 @@ mir_tagged_module_statement(
         max_stack:2
     )
 
+mir_lower_empty_typed_module(module:any):
+    bit matches: module.kind = "typed_module" /\ module.body.length() = 0
+    matches?! "empty typed module does not match MachineModule lowering"
+    (
+        entry: (
+            instructions: [(kind:"return_values", result_count:0)],
+            local_classes: [],
+            locals: [],
+            max_stack: 0,
+            may_error: false,
+            name: "\$entry",
+            owned_f64_list_locals: [],
+            owned_string_locals: [],
+            parameter_is_numeric_scalar: [],
+            parameter_mask_local: null,
+            parameters: [],
+            result_is_dynamic_f64_list: false,
+            result_is_numeric_scalar: false
+        ),
+        functions: [],
+        output_count: 0,
+        output_kind: "none",
+        output_tokens: [],
+        outputs: [],
+        schema: "vektorflow.machine_ir",
+        string_bytes: 77,
+        version: 23
+    )
+
 _mir_tagged_module_functions(
     module:TaggedMachineModule,
     index:int,

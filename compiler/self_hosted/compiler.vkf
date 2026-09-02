@@ -10,6 +10,15 @@ typed: .typed_ir
 mir: .machine_ir
 validation: .machine_ir_validation
 
+compile_tagged_empty_module(source:str):
+    bit comment_only: lexer.tagged_comment_only_source(source)
+    comment_only?! "empty module source must contain comments and layout only"
+    typed_module: typed.typed_empty_module()
+    module: mir.mir_lower_empty_typed_module(typed_module)
+    maximum: validation.machine_ir_empty_module_stack_maximum(module)
+    (maximum = 0)?!
+    module
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(

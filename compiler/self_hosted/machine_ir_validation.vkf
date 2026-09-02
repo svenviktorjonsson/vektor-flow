@@ -28,6 +28,16 @@ machine_ir_numeric_stack_depth(depth:num, kind:str, argument_count:num=0, result
     (depth >= required)?! "machine IR stack underflow"
     depth - required + produced
 
+machine_ir_empty_module_stack_maximum(module:any) -> num:
+    (module.schema = "vektorflow.machine_ir" /\ module.version = 23)?!
+    (module.output_kind = "none" /\ module.output_count = 0)?!
+    (module.entry.name = "\$entry" /\ module.entry.max_stack = 0)?!
+    (module.entry.instructions.length() = 1)?!
+    (module.entry.instructions.0.kind = "return_values")?!
+    (module.entry.instructions.0.result_count = 0)?!
+    (module.functions.length() = 0)?!
+    0
+
 machine_ir_tagged_statement_stack_maximum(
     first_kind:str,
     second_kind:str,
