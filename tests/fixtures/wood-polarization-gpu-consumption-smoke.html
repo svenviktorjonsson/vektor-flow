@@ -51,6 +51,9 @@
     captureProceduralMaterialSceneFrameReference,
   } from "../../web/vf-ui/vf-procedural-material-scene-capture.mjs";
   import {
+    createProceduralWoodSpectralSceneFixtureReference,
+  } from "../../web/vf-ui/vf-procedural-wood-spectral-scene.mjs";
+  import {
     reflectGgxPolarized,
   } from "../helpers/vf-rough-polarization-reference.mjs";
 
@@ -110,6 +113,131 @@
     return packWoodCutMaterialPacketReference(
       packWoodCutSurfacePacketReference(grid, "end-grain"),
     );
+  }
+
+  async function renderProceduralWoodSpectralScene(device, fixture) {
+    const shader = device.createShaderModule({
+      label: "VKF procedural wood spectral scene",
+      code: fixture.source,
+    });
+    if (typeof shader.getCompilationInfo === "function") {
+      const info = await shader.getCompilationInfo();
+      const errors = info.messages.filter((message) => (
+        message.type === "error"
+      ));
+      if (errors.length > 0) {
+        throw new Error(errors.map((error) => error.message).join("\n"));
+      }
+    }
+    const pipeline = await device.createRenderPipelineAsync({
+      label: "VKF procedural wood spectral scene",
+      layout: "auto",
+      vertex: {
+        module: shader,
+        entryPoint: "vf_procedural_wood_vertex",
+        buffers: [{
+          arrayStride: 8,
+          attributes: [{
+            shaderLocation: 0,
+            offset: 0,
+            format: "float32x2",
+          }],
+        }],
+      },
+      fragment: {
+        module: shader,
+        entryPoint: "vf_procedural_wood_fragment",
+        targets: [{ format: fixture.format }],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+    const vertexBuffer = device.createBuffer({
+      size: fixture.vertices.byteLength,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    const indexBuffer = device.createBuffer({
+      size: fixture.indices.byteLength,
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+    });
+    const colorBuffer = device.createBuffer({
+      size: fixture.displayLinearRgba.byteLength,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const texture = device.createTexture({
+      size: [fixture.width, fixture.height, 1],
+      format: fixture.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+    });
+    const readback = device.createBuffer({
+      size: fixture.outputByteLength,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      device.queue.writeBuffer(vertexBuffer, 0, fixture.vertices);
+      device.queue.writeBuffer(indexBuffer, 0, fixture.indices);
+      device.queue.writeBuffer(
+        colorBuffer,
+        0,
+        fixture.displayLinearRgba,
+      );
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [{ binding: 0, resource: { buffer: colorBuffer } }],
+      });
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: texture.createView(),
+          clearValue: { r: 0.01, g: 0.015, b: 0.02, a: 1.0 },
+          loadOp: "clear",
+          storeOp: "store",
+        }],
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.setVertexBuffer(0, vertexBuffer);
+      pass.setIndexBuffer(indexBuffer, "uint32");
+      pass.drawIndexed(fixture.indices.length);
+      pass.end();
+      encoder.copyTextureToBuffer(
+        { texture },
+        {
+          buffer: readback,
+          bytesPerRow: fixture.bytesPerRow,
+          rowsPerImage: fixture.height,
+        },
+        {
+          width: fixture.width,
+          height: fixture.height,
+          depthOrArrayLayers: 1,
+        },
+      );
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const padded = new Uint8Array(readback.getMappedRange().slice(0));
+      readback.unmap();
+      const rgba8 = new Uint8Array(fixture.width * fixture.height * 4);
+      for (let row = 0; row < fixture.height; row += 1) {
+        rgba8.set(
+          padded.subarray(
+            row * fixture.bytesPerRow,
+            row * fixture.bytesPerRow + fixture.width * 4,
+          ),
+          row * fixture.width * 4,
+        );
+      }
+      let renderedPixels = 0;
+      for (let pixel = 0; pixel < rgba8.length; pixel += 4) {
+        if (rgba8[pixel] > 64) renderedPixels += 1;
+      }
+      return { rgba8, renderedPixels };
+    } finally {
+      vertexBuffer.destroy();
+      indexBuffer.destroy();
+      colorBuffer.destroy();
+      texture.destroy();
+      readback.destroy();
+    }
   }
 
   async function consumeSpectralPresentation(
@@ -359,7 +487,26 @@
       if (!bundledParity.matched) {
         throw new Error(JSON.stringify(bundledParity));
       }
-      const captureOptions = { width: 4, height: 4 };
+      const sceneFixture =
+        createProceduralWoodSpectralSceneFixtureReference(
+          lowering,
+          { width: 64, height: 64 },
+        );
+      const sceneImage = await renderProceduralWoodSpectralScene(
+        device,
+        sceneFixture,
+      );
+      if (
+        sceneImage.renderedPixels <= 0
+        || sceneImage.renderedPixels >= sceneFixture.width * sceneFixture.height
+      ) {
+        throw new Error("procedural wood scene geometry was not bounded");
+      }
+      const captureOptions = {
+        width: sceneFixture.width,
+        height: sceneFixture.height,
+        rgba8: sceneImage.rgba8,
+      };
       const firstCapture =
         await captureProceduralMaterialSceneFrameReference(
           bundledRun.releasedFrame,
@@ -406,6 +553,7 @@
           linearHdrRgb: firstCapture.linearHdrRgb,
           displayLinearRgb: firstCapture.displayLinearRgb,
           exposureStops: firstCapture.exposureStops,
+          renderedPixels: sceneImage.renderedPixels,
         },
       };
     } finally {

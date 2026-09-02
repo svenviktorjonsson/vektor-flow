@@ -58,12 +58,19 @@ export async function captureProceduralMaterialSceneFrameReference(
   {
     width,
     height,
+    rgba8 = null,
     documentRef = globalThis.document,
     captureFactory = createSceneMediaCapture,
     cryptoRef = globalThis.crypto,
   },
 ) {
   requireCapture(sceneFrame, presentation, width, height);
+  if (
+    rgba8 !== null
+    && (!(rgba8 instanceof Uint8Array) || rgba8.length !== width * height * 4)
+  ) {
+    throw new RangeError("procedural material RGBA image size is invalid");
+  }
   const canvas = documentRef?.createElement?.("canvas");
   const context = canvas?.getContext?.("2d");
   if (!canvas || !context) {
@@ -72,12 +79,16 @@ export async function captureProceduralMaterialSceneFrameReference(
   canvas.width = width;
   canvas.height = height;
   const image = context.createImageData(width, height);
-  const rgba = [
-    ...presentation.displayLinearRgb.map(linearToSrgb8),
-    255,
-  ];
-  for (let offset = 0; offset < image.data.length; offset += 4) {
-    image.data.set(rgba, offset);
+  if (rgba8) {
+    image.data.set(rgba8);
+  } else {
+    const rgba = [
+      ...presentation.displayLinearRgb.map(linearToSrgb8),
+      255,
+    ];
+    for (let offset = 0; offset < image.data.length; offset += 4) {
+      image.data.set(rgba, offset);
+    }
   }
   context.putImageData(image, 0, 0);
   const capture = captureFactory({

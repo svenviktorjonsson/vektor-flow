@@ -537,6 +537,8 @@ test(
   assert.match(html, /createWoodSpectralRendererDrawPipelineReference/u);
   assert.match(html, /createProceduralMaterialSceneFrameSchedulerReference/u);
   assert.match(html, /captureProceduralMaterialSceneFrameReference/u);
+  assert.match(html, /createProceduralWoodSpectralSceneFixtureReference/u);
+  assert.match(html, /createRenderPipelineAsync/u);
   assert.match(html, /__woodPolarizationGpuEvidence/u);
   },
 );

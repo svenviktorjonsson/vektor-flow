@@ -94,3 +94,33 @@ test("released frame captures repeatable image and HDR metadata", async () => {
   assert.equal(first.exposureStops, 1.0);
   assert.strictEqual(first.sourceFrame, sceneFrame);
 });
+
+test("released frame capture preserves supplied GPU scene pixels", async () => {
+  const rgba8 = new Uint8Array([
+    10, 20, 30, 255,
+    40, 50, 60, 255,
+  ]);
+  const captured = await captureProceduralMaterialSceneFrameReference(
+    {
+      kind: "procedural-material-scene-frame:v1",
+      frame: 2,
+      timestamp: 42,
+      output: {},
+    },
+    {
+      kind: "wood-polarization-presentation:v1",
+      linearHdrRgb: [1.0, 0.5, 0.25],
+      displayLinearRgb: [0.5, 0.25, 0.125],
+      exposureStops: 0.0,
+    },
+    {
+      width: 2,
+      height: 1,
+      rgba8,
+      documentRef: captureDocument(),
+      captureFactory,
+    },
+  );
+
+  assert.deepEqual(captured.imageBytes, rgba8);
+});
