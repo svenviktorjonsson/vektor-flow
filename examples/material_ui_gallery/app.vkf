@@ -2,6 +2,7 @@ bunny: load("assets/source/bun_zipper.ply")
 
 native_scene:(
     kind:"scene_3d",
+    always_ontop:false,
     frame_id:"material_gallery_frame",
     title:"Stanford Bunny material studio",
     rect:[0.035, 0.055, 0.93, 0.87],

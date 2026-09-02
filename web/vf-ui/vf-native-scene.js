@@ -15,6 +15,16 @@
   var config = rootConfig.scene_ir || rootConfig;
   var frameSpec = config.frame || {};
   var renderOptions = config.render_options || {};
+  if (
+    global.chrome &&
+    global.chrome.webview &&
+    typeof global.chrome.webview.postMessage === "function"
+  ) {
+    global.chrome.webview.postMessage({
+      type: "vf-window-mode",
+      always_ontop: config.always_ontop === true
+    });
+  }
   if (!global.__vfNativeSceneLiveCameras) {
     global.__vfNativeSceneLiveCameras = Object.create(null);
   }

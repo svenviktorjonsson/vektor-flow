@@ -1205,6 +1205,22 @@ static bool TryHandleVfHostChromeMessage(const std::string& u8, HWND host) {
         return false;
     }
     const char* t = jtype->valuestring;
+    if (_stricmp(t, "vf-window-mode") == 0) {
+        cJSON* alwaysOnTop = cJSON_GetObjectItem(root, "always_ontop");
+        const bool enabled = cJSON_IsTrue(alwaysOnTop);
+        cJSON_Delete(root);
+        if (host) {
+            SetWindowPos(
+                host,
+                enabled ? HWND_TOPMOST : HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+        return true;
+    }
     if (_stricmp(t, "transparent-overlay.cursor") == 0) {
         cJSON* cursor = cJSON_GetObjectItem(root, "cursor");
         const char* cursorValue = cJSON_IsString(cursor) && cursor->valuestring ? cursor->valuestring : "";
@@ -3447,7 +3463,7 @@ int VfOverlayRun(HINSTANCE hi, const VfOverlayHostLaunch& launch, int show) {
 
         int sw = GetSystemMetrics(SM_CXSCREEN);
         int sh = GetSystemMetrics(SM_CYSCREEN);
-        DWORD exStyle = WS_EX_TOPMOST;
+        DWORD exStyle = 0;
         /* Window title (taskbar / Alt+Tab); icon from embedded app.ico (transparent). */
         g_hwnd = CreateWindowExW(exStyle, L"VfOverlayHost", L"Vektor Flow", WS_POPUP, 0, 0, sw, sh,
                                  nullptr, nullptr, hi, nullptr);

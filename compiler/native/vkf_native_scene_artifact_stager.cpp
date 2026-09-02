@@ -1811,6 +1811,8 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
         << literal_number_at_or(rect, 2, "0.78") << ","
         << literal_number_at_or(rect, 3, "0.80") << "],"
         << "\"aspect\":null,\"visible\":true},"
+        << R"("always_ontop":)"
+        << literal_json_or(root, "always_ontop", "false") << ","
         << "\"background\":" << literal_json_or(root, "background", "[0,0,0,0]") << ","
         << "\"camera\":{\"properties\":" << literal_json_or(root, "camera", "{}")
         << ",\"embedding\":" << native_scene_camera_embedding_json() << "},"
