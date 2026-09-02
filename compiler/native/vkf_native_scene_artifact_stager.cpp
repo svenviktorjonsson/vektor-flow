@@ -1,5 +1,6 @@
 #include "vkf_static_html_bundle.hpp"
 #include "vkf_retained_scene_packet.hpp"
+#include "vkf_native_scene_lowering.hpp"
 #include "vkf_world_mesh_packet.hpp"
 
 #include <cstdint>
@@ -26,10 +27,31 @@ namespace {
 
 constexpr const char* kNativeSceneCompilerVersion = "vkf-native-scene-compiler-0.1";
 
+std::filesystem::path long_io_path(const std::filesystem::path& path) {
+#if defined(_WIN32)
+    std::error_code error;
+    const std::filesystem::path absolute = std::filesystem::absolute(path, error);
+    const std::wstring native = (error ? path : absolute).lexically_normal().wstring();
+    if (native.rfind(L"\\\\?\\", 0) == 0) {
+        return std::filesystem::path(native);
+    }
+    if (native.rfind(L"\\\\", 0) == 0) {
+        return std::filesystem::path(L"\\\\?\\UNC\\" + native.substr(2));
+    }
+    return std::filesystem::path(L"\\\\?\\" + native);
+#else
+    return path;
+#endif
+}
+
 struct Args {
     std::filesystem::path source;
     std::filesystem::path overlay_web;
     std::filesystem::path typed_ir;
+    std::filesystem::path wasm_artifact;
+    std::filesystem::path wasm_manifest;
+    std::filesystem::path webgpu_artifact;
+    std::filesystem::path webgpu_manifest;
     std::string scene_config_json = "{}";
     std::string runtime_packets_json = "[]";
     std::string geom_transport_json = "{}";
@@ -66,7 +88,7 @@ public:
 };
 
 std::string read_file_bytes(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
+    std::ifstream input(long_io_path(path), std::ios::binary);
     if (!input) {
         throw StagerError("could not read " + path.string());
     }
@@ -76,27 +98,78 @@ std::string read_file_bytes(const std::filesystem::path& path) {
 }
 
 void write_file(const std::filesystem::path& path, const std::string& text, bool refresh_unchanged = false) {
-    std::filesystem::create_directories(path.parent_path());
+    const std::filesystem::path io_path = long_io_path(path);
+    std::filesystem::create_directories(io_path.parent_path());
     std::error_code ec;
-    if (std::filesystem::exists(path, ec) && read_file_bytes(path) == text) {
+    if (std::filesystem::exists(io_path, ec) && read_file_bytes(io_path) == text) {
         if (refresh_unchanged) {
-            std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
+            std::filesystem::last_write_time(io_path, std::filesystem::file_time_type::clock::now(), ec);
         }
         return;
     }
-    std::ofstream output(path, std::ios::binary);
+    std::ofstream output(io_path, std::ios::binary);
     if (!output) {
         throw StagerError("could not write " + path.string());
     }
     output << text;
 }
 
+std::string portable_compiled_manifest(
+    const std::string& text,
+    const std::string& artifact_name
+) {
+    try {
+        vf::JsonValue manifest = vf::parse_json(text);
+        if (!manifest.is_object()) {
+            throw StagerError("compiled UI manifest must be a JSON object");
+        }
+        manifest.as_object()["artifact_path"] = vf::JsonValue(artifact_name);
+        manifest.as_object()["status"] = vf::JsonValue("compiled");
+        return vf::json_stringify(manifest, 2) + "\n";
+    } catch (const StagerError&) {
+        throw;
+    } catch (const std::exception& error) {
+        throw StagerError(
+            "could not normalize compiled UI manifest: " +
+            std::string(error.what()));
+    }
+}
+
+bool compiled_manifest_has_retained_scene_arena(
+    const std::filesystem::path& manifest_path
+) {
+    if (manifest_path.empty()) {
+        return false;
+    }
+    try {
+        const vf::JsonValue manifest = vf::parse_json(
+            read_file_bytes(std::filesystem::absolute(manifest_path)));
+        if (!manifest.is_object()) {
+            return false;
+        }
+        const auto runtime_surface = manifest.as_object().find("runtime_surface");
+        if (runtime_surface == manifest.as_object().end() ||
+            !runtime_surface->second.is_object()) {
+            return false;
+        }
+        const auto retained = runtime_surface->second.as_object().find(
+            "retained_scene_arena");
+        return retained != runtime_surface->second.as_object().end() &&
+            retained->second.is_object();
+    } catch (const std::exception& error) {
+        throw StagerError(
+            "could not inspect compiled WASM manifest: " +
+            std::string(error.what()));
+    }
+}
+
 void remove_prior_generated_scene_artifacts(const std::filesystem::path& session_dir, const std::vector<std::string>& keep_names) {
+    const std::filesystem::path io_session_dir = long_io_path(session_dir);
     std::error_code ec;
-    if (!std::filesystem::exists(session_dir, ec)) {
+    if (!std::filesystem::exists(io_session_dir, ec)) {
         return;
     }
-    for (std::filesystem::directory_iterator it(session_dir, ec), end; !ec && it != end; it.increment(ec)) {
+    for (std::filesystem::directory_iterator it(io_session_dir, ec), end; !ec && it != end; it.increment(ec)) {
         if (ec || !it->is_regular_file(ec)) {
             continue;
         }
@@ -472,320 +545,14 @@ bool source_has(const std::string& source_text, const std::string& needle) {
     return source_text.find(needle) != std::string::npos;
 }
 
-enum class VkfLiteralKind {
-    Null,
-    Bool,
-    Number,
-    String,
-    Array,
-    Object
-};
 
-struct VkfLiteralValue {
-    VkfLiteralKind kind = VkfLiteralKind::Null;
-    bool bool_value = false;
-    std::string text;
-    std::vector<VkfLiteralValue> array;
-    std::vector<std::pair<std::string, VkfLiteralValue>> object;
-};
-
-class VkfLiteralParser {
-public:
-    VkfLiteralParser(
-        const std::string& source,
-        std::size_t pos,
-        const std::map<std::string, VkfLiteralValue>* symbols = nullptr
-    ) : source_(source), pos_(pos), symbols_(symbols) {}
-
-    VkfLiteralValue parse_value() {
-        skip_ws_and_comments();
-        if (pos_ >= source_.size()) {
-            throw StagerError("native_scene literal ended unexpectedly");
-        }
-        const char ch = source_[pos_];
-        if (ch == '(') {
-            return parse_object(')');
-        }
-        if (ch == '{') {
-            return parse_object('}');
-        }
-        if (ch == '[') {
-            return parse_array();
-        }
-        if (ch == '"') {
-            VkfLiteralValue value;
-            value.kind = VkfLiteralKind::String;
-            value.text = parse_string();
-            return value;
-        }
-        if (ch == '-' || ch == '+' || ch == '.' || std::isdigit(static_cast<unsigned char>(ch))) {
-            VkfLiteralValue value;
-            value.kind = VkfLiteralKind::Number;
-            value.text = parse_number();
-            return value;
-        }
-        if (is_identifier_start(ch)) {
-            const std::string ident = parse_identifier();
-            if (ident == "true" || ident == "false") {
-                VkfLiteralValue value;
-                value.kind = VkfLiteralKind::Bool;
-                value.bool_value = ident == "true";
-                return value;
-            }
-            if (ident == "null") {
-                return {};
-            }
-            if (symbols_) {
-                const auto symbol = symbols_->find(ident);
-                if (symbol != symbols_->end()) {
-                    VkfLiteralValue value = symbol->second;
-                    skip_ws_and_comments();
-                    while (pos_ < source_.size() && source_[pos_] == '.') {
-                        ++pos_;
-                        skip_ws_and_comments();
-                        const std::string field_name = parse_identifier();
-                        if (value.kind != VkfLiteralKind::Object) {
-                            throw StagerError("native_scene load field access requires a struct: " + ident);
-                        }
-                        const auto field = std::find_if(
-                            value.object.begin(), value.object.end(),
-                            [&](const auto& item) { return item.first == field_name; });
-                        if (field == value.object.end()) {
-                            throw StagerError("native_scene load has no field `" + field_name + "`: " + ident);
-                        }
-                        value = field->second;
-                        skip_ws_and_comments();
-                    }
-                    return value;
-                }
-            }
-            VkfLiteralValue value;
-            value.kind = VkfLiteralKind::String;
-            value.text = ident;
-            return value;
-        }
-        throw StagerError(std::string("unexpected character in native_scene literal: ") + ch);
-    }
-
-    std::size_t pos() const {
-        return pos_;
-    }
-
-private:
-    const std::string& source_;
-    std::size_t pos_ = 0;
-    const std::map<std::string, VkfLiteralValue>* symbols_ = nullptr;
-
-    static bool is_identifier_start(char ch) {
-        return std::isalpha(static_cast<unsigned char>(ch)) || ch == '_';
-    }
-
-    static bool is_identifier_char(char ch) {
-        return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-';
-    }
-
-    void skip_ws_and_comments() {
-        while (pos_ < source_.size()) {
-            const char ch = source_[pos_];
-            if (std::isspace(static_cast<unsigned char>(ch))) {
-                ++pos_;
-                continue;
-            }
-            if (ch == '#') {
-                while (pos_ < source_.size() && source_[pos_] != '\n') {
-                    ++pos_;
-                }
-                continue;
-            }
-            break;
-        }
-    }
-
-    std::string parse_identifier() {
-        if (pos_ >= source_.size() || !is_identifier_start(source_[pos_])) {
-            throw StagerError("expected identifier in native_scene literal");
-        }
-        const std::size_t start = pos_;
-        ++pos_;
-        while (pos_ < source_.size() && is_identifier_char(source_[pos_])) {
-            ++pos_;
-        }
-        return source_.substr(start, pos_ - start);
-    }
-
-    std::string parse_string() {
-        if (source_[pos_] != '"') {
-            throw StagerError("expected string in native_scene literal");
-        }
-        ++pos_;
-        std::string out;
-        while (pos_ < source_.size()) {
-            const char ch = source_[pos_++];
-            if (ch == '"') {
-                return out;
-            }
-            if (ch == '\\') {
-                if (pos_ >= source_.size()) {
-                    throw StagerError("unterminated string escape in native_scene literal");
-                }
-                const char esc = source_[pos_++];
-                switch (esc) {
-                    case '"': out.push_back('"'); break;
-                    case '\\': out.push_back('\\'); break;
-                    case 'n': out.push_back('\n'); break;
-                    case 'r': out.push_back('\r'); break;
-                    case 't': out.push_back('\t'); break;
-                    default: out.push_back(esc); break;
-                }
-                continue;
-            }
-            out.push_back(ch);
-        }
-        throw StagerError("unterminated string in native_scene literal");
-    }
-
-    std::string parse_number() {
-        const std::size_t start = pos_;
-        if (pos_ < source_.size() && (source_[pos_] == '-' || source_[pos_] == '+')) {
-            ++pos_;
-        }
-        bool saw_digit = false;
-        while (pos_ < source_.size() && std::isdigit(static_cast<unsigned char>(source_[pos_]))) {
-            saw_digit = true;
-            ++pos_;
-        }
-        if (pos_ < source_.size() && source_[pos_] == '.') {
-            ++pos_;
-            while (pos_ < source_.size() && std::isdigit(static_cast<unsigned char>(source_[pos_]))) {
-                saw_digit = true;
-                ++pos_;
-            }
-        }
-        if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')) {
-            ++pos_;
-            if (pos_ < source_.size() && (source_[pos_] == '-' || source_[pos_] == '+')) {
-                ++pos_;
-            }
-            bool saw_exp_digit = false;
-            while (pos_ < source_.size() && std::isdigit(static_cast<unsigned char>(source_[pos_]))) {
-                saw_exp_digit = true;
-                ++pos_;
-            }
-            if (!saw_exp_digit) {
-                throw StagerError("invalid exponent in native_scene number");
-            }
-        }
-        if (!saw_digit) {
-            throw StagerError("invalid native_scene number");
-        }
-        return source_.substr(start, pos_ - start);
-    }
-
-    VkfLiteralValue parse_array() {
-        VkfLiteralValue value;
-        value.kind = VkfLiteralKind::Array;
-        ++pos_;
-        skip_ws_and_comments();
-        while (pos_ < source_.size() && source_[pos_] != ']') {
-            value.array.push_back(parse_value());
-            skip_ws_and_comments();
-            if (pos_ < source_.size() && source_[pos_] == ',') {
-                ++pos_;
-                skip_ws_and_comments();
-            } else if (pos_ < source_.size() && source_[pos_] != ']') {
-                throw StagerError("expected comma or ] in native_scene array");
-            }
-        }
-        if (pos_ >= source_.size() || source_[pos_] != ']') {
-            throw StagerError("unterminated native_scene array");
-        }
-        ++pos_;
-        return value;
-    }
-
-    VkfLiteralValue parse_object(char close_ch) {
-        VkfLiteralValue value;
-        value.kind = VkfLiteralKind::Object;
-        ++pos_;
-        skip_ws_and_comments();
-        while (pos_ < source_.size() && source_[pos_] != close_ch) {
-            std::string key;
-            if (source_[pos_] == '"') {
-                key = parse_string();
-            } else {
-                key = parse_identifier();
-            }
-            skip_ws_and_comments();
-            if (pos_ >= source_.size() || source_[pos_] != ':') {
-                throw StagerError("expected : after native_scene field " + key);
-            }
-            ++pos_;
-            value.object.push_back({key, parse_value()});
-            skip_ws_and_comments();
-            if (pos_ < source_.size() && source_[pos_] == ',') {
-                ++pos_;
-                skip_ws_and_comments();
-            } else if (pos_ < source_.size() && source_[pos_] != close_ch) {
-                throw StagerError("expected comma or closing paren in native_scene object");
-            }
-        }
-        if (pos_ >= source_.size() || source_[pos_] != close_ch) {
-            throw StagerError("unterminated native_scene object");
-        }
-        ++pos_;
-        return value;
-    }
-};
+using VkfLiteralKind = vkf::native_scene::LiteralKind;
+using VkfLiteralParser = vkf::native_scene::LiteralParser;
+using VkfLiteralValue = vkf::native_scene::LiteralValue;
+using vkf::native_scene::object_field;
 
 std::string vkf_literal_to_json(const VkfLiteralValue& value) {
-    switch (value.kind) {
-        case VkfLiteralKind::Null:
-            return "null";
-        case VkfLiteralKind::Bool:
-            return value.bool_value ? "true" : "false";
-        case VkfLiteralKind::Number:
-            return value.text;
-        case VkfLiteralKind::String:
-            return "\"" + json_escape(value.text) + "\"";
-        case VkfLiteralKind::Array: {
-            std::ostringstream out;
-            out << "[";
-            for (std::size_t i = 0; i < value.array.size(); ++i) {
-                if (i > 0) {
-                    out << ",";
-                }
-                out << vkf_literal_to_json(value.array[i]);
-            }
-            out << "]";
-            return out.str();
-        }
-        case VkfLiteralKind::Object: {
-            std::ostringstream out;
-            out << "{";
-            for (std::size_t i = 0; i < value.object.size(); ++i) {
-                if (i > 0) {
-                    out << ",";
-                }
-                out << "\"" << json_escape(value.object[i].first) << "\":"
-                    << vkf_literal_to_json(value.object[i].second);
-            }
-            out << "}";
-            return out.str();
-        }
-    }
-    return "null";
-}
-
-const VkfLiteralValue* object_field(const VkfLiteralValue& value, const std::string& key) {
-    if (value.kind != VkfLiteralKind::Object) {
-        return nullptr;
-    }
-    for (const auto& item : value.object) {
-        if (item.first == key) {
-            return &item.second;
-        }
-    }
-    return nullptr;
+    return vkf::native_scene::literal_to_json(value);
 }
 
 std::string literal_json_or(const VkfLiteralValue& value, const std::string& key, const std::string& fallback) {
@@ -1132,166 +899,41 @@ std::string number_json(double value) {
     return out.str();
 }
 
-VkfLiteralValue numeric_literal(double value) {
-    VkfLiteralValue literal;
-    literal.kind = VkfLiteralKind::Number;
-    literal.text = number_json(value);
-    return literal;
-}
-
-VkfLiteralValue load_ascii_triangle_ply(const std::filesystem::path& path) {
-    std::ifstream input(path);
-    if (!input) {
-        throw StagerError("native_scene load could not read " + path.string());
+std::string native_scene_mesh_properties_json(const VkfLiteralValue& mesh) {
+    const VkfLiteralValue* vertices = object_field(mesh, "vertices");
+    const VkfLiteralValue* indices = object_field(mesh, "indices");
+    if (!vertices || !indices || !vertices->compiled_mesh_buffer || !indices->compiled_mesh_buffer) {
+        return vkf_literal_to_json(mesh);
     }
-    std::string line;
-    if (!std::getline(input, line) || line != "ply") {
-        throw StagerError("native_scene load requires a PLY header: " + path.string());
-    }
-    bool ascii = false;
-    std::size_t vertex_count = 0;
-    std::size_t face_count = 0;
-    std::vector<std::string> vertex_properties;
-    enum class Element { None, Vertex, Face } element = Element::None;
-    bool ended = false;
-    while (std::getline(input, line)) {
-        std::istringstream fields(line);
-        std::string keyword;
-        fields >> keyword;
-        if (keyword == "format") {
-            std::string format;
-            fields >> format;
-            ascii = format == "ascii";
-        } else if (keyword == "element") {
-            std::string name;
-            std::size_t count = 0;
-            fields >> name >> count;
-            element = name == "vertex" ? Element::Vertex : name == "face" ? Element::Face : Element::None;
-            if (element == Element::Vertex) vertex_count = count;
-            if (element == Element::Face) face_count = count;
-        } else if (keyword == "property" && element == Element::Vertex) {
-            std::string type;
-            std::string name;
-            fields >> type >> name;
-            if (type != "list") vertex_properties.push_back(name);
-        } else if (keyword == "end_header") {
-            ended = true;
-            break;
-        }
-    }
-    if (!ascii || !ended || vertex_count == 0 || face_count == 0) {
-        throw StagerError("native_scene load supports non-empty ASCII PLY triangle meshes only: " + path.string());
-    }
-    auto property_index = [&](const std::string& name) {
-        const auto found = std::find(vertex_properties.begin(), vertex_properties.end(), name);
-        if (found == vertex_properties.end()) {
-            throw StagerError("native_scene PLY is missing vertex property `" + name + "`: " + path.string());
-        }
-        return static_cast<std::size_t>(found - vertex_properties.begin());
-    };
-    const std::size_t x_index = property_index("x");
-    const std::size_t y_index = property_index("y");
-    const std::size_t z_index = property_index("z");
-    std::vector<std::array<double, 3>> positions(vertex_count);
-    for (std::size_t i = 0; i < vertex_count; ++i) {
-        if (!std::getline(input, line)) {
-            throw StagerError("native_scene PLY ended inside its vertex table: " + path.string());
-        }
-        std::istringstream values(line);
-        std::vector<double> row;
-        double value = 0.0;
-        while (values >> value) row.push_back(value);
-        if (row.size() < vertex_properties.size()) {
-            throw StagerError("native_scene PLY vertex row is shorter than its header: " + path.string());
-        }
-        positions[i] = {row[x_index], row[y_index], row[z_index]};
-    }
-    std::vector<std::size_t> indices;
-    indices.reserve(face_count * 3);
-    for (std::size_t i = 0; i < face_count; ++i) {
-        if (!std::getline(input, line)) {
-            throw StagerError("native_scene PLY ended inside its face table: " + path.string());
-        }
-        std::istringstream values(line);
-        std::size_t count = 0;
-        values >> count;
-        if (count != 3) {
-            throw StagerError("native_scene load requires triangulated PLY faces: " + path.string());
-        }
-        std::array<std::size_t, 3> face{};
-        if (!(values >> face[0] >> face[1] >> face[2]) ||
-            face[0] >= vertex_count || face[1] >= vertex_count || face[2] >= vertex_count) {
-            throw StagerError("native_scene PLY face index is invalid: " + path.string());
-        }
-        indices.insert(indices.end(), face.begin(), face.end());
-    }
-    std::vector<std::array<double, 3>> normals(vertex_count, {0.0, 0.0, 0.0});
-    for (std::size_t i = 0; i < indices.size(); i += 3) {
-        const auto& a = positions[indices[i]];
-        const auto& b = positions[indices[i + 1]];
-        const auto& c = positions[indices[i + 2]];
-        const std::array<double, 3> ab{b[0] - a[0], b[1] - a[1], b[2] - a[2]};
-        const std::array<double, 3> ac{c[0] - a[0], c[1] - a[1], c[2] - a[2]};
-        const std::array<double, 3> normal{
-            ab[1] * ac[2] - ab[2] * ac[1],
-            ab[2] * ac[0] - ab[0] * ac[2],
-            ab[0] * ac[1] - ab[1] * ac[0],
+    // A load(Ply) mesh is rendered from the packed arena. Apply a static
+    // material color once in the compiler instead of copying and repainting
+    // every vertex in JavaScript on every application start.
+    VkfLiteralValue compiled = mesh;
+    VkfLiteralValue* compiled_vertices = object_field(compiled, "vertices");
+    const VkfLiteralValue* color = object_field(mesh, "color");
+    const bool use_vertex_color = literal_bool_or(mesh, "use_vertex_color", false);
+    if (compiled_vertices && !use_vertex_color && color &&
+        color->kind == VkfLiteralKind::Array && color->array.size() >= 3) {
+        VkfLiteralValue opaque_alpha;
+        opaque_alpha.kind = VkfLiteralKind::Number;
+        opaque_alpha.text = "1";
+        std::array<VkfLiteralValue, 4> rgba{
+            color->array[0], color->array[1], color->array[2],
+            color->array.size() >= 4 ? color->array[3] : opaque_alpha
         };
-        for (const std::size_t index : {indices[i], indices[i + 1], indices[i + 2]}) {
-            for (std::size_t axis = 0; axis < 3; ++axis) normals[index][axis] += normal[axis];
+        for (std::size_t offset = 0; offset + 9 < compiled_vertices->array.size(); offset += 10) {
+            for (std::size_t channel = 0; channel < 4; ++channel) {
+                compiled_vertices->array[offset + 6 + channel] = rgba[channel];
+            }
         }
     }
-    VkfLiteralValue vertices;
-    vertices.kind = VkfLiteralKind::Array;
-    vertices.array.reserve(vertex_count * 10);
-    for (std::size_t i = 0; i < vertex_count; ++i) {
-        const double length = std::sqrt(
-            normals[i][0] * normals[i][0] + normals[i][1] * normals[i][1] + normals[i][2] * normals[i][2]);
-        for (double coordinate : positions[i]) vertices.array.push_back(numeric_literal(coordinate));
-        for (double coordinate : normals[i]) vertices.array.push_back(numeric_literal(length > 0.0 ? coordinate / length : 0.0));
-        for (double channel : {1.0, 1.0, 1.0, 1.0}) vertices.array.push_back(numeric_literal(channel));
+    std::string json = vkf_literal_to_json(compiled);
+    if (json.size() < 2 || json.back() != '}') {
+        return json;
     }
-    VkfLiteralValue faces;
-    faces.kind = VkfLiteralKind::Array;
-    faces.array.reserve(indices.size());
-    for (const std::size_t index : indices) faces.array.push_back(numeric_literal(static_cast<double>(index)));
-    VkfLiteralValue mesh;
-    mesh.kind = VkfLiteralKind::Object;
-    mesh.object.push_back({"vertices", std::move(vertices)});
-    mesh.object.push_back({"faces", std::move(faces)});
-    return mesh;
-}
-
-std::map<std::string, VkfLiteralValue> native_scene_loads(
-    const std::string& source_text,
-    const std::filesystem::path& source_path
-) {
-    static const std::regex load_pattern(
-        R"PLY(([A-Za-z_][A-Za-z0-9_]*)\s*:\s*load\(\s*"([^"]+\.ply)"\s*\))PLY",
-        std::regex::ECMAScript | std::regex::icase);
-    std::map<std::string, VkfLiteralValue> loads;
-    for (std::sregex_iterator it(source_text.begin(), source_text.end(), load_pattern), end; it != end; ++it) {
-        const std::filesystem::path requested = source_path.parent_path() / (*it)[2].str();
-        loads.emplace((*it)[1].str(), load_ascii_triangle_ply(requested.lexically_normal()));
-    }
-    return loads;
-}
-
-std::optional<VkfLiteralValue> try_parse_native_scene_literal(
-    const std::string& source_text,
-    const std::filesystem::path& source_path
-) {
-    const std::size_t marker = source_text.find("native_scene:");
-    if (marker == std::string::npos) {
-        return std::nullopt;
-    }
-    const auto loads = native_scene_loads(source_text, source_path);
-    VkfLiteralParser parser(source_text, marker + std::string("native_scene:").size(), &loads);
-    VkfLiteralValue root = parser.parse_value();
-    if (root.kind != VkfLiteralKind::Object) {
-        throw StagerError("native_scene must be a field object wrapped in parens");
-    }
-    return root;
+    json.pop_back();
+    json += ",\"__vf_compiled_mesh_arena\":true,\"__vf_compiled_material_color\":true}";
+    return json;
 }
 
 std::string native_scene_embedding_json(const std::vector<std::pair<std::string, std::string>>& pairs) {
@@ -1312,6 +954,7 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
     const std::vector<std::string> rels = {
         "vf-frame.css",
         "vf-runtime-shell.js",
+        "vf-startup-gate.js",
         "vf-runtime-packet-contract.js",
         "vf-retained-event-adapter.js",
         "vf-runtime-source.js",
@@ -1343,7 +986,7 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
     };
     for (const std::string& rel : rels) {
         const std::filesystem::path path = overlay_web / rel;
-        if (!std::filesystem::exists(path)) {
+        if (!std::filesystem::exists(long_io_path(path))) {
             throw StagerError("runtime asset required for versioning is missing: " + path.string());
         }
         bytes += rel;
@@ -1763,7 +1406,7 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
                 const std::string id = literal_string_or(mesh, "id", "mesh_" + std::to_string(i));
                 const std::string kind = literal_string_or(mesh, "kind", "mesh");
                 mesh_jsons.push_back("{\"id\":\"" + json_escape(id) + "\",\"kind\":\"" + json_escape(kind) + "\",\"properties\":" +
-                    vkf_literal_to_json(mesh) + ",\"embedding\":" + native_scene_mesh_embedding_json(kind) + "}");
+                    native_scene_mesh_properties_json(mesh) + ",\"embedding\":" + native_scene_mesh_embedding_json(kind) + "}");
                 occluder_ids.push_back(id);
             }
         }
@@ -1852,19 +1495,54 @@ std::optional<CompiledUiSceneBundle> try_compile_native_scene_from_source(
     const std::filesystem::path& source_path,
     const std::filesystem::path& overlay_web
 ) {
-    auto root = try_parse_native_scene_literal(source_text, source_path);
-    if (!root.has_value()) {
+    auto lowered = vkf::native_scene::lower_source(source_text, source_path);
+    if (!lowered.has_value()) {
         return std::nullopt;
     }
+    const auto& root = lowered->root;
     std::string polygon_solver_wgsl;
-    if (object_field(*root, "rigid_bodies_2d")) {
+    if (object_field(root, "rigid_bodies_2d")) {
         polygon_solver_wgsl = read_file_bytes(overlay_web / "shaders" / "vf-rigid-polygons-2d.wgsl");
     }
     CompiledUiSceneBundle bundle;
-    bundle.scene_config_json = native_scene_scene_ir_json(*root, polygon_solver_wgsl);
-    bundle.runtime_packets_json = native_scene_runtime_packets_json(*root);
+    bundle.scene_config_json = native_scene_scene_ir_json(root, polygon_solver_wgsl);
+    bundle.runtime_packets_json = native_scene_runtime_packets_json(root);
     bundle.provenance = "vkf-native-scene-source-lowering";
     return bundle;
+}
+
+void attach_typed_native_scene_ui(
+    CompiledUiSceneBundle& bundle,
+    const std::filesystem::path& typed_ir_path,
+    const std::filesystem::path& source_path
+) {
+    if (typed_ir_path.empty()) return;
+    try {
+        const auto root = vf::parse_json(read_file_bytes(typed_ir_path));
+        const auto packets = vf::parse_json(bundle.runtime_packets_json);
+        const auto event_program = vkf::retained_scene::compile_event_program(
+            root, packets);
+        if (event_program.has_value()) {
+            bundle.event_program_json = vf::json_stringify(*event_program, -1);
+        }
+        std::set<std::string> loaded_frames;
+        for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
+            if (!loaded_frames.insert(load.frame_id).second) {
+                throw StagerError("Frame.load initial slice accepts one load per Frame");
+            }
+            const std::filesystem::path resource_path(load.resource);
+            if (resource_path.is_absolute()) {
+                throw StagerError("Frame.load resource path must be source-relative");
+            }
+            bundle.static_html_bundles.push_back(vf::static_html::collect(
+                source_path, source_path.parent_path() / resource_path,
+                load.frame_id));
+        }
+    } catch (const vkf::retained_scene::Error& error) {
+        throw StagerError(error.what());
+    } catch (const vf::static_html::Error& error) {
+        throw StagerError(error.what());
+    }
 }
 
 std::string axis_deck_frame_command_json(
@@ -2530,54 +2208,83 @@ std::string html_text(
     const std::string& scene_config_filename = "",
     const std::string& arena_filename = "",
     const std::string& runtime_asset_version = "",
-    bool has_static_html = false
+    bool has_static_html = false,
+    bool has_runtime_adapter_bundle = false,
+    bool has_compiled_artifacts = false,
+    bool has_compiled_scene_arena = false
 ) {
     const std::string asset_query = runtime_asset_version.empty() ? "" : ("?v=" + json_escape(runtime_asset_version));
-    const std::string native_scene_runtime_config =
+    const std::string scene_script_dependencies =
+        has_compiled_scene_arena
+        ? "\"vf-startup-gate.js\","
+          "\"vf-compiled-runtime-bridge.js\","
+          "\"vf-compiled-webgpu-adapter.js\""
+        : "\"vf-startup-gate.js\","
+          "\"vf-runtime-packet-contract.js\","
+          "\"vf-retained-event-adapter.js\","
+          "\"vf-runtime-source.js\","
+          "\"vf-html-components.js\","
+          "\"vf-runtime-scene.js\","
+          "\"vf-runtime-flow.js\","
+          "\"vf-compiled-runtime-bridge.js\","
+          "\"vf-compiled-webgpu-adapter.js\","
+          "\"vf-render-clock.js\","
+          "\"vf-frame.js\","
+          "\"vf-widgets.js\","
+          "\"vf-static-html-loader.js\","
+          "\"vf-shared-runtime.js\","
+          "\"vf-gpu-runtime.js\","
+          "\"vf-axis3d-kernel.js\","
+          "\"vf-axis3d-kernel-adapter.js\","
+          "\"vf-axis3d-projection-kernel.js\","
+          "\"vf-axis3d-projection-kernel-adapter.js\","
+          "\"geom/vf-geom-math.js\","
+          "\"geom/vf-geom-core.js\","
+          "\"geom/vf-geom-material-arena.js\","
+          "\"geom/vf-geom-ledger-layout.js\","
+          "\"geom/vf-geom-ledger-transport.js\","
+          "\"geom/vf-geom-ledger.js\","
+          "\"geom/vf-geom-parametric-surface.js\","
+          "\"geom/vf-geom-frame-adapter.js\","
+          "\"geom/vf-geom-wgpu.js\","
+          "\"vf-display.js\"";
+    const std::string native_scene_runtime_config = std::string(
         "<script>window.__vfRuntimeShellConfig={"
-        "launchManifestUrl:\"vf-launch-manifest.json\","
-        "sceneStyleDeps:[{href:\"vf-frame.css\"},{href:\"vf-chess.css\"}],"
-        "sceneScriptDeps:["
-        "\"vf-runtime-packet-contract.js\","
-        "\"vf-retained-event-adapter.js\","
-        "\"vf-runtime-source.js\","
-        "\"vf-html-components.js\","
-        "\"vf-runtime-scene.js\","
-        "\"vf-runtime-flow.js\","
-        "\"vf-render-clock.js\","
-        "\"vf-frame.js\","
-        "\"vf-widgets.js\","
-        "\"vf-static-html-loader.js\","
-        "\"vf-shared-runtime.js\","
-        "\"vf-gpu-runtime.js\","
-        "\"vf-axis3d-kernel.js\","
-        "\"vf-axis3d-kernel-adapter.js\","
-        "\"vf-axis3d-projection-kernel.js\","
-        "\"vf-axis3d-projection-kernel-adapter.js\","
-        "\"geom/vf-geom-math.js\","
-        "\"geom/vf-geom-core.js\","
-        "\"geom/vf-geom-material-arena.js\","
-        "\"geom/vf-geom-ledger-layout.js\","
-        "\"geom/vf-geom-ledger-transport.js\","
-        "\"geom/vf-geom-ledger.js\","
-        "\"geom/vf-geom-parametric-surface.js\","
-        "\"geom/vf-geom-frame-adapter.js\","
-        "\"geom/vf-geom-wgpu.js\","
-        "\"vf-display.js\""
-        "]};</script>";
-    if (trim_left_copy(scene_config_json) == "[]") {
+        "launchManifestUrl:\"vf-launch-manifest.json\",")
+        + (has_runtime_adapter_bundle && !has_compiled_scene_arena
+            ? "sceneAdapterBundle:\"geom/vf-native-scene-adapters.js\","
+            : "")
+        + (has_compiled_artifacts
+            ? "compiledWasmUrl:\"vkf-program.wasm\","
+              "compiledWasmManifestUrl:\"vkf-program.wasm-manifest.json\","
+              "compiledWgslUrl:\"vkf-render.wgsl\","
+              "compiledWebGpuManifestUrl:\"vkf-render.webgpu-manifest.json\","
+            : "")
+        + "sceneStyleDeps:[{href:\"vf-frame.css\"},{href:\"vf-chess.css\"}],"
+        + (has_compiled_scene_arena
+            ? "compiledScriptDeps:["
+            : "sceneScriptDeps:[")
+        + scene_script_dependencies + "]};</script>";
+    if (!has_compiled_scene_arena &&
+        trim_left_copy(scene_config_json) == "[]") {
         return std::string("<!DOCTYPE html>\n")
-            + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
-            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\""
+            + "<html data-vf-startup-pending=\"1\"><head><meta charset=\"utf-8\">"
+            + "<style>html[data-vf-startup-pending=\"1\"] .vf-frame{visibility:hidden!important;pointer-events:none!important}</style>"
+            + "<title>VKF Native Scene</title></head>"
+            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-autoboot=\"false\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\""
             + (has_static_html
                 ? " data-vf-static-html-loads=\"vf-static-html-loads.json\""
                 : "")
             + ">"
             + native_scene_runtime_config
             + "<script src=\"../../vf-runtime-shell.js" + asset_query + "\"></script>"
+            + "<script>(function(global){function fail(err){global.__vfLastError=err&&err.message?err.message:String(err);if(global.VfStartupGate&&typeof global.VfStartupGate.fail==='function'){global.VfStartupGate.fail(err);}throw err;}var shell=global.VfRuntimeShell;if(!shell){fail(new Error('runtime shell unavailable'));return;}var options=shell.resolveSceneBootOptions();var frame=shell.mountLaunchFramesFromUrl(shell.config.launchManifestUrl);var artifacts=shell.ensureSceneDependencies().then(function(){return shell.loadCompiledArtifacts();});Promise.all([frame,artifacts]).then(function(){shell.boot(options);}).catch(fail);})(window);</script>"
             + "</body></html>\n";
     }
-    if (is_json_array_text(scene_config_json) && scene_config_json.find("\"kind\":\"frame_upsert\"") != std::string::npos) {
+    if (!has_compiled_scene_arena &&
+        is_json_array_text(scene_config_json) &&
+        scene_config_json.find("\"kind\":\"frame_upsert\"") !=
+            std::string::npos) {
         return std::string("<!DOCTYPE html>\n")
             + "<html><head><meta charset=\"utf-8\"><title>VKF UI Scene</title></head>"
             + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
@@ -2591,6 +2298,52 @@ std::string html_text(
             + "if(window.VfFrame&&layer&&typeof window.VfFrame.postNativeHostLayout==='function'){var extra=[];if(frame){var rr=frame.getBoundingClientRect();if(rr&&rr.width>=1&&rr.height>=1){extra.push({left:rr.left,top:rr.top,right:rr.right,bottom:rr.bottom});}}window.VfFrame.postNativeHostLayout(layer,{stageAlpha:0,contentReady:true,hitRegions:extra});}}catch(e){log('layout publish failed: '+(e&&e.message?e.message:String(e)));}}"
             + "var tries=0;function tick(){tries++;if(document.querySelector('.vf-frame')){publish();log('frame visible after tries='+tries);setTimeout(publish,80);setTimeout(publish,240);return;}if(!apply()&&tries<20){setTimeout(tick,150);return;}if(tries<20){setTimeout(tick,150);}}setTimeout(tick,600);"
             + "})();</script>"
+            + "</body></html>\n";
+    }
+    if (has_compiled_scene_arena) {
+        const bool multiple_configs = is_json_array_text(scene_config_json);
+        const bool external_config =
+            multiple_configs && !scene_config_filename.empty();
+        const std::string launch_manifest_json =
+            native_scene_launch_manifest_json(scene_config_json);
+        return std::string("<!DOCTYPE html>\n")
+            + "<html data-vf-startup-pending=\"1\"><head><meta charset=\"utf-8\">"
+            + "<style>html[data-vf-startup-pending=\"1\"] .vf-frame{visibility:hidden!important;pointer-events:none!important}</style>"
+            + "<title>VKF Compiled Scene</title></head>"
+            + "<body data-vf-runtime-shell=\"compiled-scene\" data-vf-runtime-autoboot=\"false\">"
+            + native_scene_runtime_config
+            + "<script src=\"../../vf-runtime-shell.js" + asset_query + "\"></script>"
+            + "<script>"
+            + "window.__vfCompiledLaunchManifest=" + launch_manifest_json + ";"
+            + (multiple_configs
+                ? (external_config
+                    ? std::string(
+                        "window.__vfCompiledSceneConfigsUrl=\"") +
+                        json_escape(scene_config_filename) + "\";"
+                    : std::string("window.__vfCompiledSceneConfigs=") +
+                        scene_config_json + ";")
+                : std::string("window.__vfCompiledSceneConfig=") +
+                    scene_config_json + ";")
+            + "window.__vfNativeSceneArenaUrl=\"\";"
+            + "</script>"
+            + "<script>(function(global){"
+            + "function fail(err){global.__vfLastError=err&&err.message?err.message:String(err);if(global.VfStartupGate&&typeof global.VfStartupGate.fail==='function'){global.VfStartupGate.fail(err);}throw err;}"
+            + "function configs(){"
+            + (multiple_configs
+                ? (external_config
+                    ? "return fetch(global.__vfCompiledSceneConfigsUrl,{cache:'force-cache'}).then(function(response){if(!response.ok){throw new Error('failed to load compiled scene configs');}return response.json();});"
+                    : "return Promise.resolve(global.__vfCompiledSceneConfigs.slice());")
+                : "return Promise.resolve([global.__vfCompiledSceneConfig]);")
+            + "}"
+            + "function frameId(config){return String(config&&config.scene_ir&&config.scene_ir.frame&&config.scene_ir.frame.frame_id||config&&config.frame_id||'');}"
+            + "function armStartup(list){if(!global.VfStartupGate||typeof global.VfStartupGate.expectFrames!=='function'){throw new Error('atomic startup gate unavailable');}global.VfStartupGate.expectFrames(list.map(function(config){return {id:frameId(config),interaction:true,presentation:true};}).filter(function(spec){return !!spec.id;}));}"
+            + "var shell=global.VfRuntimeShell;if(!shell||typeof shell.ensureCompiledDependencies!=='function'||typeof shell.loadCompiledArtifacts!=='function'||typeof shell.bindCompiledScene!=='function'||typeof shell.bootCompiledScene!=='function'){fail(new Error('compiled scene runtime unavailable'));return;}"
+            + "var inlineLaunch=global.__vfCompiledLaunchManifest;"
+            + "var frames=inlineLaunch&&typeof shell.ensureLaunchFrameDependencies==='function'&&typeof shell.mountLaunchFrames==='function'?shell.ensureLaunchFrameDependencies().then(function(){return shell.mountLaunchFrames(global.__vfCompiledLaunchManifest);}):shell.mountLaunchFramesFromUrl(shell.config.launchManifestUrl);"
+            + "var dependencies=shell.ensureCompiledDependencies();"
+            + "var artifacts=dependencies.then(function(){return shell.loadCompiledArtifacts();});"
+            + "Promise.all([frames,artifacts,configs()]).then(function(values){var list=values[2];armStartup(list);for(var index=0;index<list.length;index+=1){var config=shell.bindCompiledScene(list[index]);shell.bootCompiledScene(config);}}).catch(fail);"
+            + "})(window);</script>"
             + "</body></html>\n";
     }
     if (is_json_array_text(scene_config_json)) {
@@ -2611,31 +2364,44 @@ std::string html_text(
             + "</script>"
             + "<script>(function(global){"
             + "function visible(c){return !(c&&c.scene_ir&&c.scene_ir.frame&&c.scene_ir.frame.visible===false);}"
-            + "function fail(err){var msg=err&&err.message?err.message:String(err);global.__vfLastError=msg;if(global.document&&document.body){document.body.setAttribute('data-vf-native-scene-error','1');var box=document.getElementById('vf-native-scene-shell-error');if(!box){box=document.createElement('div');box.id='vf-native-scene-shell-error';box.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9999;max-width:min(560px,calc(100vw - 32px));max-height:min(260px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid rgba(255,215,223,.28);border-radius:8px;background:rgba(20,12,16,.94);color:#ffd7df;font:600 14px/1.45 Consolas,Menlo,monospace;white-space:pre-wrap;pointer-events:auto';var copy=document.createElement('button');copy.textContent='Copy';copy.style.cssText='float:right;margin:0 0 8px 8px';copy.onclick=function(){try{navigator.clipboard.writeText('VKF native scene error: '+msg).catch(function(){});}catch(_){}};var close=document.createElement('button');close.textContent='Close';close.style.cssText='float:right;margin:0 0 8px 12px';close.onclick=function(){if(box&&box.parentNode){box.parentNode.removeChild(box);}};box.appendChild(close);box.appendChild(copy);document.body.appendChild(box);}var text=document.createElement('div');text.textContent='VKF native scene error: '+msg;box.appendChild(text);}throw err;}"
+             + "function fail(err){var msg=err&&err.message?err.message:String(err);global.__vfLastError=msg;if(global.VfStartupGate&&typeof global.VfStartupGate.fail==='function'){global.VfStartupGate.fail(err);}if(global.document&&document.body){document.body.setAttribute('data-vf-native-scene-error','1');var box=document.getElementById('vf-native-scene-shell-error');if(!box){box=document.createElement('div');box.id='vf-native-scene-shell-error';box.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9999;max-width:min(560px,calc(100vw - 32px));max-height:min(260px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid rgba(255,215,223,.28);border-radius:8px;background:rgba(20,12,16,.94);color:#ffd7df;font:600 14px/1.45 Consolas,Menlo,monospace;white-space:pre-wrap;pointer-events:auto';var copy=document.createElement('button');copy.textContent='Copy';copy.style.cssText='float:right;margin:0 0 8px 8px';copy.onclick=function(){try{navigator.clipboard.writeText('VKF native scene error: '+msg).catch(function(){});}catch(_){}};var close=document.createElement('button');close.textContent='Close';close.style.cssText='float:right;margin:0 0 8px 12px';close.onclick=function(){if(box&&box.parentNode){box.parentNode.removeChild(box);}};box.appendChild(close);box.appendChild(copy);document.body.appendChild(box);}var text=document.createElement('div');text.textContent='VKF native scene error: '+msg;box.appendChild(text);}throw err;}"
             + "function fetchConfig(url){return fetch(url,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene configs '+url+' ('+String(r.status)+')');}return r.text();}).then(function(text){var configs=JSON.parse(text);if(!Array.isArray(configs)){throw new Error('native scene configs must be a JSON array');}return configs;});}"
-            + "function arenaRef(value){return value&&typeof value==='object'&&value.__vf_mesh_arena===true;}"
-            + "function nowMs(){return global.performance&&typeof global.performance.now==='function'?global.performance.now():Date.now();}"
-            + "function assignArenaRef(holder,key,value,arena){var off=Number(value.byteOffset||0);var len=Number(value.length||0);var type=String(value.type||'');if(type==='float32'){holder[key]=new Float32Array(arena,off,len);return;}if(type==='uint32'){holder[key]=new Uint32Array(arena,off,len);return;}throw new Error('unknown mesh arena type '+type);}"
-            + "function hydrateConfigs(configs){var arenaUrl=String(global.__vfNativeSceneArenaUrl||'');if(!arenaUrl){return Promise.resolve(configs);}return fetch(arenaUrl,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene arena '+arenaUrl+' ('+String(r.status)+')');}return r.arrayBuffer();}).then(function(arena){return new Promise(function(resolve,reject){var stack=[];for(var i=configs.length-1;i>=0;i-=1){stack.push([configs,i,configs[i]]);}function step(){try{var start=nowMs();while(stack.length&&(nowMs()-start)<6.0){var item=stack.pop();var holder=item[0];var key=item[1];var value=item[2];if(arenaRef(value)){assignArenaRef(holder,key,value,arena);continue;}if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView&&ArrayBuffer.isView(value)){continue;}if(Array.isArray(value)){for(var ai=value.length-1;ai>=0;ai-=1){stack.push([value,ai,value[ai]]);}continue;}if(value&&typeof value==='object'){Object.keys(value).forEach(function(k){stack.push([value,k,value[k]]);});}}if(stack.length){global.setTimeout(step,0);}else{resolve(configs);}}catch(err){reject(err);}}step();});});}"
+            + (has_compiled_scene_arena
+                ? ""
+                : "function arenaRef(value){return value&&typeof value==='object'&&value.__vf_mesh_arena===true;}"
+                  "function nowMs(){return global.performance&&typeof global.performance.now==='function'?global.performance.now():Date.now();}"
+                  "function assignArenaRef(holder,key,value,arena){var off=Number(value.byteOffset||0);var len=Number(value.length||0);var type=String(value.type||'');if(type==='float32'){holder[key]=new Float32Array(arena,off,len);return;}if(type==='uint32'){holder[key]=new Uint32Array(arena,off,len);return;}throw new Error('unknown mesh arena type '+type);}"
+                  "function hydrateConfigs(configs){var arenaUrl=String(global.__vfNativeSceneArenaUrl||'');if(!arenaUrl){return Promise.resolve(configs);}return fetch(arenaUrl,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene arena '+arenaUrl+' ('+String(r.status)+')');}return r.arrayBuffer();}).then(function(arena){return new Promise(function(resolve,reject){var stack=[];for(var i=configs.length-1;i>=0;i-=1){stack.push([configs,i,configs[i]]);}function step(){try{var start=nowMs();while(stack.length&&(nowMs()-start)<6.0){var item=stack.pop();var holder=item[0];var key=item[1];var value=item[2];if(arenaRef(value)){assignArenaRef(holder,key,value,arena);continue;}if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView&&ArrayBuffer.isView(value)){continue;}if(Array.isArray(value)){for(var ai=value.length-1;ai>=0;ai-=1){stack.push([value,ai,value[ai]]);}continue;}if(value&&typeof value==='object'){Object.keys(value).forEach(function(k){stack.push([value,k,value[k]]);});}}if(stack.length){global.setTimeout(step,0);}else{resolve(configs);}}catch(err){reject(err);}}step();});});}")
             + "function configList(){if(Array.isArray(global.__vfNativeSceneConfigs)){return Promise.resolve(global.__vfNativeSceneConfigs.slice());}"
             + "var url=String(global.__vfNativeSceneConfigsUrl||'');if(!url){return Promise.reject(new Error('missing native scene configs'));}"
             + "return fetchConfig(url).then(function(configs){global.__vfNativeSceneConfigs=configs;return configs.slice();});}"
             + "function loadAt(index){if(index>=configs.length){return;}"
             + "global.__vfNativeSceneConfig=configs[index];"
             + "var s=document.createElement('script');s.src='../../vf-native-scene.js" + (asset_query.empty() ? "?" : asset_query + "&") + "view='+String(index);"
-            + "s.onload=function(){var delay=index===0?200:0;global.setTimeout(function(){loadAt(index+1);},delay);};"
+             + "s.onload=function(){loadAt(index+1);};"
             + "s.onerror=function(){fail(new Error('failed to load vf-native-scene.js for view '+String(index)));};"
             + "document.body.appendChild(s);}"
-            + "var configs=[];function load(){configList().then(hydrateConfigs).then(function(list){configs=list;configs.sort(function(a,b){return (visible(b)?1:0)-(visible(a)?1:0);});loadAt(0);}).catch(fail);}"
+             + "function startupFrameId(c){return String(c&&c.scene_ir&&c.scene_ir.frame&&c.scene_ir.frame.frame_id||c&&c.frame_id||'');}"
+             + "function armStartup(list){if(!global.VfStartupGate||typeof global.VfStartupGate.expectFrames!=='function'){throw new Error('atomic startup gate unavailable');}var expected=list.map(function(c){return {id:startupFrameId(c),interaction:visible(c),presentation:true};}).filter(function(s){return !!s.id;});global.VfStartupGate.expectFrames(expected);}"
+             + "var configs=[];function load(list){configs=list;configs.sort(function(a,b){return (visible(b)?1:0)-(visible(a)?1:0);});armStartup(configs);loadAt(0);}"
             + "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){"
-            + "window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl).then(function(){return window.VfRuntimeShell.ensureSceneDependencies();}).then(load).catch(fail);"
-            + "}else{load();}"
+            + "var framePromise=window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl);"
+            + "var depsPromise=window.VfRuntimeShell.ensureSceneDependencies();"
+            + "var artifactsPromise=depsPromise.then(function(){return window.VfRuntimeShell.loadCompiledArtifacts();});"
+            + (has_compiled_scene_arena
+                ? "var configsPromise=configList();"
+                  "Promise.all([framePromise,artifactsPromise,configsPromise]).then(function(values){var bound=values[2].map(function(config){return window.VfRuntimeShell.bindCompiledScene(config);});load(bound);}).catch(fail);"
+                : "var configsPromise=configList().then(hydrateConfigs);"
+                  "Promise.all([framePromise,artifactsPromise,configsPromise]).then(function(values){load(values[2]);}).catch(fail);")
+            + "}else{configList().then(hydrateConfigs).then(load).catch(fail);}"
             + "})(window);</script>"
             + "</body></html>\n";
     }
     const bool external_arena = !arena_filename.empty();
     return std::string("<!DOCTYPE html>\n")
-        + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
+        + "<html data-vf-startup-pending=\"1\"><head><meta charset=\"utf-8\">"
+        + "<style>html[data-vf-startup-pending=\"1\"] .vf-frame{visibility:hidden!important;pointer-events:none!important}</style>"
+        + "<title>VKF Native Scene</title></head>"
         + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-autoboot=\"false\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
         + native_scene_runtime_config
         + "<script src=\"../../vf-runtime-shell.js" + asset_query + "\"></script>"
@@ -2645,19 +2411,27 @@ std::string html_text(
             : std::string("window.__vfNativeSceneArenaUrl=\"\";"))
         + "</script>"
         + "<script>(function(global){"
-        + "function fail(err){var msg=err&&err.message?err.message:String(err);window.__vfLastError=msg;if(document&&document.body){document.body.setAttribute('data-vf-native-scene-error','1');var box=document.getElementById('vf-native-scene-shell-error');if(!box){box=document.createElement('div');box.id='vf-native-scene-shell-error';box.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9999;max-width:min(560px,calc(100vw - 32px));max-height:min(260px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid rgba(255,215,223,.28);border-radius:8px;background:rgba(20,12,16,.94);color:#ffd7df;font:600 14px/1.45 Consolas,Menlo,monospace;white-space:pre-wrap;pointer-events:auto';var copy=document.createElement('button');copy.textContent='Copy';copy.style.cssText='float:right;margin:0 0 8px 8px';copy.onclick=function(){try{navigator.clipboard.writeText('VKF native scene error: '+msg).catch(function(){});}catch(_){}};var close=document.createElement('button');close.textContent='Close';close.style.cssText='float:right;margin:0 0 8px 12px';close.onclick=function(){if(box&&box.parentNode){box.parentNode.removeChild(box);}};box.appendChild(close);box.appendChild(copy);document.body.appendChild(box);}var text=document.createElement('div');text.textContent='VKF native scene error: '+msg;box.appendChild(text);}throw err;}"
-        + "function arenaRef(value){return value&&typeof value==='object'&&value.__vf_mesh_arena===true;}"
-        + "function nowMs(){return global.performance&&typeof global.performance.now==='function'?global.performance.now():Date.now();}"
-        + "function assignArenaRef(holder,key,value,arena){var off=Number(value.byteOffset||0);var len=Number(value.length||0);var type=String(value.type||'');if(type==='float32'){holder[key]=new Float32Array(arena,off,len);return;}if(type==='uint32'){holder[key]=new Uint32Array(arena,off,len);return;}throw new Error('unknown mesh arena type '+type);}"
-        + "function hydrateConfig(config){var arenaUrl=String(global.__vfNativeSceneArenaUrl||'');if(!arenaUrl){return Promise.resolve(config);}return fetch(arenaUrl,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene arena '+arenaUrl+' ('+String(r.status)+')');}return r.arrayBuffer();}).then(function(arena){return new Promise(function(resolve,reject){var stack=[[{root:config},'root',config]];function step(){try{var start=nowMs();while(stack.length&&(nowMs()-start)<6.0){var item=stack.pop();var holder=item[0];var key=item[1];var value=item[2];if(arenaRef(value)){assignArenaRef(holder,key,value,arena);continue;}if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView&&ArrayBuffer.isView(value)){continue;}if(Array.isArray(value)){for(var ai=value.length-1;ai>=0;ai-=1){stack.push([value,ai,value[ai]]);}continue;}if(value&&typeof value==='object'){Object.keys(value).forEach(function(k){stack.push([value,k,value[k]]);});}}if(stack.length){global.setTimeout(step,0);}else{resolve(config);}}catch(err){reject(err);}}step();});});}"
+        + "function fail(err){var msg=err&&err.message?err.message:String(err);window.__vfLastError=msg;if(window.VfStartupGate&&typeof window.VfStartupGate.fail==='function'){window.VfStartupGate.fail(err);}if(document&&document.body){document.body.setAttribute('data-vf-native-scene-error','1');var box=document.getElementById('vf-native-scene-shell-error');if(!box){box=document.createElement('div');box.id='vf-native-scene-shell-error';box.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9999;max-width:min(560px,calc(100vw - 32px));max-height:min(260px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid rgba(255,215,223,.28);border-radius:8px;background:rgba(20,12,16,.94);color:#ffd7df;font:600 14px/1.45 Consolas,Menlo,monospace;white-space:pre-wrap;pointer-events:auto';var copy=document.createElement('button');copy.textContent='Copy';copy.style.cssText='float:right;margin:0 0 8px 8px';copy.onclick=function(){try{navigator.clipboard.writeText('VKF native scene error: '+msg).catch(function(){});}catch(_){}};var close=document.createElement('button');close.textContent='Close';close.style.cssText='float:right;margin:0 0 8px 12px';close.onclick=function(){if(box&&box.parentNode){box.parentNode.removeChild(box);}};box.appendChild(close);box.appendChild(copy);document.body.appendChild(box);}var text=document.createElement('div');text.textContent='VKF native scene error: '+msg;box.appendChild(text);}throw err;}"
+        + (has_compiled_scene_arena
+            ? ""
+            : "function arenaRef(value){return value&&typeof value==='object'&&value.__vf_mesh_arena===true;}"
+              "function nowMs(){return global.performance&&typeof global.performance.now==='function'?global.performance.now():Date.now();}"
+              "function assignArenaRef(holder,key,value,arena){var off=Number(value.byteOffset||0);var len=Number(value.length||0);var type=String(value.type||'');if(type==='float32'){holder[key]=new Float32Array(arena,off,len);return;}if(type==='uint32'){holder[key]=new Uint32Array(arena,off,len);return;}throw new Error('unknown mesh arena type '+type);}"
+              "function hydrateConfig(config){var arenaUrl=String(global.__vfNativeSceneArenaUrl||'');if(!arenaUrl){return Promise.resolve(config);}return fetch(arenaUrl,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene arena '+arenaUrl+' ('+String(r.status)+')');}return r.arrayBuffer();}).then(function(arena){return new Promise(function(resolve,reject){var stack=[[{root:config},'root',config]];function step(){try{var start=nowMs();while(stack.length&&(nowMs()-start)<6.0){var item=stack.pop();var holder=item[0];var key=item[1];var value=item[2];if(arenaRef(value)){assignArenaRef(holder,key,value,arena);continue;}if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView&&ArrayBuffer.isView(value)){continue;}if(Array.isArray(value)){for(var ai=value.length-1;ai>=0;ai-=1){stack.push([value,ai,value[ai]]);}continue;}if(value&&typeof value==='object'){Object.keys(value).forEach(function(k){stack.push([value,k,value[k]]);});}}if(stack.length){global.setTimeout(step,0);}else{resolve(config);}}catch(err){reject(err);}}step();});});}")
         + "function load(){var s=document.createElement('script');s.src='../../vf-native-scene.js" + asset_query + "';"
         + "s.onerror=function(){fail(new Error('failed to load vf-native-scene.js'));};"
         + "document.body.appendChild(s);}"
+        + "function armStartup(config){if(!window.VfStartupGate||typeof window.VfStartupGate.expectFrames!=='function'){throw new Error('atomic startup gate unavailable');}var id=String(config&&config.scene_ir&&config.scene_ir.frame&&config.scene_ir.frame.frame_id||config&&config.frame_id||'');window.VfStartupGate.expectFrames(id?[{id:id,interaction:true,presentation:true}]:[]);}"
         + "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){"
         + "var framePromise=window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl);"
         + "var depsPromise=window.VfRuntimeShell.ensureSceneDependencies();"
-        + "Promise.all([framePromise,depsPromise]).then(function(){return hydrateConfig(global.__vfNativeSceneConfig);}).then(load).catch(fail);"
-        + "}else{hydrateConfig(global.__vfNativeSceneConfig).then(load).catch(fail);}"
+        + "var artifactsPromise=depsPromise.then(function(){return window.VfRuntimeShell.loadCompiledArtifacts();});"
+        + (has_compiled_scene_arena
+            ? "var configPromise=Promise.resolve(global.__vfNativeSceneConfig);"
+              "Promise.all([framePromise,artifactsPromise,configPromise]).then(function(values){var config=window.VfRuntimeShell.bindCompiledScene(values[2]);global.__vfNativeSceneConfig=config;armStartup(config);load();}).catch(fail);"
+            : "var configPromise=hydrateConfig(global.__vfNativeSceneConfig);"
+              "Promise.all([framePromise,artifactsPromise,configPromise]).then(function(values){armStartup(values[2]);load();}).catch(fail);")
+        + "}else{hydrateConfig(global.__vfNativeSceneConfig).then(function(config){armStartup(config);load();}).catch(fail);}"
         + "})(window);</script>"
         + "</body></html>\n";
 }
@@ -2764,7 +2538,7 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_scene_packets(
             bundle.event_program_json = vf::json_stringify(*event_program, -1);
         }
         bundle.provenance = "vkf-retained-scene-lowering";
-        std::map<std::uint64_t, bool> loaded_frames;
+        std::map<std::string, bool> loaded_frames;
         for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
             std::filesystem::path resource_path(load.resource);
             if (resource_path.is_absolute()) {
@@ -2776,7 +2550,7 @@ std::optional<CompiledUiSceneBundle> try_compile_retained_scene_packets(
             loaded_frames[load.frame_id] = true;
             bundle.static_html_bundles.push_back(vf::static_html::collect(
                 source_path, source_path.parent_path() / resource_path,
-                "frame_" + std::to_string(load.frame_id)));
+                load.frame_id));
         }
         return bundle;
     } catch (const vkf::retained_scene::Error& error) {
@@ -3386,6 +3160,14 @@ Args parse_args(int argc, char** argv) {
             args.overlay_web = require_value(arg);
         } else if (arg == "--typed-ir") {
             args.typed_ir = require_value(arg);
+        } else if (arg == "--wasm-artifact") {
+            args.wasm_artifact = require_value(arg);
+        } else if (arg == "--wasm-manifest") {
+            args.wasm_manifest = require_value(arg);
+        } else if (arg == "--webgpu-artifact") {
+            args.webgpu_artifact = require_value(arg);
+        } else if (arg == "--webgpu-manifest") {
+            args.webgpu_manifest = require_value(arg);
         } else if (arg == "--scene-config") {
             args.scene_config_json = require_value(arg);
             args.scene_config_supplied = true;
@@ -3409,11 +3191,22 @@ Args parse_args(int argc, char** argv) {
     if (args.source.empty() || args.overlay_web.empty()) {
         throw StagerError("usage: vkf_native_scene_artifact_stager --source file.vkf --overlay-web webdir [--scene-config json]");
     }
+    const std::size_t compiled_artifact_count =
+        static_cast<std::size_t>(!args.wasm_artifact.empty()) +
+        static_cast<std::size_t>(!args.wasm_manifest.empty()) +
+        static_cast<std::size_t>(!args.webgpu_artifact.empty()) +
+        static_cast<std::size_t>(!args.webgpu_manifest.empty());
+    if (compiled_artifact_count != 0 && compiled_artifact_count != 4) {
+        throw StagerError(
+            "compiled UI staging requires all of WASM, WGSL, and both manifests");
+    }
     return args;
 }
 
 int run(int argc, char** argv) {
     const Args args = parse_args(argc, argv);
+    const bool has_compiled_scene_arena =
+        compiled_manifest_has_retained_scene_arena(args.wasm_manifest);
     const std::filesystem::path absolute_source = std::filesystem::absolute(args.source);
     if (!std::filesystem::exists(absolute_source)) {
         throw StagerError("source not found: " + absolute_source.string());
@@ -3443,8 +3236,16 @@ int run(int argc, char** argv) {
             scene_config_provenance.path = slash_path(config_path);
             scene_config_provenance.source_hash_checked = true;
         } else {
-            auto compiled_ui_scene = try_compile_retained_scene_packets(
-                effective.typed_ir, absolute_source);
+            auto compiled_ui_scene = try_compile_native_scene_from_source(
+                source_text, absolute_source, effective.overlay_web);
+            if (compiled_ui_scene.has_value()) {
+                attach_typed_native_scene_ui(
+                    *compiled_ui_scene, effective.typed_ir, absolute_source);
+            }
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_retained_scene_packets(
+                    effective.typed_ir, absolute_source);
+            }
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_retained_html_tree(
                     effective.typed_ir, absolute_source);
@@ -3452,10 +3253,6 @@ int run(int argc, char** argv) {
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_typed_world_presentation(
                     effective.typed_ir);
-            }
-            if (!compiled_ui_scene.has_value()) {
-                compiled_ui_scene = try_compile_native_scene_from_source(
-                    source_text, absolute_source, effective.overlay_web);
             }
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_axis_mode_deck_from_source(source_text);
@@ -3524,7 +3321,8 @@ int run(int argc, char** argv) {
     const std::string config_filename = multi_view_scene
         ? "vf-native-scene-configs-" + fnv1a64_hex(effective.scene_config_json) + ".json"
         : "";
-    const std::string arena_filename = !arena.arena_bytes.empty()
+    const std::string arena_filename =
+        !has_compiled_scene_arena && !arena.arena_bytes.empty()
         ? "vf-native-scene-arena-" + fnv1a64_hex(arena.arena_bytes) + ".bin"
         : "";
     std::vector<std::string> generated_keep_names;
@@ -3535,6 +3333,31 @@ int run(int argc, char** argv) {
         generated_keep_names.push_back(arena_filename);
     }
     remove_prior_generated_scene_artifacts(session_dir, generated_keep_names);
+    if (!args.wasm_artifact.empty()) {
+        const std::array<std::pair<std::filesystem::path, std::string>, 4> compiled_artifacts{{
+            {args.wasm_artifact, "vkf-program.wasm"},
+            {args.wasm_manifest, "vkf-program.wasm-manifest.json"},
+            {args.webgpu_artifact, "vkf-render.wgsl"},
+            {args.webgpu_manifest, "vkf-render.webgpu-manifest.json"},
+        }};
+        for (std::size_t index = 0; index < compiled_artifacts.size(); ++index) {
+            const auto& [input, output_name] = compiled_artifacts[index];
+            const auto absolute_input = std::filesystem::absolute(input);
+            if (!std::filesystem::is_regular_file(absolute_input)) {
+                throw StagerError("compiled UI artifact not found: " + absolute_input.string());
+            }
+            std::string bytes = read_file_bytes(absolute_input);
+            if (bytes.empty()) {
+                throw StagerError("compiled UI artifact is empty: " + absolute_input.string());
+            }
+            if (index == 1) {
+                bytes = portable_compiled_manifest(bytes, "vkf-program.wasm");
+            } else if (index == 3) {
+                bytes = portable_compiled_manifest(bytes, "vkf-render.wgsl");
+            }
+            write_file(session_dir / output_name, bytes, true);
+        }
+    }
     write_file(manifest_path, manifest_text(
         absolute_source,
         source_hash,
@@ -3547,7 +3370,11 @@ int run(int argc, char** argv) {
         config_filename,
         arena_filename,
         runtime_asset_version,
-        !effective.static_html_bundles.empty()), true);
+        !effective.static_html_bundles.empty(),
+        std::filesystem::is_regular_file(long_io_path(
+            std::filesystem::absolute(args.overlay_web) / "geom" / "vf-native-scene-adapters.js")),
+        !args.wasm_artifact.empty(),
+        has_compiled_scene_arena), true);
     write_file(session_dir / "vf-launch-manifest.json", native_scene_launch_manifest_json(effective.scene_config_json), true);
     if (multi_view_scene) {
         write_file(session_dir / config_filename, effective.scene_config_json + "\n");
@@ -3591,6 +3418,9 @@ int run(int argc, char** argv) {
 int main(int argc, char** argv) {
     try {
         return run(argc, argv);
+    } catch (const vkf::native_scene::Error& error) {
+        std::cerr << "vkf_native_scene_artifact_stager: " << error.what() << "\n";
+        return 1;
     } catch (const StagerError& error) {
         std::cerr << "vkf_native_scene_artifact_stager: " << error.what() << "\n";
         return 1;
