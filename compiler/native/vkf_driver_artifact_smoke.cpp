@@ -1347,7 +1347,8 @@ vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
     const std::filesystem::path& output,
     const std::filesystem::path& provenance,
     const std::string& source_graph_fingerprint,
-    const std::string& observation
+    const std::string& observation,
+    const bool exact_oracle_match
 ) {
     require_safe_output_target(output);
     for (const auto& path : {output, provenance}) {
@@ -1398,7 +1399,7 @@ vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
     receipt["component_artifact"] = artifact.string();
     receipt["component_artifact_sha256"] = sha256_hex(read_file(artifact));
     receipt["oracle_output"] = oracle.string();
-    receipt["exact_oracle_match"] = true;
+    receipt["exact_oracle_match"] = exact_oracle_match;
     receipt["observation_sha256"] = sha256_hex(observation);
     receipt["machine_code_fingerprint"] = compiled.machine_code_fingerprint;
     receipt["artifact_path"] = compiled.artifact_path.string();
@@ -1506,7 +1507,7 @@ vf::JsonValue::Object dispatch_internal_stage_component(
         component == kClosedDependencyChainPipelineComponent) {
         return dispatch_internal_typed_module_pipeline(
             component, artifact, source, oracle, selected, provenance,
-            source_graph_fingerprint, executed.stdout_text);
+            source_graph_fingerprint, executed.stdout_text, true);
     }
 #endif
 
@@ -1551,6 +1552,61 @@ vf::JsonValue::Object dispatch_internal_stage_component(
     summary["provenance_path"] = provenance.string();
     return summary;
 }
+
+#ifdef VKF_X64_BACKEND_LIBRARY
+vf::JsonValue::Object dispatch_internal_stage_observation(
+    const std::filesystem::path& dispatcher_executable,
+    const std::string& component,
+    const std::filesystem::path& component_artifact,
+    const std::filesystem::path& component_source,
+    const std::filesystem::path& observation_output,
+    const std::filesystem::path& selected_output,
+    const std::filesystem::path& provenance_path
+) {
+    if (component != kClosedDependencyChainPipelineComponent) {
+        throw DriverFailure("unknown internal Stage observation component: " + component);
+    }
+    const auto absolute = [](const std::filesystem::path& path) {
+        return std::filesystem::absolute(path).lexically_normal();
+    };
+    const auto artifact = absolute(component_artifact);
+    const auto source = absolute(component_source);
+    const auto observation = absolute(observation_output);
+    const auto selected = absolute(selected_output);
+    const auto provenance = absolute(provenance_path);
+    for (const auto& [path, label] :
+         std::vector<std::pair<std::filesystem::path, std::string>>{
+             {artifact, "component artifact"},
+             {source, "component source"},
+             {observation, "Stage observation output"}}) {
+        if (!std::filesystem::is_regular_file(path)) {
+            throw DriverFailure(label + " is not a regular file: " + path.string());
+        }
+    }
+    if (selected == provenance || selected == artifact || selected == source ||
+        selected == observation || provenance == artifact || provenance == source ||
+        provenance == observation) {
+        throw DriverFailure("stage observation output paths overlap protected inputs");
+    }
+    for (const auto& path : {selected, provenance}) {
+        if (std::filesystem::exists(path) && !std::filesystem::is_regular_file(path)) {
+            throw DriverFailure(
+                "stage observation output path is not a regular file: " + path.string());
+        }
+    }
+
+    const std::string source_graph_fingerprint = native_build_fingerprint(
+        dispatcher_executable, source);
+    if (!executable_has_fingerprint(artifact, source_graph_fingerprint)) {
+        throw DriverFailure(
+            "VKF Stage observation artifact does not match its source graph for " +
+            component);
+    }
+    return dispatch_internal_typed_module_pipeline(
+        component, artifact, source, observation, selected, provenance,
+        source_graph_fingerprint, read_file(observation), false);
+}
+#endif
 #endif
 
 std::optional<std::filesystem::path> builtin_stdlib_cache_path(
@@ -2997,6 +3053,20 @@ int main(int argc, char** argv) {
         }
         if (argc > 0) locate_bundled_stdlib(argv[0]);
 #if defined(VKF_NATIVE_FRONTEND_LIBRARY) && defined(VKF_STRICT_DIRECT_ONLY)
+#ifdef VKF_X64_BACKEND_LIBRARY
+        if (argc >= 2 &&
+            std::string(argv[1]) == "--vkf-internal-stage-observation") {
+            if (argc != 8) {
+                throw DriverFailure(
+                    "usage: vkf-strict --vkf-internal-stage-observation "
+                    "name artifact source observation-output selected-output provenance");
+            }
+            const auto summary = dispatch_internal_stage_observation(
+                argv[0], argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
+            std::cout << vf::json_stringify(vf::JsonValue(summary), -1) << '\n';
+            return 0;
+        }
+#endif
         if (argc >= 2 &&
             std::string(argv[1]) == "--vkf-internal-stage-component") {
             if (argc != 8) {
