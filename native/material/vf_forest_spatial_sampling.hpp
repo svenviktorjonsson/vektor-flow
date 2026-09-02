@@ -76,6 +76,18 @@ struct ForestSpatialSamplePair {
     bool operator==(const ForestSpatialSamplePair&) const = default;
 };
 
+struct ForestSpatialSampleObservation {
+    double distance_squared;
+    double environment_similarity;
+    std::uint8_t same_species;
+};
+
+struct ForestSpatialSampleObservations {
+    std::vector<double> distance_squared;
+    std::vector<double> environment_similarity;
+    std::vector<std::uint8_t> same_species;
+};
+
 inline ForestSpatialSamplePair
 ForestSpatialSamplePairReference(
     std::uint64_t population_version,
@@ -96,6 +108,46 @@ ForestSpatialSamplePairReference(
     return {first_index, second_index};
 }
 
+inline ForestSpatialSampleObservation
+ObserveForestSpatialPairReference(
+    const ForestPopulationRealization& population,
+    const ForestSpatialSamplePair& pair
+) {
+    const auto& first = population.trees[pair.first_index];
+    const auto& second = population.trees[pair.second_index];
+    const double dx = first.position[0] - second.position[0];
+    const double dy = first.position[1] - second.position[1];
+    return {
+        dx * dx + dy * dy,
+        1.0 - 0.5 * std::abs(
+            first.environment_variation -
+            second.environment_variation
+        ),
+        static_cast<std::uint8_t>(
+            first.species_id == second.species_id
+        ),
+    };
+}
+
+inline void AccumulateForestSpatialObservationReference(
+    double near_squared,
+    double far_squared,
+    const ForestSpatialSampleObservation& observation,
+    ForestSpatialSamplingAccumulator& result
+) {
+    if (observation.distance_squared <= near_squared) {
+        ++result.near_pairs;
+        result.near_environment_sum +=
+            observation.environment_similarity;
+        result.near_same_species += observation.same_species;
+    } else if (observation.distance_squared >= far_squared) {
+        ++result.far_pairs;
+        result.far_environment_sum +=
+            observation.environment_similarity;
+        result.far_same_species += observation.same_species;
+    }
+}
+
 inline void AccumulateForestSpatialPairReference(
     const ForestPopulationRealization& population,
     double near_squared,
@@ -103,28 +155,12 @@ inline void AccumulateForestSpatialPairReference(
     const ForestSpatialSamplePair& pair,
     ForestSpatialSamplingAccumulator& result
 ) {
-    const auto& first = population.trees[pair.first_index];
-    const auto& second = population.trees[pair.second_index];
-    const double dx = first.position[0] - second.position[0];
-    const double dy = first.position[1] - second.position[1];
-    const double distance_squared = dx * dx + dy * dy;
-    const double similarity = 1.0 - 0.5 * std::abs(
-        first.environment_variation -
-        second.environment_variation
+    AccumulateForestSpatialObservationReference(
+        near_squared,
+        far_squared,
+        ObserveForestSpatialPairReference(population, pair),
+        result
     );
-    if (distance_squared <= near_squared) {
-        ++result.near_pairs;
-        result.near_environment_sum += similarity;
-        result.near_same_species += static_cast<std::size_t>(
-            first.species_id == second.species_id
-        );
-    } else if (distance_squared >= far_squared) {
-        ++result.far_pairs;
-        result.far_environment_sum += similarity;
-        result.far_same_species += static_cast<std::size_t>(
-            first.species_id == second.species_id
-        );
-    }
 }
 
 inline ForestSpatialSamplingAccumulator
@@ -148,6 +184,42 @@ AccumulateForestSpatialSamplingRangeReference(
             near_squared,
             far_squared,
             pair,
+            result
+        );
+    }
+    return result;
+}
+
+inline ForestSpatialSamplingAccumulator
+AccumulateForestSpatialObservationsReference(
+    double near_squared,
+    double far_squared,
+    const ForestSpatialSampleObservations& observations,
+    std::size_t first_sample,
+    std::size_t sample_count
+) {
+    const std::size_t observation_count =
+        observations.distance_squared.size();
+    if (observations.environment_similarity.size() !=
+            observation_count ||
+        observations.same_species.size() != observation_count ||
+        first_sample > observation_count ||
+        sample_count > observation_count - first_sample) {
+        throw std::invalid_argument(
+            "forest spatial observation range is invalid"
+        );
+    }
+    ForestSpatialSamplingAccumulator result;
+    for (std::size_t offset = 0; offset < sample_count; ++offset) {
+        const std::size_t index = first_sample + offset;
+        AccumulateForestSpatialObservationReference(
+            near_squared,
+            far_squared,
+            {
+                observations.distance_squared[index],
+                observations.environment_similarity[index],
+                observations.same_species[index],
+            },
             result
         );
     }

@@ -28,6 +28,7 @@ SampleForestSpatialQualityPreparedCoreReference(
     std::size_t pair_budget,
     const std::vector<ForestSpatialSamplingBlock>& blocks,
     const std::vector<ForestSpatialSamplePair>* sample_pairs,
+    const ForestSpatialSampleObservations* observations,
     std::size_t worker_count
 ) {
     if (worker_count == 0 || worker_count > 64) {
@@ -56,7 +57,16 @@ SampleForestSpatialQualityPreparedCoreReference(
                     for (std::size_t index = worker;
                          index < blocks.size();
                          index += active_workers) {
-                        if (sample_pairs == nullptr) {
+                        if (observations != nullptr) {
+                            results.push_back(
+                                EvaluateForestSpatialObservedBlockReference(
+                                    near_squared,
+                                    far_squared,
+                                    *observations,
+                                    blocks[index]
+                                )
+                            );
+                        } else if (sample_pairs == nullptr) {
                             results.push_back(
                                 EvaluateForestSpatialSamplingBlockReference(
                                     population,
@@ -138,6 +148,7 @@ SampleForestSpatialQualityParallelReference(
         far_distance * far_distance,
         pair_budget,
         blocks,
+        nullptr,
         nullptr,
         worker_count
     );

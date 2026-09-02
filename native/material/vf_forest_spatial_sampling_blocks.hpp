@@ -160,6 +160,25 @@ EvaluateForestSpatialIndexedBlockReference(
     };
 }
 
+inline ForestSpatialSamplingBlockResult
+EvaluateForestSpatialObservedBlockReference(
+    double near_squared,
+    double far_squared,
+    const ForestSpatialSampleObservations& observations,
+    const ForestSpatialSamplingBlock& block
+) {
+    return {
+        block.first_sample,
+        AccumulateForestSpatialObservationsReference(
+            near_squared,
+            far_squared,
+            observations,
+            block.first_sample,
+            block.sample_count
+        ),
+    };
+}
+
 inline ForestSpatialSamplingReport
 SampleForestSpatialQualityBlocksReference(
     const ForestPopulationRealization& population,
