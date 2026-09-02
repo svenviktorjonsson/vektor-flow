@@ -482,18 +482,32 @@ _compile_x64_arena_byte(value:num, high_bytes:[str]) -> str:
 _compile_x64_positive_immediate_from_arena(
     value:num, high_bytes:[str]
 ) -> str:
-    (value >= 0 /\ value <= 2147483647)?! "x64 tracer positive immediate is outside imm32"
+    (value >= 0 /\ value <= 9007199254740991)?! "x64 tracer positive immediate is outside exact integer range"
     value <= 127?
         @: "j" & _compile_x64_byte(value)
     byte0: value % 256
     byte1: (value // 256) % 256
     byte2: (value // 65536) % 256
     byte3: (value // 16777216) % 256
+    value <= 2147483647?
+        @: (
+            "h" & _compile_x64_arena_byte(byte0, high_bytes) &
+            _compile_x64_arena_byte(byte1, high_bytes) &
+            _compile_x64_arena_byte(byte2, high_bytes) &
+            _compile_x64_arena_byte(byte3, high_bytes)
+        )
+    byte4: (value // 4294967296) % 256
+    byte5: (value // 1099511627776) % 256
+    byte6: (value // 281474976710656) % 256
     (
-        "h" & _compile_x64_arena_byte(byte0, high_bytes) &
+        "H" & _compile_x64_arena_byte(184, high_bytes) &
+        _compile_x64_arena_byte(byte0, high_bytes) &
         _compile_x64_arena_byte(byte1, high_bytes) &
         _compile_x64_arena_byte(byte2, high_bytes) &
-        _compile_x64_arena_byte(byte3, high_bytes)
+        _compile_x64_arena_byte(byte3, high_bytes) &
+        _compile_x64_arena_byte(byte4, high_bytes) &
+        _compile_x64_arena_byte(byte5, high_bytes) &
+        _compile_x64_arena_byte(byte6, high_bytes) & _compile_x64_byte(0) & "P"
     )
 
 _compile_printed_dynamic_mixed_expression_x64(
