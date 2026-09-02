@@ -484,7 +484,25 @@ void StartWebView(HWND window) {
                                 Callback<ICoreWebView2WebMessageReceivedEventHandler>(
                                     [window](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                                         const std::wstring message = ReadWebMessage(args);
-                                        if (vf::ReleaseHostMessageContainsType(message, L"close")) {
+                                        bool always_on_top = false;
+                                        if (vf::ReleaseHostMessageTryWindowTopmost(
+                                                message,
+                                                &always_on_top)) {
+                                            SetWindowPos(
+                                                window,
+                                                always_on_top
+                                                    ? HWND_TOPMOST
+                                                    : HWND_NOTOPMOST,
+                                                0,
+                                                0,
+                                                0,
+                                                0,
+                                                SWP_NOMOVE | SWP_NOSIZE |
+                                                    SWP_NOACTIVATE);
+                                        } else if (
+                                            vf::ReleaseHostMessageContainsType(
+                                                message,
+                                                L"close")) {
                                             PostMessageW(window, WM_CLOSE, 0, 0);
                                         } else if (vf::ReleaseHostMessageContainsType(message, L"minimize")) {
                                             ShowWindow(window, SW_MINIMIZE);
@@ -560,7 +578,7 @@ int VfOverlayRun(HINSTANCE instance, const VfOverlayHostLaunch& launch, int show
     const int width = GetSystemMetrics(SM_CXSCREEN);
     const int height = GetSystemMetrics(SM_CYSCREEN);
     g_window = CreateWindowExW(
-        WS_EX_APPWINDOW | WS_EX_TOPMOST,
+        WS_EX_APPWINDOW,
         kWindowClass,
         L"Vektor Flow",
         WS_POPUP,

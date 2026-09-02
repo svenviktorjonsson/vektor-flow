@@ -30,6 +30,20 @@ int main() {
             LR"({"type":"vf_log","message":"contentReady true"})")) {
         return Fail("content-ready decoding mismatch");
     }
+    bool always_on_top = false;
+    if (!vf::ReleaseHostMessageTryWindowTopmost(
+            LR"({"type":"vf-window-mode","always_ontop":true})",
+            &always_on_top) ||
+        !always_on_top ||
+        !vf::ReleaseHostMessageTryWindowTopmost(
+            LR"("{\"type\":\"vf-window-mode\",\"always_ontop\":false}")",
+            &always_on_top) ||
+        always_on_top ||
+        vf::ReleaseHostMessageTryWindowTopmost(
+            LR"({"type":"vf_log","always_ontop":true})",
+            &always_on_top)) {
+        return Fail("window-mode decoding mismatch");
+    }
 
     vf::ReleaseHostAdapter adapter;
     if (!adapter.ApplyHitRegionAdapterMessage(

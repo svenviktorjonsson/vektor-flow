@@ -150,6 +150,23 @@ bool ReleaseHostMessageIndicatesContentReady(std::wstring_view message) {
     return false;
 }
 
+bool ReleaseHostMessageTryWindowTopmost(
+    std::wstring_view message,
+    bool* enabled) {
+    if (enabled == nullptr) return false;
+    std::wstring decoded;
+    for (int depth = 0; depth < 2; ++depth) {
+        std::wstring_view actual_type;
+        if (ExtractQuotedField(message, L"type", &actual_type)) {
+            return actual_type == L"vf-window-mode" &&
+                   ExtractBooleanField(message, L"always_ontop", enabled);
+        }
+        if (!DecodeJsonString(message, &decoded)) return false;
+        message = decoded;
+    }
+    return false;
+}
+
 bool ReleaseHostAdapter::ApplyHitRegionAdapterMessage(std::wstring_view message) {
     std::wstring_view type;
     std::wstring_view data;

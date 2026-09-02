@@ -14,6 +14,10 @@ bool ReleaseHostMessageContainsType(
 
 bool ReleaseHostMessageIndicatesContentReady(std::wstring_view message);
 
+bool ReleaseHostMessageTryWindowTopmost(
+    std::wstring_view message,
+    bool* enabled);
+
 struct ReleaseHostHitRect {
     std::int32_t left = 0;
     std::int32_t top = 0;
