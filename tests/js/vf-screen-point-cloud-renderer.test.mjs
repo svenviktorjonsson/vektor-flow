@@ -151,7 +151,7 @@ test('projects 100,000 points without expanding them into marker triangles', () 
     positions[index * 3] = index * 1e-6;
     positions[index * 3 + 1] = index * -1e-7;
   }
-  const started = performance.now();
+  const startedCpu = process.cpuUsage();
   const projected = projectPointCloud3DToScreen(positions, count, {
     worldOrigin: [0, 0, 0],
     screenOrigin: [600, 400],
@@ -159,10 +159,14 @@ test('projects 100,000 points without expanding them into marker triangles', () 
     yAxis: [0, -1000],
     zAxis: [0, 0]
   });
-  const elapsed = performance.now() - started;
+  const elapsedCpu = process.cpuUsage(startedCpu);
+  const elapsedCpuMs = (elapsedCpu.user + elapsedCpu.system) / 1000;
 
   assert.equal(projected.length, count * 2);
-  assert.ok(elapsed < 50, `100k point projection took ${elapsed.toFixed(1)} ms`);
+  assert.ok(
+    elapsedCpuMs < 50,
+    `100k point projection used ${elapsedCpuMs.toFixed(1)} ms CPU`,
+  );
 });
 
 test('retains one million-point GPU upload across camera-only pan frames', async () => {
