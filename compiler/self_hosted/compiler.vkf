@@ -82,6 +82,20 @@ compile_tagged_printed_nested_addition(source:str):
     )
     mir.mir_assemble_closed_nested_module(statement, maximum)
 
+compile_tagged_printed_add_multiply(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_add_multiply(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_add_multiply(parsed.kind, parsed.values)
+    statement: mir.mir_tagged_add_multiply(expression.values)
+    maximum: validation.machine_ir_nested_addition_stack_maximum(
+        statement.instructions.0.kind, statement.instructions.1.kind,
+        statement.instructions.2.kind, statement.instructions.3.kind,
+        statement.instructions.4.kind, statement.instructions.5.kind
+    )
+    mir.mir_assemble_closed_nested_module(statement, maximum)
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(
