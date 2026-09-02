@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
   evaluateWoodCutPolarizedSampleReference,
 } from "../../web/vf-ui/vf-wood-polarization-sample.mjs";
 import {
+  WOOD_POLARIZATION_CONSUMER_WGSL,
   adaptWoodPolarizationToRendererPartReference,
+  createWoodPolarizationGpuConsumptionFixture,
   createWoodPolarizationGpuDescriptorReference,
+  verifyWoodPolarizationGpuConsumption,
 } from "../../web/vf-ui/vf-wood-polarization-gpu.mjs";
 import {
   reflectGgxPolarized,
@@ -210,3 +214,82 @@ test("wood spectral Stokes samples retain their f32 GPU layout", () => {
     new Uint8Array(descriptor.floats.buffer),
   );
 });
+
+test("WGSL consumer exposes bounded reflected RGB and Stokes energy", () => {
+  const material = generatedWoodMaterial();
+  const sample = evaluateWoodCutPolarizedSampleReference(material, {
+    sampleIndex: 4,
+    wavelengthsNm: [450, 600, 850],
+    wavelengthBudget: 3,
+    opticalConstants,
+    incidentStokes: [1.0, 1.0, 0.0, 0.0],
+    nIncident: 1.0,
+    geometricCosThetaIncident: 0.65,
+    microfacetSampleCount: 128,
+    polarizationTransport: reflectGgxPolarized,
+  });
+  const descriptor = createWoodPolarizationGpuDescriptorReference(
+    sample,
+    { spectralSampleBudget: 3 },
+  );
+  const fixture = createWoodPolarizationGpuConsumptionFixture(descriptor);
+  const verified = verifyWoodPolarizationGpuConsumption(
+    fixture,
+    fixture.expected,
+  );
+
+  assert.strictEqual(fixture.inputFloats, descriptor.floats);
+  assert.equal(fixture.outputStrideFloats, 8);
+  assert.equal(fixture.violations, 0);
+  assert.deepEqual(verified, {
+    matched: true,
+    records: 3,
+    maxAbsoluteError: 0,
+  });
+  assert.match(WOOD_POLARIZATION_CONSUMER_WGSL, /array<vec4<f32>>/u);
+  assert.match(fixture.source, /@compute\s+@workgroup_size\(64\)/u);
+  for (let index = 0; index < descriptor.spectralSampleCount; index += 1) {
+    const output = fixture.expected.slice(index * 8, index * 8 + 8);
+    const reflectedIntensity = output[3];
+    const polarizedMagnitude = Math.hypot(output[4], output[5], output[6]);
+    assert.ok(reflectedIntensity >= -1.0e-6);
+    assert.ok(polarizedMagnitude <= reflectedIntensity + 1.0e-6);
+    assert.ok(Math.abs(
+      reflectedIntensity
+      + output[7]
+      - 1.0,
+    ) <= 1.0e-6);
+  }
+  assert.deepEqual(
+    Array.from(fixture.expected.slice(2 * 8, 2 * 8 + 3)),
+    [0.0, 0.0, 0.0],
+  );
+  assert.ok(fixture.expected[0] > 0.0);
+  assert.ok(fixture.expected[1] > 0.0);
+  assert.ok(fixture.expected[2] > 0.0);
+
+  const corrupted = fixture.expected.slice();
+  corrupted[4] = corrupted[3] + 0.1;
+  assert.equal(
+    verifyWoodPolarizationGpuConsumption(fixture, corrupted).matched,
+    false,
+  );
+});
+
+test(
+  "headless fixture consumes polarized wood records through WebGPU",
+  async () => {
+  const html = await readFile(
+    new URL(
+      "../fixtures/wood-polarization-gpu-consumption-smoke.html",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(html, /createComputePipelineAsync/u);
+  assert.match(html, /vf_wood_polarization_consume/u);
+  assert.match(html, /mapAsync\(GPUMapMode\.READ\)/u);
+  assert.match(html, /verifyWoodPolarizationGpuConsumption/u);
+  assert.match(html, /__woodPolarizationGpuEvidence/u);
+  },
+);

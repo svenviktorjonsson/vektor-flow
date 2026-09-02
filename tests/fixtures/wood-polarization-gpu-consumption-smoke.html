@@ -1,0 +1,229 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>wood-polarization-gpu-running</title>
+<script type="module">
+  import {
+    createForestPopulationReference,
+    realizeForestPatchesReference,
+  } from "../../web/vf-ui/vf-forest-population.mjs";
+  import {
+    createTreeGeometryPlannerReference,
+    planTreeGeometryReference,
+  } from "../../web/vf-ui/vf-tree-geometry-plan.mjs";
+  import {
+    createWoodGrowthCoordinateFieldReference,
+    realizeWoodGrowthCoordinatesReference,
+  } from "../../web/vf-ui/vf-wood-growth-coordinates.mjs";
+  import {
+    createWoodVolumeFieldReference,
+  } from "../../web/vf-ui/vf-wood-volume-field.mjs";
+  import {
+    packWoodCutPlaneGridReference,
+  } from "../../web/vf-ui/vf-wood-cut-plane-grid.mjs";
+  import {
+    packWoodCutSurfacePacketReference,
+  } from "../../web/vf-ui/vf-wood-cut-surface-packet.mjs";
+  import {
+    packWoodCutMaterialPacketReference,
+  } from "../../web/vf-ui/vf-wood-cut-material-packet.mjs";
+  import {
+    evaluateWoodCutPolarizedSampleReference,
+  } from "../../web/vf-ui/vf-wood-polarization-sample.mjs";
+  import {
+    createWoodPolarizationGpuConsumptionFixture,
+    createWoodPolarizationGpuDescriptorReference,
+    verifyWoodPolarizationGpuConsumption,
+  } from "../../web/vf-ui/vf-wood-polarization-gpu.mjs";
+  import {
+    reflectGgxPolarized,
+  } from "../helpers/vf-rough-polarization-reference.mjs";
+
+  const identity = {
+    generator: "vkf.conditioned",
+    version: 1,
+    seed: [0x1f83d9ab, 0x5be0cd19],
+    domain: "material",
+    hierarchy: ["world:boreal", "forest:north-slope"],
+    lod: 0,
+    channel: "population",
+  };
+  const opticalConstants = {
+    wavelengthsNm: [450, 550, 650, 850],
+    n: [1.4, 1.6, 1.9, 2.2],
+    k: [0.05, 0.2, 0.55, 0.9],
+  };
+
+  function generatedMaterial() {
+    const forest = realizeForestPatchesReference(
+      createForestPopulationReference(identity),
+      { patches: [[-2, 3]], treeBudget: 32 },
+    );
+    const geometry = planTreeGeometryReference(
+      createTreeGeometryPlannerReference(identity),
+      forest,
+      {
+        treeIndices: [0],
+        detailLevels: [2],
+        primitiveBudget: 64,
+      },
+    );
+    const coordinates = realizeWoodGrowthCoordinatesReference(
+      createWoodGrowthCoordinateFieldReference(),
+      geometry,
+      { segmentBudget: 64 },
+    );
+    const trunk = coordinates.segments[0];
+    const center = trunk.origin.map((origin, component) => (
+      origin + trunk.axis[component] * trunk.length * 0.42
+    ));
+    const grid = packWoodCutPlaneGridReference({
+      field: createWoodVolumeFieldReference(identity),
+      coordinates,
+      segmentIndex: 0,
+      center,
+      axisU: trunk.radialU,
+      axisV: trunk.radialV,
+      width: trunk.radius * 1.2,
+      height: trunk.radius * 1.2,
+      columns: 3,
+      rows: 3,
+      detailLevel: 2,
+      footprint: 0,
+      sampleBudget: 9,
+    });
+    return packWoodCutMaterialPacketReference(
+      packWoodCutSurfacePacketReference(grid, "end-grain"),
+    );
+  }
+
+  async function run() {
+    if (!navigator.gpu) {
+      return { outcome: "unavailable", detail: "navigator.gpu missing" };
+    }
+    const adapter = await navigator.gpu.requestAdapter({
+      powerPreference: "high-performance",
+    });
+    if (!adapter) {
+      return {
+        outcome: "unavailable",
+        detail: "WebGPU adapter unavailable",
+      };
+    }
+    const device = await adapter.requestDevice();
+    const material = generatedMaterial();
+    const sample = evaluateWoodCutPolarizedSampleReference(material, {
+      sampleIndex: 4,
+      wavelengthsNm: [450, 600, 850],
+      wavelengthBudget: 3,
+      opticalConstants,
+      incidentStokes: [1, 1, 0, 0],
+      nIncident: 1,
+      geometricCosThetaIncident: 0.65,
+      microfacetSampleCount: 128,
+      polarizationTransport: reflectGgxPolarized,
+    });
+    const descriptor = createWoodPolarizationGpuDescriptorReference(
+      sample,
+      { spectralSampleBudget: 3 },
+    );
+    const fixture = createWoodPolarizationGpuConsumptionFixture(descriptor);
+    if (fixture.violations !== 0) {
+      throw new Error(`${fixture.violations} physical input violations`);
+    }
+    const shader = device.createShaderModule({
+      label: "VKF wood polarization consumption parity",
+      code: fixture.source,
+    });
+    if (typeof shader.getCompilationInfo === "function") {
+      const info = await shader.getCompilationInfo();
+      const errors = info.messages.filter((message) => (
+        message.type === "error"
+      ));
+      if (errors.length > 0) {
+        throw new Error(errors.map((error) => error.message).join("\n"));
+      }
+    }
+    const pipeline = await device.createComputePipelineAsync({
+      label: "VKF wood polarization consumption parity",
+      layout: "auto",
+      compute: {
+        module: shader,
+        entryPoint: "vf_wood_polarization_consume",
+      },
+    });
+    const input = device.createBuffer({
+      size: fixture.inputFloats.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const output = device.createBuffer({
+      size: fixture.expected.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const readback = device.createBuffer({
+      size: fixture.expected.byteLength,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      device.queue.writeBuffer(input, 0, fixture.inputFloats);
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: input } },
+          { binding: 1, resource: { buffer: output } },
+        ],
+      });
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.dispatchWorkgroups(Math.ceil(
+        descriptor.spectralSampleCount / 64,
+      ));
+      pass.end();
+      encoder.copyBufferToBuffer(
+        output,
+        0,
+        readback,
+        0,
+        fixture.expected.byteLength,
+      );
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const actual = new Float32Array(
+        readback.getMappedRange().slice(0),
+      );
+      readback.unmap();
+      const parity = verifyWoodPolarizationGpuConsumption(
+        fixture,
+        actual,
+      );
+      if (!parity.matched) {
+        throw new Error(JSON.stringify(parity));
+      }
+      return {
+        outcome: "pass",
+        detail: `${parity.records} spectral records matched`,
+        records: parity.records,
+        maxAbsoluteError: parity.maxAbsoluteError,
+        roughness: descriptor.floats[3],
+        infraredRgb: Array.from(actual.slice(16, 19)),
+      };
+    } finally {
+      input.destroy();
+      output.destroy();
+      readback.destroy();
+    }
+  }
+
+  let result;
+  try {
+    result = await run();
+  } catch (error) {
+    result = {
+      outcome: "fail",
+      detail: String(error?.message || error),
+    };
+  }
+  document.title = `wood-polarization-gpu-${result.outcome}`;
+  window.__woodPolarizationGpuEvidence = result;
+</script>
