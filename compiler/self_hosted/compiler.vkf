@@ -455,16 +455,8 @@ _compile_printed_dynamic_power_expression_x64(
     template_prefix & "j" & left_immediate & "j" & right_immediate & power_tail
 
 _compile_x64_bounded_immediate(value:num) -> str:
-    (value >= 1 /\ value <= 9)?
+    (value >= 1 /\ value <= 127)?
         @: str(chr(value))
-    (value >= 40 /\ value <= 47)?
-        @: vkf_utf8_slice("()*+,-./", value - 40, value - 39)
-    (value >= 48 /\ value <= 57)?
-        @: vkf_utf8_slice("0123456789", value - 48, value - 47)
-    (value >= 58 /\ value <= 64)?
-        @: vkf_utf8_slice(":;<=>?@", value - 58, value - 57)
-    (value >= 65 /\ value <= 90)?
-        @: vkf_utf8_slice("ABCDEFGHIJKLMNOPQRSTUVWXYZ", value - 65, value - 64)
     false?! "x64 tracer immediate is outside the locked byte range"
     ""
 
