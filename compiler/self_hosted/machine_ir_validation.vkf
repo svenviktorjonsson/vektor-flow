@@ -38,6 +38,34 @@ machine_ir_empty_module_stack_maximum(module:any) -> num:
     (module.functions.length() = 0)?!
     0
 
+machine_ir_scalar_binding_stack_maximum(module:any) -> num:
+    (module.entry.instructions.length() = 4)?!
+    depth: 0
+    maximum: 0
+    .depth: machine_ir_numeric_stack_depth(
+        depth, module.entry.instructions.0.kind
+    )
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(
+        depth, module.entry.instructions.1.kind
+    )
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(
+        depth, module.entry.instructions.2.kind
+    )
+    depth > maximum?
+        .maximum: depth
+    .depth: machine_ir_numeric_stack_depth(
+        depth, module.entry.instructions.3.kind
+    )
+    depth > maximum?
+        .maximum: depth
+    (depth = 0)?!
+    (maximum = module.entry.max_stack)?!
+    maximum
+
 machine_ir_tagged_statement_stack_maximum(
     first_kind:str,
     second_kind:str,

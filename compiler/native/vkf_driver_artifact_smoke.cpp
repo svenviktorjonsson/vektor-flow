@@ -608,6 +608,8 @@ inline constexpr const char* kTypedModulePipelineComponent =
     "machine_ir.numeric_parameter_multiply.typed_module_pipeline";
 inline constexpr const char* kEmptyTypedModulePipelineComponent =
     "machine_ir.empty.typed_module_pipeline";
+inline constexpr const char* kScalarBindingPipelineComponent =
+    "machine_ir.scalar_binding.typed_module_pipeline";
 inline constexpr const char* kConditionalTypedModulePipelineComponent =
     "machine_ir.numeric_positive_conditional.typed_module_pipeline";
 inline constexpr const char* kLoopTypedModulePipelineComponent =
@@ -1377,6 +1379,62 @@ vkf::machine_ir::Module parse_empty_module_observation(
     return module;
 }
 
+vkf::machine_ir::Module parse_scalar_binding_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(
+        observation, 27, "scalar binding tracer");
+    const std::vector<std::pair<std::size_t, std::string>> fixed{
+        {0, "push_f64"}, {2, "0"}, {3, "store_local"},
+        {4, "push_f64"}, {6, "return_f64"}, {7, "i64"},
+        {9, "1"}, {10, "false"}, {11, "$entry"}, {12, "[]"},
+        {13, "[]"}, {14, "[]"}, {15, "null"}, {16, "[]"},
+        {17, "false"}, {18, "false"}, {19, "[]"}, {20, "1"},
+        {21, "f64"}, {22, "[]"}, {23, "[]"},
+        {24, "vektorflow.machine_ir"}, {25, "77"}, {26, "23"},
+    };
+    for (const auto& [index, expected] : fixed) {
+        require_tracer_leaf(lines, index, expected);
+    }
+    if (lines[1] != lines[5]) {
+        throw DriverFailure("scalar binding observation changed its value");
+    }
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure(
+            "scalar binding tracer source identity has the wrong byte width");
+    }
+    const double value = tracer_number(lines[1], 1);
+    const auto instruction = [](vkf::machine_ir::Opcode opcode, double value = 0.0) {
+        vkf::machine_ir::Instruction result;
+        result.opcode = opcode;
+        result.f64 = value;
+        return result;
+    };
+    vkf::machine_ir::Instruction store;
+    store.opcode = vkf::machine_ir::Opcode::StoreLocal;
+    store.index = 0;
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.locals = {lines[8]};
+    entry.local_classes = {vkf::machine_ir::ValueClass::I64};
+    entry.instructions = {
+        instruction(vkf::machine_ir::Opcode::PushF64, value),
+        store,
+        instruction(vkf::machine_ir::Opcode::PushF64, value),
+        instruction(vkf::machine_ir::Opcode::ReturnF64),
+    };
+    entry.max_stack = 1;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
 vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
     const std::string& component,
     const std::filesystem::path& artifact,
@@ -1398,7 +1456,9 @@ vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
                 parent.string());
         }
     }
-    auto machine_module = component == kEmptyTypedModulePipelineComponent
+    auto machine_module = component == kScalarBindingPipelineComponent
+        ? parse_scalar_binding_observation(observation, source_graph_fingerprint)
+        : component == kEmptyTypedModulePipelineComponent
         ? parse_empty_module_observation(observation, source_graph_fingerprint)
         : component == kClosedDependencyChainPipelineComponent
         ? parse_closed_dependency_chain_observation(
@@ -1477,6 +1537,7 @@ vf::JsonValue::Object dispatch_internal_stage_component(
 #ifdef VKF_X64_BACKEND_LIBRARY
         && component != kTypedModulePipelineComponent
         && component != kEmptyTypedModulePipelineComponent
+        && component != kScalarBindingPipelineComponent
         && component != kConditionalTypedModulePipelineComponent
         && component != kLoopTypedModulePipelineComponent
         && component != kClosedBindingPipelineComponent
@@ -1539,6 +1600,7 @@ vf::JsonValue::Object dispatch_internal_stage_component(
 #ifdef VKF_X64_BACKEND_LIBRARY
     if (component == kTypedModulePipelineComponent ||
         component == kEmptyTypedModulePipelineComponent ||
+        component == kScalarBindingPipelineComponent ||
         component == kConditionalTypedModulePipelineComponent ||
         component == kLoopTypedModulePipelineComponent ||
         component == kClosedBindingPipelineComponent ||
@@ -1607,6 +1669,7 @@ vf::JsonValue::Object dispatch_internal_stage_observation(
 ) {
     if (component != kClosedDependencyChainPipelineComponent &&
         component != kEmptyTypedModulePipelineComponent &&
+        component != kScalarBindingPipelineComponent &&
         component != kTypedModulePipelineComponent &&
         component != kConditionalTypedModulePipelineComponent &&
         component != kLoopTypedModulePipelineComponent) {

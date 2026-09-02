@@ -71,6 +71,7 @@ TaggedNumericLoopCall: (
     entry_value:num
 )
 TaggedImportOnlyModule: (alias_name:str, module_name:str)
+TaggedScalarBindingOutput: (binding_name:str, value:num)
 DottedIndexNode: (kind:str, base:any, indices:any, span:Span)
 MatchArmNode: (kind:str, condition:any, body:any)
 MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bit, catch:bit)
@@ -608,6 +609,24 @@ parse_tagged_import_only_module(
     (alias_name = "system")?! "import-only tracer requires the system alias"
     (module_name = "system")?! "import-only tracer requires the system module"
     (alias_name:alias_name, module_name:module_name)
+
+parse_tagged_scalar_binding_output(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedScalarBindingOutput:
+    (token_count = 9)?! "scalar binding source has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 4 /\
+        token_rows.(48) = 5)?! "scalar binding source shape changed"
+    str binding_name: vkf_utf8_slice(
+        source, token_rows.(1), token_rows.(2)
+    )
+    str output_name: vkf_utf8_slice(
+        source, token_rows.(37), token_rows.(38)
+    )
+    (output_name = binding_name)?! "scalar output must load its binding"
+    (binding_name:binding_name, value:token_rows.(15))
 
 parse_tagged_binding_nested_addition(
     source:str, token_rows:[num], token_count:int

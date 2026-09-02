@@ -220,6 +220,65 @@ mir_lower_empty_typed_module(module:any):
         version: 23
     )
 
+mir_scalar_binding_typed_module_matches(module:any) -> bit:
+    binding: module.body.0
+    statement: module.body.1
+    output: statement.expr
+    loaded: output.args.0
+    (module.kind = "typed_module" /\ module.body.length() = 2 /\
+        binding.kind = "store_binding" /\ binding.type = "int" /\
+        binding.update = false /\ binding.value.kind = "const" /\
+        binding.value.type = "int" /\ statement.kind = "expr_stmt" /\
+        output.kind = "call" /\ output.callee.kind = "stdlib_function" /\
+        output.callee.full_name = "io.print" /\
+        output.callee.module = "io" /\ output.callee.name = "print" /\
+        output.arg_types.0 = "int" /\ loaded.kind = "load" /\
+        loaded.name = binding.name /\ loaded.type = "int")
+
+mir_lower_scalar_binding_typed_module(module:any):
+    binding: module.body.0
+    statement: module.body.1
+    output: statement.expr
+    loaded: output.args.0
+    module.kind
+    binding.kind
+    binding.value.kind
+    statement.kind
+    output.kind
+    output.callee.kind
+    loaded.kind
+    mir_scalar_binding_typed_module_matches(module)?!
+    (
+        entry: (
+            instructions: [
+                mir_push_f64(binding.value.value),
+                mir_local("store_local", 0),
+                mir_push_f64(binding.value.value),
+                mir_return_f64()
+            ],
+            local_classes: ["i64"],
+            locals: [binding.name],
+            max_stack: 1,
+            may_error: false,
+            name: "\$entry",
+            owned_f64_list_locals: [],
+            owned_string_locals: [],
+            parameter_is_numeric_scalar: [],
+            parameter_mask_local: null,
+            parameters: [],
+            result_is_dynamic_f64_list: false,
+            result_is_numeric_scalar: false
+        ),
+        functions: [],
+        output_count: 1,
+        output_kind: "f64",
+        output_tokens: [],
+        outputs: [],
+        schema: "vektorflow.machine_ir",
+        string_bytes: 77,
+        version: 23
+    )
+
 _mir_tagged_module_functions(
     module:TaggedMachineModule,
     index:int,

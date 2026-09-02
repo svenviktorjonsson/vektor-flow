@@ -32,6 +32,19 @@ compile_tagged_import_only_module(source:str):
     (maximum = 0)?!
     module
 
+compile_tagged_scalar_binding(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_scalar_binding_output(
+        tokens.source, tokens.rows, tokens.count
+    )
+    typed_module: typed.typed_scalar_binding_output(
+        parsed.binding_name, parsed.value
+    )
+    module: mir.mir_lower_scalar_binding_typed_module(typed_module)
+    maximum: validation.machine_ir_scalar_binding_stack_maximum(module)
+    (maximum = 1)?!
+    module
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(

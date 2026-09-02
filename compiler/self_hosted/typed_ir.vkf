@@ -50,6 +50,32 @@ typed_module(body:any):
 typed_empty_module():
     typed_module([])
 
+typed_scalar_binding_output(binding_name:str, value:num):
+    binding: (
+        kind:"store_binding",
+        name:binding_name,
+        type:"int",
+        update:false,
+        value:typed_const(value, "int")
+    )
+    output: (
+        arg_types:["int"],
+        args:[typed_load(binding_name, "int")],
+        callee:(
+            full_name:"io.print",
+            kind:"stdlib_function",
+            module:"io",
+            name:"print",
+            type:"fn(any)->any"
+        ),
+        callee_type:"fn(any)->any",
+        kind:"call",
+        named_args:[],
+        spread_args:[],
+        type:"any"
+    )
+    typed_module([binding, (expr:output, kind:"expr_stmt")])
+
 typed_block(body:any):
     (kind: "block", body: body)
 
