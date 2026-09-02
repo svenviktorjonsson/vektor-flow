@@ -439,6 +439,21 @@ _compile_printed_dynamic_remainder_expression_x64(
     )
     template_prefix & "j" & left_immediate & "j" & right_immediate & remainder_tail
 
+_compile_printed_dynamic_power_expression_x64(
+    source:str, template_prefix:str, power_tail:str
+) -> str:
+    statement: compile_tagged_printed_dynamic_mixed_arithmetic(source)
+    (statement.opcodes.length() = 4 /\ statement.opcodes.0 = 1 /\
+        statement.opcodes.1 = 1 /\ statement.opcodes.2 = 9 /\
+        statement.opcodes.3 = 3)?! "runtime power emitter expects load-load-power-print"
+    str left_immediate: vkf_utf8_slice(
+        "()*+,-./", statement.values.0 - 40, statement.values.0 - 39
+    )
+    str right_immediate: vkf_utf8_slice(
+        "0123456789", statement.values.1, statement.values.1 + 1
+    )
+    template_prefix & "j" & left_immediate & "j" & right_immediate & power_tail
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(
