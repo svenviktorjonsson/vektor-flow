@@ -301,6 +301,13 @@ compile_tagged_printed_dynamic_addition_value(source:str) -> num:
 _compile_locked_valid_source_graph(sources:[str]):
     (sources:sources, source_count:sources.length())
 
+_compile_printed_dynamic_addition_x64(
+    source:str, template_prefix:str, template_tail:str
+) -> str:
+    value: compile_tagged_printed_dynamic_addition_value(source)
+    str immediate: vkf_utf8_slice("0123456789", value - 48, value - 47)
+    template_prefix & "j" & immediate & template_tail
+
 compile_tagged_printed_dynamic_mixed_arithmetic(source:str):
     tokens: lexer.tagged_numeric_function_token_tape(source)
     parsed: parser.parse_tagged_printed_dynamic_mixed_arithmetic(
