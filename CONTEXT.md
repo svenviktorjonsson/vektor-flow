@@ -49,8 +49,71 @@
   solving, Maxwell-equation stepping, and global electric and magnetic fields.
 - **Escaping property**: A geometry-authored field source whose influence leaves
   its source geometry and is therefore published as a globally sampleable field.
+- **Geometry**: An object's canonical shape and topology, independent of its
+  physical properties and placement. Geometry is authored once and retained by
+  identity.
+- **Properties**: The strict record of material and physical quantities attached
+  to Geometry, including emission, mass, roughness, reflectivity, and refractive
+  index. A property does not introduce a second geometry identity.
+- **Physical laws**: The VKF relations owned by a World that determine how its
+  objects and Properties interact and how world state evolves over time. Laws
+  do not belong to individual objects.
+- **World boundary**: A World contains objects that obey that World's physical
+  laws and evolve through dynamic real-time updates. Static or precomputed data,
+  including a `p_t` playback sequence, needs no World and is added directly to a
+  Frame with ordinary `add` and `push`.
+- **Rendering light transport**: The renderer's implicit optical presentation
+  law that turns emissive Geometry and surface Properties into visible direct
+  light, shadows, reflections, and caustics. It operates on ordinary Layers and
+  therefore requires no World. A World owns light only when electromagnetic or
+  coupled physical laws evolve simulation state, such as Maxwell fields,
+  heating, forces, or a time-dependent medium. Both paths reference the same
+  emissive Geometry identity; neither creates a separate light object.
+- **Embedding**: A View-owned mapping from World objects and current state into
+  visual channels. Data whose semantic channel names already describe its
+  presentation uses the identity Embedding implicitly through ordinary `add`
+  and `push`; an explicit Embedding is needed only to remap the data, such as
+  presenting a World in momentum space. Embedding is separate from both World
+  and its objects.
+- **Time position**: Position varying over time is the axis-tagged array `p_t`,
+  directly analogous to a coordinate array such as `x_u`. It may be supplied as
+  precomputed Layer data or produced and evolved by World laws; the compiled
+  runtime materializes only the currently demanded `t` slice. It is not a
+  function or callable.
+- **Semantic index suffix**: The ordered axes after `_` state how a value varies.
+  Suffix order is storage order from left/outermost to right/innermost, with the
+  final axis varying fastest. `u/v/w` are topology axes and alone create
+  implicit adjacency; their order is significant. `i/j/k` group independent
+  items and never create adjacency between groups. `t` orders temporal samples
+  or states and never creates spatial adjacency. Thus `x_u` is an x-coordinate
+  array over topology axis `u`, `p_t` is a position array over time, and `p_iu`
+  is a group of independent `u`-topologies.
+- **Layer time domain**: Every Layer owns its own `t` axis. Layers in one View
+  may have different temporal lengths and different `t_min` and `t_max` bounds.
+  Supplying `t` gives the Layer's temporal coordinates directly; otherwise its
+  bounds define the temporal interval for its `t`-indexed data.
+- **Time mode**: The Layer property `t_mode` controls what happens when that
+  Layer's ordered `t` range ends. Its public values are `"repeat"`, `"mirror"`,
+  `"stop"`, and `"reset"`. It acts on ordinary `t`-indexed data and does not
+  introduce an animation object, callback, or special motion command. `repeat`
+  wraps to the first sample and continues, `mirror` reverses direction, `stop`
+  stays on the last sample, and `reset` jumps to the first sample and stops. A
+  closed `0..2*pi` orbit uses `t_mode:"repeat"`.
+- **Layer**: One retained rendering identity produced when a View applies its
+  Embedding to a World object and current state. Main, picking, shadow, and
+  reflection passes consume the same Layer identity; physical-law ownership
+  remains in World.
 - **Layered Screen Scene**: the retained VKF scene compositor that guarantees
   Face, Edge, Vertex, overlay, and selection ordering before GPU-buffer commit.
+- **Scene Instance**: one retained geometry identity with one canonical GPU
+  buffer set and one cached world transform per rendered frame. Main, picking,
+  shadow, screen, and reflection passes consume the same Scene Instance; a pass
+  may not clone, replace, or independently transform its geometry.
+- **Mirror Projection**: the planar-mirror operation that reflects an observer
+  (camera or light) across one Scene Instance's plane and locks its off-axis
+  frustum to that mirror's four world-space corners. Camera observers produce
+  mirror textures; light observers produce solkatt illumination and its shadow
+  frustum over the same Scene Instances.
 - **Symbolic Document Runtime**: the VKF module that owns scoped definitions,
   incremental document-island compilation, and compiler publication order while
   products provide only their document-segmentation profile.
