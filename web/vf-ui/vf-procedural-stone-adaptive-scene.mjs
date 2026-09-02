@@ -105,7 +105,8 @@ export function createProceduralStoneAdaptiveSceneReference(options) {
   } = options;
   requireOptions(options);
   const coarse = createCoarseEllipsoidReference({ radii });
-  const field = createRockMaterialFieldReference(identity);
+  const field = options.materialField
+    ?? createRockMaterialFieldReference(identity);
   const materialOptions = Object.freeze({
     materialDetailLevel: options.materialDetailLevel,
     footprint: options.footprint,
