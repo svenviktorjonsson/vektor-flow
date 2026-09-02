@@ -20,7 +20,7 @@ const nativeBin = process.env.VKF_NATIVE_BIN
   : join(root, "build", "050-b00", "bin", "Release");
 const compiler = join(nativeBin, `vkf-strict${suffix}`);
 const newline = process.platform === "win32" ? "\r\n" : "\n";
-const component = "machine_ir.numeric_parameter_multiply.typed_module_pipeline";
+const component = "machine_ir.numeric_positive_conditional.typed_module_pipeline";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -53,14 +53,14 @@ function compile(source, artifact) {
   assert.equal(compiled.status, 0, compiled.error?.message ?? compiled.stderr);
 }
 
-test("Stage 2 compiler CLI lowers one function declaration and call", {
+test("Stage 2 compiler CLI lowers one conditional function and call", {
   skip: process.platform !== "win32",
 }, () => {
   const rootWork = process.env.VKF_TEST_WORK_ROOT
     ? resolve(process.env.VKF_TEST_WORK_ROOT)
     : join(root, ".work");
   mkdirSync(rootWork, { recursive: true });
-  const work = mkdtempSync(join(rootWork, "i151-stage2-function-"));
+  const work = mkdtempSync(join(rootWork, "i152-stage2-conditional-"));
   try {
     const manifest = JSON.parse(readFileSync(
       join(root, "compiler", "self_hosted", "vf-compiler-bootstrap.json"),
@@ -73,13 +73,15 @@ test("Stage 2 compiler CLI lowers one function declaration and call", {
       copyFileSync(join(root, source.path), join(work, basename(source.path)));
     }
 
-    const inputSource = join(work, "function-input.vkf");
-    const oracleArtifact = join(work, `function-oracle${suffix}`);
+    const inputSource = join(work, "conditional-input.vkf");
+    const oracleArtifact = join(work, `conditional-oracle${suffix}`);
     writeFileSync(inputSource, [
-      ": .system",
-      "twice(value:num):",
-      "    value * 2",
-      ":: twice(cpu_count())",
+      "system: .system",
+      "positive(x:num) -> num:",
+      "    x > 0?",
+      "        @: 1",
+      "    @: 0",
+      ":: positive(system.cpu_count())",
       "",
     ].join("\n"), "utf8");
     compile(inputSource, oracleArtifact);
@@ -90,9 +92,10 @@ test("Stage 2 compiler CLI lowers one function declaration and call", {
       windowsHide: true,
     });
     assert.equal(oracleRun.status, 0, oracleRun.stderr);
+    assert.equal(oracleRun.stdout.trim(), "1");
 
     const machine = JSON.parse(readFileSync(
-      join(work, ".vkfbuild", "function-input", "machine-ir.json"),
+      join(work, ".vkfbuild", "conditional-input", "machine-ir.json"),
       "utf8",
     ));
     const paths = structuralLeafPaths(machine);
@@ -117,17 +120,16 @@ test("Stage 2 compiler CLI lowers one function declaration and call", {
         return [`(module.${path} = null)?! "MachineModule null shape changed"`];
       }
       if (typeof value === "boolean") {
-        return [
-          `(module.${path} = ${value})?! "MachineModule bit value changed"`,
-        ];
+        return [`(module.${path} = ${value})?! "MachineModule bit value changed"`];
       }
       return [];
     });
-    const stage2Artifact = join(work, `stage2-function${suffix}`);
-    const observation = join(work, "stage2-function-observation.txt");
-    const provenance = join(work, "stage2-function-provenance.json");
-    const cliSource = join(work, "stage2-function-compiler.vkf");
-    const cliArtifact = join(work, `stage2-function-compiler${suffix}`);
+
+    const stage2Artifact = join(work, `stage2-conditional${suffix}`);
+    const observation = join(work, "stage2-conditional-observation.txt");
+    const provenance = join(work, "stage2-conditional-provenance.json");
+    const cliSource = join(work, "stage2-conditional-compiler.vkf");
+    const cliArtifact = join(work, `stage2-conditional-compiler${suffix}`);
     writeFileSync(cliSource, [
       "compiler_stage: .compiler",
       "scene_stage: .native_scene_compiler",
@@ -136,7 +138,7 @@ test("Stage 2 compiler CLI lowers one function declaration and call", {
       "io_stage: .io",
       "source_path: io_stage.read_line()",
       "source: io_stage.read_text(source_path)",
-      "module: compiler_stage.compile_tagged_numeric_function_call(source)",
+      "module: compiler_stage.compile_tagged_numeric_positive_conditional(source)",
       ...shapeGuards,
       `observation: ${observationExpression} & "\\n"`,
       `io_stage.write_text(${JSON.stringify(observation)}, observation)`,
@@ -152,7 +154,7 @@ test("Stage 2 compiler CLI lowers one function declaration and call", {
       "(dispatch.code = 0)?! dispatch.err",
       `run: process.run_native(${JSON.stringify(stage2Artifact)}, ())`,
       "(run.code = 0)?! run.err",
-      `:: run.out`,
+      ":: run.out",
       "",
     ].join("\n"), "utf8");
     compile(cliSource, cliArtifact);
@@ -187,6 +189,20 @@ test("Stage 2 compiler CLI lowers one function declaration and call", {
     assert.equal(receipt.implementation, "vkf_source_machine_module");
     assert.equal(receipt.consumer, "vkf_x64_backend.machine_ir");
     assert.equal(receipt.exact_oracle_match, false);
+
+    writeFileSync(inputSource, [
+      "system: .system",
+      "positive(x:num) -> num:",
+      "    x > 0?",
+      "        @: 2",
+      "    @: 0",
+      ":: positive(system.cpu_count())",
+      "",
+    ].join("\n"), "utf8");
+    const rejected = runCli();
+    assert.notEqual(rejected.status, 0, "invalid conditional source was accepted");
+    assert.deepEqual(readFileSync(stage2Artifact), firstArtifact);
+    assert.deepEqual(readFileSync(provenance), firstProvenance);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

@@ -60,6 +60,10 @@ TaggedNumericFunctionCall: (
     parameter_name:str,
     factor:num
 )
+TaggedNumericConditionalCall: (
+    function_name:str,
+    parameter_name:str
+)
 DottedIndexNode: (kind:str, base:any, indices:any, span:Span)
 MatchArmNode: (kind:str, condition:any, body:any)
 MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bit, catch:bit)
@@ -498,6 +502,45 @@ parse_tagged_numeric_function_call(
         parameter_name:parameter_name,
         factor:token_rows.(87)
     )
+
+parse_tagged_numeric_positive_conditional(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedNumericConditionalCall:
+    (token_count = 41)?! "numeric conditional source has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\ token_rows.(12) = 16 /\
+        token_rows.(18) = 1 /\ token_rows.(24) = 4 /\ token_rows.(30) = 1 /\
+        token_rows.(36) = 13 /\ token_rows.(42) = 1 /\ token_rows.(48) = 15 /\
+        token_rows.(54) = 1 /\ token_rows.(60) = 14 /\ token_rows.(66) = 20 /\
+        token_rows.(72) = 17 /\ token_rows.(78) = 1 /\ token_rows.(84) = 15 /\
+        token_rows.(90) = 4 /\ token_rows.(96) = 1 /\ token_rows.(102) = 17 /\
+        token_rows.(108) = 3 /\ token_rows.(114) = 18 /\ token_rows.(120) = 4 /\
+        token_rows.(126) = 19 /\ token_rows.(132) = 15 /\ token_rows.(138) = 3 /\
+        token_rows.(144) = 4 /\ token_rows.(150) = 19 /\ token_rows.(156) = 15 /\
+        token_rows.(162) = 3 /\ token_rows.(168) = 4 /\ token_rows.(174) = 15 /\
+        token_rows.(180) = 15 /\ token_rows.(186) = 1 /\ token_rows.(192) = 13 /\
+        token_rows.(198) = 1 /\ token_rows.(204) = 16 /\ token_rows.(210) = 1 /\
+        token_rows.(216) = 13 /\ token_rows.(222) = 14 /\ token_rows.(228) = 14 /\
+        token_rows.(234) = 4 /\ token_rows.(240) = 5)?! "numeric conditional source does not match declaration-call grammar"
+    str import_alias: vkf_utf8_slice(source, token_rows.(1), token_rows.(2))
+    str import_name: vkf_utf8_slice(source, token_rows.(19), token_rows.(20))
+    str function_name: vkf_utf8_slice(source, token_rows.(31), token_rows.(32))
+    str parameter_name: vkf_utf8_slice(source, token_rows.(43), token_rows.(44))
+    str parameter_type: vkf_utf8_slice(source, token_rows.(55), token_rows.(56))
+    str return_type: vkf_utf8_slice(source, token_rows.(79), token_rows.(80))
+    str condition_name: vkf_utf8_slice(source, token_rows.(97), token_rows.(98))
+    str call_name: vkf_utf8_slice(source, token_rows.(187), token_rows.(188))
+    str host_receiver: vkf_utf8_slice(source, token_rows.(199), token_rows.(200))
+    str host_name: vkf_utf8_slice(source, token_rows.(211), token_rows.(212))
+    (import_alias = "system")?! "numeric conditional source requires system alias"
+    (import_name = "system")?! "numeric conditional source requires system import"
+    (parameter_type = "num")?! "numeric conditional parameter must be num"
+    (return_type = "num")?! "numeric conditional return type must be num"
+    (condition_name = parameter_name)?! "numeric conditional condition must load its parameter"
+    (token_rows.(111) = 0 /\ token_rows.(141) = 1 /\ token_rows.(165) = 0)?! "numeric conditional source must return one for positive input and zero otherwise"
+    (call_name = function_name)?! "numeric conditional call target does not match declaration"
+    (host_receiver = import_alias)?! "numeric conditional host call must use its import alias"
+    (host_name = "cpu_count")?! "numeric conditional argument must be cpu_count()"
+    (function_name:function_name, parameter_name:parameter_name)
 
 parse_tagged_binding_nested_addition(
     source:str, token_rows:[num], token_count:int

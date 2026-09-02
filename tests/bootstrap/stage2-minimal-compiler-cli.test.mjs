@@ -28,7 +28,9 @@ function sha256(bytes) {
 test("Stage 2 compiler CLI deterministically emits one closed source", {
   skip: process.platform !== "win32",
 }, () => {
-  const rootWork = join(root, ".work");
+  const rootWork = process.env.VKF_TEST_WORK_ROOT
+    ? resolve(process.env.VKF_TEST_WORK_ROOT)
+    : join(root, ".work");
   mkdirSync(rootWork, { recursive: true });
   const work = mkdtempSync(join(rootWork, "i149-stage2-cli-"));
   try {

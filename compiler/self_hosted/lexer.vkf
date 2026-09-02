@@ -574,8 +574,16 @@ _tagged_function_punctuation_kind(ch:str) -> int:
         @: 15
     ch = "."?
         @: 16
-    (ch = "*")?! "function token tape encountered unsupported punctuation"
-    7
+    ch = "*"?
+        @: 7
+    ch = ">"?
+        @: 17
+    ch = "?"?
+        @: 18
+    ch = "@"?
+        @: 19
+    (ch = "-")?! "function token tape encountered unsupported punctuation"
+    20
 
 _scan_tagged_function_tokens(
     cursor:StringCursor, tape:TaggedTokenTape

@@ -1564,7 +1564,8 @@ vf::JsonValue::Object dispatch_internal_stage_observation(
     const std::filesystem::path& provenance_path
 ) {
     if (component != kClosedDependencyChainPipelineComponent &&
-        component != kTypedModulePipelineComponent) {
+        component != kTypedModulePipelineComponent &&
+        component != kConditionalTypedModulePipelineComponent) {
         throw DriverFailure("unknown internal Stage observation component: " + component);
     }
     const auto absolute = [](const std::filesystem::path& path) {
