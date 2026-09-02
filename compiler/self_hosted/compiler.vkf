@@ -364,6 +364,21 @@ compile_tagged_printed_dynamic_grouped_arithmetic(source:str):
         max_stack:maximum
     )
 
+_compile_printed_dynamic_subtraction_expression_x64(
+    source:str, template_prefix:str, subtraction_tail:str
+) -> str:
+    statement: compile_tagged_printed_dynamic_mixed_arithmetic(source)
+    (statement.opcodes.length() = 4 /\ statement.opcodes.0 = 1 /\
+        statement.opcodes.1 = 1 /\ statement.opcodes.2 = 6 /\
+        statement.opcodes.3 = 3)?! "runtime subtraction emitter expects load-load-subtract-print"
+    str left_immediate: vkf_utf8_slice(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ", statement.values.0 - 65, statement.values.0 - 64
+    )
+    str right_immediate: vkf_utf8_slice(
+        "()*+,-./", statement.values.1 - 40, statement.values.1 - 39
+    )
+    template_prefix & "j" & left_immediate & "j" & right_immediate & subtraction_tail
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(
