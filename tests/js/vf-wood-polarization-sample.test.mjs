@@ -536,6 +536,7 @@ test(
   assert.match(html, /integrateWoodPolarizationVisibleReference/u);
   assert.match(html, /presentWoodPolarizationVisibleReference/u);
   assert.match(html, /createWoodSpectralPresentationGpuDescriptorReference/u);
+  assert.match(html, /createWoodSpectralRendererGpuArenaReference/u);
   assert.match(html, /__woodPolarizationGpuEvidence/u);
   },
 );
