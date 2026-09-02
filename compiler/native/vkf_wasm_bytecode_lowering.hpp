@@ -2014,8 +2014,4 @@ inline Module lower_typed_module_to_bytecode(const TypedModule& module) {
     return lowering_detail::Lowerer(module).lower();
 }
 
-inline Module lower_typed_ir_to_bytecode(const vf::JsonValue& typed_ir) {
-    return lower_typed_module_to_bytecode(parse_typed_module(typed_ir));
-}
-
 }  // namespace vkf::wasm::bytecode
