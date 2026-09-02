@@ -54,6 +54,30 @@ bool ParseI32(std::wstring_view text, std::int32_t* value) {
     return result.ec == std::errc{} && result.ptr == end;
 }
 
+bool ExtractBooleanField(std::wstring_view message, std::wstring_view name, bool* value) {
+    if (value == nullptr) return false;
+    const std::wstring needle = L"\"" + std::wstring(name) + L"\"";
+    std::size_t cursor = message.find(needle);
+    if (cursor == std::wstring_view::npos) return false;
+    cursor = message.find(L':', cursor + needle.size());
+    if (cursor == std::wstring_view::npos) return false;
+    ++cursor;
+    while (cursor < message.size() &&
+           (message[cursor] == L' ' || message[cursor] == L'\t' ||
+            message[cursor] == L'\r' || message[cursor] == L'\n')) {
+        ++cursor;
+    }
+    if (message.substr(cursor, 4u) == L"true") {
+        *value = true;
+        return true;
+    }
+    if (message.substr(cursor, 5u) == L"false") {
+        *value = false;
+        return true;
+    }
+    return false;
+}
+
 bool DecodeJsonString(std::wstring_view encoded, std::wstring* decoded) {
     if (decoded == nullptr) return false;
     while (!encoded.empty() &&
@@ -103,6 +127,22 @@ bool ReleaseHostMessageContainsType(
         std::wstring_view actual_type;
         if (ExtractQuotedField(message, L"type", &actual_type)) {
             return actual_type == expected_type;
+        }
+        if (!DecodeJsonString(message, &decoded)) return false;
+        message = decoded;
+    }
+    return false;
+}
+
+bool ReleaseHostMessageIndicatesContentReady(std::wstring_view message) {
+    std::wstring decoded;
+    for (int depth = 0; depth < 2; ++depth) {
+        std::wstring_view actual_type;
+        bool content_ready = false;
+        if (ExtractQuotedField(message, L"type", &actual_type)) {
+            return actual_type == L"layout" &&
+                   ExtractBooleanField(message, L"contentReady", &content_ready) &&
+                   content_ready;
         }
         if (!DecodeJsonString(message, &decoded)) return false;
         message = decoded;

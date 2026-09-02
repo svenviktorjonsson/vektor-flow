@@ -12,6 +12,8 @@ bool ReleaseHostMessageContainsType(
     std::wstring_view message,
     std::wstring_view type);
 
+bool ReleaseHostMessageIndicatesContentReady(std::wstring_view message);
+
 struct ReleaseHostHitRect {
     std::int32_t left = 0;
     std::int32_t top = 0;

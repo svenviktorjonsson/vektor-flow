@@ -20,6 +20,16 @@ int main() {
         vf::ReleaseHostMessageContainsType(LR"({"type":"restore"})", L"close")) {
         return Fail("host message type decoding mismatch");
     }
+    if (!vf::ReleaseHostMessageIndicatesContentReady(
+            LR"({"type":"layout","contentReady":true})") ||
+        !vf::ReleaseHostMessageIndicatesContentReady(
+            LR"("{\"type\":\"layout\",\"contentReady\":true}")") ||
+        vf::ReleaseHostMessageIndicatesContentReady(
+            LR"({"type":"layout","contentReady":false})") ||
+        vf::ReleaseHostMessageIndicatesContentReady(
+            LR"({"type":"vf_log","message":"contentReady true"})")) {
+        return Fail("content-ready decoding mismatch");
+    }
 
     vf::ReleaseHostAdapter adapter;
     if (!adapter.ApplyHitRegionAdapterMessage(
