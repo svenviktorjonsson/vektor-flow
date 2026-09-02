@@ -5,6 +5,7 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..", "..");
 const retiredShims = [
+  "web/vf-ui/native-event-probe.html",
   "web/vf-ui/native-scene-probe.js",
   "web/vf-ui/vf-native-scene-cube-hover.js",
   "web/vf-ui/vf-native-scene-dimension-mix.js",
