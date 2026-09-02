@@ -49,8 +49,10 @@ test("the Windows release contains one public vkf and its private UI runtime", {
     "vkf-native-scene-artifact-stager.exe",
     "vkf-runner.exe",
     "vkf-ui-package.exe",
+    "vkf_wasm_artifact_smoke.exe",
+    "vkf_webgpu_artifact_smoke.exe",
     "vkf.exe",
-  ]);
+  ].sort());
   const manifest = JSON.parse(await readFile(path.join(stageRoot, "vektorflow-release.json"), "utf8"));
   assert.equal(manifest.entrypoint, "bin/vkf.exe");
   assert.deepEqual(manifest.not_included_partial_modules, []);

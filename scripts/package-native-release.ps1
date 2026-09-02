@@ -9,6 +9,18 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "internal/native-release-smoke-lifecycle.ps1")
 
+$packageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+function Write-VkfPackageTrace {
+    param([Parameter(Mandatory = $true)][string]$Stage)
+    if (-not [string]::IsNullOrWhiteSpace($env:VKF_PACKAGE_TRACE_FILE)) {
+        $elapsed = $packageStopwatch.Elapsed.TotalMilliseconds.ToString(
+            "F1",
+            [System.Globalization.CultureInfo]::InvariantCulture
+        )
+        "$elapsed`t$Stage" | Add-Content -LiteralPath $env:VKF_PACKAGE_TRACE_FILE -Encoding utf8
+    }
+}
+
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $binaryRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $BinaryDirectory))
 $uiBinaryRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $UiBinaryDirectory))
@@ -31,6 +43,13 @@ if (-not (Test-Path -LiteralPath $compilerSource -PathType Leaf)) {
     throw "Missing release compiler: $compilerSource"
 }
 Copy-Item -LiteralPath $compilerSource -Destination (Join-Path $stageRoot "bin/vkf.exe")
+foreach ($helper in @("vkf_wasm_artifact_smoke.exe", "vkf_webgpu_artifact_smoke.exe")) {
+    $helperSource = Join-Path $binaryRoot $helper
+    if (-not (Test-Path -LiteralPath $helperSource -PathType Leaf)) {
+        throw "Missing private UI compiler helper: $helperSource"
+    }
+    Copy-Item -LiteralPath $helperSource -Destination (Join-Path $stageRoot "bin/$helper")
+}
 foreach ($helper in @("vkf-ui-package.exe", "vkf-runner.exe", "vkf-native-scene-artifact-stager.exe")) {
     $helperSource = Join-Path $uiBinaryRoot $helper
     if (-not (Test-Path -LiteralPath $helperSource -PathType Leaf)) {
@@ -81,6 +100,7 @@ $manifest = [ordered]@{
     }
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stageRoot "vektorflow-release.json") -Encoding utf8
+Write-VkfPackageTrace -Stage "release-layout-staged"
 
 $forbiddenFiles = Get-ChildItem -LiteralPath $stageRoot -Recurse -File | Where-Object {
     $_.Extension.ToLowerInvariant() -in @(".c", ".cc", ".cpp", ".cxx", ".py", ".pyc", ".pyd")
@@ -152,6 +172,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or ($programOutput -join "`n").Trim() -ne "0") {
         throw "Packaged program smoke failed"
     }
+    Write-VkfPackageTrace -Stage "native-program-smoke-complete"
     $uiSourceRoot = Join-Path $smokeRoot "u"
     $uiRoot = Join-Path $uiSourceRoot "ui"
     New-Item -ItemType Directory -Path (Join-Path $uiRoot "assets") -Force | Out-Null
@@ -196,6 +217,7 @@ release_slider: Input(id:"release-slider")
             (Get-FileHash -LiteralPath $uiSecond -Algorithm SHA256).Hash) {
             throw "Packaged UI application was not deterministic"
         }
+        Write-VkfPackageTrace -Stage "deterministic-ui-builds-complete"
     $uiBytes = [System.IO.File]::ReadAllBytes($uiFirst)
     $uiFooter = [System.Text.Encoding]::ASCII.GetBytes("VKF_SCENE_BUNDLE_END_V1")
     if ($uiBytes.Length -lt $uiFooter.Length) {
@@ -223,28 +245,35 @@ release_slider: Input(id:"release-slider")
         throw "Packaged UI application omitted retained Button/Slider behavior"
     }
     $savedLocalAppData = $env:LOCALAPPDATA
-    $uiLocalAppData = Join-Path $savedLocalAppData ("VektorFlowPackageSmoke-" + $PID)
+    $uiLocalAppData = Join-Path $smokeRoot "localappdata"
+    $uiWebViewProfile = Join-Path $uiLocalAppData "vektor-flow/webview2/runtime-v1"
     if (Test-Path -LiteralPath $uiLocalAppData) {
         Remove-Item -LiteralPath $uiLocalAppData -Recurse -Force
     }
     $env:LOCALAPPDATA = $uiLocalAppData
     try {
             $openedUi = Join-Path $uiSourceRoot ("u10open-" + $PID + ".exe")
+            $openStdout = Join-Path $uiSourceRoot "u10open.stdout.txt"
+            $openStderr = Join-Path $uiSourceRoot "u10open.stderr.txt"
             $taskkill = Join-Path $env:SystemRoot "System32/taskkill.exe"
             $openCompiler = Start-Process -FilePath $compiler -ArgumentList @(
                 ('"' + $uiSource + '"'), "-o", ('"' + $openedUi + '"')
-            ) -WorkingDirectory $uiSourceRoot -WindowStyle Hidden -PassThru
+            ) -WorkingDirectory $uiSourceRoot -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput $openStdout -RedirectStandardError $openStderr
             $openedProcess = $null
             try {
                 for ($attempt = 0; $attempt -lt 300 -and -not $openCompiler.HasExited; $attempt++) {
-                    $openedProcess = Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($openedUi)) -ErrorAction SilentlyContinue |
+                    $openedProcess = Get-Process -ErrorAction SilentlyContinue |
                         Where-Object { $_.Path -eq $openedUi } |
                         Select-Object -First 1
                     if ($openedProcess) { break }
                     Start-Sleep -Milliseconds 100
                 }
                 if (-not $openedProcess -or $openCompiler.HasExited) {
-                    throw "Packaged vkf app.vkf did not stay attached to the opened UI application"
+                    $openError = if (Test-Path -LiteralPath $openStderr) {
+                        (Get-Content -LiteralPath $openStderr -Raw).Trim()
+                    } else { "" }
+                    throw "Packaged vkf app.vkf did not stay attached to the opened UI application: $openError"
                 }
             } finally {
                 if (-not $openCompiler.HasExited) {
@@ -254,11 +283,19 @@ release_slider: Input(id:"release-slider")
                     & $taskkill /PID $openedProcess.Id /T /F 2>&1 | Out-Null
                     $openedProcess.WaitForExit(10000) | Out-Null
                 }
+                if ($openedProcess) {
+                    Stop-VkfPackageSmokeProcess `
+                        -Process $openedProcess `
+                        -ExpectedExecutable $openedUi `
+                        -ProfilePath $uiWebViewProfile `
+                        -ExpectedRoot $smokeRoot
+                }
             }
+    Write-VkfPackageTrace -Stage "attached-ui-open-proof-complete"
     $relocatedRoot = Join-Path $smokeRoot "r"
     New-Item -ItemType Directory -Path $relocatedRoot -Force | Out-Null
     $relocatedUi = Join-Path $relocatedRoot "renamed.exe"
-    $relocatedProfile = "$relocatedUi.WebView2"
+    $relocatedProfile = Join-Path $uiLocalAppData "vektor-flow/webview2/runtime-v1"
     Copy-Item -LiteralPath $uiFirst -Destination $relocatedUi
     for ($attempt = 0; $attempt -lt 50 -and (Test-Path -LiteralPath $uiSourceRoot); $attempt++) {
         try {
@@ -289,6 +326,7 @@ release_slider: Input(id:"release-slider")
                 -ExpectedRoot $smokeRoot
         }
     }
+    Write-VkfPackageTrace -Stage "relocated-ui-proof-complete"
     } finally {
         $env:LOCALAPPDATA = $savedLocalAppData
         for ($attempt = 0; $attempt -lt 50 -and (Test-Path -LiteralPath $uiLocalAppData); $attempt++) {
@@ -305,22 +343,58 @@ release_slider: Input(id:"release-slider")
     } finally {
         $env:PATH = $savedPath
     }
+    $commandProcessor = $env:COMSPEC.Replace('\', '\\')
     @"
 io: .io
+c: .collections
+errors: .errors
+system: .system
+process: .process
+regex: .regex
 io.write_text("native-io.txt", "native UTF-8: hej")
 io.append_text("native-io.txt", " + appended")
 io.write_bytes("native-io.bin", "byte exact")
 io.eprint("native stderr")
+q: c.queue()
+q.put(10)
+q.put(20)
+first: q.get()
+second: q.get()
+point: c.map(name:"origin", x:1, y:2)
+caught: 0
+(false?! "native error")!?
+    errors.AssertionError => caught: 1
+present: system.env("PATH")
+missing: system.env("VKF_MISSING_RELEASE_TEST_0_1_0")
+process_result: process.run("$commandProcessor", ["/d", "/c", "(<nul set /p =hello)&(<nul set /p =error>&2)&exit /b 7"])
+shell_result: process.shell("exit /b 0")
+regex_result: regex.match("values are 123 and 45", 'values are (?P<a>.*) and (?P<b>\d+)')
 :: io.read_text("native-io.txt")
 :: io.read_bytes("native-io.bin")
-"@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_io.vkf") -Encoding utf8
-    $ioErrorPath = Join-Path $smokeRoot "io.err"
-    $ioOutput = & $compiler (Join-Path $smokeRoot "installed_io.vkf") 2> $ioErrorPath
-    $ioError = (Get-Content -LiteralPath $ioErrorPath -Raw).Trim()
+:: first + second + point.x + point.y + caught
+:: system.os()
+:: system.arch()
+:: system.cpu_count() > 0
+:: present.found
+:: missing.found
+:: process_result.code
+:: process_result.out
+:: process_result.err
+:: shell_result.code
+:: regex_result.a
+:: regex_result.b
+"@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_runtime.vkf") -Encoding utf8
+    $runtimeErrorPath = Join-Path $smokeRoot "runtime.err"
+    $runtimeOutput = & $compiler (Join-Path $smokeRoot "installed_runtime.vkf") 2> $runtimeErrorPath
+    $runtimeError = (Get-Content -LiteralPath $runtimeErrorPath -Raw).Trim()
+    $expectedRuntimeOutput = @(
+        "native UTF-8: hej + appended", "byte exact", "34", "windows", "x86_64",
+        "true", "true", "false", "7", "hello", "error", "0", "123", "45"
+    ) -join "`n"
     if ($LASTEXITCODE -ne 0 -or
-        ($ioOutput -join "`n").Trim() -ne "native UTF-8: hej + appended`nbyte exact" -or
-        $ioError -ne "native stderr") {
-        throw "Packaged native IO smoke failed"
+        ($runtimeOutput -join "`n").Trim() -ne $expectedRuntimeOutput -or
+        $runtimeError -ne "native stderr") {
+        throw "Packaged consolidated native runtime smoke failed"
     }
     @"
 io: .io
@@ -331,65 +405,9 @@ io: .io
     if ($LASTEXITCODE -ne 0 -or ($readLineOutput -join "`n").Trim() -ne $readLineInput) {
         throw "Packaged native read-line smoke failed"
     }
-    @"
-c: .collections
-errors: .errors
-q: c.queue()
-q.put(10)
-q.put(20)
-first: q.get()
-second: q.get()
-point: c.map(name:"origin", x:1, y:2)
-caught: 0
-(false?! "native error")!?
-    errors.AssertionError => caught: 1
-:: first + second + point.x + point.y + caught
-"@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_collections_errors.vkf") -Encoding utf8
-    $collectionsOutput = & $compiler (Join-Path $smokeRoot "installed_collections_errors.vkf")
-    if ($LASTEXITCODE -ne 0 -or ($collectionsOutput -join "`n").Trim() -ne "34") {
-        throw "Packaged native collections/errors smoke failed"
-    }
     $stdlibProof = & $compiler -t (Join-Path $repoRoot "tests/release_stdlibs.vkf")
     if ($LASTEXITCODE -ne 0 -or ($stdlibProof -join "`n") -notmatch "(?m)^7 passed, 0 failed$") {
         throw "Packaged native stdlib proof failed"
-    }
-    @"
-system: .system
-present: system.env("PATH")
-missing: system.env("VKF_MISSING_RELEASE_TEST_0_1_0")
-:: system.os()
-:: system.arch()
-:: system.cpu_count() > 0
-:: present.found
-:: missing.found
-"@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_system.vkf") -Encoding utf8
-    $systemOutput = & $compiler (Join-Path $smokeRoot "installed_system.vkf")
-    if ($LASTEXITCODE -ne 0 -or ($systemOutput -join "`n").Trim() -ne "windows`nx86_64`ntrue`ntrue`nfalse") {
-        throw "Packaged native system smoke failed"
-    }
-    $commandProcessor = $env:COMSPEC.Replace('\', '\\')
-    @"
-process: .process
-result: process.run("$commandProcessor", ["/d", "/c", "(<nul set /p =hello)&(<nul set /p =error>&2)&exit /b 7"])
-shell_result: process.shell("exit /b 0")
-:: result.code
-:: result.out
-:: result.err
-:: shell_result.code
-"@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_process.vkf") -Encoding utf8
-    $processOutput = & $compiler (Join-Path $smokeRoot "installed_process.vkf")
-    if ($LASTEXITCODE -ne 0 -or ($processOutput -join "`n").Trim() -ne "7`nhello`nerror`n0") {
-        throw "Packaged native process smoke failed"
-    }
-    @"
-regex: .regex
-result: regex.match("values are 123 and 45", 'values are (?P<a>.*) and (?P<b>\d+)')
-:: result.a
-:: result.b
-"@ | Set-Content -LiteralPath (Join-Path $smokeRoot "installed_regex.vkf") -Encoding utf8
-    $regexOutput = & $compiler (Join-Path $smokeRoot "installed_regex.vkf")
-    if ($LASTEXITCODE -ne 0 -or ($regexOutput -join "`n").Trim() -ne "123`n45") {
-        throw "Packaged native regex smoke failed"
     }
     $namedOutput = & $compiler $smokeSource -o app.exe
     if ($LASTEXITCODE -ne 0 -or ($namedOutput -join "`n").Trim() -ne "0" -or
@@ -405,6 +423,7 @@ test installed_test() -> bit:
     if ($LASTEXITCODE -ne 0 -or ($testOutput -join "`n") -notmatch "PASS .*installed_test") {
         throw "Packaged integrated test smoke failed (exit $LASTEXITCODE): $($testOutput -join '`n')"
     }
+    Write-VkfPackageTrace -Stage "stdlib-and-cli-smokes-complete"
     $global:LASTEXITCODE = 0
 } finally {
     $env:TEMP = $savedTemp
@@ -424,10 +443,12 @@ test installed_test() -> bit:
 }
 
 Compress-Archive -Path (Join-Path $stageRoot "*") -DestinationPath $archivePath -CompressionLevel Optimal
+Write-VkfPackageTrace -Stage "archive-complete"
 $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $(Split-Path $archivePath -Leaf)" | Set-Content -LiteralPath "$archivePath.sha256" -Encoding ascii
 & (Join-Path $PSScriptRoot "test-windows-portable-archive.ps1") `
     -ArchivePath $archivePath `
     -Json | Out-Null
+Write-VkfPackageTrace -Stage "portable-archive-proof-complete"
 Write-Output $stageRoot
 Write-Output $archivePath

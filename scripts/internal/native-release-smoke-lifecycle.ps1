@@ -54,6 +54,88 @@ function Remove-VkfPackageSmokePath {
     throw "Timed out removing test-owned package smoke path '$fullPath': $detail"
 }
 
+function Test-VkfWebViewProfileCommandLine {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandLine,
+        [Parameter(Mandatory = $true)]
+        [string]$ProfilePath
+    )
+
+    $match = [System.Text.RegularExpressions.Regex]::Match(
+        $CommandLine,
+        '(?i)(?:^|\s)--user-data-dir(?:=|\s+)(?:"([^"]+)"|([^\s"]+))'
+    )
+    if (-not $match.Success) {
+        return $false
+    }
+    $candidate = if ($match.Groups[1].Success) {
+        $match.Groups[1].Value
+    } else {
+        $match.Groups[2].Value
+    }
+    try {
+        $candidatePath = [System.IO.Path]::GetFullPath($candidate).TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
+        )
+        $expectedPath = [System.IO.Path]::GetFullPath($ProfilePath).TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
+        )
+    } catch {
+        return $false
+    }
+    $expectedPrefix = $expectedPath + [System.IO.Path]::DirectorySeparatorChar
+    return $candidatePath.Equals(
+            $expectedPath,
+            [System.StringComparison]::OrdinalIgnoreCase
+        ) -or $candidatePath.StartsWith(
+            $expectedPrefix,
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+}
+
+function Stop-VkfPackageProfileProcesses {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProfilePath,
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedRoot
+    )
+
+    $profileFullPath = Assert-VkfPackageSmokePath `
+        -Path $ProfilePath `
+        -ExpectedRoot $ExpectedRoot
+    $webViewProcesses = Get-CimInstance Win32_Process `
+        -Filter "Name = 'msedgewebview2.exe'" `
+        -ErrorAction Stop
+    foreach ($webViewProcess in $webViewProcesses) {
+        $commandLine = $webViewProcess.CommandLine
+        if ([string]::IsNullOrWhiteSpace($commandLine) -or
+            -not (Test-VkfWebViewProfileCommandLine `
+                -CommandLine $commandLine `
+                -ProfilePath $profileFullPath)) {
+            continue
+        }
+        $processId = [int]$webViewProcess.ProcessId
+        if ($processId -le 0 -or $processId -eq $PID) {
+            throw "Refusing invalid WebView package-smoke process id $processId"
+        }
+        $taskkill = Join-Path $env:SystemRoot "System32/taskkill.exe"
+        & $taskkill /PID $processId /T /F 2>&1 | Out-Null
+        for ($attempt = 0; $attempt -lt 100; $attempt++) {
+            if (-not (Get-Process -Id $processId -ErrorAction SilentlyContinue)) {
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+        if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
+            throw "Test-owned WebView process $processId did not exit"
+        }
+    }
+}
+
 function Stop-VkfPackageSmokeProcess {
     param(
         [Parameter(Mandatory = $true)]
@@ -106,6 +188,9 @@ function Stop-VkfPackageSmokeProcess {
         throw "Test-owned package smoke process $($Process.Id) did not exit"
     }
 
+    Stop-VkfPackageProfileProcesses `
+        -ProfilePath $profileFullPath `
+        -ExpectedRoot $ExpectedRoot
     Remove-VkfPackageSmokePath `
         -Path $profileFullPath `
         -ExpectedRoot $ExpectedRoot `
