@@ -5327,18 +5327,6 @@ inline void emit_clone_string_multiset_entries(
     }
 }
 
-inline ValueLayout emit_widen_complex(FunctionBuilder& builder, const ValueLayout& layout) {
-    if (layout.kind == ValueKind::Complex) return layout;
-    if (layout.kind != ValueKind::Numeric || layout.width != 1) {
-        throw LoweringFailure("complex arithmetic requires numeric operands");
-    }
-    Instruction zero;
-    zero.opcode = Opcode::PushF64;
-    zero.f64 = 0.0;
-    builder.emit(std::move(zero));
-    return {2, ValueKind::Complex, {}};
-}
-
 inline ValueLayout emit_require_real_complex(
     FunctionBuilder& builder,
     StringPool& strings,
