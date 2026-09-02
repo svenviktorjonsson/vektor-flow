@@ -65,6 +65,27 @@ compile_tagged_numeric_positive_conditional(source:str):
     (maxima.0 = 1 /\ maxima.1 = 1 /\ maxima.2 = 2)?! "numeric conditional Machine IR has unexpected stack maxima"
     module
 
+compile_tagged_numeric_count_to_loop(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_numeric_count_to_loop(
+        tokens.source, tokens.rows, tokens.count
+    )
+    application: typed.typed_numeric_count_to_loop_application(
+        parsed.function_name,
+        parsed.parameter_name,
+        parsed.local_name,
+        parsed.entry_value
+    )
+    module: mir.mir_lower_numeric_count_to_loop_typed_module(application)
+    maxima: validation.machine_ir_numeric_count_to_loop_stack_maxima(
+        parsed.function_name,
+        parsed.parameter_name,
+        parsed.local_name,
+        parsed.entry_value
+    )
+    (maxima.0 = 1 /\ maxima.1 = 2)?! "numeric loop Machine IR has unexpected stack maxima"
+    module
+
 compile_tagged_module_statement(source:str, index:int):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_token_tape(

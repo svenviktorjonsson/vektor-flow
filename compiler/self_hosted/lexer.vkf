@@ -63,7 +63,7 @@ is_ident_continue(ch:str):
     is_alpha(ch) \/ is_digit(ch)
 
 is_whitespace(ch:str):
-    ch = " " \/ ch = "\t"
+    ch = " " \/ ch = "\t" \/ ch = "\r"
 
 is_newline(ch:str):
     ch = "\n"
@@ -566,6 +566,8 @@ tagged_statement_token_tape(source:str) -> TaggedTokenTape:
     _scan_tagged_statement_tokens(StringCursor(source), tagged_token_tape(source), 0)
 
 _tagged_function_punctuation_kind(ch:str) -> int:
+    ch = "+"?
+        @: 2
     ch = "("?
         @: 13
     ch = ")"?
@@ -578,6 +580,8 @@ _tagged_function_punctuation_kind(ch:str) -> int:
         @: 7
     ch = ">"?
         @: 17
+    ch = "<"?
+        @: 21
     ch = "?"?
         @: 18
     ch = "@"?
