@@ -70,6 +70,7 @@ TaggedNumericLoopCall: (
     local_name:str,
     entry_value:num
 )
+TaggedImportOnlyModule: (alias_name:str, module_name:str)
 DottedIndexNode: (kind:str, base:any, indices:any, span:Span)
 MatchArmNode: (kind:str, condition:any, body:any)
 MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bit, catch:bit)
@@ -594,6 +595,19 @@ parse_tagged_numeric_count_to_loop(
         local_name:local_name,
         entry_value:entry_value
     )
+
+parse_tagged_import_only_module(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedImportOnlyModule:
+    (token_count = 6)?! "import-only source has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 16 /\ token_rows.(18) = 1 /\
+        token_rows.(24) = 4 /\ token_rows.(30) = 5)?!
+    str alias_name: vkf_utf8_slice(source, token_rows.(1), token_rows.(2))
+    str module_name: vkf_utf8_slice(source, token_rows.(19), token_rows.(20))
+    (alias_name = "system")?! "import-only tracer requires the system alias"
+    (module_name = "system")?! "import-only tracer requires the system module"
+    (alias_name:alias_name, module_name:module_name)
 
 parse_tagged_binding_nested_addition(
     source:str, token_rows:[num], token_count:int
