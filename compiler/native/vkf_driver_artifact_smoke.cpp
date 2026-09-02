@@ -1671,6 +1671,7 @@ vf::JsonValue::Object dispatch_internal_stage_observation(
         component != kClosedBindingPipelineComponent &&
         component != kClosedNestedAdditionPipelineComponent &&
         component != kClosedAddMultiplyPipelineComponent &&
+        component != kClosedAddSubtractPipelineComponent &&
         component != kEmptyTypedModulePipelineComponent &&
         component != kScalarBindingPipelineComponent &&
         component != kTypedModulePipelineComponent &&
