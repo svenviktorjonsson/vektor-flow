@@ -161,6 +161,7 @@ _mir_tagged_binary_kind(operator_code:num) -> str:
     operator_code??
         1 => "add_f64"
         3 => "subtract_f64"
+        4 => "multiply_f64"
         "unknown"
 
 mir_tagged_module_statement(
