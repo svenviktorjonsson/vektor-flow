@@ -29,7 +29,6 @@ native_scene:(
             receives_shadow:true
         )
     ],
-    cubes:[],
     lights:[(id:"key", kind:"point", pos:[-3, -2.8, 5.8], target:[0, 1, 1], color:[1, 0.78, 0.52, 1], intensity:38, range:20, casts_shadow:true)],
     shadow:(enabled:true, color:[0, 0, 0, 0.28], lift:0.002)
 )
