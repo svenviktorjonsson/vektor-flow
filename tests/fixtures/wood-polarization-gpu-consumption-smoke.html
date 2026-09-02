@@ -53,6 +53,9 @@
     createWoodSpectralRendererDrawPipelineReference,
   } from "../../web/vf-ui/vf-wood-spectral-renderer-pipeline.mjs";
   import {
+    createProceduralMaterialSceneFrameSchedulerReference,
+  } from "../../web/vf-ui/vf-procedural-material-scene-frame.mjs";
+  import {
     reflectGgxPolarized,
   } from "../helpers/vf-rough-polarization-reference.mjs";
 
@@ -155,61 +158,71 @@
         packetBudget: 1,
       },
     );
+    const sceneScheduler =
+      createProceduralMaterialSceneFrameSchedulerReference({
+        drawPipeline,
+        frameBudget: 2,
+        scheduleFrame: requestAnimationFrame,
+      });
     let actual;
     let reusedBinding = false;
-    try {
-      const firstDraw = drawPipeline.draw({
-        frame: 0,
-        packet: rendererPacket,
-        pipeline,
-        outputBuffer: output,
-      });
-      const firstEncoder = device.createCommandEncoder();
-      const firstPass = firstEncoder.beginComputePass();
-      firstPass.setPipeline(pipeline);
-      firstPass.setBindGroup(0, firstDraw.bindGroup);
-      firstPass.dispatchWorkgroups(1);
-      firstPass.end();
-      device.queue.submit([firstEncoder.finish()]);
+    const sceneFrames = [];
+    const submit = async (draw) => {
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, draw.bindGroup);
+      pass.dispatchWorkgroups(1);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
       await device.queue.onSubmittedWorkDone();
-
-      const secondDraw = drawPipeline.draw({
-        frame: 1,
+      return {
+        bindGroup: draw.bindGroup,
+        reusedBinding: draw.reusedBinding,
+      };
+    };
+    try {
+      const firstFrame = await sceneScheduler.requestFrame({
         packet: rendererPacket,
         pipeline,
         outputBuffer: output,
+        submit,
       });
-      reusedBinding = firstDraw.bindGroup === secondDraw.bindGroup
-        && secondDraw.reusedBinding;
+      const secondFrame = await sceneScheduler.requestFrame({
+        packet: rendererPacket,
+        pipeline,
+        outputBuffer: output,
+        submit,
+      });
+      sceneFrames.push(firstFrame.frame, secondFrame.frame);
+      reusedBinding = firstFrame.output.bindGroup
+          === secondFrame.output.bindGroup
+        && secondFrame.output.reusedBinding;
       if (!reusedBinding) {
         throw new Error("spectral draw binding was not retained");
       }
-      const secondEncoder = device.createCommandEncoder();
-      const secondPass = secondEncoder.beginComputePass();
-      secondPass.setPipeline(pipeline);
-      secondPass.setBindGroup(0, secondDraw.bindGroup);
-      secondPass.dispatchWorkgroups(1);
-      secondPass.end();
-      secondEncoder.copyBufferToBuffer(
+      const copyEncoder = device.createCommandEncoder();
+      copyEncoder.copyBufferToBuffer(
         output,
         0,
         readback,
         0,
         fixture.expected.byteLength,
       );
-      device.queue.submit([secondEncoder.finish()]);
+      device.queue.submit([copyEncoder.finish()]);
       await readback.mapAsync(GPUMapMode.READ);
       actual = new Float32Array(readback.getMappedRange().slice(0));
       readback.unmap();
     } finally {
-      drawPipeline.destroy();
+      sceneScheduler.destroy();
       output.destroy();
       readback.destroy();
     }
     return {
       actual,
-      lifetime: drawPipeline.snapshot(),
+      lifetime: sceneScheduler.snapshot(),
       reusedBinding,
+      sceneFrames,
     };
   }
 
@@ -369,6 +382,7 @@
         rendererTriangleCount: rendererPacket.triangleCount,
         rendererGpuLifetime: bundledRun.lifetime,
         rendererBindingReused: bundledRun.reusedBinding,
+        rendererSceneFrames: bundledRun.sceneFrames,
       };
     } finally {
       input.destroy();
