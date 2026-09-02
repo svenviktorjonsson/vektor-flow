@@ -47,11 +47,6 @@ inline const ModuleDescriptor* find(std::string_view path) {
     return nullptr;
 }
 
-inline bool native_release_available(std::string_view path) {
-    const auto* module = find(path);
-    return module != nullptr && module->native_release;
-}
-
 inline bool known_but_unavailable(std::string_view path) {
     const auto* module = find(path);
     return module != nullptr && !module->native_release;
