@@ -48,6 +48,9 @@
     createProceduralMaterialSceneFrameSchedulerReference,
   } from "../../web/vf-ui/vf-procedural-material-scene-frame.mjs";
   import {
+    captureProceduralMaterialSceneFrameReference,
+  } from "../../web/vf-ui/vf-procedural-material-scene-capture.mjs";
+  import {
     reflectGgxPolarized,
   } from "../helpers/vf-rough-polarization-reference.mjs";
 
@@ -157,6 +160,7 @@
         scheduleFrame: requestAnimationFrame,
       });
     let actual;
+    let releasedFrame;
     let reusedBinding = false;
     const sceneFrames = [];
     const submit = async (draw) => {
@@ -186,6 +190,7 @@
         outputBuffer: output,
         submit,
       });
+      releasedFrame = secondFrame;
       sceneFrames.push(firstFrame.frame, secondFrame.frame);
       reusedBinding = firstFrame.output.bindGroup
           === secondFrame.output.bindGroup
@@ -213,6 +218,7 @@
     return {
       actual,
       lifetime: sceneScheduler.snapshot(),
+      releasedFrame,
       reusedBinding,
       sceneFrames,
     };
@@ -353,6 +359,22 @@
       if (!bundledParity.matched) {
         throw new Error(JSON.stringify(bundledParity));
       }
+      const captureOptions = { width: 4, height: 4 };
+      const firstCapture =
+        await captureProceduralMaterialSceneFrameReference(
+          bundledRun.releasedFrame,
+          presentation,
+          captureOptions,
+        );
+      const repeatCapture =
+        await captureProceduralMaterialSceneFrameReference(
+          bundledRun.releasedFrame,
+          presentation,
+          captureOptions,
+        );
+      if (firstCapture.sha256 !== repeatCapture.sha256) {
+        throw new Error("procedural material capture was not repeatable");
+      }
       return {
         outcome: "pass",
         detail: `${parity.records} spectral records matched`,
@@ -373,6 +395,18 @@
         rendererGpuLifetime: bundledRun.lifetime,
         rendererBindingReused: bundledRun.reusedBinding,
         rendererSceneFrames: bundledRun.sceneFrames,
+        rendererCapture: {
+          kind: firstCapture.kind,
+          mimeType: firstCapture.mimeType,
+          width: firstCapture.width,
+          height: firstCapture.height,
+          byteLength: firstCapture.byteLength,
+          sha256: firstCapture.sha256,
+          repeatSha256: repeatCapture.sha256,
+          linearHdrRgb: firstCapture.linearHdrRgb,
+          displayLinearRgb: firstCapture.displayLinearRgb,
+          exposureStops: firstCapture.exposureStops,
+        },
       };
     } finally {
       input.destroy();
