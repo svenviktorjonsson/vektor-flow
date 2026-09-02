@@ -454,11 +454,24 @@ _compile_printed_dynamic_power_expression_x64(
     )
     template_prefix & "j" & left_immediate & "j" & right_immediate & power_tail
 
-_compile_x64_bounded_immediate(value:num) -> str:
+_compile_x64_byte(value:num) -> str:
     (value >= 0 /\ value <= 127)?
         @: str(chr(value))
-    false?! "x64 tracer immediate is outside the locked byte range"
+    false?! "x64 tracer byte requires raw-byte construction"
     ""
+
+_compile_x64_positive_immediate(value:num) -> str:
+    (value >= 0 /\ value <= 2147483647)?! "x64 tracer positive immediate is outside imm32"
+    value <= 127?
+        @: "j" & _compile_x64_byte(value)
+    byte0: value % 256
+    byte1: (value // 256) % 256
+    byte2: (value // 65536) % 256
+    byte3: (value // 16777216) % 256
+    (
+        "h" & _compile_x64_byte(byte0) & _compile_x64_byte(byte1) &
+        _compile_x64_byte(byte2) & _compile_x64_byte(byte3)
+    )
 
 _compile_printed_dynamic_mixed_expression_x64(
     source:str,
@@ -475,7 +488,7 @@ _compile_printed_dynamic_mixed_expression_x64(
     (index < statement.opcodes.length())?>
         .code: statement.opcodes.(index)
         code = 1?
-            .body: body & "j" & _compile_x64_bounded_immediate(
+            .body: body & _compile_x64_positive_immediate(
                 statement.values.(index)
             )
         code = 2?
@@ -508,7 +521,7 @@ _compile_printed_dynamic_integer_tape_x64(
     (index < statement.opcodes.length())?>
         .code: statement.opcodes.(index)
         code = 1?
-            .body: body & "j" & _compile_x64_bounded_immediate(
+            .body: body & _compile_x64_positive_immediate(
                 statement.values.(index)
             )
         code = 2?
