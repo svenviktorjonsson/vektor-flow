@@ -454,6 +454,47 @@ _compile_printed_dynamic_power_expression_x64(
     )
     template_prefix & "j" & left_immediate & "j" & right_immediate & power_tail
 
+_compile_x64_printable_immediate(value:num) -> str:
+    (value >= 40 /\ value <= 47)?
+        @: vkf_utf8_slice("()*+,-./", value - 40, value - 39)
+    (value >= 48 /\ value <= 57)?
+        @: vkf_utf8_slice("0123456789", value - 48, value - 47)
+    (value >= 58 /\ value <= 64)?
+        @: vkf_utf8_slice(":;<=>?@", value - 58, value - 57)
+    (value >= 65 /\ value <= 90)?
+        @: vkf_utf8_slice("ABCDEFGHIJKLMNOPQRSTUVWXYZ", value - 65, value - 64)
+    false?! "x64 tracer immediate is outside the locked printable range"
+    ""
+
+_compile_printed_dynamic_mixed_expression_x64(
+    source:str,
+    template_prefix:str,
+    addition_code:str,
+    multiplication_code:str,
+    print_tail:str
+) -> str:
+    statement: compile_tagged_printed_dynamic_mixed_arithmetic(source)
+    (statement.max_stack = 3)?! "mixed x64 tracer stack maximum changed"
+    str body: ""
+    index: 0
+    code: 0
+    (index < statement.opcodes.length())?>
+        .code: statement.opcodes.(index)
+        code = 1?
+            .body: body & "j" & _compile_x64_printable_immediate(
+                statement.values.(index)
+            )
+        code = 2?
+            .body: body & addition_code
+        code = 5?
+            .body: body & multiplication_code
+        code = 3?
+            (index + 1 = statement.opcodes.length())?! "mixed x64 tracer print must terminate the tape"
+            .body: body & print_tail
+        (code = 1 \/ code = 2 \/ code = 3 \/ code = 5)?! "mixed x64 tracer encountered an unsupported opcode"
+        .index+: 1
+    template_prefix & body
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(
