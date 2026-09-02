@@ -533,9 +533,7 @@ test(
   assert.match(html, /vf_wood_polarization_consume/u);
   assert.match(html, /mapAsync\(GPUMapMode\.READ\)/u);
   assert.match(html, /verifyWoodPolarizationGpuConsumption/u);
-  assert.match(html, /integrateWoodPolarizationVisibleReference/u);
-  assert.match(html, /presentWoodPolarizationVisibleReference/u);
-  assert.match(html, /createWoodSpectralPresentationGpuDescriptorReference/u);
+  assert.match(html, /lowerProceduralWoodSpectralRendererReference/u);
   assert.match(html, /createWoodSpectralRendererDrawPipelineReference/u);
   assert.match(html, /createProceduralMaterialSceneFrameSchedulerReference/u);
   assert.match(html, /__woodPolarizationGpuEvidence/u);

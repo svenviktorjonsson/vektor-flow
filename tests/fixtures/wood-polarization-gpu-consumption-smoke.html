@@ -18,9 +18,8 @@
     createWoodVolumeFieldReference,
   } from "../../web/vf-ui/vf-wood-volume-field.mjs";
   import {
-    adaptWoodCutMaterialToTriangleFacesReference,
-    attachWoodSpectralPresentationGpuReference,
-  } from "../../web/vf-ui/vf-wood-material-renderer-packet.mjs";
+    lowerProceduralWoodSpectralRendererReference,
+  } from "../../web/vf-ui/vf-procedural-wood-spectral-lowering.mjs";
   import {
     packWoodCutPlaneGridReference,
   } from "../../web/vf-ui/vf-wood-cut-plane-grid.mjs";
@@ -39,14 +38,7 @@
     verifyWoodPolarizationGpuConsumption,
   } from "../../web/vf-ui/vf-wood-polarization-gpu.mjs";
   import {
-    integrateWoodPolarizationVisibleReference,
-  } from "../../web/vf-ui/vf-wood-polarization-visible.mjs";
-  import {
-    presentWoodPolarizationVisibleReference,
-  } from "../../web/vf-ui/vf-wood-polarization-presentation.mjs";
-  import {
     createWoodSpectralPresentationGpuConsumptionFixture,
-    createWoodSpectralPresentationGpuDescriptorReference,
     verifyWoodSpectralPresentationGpuConsumption,
   } from "../../web/vf-ui/vf-wood-spectral-presentation-gpu.mjs";
   import {
@@ -330,24 +322,21 @@
       if (!parity.matched) {
         throw new Error(JSON.stringify(parity));
       }
-      const visible = integrateWoodPolarizationVisibleReference(
-        descriptor,
-        actual,
-      );
-      const presentation = presentWoodPolarizationVisibleReference(
-        visible,
-        { exposureStops: 1.0 },
-      );
-      const bundled = createWoodSpectralPresentationGpuDescriptorReference(
-        descriptor,
-        presentation,
-      );
-      const rendererPacket = attachWoodSpectralPresentationGpuReference(
-        adaptWoodCutMaterialToTriangleFacesReference(material, {
+      const lowering = lowerProceduralWoodSpectralRendererReference(
+        material,
+        {
+          polarization: descriptor,
+          polarizationGpuOutput: actual,
+          exposureStops: 1.0,
           triangleBudget: 8,
-        }),
-        bundled,
+        },
       );
+      const {
+        visible,
+        presentation,
+        descriptor: bundled,
+        rendererPacket,
+      } = lowering;
       const bundledFixture =
         createWoodSpectralPresentationGpuConsumptionFixture(
           rendererPacket.wood_spectral_presentation_gpu,
@@ -379,6 +368,7 @@
         maxSampleEnergyError: visible.maxSampleEnergyError,
         bundledBytes: bundled.byteLength,
         bundledMaxAbsoluteError: bundledParity.maxAbsoluteError,
+        rendererLoweringKind: lowering.kind,
         rendererTriangleCount: rendererPacket.triangleCount,
         rendererGpuLifetime: bundledRun.lifetime,
         rendererBindingReused: bundledRun.reusedBinding,
