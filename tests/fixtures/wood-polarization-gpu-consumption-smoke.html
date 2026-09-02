@@ -38,6 +38,9 @@
     integrateWoodPolarizationVisibleReference,
   } from "../../web/vf-ui/vf-wood-polarization-visible.mjs";
   import {
+    presentWoodPolarizationVisibleReference,
+  } from "../../web/vf-ui/vf-wood-polarization-presentation.mjs";
+  import {
     reflectGgxPolarized,
   } from "../helpers/vf-rough-polarization-reference.mjs";
 
@@ -207,6 +210,10 @@
         descriptor,
         actual,
       );
+      const presentation = presentWoodPolarizationVisibleReference(
+        visible,
+        { exposureStops: 1.0 },
+      );
       return {
         outcome: "pass",
         detail: `${parity.records} spectral records matched`,
@@ -215,6 +222,8 @@
         roughness: descriptor.floats[3],
         infraredRgb: Array.from(actual.slice(16, 19)),
         linearRgb: visible.color.linearRgb,
+        linearHdrRgb: presentation.linearHdrRgb,
+        displayLinearRgb: presentation.displayLinearRgb,
         reflectedInfraredRadianceIntegral:
           visible.reflectedInfraredRadianceIntegral,
         maxSampleEnergyError: visible.maxSampleEnergyError,

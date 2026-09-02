@@ -16,6 +16,9 @@ import {
   integrateWoodPolarizationVisibleReference,
 } from "../../web/vf-ui/vf-wood-polarization-visible.mjs";
 import {
+  presentWoodPolarizationVisibleReference,
+} from "../../web/vf-ui/vf-wood-polarization-presentation.mjs";
+import {
   reflectGgxPolarized,
 } from "../helpers/vf-rough-polarization-reference.mjs";
 import {
@@ -335,6 +338,77 @@ test("polarized wood GPU records integrate to passive visible color", () => {
   );
 });
 
+test("wood spectral HDR is tone mapped only for presentation", () => {
+  const material = generatedWoodMaterial();
+  const sample = evaluateWoodCutPolarizedSampleReference(material, {
+    sampleIndex: 4,
+    wavelengthsNm: [450, 600, 850],
+    wavelengthBudget: 3,
+    opticalConstants,
+    incidentStokes: [1.0, 1.0, 0.0, 0.0],
+    nIncident: 1.0,
+    geometricCosThetaIncident: 0.65,
+    microfacetSampleCount: 128,
+    polarizationTransport: reflectGgxPolarized,
+  });
+  const descriptor = createWoodPolarizationGpuDescriptorReference(
+    sample,
+    { spectralSampleBudget: 3 },
+  );
+  const gpu = createWoodPolarizationGpuConsumptionFixture(descriptor);
+  const visible = integrateWoodPolarizationVisibleReference(
+    descriptor,
+    gpu.expected,
+  );
+  const base = presentWoodPolarizationVisibleReference(
+    visible,
+    { exposureStops: 0.0 },
+  );
+  const brighter = presentWoodPolarizationVisibleReference(
+    visible,
+    { exposureStops: 2.0 },
+  );
+
+  assert.strictEqual(base.sourceVisible, visible);
+  assert.deepEqual(base.linearHdrRgb, visible.color.unclippedLinearRgb);
+  assert.notStrictEqual(base.displayLinearRgb, base.linearHdrRgb);
+  for (let channel = 0; channel < 3; channel += 1) {
+    assert.ok(Number.isFinite(base.displayLinearRgb[channel]));
+    assert.ok(base.displayLinearRgb[channel] >= 0.0);
+    assert.ok(base.displayLinearRgb[channel] < 1.0);
+    assert.ok(
+      brighter.displayLinearRgb[channel]
+        >= base.displayLinearRgb[channel],
+    );
+  }
+
+  const neutral = presentWoodPolarizationVisibleReference({
+    color: { unclippedLinearRgb: [4.0, 4.0, 4.0] },
+  }, { exposureStops: 0.0 });
+  assert.equal(neutral.displayLinearRgb[0], neutral.displayLinearRgb[1]);
+  assert.equal(neutral.displayLinearRgb[1], neutral.displayLinearRgb[2]);
+
+  const colored = presentWoodPolarizationVisibleReference({
+    color: { unclippedLinearRgb: [4.0, 2.0, 1.0] },
+  }, { exposureStops: 0.0 });
+  assert.equal(
+    colored.displayLinearRgb[0] / colored.displayLinearRgb[1],
+    2.0,
+  );
+  assert.equal(
+    colored.displayLinearRgb[1] / colored.displayLinearRgb[2],
+    2.0,
+  );
+
+  const highlight = presentWoodPolarizationVisibleReference({
+    color: { unclippedLinearRgb: [-0.25, 1.0e12, 5.0e11] },
+  }, { exposureStops: 16.0 });
+  assert.deepEqual(highlight.linearHdrRgb, [-0.25, 1.0e12, 5.0e11]);
+  assert.equal(highlight.displayLinearRgb[0], 0.0);
+  assert.ok(highlight.displayLinearRgb.every(Number.isFinite));
+  assert.ok(highlight.displayLinearRgb.every((channel) => channel < 1.0));
+});
+
 test(
   "headless fixture consumes polarized wood records through WebGPU",
   async () => {
@@ -350,6 +424,7 @@ test(
   assert.match(html, /mapAsync\(GPUMapMode\.READ\)/u);
   assert.match(html, /verifyWoodPolarizationGpuConsumption/u);
   assert.match(html, /integrateWoodPolarizationVisibleReference/u);
+  assert.match(html, /presentWoodPolarizationVisibleReference/u);
   assert.match(html, /__woodPolarizationGpuEvidence/u);
   },
 );
