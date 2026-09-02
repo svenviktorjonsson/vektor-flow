@@ -43,6 +43,10 @@ import {
   createWoodVolumeFieldReference,
 } from "../../web/vf-ui/vf-wood-volume-field.mjs";
 import {
+  adaptWoodCutMaterialToTriangleFacesReference,
+  attachWoodSpectralPresentationGpuReference,
+} from "../../web/vf-ui/vf-wood-material-renderer-packet.mjs";
+import {
   packWoodCutPlaneGridReference,
 } from "../../web/vf-ui/vf-wood-cut-plane-grid.mjs";
 import {
@@ -445,8 +449,14 @@ test("versioned spectral presentation descriptor preserves GPU schema", () => {
     wood,
     presentation,
   );
-  const fixture = createWoodSpectralPresentationGpuConsumptionFixture(
+  const rendererPacket = attachWoodSpectralPresentationGpuReference(
+    adaptWoodCutMaterialToTriangleFacesReference(material, {
+      triangleBudget: 8,
+    }),
     descriptor,
+  );
+  const fixture = createWoodSpectralPresentationGpuConsumptionFixture(
+    rendererPacket.wood_spectral_presentation_gpu,
   );
   const verified = verifyWoodSpectralPresentationGpuConsumption(
     fixture,
@@ -459,6 +469,12 @@ test("versioned spectral presentation descriptor preserves GPU schema", () => {
   assert.equal(descriptor.basisRecordCount, 81);
   assert.equal(descriptor.woodOffsetVec4, 84);
   assert.equal(descriptor.byteLength, descriptor.floats.byteLength);
+  assert.strictEqual(rendererPacket.sourceMaterial, material);
+  assert.strictEqual(rendererPacket.positions, material.positions);
+  assert.strictEqual(
+    rendererPacket.wood_spectral_presentation_gpu,
+    descriptor,
+  );
   assert.deepEqual(
     descriptor.floats.slice(
       descriptor.woodOffsetFloats,
@@ -483,6 +499,23 @@ test("versioned spectral presentation descriptor preserves GPU schema", () => {
   assert.throws(
     () => createWoodSpectralPresentationGpuConsumptionFixture(corrupted),
     /version/u,
+  );
+  const mismatched = {
+    ...descriptor,
+    sourceWood: {
+      ...wood,
+      sourceSample: {
+        ...sample,
+        sourceMaterial: generatedWoodMaterial(),
+      },
+    },
+  };
+  assert.throws(
+    () => attachWoodSpectralPresentationGpuReference(
+      rendererPacket,
+      mismatched,
+    ),
+    /must match renderer material/u,
   );
 });
 

@@ -18,6 +18,10 @@
     createWoodVolumeFieldReference,
   } from "../../web/vf-ui/vf-wood-volume-field.mjs";
   import {
+    adaptWoodCutMaterialToTriangleFacesReference,
+    attachWoodSpectralPresentationGpuReference,
+  } from "../../web/vf-ui/vf-wood-material-renderer-packet.mjs";
+  import {
     packWoodCutPlaneGridReference,
   } from "../../web/vf-ui/vf-wood-cut-plane-grid.mjs";
   import {
@@ -291,8 +295,16 @@
         descriptor,
         presentation,
       );
+      const rendererPacket = attachWoodSpectralPresentationGpuReference(
+        adaptWoodCutMaterialToTriangleFacesReference(material, {
+          triangleBudget: 8,
+        }),
+        bundled,
+      );
       const bundledFixture =
-        createWoodSpectralPresentationGpuConsumptionFixture(bundled);
+        createWoodSpectralPresentationGpuConsumptionFixture(
+          rendererPacket.wood_spectral_presentation_gpu,
+        );
       const bundledActual = await consumeSpectralPresentation(
         device,
         bundledFixture,
@@ -319,6 +331,7 @@
         maxSampleEnergyError: visible.maxSampleEnergyError,
         bundledBytes: bundled.byteLength,
         bundledMaxAbsoluteError: bundledParity.maxAbsoluteError,
+        rendererTriangleCount: rendererPacket.triangleCount,
       };
     } finally {
       input.destroy();

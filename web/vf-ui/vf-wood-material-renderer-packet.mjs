@@ -127,6 +127,41 @@ export function adaptWoodCutMaterialToTriangleFacesReference(
   return packet;
 }
 
+export function attachWoodSpectralPresentationGpuReference(
+  packet,
+  descriptor,
+) {
+  if (
+    packet?.kind !== 'wood-cut-material-triangle-packet:v1'
+    || !(packet.positions instanceof Float32Array)
+    || !(packet.indices instanceof Uint32Array)
+  ) {
+    throw new TypeError('wood cut material triangle packet is required');
+  }
+  if (
+    descriptor?.kind !== 'wood-spectral-presentation-gpu:v1'
+    || descriptor.version !== 1
+    || !(descriptor.floats instanceof Float32Array)
+    || descriptor.byteLength !== descriptor.floats.byteLength
+  ) {
+    throw new TypeError(
+      'wood spectral presentation GPU descriptor is required',
+    );
+  }
+  if (
+    descriptor.sourceWood?.sourceSample?.sourceMaterial
+      !== packet.sourceMaterial
+  ) {
+    throw new RangeError(
+      'wood spectral presentation must match renderer material',
+    );
+  }
+  return Object.freeze({
+    ...packet,
+    wood_spectral_presentation_gpu: descriptor,
+  });
+}
+
 function normalize(vector) {
   const length = Math.hypot(...vector);
   return vector.map((component) => component / length);
