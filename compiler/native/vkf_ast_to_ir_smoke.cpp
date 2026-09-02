@@ -5394,6 +5394,26 @@ private:
             }
             const std::string left_element = dynamic_list_element_type(left_type);
             const std::string right_element = dynamic_list_element_type(right_type);
+            if (shaped_vector(left_type, left_shaped_element, left_shape) &&
+                !right_element.empty()) {
+                if (type_name_coercible(left_shaped_element, right_element)) {
+                    return right_type;
+                }
+                if (type_name_coercible(right_element, left_shaped_element)) {
+                    return "list<" + left_shaped_element + ">";
+                }
+                return "list<any>";
+            }
+            if (!left_element.empty() &&
+                shaped_vector(right_type, right_shaped_element, right_shape)) {
+                if (type_name_coercible(right_shaped_element, left_element)) {
+                    return left_type;
+                }
+                if (type_name_coercible(left_element, right_shaped_element)) {
+                    return "list<" + right_shaped_element + ">";
+                }
+                return "list<any>";
+            }
             if (!left_element.empty() && !right_element.empty()) {
                 std::string element = merge_nullable_type(left_element, right_element);
                 if ((left_element == "int" && right_element == "num") ||

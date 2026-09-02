@@ -16,6 +16,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -89,10 +90,13 @@ enum class ValueKind : std::uint8_t {
     Range,
 };
 
+struct ValueLayout;
+
 struct ValueSlice {
     std::uint32_t offset = 0;
     std::uint32_t width = 1;
     ValueKind kind = ValueKind::Numeric;
+    std::shared_ptr<ValueLayout> dynamic_element;
 };
 
 // Layouts are immutable after construction in almost every lowering path, but
@@ -145,7 +149,16 @@ struct ValueLayout {
     std::uint32_t width = 1;
     ValueKind kind = ValueKind::Numeric;
     SelectorMap selectors;
+    std::shared_ptr<ValueLayout> dynamic_element;
 };
+
+inline ValueLayout dynamic_list_layout(ValueLayout element = {}) {
+    ValueLayout layout{1, ValueKind::DynamicF64List, {}};
+    if (element.width == 1 && element.kind == ValueKind::Numeric &&
+        element.selectors.empty()) return layout;
+    layout.dynamic_element = std::make_shared<ValueLayout>(std::move(element));
+    return layout;
+}
 
 enum class DisplayKind : std::uint8_t {
     F64,
@@ -277,6 +290,10 @@ inline void append_display_tokens(
 inline bool same_layout(const ValueLayout& left, const ValueLayout& right) {
     if (left.width != right.width || left.kind != right.kind ||
         left.selectors.size() != right.selectors.size()) return false;
+    if (static_cast<bool>(left.dynamic_element) !=
+        static_cast<bool>(right.dynamic_element)) return false;
+    if (left.dynamic_element &&
+        !same_layout(*left.dynamic_element, *right.dynamic_element)) return false;
     if (left.selectors.shares_storage(right.selectors)) return true;
     auto left_field = left.selectors.begin();
     auto right_field = right.selectors.begin();
@@ -285,6 +302,11 @@ inline bool same_layout(const ValueLayout& left, const ValueLayout& right) {
             left_field->second.offset != right_field->second.offset ||
             left_field->second.width != right_field->second.width ||
             left_field->second.kind != right_field->second.kind) return false;
+        if (static_cast<bool>(left_field->second.dynamic_element) !=
+            static_cast<bool>(right_field->second.dynamic_element)) return false;
+        if (left_field->second.dynamic_element &&
+            !same_layout(*left_field->second.dynamic_element,
+                         *right_field->second.dynamic_element)) return false;
     }
     return true;
 }
@@ -458,11 +480,13 @@ inline ValueLayout record_field_layout(
     const ValueSlice& slice
 ) {
     ValueLayout result{slice.width, slice.kind, {}};
+    result.dynamic_element = slice.dynamic_element;
     const std::string prefix = name + ".";
     for (const auto& [child, nested] : record.selectors) {
         if (child.rfind(prefix, 0) != 0) continue;
         result.selectors[child.substr(prefix.size())] = {
-            nested.offset - slice.offset, nested.width, nested.kind
+            nested.offset - slice.offset, nested.width, nested.kind,
+            nested.dynamic_element
         };
     }
     return result;
@@ -492,10 +516,12 @@ inline void assign_record_field_layout(
     record.kind = ValueKind::Aggregate;
     record.selectors.clear();
     for (const auto& [field_name, layout] : fields) {
-        record.selectors[field_name] = {record.width, layout.width, layout.kind};
+        record.selectors[field_name] = {
+            record.width, layout.width, layout.kind, layout.dynamic_element};
         for (const auto& [child, slice] : layout.selectors) {
             record.selectors[field_name + "." + child] = {
-                record.width + slice.offset, slice.width, slice.kind
+                record.width + slice.offset, slice.width, slice.kind,
+                slice.dynamic_element
             };
         }
         record.width += layout.width;
@@ -649,6 +675,15 @@ inline bool has_sparse_fixed_placeholder(const ValueLayout& layout) {
 }
 
 inline void merge_inferred_layout(ValueLayout& current, const ValueLayout& candidate) {
+    if (current.kind == ValueKind::DynamicF64List &&
+        candidate.kind == ValueKind::DynamicF64List) {
+        if (!current.dynamic_element) {
+            current.dynamic_element = candidate.dynamic_element;
+        } else if (candidate.dynamic_element) {
+            merge_inferred_layout(*current.dynamic_element, *candidate.dynamic_element);
+        }
+        return;
+    }
     if (is_record_layout(candidate)) {
         if (!is_record_layout(current)) {
             current.width = 0;
@@ -1496,10 +1531,13 @@ inline ValueLayout indexed_layout(const std::vector<ValueLayout>& elements) {
     layout.kind = ValueKind::Aggregate;
     for (std::size_t index = 0; index < elements.size(); ++index) {
         const std::string key = std::to_string(index);
-        layout.selectors[key] = {layout.width, elements[index].width, elements[index].kind};
+        layout.selectors[key] = {
+            layout.width, elements[index].width, elements[index].kind,
+            elements[index].dynamic_element};
         for (const auto& [child, slice] : elements[index].selectors) {
             layout.selectors[key + "." + child] = {
-                layout.width + slice.offset, slice.width, slice.kind
+                layout.width + slice.offset, slice.width, slice.kind,
+                slice.dynamic_element
             };
         }
         layout.width += elements[index].width;
@@ -1709,15 +1747,11 @@ inline ValueLayout layout_from_type(
                 return indexed_layout(elements);
             }
         }
-        if (inside == "num" || inside == "int" || inside == "f32" || inside == "f64") {
-            return {1, ValueKind::DynamicF64List, {}};
-        }
+        return dynamic_list_layout(layout_from_type(inside, signatures));
     }
     if (type.rfind("list<", 0) == 0 && type.back() == '>') {
         const std::string element = trim(type.substr(5, type.size() - 6));
-        if (element == "num" || element == "int" || element == "f32" || element == "f64") {
-            return {1, ValueKind::DynamicF64List, {}};
-        }
+        return dynamic_list_layout(layout_from_type(element, signatures));
     }
     if (type == "queue<num>" || type == "queue<int>" ||
         type == "queue<f32>" || type == "queue<f64>") {
@@ -1744,10 +1778,13 @@ inline ValueLayout layout_from_type(
             if (colon == std::string::npos) return {};
             const std::string field_name = trim(item.substr(0, colon));
             const auto field_layout = layout_from_type(item.substr(colon + 1), signatures);
-            layout.selectors[field_name] = {layout.width, field_layout.width, field_layout.kind};
+            layout.selectors[field_name] = {
+                layout.width, field_layout.width, field_layout.kind,
+                field_layout.dynamic_element};
             for (const auto& [child, slice] : field_layout.selectors) {
                 layout.selectors[field_name + "." + child] = {
-                    layout.width + slice.offset, slice.width, slice.kind
+                    layout.width + slice.offset, slice.width, slice.kind,
+                    slice.dynamic_element
                 };
             }
             layout.width += field_layout.width;
@@ -2273,11 +2310,8 @@ inline ValueLayout layout_from_expression_shape(
     if (kind == "list" || kind == "tuple") {
         const auto type = expression.find("type");
         if (kind == "list" && type != expression.end() && type->second.is_string()) {
-            if (is_explicit_dynamic_f64_list_type(type->second.as_string()) ||
-                (type->second.as_string() == "list<any>" &&
-                 array_of(field(expression, "items", "list"), "list items").empty())) {
-                return {1, ValueKind::DynamicF64List, {}};
-            }
+            const auto declared = layout_from_type(type->second.as_string(), &signatures);
+            if (declared.kind == ValueKind::DynamicF64List) return declared;
         }
         std::vector<ValueLayout> elements;
         for (const auto& value : array_of(field(expression, "items", kind), kind + " items")) {
@@ -2304,12 +2338,14 @@ inline ValueLayout layout_from_expression_shape(
             const auto value_layout = layout_from_expression_shape(
                 object_of(field(record_field, "value", "record field"), "record field value"), signatures);
             layout.selectors[string_field(record_field, "name", "record field")] = {
-                layout.width, value_layout.width, value_layout.kind
+                layout.width, value_layout.width, value_layout.kind,
+                value_layout.dynamic_element
             };
             const std::string field_name = string_field(record_field, "name", "record field");
             for (const auto& [child, slice] : value_layout.selectors) {
                 layout.selectors[field_name + "." + child] = {
-                    layout.width + slice.offset, slice.width, slice.kind
+                    layout.width + slice.offset, slice.width, slice.kind,
+                    slice.dynamic_element
                 };
             }
             layout.width += value_layout.width;
@@ -2347,11 +2383,13 @@ inline ValueLayout layout_from_expression_shape(
                         break;
                     }
                     result.selectors[name] = {
-                        result.width, field_layout.width, field_layout.kind
+                        result.width, field_layout.width, field_layout.kind,
+                        field_layout.dynamic_element
                     };
                     for (const auto& [child, slice] : field_layout.selectors) {
                         result.selectors[name + "." + child] = {
-                            result.width + slice.offset, slice.width, slice.kind
+                            result.width + slice.offset, slice.width, slice.kind,
+                            slice.dynamic_element
                         };
                     }
                     result.width += field_layout.width;
@@ -2431,7 +2469,11 @@ inline ValueLayout layout_from_expression_shape(
         if (string_field(expression, "op", "binary expression") == "AMPERSAND" &&
             ((left.kind == ValueKind::DynamicF64List && right.kind == ValueKind::Aggregate) ||
              (right.kind == ValueKind::DynamicF64List && left.kind == ValueKind::Aggregate))) {
-            return {1, ValueKind::DynamicF64List, {}};
+            const auto& fixed = left.kind == ValueKind::Aggregate ? left : right;
+            const auto elements = indexed_element_layouts(fixed);
+            return elements.empty()
+                ? (left.kind == ValueKind::DynamicF64List ? left : right)
+                : dynamic_list_layout(elements.front());
         }
         if (string_field(expression, "op", "binary expression") == "AMPERSAND" &&
             left.kind == right.kind &&
@@ -2645,8 +2687,10 @@ inline ValueLayout layout_from_environment_expression_shape(
         const auto& indices = array_of(
             field(expression, "indices", "environment index"), "environment indices");
         if (source.kind == ValueKind::DynamicF64List) {
-            if (indices.size() <= 1) return {};
-            return indexed_layout(std::vector<ValueLayout>(indices.size(), ValueLayout{}));
+            const ValueLayout element = source.dynamic_element
+                ? *source.dynamic_element : ValueLayout{};
+            if (indices.size() <= 1) return element;
+            return indexed_layout(std::vector<ValueLayout>(indices.size(), element));
         }
         std::size_t expanded_index_count = indices.size();
         const auto expanded_count = expression.find("expanded_index_count");
@@ -2730,11 +2774,9 @@ inline ValueLayout layout_from_environment_expression_shape(
     }
     if (kind == "list" || kind == "tuple") {
         const auto declared = expression.find("type");
-        if (kind == "list" && declared != expression.end() && declared->second.is_string() &&
-            (is_explicit_dynamic_f64_list_type(declared->second.as_string()) ||
-             (declared->second.as_string() == "list<any>" &&
-              array_of(field(expression, "items", "list"), "list items").empty()))) {
-            return {1, ValueKind::DynamicF64List, {}};
+        if (kind == "list" && declared != expression.end() && declared->second.is_string()) {
+            const auto layout = layout_from_type(declared->second.as_string(), &signatures);
+            if (layout.kind == ValueKind::DynamicF64List) return layout;
         }
         std::vector<ValueLayout> elements;
         for (const auto& value : array_of(field(expression, "items", kind), kind + " items")) {
@@ -2880,12 +2922,16 @@ inline ValueLayout layout_from_environment_expression_shape(
         }
         if (op == "AMPERSAND" && left.kind == ValueKind::DynamicF64List &&
             right.kind == ValueKind::DynamicF64List) {
-            return {1, ValueKind::DynamicF64List, {}};
+            return left.dynamic_element ? left : right;
         }
         if (op == "AMPERSAND" &&
             ((left.kind == ValueKind::DynamicF64List && right.kind == ValueKind::Aggregate) ||
              (right.kind == ValueKind::DynamicF64List && left.kind == ValueKind::Aggregate))) {
-            return {1, ValueKind::DynamicF64List, {}};
+            const auto& fixed = left.kind == ValueKind::Aggregate ? left : right;
+            const auto elements = indexed_element_layouts(fixed);
+            return elements.empty()
+                ? (left.kind == ValueKind::DynamicF64List ? left : right)
+                : dynamic_list_layout(elements.front());
         }
         if (op == "AMPERSAND" && left.kind == ValueKind::Aggregate &&
             right.kind == ValueKind::Aggregate && !is_record_layout(left) &&
@@ -4087,7 +4133,8 @@ inline void emit_store_binding(
             if (slice.offset < value_layout.width ||
                 field_name.find('.') != std::string::npos) continue;
             extension.selectors[field_name] = {
-                slice.offset - value_layout.width, slice.width, slice.kind
+                slice.offset - value_layout.width, slice.width, slice.kind,
+                slice.dynamic_element
             };
         }
         emit_default_value(builder, extension, strings);
@@ -4160,11 +4207,13 @@ inline ValueLayout projected_layout(
     ValueLayout result;
     result.width = selected.width;
     result.kind = selected.kind;
+    result.dynamic_element = selected.dynamic_element;
     const std::string prefix = path + ".";
     for (const auto& [name, slice] : source.selectors) {
         if (name.rfind(prefix, 0) == 0) {
             result.selectors[name.substr(prefix.size())] = {
-                slice.offset - selected.offset, slice.width, slice.kind
+                slice.offset - selected.offset, slice.width, slice.kind,
+                slice.dynamic_element
             };
         }
     }
@@ -4404,9 +4453,8 @@ inline bool expression_produces_owned_f64_list(
     if (kind == "list") {
         const auto type = expression.find("type");
         return type != expression.end() && type->second.is_string() &&
-            (is_explicit_dynamic_f64_list_type(type->second.as_string()) ||
-             (type->second.as_string() == "list<any>" &&
-              array_of(field(expression, "items", "list"), "list items").empty()));
+            layout_from_type(type->second.as_string(), &signatures).kind ==
+                ValueKind::DynamicF64List;
     }
     if (kind == "axis_align") {
         return expression_produces_owned_f64_list(
@@ -4503,6 +4551,7 @@ inline bool expression_transfers_aggregate_value(
 [[gnu::noinline]] inline ValueLayout emit_mixed_f64_list_concat(
     bool dynamic_first,
     const ValueLayout& fixed_layout,
+    const ValueLayout& dynamic_layout,
     const vf::JsonValue::Object& dynamic_expression,
     FunctionBuilder& builder,
     const FunctionSignatures& signatures
@@ -4539,7 +4588,7 @@ inline bool expression_transfers_aggregate_value(
         ? true
         : expression_produces_owned_f64_list(dynamic_expression, signatures);
     builder.emit(std::move(concat));
-    return {1, ValueKind::DynamicF64List, {}};
+    return dynamic_layout;
 }
 
 inline void ensure_owned_f64_list_value(
@@ -7435,10 +7484,13 @@ inline ValueLayout lower_expression(
             const std::string name = trim(field_surface.substr(0, colon));
             const auto& field_layout = builder.layout(name);
             emit_load_binding(builder, name, {0, field_layout.width, field_layout.kind});
-            result.selectors[name] = {result.width, field_layout.width, field_layout.kind};
+            result.selectors[name] = {
+                result.width, field_layout.width, field_layout.kind,
+                field_layout.dynamic_element};
             for (const auto& [child, slice] : field_layout.selectors) {
                 result.selectors[name + "." + child] = {
-                    result.width + slice.offset, slice.width, slice.kind
+                    result.width + slice.offset, slice.width, slice.kind,
+                    slice.dynamic_element
                 };
             }
             result.width += field_layout.width;
@@ -7613,9 +7665,11 @@ inline ValueLayout lower_expression(
     if (kind == "list" || kind == "tuple") {
         const auto type = expression.find("type");
         const auto& items = array_of(field(expression, "items", kind), kind + " items");
-        const bool dynamic = kind == "list" && type != expression.end() && type->second.is_string() &&
-            (is_explicit_dynamic_f64_list_type(type->second.as_string()) ||
-             (type->second.as_string() == "list<any>" && items.empty()));
+        const ValueLayout declared = kind == "list" && type != expression.end() &&
+                type->second.is_string()
+            ? layout_from_type(type->second.as_string(), &signatures)
+            : ValueLayout{};
+        const bool dynamic = declared.kind == ValueKind::DynamicF64List;
         if (dynamic && items.size() >= 4) {
             std::vector<double> constants;
             constants.reserve(items.size());
@@ -7639,7 +7693,7 @@ inline ValueLayout lower_expression(
                 make.index = strings.intern_f64s(constants);
                 make.argument_count = static_cast<std::uint32_t>(constants.size());
                 builder.emit(std::move(make));
-                return {1, ValueKind::DynamicF64List, {}};
+                return declared;
             }
         }
         std::vector<ValueLayout> elements;
@@ -7652,21 +7706,28 @@ inline ValueLayout lower_expression(
             auto element = lower_expression(lowered_expression, builder, signatures, strings);
             if (dynamic) {
                 if (spread) {
-                    if (element.kind != ValueKind::Aggregate || !is_numeric_layout(element)) {
+                    if (element.kind != ValueKind::Aggregate || is_record_layout(element)) {
                         throw LoweringFailure(
-                            "dynamic list literal can only spread a fixed numeric collection");
+                            "dynamic list literal can only spread a fixed collection");
                     }
                     ensure_independent_value(
                         lowered_expression, element, builder, signatures);
                     const auto spread_elements = indexed_element_layouts(element);
                     for (const auto& spread_element : spread_elements) {
-                        require_scalar(spread_element, "dynamic numeric list spread element");
+                        if (declared.dynamic_element &&
+                            !same_layout(spread_element, *declared.dynamic_element)) {
+                            throw LoweringFailure("dynamic list spread element layout mismatch");
+                        }
                     }
                     elements.insert(
                         elements.end(), spread_elements.begin(), spread_elements.end());
                     continue;
                 }
-                require_scalar(element, "dynamic numeric list element");
+                if (declared.dynamic_element &&
+                    !same_layout(element, *declared.dynamic_element)) {
+                    throw LoweringFailure("dynamic list element layout mismatch");
+                }
+                ensure_independent_value(lowered_expression, element, builder, signatures);
             } else {
                 ensure_independent_value(lowered_expression, element, builder, signatures);
             }
@@ -7680,9 +7741,13 @@ inline ValueLayout lower_expression(
         if (dynamic) {
             Instruction make;
             make.opcode = Opcode::MakeOwnedF64List;
-            make.argument_count = static_cast<std::uint32_t>(elements.size());
+            make.argument_count = std::accumulate(
+                elements.begin(), elements.end(), std::uint32_t{0},
+                [](std::uint32_t width, const ValueLayout& element) {
+                    return width + element.width;
+                });
             builder.emit(std::move(make));
-            return {1, ValueKind::DynamicF64List, {}};
+            return declared;
         }
         return indexed_layout(elements);
     }
@@ -7701,10 +7766,13 @@ inline ValueLayout lower_expression(
                 strings);
             ensure_independent_value(field_expression, field_layout, builder, signatures);
             const std::string field_name = string_field(record_field, "name", "record field");
-            layout.selectors[field_name] = {layout.width, field_layout.width, field_layout.kind};
+            layout.selectors[field_name] = {
+                layout.width, field_layout.width, field_layout.kind,
+                field_layout.dynamic_element};
             for (const auto& [child, slice] : field_layout.selectors) {
                 layout.selectors[field_name + "." + child] = {
-                    layout.width + slice.offset, slice.width, slice.kind
+                    layout.width + slice.offset, slice.width, slice.kind,
+                    slice.dynamic_element
                 };
             }
             layout.width += field_layout.width;
@@ -7967,6 +8035,48 @@ inline ValueLayout lower_expression(
                 lowered_index = emit_require_real_complex(
                     builder, strings, lowered_index, "index must be int or str");
                 require_scalar(lowered_index, "dynamic list index");
+                if (base_layout.dynamic_element) {
+                    const auto index_local = builder.add_borrowed_temporary({});
+                    const auto base_local = builder.add_borrowed_temporary(base_layout);
+                    builder.emit({Opcode::StoreLocal, 0.0, index_local});
+                    builder.emit({Opcode::StoreLocal, 0.0, base_local});
+                    const auto& element = *base_layout.dynamic_element;
+                    for (std::uint32_t component = 0; component < element.width; ++component) {
+                        builder.emit({Opcode::LoadLocal, 0.0, base_local});
+                        builder.emit({Opcode::LoadLocal, 0.0, index_local});
+                        Instruction stride;
+                        stride.opcode = Opcode::PushF64;
+                        stride.f64 = static_cast<double>(element.width);
+                        builder.emit(std::move(stride));
+                        builder.emit({Opcode::MultiplyF64});
+                        if (component != 0u) {
+                            Instruction offset;
+                            offset.opcode = Opcode::PushF64;
+                            offset.f64 = static_cast<double>(component);
+                            builder.emit(std::move(offset));
+                            builder.emit({Opcode::AddF64});
+                        }
+                        Instruction index;
+                        index.opcode = Opcode::LoadF64ListIndex;
+                        index.owns_input = false;
+                        index.may_error = true;
+                        const std::string message = "list index out of range";
+                        index.error_message_offset = strings.intern(message);
+                        index.byte_count = static_cast<std::uint32_t>(message.size());
+                        builder.emit(std::move(index));
+                    }
+                    if (owns_input) {
+                        const auto result_local = builder.add_borrowed_temporary(element);
+                        for (std::uint32_t component = element.width; component > 0; --component) {
+                            builder.emit({Opcode::StoreLocal, 0.0, result_local + component - 1u});
+                        }
+                        builder.emit({Opcode::ReleaseF64ListLocal, 0.0, base_local});
+                        for (std::uint32_t component = 0; component < element.width; ++component) {
+                            builder.emit({Opcode::LoadLocal, 0.0, result_local + component});
+                        }
+                    }
+                    return element;
+                }
                 Instruction index;
                 index.opcode = Opcode::LoadF64ListIndex;
                 index.owns_input = owns_input;
@@ -8267,6 +8377,39 @@ inline ValueLayout lower_expression(
                         component_index_local, false, component);
                 }
                 return elements.front();
+            }
+        }
+        if (kind == "field_access") {
+            const auto& object = object_of(
+                field(expression, "object", "field access"), "field access object");
+            if (string_field(object, "kind", "field access object") == "dotted_index") {
+                const auto object_layout = layout_from_builder_expression_shape(
+                    object, builder, signatures);
+                const std::string field_name = string_field(
+                    expression, "field", "field access");
+                const auto selected = object_layout.selectors.find(field_name);
+                if (selected != object_layout.selectors.end()) {
+                    const auto lowered = lower_expression(
+                        object, builder, signatures, strings);
+                    if (!same_layout(lowered, object_layout)) {
+                        throw LoweringFailure("computed field access layout mismatch");
+                    }
+                    const auto temporary = builder.add_borrowed_temporary(object_layout);
+                    for (std::uint32_t component = object_layout.width;
+                         component > 0; --component) {
+                        builder.emit({
+                            Opcode::StoreLocal, 0.0,
+                            temporary + component - 1u});
+                    }
+                    for (std::uint32_t component = 0;
+                         component < selected->second.width; ++component) {
+                        builder.emit({
+                            Opcode::LoadLocal, 0.0,
+                            temporary + selected->second.offset + component});
+                    }
+                    return record_field_layout(
+                        object_layout, field_name, selected->second);
+                }
             }
         }
         const auto projection = projection_of(expression);
@@ -9324,16 +9467,14 @@ inline ValueLayout lower_expression(
             return {};
         }
         if (op == "AMPERSAND" && left.kind == ValueKind::DynamicF64List &&
-            right.kind == ValueKind::Aggregate && !is_record_layout(right) &&
-            is_numeric_layout(right)) {
+            right.kind == ValueKind::Aggregate && !is_record_layout(right)) {
             return emit_mixed_f64_list_concat(
-                true, right, left_expression, builder, signatures);
+                true, right, left, left_expression, builder, signatures);
         }
         if (op == "AMPERSAND" && right.kind == ValueKind::DynamicF64List &&
-            left.kind == ValueKind::Aggregate && !is_record_layout(left) &&
-            is_numeric_layout(left)) {
+            left.kind == ValueKind::Aggregate && !is_record_layout(left)) {
             return emit_mixed_f64_list_concat(
-                false, left, right_expression, builder, signatures);
+                false, left, right, right_expression, builder, signatures);
         }
         if (op == "AMPERSAND" && left.kind == ValueKind::DynamicF64List &&
             right.kind == ValueKind::DynamicF64List) {
@@ -9342,7 +9483,7 @@ inline ValueLayout lower_expression(
             concat.owns_left = expression_produces_owned_f64_list(left_expression, signatures);
             concat.owns_right = expression_produces_owned_f64_list(right_expression, signatures);
             builder.emit(std::move(concat));
-            return {1, ValueKind::DynamicF64List, {}};
+            return left.dynamic_element ? left : right;
         }
         if (op == "AMPERSAND" && left.kind == ValueKind::Aggregate &&
             right.kind == ValueKind::Aggregate && !is_record_layout(left) &&
@@ -9689,6 +9830,14 @@ inline ValueLayout lower_expression(
                 count.opcode = Opcode::CountF64List;
                 count.owns_input = owns_input;
                 builder.emit(std::move(count));
+                if (source_layout.dynamic_element &&
+                    source_layout.dynamic_element->width > 1u) {
+                    Instruction stride;
+                    stride.opcode = Opcode::PushF64;
+                    stride.f64 = static_cast<double>(source_layout.dynamic_element->width);
+                    builder.emit(std::move(stride));
+                    builder.emit({Opcode::DivideF64});
+                }
                 return {};
             }
             if (source_layout.kind == ValueKind::Aggregate) {
@@ -10201,7 +10350,9 @@ inline ValueLayout lower_expression(
                     argument_kind == "dotted_index") {
                     const auto projection = projection_of(argument_expression);
                     const auto& source_layout = builder.layout(projection.binding);
-                    ValueSlice slice{0, source_layout.width, source_layout.kind};
+                    ValueSlice slice{
+                        0, source_layout.width, source_layout.kind,
+                        source_layout.dynamic_element};
                     ValueLayout argument_layout = source_layout;
                     if (!projection.path.empty()) {
                         const auto found = source_layout.selectors.find(projection.path);
@@ -15618,6 +15769,20 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
             signature.result_is_any = signature.result_is_any || std::any_of(
                 signature.result.selectors.begin(), signature.result.selectors.end(),
                 [](const auto& selector) { return selector.second.kind == ValueKind::Any; });
+            const auto contains_dynamic_any = [](const auto& self,
+                                                 const ValueLayout& layout) -> bool {
+                if (layout.kind == ValueKind::Any) return true;
+                if (layout.dynamic_element && self(self, *layout.dynamic_element)) return true;
+                return std::any_of(
+                    layout.selectors.begin(), layout.selectors.end(),
+                    [&](const auto& selector) {
+                        return selector.second.kind == ValueKind::Any ||
+                            (selector.second.dynamic_element &&
+                             self(self, *selector.second.dynamic_element));
+                    });
+            };
+            signature.result_is_any = signature.result_is_any ||
+                contains_dynamic_any(contains_dynamic_any, signature.result);
             if (elementwise_math_function) signature.result_is_any = false;
             signatures[name] = std::move(signature);
         }
