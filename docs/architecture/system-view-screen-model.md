@@ -1,7 +1,8 @@
 # System / View / Screen Model
 
-This note captures the direction for the UI engine and VKF plugin around shared
-worlds, multiple views, and reflective surfaces.
+This note captures the direction for the UI engine around Layer data, optional
+World physics, multiple views, and reflective surfaces. ADR 0008 is
+authoritative where older wording in this note conflicts with it.
 
 It is intentionally more general than the current planar mirror seam. The goal
 is to stop re-deriving the same design in wrapper code and ad hoc camera logic.
@@ -32,22 +33,23 @@ being concentrated behind one Interface.
 
 The deeper model is:
 
-- A **system** owns shared world truth.
-- A **view** is a camera over that system.
+- A **Layer** retains data added to a frame.
+- A **World** is present only when objects obey its laws under dynamic updates.
+- A **view** observes Layers through a camera.
 - A **frame** is UI chrome over a viewport that shows one view.
 - A **screen** is a surface that shows a view output.
-- A **mirror** is not a primitive. It is a screen whose source view comes from a
-  camera dependency.
+- A **mirror** is a screen that automatically derives a reflected camera from
+  its source camera and mirror Geometry.
 
 This gives one family of concepts instead of separate special cases.
 
 ## World Truth
 
-The world should separate:
+Dynamic World truth separates:
 
 - **properties**: axis-bound data
 - **connections**: topology
-- **embeddings**: geometric or visual lowering
+- **physical laws and evolving state**
 
 The canonical topology contract already exists:
 
@@ -59,7 +61,9 @@ The canonical topology contract already exists:
 That is the topology truth. It should stay the thing the renderer trusts and
 lowers into GPU buffers.
 
-The existing graphics embedding contract is separate and should stay separate:
+Ordinary Layer channel names provide the identity embedding. An explicit
+View-owned embedding is only needed to remap data, for example into momentum
+space. Its output contract remains separate from topology:
 
 - `vertices`
 - `edge_indices`
@@ -111,31 +115,30 @@ The view renders into that viewport.
 `aspect: "equal"` should mean equal x/y scale mapping inside the viewport. It
 must not mean "make the outer window square".
 
-Long-term this suggests:
+This gives:
 
 - `frame` is the real primitive
 - `panel` is sugar for a constrained frame
 - a frame shows a view
-- a view belongs to a system
+- a view observes ordinary Layers or a law-driven World
 
 So the conceptual shape is:
 
 - create or obtain frames from the UI layer
-- create a system
-- add cameras/views to that system
+- add data and `push` a View
+- optionally attach law-driven World state
+- select the View's camera
 - show those views in frames
 
 ## Cameras
 
-Cameras should be first-class system members, not ordinary properties.
-
-The same is true for lights.
+Cameras are special View actors rather than ordinary Geometry Properties. They
+define observation and may be shared or derived without duplicating scene data.
 
 That means:
 
-- properties live on entity axes such as `F` and `E`
-- cameras and lights live beside topology, embeddings, and properties as scene
-  actors
+- Geometry and Properties remain Layer data
+- camera state belongs to a View
 
 Cameras should support:
 
@@ -149,47 +152,24 @@ The important rule is:
   blended serially
 - if explicit matrices exist, they are authoritative
 
-## Lights
+## Emissive Geometry
 
-Lights should deepen the same way cameras do.
-
-Current point and spot lights are useful sugar, but the deeper model for mirror
-lighting is a **projected light**:
-
-- source pose
-- power / intensity
-- planar aperture
-- edge spread
-
-That means:
-
-- `kind: "point"` stays omnidirectional sugar
-- `kind: "spot"` stays cone sugar
-- `kind: "projected"` is the core seam for aperture-shaped emission
-
-The important rule for `spread` is:
-
-- it should not damp the light inside the aperture
-- it should soften only the transition to dark outside the aperture
-- that softness should reuse the same penumbra idea already used by shadows
-
-For planar mirror virtual lights:
-
-- the real light stays ordinary
-- the virtual light uses a reflected source pose
-- the mirror face becomes the aperture
-- the projected light is clipped by that face before it reaches the world
+Lights do not deepen like cameras. Ordinary Geometry becomes a source through
+its emissive Properties. The same identity is visible, illuminates Layers,
+casts shadows, and is reflected by screens. Private virtual-source and aperture
+records may be derived by the renderer, but they are not authored objects or a
+second public light hierarchy.
 
 ## Screens And Mirrors
 
 Screens belong on surfaces.
 
-A screen should simply bind a view output onto a surface.
+A screen binds a camera's View output onto a surface.
 
 A mirror should not be a separate primitive.
 It should be composition:
 
-- a camera dependency creates a derived camera
+- a mirror automatically creates a reflected camera dependency
 - a screen surface displays that derived camera
 
 So the direction is:
@@ -204,20 +184,9 @@ Planar mirrors are the simple case:
 - one off-axis projection
 - one planar screen sampling rule
 
-The caller-facing form should be mirror-view sugar, not a shallow list of
-runtime toggles. A view should be able to say:
-
-```vkf
-camera: (
-    mirror_of: (
-        frame_id: "main_frame",
-        mesh_id: "mirror_quad"
-    )
-)
-```
-
-That should lower to the current reflected-eye plus locked-frustum protocol,
-instead of forcing callers to know fields like:
+The caller-facing form is mirror-screen sugar over ordinary `add` and `push`,
+not a shallow list of runtime toggles. It lowers to the reflected-eye plus
+locked-frustum protocol without forcing callers to know fields like:
 
 - `reflect_of_frame_id`
 - `reflect_mirror_mesh_id`
@@ -272,22 +241,27 @@ Curved mirrors usually do not.
 
 The refactoring target is to deepen four Modules:
 
-1. `SystemTopology`
-   - world truth
+1. `LayerTopology`
+   - static and precomputed data truth
    - stable entity selectors
-   - properties / connections / embeddings
+   - properties and connections
 
-2. `SceneView`
+2. `WorldPhysics`
+   - physical laws
+   - evolving object state
+   - real-time updates
+
+3. `SceneView`
    - camera state
    - camera dependency
    - explicit matrix camera contract
 
-3. `SurfaceScreen`
+4. `SurfaceScreen`
    - view-to-surface binding
    - output target contract
    - sampling model
 
-4. `FrameViewport`
+5. `FrameViewport`
    - outer frame rect
    - inner viewport rect
    - aspect mapping rule

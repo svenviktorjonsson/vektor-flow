@@ -1623,7 +1623,28 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 
 <!-- readme-evidence:end -->
 
-The first result is a `3 x 3` matrix on axes `i,j`; the second remains a length-three vector on `i`; the third is rank three.
+The first result is a `3 x 3` matrix on axes `i,j`; the second remains a
+length-three vector on `i`; the third is rank three.
+
+Axis names carry semantics; they are not interchangeable labels:
+
+| Axes | Meaning | Implicit adjacency |
+| --- | --- | --- |
+| `i`, `j`, `k` | independent items or groups | no |
+| `u`, `v`, `w` | ordered topology | yes |
+| `t` | ordered time samples or states | temporal only |
+| `c` | components such as position or color channels | no |
+
+Suffixes list axes from outermost to innermost, and the rightmost axis varies
+fastest. Thus `p_tc` is a time sequence of position-component vectors and
+`x_u` is scalar data over an ordered topology axis. These are values, not
+calls: `p_t` is an array over `t`; `p(t:num)` is a function.
+
+Each `Layer` owns its time coordinates or bounds and its playback mode. The
+four modes are `"repeat"` (wrap and continue), `"mirror"` (reverse at each
+end), `"stop"` (stay at the last sample), and `"reset"` (jump to the first
+sample and stop). Different layers in one view may therefore have different
+time domains and playback modes.
 
 ## 9. Modules, Scope, And Dispatch
 
