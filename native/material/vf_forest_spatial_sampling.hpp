@@ -108,6 +108,32 @@ ForestSpatialSamplePairReference(
     return {first_index, second_index};
 }
 
+inline std::vector<ForestSpatialSamplePair>
+BuildForestSpatialSamplePairsReference(
+    std::uint64_t population_version,
+    std::size_t tree_count,
+    std::size_t pair_budget
+) {
+    if (tree_count < 2 || pair_budget == 0 ||
+        pair_budget > 10000000) {
+        throw std::invalid_argument(
+            "forest spatial pair request is invalid"
+        );
+    }
+    std::vector<ForestSpatialSamplePair> pairs;
+    pairs.reserve(pair_budget);
+    for (std::size_t sample = 0; sample < pair_budget; ++sample) {
+        pairs.push_back(
+            ForestSpatialSamplePairReference(
+                population_version,
+                tree_count,
+                sample
+            )
+        );
+    }
+    return pairs;
+}
+
 inline ForestSpatialSampleObservation
 ObserveForestSpatialPairReference(
     const ForestPopulationRealization& population,

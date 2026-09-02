@@ -118,11 +118,18 @@ int main() {
     require(prepared.population_version ==
                 10960672012680006616ull,
             "forest pair observation population changed");
+    const auto sample_pairs =
+        vf::material::BuildForestSpatialSamplePairsReference(
+            prepared.population_version,
+            population.trees.size(),
+            prepared.pair_budget
+        );
 
     const auto indexed =
         vf::material::
             SampleForestSpatialQualityPreparedPairsParallelReference(
                 prepared,
+                sample_pairs,
                 4
             );
     const auto observed =
@@ -143,6 +150,7 @@ int main() {
                 vf::material::
                     SampleForestSpatialQualityPreparedPairsParallelReference(
                         prepared,
+                        sample_pairs,
                         4
                     );
             require(result.sample == indexed.sample,
@@ -165,7 +173,7 @@ int main() {
     );
 
     std::cout << "forest spatial observations: pairs="
-              << prepared.sample_pairs.size()
+              << sample_pairs.size()
               << " observation_bytes=" << observation_bytes
               << " indexed_median_us="
               << indexed_timing.median_us

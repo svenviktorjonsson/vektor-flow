@@ -86,23 +86,27 @@ int main() {
             200000,
             4096
         );
-    const auto replay =
-        vf::material::PrepareForestSpatialSamplingReference(
-            population,
-            96.0,
-            640.0,
-            200000,
-            4096
+    const auto sample_pairs =
+        vf::material::BuildForestSpatialSamplePairsReference(
+            prepared.population_version,
+            population.trees.size(),
+            prepared.pair_budget
         );
-    require(prepared.sample_pairs.size() == 200000 &&
-                replay.sample_pairs == prepared.sample_pairs &&
+    const auto replay_pairs =
+        vf::material::BuildForestSpatialSamplePairsReference(
+            prepared.population_version,
+            population.trees.size(),
+            prepared.pair_budget
+        );
+    require(sample_pairs.size() == 200000 &&
+                replay_pairs == sample_pairs &&
                 prepared.population_version ==
                     6943120267717801362ull &&
-                prepared.sample_pairs.size() *
+                sample_pairs.size() *
                     sizeof(vf::material::ForestSpatialSamplePair) <=
                     200000 * 2 * sizeof(std::size_t),
             "forest pair-index preparation is not deterministic bounded");
-    for (const auto& pair : prepared.sample_pairs) {
+    for (const auto& pair : sample_pairs) {
         require(pair.first_index < population.trees.size() &&
                     pair.second_index < population.trees.size() &&
                     pair.first_index != pair.second_index,
@@ -120,8 +124,9 @@ int main() {
         );
     const auto cached =
         vf::material::
-            SampleForestSpatialQualityPreparedParallelReference(
+            SampleForestSpatialQualityPreparedPairsParallelReference(
                 prepared,
+                sample_pairs,
                 4
             );
     vf::material::ForestSpatialSamplingExecutorReference executor(4);
@@ -150,8 +155,9 @@ int main() {
         [&]() {
             const auto result =
                 vf::material::
-                    SampleForestSpatialQualityPreparedParallelReference(
+                    SampleForestSpatialQualityPreparedPairsParallelReference(
                         prepared,
+                        sample_pairs,
                         4
                     );
             require(result.sample == uncached.sample,
@@ -161,8 +167,8 @@ int main() {
     );
 
     std::cout << "forest spatial indexed: pairs="
-              << prepared.sample_pairs.size()
-              << " bytes=" << prepared.sample_pairs.size() *
+              << sample_pairs.size()
+              << " bytes=" << sample_pairs.size() *
                   sizeof(vf::material::ForestSpatialSamplePair)
               << " uncached_median_us="
               << uncached_timing.median_us

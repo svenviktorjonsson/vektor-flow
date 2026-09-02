@@ -16,7 +16,6 @@ struct PreparedForestSpatialSamplingReference {
     double far_squared;
     std::size_t pair_budget;
     std::vector<ForestSpatialSamplingBlock> blocks;
-    std::vector<ForestSpatialSamplePair> sample_pairs;
     ForestSpatialSampleObservations observations;
 };
 
@@ -41,23 +40,21 @@ PrepareForestSpatialSamplingReference(
     const auto bytes = PackForestPopulationBytesReference(population);
     const std::uint64_t population_version =
         HashDeterministicPacketBytes(bytes);
-    std::vector<ForestSpatialSamplePair> sample_pairs;
-    sample_pairs.reserve(pair_budget);
+    const auto sample_pairs =
+        BuildForestSpatialSamplePairsReference(
+            population_version,
+            population.trees.size(),
+            pair_budget
+        );
     ForestSpatialSampleObservations observations;
     observations.distance_squared.reserve(pair_budget);
     observations.environment_similarity.reserve(pair_budget);
     observations.same_species.reserve(pair_budget);
-    for (std::size_t sample = 0; sample < pair_budget; ++sample) {
-        const auto pair = ForestSpatialSamplePairReference(
-                population_version,
-                population.trees.size(),
-                sample
-            );
+    for (const auto& pair : sample_pairs) {
         const auto observation = ObserveForestSpatialPairReference(
             population,
             pair
         );
-        sample_pairs.push_back(pair);
         observations.distance_squared.push_back(
             observation.distance_squared
         );
@@ -75,7 +72,6 @@ PrepareForestSpatialSamplingReference(
         far_distance * far_distance,
         pair_budget,
         std::move(blocks),
-        std::move(sample_pairs),
         std::move(observations),
     };
 }
@@ -92,7 +88,7 @@ SampleForestSpatialQualityPreparedParallelReference(
         prepared.far_squared,
         prepared.pair_budget,
         prepared.blocks,
-        &prepared.sample_pairs,
+        nullptr,
         &prepared.observations,
         worker_count
     );
@@ -101,6 +97,7 @@ SampleForestSpatialQualityPreparedParallelReference(
 inline ForestSpatialParallelSamplingReport
 SampleForestSpatialQualityPreparedPairsParallelReference(
     const PreparedForestSpatialSamplingReference& prepared,
+    const std::vector<ForestSpatialSamplePair>& sample_pairs,
     std::size_t worker_count
 ) {
     return SampleForestSpatialQualityPreparedCoreReference(
@@ -110,10 +107,24 @@ SampleForestSpatialQualityPreparedPairsParallelReference(
         prepared.far_squared,
         prepared.pair_budget,
         prepared.blocks,
-        &prepared.sample_pairs,
+        &sample_pairs,
         nullptr,
         worker_count
     );
+}
+
+inline std::size_t
+PreparedForestSpatialSamplingStorageBytesReference(
+    const PreparedForestSpatialSamplingReference& prepared
+) {
+    return prepared.blocks.size() *
+            sizeof(ForestSpatialSamplingBlock) +
+        prepared.observations.distance_squared.size() *
+            sizeof(double) +
+        prepared.observations.environment_similarity.size() *
+            sizeof(double) +
+        prepared.observations.same_species.size() *
+            sizeof(std::uint8_t);
 }
 
 }  // namespace vf::material
