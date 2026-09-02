@@ -54,6 +54,22 @@
     createProceduralWoodSpectralSceneFixtureReference,
   } from "../../web/vf-ui/vf-procedural-wood-spectral-scene.mjs";
   import {
+    createCoarseEllipsoidReference,
+  } from "../../web/vf-ui/vf-demand-refined-geometry.mjs";
+  import {
+    createProceduralStoneSpectralSceneFixtureReference,
+  } from "../../web/vf-ui/vf-procedural-stone-spectral-scene.mjs";
+  import {
+    adaptRockMaterialToRendererPacketReference,
+    createRockMaterialFieldReference,
+  } from "../../web/vf-ui/vf-rock-material-field.mjs";
+  import {
+    adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference,
+  } from "../../web/vf-ui/vf-rock-renderer-packets.mjs";
+  import {
+    updateEllipsoidRefinementWorkingSetReference,
+  } from "../../web/vf-ui/vf-refinement-working-set.mjs";
+  import {
     reflectGgxPolarized,
   } from "../helpers/vf-rough-polarization-reference.mjs";
 
@@ -112,6 +128,35 @@
     });
     return packWoodCutMaterialPacketReference(
       packWoodCutSurfacePacketReference(grid, "end-grain"),
+    );
+  }
+
+  function generatedStoneMaterial() {
+    const coarse = createCoarseEllipsoidReference({
+      radii: [1.4, 1.0, 0.8],
+    });
+    const working = updateEllipsoidRefinementWorkingSetReference(
+      coarse,
+      null,
+      { demands: [], vertexBudget: 0, faceBudget: 0 },
+    );
+    const [packet] =
+      adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference(
+        working,
+        null,
+      ).packets;
+    return adaptRockMaterialToRendererPacketReference(
+      packet,
+      createRockMaterialFieldReference({
+        ...identity,
+        hierarchy: ["world:alpine", "stone:released-scene"],
+        channel: "surface",
+      }),
+      {
+        radii: coarse.radii,
+        detailLevel: 4,
+        footprint: 0.02,
+      },
     );
   }
 
@@ -562,6 +607,43 @@
       if (firstCapture.sha256 !== repeatCapture.sha256) {
         throw new Error("procedural material capture was not repeatable");
       }
+      const stoneFixture =
+        createProceduralStoneSpectralSceneFixtureReference(
+          generatedStoneMaterial(),
+          { width: 64, height: 64 },
+        );
+      const stoneImage = await renderProceduralWoodSpectralScene(
+        device,
+        stoneFixture,
+      );
+      if (
+        stoneImage.renderedPixels <= 0
+        || stoneImage.renderedPixels
+          >= stoneFixture.width * stoneFixture.height
+        || stoneImage.foregroundColorCount <= 4
+      ) {
+        throw new Error("procedural stone scene was not spatially varied");
+      }
+      const stoneCaptureOptions = {
+        width: stoneFixture.width,
+        height: stoneFixture.height,
+        rgba8: stoneImage.rgba8,
+      };
+      const stoneCapture =
+        await captureProceduralMaterialSceneFrameReference(
+          bundledRun.releasedFrame,
+          stoneFixture.sourceLowering.presentation,
+          stoneCaptureOptions,
+        );
+      const repeatedStoneCapture =
+        await captureProceduralMaterialSceneFrameReference(
+          bundledRun.releasedFrame,
+          stoneFixture.sourceLowering.presentation,
+          stoneCaptureOptions,
+        );
+      if (stoneCapture.sha256 !== repeatedStoneCapture.sha256) {
+        throw new Error("procedural stone capture was not repeatable");
+      }
       return {
         outcome: "pass",
         detail: `${parity.records} spectral records matched`,
@@ -595,6 +677,17 @@
           exposureStops: firstCapture.exposureStops,
           renderedPixels: sceneImage.renderedPixels,
           foregroundColorCount: sceneImage.foregroundColorCount,
+        },
+        stoneCapture: {
+          kind: stoneCapture.kind,
+          width: stoneCapture.width,
+          height: stoneCapture.height,
+          byteLength: stoneCapture.byteLength,
+          sha256: stoneCapture.sha256,
+          repeatSha256: repeatedStoneCapture.sha256,
+          renderedPixels: stoneImage.renderedPixels,
+          foregroundColorCount: stoneImage.foregroundColorCount,
+          distribution: stoneFixture.distribution,
         },
       };
     } finally {
