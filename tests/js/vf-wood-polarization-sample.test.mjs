@@ -13,6 +13,9 @@ import {
   verifyWoodPolarizationGpuConsumption,
 } from "../../web/vf-ui/vf-wood-polarization-gpu.mjs";
 import {
+  integrateWoodPolarizationVisibleReference,
+} from "../../web/vf-ui/vf-wood-polarization-visible.mjs";
+import {
   reflectGgxPolarized,
 } from "../helpers/vf-rough-polarization-reference.mjs";
 import {
@@ -276,6 +279,62 @@ test("WGSL consumer exposes bounded reflected RGB and Stokes energy", () => {
   );
 });
 
+test("polarized wood GPU records integrate to passive visible color", () => {
+  const material = generatedWoodMaterial();
+  const sample = evaluateWoodCutPolarizedSampleReference(material, {
+    sampleIndex: 4,
+    wavelengthsNm: [450, 600, 850],
+    wavelengthBudget: 3,
+    opticalConstants,
+    incidentStokes: [1.0, 1.0, 0.0, 0.0],
+    nIncident: 1.0,
+    geometricCosThetaIncident: 0.65,
+    microfacetSampleCount: 128,
+    polarizationTransport: reflectGgxPolarized,
+  });
+  const descriptor = createWoodPolarizationGpuDescriptorReference(
+    sample,
+    { spectralSampleBudget: 3 },
+  );
+  const gpu = createWoodPolarizationGpuConsumptionFixture(descriptor);
+  const visible = integrateWoodPolarizationVisibleReference(
+    descriptor,
+    gpu.expected,
+  );
+  const repeated = integrateWoodPolarizationVisibleReference(
+    descriptor,
+    gpu.expected,
+  );
+
+  assert.deepEqual(repeated, visible);
+  assert.equal(visible.kind, "wood-polarization-visible:v1");
+  assert.equal(visible.color.kind, "spectral-visible-color:v1");
+  assert.ok(visible.color.linearRgb.some((channel) => channel > 0.0));
+  assert.ok(visible.reflectedInfraredRadianceIntegral > 0.0);
+  assert.ok(visible.absorbedInfraredRadianceIntegral > 0.0);
+  assert.ok(visible.maxSampleEnergyError <= 1.0e-6);
+  assert.ok(Math.abs(
+    visible.reflectedVisibleRadianceIntegral
+      + visible.absorbedVisibleRadianceIntegral
+      - visible.incidentVisibleRadianceIntegral,
+  ) <= tolerance);
+  assert.ok(Math.abs(
+    visible.reflectedInfraredRadianceIntegral
+      + visible.absorbedInfraredRadianceIntegral
+      - visible.incidentInfraredRadianceIntegral,
+  ) <= tolerance);
+
+  const energyCreating = gpu.expected.slice();
+  energyCreating[3] = 1.1;
+  assert.throws(
+    () => integrateWoodPolarizationVisibleReference(
+      descriptor,
+      energyCreating,
+    ),
+    /failed parity/u,
+  );
+});
+
 test(
   "headless fixture consumes polarized wood records through WebGPU",
   async () => {
@@ -290,6 +349,7 @@ test(
   assert.match(html, /vf_wood_polarization_consume/u);
   assert.match(html, /mapAsync\(GPUMapMode\.READ\)/u);
   assert.match(html, /verifyWoodPolarizationGpuConsumption/u);
+  assert.match(html, /integrateWoodPolarizationVisibleReference/u);
   assert.match(html, /__woodPolarizationGpuEvidence/u);
   },
 );

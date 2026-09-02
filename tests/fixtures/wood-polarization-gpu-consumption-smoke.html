@@ -35,6 +35,9 @@
     verifyWoodPolarizationGpuConsumption,
   } from "../../web/vf-ui/vf-wood-polarization-gpu.mjs";
   import {
+    integrateWoodPolarizationVisibleReference,
+  } from "../../web/vf-ui/vf-wood-polarization-visible.mjs";
+  import {
     reflectGgxPolarized,
   } from "../helpers/vf-rough-polarization-reference.mjs";
 
@@ -200,6 +203,10 @@
       if (!parity.matched) {
         throw new Error(JSON.stringify(parity));
       }
+      const visible = integrateWoodPolarizationVisibleReference(
+        descriptor,
+        actual,
+      );
       return {
         outcome: "pass",
         detail: `${parity.records} spectral records matched`,
@@ -207,6 +214,10 @@
         maxAbsoluteError: parity.maxAbsoluteError,
         roughness: descriptor.floats[3],
         infraredRgb: Array.from(actual.slice(16, 19)),
+        linearRgb: visible.color.linearRgb,
+        reflectedInfraredRadianceIntegral:
+          visible.reflectedInfraredRadianceIntegral,
+        maxSampleEnergyError: visible.maxSampleEnergyError,
       };
     } finally {
       input.destroy();
