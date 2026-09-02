@@ -1,5 +1,31 @@
 const MAX_RENDER_PIXELS = 16_777_216;
 
+export const ROAD_RENDERER_WGSL = `
+struct RoadMaterial {
+  albedo_roughness: vec4<f32>,
+  wetness_specular: vec4<f32>,
+};
+
+@group(0) @binding(0)
+var<storage, read> road_material: RoadMaterial;
+
+struct RoadVertexOutput {
+  @builtin(position) position: vec4<f32>,
+};
+
+@vertex
+fn road_vertex(@location(0) position: vec3<f32>) -> RoadVertexOutput {
+  var output: RoadVertexOutput;
+  output.position = vec4<f32>(position, 1.0);
+  return output;
+}
+
+@fragment
+fn road_fragment() -> @location(0) vec4<f32> {
+  return vec4<f32>(road_material.albedo_roughness.xyz, 1.0);
+}
+`;
+
 function requireConfiguration(
   device,
   pipeline,

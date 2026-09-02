@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
   captureProceduralRoadSceneFrameReference,
 } from '../../web/vf-ui/vf-procedural-road-scene-capture.mjs';
 import {
+  ROAD_RENDERER_WGSL,
   createRoadRendererSubmitReference,
 } from '../../web/vf-ui/vf-road-renderer-submit.mjs';
 
@@ -169,4 +171,19 @@ test('malformed road draw is rejected before command encoding', async () => {
     /road renderer draw is invalid/,
   );
   assert.deepEqual(calls, []);
+});
+
+test('headless fixture executes retained road resources through WebGPU', async () => {
+  const html = await readFile(
+    new URL('../fixtures/road-renderer-webgpu-smoke.html', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(ROAD_RENDERER_WGSL, /@vertex\s+fn road_vertex/);
+  assert.match(ROAD_RENDERER_WGSL, /@fragment\s+fn road_fragment/);
+  assert.match(html, /createRenderPipelineAsync/);
+  assert.match(html, /createRoadRendererDrawPipelineReference/);
+  assert.match(html, /createRoadRendererSubmitReference/);
+  assert.match(html, /copyTextureToBuffer/);
+  assert.match(html, /__roadRendererWebGpuEvidence/);
 });
