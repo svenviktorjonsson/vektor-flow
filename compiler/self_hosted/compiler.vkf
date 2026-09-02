@@ -495,6 +495,38 @@ _compile_printed_dynamic_mixed_expression_x64(
         .index+: 1
     template_prefix & body
 
+_compile_printed_dynamic_arithmetic_chain_x64(
+    source:str,
+    template_prefix:str,
+    addition_code:str,
+    multiplication_code:str,
+    subtraction_code:str,
+    print_tail:str
+) -> str:
+    statement: compile_tagged_printed_dynamic_mixed_arithmetic(source)
+    (statement.max_stack = 3)?! "arithmetic x64 tracer stack maximum changed"
+    str body: ""
+    index: 0
+    code: 0
+    (index < statement.opcodes.length())?>
+        .code: statement.opcodes.(index)
+        code = 1?
+            .body: body & "j" & _compile_x64_printable_immediate(
+                statement.values.(index)
+            )
+        code = 2?
+            .body: body & addition_code
+        code = 5?
+            .body: body & multiplication_code
+        code = 6?
+            .body: body & subtraction_code
+        code = 3?
+            (index + 1 = statement.opcodes.length())?! "arithmetic x64 tracer print must terminate the tape"
+            .body: body & print_tail
+        (code = 1 \/ code = 2 \/ code = 3 \/ code = 5 \/ code = 6)?! "arithmetic x64 tracer encountered an unsupported opcode"
+        .index+: 1
+    template_prefix & body
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(
