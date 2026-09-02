@@ -29,6 +29,25 @@ compile_tagged_dependency_tape(source:str):
         max_stack:maximum
     )
 
+compile_tagged_numeric_function_call(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_numeric_function_call(
+        tokens.source, tokens.rows, tokens.count
+    )
+    application: typed.typed_numeric_parameter_multiply_application(
+        parsed.function_name,
+        parsed.parameter_name,
+        parsed.factor
+    )
+    module: mir.mir_lower_numeric_parameter_multiply_typed_module(application)
+    maxima: validation.machine_ir_numeric_parameter_multiply_stack_maxima(
+        parsed.function_name,
+        parsed.parameter_name,
+        parsed.factor
+    )
+    (maxima.0 = 1 /\ maxima.1 = 1 /\ maxima.2 = 2)?! "numeric function Machine IR has unexpected stack maxima"
+    module
+
 compile_tagged_module_statement(source:str, index:int):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_token_tape(

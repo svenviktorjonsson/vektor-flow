@@ -565,6 +565,65 @@ _scan_tagged_statement_tokens(
 tagged_statement_token_tape(source:str) -> TaggedTokenTape:
     _scan_tagged_statement_tokens(StringCursor(source), tagged_token_tape(source), 0)
 
+_tagged_function_punctuation_kind(ch:str) -> int:
+    ch = "("?
+        @: 13
+    ch = ")"?
+        @: 14
+    ch = ":"?
+        @: 15
+    ch = "."?
+        @: 16
+    (ch = "*")?! "function token tape encountered unsupported punctuation"
+    7
+
+_scan_tagged_function_tokens(
+    cursor:StringCursor, tape:TaggedTokenTape
+) -> TaggedTokenTape:
+    cursor.eof?
+        @: _append_tagged_token(
+            tape, 5, cursor.position, cursor.position,
+            0, cursor.line, cursor.column
+        )
+    is_whitespace(cursor.peek())?
+        @: _scan_tagged_function_tokens(cursor.advance(), tape)
+    is_newline(cursor.peek())?
+        next: cursor.advance()
+        newline_tape: _append_tagged_token(
+            tape, 4, cursor.position, next.position,
+            0, cursor.line, cursor.column
+        )
+        @: _scan_tagged_function_tokens(next, newline_tape)
+    is_identifier_start(cursor.peek())?
+        stop: _lexer_skip_identifier(cursor)
+        identifier_tape: _append_tagged_token(
+            tape, 1, cursor.position, stop.position,
+            0, cursor.line, cursor.column
+        )
+        @: _scan_tagged_function_tokens(stop, identifier_tape)
+    is_number_start(cursor.peek())?
+        number: number_token(cursor.source, cursor.position)
+        stop: _lexer_skip_number(cursor)
+        number_tape: _append_tagged_token(
+            tape, 3, cursor.position, stop.position,
+            number.value, cursor.line, cursor.column
+        )
+        @: _scan_tagged_function_tokens(stop, number_tape)
+    stop: cursor.advance()
+    punctuation_tape: _append_tagged_token(
+        tape,
+        _tagged_function_punctuation_kind(cursor.peek()),
+        cursor.position,
+        stop.position,
+        0,
+        cursor.line,
+        cursor.column
+    )
+    _scan_tagged_function_tokens(stop, punctuation_tape)
+
+tagged_numeric_function_token_tape(source:str) -> TaggedTokenTape:
+    _scan_tagged_function_tokens(StringCursor(source), tagged_token_tape(source))
+
 scanner_state(name:str, token_kind:str, starts:any, stops:any, emits:bit):
     (name: name, token_kind: token_kind, starts: starts, stops: stops, emits: emits)
 

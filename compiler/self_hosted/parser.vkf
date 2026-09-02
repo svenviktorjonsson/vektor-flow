@@ -55,6 +55,11 @@ TaggedStatementModule: (kind:str, body:TaggedStatementStorage, span:Span)
 TaggedStatementResult: (module:TaggedStatementModule, diagnostics:any)
 TaggedNestedAddition: (kind:str, values:[num:3])
 TaggedDependencyChain: (kind:str, values:[num:4])
+TaggedNumericFunctionCall: (
+    function_name:str,
+    parameter_name:str,
+    factor:num
+)
 DottedIndexNode: (kind:str, base:any, indices:any, span:Span)
 MatchArmNode: (kind:str, condition:any, body:any)
 MatchStmtNode: (kind:str, discriminant:any, arms:any, loop:bit, catch:bit)
@@ -462,6 +467,37 @@ parse_tagged_token_tape(
         span:span(first_where, last_where)
     )
     (module:parsed_module, diagnostics:[])
+
+parse_tagged_numeric_function_call(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedNumericFunctionCall:
+    (token_count = 26)?! "numeric function source has an unexpected token count"
+    (token_rows.(0) = 15 /\ token_rows.(6) = 16 /\ token_rows.(12) = 1 /\
+        token_rows.(18) = 4 /\ token_rows.(24) = 1 /\ token_rows.(30) = 13 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 15 /\ token_rows.(48) = 1 /\
+        token_rows.(54) = 14 /\ token_rows.(60) = 15 /\ token_rows.(66) = 4 /\
+        token_rows.(72) = 1 /\ token_rows.(78) = 7 /\ token_rows.(84) = 3 /\
+        token_rows.(90) = 4 /\ token_rows.(96) = 15 /\ token_rows.(102) = 15 /\
+        token_rows.(108) = 1 /\ token_rows.(114) = 13 /\ token_rows.(120) = 1 /\
+        token_rows.(126) = 13 /\ token_rows.(132) = 14 /\ token_rows.(138) = 14 /\
+        token_rows.(144) = 4 /\ token_rows.(150) = 5)?! "numeric function source does not match declaration-call grammar"
+    str import_name: vkf_utf8_slice(source, token_rows.(13), token_rows.(14))
+    str function_name: vkf_utf8_slice(source, token_rows.(25), token_rows.(26))
+    str parameter_name: vkf_utf8_slice(source, token_rows.(37), token_rows.(38))
+    str parameter_type: vkf_utf8_slice(source, token_rows.(49), token_rows.(50))
+    str body_name: vkf_utf8_slice(source, token_rows.(73), token_rows.(74))
+    str call_name: vkf_utf8_slice(source, token_rows.(109), token_rows.(110))
+    str host_name: vkf_utf8_slice(source, token_rows.(121), token_rows.(122))
+    (import_name = "system")?! "numeric function source requires system import"
+    (parameter_type = "num")?! "numeric function parameter must be num"
+    (body_name = parameter_name)?! "numeric function body must load its parameter"
+    (call_name = function_name)?! "numeric function call target does not match declaration"
+    (host_name = "cpu_count")?! "numeric function argument must be cpu_count()"
+    (
+        function_name:function_name,
+        parameter_name:parameter_name,
+        factor:token_rows.(87)
+    )
 
 parse_tagged_binding_nested_addition(
     source:str, token_rows:[num], token_count:int
