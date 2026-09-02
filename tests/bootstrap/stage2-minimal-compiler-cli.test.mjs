@@ -25,7 +25,7 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-test("Stage 2 compiler CLI accepts and emits one closed source", {
+test("Stage 2 compiler CLI deterministically emits one closed source", {
   skip: process.platform !== "win32",
 }, () => {
   const rootWork = join(root, ".work");
@@ -99,16 +99,29 @@ test("Stage 2 compiler CLI accepts and emits one closed source", {
     assert.equal(compiledCli.status, 0, compiledCli.error?.message ?? compiledCli.stderr);
     assert.deepEqual([...readFileSync(cliArtifact).subarray(0, 2)], [0x4d, 0x5a]);
 
-    const cli = spawnSync(cliArtifact, [], {
+    const runCompilerCli = () => spawnSync(cliArtifact, [], {
       cwd: work,
       encoding: "utf8",
       input: `${inputSource}${newline}`,
       timeout: 15_000,
       windowsHide: true,
     });
-    assert.equal(cli.status, 0, cli.error?.message ?? cli.stderr);
-    assert.equal(cli.stdout, `43${newline}`);
+    const firstCli = runCompilerCli();
+    assert.equal(firstCli.status, 0, firstCli.error?.message ?? firstCli.stderr);
+    assert.equal(firstCli.stdout, `43${newline}`);
     assert.deepEqual([...readFileSync(stage2Artifact).subarray(0, 2)], [0x4d, 0x5a]);
+    const firstArtifact = readFileSync(stage2Artifact);
+    const firstProvenance = readFileSync(provenance);
+
+    rmSync(stage2Artifact);
+    rmSync(observation);
+    rmSync(provenance);
+    const secondCli = runCompilerCli();
+    assert.equal(secondCli.status, 0, secondCli.error?.message ?? secondCli.stderr);
+    assert.equal(secondCli.stdout, `43${newline}`);
+    assert.deepEqual(readFileSync(stage2Artifact), firstArtifact);
+    assert.deepEqual(readFileSync(provenance), firstProvenance);
+
     const emitted = spawnSync(stage2Artifact, [], {
       cwd: work,
       encoding: "utf8",
