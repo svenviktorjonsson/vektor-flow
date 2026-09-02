@@ -2,7 +2,7 @@ const MIN_VISIBLE_NM = 380;
 const MAX_VISIBLE_NM = 780;
 const MAX_RECORDS = 4096;
 
-const CIE_TABLE = Object.freeze([
+export const CIE_1931_2_DEGREE_SAMPLES = Object.freeze([
   [380, 0.001368, 0.000039, 0.006450001],
   [385, 0.002236, 0.000064, 0.01054999],
   [390, 0.004243, 0.00012, 0.02005001],
@@ -165,9 +165,13 @@ function integratePiecewise(records, minimum, maximum) {
 
 function integrateCie(records, component) {
   let integral = 0.0;
-  for (let index = 1; index < CIE_TABLE.length; index += 1) {
-    const left = CIE_TABLE[index - 1];
-    const right = CIE_TABLE[index];
+  for (
+    let index = 1;
+    index < CIE_1931_2_DEGREE_SAMPLES.length;
+    index += 1
+  ) {
+    const left = CIE_1931_2_DEGREE_SAMPLES[index - 1];
+    const right = CIE_1931_2_DEGREE_SAMPLES[index];
     const leftWeighted = left[component]
       * interpolateRadiance(records, left[0]);
     const rightWeighted = right[component]
@@ -178,10 +182,14 @@ function integrateCie(records, component) {
   return integral;
 }
 
-const EQUAL_ENERGY_Y = CIE_TABLE.slice(1).reduce((integral, right, index) => {
-  const left = CIE_TABLE[index];
-  return integral + 0.5 * (right[0] - left[0]) * (left[2] + right[2]);
-}, 0.0);
+const EQUAL_ENERGY_Y = CIE_1931_2_DEGREE_SAMPLES.slice(1).reduce(
+  (integral, right, index) => {
+    const left = CIE_1931_2_DEGREE_SAMPLES[index];
+    return integral + 0.5 * (right[0] - left[0])
+      * (left[2] + right[2]);
+  },
+  0.0,
+);
 
 function multiplyMatrix(matrix, value) {
   return matrix.map((row) => row.reduce(

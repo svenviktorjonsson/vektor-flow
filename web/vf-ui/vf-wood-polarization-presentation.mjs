@@ -2,6 +2,13 @@ const MIN_EXPOSURE_STOPS = -16.0;
 const MAX_EXPOSURE_STOPS = 16.0;
 const MAX_LINEAR_HDR = 1.0e12;
 
+export const WOOD_SPECTRAL_PRESENTATION_LIMITS = Object.freeze({
+  minimumExposureStops: MIN_EXPOSURE_STOPS,
+  maximumExposureStops: MAX_EXPOSURE_STOPS,
+  maximumLinearHdr: MAX_LINEAR_HDR,
+  maximumDisplayLinear: 1.0 - Number.EPSILON,
+});
+
 function requireLinearHdr(sourceVisible) {
   const linearHdrRgb = sourceVisible?.color?.unclippedLinearRgb;
   if (

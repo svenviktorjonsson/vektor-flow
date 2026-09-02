@@ -41,6 +41,11 @@
     presentWoodPolarizationVisibleReference,
   } from "../../web/vf-ui/vf-wood-polarization-presentation.mjs";
   import {
+    createWoodSpectralPresentationGpuConsumptionFixture,
+    createWoodSpectralPresentationGpuDescriptorReference,
+    verifyWoodSpectralPresentationGpuConsumption,
+  } from "../../web/vf-ui/vf-wood-spectral-presentation-gpu.mjs";
+  import {
     reflectGgxPolarized,
   } from "../helpers/vf-rough-polarization-reference.mjs";
 
@@ -100,6 +105,74 @@
     return packWoodCutMaterialPacketReference(
       packWoodCutSurfacePacketReference(grid, "end-grain"),
     );
+  }
+
+  async function consumeSpectralPresentation(device, fixture) {
+    const shader = device.createShaderModule({
+      label: "VKF wood spectral presentation parity",
+      code: fixture.source,
+    });
+    if (typeof shader.getCompilationInfo === "function") {
+      const info = await shader.getCompilationInfo();
+      const errors = info.messages.filter((message) => (
+        message.type === "error"
+      ));
+      if (errors.length > 0) {
+        throw new Error(errors.map((error) => error.message).join("\n"));
+      }
+    }
+    const pipeline = await device.createComputePipelineAsync({
+      label: "VKF wood spectral presentation parity",
+      layout: "auto",
+      compute: {
+        module: shader,
+        entryPoint: "vf_wood_spectral_present",
+      },
+    });
+    const input = device.createBuffer({
+      size: fixture.inputFloats.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const output = device.createBuffer({
+      size: fixture.expected.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const readback = device.createBuffer({
+      size: fixture.expected.byteLength,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+      device.queue.writeBuffer(input, 0, fixture.inputFloats);
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: input } },
+          { binding: 1, resource: { buffer: output } },
+        ],
+      });
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bindGroup);
+      pass.dispatchWorkgroups(1);
+      pass.end();
+      encoder.copyBufferToBuffer(
+        output,
+        0,
+        readback,
+        0,
+        fixture.expected.byteLength,
+      );
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ);
+      const actual = new Float32Array(readback.getMappedRange().slice(0));
+      readback.unmap();
+      return actual;
+    } finally {
+      input.destroy();
+      output.destroy();
+      readback.destroy();
+    }
   }
 
   async function run() {
@@ -214,6 +287,23 @@
         visible,
         { exposureStops: 1.0 },
       );
+      const bundled = createWoodSpectralPresentationGpuDescriptorReference(
+        descriptor,
+        presentation,
+      );
+      const bundledFixture =
+        createWoodSpectralPresentationGpuConsumptionFixture(bundled);
+      const bundledActual = await consumeSpectralPresentation(
+        device,
+        bundledFixture,
+      );
+      const bundledParity = verifyWoodSpectralPresentationGpuConsumption(
+        bundledFixture,
+        bundledActual,
+      );
+      if (!bundledParity.matched) {
+        throw new Error(JSON.stringify(bundledParity));
+      }
       return {
         outcome: "pass",
         detail: `${parity.records} spectral records matched`,
@@ -227,6 +317,8 @@
         reflectedInfraredRadianceIntegral:
           visible.reflectedInfraredRadianceIntegral,
         maxSampleEnergyError: visible.maxSampleEnergyError,
+        bundledBytes: bundled.byteLength,
+        bundledMaxAbsoluteError: bundledParity.maxAbsoluteError,
       };
     } finally {
       input.destroy();

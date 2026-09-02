@@ -19,6 +19,12 @@ import {
   presentWoodPolarizationVisibleReference,
 } from "../../web/vf-ui/vf-wood-polarization-presentation.mjs";
 import {
+  WOOD_SPECTRAL_PRESENTATION_CONSUMER_WGSL,
+  createWoodSpectralPresentationGpuConsumptionFixture,
+  createWoodSpectralPresentationGpuDescriptorReference,
+  verifyWoodSpectralPresentationGpuConsumption,
+} from "../../web/vf-ui/vf-wood-spectral-presentation-gpu.mjs";
+import {
   reflectGgxPolarized,
 } from "../helpers/vf-rough-polarization-reference.mjs";
 import {
@@ -409,6 +415,77 @@ test("wood spectral HDR is tone mapped only for presentation", () => {
   assert.ok(highlight.displayLinearRgb.every((channel) => channel < 1.0));
 });
 
+test("versioned spectral presentation descriptor preserves GPU schema", () => {
+  const material = generatedWoodMaterial();
+  const sample = evaluateWoodCutPolarizedSampleReference(material, {
+    sampleIndex: 4,
+    wavelengthsNm: [450, 600, 850],
+    wavelengthBudget: 3,
+    opticalConstants,
+    incidentStokes: [1.0, 1.0, 0.0, 0.0],
+    nIncident: 1.0,
+    geometricCosThetaIncident: 0.65,
+    microfacetSampleCount: 128,
+    polarizationTransport: reflectGgxPolarized,
+  });
+  const wood = createWoodPolarizationGpuDescriptorReference(
+    sample,
+    { spectralSampleBudget: 3 },
+  );
+  const gpu = createWoodPolarizationGpuConsumptionFixture(wood);
+  const visible = integrateWoodPolarizationVisibleReference(
+    wood,
+    gpu.expected,
+  );
+  const presentation = presentWoodPolarizationVisibleReference(
+    visible,
+    { exposureStops: 1.0 },
+  );
+  const descriptor = createWoodSpectralPresentationGpuDescriptorReference(
+    wood,
+    presentation,
+  );
+  const fixture = createWoodSpectralPresentationGpuConsumptionFixture(
+    descriptor,
+  );
+  const verified = verifyWoodSpectralPresentationGpuConsumption(
+    fixture,
+    fixture.expected,
+  );
+
+  assert.equal(descriptor.kind, "wood-spectral-presentation-gpu:v1");
+  assert.equal(descriptor.version, 1);
+  assert.equal(descriptor.headerVec4Count, 3);
+  assert.equal(descriptor.basisRecordCount, 81);
+  assert.equal(descriptor.woodOffsetVec4, 84);
+  assert.equal(descriptor.byteLength, descriptor.floats.byteLength);
+  assert.deepEqual(
+    descriptor.floats.slice(
+      descriptor.woodOffsetFloats,
+      descriptor.woodOffsetFloats + wood.floats.length,
+    ),
+    wood.floats,
+  );
+  assert.deepEqual(verified, {
+    matched: true,
+    maxAbsoluteError: 0,
+  });
+  assert.match(
+    WOOD_SPECTRAL_PRESENTATION_CONSUMER_WGSL,
+    /vf_wood_spectral_present/u,
+  );
+
+  const corrupted = {
+    ...descriptor,
+    floats: descriptor.floats.slice(),
+  };
+  corrupted.floats[0] = 2.0;
+  assert.throws(
+    () => createWoodSpectralPresentationGpuConsumptionFixture(corrupted),
+    /version/u,
+  );
+});
+
 test(
   "headless fixture consumes polarized wood records through WebGPU",
   async () => {
@@ -425,6 +502,7 @@ test(
   assert.match(html, /verifyWoodPolarizationGpuConsumption/u);
   assert.match(html, /integrateWoodPolarizationVisibleReference/u);
   assert.match(html, /presentWoodPolarizationVisibleReference/u);
+  assert.match(html, /createWoodSpectralPresentationGpuDescriptorReference/u);
   assert.match(html, /__woodPolarizationGpuEvidence/u);
   },
 );
