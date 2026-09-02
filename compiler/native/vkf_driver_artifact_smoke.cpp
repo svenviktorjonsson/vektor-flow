@@ -1669,6 +1669,7 @@ vf::JsonValue::Object dispatch_internal_stage_observation(
 ) {
     if (component != kClosedDependencyChainPipelineComponent &&
         component != kClosedBindingPipelineComponent &&
+        component != kClosedNestedAdditionPipelineComponent &&
         component != kEmptyTypedModulePipelineComponent &&
         component != kScalarBindingPipelineComponent &&
         component != kTypedModulePipelineComponent &&
