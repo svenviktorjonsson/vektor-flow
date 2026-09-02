@@ -33,6 +33,19 @@ namespace {
 std::string ReadFileBytes(const fs::path& path);
 const char kNativeSceneCompilerVersion[] = "vkf-native-scene-compiler-0.1";
 
+fs::path ExtendedLengthPath(const fs::path& path) {
+    std::error_code error;
+    const fs::path absolute = fs::absolute(path, error);
+    const std::wstring native = (error ? path : absolute).lexically_normal().wstring();
+    if (native.rfind(L"\\\\?\\", 0) == 0) {
+        return fs::path(native);
+    }
+    if (native.rfind(L"\\\\", 0) == 0) {
+        return fs::path(L"\\\\?\\UNC\\" + native.substr(2));
+    }
+    return fs::path(L"\\\\?\\" + native);
+}
+
 std::wstring Quote(const std::wstring& value) {
     std::wstring out = L"\"";
     for (wchar_t ch : value) {
@@ -225,8 +238,9 @@ bool WriteEmbeddedResourceToFile(int resourceId, unsigned long long expectedSize
         if (error) { *error = L"failed to lock embedded vf-ui resource: " + std::to_wstring(resourceId); }
         return false;
     }
+    const fs::path ioTarget = ExtendedLengthPath(target);
     std::error_code ec;
-    fs::create_directories(target.parent_path(), ec);
+    fs::create_directories(ioTarget.parent_path(), ec);
     if (ec) {
         if (error) {
             const std::string detail = ec.message();
@@ -235,7 +249,7 @@ bool WriteEmbeddedResourceToFile(int resourceId, unsigned long long expectedSize
         }
         return false;
     }
-    std::ofstream out(target, std::ios::binary | std::ios::trunc);
+    std::ofstream out(ioTarget, std::ios::binary | std::ios::trunc);
     if (!out) {
         if (error) { *error = L"failed to open embedded vf-ui output: " + target.wstring(); }
         return false;
@@ -266,13 +280,14 @@ fs::path EnsureEmbeddedVfUiWebRoot(std::wstring* error) {
     const fs::path webRoot = appData / L"vektor-flow" / L"vkf" / L"web" / version;
     const fs::path marker = webRoot / L".vf-ui-version";
     std::error_code ec;
-    if (fs::exists(marker, ec) && fs::exists(webRoot / L"index.html", ec)) {
+    if (fs::exists(ExtendedLengthPath(marker), ec) &&
+        fs::exists(ExtendedLengthPath(webRoot / L"index.html"), ec)) {
         const std::string markerText = ReadFileBytes(marker);
         if (markerText == std::string(kVfEmbeddedVfUiVersion)) {
             return webRoot;
         }
     }
-    fs::remove(marker, ec);
+    fs::remove(ExtendedLengthPath(marker), ec);
     for (std::size_t i = 0; i < kVfEmbeddedVfUiAssetCount; i += 1) {
         const VfEmbeddedAsset& asset = kVfEmbeddedVfUiAssets[i];
         fs::path relative;
@@ -284,7 +299,7 @@ fs::path EnsureEmbeddedVfUiWebRoot(std::wstring* error) {
             return {};
         }
     }
-    std::ofstream markerOut(marker, std::ios::binary | std::ios::trunc);
+    std::ofstream markerOut(ExtendedLengthPath(marker), std::ios::binary | std::ios::trunc);
     if (!markerOut) {
         if (error) { *error = L"failed to write embedded vf-ui version marker: " + marker.wstring(); }
         return {};
@@ -414,8 +429,8 @@ fs::path FindTransparentOverlayHost(const fs::path& repoRoot, const fs::path& se
 bool NewerThan(const fs::path& left, const fs::path& right) {
     std::error_code ecLeft;
     std::error_code ecRight;
-    const auto leftTime = fs::last_write_time(left, ecLeft);
-    const auto rightTime = fs::last_write_time(right, ecRight);
+    const auto leftTime = fs::last_write_time(ExtendedLengthPath(left), ecLeft);
+    const auto rightTime = fs::last_write_time(ExtendedLengthPath(right), ecRight);
     if (ecLeft || ecRight) {
         return false;
     }
@@ -517,7 +532,7 @@ fs::path ManifestPathForSource(const fs::path& source) {
 }
 
 std::string ReadFileBytes(const fs::path& path) {
-    std::ifstream in(path, std::ios::binary);
+    std::ifstream in(ExtendedLengthPath(path), std::ios::binary);
     if (!in) {
         return {};
     }
@@ -527,16 +542,17 @@ std::string ReadFileBytes(const fs::path& path) {
 }
 
 bool WriteFileBytesIfChanged(const fs::path& path, const std::string& bytes) {
+    const fs::path ioPath = ExtendedLengthPath(path);
     std::error_code ec;
-    fs::create_directories(path.parent_path(), ec);
+    fs::create_directories(ioPath.parent_path(), ec);
     if (ec) {
         return false;
     }
-    if (fs::exists(path, ec) && ReadFileBytes(path) == bytes) {
-        fs::last_write_time(path, fs::file_time_type::clock::now(), ec);
+    if (fs::exists(ioPath, ec) && ReadFileBytes(ioPath) == bytes) {
+        fs::last_write_time(ioPath, fs::file_time_type::clock::now(), ec);
         return true;
     }
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    std::ofstream out(ioPath, std::ios::binary | std::ios::trunc);
     if (!out) {
         return false;
     }
@@ -631,17 +647,29 @@ bool HasAppendedSceneBundle(const fs::path& exe) {
     return !AppendedSceneBundlePayload(ReadFileBytes(exe)).empty();
 }
 
-std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& source) {
+std::string BuildCompiledSceneBundle(
+    const fs::path& webRoot,
+    const fs::path& source,
+    std::wstring* diagnostic
+) {
     const std::wstring slug = Slugify(source.stem().wstring());
     const fs::path sessionDir = webRoot / L"sessions" / slug;
+    const fs::path ioSessionDir = ExtendedLengthPath(sessionDir);
     std::error_code ec;
-    if (!fs::exists(sessionDir, ec) || !fs::is_directory(sessionDir, ec)) {
+    if (!fs::exists(ioSessionDir, ec) || !fs::is_directory(ioSessionDir, ec)) {
+        if (diagnostic) *diagnostic = L"staged session directory is missing: " + sessionDir.wstring();
         return {};
     }
     std::vector<fs::path> files;
-    for (fs::recursive_directory_iterator it(sessionDir, ec), end; !ec && it != end; it.increment(ec)) {
+    for (fs::recursive_directory_iterator it(ioSessionDir, ec), end; !ec && it != end; it.increment(ec)) {
         if (ec || !it->is_regular_file(ec)) { continue; }
-        files.push_back(it->path());
+        ec.clear();
+        const fs::path relative = fs::relative(it->path(), ioSessionDir, ec);
+        if (ec || relative.empty()) {
+            if (diagnostic) *diagnostic = L"could not relativize staged session file: " + it->path().wstring();
+            return {};
+        }
+        files.push_back(sessionDir / relative);
     }
     const std::vector<fs::path> runtimeFiles = {
         L"index.html",
@@ -681,12 +709,15 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
     };
     for (const fs::path& rel : runtimeFiles) {
         const fs::path file = webRoot / rel;
-        if (!fs::exists(file, ec) || !fs::is_regular_file(file, ec)) {
+        const fs::path ioFile = ExtendedLengthPath(file);
+        if (!fs::exists(ioFile, ec) || !fs::is_regular_file(ioFile, ec)) {
+            if (diagnostic) *diagnostic = L"required runtime bundle file is missing: " + file.wstring();
             return {};
         }
         files.push_back(file);
     }
     if (files.empty()) {
+        if (diagnostic) *diagnostic = L"staged scene bundle contains no files";
         return {};
     }
     std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
@@ -707,8 +738,11 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
     payload += provenancePath;
     payload += provenance;
     for (const fs::path& file : files) {
-        const fs::path rel = fs::relative(file, webRoot, ec);
-        if (ec) { return {}; }
+        const fs::path rel = file.lexically_relative(webRoot);
+        if (rel.empty()) {
+            if (diagnostic) *diagnostic = L"could not relativize runtime bundle file: " + file.wstring();
+            return {};
+        }
         const std::string relUtf8 = rel.generic_string();
         const std::string data = ReadFileBytes(file);
         AppendU32(payload, static_cast<std::uint32_t>(relUtf8.size()));
@@ -720,11 +754,14 @@ std::string BuildCompiledSceneBundle(const fs::path& webRoot, const fs::path& so
 }
 
 int AppendCompiledSceneBundleToExe(const fs::path& exe, const fs::path& webRoot, const fs::path& source) {
-    const std::string payload = BuildCompiledSceneBundle(webRoot, source);
+    std::wstring diagnostic;
+    const std::string payload = BuildCompiledSceneBundle(webRoot, source, &diagnostic);
     if (payload.empty()) {
-        return Fail(L"native compile failed: staged scene bundle is empty and cannot be embedded");
+        return Fail(
+            L"native compile failed: staged scene bundle is empty and cannot be embedded" +
+            (diagnostic.empty() ? std::wstring{} : L"\n     " + diagnostic));
     }
-    std::ofstream out(exe, std::ios::binary | std::ios::app);
+    std::ofstream out(ExtendedLengthPath(exe), std::ios::binary | std::ios::app);
     if (!out) {
         return Fail(L"native compile failed while appending scene bundle to " + exe.wstring());
     }
@@ -890,10 +927,12 @@ bool ParseAppendedSceneBundle(const fs::path& exe, ParsedCompiledSceneBundle* pa
 
 bool ExtractCompiledSceneBundle(const ParsedCompiledSceneBundle& bundle, const fs::path& webRoot) {
     std::error_code ec;
-    bool current = fs::is_directory(webRoot, ec);
+    const fs::path ioWebRoot = ExtendedLengthPath(webRoot);
+    bool current = fs::is_directory(ioWebRoot, ec);
     for (const auto& entry : bundle.entries) {
         const fs::path cached = webRoot / entry.relative;
-        if (!current || !fs::is_regular_file(cached, ec) || ReadFileBytes(cached) != entry.bytes) {
+        if (!current || !fs::is_regular_file(ExtendedLengthPath(cached), ec) ||
+            ReadFileBytes(cached) != entry.bytes) {
             current = false;
             break;
         }
@@ -904,22 +943,30 @@ bool ExtractCompiledSceneBundle(const ParsedCompiledSceneBundle& bundle, const f
 
     const fs::path temporary = webRoot.parent_path() /
         (webRoot.filename().wstring() + L".tmp-" + std::to_wstring(GetCurrentProcessId()));
-    fs::remove_all(temporary, ec);
+    fs::remove_all(ExtendedLengthPath(temporary), ec);
     ec.clear();
     for (const auto& entry : bundle.entries) {
         if (!WriteFileBytesIfChanged(temporary / entry.relative, entry.bytes)) {
-            fs::remove_all(temporary, ec);
+            fs::remove_all(ExtendedLengthPath(temporary), ec);
             return false;
         }
     }
-    fs::remove_all(webRoot, ec);
-    ec.clear();
-    fs::rename(temporary, webRoot, ec);
-    if (ec) {
-        fs::remove_all(temporary, ec);
-        return false;
+    const fs::path ioTemporary = ExtendedLengthPath(temporary);
+    for (int attempt = 0; attempt < 50; ++attempt) {
+        ec.clear();
+        fs::remove_all(ioWebRoot, ec);
+        if (!ec) {
+            fs::rename(ioTemporary, ioWebRoot, ec);
+            if (!ec) {
+                return true;
+            }
+        }
+        if (attempt + 1 < 50) {
+            Sleep(20);
+        }
     }
-    return true;
+    fs::remove_all(ioTemporary, ec);
+    return false;
 }
 
 std::string NativeSceneSourceTreeBytes(const fs::path& source) {
@@ -961,7 +1008,7 @@ std::string NativeSceneSourceTreeBytes(const fs::path& source) {
 
 bool ManifestCurrentForSource(const fs::path& manifest, const std::string& sourceHash) {
     std::error_code ec;
-    if (!fs::exists(manifest, ec)) {
+    if (!fs::exists(ExtendedLengthPath(manifest), ec)) {
         return false;
     }
     const std::string text = ReadFileBytes(manifest);
@@ -979,7 +1026,7 @@ bool ManifestCurrentForSource(const fs::path& manifest, const std::string& sourc
 
 bool SessionBundleCurrent(const fs::path& source, const fs::path& page, const fs::path& stager) {
     std::error_code ec;
-    if (!fs::exists(page, ec)) {
+    if (!fs::exists(ExtendedLengthPath(page), ec)) {
         return false;
     }
     if (NewerThan(source, page)) {
@@ -1006,7 +1053,8 @@ bool SessionBundleCurrent(const fs::path& source, const fs::path& page, const fs
             return false;
         }
         const fs::path configPath = page.parent_path() / fs::path(std::wstring(configName.begin(), configName.end()));
-        if (!fs::exists(configPath, ec) || !fs::is_regular_file(configPath, ec)) {
+        const fs::path ioConfigPath = ExtendedLengthPath(configPath);
+        if (!fs::exists(ioConfigPath, ec) || !fs::is_regular_file(ioConfigPath, ec)) {
             return false;
         }
         configText = ReadFileBytes(configPath);
@@ -1027,7 +1075,8 @@ bool SessionBundleCurrent(const fs::path& source, const fs::path& page, const fs
             return false;
         }
         const fs::path arenaPath = page.parent_path() / fs::path(std::wstring(arenaName.begin(), arenaName.end()));
-        if (!fs::exists(arenaPath, ec) || !fs::is_regular_file(arenaPath, ec)) {
+        const fs::path ioArenaPath = ExtendedLengthPath(arenaPath);
+        if (!fs::exists(ioArenaPath, ec) || !fs::is_regular_file(ioArenaPath, ec)) {
             return false;
         }
     }
@@ -1184,7 +1233,8 @@ bool TryResolveEmbeddedSceneBundle(const fs::path& self, NativeSceneBundle* bund
     }
     std::error_code ec;
     const fs::path page = webRoot / parsed.entry;
-    if (!fs::exists(page, ec) || !fs::is_regular_file(page, ec)) {
+    const fs::path ioPage = ExtendedLengthPath(page);
+    if (!fs::exists(ioPage, ec) || !fs::is_regular_file(ioPage, ec)) {
         report(L"embedded compiled scene bundle did not contain its provenance entry page");
         return false;
     }

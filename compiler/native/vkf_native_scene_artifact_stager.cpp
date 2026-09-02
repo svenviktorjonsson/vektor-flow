@@ -26,6 +26,23 @@ namespace {
 
 constexpr const char* kNativeSceneCompilerVersion = "vkf-native-scene-compiler-0.1";
 
+std::filesystem::path long_io_path(const std::filesystem::path& path) {
+#if defined(_WIN32)
+    std::error_code error;
+    const std::filesystem::path absolute = std::filesystem::absolute(path, error);
+    const std::wstring native = (error ? path : absolute).lexically_normal().wstring();
+    if (native.rfind(L"\\\\?\\", 0) == 0) {
+        return std::filesystem::path(native);
+    }
+    if (native.rfind(L"\\\\", 0) == 0) {
+        return std::filesystem::path(L"\\\\?\\UNC\\" + native.substr(2));
+    }
+    return std::filesystem::path(L"\\\\?\\" + native);
+#else
+    return path;
+#endif
+}
+
 struct Args {
     std::filesystem::path source;
     std::filesystem::path overlay_web;
@@ -66,7 +83,7 @@ public:
 };
 
 std::string read_file_bytes(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
+    std::ifstream input(long_io_path(path), std::ios::binary);
     if (!input) {
         throw StagerError("could not read " + path.string());
     }
@@ -76,15 +93,16 @@ std::string read_file_bytes(const std::filesystem::path& path) {
 }
 
 void write_file(const std::filesystem::path& path, const std::string& text, bool refresh_unchanged = false) {
-    std::filesystem::create_directories(path.parent_path());
+    const std::filesystem::path io_path = long_io_path(path);
+    std::filesystem::create_directories(io_path.parent_path());
     std::error_code ec;
-    if (std::filesystem::exists(path, ec) && read_file_bytes(path) == text) {
+    if (std::filesystem::exists(io_path, ec) && read_file_bytes(io_path) == text) {
         if (refresh_unchanged) {
-            std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
+            std::filesystem::last_write_time(io_path, std::filesystem::file_time_type::clock::now(), ec);
         }
         return;
     }
-    std::ofstream output(path, std::ios::binary);
+    std::ofstream output(io_path, std::ios::binary);
     if (!output) {
         throw StagerError("could not write " + path.string());
     }
@@ -92,11 +110,12 @@ void write_file(const std::filesystem::path& path, const std::string& text, bool
 }
 
 void remove_prior_generated_scene_artifacts(const std::filesystem::path& session_dir, const std::vector<std::string>& keep_names) {
+    const std::filesystem::path io_session_dir = long_io_path(session_dir);
     std::error_code ec;
-    if (!std::filesystem::exists(session_dir, ec)) {
+    if (!std::filesystem::exists(io_session_dir, ec)) {
         return;
     }
-    for (std::filesystem::directory_iterator it(session_dir, ec), end; !ec && it != end; it.increment(ec)) {
+    for (std::filesystem::directory_iterator it(io_session_dir, ec), end; !ec && it != end; it.increment(ec)) {
         if (ec || !it->is_regular_file(ec)) {
             continue;
         }
@@ -1343,7 +1362,7 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
     };
     for (const std::string& rel : rels) {
         const std::filesystem::path path = overlay_web / rel;
-        if (!std::filesystem::exists(path)) {
+        if (!std::filesystem::exists(long_io_path(path))) {
             throw StagerError("runtime asset required for versioning is missing: " + path.string());
         }
         bytes += rel;
