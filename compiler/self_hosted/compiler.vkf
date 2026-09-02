@@ -298,6 +298,9 @@ compile_tagged_printed_dynamic_addition_value(source:str) -> num:
     (depth = 0)?! "dynamic addition emitter leaves an imbalanced stack"
     result
 
+_compile_locked_valid_source_graph(sources:[str]):
+    (sources:sources, source_count:sources.length())
+
 compile_tagged_printed_dynamic_mixed_arithmetic(source:str):
     tokens: lexer.tagged_numeric_function_token_tape(source)
     parsed: parser.parse_tagged_printed_dynamic_mixed_arithmetic(
