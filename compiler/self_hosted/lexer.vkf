@@ -578,6 +578,8 @@ _tagged_function_punctuation_kind(ch:str) -> int:
         @: 16
     ch = "*"?
         @: 7
+    ch = "/"?
+        @: 9
     ch = ">"?
         @: 17
     ch = "<"?
