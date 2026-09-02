@@ -20,12 +20,13 @@ struct ForestSpatialParallelSamplingReport {
 };
 
 inline ForestSpatialParallelSamplingReport
-SampleForestSpatialQualityParallelReference(
+SampleForestSpatialQualityPreparedCoreReference(
     const ForestPopulationRealization& population,
-    double near_distance,
-    double far_distance,
+    std::uint64_t population_version,
+    double near_squared,
+    double far_squared,
     std::size_t pair_budget,
-    std::size_t block_size,
+    const std::vector<ForestSpatialSamplingBlock>& blocks,
     std::size_t worker_count
 ) {
     if (worker_count == 0 || worker_count > 64) {
@@ -33,24 +34,8 @@ SampleForestSpatialQualityParallelReference(
             "forest spatial worker count is invalid"
         );
     }
-    ValidateForestSpatialSamplingRequestReference(
-        population,
-        near_distance,
-        far_distance,
-        pair_budget
-    );
-    const auto blocks =
-        BuildForestSpatialSamplingBlocksReference(
-            pair_budget,
-            block_size
-        );
     const std::size_t active_workers =
         std::min(worker_count, blocks.size());
-    const auto bytes = PackForestPopulationBytesReference(population);
-    const std::uint64_t population_version =
-        HashDeterministicPacketBytes(bytes);
-    const double near_squared = near_distance * near_distance;
-    const double far_squared = far_distance * far_distance;
     using BlockResults =
         std::vector<ForestSpatialSamplingBlockResult>;
     std::vector<std::future<BlockResults>> futures;
@@ -106,6 +91,40 @@ SampleForestSpatialQualityParallelReference(
         blocks.size(),
         active_workers,
     };
+}
+
+inline ForestSpatialParallelSamplingReport
+SampleForestSpatialQualityParallelReference(
+    const ForestPopulationRealization& population,
+    double near_distance,
+    double far_distance,
+    std::size_t pair_budget,
+    std::size_t block_size,
+    std::size_t worker_count
+) {
+    ValidateForestSpatialSamplingRequestReference(
+        population,
+        near_distance,
+        far_distance,
+        pair_budget
+    );
+    const auto blocks =
+        BuildForestSpatialSamplingBlocksReference(
+            pair_budget,
+            block_size
+        );
+    const auto bytes = PackForestPopulationBytesReference(population);
+    const std::uint64_t population_version =
+        HashDeterministicPacketBytes(bytes);
+    return SampleForestSpatialQualityPreparedCoreReference(
+        population,
+        population_version,
+        near_distance * near_distance,
+        far_distance * far_distance,
+        pair_budget,
+        blocks,
+        worker_count
+    );
 }
 
 }  // namespace vf::material
