@@ -9,6 +9,7 @@ import {
 import {
   ROAD_RENDERER_WGSL,
   createRoadRendererSubmitReference,
+  shadeRoadMaterialReference,
 } from '../../web/vf-ui/vf-road-renderer-submit.mjs';
 
 function captureDocument() {
@@ -173,6 +174,34 @@ test('malformed road draw is rejected before command encoding', async () => {
   assert.deepEqual(calls, []);
 });
 
+test('road lighting shares normal, roughness, wetness, and specular response', () => {
+  const material = {
+    albedo: [0.25, 0.5, 0.75],
+    specularStrength: 0.25,
+  };
+  const dryRough = shadeRoadMaterialReference({
+    ...material,
+    roughness: 0.9,
+    wetness: 0,
+    normal: [0, 0, 1],
+  });
+  const wetSmooth = shadeRoadMaterialReference({
+    ...material,
+    roughness: 0.2,
+    wetness: 0.8,
+    normal: [0, 0, 1],
+  });
+  const edgeOn = shadeRoadMaterialReference({
+    ...material,
+    roughness: 0.9,
+    wetness: 0,
+    normal: [0, 1, 0],
+  });
+
+  assert.ok(wetSmooth.every((value, channel) => value > dryRough[channel]));
+  assert.ok(edgeOn.every((value, channel) => value < dryRough[channel]));
+});
+
 test('headless fixture executes retained road resources through WebGPU', async () => {
   const html = await readFile(
     new URL('../fixtures/road-renderer-webgpu-smoke.html', import.meta.url),
@@ -181,9 +210,12 @@ test('headless fixture executes retained road resources through WebGPU', async (
 
   assert.match(ROAD_RENDERER_WGSL, /@vertex\s+fn road_vertex/);
   assert.match(ROAD_RENDERER_WGSL, /@fragment\s+fn road_fragment/);
+  assert.match(ROAD_RENDERER_WGSL, /@location\(1\) normal/);
+  assert.match(ROAD_RENDERER_WGSL, /road_specular/);
   assert.match(html, /createRenderPipelineAsync/);
   assert.match(html, /createRoadRendererDrawPipelineReference/);
   assert.match(html, /createRoadRendererSubmitReference/);
   assert.match(html, /copyTextureToBuffer/);
+  assert.match(html, /shadeRoadMaterialReference/);
   assert.match(html, /__roadRendererWebGpuEvidence/);
 });

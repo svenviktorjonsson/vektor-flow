@@ -11,20 +11,89 @@ var<storage, read> road_material: RoadMaterial;
 
 struct RoadVertexOutput {
   @builtin(position) position: vec4<f32>,
+  @location(0) normal: vec3<f32>,
 };
 
 @vertex
-fn road_vertex(@location(0) position: vec3<f32>) -> RoadVertexOutput {
+fn road_vertex(
+  @location(0) position: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+) -> RoadVertexOutput {
   var output: RoadVertexOutput;
   output.position = vec4<f32>(position, 1.0);
+  output.normal = normal;
   return output;
 }
 
 @fragment
-fn road_fragment() -> @location(0) vec4<f32> {
-  return vec4<f32>(road_material.albedo_roughness.xyz, 1.0);
+fn road_fragment(input: RoadVertexOutput) -> @location(0) vec4<f32> {
+  let surface_normal = normalize(input.normal);
+  let road_light = vec3<f32>(0.36, 0.48, 0.8);
+  let road_half = normalize(road_light + vec3<f32>(0.0, 0.0, 1.0));
+  let normal_light = max(0.0, dot(surface_normal, road_light));
+  let normal_half = max(0.0, dot(surface_normal, road_half));
+  let roughness = clamp(road_material.albedo_roughness.w, 0.0, 1.0);
+  let wetness = clamp(road_material.wetness_specular.x, 0.0, 1.0);
+  let specular_strength = clamp(
+    road_material.wetness_specular.y,
+    0.0,
+    1.0,
+  );
+  let smoothness = 1.0 - roughness;
+  let lobe = normal_half * normal_half * normal_half * normal_half;
+  let gloss = lobe * mix(lobe, 1.0, smoothness);
+  let diffuse = 0.08
+    + 0.92 * normal_light * (1.0 - 0.25 * specular_strength);
+  let road_specular = specular_strength * (1.0 + 0.5 * wetness) * gloss;
+  let color = clamp(
+    road_material.albedo_roughness.xyz * diffuse + road_specular,
+    vec3<f32>(0.0),
+    vec3<f32>(1.0),
+  );
+  return vec4<f32>(color, 1.0);
 }
 `;
+
+const ROAD_LIGHT = Object.freeze([0.36, 0.48, 0.8]);
+const ROAD_HALF = Object.freeze((() => {
+  const vector = [ROAD_LIGHT[0], ROAD_LIGHT[1], ROAD_LIGHT[2] + 1];
+  const length = Math.hypot(...vector);
+  return vector.map((value) => value / length);
+})());
+
+function clamp01(value) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function normalized(vector) {
+  const length = Math.hypot(...vector);
+  return vector.map((value) => value / length);
+}
+
+function dot(left, right) {
+  return left.reduce((sum, value, axis) => sum + value * right[axis], 0);
+}
+
+export function shadeRoadMaterialReference({
+  albedo,
+  roughness,
+  wetness,
+  specularStrength,
+  normal,
+}) {
+  const surfaceNormal = normalized(normal);
+  const normalLight = Math.max(0, dot(surfaceNormal, ROAD_LIGHT));
+  const normalHalf = Math.max(0, dot(surfaceNormal, ROAD_HALF));
+  const smoothness = 1 - clamp01(roughness);
+  const lobe = normalHalf ** 4;
+  const gloss = lobe * (lobe * (1 - smoothness) + smoothness);
+  const strength = clamp01(specularStrength);
+  const diffuse = 0.08 + 0.92 * normalLight * (1 - 0.25 * strength);
+  const specular = strength * (1 + 0.5 * clamp01(wetness)) * gloss;
+  return Object.freeze(albedo.map((value) => (
+    clamp01(value * diffuse + specular)
+  )));
+}
 
 function requireConfiguration(
   device,

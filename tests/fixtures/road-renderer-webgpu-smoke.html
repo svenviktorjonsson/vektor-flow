@@ -8,6 +8,7 @@
   import {
     ROAD_RENDERER_WGSL,
     createRoadRendererSubmitReference,
+    shadeRoadMaterialReference,
   } from '../../web/vf-ui/vf-road-renderer-submit.mjs';
 
   const WIDTH = 8;
@@ -76,11 +77,18 @@
         entryPoint: 'road_vertex',
         buffers: [{
           arrayStride: 40,
-          attributes: [{
-            shaderLocation: 0,
-            offset: 0,
-            format: 'float32x3',
-          }],
+          attributes: [
+            {
+              shaderLocation: 0,
+              offset: 0,
+              format: 'float32x3',
+            },
+            {
+              shaderLocation: 1,
+              offset: 12,
+              format: 'float32x3',
+            },
+          ],
         }],
       },
       fragment: {
@@ -149,13 +157,28 @@
         },
       });
       const output = await submit(draw);
-      const expected = [64, 128, 192, 255];
+      const expectedLinear = shadeRoadMaterialReference({
+        albedo: Array.from(packet.material_channels.albedo),
+        roughness: packet.material_channels.roughness[0],
+        wetness: packet.material_channels.wetness[0],
+        specularStrength: packet.specular_strength,
+        normal: [0, 0, 1],
+      });
+      const expected = [
+        ...expectedLinear.map((value) => Math.round(value * 255)),
+        255,
+      ];
+      let maxByteError = 0;
       for (let offset = 0; offset < output.rgba8.length; offset += 4) {
         for (let channel = 0; channel < 4; channel += 1) {
-          if (output.rgba8[offset + channel] !== expected[channel]) {
+          const error = Math.abs(
+            output.rgba8[offset + channel] - expected[channel],
+          );
+          maxByteError = Math.max(maxByteError, error);
+          if (error > 1) {
             throw new Error(
               `pixel ${offset / 4} channel ${channel}: `
-              + `${output.rgba8[offset + channel]} != ${expected[channel]}`,
+              + `${output.rgba8[offset + channel]} != ${expected[channel]} ± 1`,
             );
           }
         }
@@ -167,6 +190,8 @@
         pixels: WIDTH * HEIGHT,
         draws: output.drawCount,
         sha256: await digest(output.rgba8),
+        expected,
+        maxByteError,
         uploadedBytes: drawPipeline.snapshot().uploadedBytes,
       };
     } finally {
