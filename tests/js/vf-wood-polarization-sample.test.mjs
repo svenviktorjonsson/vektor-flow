@@ -5,6 +5,10 @@ import {
   evaluateWoodCutPolarizedSampleReference,
 } from "../../web/vf-ui/vf-wood-polarization-sample.mjs";
 import {
+  adaptWoodPolarizationToRendererPartReference,
+  createWoodPolarizationGpuDescriptorReference,
+} from "../../web/vf-ui/vf-wood-polarization-gpu.mjs";
+import {
   reflectGgxPolarized,
 } from "../helpers/vf-rough-polarization-reference.mjs";
 import {
@@ -137,4 +141,72 @@ test("generated wood roughness drives passive spectral polarization", () => {
       - request.incidentStokes[0],
     ) <= tolerance);
   }
+});
+
+test("wood spectral Stokes samples retain their f32 GPU layout", () => {
+  const material = generatedWoodMaterial();
+  const sample = evaluateWoodCutPolarizedSampleReference(material, {
+    sampleIndex: 4,
+    wavelengthsNm: [450, 600, 850],
+    wavelengthBudget: 3,
+    opticalConstants,
+    incidentStokes: [1.0, 1.0, 0.0, 0.0],
+    nIncident: 1.0,
+    geometricCosThetaIncident: 0.65,
+    microfacetSampleCount: 128,
+    polarizationTransport: reflectGgxPolarized,
+  });
+  const part = Object.freeze({
+    id: "wood:cut:polarized",
+    object_id: 71,
+    type: "field_mesh",
+    vertices: new Float32Array(30),
+    indices: new Uint32Array([0, 1, 2]),
+  });
+  const adapted = adaptWoodPolarizationToRendererPartReference(
+    part,
+    sample,
+    { spectralSampleBudget: 3 },
+  );
+  const descriptor = adapted.wood_polarization_gpu;
+  const repeated = createWoodPolarizationGpuDescriptorReference(
+    sample,
+    { spectralSampleBudget: 3 },
+  );
+
+  assert.equal(adapted.id, part.id);
+  assert.equal(adapted.object_id, part.object_id);
+  assert.strictEqual(adapted.vertices, part.vertices);
+  assert.strictEqual(adapted.indices, part.indices);
+  assert.equal(descriptor.kind, "wood-polarization-gpu:v1");
+  assert.strictEqual(descriptor.sourceSample, sample);
+  assert.equal(descriptor.headerFloats, 4);
+  assert.equal(descriptor.recordStrideFloats, 8);
+  assert.equal(descriptor.spectralSampleCount, 3);
+  assert.equal(descriptor.floats.length, 4 + 3 * 8);
+  assert.equal(descriptor.byteLength, descriptor.floats.byteLength);
+  assert.equal(descriptor.floats[3], Math.fround(sample.roughness));
+  assert.throws(
+    () => createWoodPolarizationGpuDescriptorReference(
+      sample,
+      { spectralSampleBudget: 2 },
+    ),
+    /samples exceed spectralSampleBudget/u,
+  );
+  for (let index = 0; index < sample.spectralSamples.length; index += 1) {
+    const source = sample.spectralSamples[index];
+    const offset = descriptor.headerFloats
+      + index * descriptor.recordStrideFloats;
+    assert.deepEqual(Array.from(descriptor.floats.slice(offset, offset + 8)), [
+      Math.fround(source.wavelengthNm),
+      Math.fround(sample.localCosThetaIncident),
+      Math.fround(source.absorbedIntensity),
+      Math.fround(source.degreeOfPolarization),
+      ...source.stokes.map(Math.fround),
+    ]);
+  }
+  assert.deepEqual(
+    new Uint8Array(repeated.floats.buffer),
+    new Uint8Array(descriptor.floats.buffer),
+  );
 });
