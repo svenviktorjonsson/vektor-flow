@@ -126,7 +126,9 @@
         message.type === "error"
       ));
       if (errors.length > 0) {
-        throw new Error(errors.map((error) => error.message).join("\n"));
+        throw new Error(`scene shader: ${errors.map((error) => (
+          `${error.lineNum}:${error.linePos}:${error.message}`
+        )).join("\n")}`);
       }
     }
     const pipeline = await device.createRenderPipelineAsync({
@@ -136,12 +138,19 @@
         module: shader,
         entryPoint: "vf_procedural_wood_vertex",
         buffers: [{
-          arrayStride: 8,
-          attributes: [{
-            shaderLocation: 0,
-            offset: 0,
-            format: "float32x2",
-          }],
+          arrayStride: fixture.vertexStrideBytes,
+          attributes: [
+            {
+              shaderLocation: 0,
+              offset: 0,
+              format: "float32x2",
+            },
+            {
+              shaderLocation: 1,
+              offset: 8,
+              format: "float32x3",
+            },
+          ],
         }],
       },
       fragment: {
@@ -160,7 +169,7 @@
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
     const colorBuffer = device.createBuffer({
-      size: fixture.displayLinearRgba.byteLength,
+      size: fixture.fragmentUniforms.byteLength,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const texture = device.createTexture({
@@ -178,7 +187,7 @@
       device.queue.writeBuffer(
         colorBuffer,
         0,
-        fixture.displayLinearRgba,
+        fixture.fragmentUniforms,
       );
       const bindGroup = device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
@@ -227,10 +236,20 @@
         );
       }
       let renderedPixels = 0;
+      const foregroundColors = new Set();
       for (let pixel = 0; pixel < rgba8.length; pixel += 4) {
-        if (rgba8[pixel] > 64) renderedPixels += 1;
+        if (rgba8[pixel] > 64) {
+          renderedPixels += 1;
+          foregroundColors.add(
+            `${rgba8[pixel]}:${rgba8[pixel + 1]}:${rgba8[pixel + 2]}`,
+          );
+        }
       }
-      return { rgba8, renderedPixels };
+      return {
+        rgba8,
+        renderedPixels,
+        foregroundColorCount: foregroundColors.size,
+      };
     } finally {
       vertexBuffer.destroy();
       indexBuffer.destroy();
@@ -499,8 +518,9 @@
       if (
         sceneImage.renderedPixels <= 0
         || sceneImage.renderedPixels >= sceneFixture.width * sceneFixture.height
+        || sceneImage.foregroundColorCount <= 1
       ) {
-        throw new Error("procedural wood scene geometry was not bounded");
+        throw new Error("procedural wood scene field was not spatially varied");
       }
       const captureOptions = {
         width: sceneFixture.width,
@@ -554,6 +574,7 @@
           displayLinearRgb: firstCapture.displayLinearRgb,
           exposureStops: firstCapture.exposureStops,
           renderedPixels: sceneImage.renderedPixels,
+          foregroundColorCount: sceneImage.foregroundColorCount,
         },
       };
     } finally {
