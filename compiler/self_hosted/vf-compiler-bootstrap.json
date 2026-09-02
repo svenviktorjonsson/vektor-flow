@@ -9,32 +9,32 @@
   "sources": [
     {
       "path": "compiler/self_hosted/lexer.vkf",
-      "source_sha256": "d7bdf53cecf43b011b0069dfa56bf75482f66e2c170106a0c1014df89e7a00cb",
+      "source_sha256": "e66f475ddfbdf81c7351d4a91a962ecc56b3e61d5364cabde1ab742b17219804",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/parser.vkf",
-      "source_sha256": "703bdeaf14be6a329f13a578da157fee1e3375a2ff72a8047cf011e76b6f8b10",
+      "source_sha256": "4fbf976beb3eed74313b84f91fba6f21706ea3cf3cd8a823db472c8e502446a0",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/typed_ir.vkf",
-      "source_sha256": "3dbd05bea403744fe4c45d1c54f67f1cddfaa11b4b1f284e7b15a48b4cb925b0",
+      "source_sha256": "023cb953aa3e5868f8a0e2858a5d88a6b6770d2cd401b240da9804a69ddab19d",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/machine_ir.vkf",
-      "source_sha256": "3e18d38143dfd9e815a1aa1e3d0d2ce474cadc737547e9ecbec7140cd8ea2a9e",
+      "source_sha256": "0e9bc6a39b34b7cb8be2afdfe1d38498905422cdd740b5933a1f2790fc124fa3",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/machine_ir_validation.vkf",
-      "source_sha256": "2b7398d311643571447eaee55439c77e05c09980ec88e493309cea2bb226c92e",
+      "source_sha256": "c906dd1822ec990e426c7ebd9204d56b6f2aea01ff262af780bb78ed9cd174cc",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/compiler.vkf",
-      "source_sha256": "6262ae6f7b156befb7568b031f970e8ab8caef184a0b8f19346df6e01bd2a127",
+      "source_sha256": "5656c56c0caf22d76fa0891a866b366b871add1f39f974427a6bf3356f15b952",
       "parsed_with_native_parser": true
     },
     {
@@ -71,5 +71,5 @@
     "compiler/self_hosted/stdlib/io.vkf"
   ],
   "source_count": 10,
-  "bundle_sha256": "0857aa59f1d3bf4c85cbd2c0941ddd2ac73254df8b34a94fb8a29bc7b78e8c5e"
+  "bundle_sha256": "5fdd5d5ce4474caf4ab0b5a04b0a97e7d327d8e493ba8c67cf8d771eb05dd789"
 }

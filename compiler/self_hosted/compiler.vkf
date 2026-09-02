@@ -124,6 +124,224 @@ compile_tagged_printed_add_divide(source:str):
     )
     mir.mir_assemble_closed_nested_module(statement, maximum)
 
+compile_tagged_printed_add_remainder(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_add_remainder(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_add_remainder(parsed.kind, parsed.values)
+    statement: mir.mir_tagged_add_remainder(expression.values)
+    maximum: validation.machine_ir_nested_addition_stack_maximum(
+        statement.instructions.0.kind, statement.instructions.1.kind,
+        statement.instructions.2.kind, statement.instructions.3.kind,
+        statement.instructions.4.kind, statement.instructions.5.kind
+    )
+    mir.mir_assemble_closed_nested_module(statement, maximum)
+
+compile_tagged_printed_add_power(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_add_power(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_add_power(parsed.kind, parsed.values)
+    statement: mir.mir_tagged_add_power(expression.values)
+    maximum: validation.machine_ir_nested_addition_stack_maximum(
+        statement.instructions.0.kind, statement.instructions.1.kind,
+        statement.instructions.2.kind, statement.instructions.3.kind,
+        statement.instructions.4.kind, statement.instructions.5.kind
+    )
+    mir.mir_assemble_closed_nested_module(statement, maximum)
+
+compile_tagged_printed_add_floor_divide(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_add_floor_divide(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_add_floor_divide(
+        parsed.kind, parsed.values
+    )
+    statement: mir.mir_tagged_add_floor_divide(expression.values)
+    maximum: validation.machine_ir_nested_addition_stack_maximum(
+        statement.instructions.0.kind, statement.instructions.1.kind,
+        statement.instructions.2.kind, statement.instructions.3.kind,
+        statement.instructions.4.kind, statement.instructions.5.kind
+    )
+    mir.mir_assemble_closed_nested_module(statement, maximum)
+
+compile_tagged_printed_add_negative_floor_divide(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_add_negative_floor_divide(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_add_floor_divide(
+        parsed.kind, parsed.values
+    )
+    statement: mir.mir_tagged_add_floor_divide(expression.values)
+    maximum: validation.machine_ir_nested_addition_stack_maximum(
+        statement.instructions.0.kind, statement.instructions.1.kind,
+        statement.instructions.2.kind, statement.instructions.3.kind,
+        statement.instructions.4.kind, statement.instructions.5.kind
+    )
+    mir.mir_assemble_closed_nested_module(statement, maximum)
+
+compile_tagged_printed_add_grouped_floor_divide(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_add_grouped_floor_divide(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_add_floor_divide(
+        parsed.kind, parsed.values
+    )
+    statement: mir.mir_tagged_add_floor_divide(expression.values)
+    maximum: validation.machine_ir_nested_addition_stack_maximum(
+        statement.instructions.0.kind, statement.instructions.1.kind,
+        statement.instructions.2.kind, statement.instructions.3.kind,
+        statement.instructions.4.kind, statement.instructions.5.kind
+    )
+    mir.mir_assemble_closed_nested_module(statement, maximum)
+
+compile_tagged_printed_grouped_add_floor_divide(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_grouped_add_floor_divide(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_grouped_add_floor_divide(
+        parsed.kind, parsed.values
+    )
+    statement: mir.mir_tagged_grouped_add_floor_divide(expression.values)
+    maximum: validation.machine_ir_nested_addition_stack_maximum(
+        statement.instructions.0.kind, statement.instructions.1.kind,
+        statement.instructions.2.kind, statement.instructions.3.kind,
+        statement.instructions.4.kind, statement.instructions.5.kind
+    )
+    mir.mir_assemble_closed_nested_module(statement, maximum)
+
+compile_tagged_printed_extended_arithmetic(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_extended_arithmetic(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_extended_arithmetic(
+        parsed.kind, parsed.values
+    )
+    statement: mir.mir_tagged_extended_arithmetic(expression.values)
+    maximum: validation.machine_ir_dependency_chain_stack_maximum(
+        statement.instructions.0.kind, statement.instructions.1.kind,
+        statement.instructions.2.kind, statement.instructions.3.kind,
+        statement.instructions.4.kind, statement.instructions.5.kind,
+        statement.instructions.6.kind, statement.instructions.7.kind
+    )
+    mir.mir_assemble_closed_dependency_module(statement, maximum)
+
+compile_tagged_printed_dynamic_arithmetic(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_dynamic_arithmetic(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_dynamic_arithmetic(
+        parsed.kind, parsed.values
+    )
+    statement: mir.mir_tagged_dynamic_arithmetic(expression.values)
+    maximum: validation.machine_ir_arithmetic_opcode_tape_stack_maximum(
+        statement.opcodes
+    )
+    (
+        name:statement.name,
+        opcodes:statement.opcodes,
+        values:statement.values,
+        max_stack:maximum
+    )
+
+compile_tagged_printed_dynamic_addition(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_dynamic_addition(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_dynamic_addition(
+        parsed.kind, parsed.values
+    )
+    statement: mir.mir_tagged_dynamic_addition(expression.values)
+    maximum: validation.machine_ir_numeric_opcode_tape_stack_maximum(
+        statement.opcodes
+    )
+    (
+        name:statement.name,
+        opcodes:statement.opcodes,
+        values:statement.values,
+        max_stack:maximum
+    )
+
+compile_tagged_printed_dynamic_addition_value(source:str) -> num:
+    statement: compile_tagged_printed_dynamic_addition(source)
+    [num:2] stack: [0, 0]
+    depth: 0
+    index: 0
+    code: 0
+    result: 0
+    (index < statement.opcodes.length())?>
+        .code: statement.opcodes.(index)
+        code = 1?
+            stack.(depth): statement.values.(index)
+            .depth+: 1
+        code = 2?
+            .depth-: 1
+            right: stack.(depth)
+            .depth-: 1
+            left: stack.(depth)
+            stack.(depth): left + right
+            .depth+: 1
+        code = 3?
+            .depth-: 1
+            .result: stack.(depth)
+        (code >= 1 /\ code <= 3)?! "dynamic addition emitter encountered an unknown opcode"
+        .index+: 1
+    (depth = 0)?! "dynamic addition emitter leaves an imbalanced stack"
+    result
+
+compile_tagged_printed_dynamic_mixed_arithmetic(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_dynamic_mixed_arithmetic(
+        tokens.source, tokens.rows, tokens.count
+    )
+
+    expression: typed.typed_tagged_dynamic_mixed_arithmetic(
+        parsed.kind, parsed.operators, parsed.values
+    )
+    statement: mir.mir_tagged_dynamic_mixed_arithmetic(
+        expression.operators, expression.values
+    )
+    maximum: validation.machine_ir_arithmetic_opcode_tape_stack_maximum(
+        statement.opcodes
+    )
+    (maximum = statement.max_stack)?! "dynamic mixed arithmetic stack maximum changed"
+    (
+        name:statement.name,
+        opcodes:statement.opcodes,
+        values:statement.values,
+        max_stack:maximum
+    )
+
+compile_tagged_printed_dynamic_grouped_arithmetic(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    parsed: parser.parse_tagged_printed_dynamic_grouped_arithmetic(
+        tokens.source, tokens.rows, tokens.count
+    )
+    expression: typed.typed_tagged_dynamic_grouped_arithmetic(
+        parsed.kind, parsed.tokens, parsed.values
+    )
+    statement: mir.mir_tagged_dynamic_grouped_arithmetic(
+        expression.tokens, expression.values
+    )
+    maximum: validation.machine_ir_arithmetic_opcode_tape_stack_maximum(
+        statement.opcodes
+    )
+    (
+        name:statement.name,
+        opcodes:statement.opcodes,
+        values:statement.values,
+        max_stack:maximum
+    )
+
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
     parsed: parser.parse_tagged_two_derived_bindings(
