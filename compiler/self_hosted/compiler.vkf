@@ -597,6 +597,24 @@ _compile_printed_dynamic_arithmetic_chain_x64_with_byte_arena(
         subtraction_code, "", "", "", print_tail, high_bytes
     )
 
+_compile_printed_dynamic_integer_chain_x64(
+    source:str,
+    template_prefix:str,
+    addition_code:str,
+    multiplication_code:str,
+    subtraction_code:str,
+    power_code:str,
+    floor_division_code:str,
+    remainder_code:str,
+    print_tail:str,
+    high_bytes:[str]
+) -> str:
+    _compile_printed_dynamic_integer_tape_x64(
+        source, template_prefix, addition_code, multiplication_code,
+        subtraction_code, power_code, floor_division_code, remainder_code,
+        print_tail, high_bytes
+    )
+
 _compile_printed_dynamic_remainder_chain_x64(
     source:str,
     template_prefix:str,
