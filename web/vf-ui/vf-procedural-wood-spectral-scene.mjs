@@ -1,6 +1,7 @@
 const MAX_SCENE_PIXELS = 1_048_576;
 const MAX_SCENE_VERTICES = 65_536;
 const MAX_SCENE_TRIANGLES = 131_072;
+const FRAGMENT_SPECTRAL_SAMPLE_COUNT = 3;
 const LIGHT_DIRECTION = Object.freeze([0.35, 0.25, Math.sqrt(0.815)]);
 const VIEW_DIRECTION = Object.freeze([0.0, 0.0, 1.0]);
 
@@ -10,6 +11,8 @@ struct SceneColor {
   reference_base_color: vec4<f32>,
   light_direction: vec4<f32>,
   view_direction: vec4<f32>,
+  spectral_wavelengths: vec4<f32>,
+  reference_reflected: vec4<f32>,
 }
 
 @group(0) @binding(0)
@@ -20,6 +23,8 @@ struct VertexOutput {
   @location(0) base_color: vec3<f32>,
   @location(1) surface_normal: vec3<f32>,
   @location(2) alpha: vec2<f32>,
+  @location(3) spectral_reflected: vec3<f32>,
+  @location(4) spectral_absorbed: vec3<f32>,
 }
 
 @vertex
@@ -28,13 +33,36 @@ fn vf_procedural_wood_vertex(
   @location(1) base_color: vec3<f32>,
   @location(2) surface_normal: vec3<f32>,
   @location(3) alpha: vec2<f32>,
+  @location(4) spectral_reflected: vec3<f32>,
+  @location(5) spectral_absorbed: vec3<f32>,
 ) -> VertexOutput {
   var output: VertexOutput;
   output.position = vec4<f32>(position, 0.0, 1.0);
   output.base_color = base_color;
   output.surface_normal = surface_normal;
   output.alpha = alpha;
+  output.spectral_reflected = spectral_reflected;
+  output.spectral_absorbed = spectral_absorbed;
   return output;
+}
+
+fn spectral_visible_ratio(
+  reflected: vec3<f32>,
+  absorbed: vec3<f32>,
+) -> f32 {
+  let total = reflected + absorbed;
+  let maximum_energy = max(total.x, max(total.y, total.z));
+  let passive_scale = min(1.0, 1.0 / max(maximum_energy, 1.0e-5));
+  var visible = 0.0;
+  var reference = 0.0;
+  for (var sample = 0u; sample < 3u; sample += 1u) {
+    let wavelength = vf_scene.spectral_wavelengths[sample];
+    if (wavelength >= 380.0 && wavelength <= 780.0) {
+      visible += reflected[sample] * passive_scale;
+      reference += vf_scene.reference_reflected[sample];
+    }
+  }
+  return visible / max(reference, 1.0e-5);
 }
 
 fn ggx_lambda(direction: vec3<f32>, alpha: vec2<f32>) -> f32 {
@@ -119,9 +147,16 @@ fn vf_procedural_wood_fragment(
     vec3<f32>(1.5),
   );
   let lighting = angular_response(input.surface_normal, input.alpha);
+  let spectral_scale = spectral_visible_ratio(
+    input.spectral_reflected,
+    input.spectral_absorbed,
+  );
   return vec4<f32>(
     clamp(
-      vf_scene.display_linear_rgba.rgb * material_ratio * lighting,
+      vf_scene.display_linear_rgba.rgb
+        * material_ratio
+        * lighting
+        * spectral_scale,
       vec3<f32>(0.0),
       vec3<f32>(1.0),
     ),
@@ -164,6 +199,92 @@ function ggxLambda(direction, alphaX, alphaY) {
     alphaX * alphaX * direction[0] * direction[0]
     + alphaY * alphaY * direction[1] * direction[1]
   ) / (direction[2] * direction[2])) - 1.0);
+}
+
+function luminance(color) {
+  return color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
+}
+
+export function evaluateProceduralWoodSpectralRatioReference({
+  wavelengths,
+  referenceReflected,
+  reflected,
+  absorbed,
+}) {
+  const vectors = [wavelengths, referenceReflected, reflected, absorbed];
+  if (vectors.some((vector) => (
+    !Array.isArray(vector)
+    || vector.length !== FRAGMENT_SPECTRAL_SAMPLE_COUNT
+    || vector.some((value) => !Number.isFinite(value))
+  ))) {
+    throw new TypeError("procedural wood fragment spectrum must have 3 lanes");
+  }
+  const maximumEnergy = Math.max(...reflected.map((value, sample) => (
+    value + absorbed[sample]
+  )));
+  const passiveScale = Math.min(
+    1.0,
+    1.0 / Math.max(maximumEnergy, 1.0e-5),
+  );
+  let visible = 0.0;
+  let reference = 0.0;
+  wavelengths.forEach((wavelength, sample) => {
+    if (wavelength >= 380.0 && wavelength <= 780.0) {
+      visible += reflected[sample] * passiveScale;
+      reference += referenceReflected[sample];
+    }
+  });
+  return Object.freeze({
+    visibleRatio: visible / Math.max(reference, 1.0e-5),
+    passiveScale,
+    maximumEnergy,
+  });
+}
+
+function requireSpectralRecord(descriptor) {
+  if (
+    descriptor?.kind !== "wood-polarization-gpu:v1"
+    || descriptor.headerFloats !== 4
+    || descriptor.recordStrideFloats !== 8
+    || descriptor.spectralSampleCount !== FRAGMENT_SPECTRAL_SAMPLE_COUNT
+    || !(descriptor.floats instanceof Float32Array)
+    || descriptor.floats.length !== 4
+      + FRAGMENT_SPECTRAL_SAMPLE_COUNT * 8
+  ) {
+    throw new TypeError("three-sample wood spectral record is required");
+  }
+  const wavelengths = [];
+  const reflected = [];
+  const absorbed = [];
+  for (let sample = 0; sample < FRAGMENT_SPECTRAL_SAMPLE_COUNT;
+    sample += 1) {
+    const offset = descriptor.headerFloats
+      + sample * descriptor.recordStrideFloats;
+    const wavelength = descriptor.floats[offset];
+    const absorbedIntensity = descriptor.floats[offset + 2];
+    const reflectedIntensity = descriptor.floats[offset + 4];
+    if (
+      !Number.isFinite(wavelength)
+      || (sample > 0 && wavelength <= wavelengths[sample - 1])
+      || !Number.isFinite(reflectedIntensity)
+      || !Number.isFinite(absorbedIntensity)
+      || reflectedIntensity < 0.0
+      || absorbedIntensity < 0.0
+      || Math.abs(
+        reflectedIntensity + absorbedIntensity - 1.0
+      ) > 1.0e-6
+    ) {
+      throw new RangeError("wood spectral record violates passive energy");
+    }
+    wavelengths.push(wavelength);
+    reflected.push(reflectedIntensity);
+    absorbed.push(absorbedIntensity);
+  }
+  return {
+    wavelengths: Object.freeze(wavelengths),
+    reflected: Object.freeze(reflected),
+    absorbed: Object.freeze(absorbed),
+  };
 }
 
 export function evaluateProceduralWoodAngularResponseReference({
@@ -244,6 +365,7 @@ function requireLowering(lowering) {
   const sourceMaterial = lowering?.sourceMaterial;
   const referenceBaseColor =
     lowering?.sourcePolarization?.sourceSample?.baseColor;
+  const spectralRecord = requireSpectralRecord(lowering?.sourcePolarization);
   if (
     lowering?.kind !== "procedural-wood-spectral-lowering:v1"
     || packet?.kind !== "wood-cut-material-triangle-packet:v1"
@@ -287,7 +409,13 @@ function requireLowering(lowering) {
   ) {
     throw new TypeError("lowered procedural wood renderer packet is required");
   }
-  return { packet, presentation, sourceMaterial, referenceBaseColor };
+  return {
+    packet,
+    presentation,
+    sourceMaterial,
+    referenceBaseColor,
+    spectralRecord,
+  };
 }
 
 function requireExtent(width, height) {
@@ -309,7 +437,14 @@ function dotPosition(positions, vertex, axis) {
     + positions[offset + 2] * axis[2];
 }
 
-function projectVertices(packet, sourceMaterial, width, height) {
+function projectVertices(
+  packet,
+  sourceMaterial,
+  referenceBaseColor,
+  spectralRecord,
+  width,
+  height,
+) {
   const projected = Array.from(
     { length: packet.vertexCount },
     (_, vertex) => [
@@ -332,9 +467,10 @@ function projectVertices(packet, sourceMaterial, width, height) {
   const scale = Math.min(1.6 / spanU, 1.6 / (spanV * aspect));
   const centerU = 0.5 * (minimumU + maximumU);
   const centerV = 0.5 * (minimumV + maximumV);
-  const vertices = new Float32Array(packet.vertexCount * 10);
+  const vertices = new Float32Array(packet.vertexCount * 16);
+  const referenceLuminance = luminance(referenceBaseColor.map(Math.fround));
   projected.forEach(([u, v], vertex) => {
-    const outputOffset = vertex * 10;
+    const outputOffset = vertex * 16;
     const colorOffset = vertex * 4;
     vertices[outputOffset] = (u - centerU) * scale;
     vertices[outputOffset + 1] = (v - centerV) * scale * aspect;
@@ -348,6 +484,19 @@ function projectVertices(packet, sourceMaterial, width, height) {
     vertices.set(normal, outputOffset + 5);
     vertices[outputOffset + 8] = packet.ggxLobe.alphaX[vertex];
     vertices[outputOffset + 9] = packet.ggxLobe.alphaY[vertex];
+    const color = sourceMaterial.baseColors.subarray(
+      colorOffset,
+      colorOffset + 3,
+    );
+    const spectralScale = Math.max(0.0, Math.min(
+      1.5,
+      luminance(color) / Math.max(referenceLuminance, 1.0e-5),
+    ));
+    spectralRecord.reflected.forEach((reference, sample) => {
+      const reflected = Math.min(1.0, reference * spectralScale);
+      vertices[outputOffset + 10 + sample] = reflected;
+      vertices[outputOffset + 13 + sample] = 1.0 - reflected;
+    });
   });
   return vertices;
 }
@@ -361,6 +510,7 @@ export function createProceduralWoodSpectralSceneFixtureReference(
     presentation,
     sourceMaterial,
     referenceBaseColor,
+    spectralRecord,
   } = requireLowering(lowering);
   requireExtent(width, height);
   const bytesPerRow = Math.ceil(width * 4 / 256) * 256;
@@ -373,8 +523,15 @@ export function createProceduralWoodSpectralSceneFixtureReference(
     format: "rgba8unorm-srgb",
     bytesPerRow,
     outputByteLength: bytesPerRow * height,
-    vertexStrideBytes: 40,
-    vertices: projectVertices(packet, sourceMaterial, width, height),
+    vertexStrideBytes: 64,
+    vertices: projectVertices(
+      packet,
+      sourceMaterial,
+      referenceBaseColor,
+      spectralRecord,
+      width,
+      height,
+    ),
     indices: packet.indices,
     fragmentUniforms: new Float32Array([
       ...presentation.displayLinearRgb,
@@ -384,6 +541,10 @@ export function createProceduralWoodSpectralSceneFixtureReference(
       ...LIGHT_DIRECTION,
       0.0,
       ...VIEW_DIRECTION,
+      0.0,
+      ...spectralRecord.wavelengths,
+      0.0,
+      ...spectralRecord.reflected,
       0.0,
     ]),
   });
