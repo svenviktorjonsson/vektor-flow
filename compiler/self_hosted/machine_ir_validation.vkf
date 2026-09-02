@@ -15,7 +15,7 @@ machine_ir_numeric_stack_depth(depth:num, kind:str, argument_count:num=0, result
         .produced: 1
     kind = "push_f64"?
         .produced: 1
-    (kind = "add_f64" \/ kind = "subtract_f64" \/ kind = "multiply_f64" \/ kind = "divide_f64" \/ kind = "remainder_f64" \/ kind = "power_f64" \/ kind = "ordered_less_f64" \/ kind = "ordered_greater_f64")?
+    (kind = "add_f64" \/ kind = "subtract_f64" \/ kind = "multiply_f64" \/ kind = "divide_f64" \/ kind = "floor_divide_f64" \/ kind = "remainder_f64" \/ kind = "power_f64" \/ kind = "ordered_less_f64" \/ kind = "ordered_greater_f64")?
         .required: 2
         .produced: 1
     kind = "store_local"?
@@ -24,7 +24,7 @@ machine_ir_numeric_stack_depth(depth:num, kind:str, argument_count:num=0, result
         .required: 1
     kind = "return_f64"?
         .required: 1
-    (kind = "call" \/ kind = "system_cpu_count" \/ kind = "load_local" \/ kind = "push_f64" \/ kind = "add_f64" \/ kind = "subtract_f64" \/ kind = "multiply_f64" \/ kind = "divide_f64" \/ kind = "remainder_f64" \/ kind = "power_f64" \/ kind = "ordered_less_f64" \/ kind = "ordered_greater_f64" \/ kind = "store_local" \/ kind = "label" \/ kind = "jump" \/ kind = "jump_if_false" \/ kind = "return_f64")?! "machine IR stack validation encountered an unsupported opcode"
+    (kind = "call" \/ kind = "system_cpu_count" \/ kind = "load_local" \/ kind = "push_f64" \/ kind = "add_f64" \/ kind = "subtract_f64" \/ kind = "multiply_f64" \/ kind = "divide_f64" \/ kind = "floor_divide_f64" \/ kind = "remainder_f64" \/ kind = "power_f64" \/ kind = "ordered_less_f64" \/ kind = "ordered_greater_f64" \/ kind = "store_local" \/ kind = "label" \/ kind = "jump" \/ kind = "jump_if_false" \/ kind = "return_f64")?! "machine IR stack validation encountered an unsupported opcode"
     (depth >= required)?! "machine IR stack underflow"
     depth - required + produced
 
@@ -126,7 +126,7 @@ machine_ir_numeric_opcode_code(kind:str) -> num:
     (kind = "system_cpu_count" \/ kind = "load_local" \/ kind = "push_f64")?
         .code: 1
     (kind = "add_f64" \/ kind = "subtract_f64" \/ kind = "multiply_f64" \/
-        kind = "divide_f64" \/ kind = "remainder_f64" \/ kind = "power_f64" \/ kind = "ordered_less_f64" \/
+        kind = "divide_f64" \/ kind = "floor_divide_f64" \/ kind = "remainder_f64" \/ kind = "power_f64" \/ kind = "ordered_less_f64" \/
         kind = "ordered_greater_f64")?
         .code: 2
     (kind = "store_local" \/ kind = "jump_if_false" \/ kind = "return_f64")?

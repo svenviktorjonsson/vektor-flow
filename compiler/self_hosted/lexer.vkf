@@ -494,6 +494,8 @@ _scan_tagged_statement_tokens(
         @: _scan_tagged_statement_tokens(identifier_stop, next_tape, 1)
     (expected = 1)?
         (cursor.peek() = "+" \/ cursor.peek() = ":" \/ cursor.peek() = "*" \/ cursor.peek() = "-" \/ cursor.peek() = "/" \/ cursor.peek() = "%" \/ cursor.peek() = "^")?! "plus token expected"
+        operator_stop: cursor.advance()
+        floor_divide: cursor.peek() = "/" /\ operator_stop.peek() = "/"
         kind_code: 2
         cursor.peek() = ":"?
             .kind_code: 6
@@ -507,7 +509,10 @@ _scan_tagged_statement_tokens(
             .kind_code: 10
         cursor.peek() = "^"?
             .kind_code: 11
-        operator_stop: cursor.advance()
+        floor_divide?
+            .kind_code: 12
+        floor_divide?
+            .operator_stop: operator_stop.advance()
         next_tape: _append_tagged_token(
             tape, kind_code, cursor.position, operator_stop.position,
             0, cursor.line, cursor.column
@@ -532,6 +537,8 @@ _scan_tagged_statement_tokens(
         )
         @: _scan_tagged_statement_tokens(number_stop, next_tape, 3)
     (expected = 3 /\ (cursor.peek() = "+" \/ cursor.peek() = "*" \/ cursor.peek() = "-" \/ cursor.peek() = "/" \/ cursor.peek() = "%" \/ cursor.peek() = "^"))?
+        operator_stop: cursor.advance()
+        floor_divide: cursor.peek() = "/" /\ operator_stop.peek() = "/"
         kind_code: 2
         cursor.peek() = "*"?
             .kind_code: 7
@@ -543,7 +550,10 @@ _scan_tagged_statement_tokens(
             .kind_code: 10
         cursor.peek() = "^"?
             .kind_code: 11
-        operator_stop: cursor.advance()
+        floor_divide?
+            .kind_code: 12
+        floor_divide?
+            .operator_stop: operator_stop.advance()
         next_tape: _append_tagged_token(
             tape, kind_code, cursor.position, operator_stop.position,
             0, cursor.line, cursor.column
