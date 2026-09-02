@@ -4,6 +4,9 @@ import test from "node:test";
 import {
   createWoodSpectralRendererGpuArenaReference,
 } from "../../web/vf-ui/vf-wood-spectral-renderer-gpu.mjs";
+import {
+  createWoodSpectralRendererDrawPipelineReference,
+} from "../../web/vf-ui/vf-wood-spectral-renderer-pipeline.mjs";
 
 test("spectral renderer shares buffers until the final packet release", () => {
   const calls = {
@@ -102,4 +105,111 @@ test("spectral renderer shares buffers until the final packet release", () => {
     uploadedBytes: 32,
     drawBindings: 1,
   });
+});
+
+const multiFrameTest = "spectral draw pipeline reuses GPU state across frames";
+
+test(multiFrameTest, () => {
+  const calls = {
+    createBuffer: 0,
+    writeBuffer: 0,
+    createBindGroup: 0,
+    destroy: 0,
+  };
+  const materialBuffer = {
+    destroy() {
+      calls.destroy += 1;
+    },
+  };
+  const bindGroup = {};
+  const device = {
+    createBuffer() {
+      calls.createBuffer += 1;
+      return materialBuffer;
+    },
+    createBindGroup() {
+      calls.createBindGroup += 1;
+      return bindGroup;
+    },
+    queue: {
+      writeBuffer() {
+        calls.writeBuffer += 1;
+      },
+    },
+  };
+  const descriptor = {
+    kind: "wood-spectral-presentation-gpu:v1",
+    version: 1,
+    floats: new Float32Array(8),
+    byteLength: 32,
+  };
+  const packet = {
+    kind: "wood-cut-material-triangle-packet:v1",
+    wood_spectral_presentation_gpu: descriptor,
+  };
+  const pipeline = {
+    getBindGroupLayout() {
+      return {};
+    },
+  };
+  const outputBuffer = {};
+  const drawPipeline = createWoodSpectralRendererDrawPipelineReference(
+    device,
+    { resourceBudget: 1, packetBudget: 2 },
+  );
+  const first = drawPipeline.draw({
+    frame: 0,
+    packet,
+    pipeline,
+    outputBuffer,
+  });
+  const second = drawPipeline.draw({
+    frame: 1,
+    packet,
+    pipeline,
+    outputBuffer,
+  });
+
+  assert.strictEqual(first.bindGroup, bindGroup);
+  assert.strictEqual(second.bindGroup, bindGroup);
+  assert.equal(first.reusedBinding, false);
+  assert.equal(second.reusedBinding, true);
+  assert.equal(calls.createBuffer, 1);
+  assert.equal(calls.writeBuffer, 1);
+  assert.equal(calls.createBindGroup, 1);
+  assert.equal(calls.destroy, 0);
+  assert.deepEqual(drawPipeline.snapshot(), {
+    packetBudget: 2,
+    retainedPackets: 1,
+    liveBindings: 1,
+    frames: 2,
+    draws: 2,
+    bindingCreations: 1,
+    bindingReuses: 1,
+    destroyed: false,
+    arena: {
+      resourceBudget: 1,
+      liveResources: 1,
+      liveAcquisitions: 1,
+      createdBuffers: 1,
+      destroyedBuffers: 0,
+      uploadedBytes: 32,
+      drawBindings: 1,
+    },
+  });
+
+  drawPipeline.destroy();
+  assert.equal(calls.destroy, 1);
+  assert.equal(drawPipeline.snapshot().retainedPackets, 0);
+  assert.equal(drawPipeline.snapshot().arena.liveResources, 0);
+  assert.equal(drawPipeline.snapshot().destroyed, true);
+  assert.throws(
+    () => drawPipeline.draw({
+      frame: 2,
+      packet,
+      pipeline,
+      outputBuffer,
+    }),
+    /destroyed/u,
+  );
 });

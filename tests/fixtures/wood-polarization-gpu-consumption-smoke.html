@@ -50,8 +50,8 @@
     verifyWoodSpectralPresentationGpuConsumption,
   } from "../../web/vf-ui/vf-wood-spectral-presentation-gpu.mjs";
   import {
-    createWoodSpectralRendererGpuArenaReference,
-  } from "../../web/vf-ui/vf-wood-spectral-renderer-gpu.mjs";
+    createWoodSpectralRendererDrawPipelineReference,
+  } from "../../web/vf-ui/vf-wood-spectral-renderer-pipeline.mjs";
   import {
     reflectGgxPolarized,
   } from "../helpers/vf-rough-polarization-reference.mjs";
@@ -148,42 +148,68 @@
       size: fixture.expected.byteLength,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
-    const arena = createWoodSpectralRendererGpuArenaReference(device, {
-      resourceBudget: 1,
-    });
-    const acquisition = arena.acquire(rendererPacket);
+    const drawPipeline = createWoodSpectralRendererDrawPipelineReference(
+      device,
+      {
+        resourceBudget: 1,
+        packetBudget: 1,
+      },
+    );
     let actual;
+    let reusedBinding = false;
     try {
-      const bindGroup = arena.createDrawBinding(
-        acquisition,
+      const firstDraw = drawPipeline.draw({
+        frame: 0,
+        packet: rendererPacket,
         pipeline,
-        output,
-      );
-      const encoder = device.createCommandEncoder();
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, bindGroup);
-      pass.dispatchWorkgroups(1);
-      pass.end();
-      encoder.copyBufferToBuffer(
+        outputBuffer: output,
+      });
+      const firstEncoder = device.createCommandEncoder();
+      const firstPass = firstEncoder.beginComputePass();
+      firstPass.setPipeline(pipeline);
+      firstPass.setBindGroup(0, firstDraw.bindGroup);
+      firstPass.dispatchWorkgroups(1);
+      firstPass.end();
+      device.queue.submit([firstEncoder.finish()]);
+      await device.queue.onSubmittedWorkDone();
+
+      const secondDraw = drawPipeline.draw({
+        frame: 1,
+        packet: rendererPacket,
+        pipeline,
+        outputBuffer: output,
+      });
+      reusedBinding = firstDraw.bindGroup === secondDraw.bindGroup
+        && secondDraw.reusedBinding;
+      if (!reusedBinding) {
+        throw new Error("spectral draw binding was not retained");
+      }
+      const secondEncoder = device.createCommandEncoder();
+      const secondPass = secondEncoder.beginComputePass();
+      secondPass.setPipeline(pipeline);
+      secondPass.setBindGroup(0, secondDraw.bindGroup);
+      secondPass.dispatchWorkgroups(1);
+      secondPass.end();
+      secondEncoder.copyBufferToBuffer(
         output,
         0,
         readback,
         0,
         fixture.expected.byteLength,
       );
-      device.queue.submit([encoder.finish()]);
+      device.queue.submit([secondEncoder.finish()]);
       await readback.mapAsync(GPUMapMode.READ);
       actual = new Float32Array(readback.getMappedRange().slice(0));
       readback.unmap();
     } finally {
-      arena.release(acquisition);
+      drawPipeline.destroy();
       output.destroy();
       readback.destroy();
     }
     return {
       actual,
-      lifetime: arena.snapshot(),
+      lifetime: drawPipeline.snapshot(),
+      reusedBinding,
     };
   }
 
@@ -342,6 +368,7 @@
         bundledMaxAbsoluteError: bundledParity.maxAbsoluteError,
         rendererTriangleCount: rendererPacket.triangleCount,
         rendererGpuLifetime: bundledRun.lifetime,
+        rendererBindingReused: bundledRun.reusedBinding,
       };
     } finally {
       input.destroy();
