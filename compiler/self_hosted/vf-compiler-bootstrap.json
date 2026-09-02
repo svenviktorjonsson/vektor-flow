@@ -9,27 +9,27 @@
   "sources": [
     {
       "path": "compiler/self_hosted/lexer.vkf",
-      "source_sha256": "6dff4027b4d56c4cf24f2a3e4ea1bac6c48d075bb5e41a29dbfcaf1d56ba97ac",
+      "source_sha256": "7df12d4b936cd93e43339f36b125178360a568b0d3c19964eac28b265a1c3c9e",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/parser.vkf",
-      "source_sha256": "bd40364935aa8ab7d4e18178630c7c93491657f690032a266f08265be4b2fc7b",
+      "source_sha256": "cf5c09ae4842c532efadcb446bb8a35fb86c256aceeb8e93b8aac4cbe96eb295",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/typed_ir.vkf",
-      "source_sha256": "ed29e7c65750629e984251a49d60dae22f771d9857302bc30e79d327ac70c838",
+      "source_sha256": "41a8d21ec4d9f16b60338b773b95308587118804ef505ff86c6810afd5f8827f",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/machine_ir.vkf",
-      "source_sha256": "d49c5c125ca31ee7d8417e04992202f355b385ae4adf3983d785afc22a6fad01",
+      "source_sha256": "ab129f9345dff1b1dea2623654f61ab715f08dd15d2933aabe90c9cb18070f1e",
       "parsed_with_native_parser": true
     },
     {
       "path": "compiler/self_hosted/machine_ir_validation.vkf",
-      "source_sha256": "36b8b7c22731a85e6399efb86ec1f652a6fa7b947724116d0afd20be06ef1ae1",
+      "source_sha256": "acda2ae2fef4de29a28cd93ab93e404baeab46d3ca18ec1ef4ca300962dd8622",
       "parsed_with_native_parser": true
     },
     {
@@ -71,5 +71,5 @@
     "compiler/self_hosted/stdlib/io.vkf"
   ],
   "source_count": 10,
-  "bundle_sha256": "f566b49a196986996aeac9d9440d659e34dfa4a97a831680e036ce3d155e73ed"
+  "bundle_sha256": "d2c0829cb2b6896d9ec34238d12c711214c7af657a9349658f5d05548dae8614"
 }
