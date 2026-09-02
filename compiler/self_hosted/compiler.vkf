@@ -495,16 +495,17 @@ _compile_printed_dynamic_mixed_expression_x64(
         .index+: 1
     template_prefix & body
 
-_compile_printed_dynamic_arithmetic_chain_x64(
+_compile_printed_dynamic_integer_tape_x64(
     source:str,
     template_prefix:str,
     addition_code:str,
     multiplication_code:str,
     subtraction_code:str,
+    remainder_code:str,
     print_tail:str
 ) -> str:
     statement: compile_tagged_printed_dynamic_mixed_arithmetic(source)
-    (statement.max_stack = 3)?! "arithmetic x64 tracer stack maximum changed"
+    (statement.max_stack >= 2 /\ statement.max_stack <= 3)?! "integer x64 tracer stack maximum changed"
     str body: ""
     index: 0
     code: 0
@@ -520,12 +521,42 @@ _compile_printed_dynamic_arithmetic_chain_x64(
             .body: body & multiplication_code
         code = 6?
             .body: body & subtraction_code
+        code = 8?
+            (~(remainder_code = ""))?! "integer x64 tracer remainder code is missing"
+            .body: body & remainder_code
         code = 3?
-            (index + 1 = statement.opcodes.length())?! "arithmetic x64 tracer print must terminate the tape"
+            (index + 1 = statement.opcodes.length())?! "integer x64 tracer print must terminate the tape"
             .body: body & print_tail
-        (code = 1 \/ code = 2 \/ code = 3 \/ code = 5 \/ code = 6)?! "arithmetic x64 tracer encountered an unsupported opcode"
+        (code = 1 \/ code = 2 \/ code = 3 \/ code = 5 \/ code = 6 \/ code = 8)?! "integer x64 tracer encountered an unsupported opcode"
         .index+: 1
     template_prefix & body
+
+_compile_printed_dynamic_arithmetic_chain_x64(
+    source:str,
+    template_prefix:str,
+    addition_code:str,
+    multiplication_code:str,
+    subtraction_code:str,
+    print_tail:str
+) -> str:
+    _compile_printed_dynamic_integer_tape_x64(
+        source, template_prefix, addition_code, multiplication_code,
+        subtraction_code, "", print_tail
+    )
+
+_compile_printed_dynamic_remainder_chain_x64(
+    source:str,
+    template_prefix:str,
+    addition_code:str,
+    multiplication_code:str,
+    subtraction_code:str,
+    remainder_code:str,
+    print_tail:str
+) -> str:
+    _compile_printed_dynamic_integer_tape_x64(
+        source, template_prefix, addition_code, multiplication_code,
+        subtraction_code, remainder_code, print_tail
+    )
 
 compile_tagged_dependency_tape(source:str):
     tokens: lexer.tagged_statement_token_tape(source)
