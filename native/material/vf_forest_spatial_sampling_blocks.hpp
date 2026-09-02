@@ -84,6 +84,62 @@ struct ForestSpatialSamplingBlockResult {
 };
 
 inline ForestSpatialSamplingReport
+FinalizeForestSpatialSamplingBlocksReference(
+    const ForestPopulationRealization& population,
+    std::size_t pair_budget,
+    std::uint64_t population_version,
+    std::vector<ForestSpatialSamplingBlockResult> completed
+) {
+    std::sort(
+        completed.begin(),
+        completed.end(),
+        [](const auto& first, const auto& second) {
+            return first.first_sample < second.first_sample;
+        }
+    );
+    ForestSpatialSamplingAccumulator total;
+    for (const auto& result : completed) {
+        total.near_pairs += result.accumulator.near_pairs;
+        total.far_pairs += result.accumulator.far_pairs;
+        total.near_same_species +=
+            result.accumulator.near_same_species;
+        total.far_same_species +=
+            result.accumulator.far_same_species;
+        total.near_environment_sum +=
+            result.accumulator.near_environment_sum;
+        total.far_environment_sum +=
+            result.accumulator.far_environment_sum;
+    }
+    return FinalizeForestSpatialSamplingReference(
+        population,
+        pair_budget,
+        population_version,
+        total
+    );
+}
+
+inline ForestSpatialSamplingBlockResult
+EvaluateForestSpatialSamplingBlockReference(
+    const ForestPopulationRealization& population,
+    std::uint64_t population_version,
+    double near_squared,
+    double far_squared,
+    const ForestSpatialSamplingBlock& block
+) {
+    return {
+        block.first_sample,
+        AccumulateForestSpatialSamplingRangeReference(
+            population,
+            population_version,
+            near_squared,
+            far_squared,
+            block.first_sample,
+            block.sample_count
+        ),
+    };
+}
+
+inline ForestSpatialSamplingReport
 SampleForestSpatialQualityBlocksReference(
     const ForestPopulationRealization& population,
     double near_distance,
@@ -110,44 +166,20 @@ SampleForestSpatialQualityBlocksReference(
     completed.reserve(blocks.size());
     for (const auto& block : blocks) {
         completed.push_back(
-            {
-                block.first_sample,
-                AccumulateForestSpatialSamplingRangeReference(
-                    population,
-                    population_version,
-                    near_squared,
-                    far_squared,
-                    block.first_sample,
-                    block.sample_count
-                ),
-            }
+            EvaluateForestSpatialSamplingBlockReference(
+                population,
+                population_version,
+                near_squared,
+                far_squared,
+                block
+            )
         );
     }
-    std::sort(
-        completed.begin(),
-        completed.end(),
-        [](const auto& first, const auto& second) {
-            return first.first_sample < second.first_sample;
-        }
-    );
-    ForestSpatialSamplingAccumulator total;
-    for (const auto& result : completed) {
-        total.near_pairs += result.accumulator.near_pairs;
-        total.far_pairs += result.accumulator.far_pairs;
-        total.near_same_species +=
-            result.accumulator.near_same_species;
-        total.far_same_species +=
-            result.accumulator.far_same_species;
-        total.near_environment_sum +=
-            result.accumulator.near_environment_sum;
-        total.far_environment_sum +=
-            result.accumulator.far_environment_sum;
-    }
-    return FinalizeForestSpatialSamplingReference(
+    return FinalizeForestSpatialSamplingBlocksReference(
         population,
         pair_budget,
         population_version,
-        total
+        std::move(completed)
     );
 }
 
