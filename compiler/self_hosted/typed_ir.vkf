@@ -21,6 +21,14 @@ TypedFieldAccess: (kind:str, object:any, field:str, object_type:str, type:str)
 TypedTaggedModule: (kind:str, source:str, statements:[num], count:int)
 TypedTaggedNestedAddition: (kind:str, values:[num:3], type:str)
 TypedTaggedDependencyChain: (kind:str, values:[num:4], type:str)
+TypedTaggedDynamicArithmetic: (kind:str, values:[num:5], type:str)
+TypedTaggedDynamicAddition: (kind:str, values:[num], type:str)
+TypedTaggedDynamicMixedArithmetic: (
+    kind:str, operators:[num], values:[num], type:str
+)
+TypedTaggedDynamicGroupedArithmetic: (
+    kind:str, tokens:[num], values:[num], type:str
+)
 TypedTaggedBinaryOp: (
     kind:str,
     left:TypedLoad,
@@ -153,6 +161,75 @@ typed_tagged_add_divide(
 ) -> TypedTaggedNestedAddition:
     (kind = "add_divide")?! "typed division input has the wrong kind"
     (kind:"typed_add_divide", values:values, type:"int")
+
+typed_tagged_add_remainder(
+    kind:str, values:[num:3]
+) -> TypedTaggedNestedAddition:
+    (kind = "add_remainder")?! "typed remainder input has the wrong kind"
+    (kind:"typed_add_remainder", values:values, type:"int")
+
+typed_tagged_add_power(
+    kind:str, values:[num:3]
+) -> TypedTaggedNestedAddition:
+    (kind = "add_power")?! "typed power input has the wrong kind"
+    (kind:"typed_add_power", values:values, type:"int")
+
+typed_tagged_add_floor_divide(
+    kind:str, values:[num:3]
+) -> TypedTaggedNestedAddition:
+    (kind = "add_floor_divide")?! "typed floor division input has the wrong kind"
+    (kind:"typed_add_floor_divide", values:values, type:"int")
+
+typed_tagged_grouped_add_floor_divide(
+    kind:str, values:[num:3]
+) -> TypedTaggedNestedAddition:
+    (kind = "grouped_add_floor_divide")?! "typed grouped addition input has the wrong kind"
+    (kind:"typed_grouped_add_floor_divide", values:values, type:"int")
+
+typed_tagged_extended_arithmetic(
+    kind:str, values:[num:4]
+) -> TypedTaggedDependencyChain:
+    (kind = "extended_arithmetic")?! "typed extended arithmetic input has the wrong kind"
+    (kind:"typed_extended_arithmetic", values:values, type:"int")
+
+typed_tagged_dynamic_arithmetic(
+    kind:str, values:[num:5]
+) -> TypedTaggedDynamicArithmetic:
+    (kind = "dynamic_arithmetic")?! "typed dynamic arithmetic input has the wrong kind"
+    (kind:"typed_dynamic_arithmetic", values:values, type:"int")
+
+typed_tagged_dynamic_addition(
+    kind:str, values:[num]
+) -> TypedTaggedDynamicAddition:
+    (kind = "dynamic_addition")?! "typed dynamic addition input has the wrong kind"
+    (values.length() >= 2)?! "typed dynamic addition needs at least two operands"
+    (kind:"typed_dynamic_addition", values:values, type:"int")
+
+typed_tagged_dynamic_mixed_arithmetic(
+    kind:str, operators:[num], values:[num]
+) -> TypedTaggedDynamicMixedArithmetic:
+    (kind = "dynamic_mixed_arithmetic")?! "typed dynamic mixed arithmetic input has the wrong kind"
+    (values.length() = operators.length() + 1)?! "typed dynamic mixed arithmetic has imbalanced operands"
+    (operators.length() >= 1)?! "typed dynamic mixed arithmetic needs an operator"
+    (
+        kind:"typed_dynamic_mixed_arithmetic",
+        operators:operators,
+        values:values,
+        type:"int"
+    )
+
+typed_tagged_dynamic_grouped_arithmetic(
+    kind:str, tokens:[num], values:[num]
+) -> TypedTaggedDynamicGroupedArithmetic:
+    (kind = "dynamic_grouped_arithmetic")?! "typed dynamic grouped arithmetic input has the wrong kind"
+    (tokens.length() = values.length())?! "typed dynamic grouped arithmetic has imbalanced tapes"
+    (tokens.length() >= 3)?! "typed dynamic grouped arithmetic needs a grouped expression"
+    (
+        kind:"typed_dynamic_grouped_arithmetic",
+        tokens:tokens,
+        values:values,
+        type:"int"
+    )
 
 typed_tagged_derived_binding_addition(
     kind:str, values:[num:3]

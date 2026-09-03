@@ -175,7 +175,7 @@ machine_ir_numeric_opcode_code(kind:str) -> num:
     code
 
 machine_ir_numeric_opcode_depth(depth:num, code:num) -> num:
-    (code >= 1 /\ code <= 4)?! "numeric opcode tape encountered an unknown code"
+    (code >= 1 /\ code <= 5)?! "numeric opcode tape encountered an unknown code"
     required: 0
     produced: 0
     code = 1?
@@ -185,6 +185,9 @@ machine_ir_numeric_opcode_depth(depth:num, code:num) -> num:
         .produced: 1
     code = 3?
         .required: 1
+    code = 5?
+        .required: 1
+        .produced: 1
     (depth >= required)?! "numeric opcode tape stack underflow"
     depth - required + produced
 
@@ -198,6 +201,35 @@ machine_ir_numeric_opcode_tape_stack_maximum(codes:[num]) -> num:
             .maximum: depth
         .index+: 1
     (depth = 0)?! "numeric opcode tape leaves an imbalanced stack"
+    maximum
+
+machine_ir_arithmetic_opcode_stack_effect(code:num) -> num:
+    code = 1?
+        @: 1
+    code = 2?
+        @: 2
+    code = 3?
+        @: 3
+    code = 4?
+        @: 2
+    code = 5?
+        @: 2
+    code = 10?
+        @: 5
+    (code = 6 \/ code = 7 \/ code = 8 \/ code = 9)?! "arithmetic opcode tape has an unknown opcode"
+    2
+
+machine_ir_arithmetic_opcode_tape_stack_maximum(codes:[num]) -> num:
+    depth: 0
+    maximum: 0
+    index: 0
+    (index < codes.length())?>
+        effect: machine_ir_arithmetic_opcode_stack_effect(codes.(index))
+        .depth: machine_ir_numeric_opcode_depth(depth, effect)
+        depth > maximum?
+            .maximum: depth
+        .index+: 1
+    (depth = 0)?! "arithmetic opcode tape leaves an imbalanced stack"
     maximum
 
 machine_ir_numeric_parameter_multiply_stack_maxima(function_name:str, parameter_name:str, factor:num) -> [num:3]:

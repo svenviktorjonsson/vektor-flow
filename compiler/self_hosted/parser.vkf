@@ -55,6 +55,10 @@ TaggedStatementModule: (kind:str, body:TaggedStatementStorage, span:Span)
 TaggedStatementResult: (module:TaggedStatementModule, diagnostics:any)
 TaggedNestedAddition: (kind:str, values:[num:3])
 TaggedDependencyChain: (kind:str, values:[num:4])
+TaggedDynamicArithmetic: (kind:str, values:[num:5])
+TaggedDynamicAddition: (kind:str, values:[num])
+TaggedDynamicMixedArithmetic: (kind:str, operators:[num], values:[num])
+TaggedDynamicGroupedArithmetic: (kind:str, tokens:[num], values:[num])
 TaggedNumericFunctionCall: (
     function_name:str,
     parameter_name:str,
@@ -713,6 +717,262 @@ parse_tagged_printed_add_divide(
         vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed division must load its binding"
     [num:3] values: [token_rows.(15), token_rows.(51), token_rows.(63)]
     (kind:"add_divide", values:values)
+
+parse_tagged_printed_add_remainder(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedNestedAddition:
+    (token_count = 13)?! "printed remainder has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 2 /\
+        token_rows.(48) = 3 /\ token_rows.(54) = 10 /\
+        token_rows.(60) = 3 /\ token_rows.(66) = 4 /\
+        token_rows.(72) = 5)?! "printed remainder source shape changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed remainder must load its binding"
+    [num:3] values: [token_rows.(15), token_rows.(51), token_rows.(63)]
+    (kind:"add_remainder", values:values)
+
+parse_tagged_printed_add_power(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedNestedAddition:
+    (token_count = 13)?! "printed power has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 2 /\
+        token_rows.(48) = 3 /\ token_rows.(54) = 11 /\
+        token_rows.(60) = 3 /\ token_rows.(66) = 4 /\
+        token_rows.(72) = 5)?! "printed power source shape changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed power must load its binding"
+    [num:3] values: [token_rows.(15), token_rows.(51), token_rows.(63)]
+    (kind:"add_power", values:values)
+
+parse_tagged_printed_add_floor_divide(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedNestedAddition:
+    (token_count = 13)?! "printed floor division has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 2 /\
+        token_rows.(48) = 3 /\ token_rows.(54) = 12 /\
+        token_rows.(60) = 3 /\ token_rows.(66) = 4 /\
+        token_rows.(72) = 5)?! "printed floor division source shape changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed floor division must load its binding"
+    [num:3] values: [token_rows.(15), token_rows.(51), token_rows.(63)]
+    (kind:"add_floor_divide", values:values)
+
+parse_tagged_printed_add_negative_floor_divide(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedNestedAddition:
+    (token_count = 14)?! "printed signed floor division has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 2 /\
+        token_rows.(48) = 20 /\ token_rows.(54) = 3 /\
+        token_rows.(60) = 12 /\ token_rows.(66) = 3 /\
+        token_rows.(72) = 4 /\ token_rows.(78) = 5)?! "printed signed floor division source shape changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed signed floor division must load its binding"
+    [num:3] values: [
+        token_rows.(15), 0 - token_rows.(57), token_rows.(69)
+    ]
+    (kind:"add_floor_divide", values:values)
+
+parse_tagged_printed_add_grouped_floor_divide(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedNestedAddition:
+    (token_count = 15)?! "printed grouped floor division has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 2 /\
+        token_rows.(48) = 13 /\ token_rows.(54) = 3 /\
+        token_rows.(60) = 12 /\ token_rows.(66) = 3 /\
+        token_rows.(72) = 14 /\ token_rows.(78) = 4 /\
+        token_rows.(84) = 5)?! "printed grouped floor division source shape changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed grouped floor division must load its binding"
+    [num:3] values: [token_rows.(15), token_rows.(57), token_rows.(69)]
+    (kind:"add_floor_divide", values:values)
+
+parse_tagged_printed_grouped_add_floor_divide(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedNestedAddition:
+    (token_count = 15)?! "printed grouped addition has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 13 /\ token_rows.(42) = 1 /\
+        token_rows.(48) = 2 /\ token_rows.(54) = 3 /\
+        token_rows.(60) = 14 /\ token_rows.(66) = 12 /\
+        token_rows.(72) = 3 /\ token_rows.(78) = 4 /\
+        token_rows.(84) = 5)?! "printed grouped addition source shape changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(43), token_rows.(44)))?! "printed grouped addition must load its binding"
+    [num:3] values: [token_rows.(15), token_rows.(57), token_rows.(75)]
+    (kind:"grouped_add_floor_divide", values:values)
+
+parse_tagged_printed_extended_arithmetic(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedDependencyChain:
+    (token_count = 15)?! "printed extended arithmetic has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 2 /\
+        token_rows.(48) = 3 /\ token_rows.(54) = 12 /\
+        token_rows.(60) = 3 /\ token_rows.(66) = 2 /\
+        token_rows.(72) = 3 /\ token_rows.(78) = 4 /\
+        token_rows.(84) = 5)?! "printed extended arithmetic source shape changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed extended arithmetic must load its binding"
+    [num:4] values: [
+        token_rows.(15), token_rows.(51),
+        token_rows.(63), token_rows.(75)
+    ]
+    (kind:"extended_arithmetic", values:values)
+
+parse_tagged_printed_dynamic_arithmetic(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedDynamicArithmetic:
+    (token_count = 17)?! "printed dynamic arithmetic has an unexpected token count"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1 /\ token_rows.(42) = 2 /\
+        token_rows.(48) = 3 /\ token_rows.(54) = 12 /\
+        token_rows.(60) = 3 /\ token_rows.(66) = 2 /\
+        token_rows.(72) = 3 /\ token_rows.(78) = 2 /\
+        token_rows.(84) = 3 /\ token_rows.(90) = 4 /\
+        token_rows.(96) = 5)?! "printed dynamic arithmetic source shape changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed dynamic arithmetic must load its binding"
+    [num:5] values: [
+        token_rows.(15), token_rows.(51), token_rows.(63),
+        token_rows.(75), token_rows.(87)
+    ]
+    (kind:"dynamic_arithmetic", values:values)
+
+parse_tagged_printed_dynamic_addition(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedDynamicAddition:
+    (token_count >= 11)?! "printed dynamic addition has too few tokens"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1)?! "printed dynamic addition source prefix changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed dynamic addition must load its binding"
+    expression_stop: token_count - 2
+    final_row: expression_stop * 6
+    eof_row: (token_count - 1) * 6
+    (token_rows.(final_row) = 4 /\ token_rows.(eof_row) = 5)?! "printed dynamic addition source suffix changed"
+    [num] values: [token_rows.(15)]
+    token_index: 7
+    (token_index < expression_stop)?>
+        (token_index + 1 < expression_stop)?! "printed dynamic addition has a missing operand"
+        operator_row: token_index * 6
+        value_row: (token_index + 1) * 6
+        (token_rows.(operator_row) = 2 /\ token_rows.(value_row) = 3)?! "printed dynamic addition expects plus-number pairs"
+        .values: values & [token_rows.(value_row + 3)]
+        .token_index+: 2
+    (token_index = expression_stop)?! "printed dynamic addition has a partial tail"
+    (kind:"dynamic_addition", values:values)
+
+parse_tagged_printed_dynamic_mixed_arithmetic(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedDynamicMixedArithmetic:
+    (token_count >= 11)?! "printed dynamic mixed arithmetic has too few tokens"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15 /\
+        token_rows.(36) = 1)?! "printed dynamic mixed arithmetic source prefix changed"
+    (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+        vkf_utf8_slice(source, token_rows.(37), token_rows.(38)))?! "printed dynamic mixed arithmetic must load its binding"
+    expression_stop: token_count - 2
+    final_row: expression_stop * 6
+    eof_row: (token_count - 1) * 6
+    (token_rows.(final_row) = 4 /\ token_rows.(eof_row) = 5)?! "printed dynamic mixed arithmetic source suffix changed"
+    [num] operators: []
+    [num] values: [token_rows.(15)]
+    token_index: 7
+    (token_index < expression_stop)?>
+        (token_index + 1 < expression_stop)?! "printed dynamic mixed arithmetic has a missing operand"
+        operator_row: token_index * 6
+        value_row: (token_index + 1) * 6
+        operator_kind: token_rows.(operator_row)
+        ((operator_kind = 2 \/ operator_kind = 7 \/ operator_kind = 9 \/ operator_kind = 10 \/ operator_kind = 11 \/ operator_kind = 12 \/ operator_kind = 20) /\ token_rows.(value_row) = 3)?! "printed dynamic mixed arithmetic expects operator-number pairs"
+        .operators: operators & [operator_kind]
+        .values: values & [token_rows.(value_row + 3)]
+        .token_index+: 2
+    (token_index = expression_stop)?! "printed dynamic mixed arithmetic has a partial tail"
+    (kind:"dynamic_mixed_arithmetic", operators:operators, values:values)
+
+parse_tagged_printed_dynamic_grouped_arithmetic(
+    source:str, token_rows:[num], token_count:int
+) -> TaggedDynamicGroupedArithmetic:
+    (token_count >= 13)?! "printed dynamic grouped arithmetic has too few tokens"
+    (token_rows.(0) = 1 /\ token_rows.(6) = 15 /\
+        token_rows.(12) = 3 /\ token_rows.(18) = 4 /\
+        token_rows.(24) = 15 /\ token_rows.(30) = 15)?! "printed dynamic grouped arithmetic source prefix changed"
+    expression_stop: token_count - 2
+    final_row: expression_stop * 6
+    eof_row: (token_count - 1) * 6
+    (token_rows.(final_row) = 4 /\ token_rows.(eof_row) = 5)?! "printed dynamic grouped arithmetic source suffix changed"
+    [num] tokens: []
+    [num] values: []
+    token_index: 6
+    parenthesis_depth: 0
+    identifier_count: 0
+    expecting_operand: true
+    (token_index < expression_stop)?>
+        row: token_index * 6
+        token_kind: token_rows.(row)
+        (token_kind = 1 \/ token_kind = 2 \/ token_kind = 3 \/
+            token_kind = 7 \/ token_kind = 9 \/ token_kind = 10 \/
+            token_kind = 11 \/ token_kind = 12 \/ token_kind = 13 \/
+            token_kind = 14 \/ token_kind = 20)?! "printed dynamic grouped arithmetic has an unsupported token"
+        (token_kind = 1 \/ token_kind = 3)?
+            expecting_operand?! "printed dynamic grouped arithmetic has adjacent operands"
+            token_kind = 1?
+                (vkf_utf8_slice(source, token_rows.(1), token_rows.(2)) =
+                    vkf_utf8_slice(source, token_rows.(row + 1), token_rows.(row + 2)))?! "printed dynamic grouped arithmetic must load its binding"
+                .identifier_count+: 1
+                .values: values & [token_rows.(15)]
+            token_kind = 3?
+                .values: values & [token_rows.(row + 3)]
+            .tokens: tokens & [token_kind]
+            .expecting_operand: false
+        token_kind = 13?
+            expecting_operand?! "printed dynamic grouped arithmetic has a misplaced opening parenthesis"
+            .tokens: tokens & [token_kind]
+            .values: values & [0]
+            .parenthesis_depth+: 1
+        token_kind = 14?
+            (~expecting_operand /\ parenthesis_depth > 0)?! "printed dynamic grouped arithmetic has a misplaced closing parenthesis"
+            .tokens: tokens & [token_kind]
+            .values: values & [0]
+            .parenthesis_depth-: 1
+        (token_kind = 20 /\ expecting_operand)?
+            .tokens: tokens & [21]
+            .values: values & [0]
+        (token_kind = 2 \/ token_kind = 7 \/ token_kind = 9 \/
+            token_kind = 10 \/ token_kind = 11 \/ token_kind = 12 \/
+            (token_kind = 20 /\ ~expecting_operand))?
+            (~expecting_operand)?! "printed dynamic grouped arithmetic has a misplaced operator"
+            .tokens: tokens & [token_kind]
+            .values: values & [0]
+            .expecting_operand: true
+        .token_index+: 1
+    (~expecting_operand /\ parenthesis_depth = 0)?! "printed dynamic grouped arithmetic has an incomplete expression"
+    (identifier_count = 1)?! "printed dynamic grouped arithmetic must load one binding"
+    (kind:"dynamic_grouped_arithmetic", tokens:tokens, values:values)
 
 parse_tagged_binding_nested_addition(
     source:str, token_rows:[num], token_count:int

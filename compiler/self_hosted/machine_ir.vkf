@@ -456,6 +456,82 @@ mir_tagged_add_divide(values:[num:3]) -> TaggedNestedMachineStatement:
         max_stack:3
     )
 
+mir_tagged_add_remainder(values:[num:3]) -> TaggedNestedMachineStatement:
+    (
+        name:"\$entry",
+        instructions:[
+            _mir_tagged_instruction("push_f64", value:values.0),
+            _mir_tagged_instruction("push_f64", value:values.1),
+            _mir_tagged_instruction("push_f64", value:values.2),
+            _mir_tagged_instruction("remainder_f64"),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("return_f64")
+        ],
+        max_stack:3
+    )
+
+mir_tagged_add_power(values:[num:3]) -> TaggedNestedMachineStatement:
+    (
+        name:"\$entry",
+        instructions:[
+            _mir_tagged_instruction("push_f64", value:values.0),
+            _mir_tagged_instruction("push_f64", value:values.1),
+            _mir_tagged_instruction("push_f64", value:values.2),
+            _mir_tagged_instruction("power_f64"),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("return_f64")
+        ],
+        max_stack:3
+    )
+
+mir_tagged_add_floor_divide(values:[num:3]) -> TaggedNestedMachineStatement:
+    (
+        name:"\$entry",
+        instructions:[
+            _mir_tagged_instruction("push_f64", value:values.0),
+            _mir_tagged_instruction("push_f64", value:values.1),
+            _mir_tagged_instruction("push_f64", value:values.2),
+            _mir_tagged_instruction("floor_divide_f64"),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("return_f64")
+        ],
+        max_stack:3
+    )
+
+mir_tagged_grouped_add_floor_divide(
+    values:[num:3]
+) -> TaggedNestedMachineStatement:
+    (
+        name:"\$entry",
+        instructions:[
+            _mir_tagged_instruction("push_f64", value:values.0),
+            _mir_tagged_instruction("push_f64", value:values.1),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("push_f64", value:values.2),
+            _mir_tagged_instruction("floor_divide_f64"),
+            _mir_tagged_instruction("return_f64")
+        ],
+        max_stack:2
+    )
+
+mir_tagged_extended_arithmetic(
+    values:[num:4]
+) -> TaggedDependencyMachineStatement:
+    (
+        name:"\$entry",
+        instructions:[
+            _mir_tagged_instruction("push_f64", value:values.0),
+            _mir_tagged_instruction("push_f64", value:values.1),
+            _mir_tagged_instruction("push_f64", value:values.2),
+            _mir_tagged_instruction("floor_divide_f64"),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("push_f64", value:values.3),
+            _mir_tagged_instruction("add_f64"),
+            _mir_tagged_instruction("return_f64")
+        ],
+        max_stack:3
+    )
+
 mir_tagged_derived_binding_addition(
     values:[num:3]
 ) -> TaggedNestedMachineStatement:
@@ -491,6 +567,213 @@ mir_tagged_dynamic_two_derived_bindings(
         opcodes:opcodes,
         values:instruction_values,
         max_stack:2
+    )
+
+mir_tagged_dynamic_arithmetic(
+    values:[num:5]
+) -> TaggedDynamicMachineStatement:
+    [num] opcodes: [1, 1, 1, 4, 2, 1, 2, 1, 2, 3]
+    [num] instruction_values: [
+        values.0, values.1, values.2, 0, 0,
+        values.3, 0, values.4, 0, 0
+    ]
+    (
+        name:"\$entry",
+        opcodes:opcodes,
+        values:instruction_values,
+        max_stack:3
+    )
+
+mir_tagged_dynamic_addition(
+    values:[num]
+) -> TaggedDynamicMachineStatement:
+    (values.length() >= 2)?! "dynamic addition Machine IR needs at least two operands"
+    [num] opcodes: [1]
+    [num] instruction_values: [values.0]
+    index: 1
+    (index < values.length())?>
+        .opcodes: opcodes & [1, 2]
+        .instruction_values: instruction_values & [values.(index), 0]
+        .index+: 1
+    final_opcodes: opcodes & [3]
+    final_values: instruction_values & [0]
+    (
+        name:"\$entry",
+        opcodes:final_opcodes,
+        values:final_values,
+        max_stack:2
+    )
+
+mir_tagged_dynamic_mixed_arithmetic(
+    operators:[num], values:[num]
+) -> TaggedDynamicMachineStatement:
+    (values.length() = operators.length() + 1)?! "dynamic mixed arithmetic Machine IR has imbalanced operands"
+    [num] opcodes: [1]
+    [num] instruction_values: [values.0]
+    index: 0
+    first_power_count: 0
+    (index < operators.length() /\ operators.(index) = 11)?>
+        .opcodes: opcodes & [1]
+        .instruction_values: instruction_values & [values.(index + 1)]
+        .first_power_count+: 1
+        .index+: 1
+    emitted_power: 0
+    (emitted_power < first_power_count)?>
+        .opcodes: opcodes & [9]
+        .instruction_values: instruction_values & [0]
+        .emitted_power+: 1
+    maximum: first_power_count + 1
+    depth: 1
+    pending_low: 0
+    chain_power_count: 0
+    (index < operators.length())?>
+        operator_kind: operators.(index)
+        .chain_power_count: 0
+        (operator_kind = 2 \/ operator_kind = 7 \/ operator_kind = 9 \/ operator_kind = 10 \/ operator_kind = 12 \/ operator_kind = 20)?! "dynamic mixed arithmetic Machine IR has an unknown operator"
+        (operator_kind = 2 \/ operator_kind = 20)?
+            pending_low != 0?
+                .opcodes: opcodes & [pending_low]
+                .instruction_values: instruction_values & [0]
+                .depth-: 1
+        .index+: 1
+        .opcodes: opcodes & [1]
+        .instruction_values: instruction_values & [values.(index)]
+        (index < operators.length() /\ operators.(index) = 11)?>
+            .opcodes: opcodes & [1]
+            .instruction_values: instruction_values & [values.(index + 1)]
+            .chain_power_count+: 1
+            .index+: 1
+        depth + chain_power_count + 1 > maximum?
+            .maximum: depth + chain_power_count + 1
+        .emitted_power: 0
+        (emitted_power < chain_power_count)?>
+            .opcodes: opcodes & [9]
+            .instruction_values: instruction_values & [0]
+            .emitted_power+: 1
+        .depth+: 1
+        (operator_kind = 2 \/ operator_kind = 20)?
+            operator_kind = 2?
+                .pending_low: 2
+            operator_kind = 20?
+                .pending_low: 6
+        (operator_kind = 7 \/ operator_kind = 9 \/ operator_kind = 10 \/ operator_kind = 12)?
+            operator_kind = 12?
+                .opcodes: opcodes & [4]
+            operator_kind = 7?
+                .opcodes: opcodes & [5]
+            operator_kind = 9?
+                .opcodes: opcodes & [7]
+            operator_kind = 10?
+                .opcodes: opcodes & [8]
+            .instruction_values: instruction_values & [0]
+            .depth-: 1
+    pending_low != 0?
+        .opcodes: opcodes & [pending_low]
+        .instruction_values: instruction_values & [0]
+        .depth-: 1
+    (depth = 1)?! "dynamic mixed arithmetic Machine IR has an imbalanced result"
+    (
+        name:"\$entry",
+        opcodes:opcodes & [3],
+        values:instruction_values & [0],
+        max_stack:maximum
+    )
+
+_mir_dynamic_arithmetic_operator_opcode(token_kind:num) -> num:
+    token_kind = 2?
+        @: 2
+    token_kind = 7?
+        @: 5
+    token_kind = 9?
+        @: 7
+    token_kind = 10?
+        @: 8
+    token_kind = 11?
+        @: 9
+    token_kind = 12?
+        @: 4
+    token_kind = 21?
+        @: 10
+    (token_kind = 20)?! "dynamic grouped arithmetic Machine IR has an unknown operator"
+    6
+
+_mir_dynamic_arithmetic_operator_precedence(token_kind:num) -> num:
+    token_kind = 21?
+        @: 4
+    token_kind = 11?
+        @: 3
+    (token_kind = 7 \/ token_kind = 9 \/ token_kind = 10 \/ token_kind = 12)?
+        @: 2
+    (token_kind = 2 \/ token_kind = 20)?! "dynamic grouped arithmetic Machine IR has an unknown precedence"
+    1
+
+mir_tagged_dynamic_grouped_arithmetic(
+    tokens:[num], values:[num]
+) -> TaggedDynamicMachineStatement:
+    (tokens.length() = values.length())?! "dynamic grouped arithmetic Machine IR has imbalanced tapes"
+    [num] opcodes: []
+    [num] instruction_values: []
+    [num] operator_stack: [0:tokens.length()]
+    operator_count: 0
+    index: 0
+    token_kind: 0
+    top_kind: 0
+    current_precedence: 0
+    top_precedence: 0
+    popping: false
+    should_pop: false
+    found_open: false
+    (index < tokens.length())?>
+        .token_kind: tokens.(index)
+        (token_kind = 1 \/ token_kind = 3)?
+            .opcodes: opcodes & [1]
+            .instruction_values: instruction_values & [values.(index)]
+        token_kind = 13?
+            operator_stack.(operator_count): token_kind
+            .operator_count+: 1
+        token_kind = 14?
+            .found_open: false
+            (operator_count > 0 /\ ~found_open)?>
+                .operator_count-: 1
+                .top_kind: operator_stack.(operator_count)
+                top_kind = 13?
+                    .found_open: true
+                top_kind != 13?
+                    .opcodes: opcodes & [_mir_dynamic_arithmetic_operator_opcode(top_kind)]
+                    .instruction_values: instruction_values & [0]
+            found_open?! "dynamic grouped arithmetic Machine IR has an unmatched closing parenthesis"
+        (token_kind = 2 \/ token_kind = 7 \/ token_kind = 9 \/
+            token_kind = 10 \/ token_kind = 11 \/ token_kind = 12 \/
+            token_kind = 20 \/ token_kind = 21)?
+            .current_precedence: _mir_dynamic_arithmetic_operator_precedence(token_kind)
+            .popping: token_kind != 21
+            (operator_count > 0 /\ popping)?>
+                .top_kind: operator_stack.(operator_count - 1)
+                top_kind = 13?
+                    .popping: false
+                top_kind != 13?
+                    .top_precedence: _mir_dynamic_arithmetic_operator_precedence(top_kind)
+                    .should_pop: top_precedence > current_precedence \/ (top_precedence = current_precedence /\ token_kind != 11)
+                    should_pop?
+                        .operator_count-: 1
+                        .opcodes: opcodes & [_mir_dynamic_arithmetic_operator_opcode(top_kind)]
+                        .instruction_values: instruction_values & [0]
+                    ~should_pop?
+                        .popping: false
+            operator_stack.(operator_count): token_kind
+            .operator_count+: 1
+        .index+: 1
+    operator_count > 0?>
+        .operator_count-: 1
+        .top_kind: operator_stack.(operator_count)
+        (top_kind != 13)?! "dynamic grouped arithmetic Machine IR has an unmatched opening parenthesis"
+        .opcodes: opcodes & [_mir_dynamic_arithmetic_operator_opcode(top_kind)]
+        .instruction_values: instruction_values & [0]
+    (
+        name:"\$entry",
+        opcodes:opcodes & [3],
+        values:instruction_values & [0],
+        max_stack:0
     )
 
 mir_dynamic_opcode_kind(code:num) -> str:

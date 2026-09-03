@@ -580,6 +580,10 @@ _tagged_function_punctuation_kind(ch:str) -> int:
         @: 7
     ch = "/"?
         @: 9
+    ch = "%"?
+        @: 10
+    ch = "^"?
+        @: 11
     ch = ">"?
         @: 17
     ch = "<"?
@@ -624,9 +628,14 @@ _scan_tagged_function_tokens(
         )
         @: _scan_tagged_function_tokens(stop, number_tape)
     stop: cursor.advance()
+    kind_code: _tagged_function_punctuation_kind(cursor.peek())
+    floor_divide: cursor.peek() = "/" /\ stop.peek() = "/"
+    floor_divide?
+        .kind_code: 12
+        .stop: stop.advance()
     punctuation_tape: _append_tagged_token(
         tape,
-        _tagged_function_punctuation_kind(cursor.peek()),
+        kind_code,
         cursor.position,
         stop.position,
         0,

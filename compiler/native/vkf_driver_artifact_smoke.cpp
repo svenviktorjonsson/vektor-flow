@@ -624,6 +624,18 @@ inline constexpr const char* kClosedAddSubtractPipelineComponent =
     "machine_ir.closed_add_subtract.typed_module_pipeline";
 inline constexpr const char* kClosedAddDividePipelineComponent =
     "machine_ir.closed_add_divide.typed_module_pipeline";
+inline constexpr const char* kClosedAddRemainderPipelineComponent =
+    "machine_ir.closed_add_remainder.typed_module_pipeline";
+inline constexpr const char* kClosedAddPowerPipelineComponent =
+    "machine_ir.closed_add_power.typed_module_pipeline";
+inline constexpr const char* kClosedAddFloorDividePipelineComponent =
+    "machine_ir.closed_add_floor_divide.typed_module_pipeline";
+inline constexpr const char* kClosedGroupedAddFloorDividePipelineComponent =
+    "machine_ir.closed_grouped_add_floor_divide.typed_module_pipeline";
+inline constexpr const char* kClosedExtendedArithmeticPipelineComponent =
+    "machine_ir.closed_extended_arithmetic.typed_module_pipeline";
+inline constexpr const char* kClosedDynamicArithmeticPipelineComponent =
+    "machine_ir.closed_dynamic_arithmetic.typed_module_pipeline";
 inline constexpr const char* kClosedDependencyChainPipelineComponent =
     "machine_ir.closed_dependency_chain.typed_module_pipeline";
 
@@ -1018,6 +1030,238 @@ vkf::machine_ir::Module parse_closed_add_divide_observation(
     return module;
 }
 
+vkf::machine_ir::Module parse_closed_add_remainder_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(
+        observation, 15, "closed add-remainder tracer");
+    const std::vector<std::pair<std::size_t, std::string>> fixed{
+        {0, "vektorflow.machine_ir"}, {1, "4"}, {2, "f64"}, {3, "1"},
+        {4, "$entry"}, {5, "3"}, {6, "push_f64"}, {8, "push_f64"},
+        {10, "push_f64"}, {12, "remainder_f64"}, {13, "add_f64"},
+        {14, "return_f64"}};
+    for (const auto& [index, expected] : fixed) {
+        require_tracer_leaf(lines, index, expected);
+    }
+
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure(
+            "closed add-remainder tracer source identity has the wrong byte width");
+    }
+    const auto instruction = [](vkf::machine_ir::Opcode opcode, double value = 0.0) {
+        vkf::machine_ir::Instruction result;
+        result.opcode = opcode;
+        result.f64 = value;
+        return result;
+    };
+
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions = {
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[7], 7)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[9], 9)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[11], 11)),
+        instruction(vkf::machine_ir::Opcode::RemainderF64),
+        instruction(vkf::machine_ir::Opcode::AddF64),
+        instruction(vkf::machine_ir::Opcode::ReturnF64)};
+    entry.max_stack = 3;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
+vkf::machine_ir::Module parse_closed_add_power_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(
+        observation, 15, "closed add-power tracer");
+    const std::vector<std::pair<std::size_t, std::string>> fixed{
+        {0, "vektorflow.machine_ir"}, {1, "4"}, {2, "f64"}, {3, "1"},
+        {4, "$entry"}, {5, "3"}, {6, "push_f64"}, {8, "push_f64"},
+        {10, "push_f64"}, {12, "power_f64"}, {13, "add_f64"},
+        {14, "return_f64"}};
+    for (const auto& [index, expected] : fixed) {
+        require_tracer_leaf(lines, index, expected);
+    }
+
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure(
+            "closed add-power tracer source identity has the wrong byte width");
+    }
+    const auto instruction = [](vkf::machine_ir::Opcode opcode, double value = 0.0) {
+        vkf::machine_ir::Instruction result;
+        result.opcode = opcode;
+        result.f64 = value;
+        return result;
+    };
+
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions = {
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[7], 7)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[9], 9)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[11], 11)),
+        instruction(vkf::machine_ir::Opcode::PowerF64),
+        instruction(vkf::machine_ir::Opcode::AddF64),
+        instruction(vkf::machine_ir::Opcode::ReturnF64)};
+    entry.max_stack = 3;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
+vkf::machine_ir::Module parse_closed_add_floor_divide_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(
+        observation, 15, "closed add-floor-divide tracer");
+    const std::vector<std::pair<std::size_t, std::string>> fixed{
+        {0, "vektorflow.machine_ir"}, {1, "4"}, {2, "f64"}, {3, "1"},
+        {4, "$entry"}, {5, "3"}, {6, "push_f64"}, {8, "push_f64"},
+        {10, "push_f64"}, {12, "floor_divide_f64"}, {13, "add_f64"},
+        {14, "return_f64"}};
+    for (const auto& [index, expected] : fixed) {
+        require_tracer_leaf(lines, index, expected);
+    }
+
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure(
+            "closed add-floor-divide tracer source identity has the wrong byte width");
+    }
+    const auto instruction = [](vkf::machine_ir::Opcode opcode, double value = 0.0) {
+        vkf::machine_ir::Instruction result;
+        result.opcode = opcode;
+        result.f64 = value;
+        return result;
+    };
+
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions = {
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[7], 7)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[9], 9)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[11], 11)),
+        instruction(vkf::machine_ir::Opcode::FloorDivideF64),
+        instruction(vkf::machine_ir::Opcode::AddF64),
+        instruction(vkf::machine_ir::Opcode::ReturnF64)};
+    entry.max_stack = 3;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
+vkf::machine_ir::Module parse_closed_grouped_add_floor_divide_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(
+        observation, 15, "closed grouped-add-floor-divide tracer");
+    const std::vector<std::pair<std::size_t, std::string>> fixed{
+        {0, "vektorflow.machine_ir"}, {1, "4"}, {2, "f64"}, {3, "1"},
+        {4, "$entry"}, {5, "2"}, {6, "push_f64"}, {8, "push_f64"},
+        {10, "add_f64"}, {11, "push_f64"}, {13, "floor_divide_f64"},
+        {14, "return_f64"}};
+    for (const auto& [index, expected] : fixed) {
+        require_tracer_leaf(lines, index, expected);
+    }
+
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure(
+            "closed grouped-add-floor-divide tracer source identity has the wrong byte width");
+    }
+    const auto instruction = [](vkf::machine_ir::Opcode opcode, double value = 0.0) {
+        vkf::machine_ir::Instruction result;
+        result.opcode = opcode;
+        result.f64 = value;
+        return result;
+    };
+
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions = {
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[7], 7)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[9], 9)),
+        instruction(vkf::machine_ir::Opcode::AddF64),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[12], 12)),
+        instruction(vkf::machine_ir::Opcode::FloorDivideF64),
+        instruction(vkf::machine_ir::Opcode::ReturnF64)};
+    entry.max_stack = 2;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
+vkf::machine_ir::Module parse_closed_extended_arithmetic_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = tracer_observation_lines(
+        observation, 18, "closed extended-arithmetic tracer");
+    const std::vector<std::pair<std::size_t, std::string>> fixed{
+        {0, "vektorflow.machine_ir"}, {1, "4"}, {2, "f64"}, {3, "1"},
+        {4, "$entry"}, {5, "3"}, {6, "push_f64"}, {8, "push_f64"},
+        {10, "push_f64"}, {12, "floor_divide_f64"}, {13, "add_f64"},
+        {14, "push_f64"}, {16, "add_f64"}, {17, "return_f64"}};
+    for (const auto& [index, expected] : fixed) {
+        require_tracer_leaf(lines, index, expected);
+    }
+
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure(
+            "closed extended-arithmetic tracer source identity has the wrong byte width");
+    }
+    const auto instruction = [](vkf::machine_ir::Opcode opcode, double value = 0.0) {
+        vkf::machine_ir::Instruction result;
+        result.opcode = opcode;
+        result.f64 = value;
+        return result;
+    };
+
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions = {
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[7], 7)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[9], 9)),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[11], 11)),
+        instruction(vkf::machine_ir::Opcode::FloorDivideF64),
+        instruction(vkf::machine_ir::Opcode::AddF64),
+        instruction(vkf::machine_ir::Opcode::PushF64, tracer_number(lines[15], 15)),
+        instruction(vkf::machine_ir::Opcode::AddF64),
+        instruction(vkf::machine_ir::Opcode::ReturnF64)};
+    entry.max_stack = 3;
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
 vkf::machine_ir::Module parse_closed_dependency_chain_observation(
     const std::string& observation,
     const std::string& source_graph_fingerprint
@@ -1045,10 +1289,6 @@ vkf::machine_ir::Module parse_closed_dependency_chain_observation(
             throw DriverFailure(
                 "closed dependency-chain tracer leaf " +
                 std::to_string(index) + " must be an unsigned integer");
-        }
-        if (value > lines.size()) {
-            throw DriverFailure(
-                "closed dependency-chain tracer instruction count exceeds its payload");
         }
         return static_cast<std::size_t>(value);
     };
@@ -1343,6 +1583,128 @@ vkf::machine_ir::Module parse_loop_tracer_observation(
     return module;
 }
 
+vkf::machine_ir::Module parse_closed_dynamic_arithmetic_observation(
+    const std::string& observation,
+    const std::string& source_graph_fingerprint
+) {
+    const auto lines = dynamic_tracer_observation_lines(
+        observation, 7, "closed dynamic-arithmetic tracer");
+    const std::vector<std::pair<std::size_t, std::string>> fixed{
+        {0, "vektorflow.machine_ir"}, {1, "4"}, {2, "f64"}, {3, "1"},
+        {4, "$entry"}};
+    for (const auto& [index, expected] : fixed) {
+        require_tracer_leaf(lines, index, expected);
+    }
+
+    const auto parse_unsigned = [&](std::size_t leaf, const char* label) {
+        if (lines[leaf].empty() ||
+            lines[leaf].find_first_not_of("0123456789") != std::string::npos) {
+            throw DriverFailure(
+                std::string("closed dynamic-arithmetic tracer ") + label +
+                " must be an unsigned integer");
+        }
+        try {
+            return std::stoull(lines[leaf]);
+        } catch (const std::exception&) {
+            throw DriverFailure(
+                std::string("closed dynamic-arithmetic tracer ") + label +
+                " must be an unsigned integer");
+        }
+    };
+    const auto parsed_max_stack = parse_unsigned(5, "maximum stack");
+    const auto parsed_count = parse_unsigned(6, "instruction count");
+    if (parsed_max_stack == 0 || parsed_count == 0 || lines.size() != 9) {
+        throw DriverFailure(
+            "closed dynamic-arithmetic tracer dimensions do not match its payload");
+    }
+    const auto instruction_count = static_cast<std::size_t>(parsed_count);
+    const auto parse_tape = [&](std::size_t leaf) {
+        const auto& text = lines[leaf];
+        if (text.size() < 2 || text.front() != '[' || text.back() != ']') {
+            throw DriverFailure(
+                "closed dynamic-arithmetic tracer leaf " +
+                std::to_string(leaf) + " must be a numeric vector");
+        }
+        std::vector<double> result;
+        std::istringstream values(text.substr(1, text.size() - 2));
+        std::string value;
+        while (std::getline(values, value, ',')) {
+            const auto begin = value.find_first_not_of(" \t");
+            const auto end = value.find_last_not_of(" \t");
+            if (begin == std::string::npos) {
+                throw DriverFailure(
+                    "closed dynamic-arithmetic tracer leaf " +
+                    std::to_string(leaf) + " contains an empty value");
+            }
+            result.push_back(tracer_number(
+                value.substr(begin, end - begin + 1), leaf));
+        }
+        return result;
+    };
+    const auto opcodes = parse_tape(7);
+    const auto values = parse_tape(8);
+    if (opcodes.size() != instruction_count || values.size() != instruction_count) {
+        throw DriverFailure(
+            "closed dynamic-arithmetic tracer instruction count does not match its payload");
+    }
+
+    const std::string cache_marker = "VKF-CACHE-V1:" + source_graph_fingerprint;
+    if (cache_marker.size() != 77) {
+        throw DriverFailure(
+            "closed dynamic-arithmetic tracer source identity has the wrong byte width");
+    }
+    vkf::machine_ir::Function entry;
+    entry.name = "$entry";
+    entry.instructions.reserve(instruction_count);
+    for (std::size_t index = 0; index < instruction_count; ++index) {
+        const auto opcode = opcodes[index];
+        const auto value = values[index];
+        vkf::machine_ir::Instruction instruction;
+        if (opcode == 1.0) {
+            instruction.opcode = vkf::machine_ir::Opcode::PushF64;
+            instruction.f64 = value;
+        } else {
+            if (value != 0.0) {
+                throw DriverFailure(
+                    "closed dynamic-arithmetic non-push opcode must have a zero payload");
+            }
+            if (opcode == 2.0) {
+                instruction.opcode = vkf::machine_ir::Opcode::AddF64;
+            } else if (opcode == 3.0) {
+                instruction.opcode = vkf::machine_ir::Opcode::ReturnF64;
+            } else if (opcode == 4.0) {
+                instruction.opcode = vkf::machine_ir::Opcode::FloorDivideF64;
+            } else if (opcode == 5.0) {
+                instruction.opcode = vkf::machine_ir::Opcode::MultiplyF64;
+            } else if (opcode == 6.0) {
+                instruction.opcode = vkf::machine_ir::Opcode::SubtractF64;
+            } else if (opcode == 7.0) {
+                instruction.opcode = vkf::machine_ir::Opcode::DivideF64;
+            } else if (opcode == 8.0) {
+                instruction.opcode = vkf::machine_ir::Opcode::RemainderF64;
+            } else if (opcode == 9.0) {
+                instruction.opcode = vkf::machine_ir::Opcode::PowerF64;
+            } else if (opcode == 10.0) {
+                instruction.opcode = vkf::machine_ir::Opcode::NegateF64;
+            } else {
+                throw DriverFailure(
+                    "unsupported closed dynamic-arithmetic tracer opcode " +
+                    std::to_string(opcode) + " at instruction " +
+                    std::to_string(index));
+            }
+        }
+        entry.instructions.push_back(std::move(instruction));
+    }
+    entry.max_stack = static_cast<std::size_t>(parsed_max_stack);
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.string_data.assign(cache_marker.begin(), cache_marker.end());
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
 vkf::machine_ir::Module parse_empty_module_observation(
     const std::string& observation,
     const std::string& source_graph_fingerprint
@@ -1462,6 +1824,24 @@ vf::JsonValue::Object dispatch_internal_typed_module_pipeline(
         ? parse_empty_module_observation(observation, source_graph_fingerprint)
         : component == kClosedDependencyChainPipelineComponent
         ? parse_closed_dependency_chain_observation(
+            observation, source_graph_fingerprint)
+        : component == kClosedDynamicArithmeticPipelineComponent
+        ? parse_closed_dynamic_arithmetic_observation(
+            observation, source_graph_fingerprint)
+        : component == kClosedAddPowerPipelineComponent
+        ? parse_closed_add_power_observation(
+            observation, source_graph_fingerprint)
+        : component == kClosedAddFloorDividePipelineComponent
+        ? parse_closed_add_floor_divide_observation(
+            observation, source_graph_fingerprint)
+        : component == kClosedGroupedAddFloorDividePipelineComponent
+        ? parse_closed_grouped_add_floor_divide_observation(
+            observation, source_graph_fingerprint)
+        : component == kClosedExtendedArithmeticPipelineComponent
+        ? parse_closed_extended_arithmetic_observation(
+            observation, source_graph_fingerprint)
+        : component == kClosedAddRemainderPipelineComponent
+        ? parse_closed_add_remainder_observation(
             observation, source_graph_fingerprint)
         : component == kClosedAddDividePipelineComponent
         ? parse_closed_add_divide_observation(
@@ -1668,11 +2048,17 @@ vf::JsonValue::Object dispatch_internal_stage_observation(
     const std::filesystem::path& provenance_path
 ) {
     if (component != kClosedDependencyChainPipelineComponent &&
+        component != kClosedDynamicArithmeticPipelineComponent &&
         component != kClosedBindingPipelineComponent &&
         component != kClosedNestedAdditionPipelineComponent &&
         component != kClosedAddMultiplyPipelineComponent &&
         component != kClosedAddSubtractPipelineComponent &&
         component != kClosedAddDividePipelineComponent &&
+        component != kClosedAddRemainderPipelineComponent &&
+        component != kClosedAddPowerPipelineComponent &&
+        component != kClosedAddFloorDividePipelineComponent &&
+        component != kClosedGroupedAddFloorDividePipelineComponent &&
+        component != kClosedExtendedArithmeticPipelineComponent &&
         component != kEmptyTypedModulePipelineComponent &&
         component != kScalarBindingPipelineComponent &&
         component != kTypedModulePipelineComponent &&
