@@ -155,6 +155,33 @@ ObserveForestSpatialPairReference(
     };
 }
 
+inline ForestSpatialSampleObservations
+BuildForestSpatialSampleObservationsReference(
+    const ForestPopulationRealization& population,
+    const std::vector<ForestSpatialSamplePair>& pairs
+) {
+    ForestSpatialSampleObservations observations;
+    observations.distance_squared.reserve(pairs.size());
+    observations.environment_similarity.reserve(pairs.size());
+    observations.same_species.reserve(pairs.size());
+    for (const auto& pair : pairs) {
+        const auto observation = ObserveForestSpatialPairReference(
+            population,
+            pair
+        );
+        observations.distance_squared.push_back(
+            observation.distance_squared
+        );
+        observations.environment_similarity.push_back(
+            observation.environment_similarity
+        );
+        observations.same_species.push_back(
+            observation.same_species
+        );
+    }
+    return observations;
+}
+
 inline void AccumulateForestSpatialObservationReference(
     double near_squared,
     double far_squared,

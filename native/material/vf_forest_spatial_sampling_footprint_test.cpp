@@ -62,8 +62,8 @@ int main() {
     require(
         vf::material::PreparedForestSpatialSamplingStorageBytesReference(
             prepared
-        ) == 3400784,
-        "forest prepared audit retained redundant pair storage"
+        ) == 673779,
+        "forest prepared audit retained unclassified observations"
     );
     require(prepared.population_version == 1415625329643559388ull,
             "forest prepared footprint population changed");

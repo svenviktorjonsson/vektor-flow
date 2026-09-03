@@ -16,7 +16,7 @@ struct PreparedForestSpatialSamplingReference {
     double far_squared;
     std::size_t pair_budget;
     std::vector<ForestSpatialSamplingBlock> blocks;
-    ForestSpatialSampleObservations observations;
+    ForestSpatialClassifiedObservations classified;
 };
 
 inline PreparedForestSpatialSamplingReference
@@ -46,25 +46,17 @@ PrepareForestSpatialSamplingReference(
             population.trees.size(),
             pair_budget
         );
-    ForestSpatialSampleObservations observations;
-    observations.distance_squared.reserve(pair_budget);
-    observations.environment_similarity.reserve(pair_budget);
-    observations.same_species.reserve(pair_budget);
-    for (const auto& pair : sample_pairs) {
-        const auto observation = ObserveForestSpatialPairReference(
+    const auto observations =
+        BuildForestSpatialSampleObservationsReference(
             population,
-            pair
+            sample_pairs
         );
-        observations.distance_squared.push_back(
-            observation.distance_squared
-        );
-        observations.environment_similarity.push_back(
-            observation.environment_similarity
-        );
-        observations.same_species.push_back(
-            observation.same_species
-        );
-    }
+    auto classified = ClassifyForestSpatialObservationsReference(
+        observations,
+        near_distance * near_distance,
+        far_distance * far_distance,
+        blocks
+    );
     return {
         &population,
         population_version,
@@ -72,7 +64,7 @@ PrepareForestSpatialSamplingReference(
         far_distance * far_distance,
         pair_budget,
         std::move(blocks),
-        std::move(observations),
+        std::move(classified),
     };
 }
 
@@ -89,7 +81,8 @@ SampleForestSpatialQualityPreparedParallelReference(
         prepared.pair_budget,
         prepared.blocks,
         nullptr,
-        &prepared.observations,
+        nullptr,
+        &prepared.classified,
         worker_count
     );
 }
@@ -109,6 +102,27 @@ SampleForestSpatialQualityPreparedPairsParallelReference(
         prepared.blocks,
         &sample_pairs,
         nullptr,
+        nullptr,
+        worker_count
+    );
+}
+
+inline ForestSpatialParallelSamplingReport
+SampleForestSpatialQualityPreparedObservationsParallelReference(
+    const PreparedForestSpatialSamplingReference& prepared,
+    const ForestSpatialSampleObservations& observations,
+    std::size_t worker_count
+) {
+    return SampleForestSpatialQualityPreparedCoreReference(
+        *prepared.population,
+        prepared.population_version,
+        prepared.near_squared,
+        prepared.far_squared,
+        prepared.pair_budget,
+        prepared.blocks,
+        nullptr,
+        &observations,
+        nullptr,
         worker_count
     );
 }
@@ -119,11 +133,15 @@ PreparedForestSpatialSamplingStorageBytesReference(
 ) {
     return prepared.blocks.size() *
             sizeof(ForestSpatialSamplingBlock) +
-        prepared.observations.distance_squared.size() *
+        prepared.classified.blocks.size() *
+            sizeof(ForestSpatialClassifiedBlock) +
+        prepared.classified.near_environment_similarity.size() *
             sizeof(double) +
-        prepared.observations.environment_similarity.size() *
+        prepared.classified.far_environment_similarity.size() *
             sizeof(double) +
-        prepared.observations.same_species.size() *
+        prepared.classified.near_same_species.size() *
+            sizeof(std::uint8_t) +
+        prepared.classified.far_same_species.size() *
             sizeof(std::uint8_t);
 }
 

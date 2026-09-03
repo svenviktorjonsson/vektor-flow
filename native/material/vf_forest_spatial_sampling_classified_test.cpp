@@ -75,7 +75,7 @@ int main() {
     const auto population =
         vf::material::RealizeForestPopulationReference(
             definition,
-            patch_grid(1400, 16, 16),
+            patch_grid(1700, 16, 16),
             4096
         );
     const auto prepared =
@@ -86,7 +86,7 @@ int main() {
             200000,
             4096
         );
-    const auto sample_pairs =
+    const auto pairs =
         vf::material::BuildForestSpatialSamplePairsReference(
             prepared.population_version,
             population.trees.size(),
@@ -95,44 +95,24 @@ int main() {
     const auto observations =
         vf::material::BuildForestSpatialSampleObservationsReference(
             population,
-            sample_pairs
+            pairs
         );
-    const auto replay =
-        vf::material::BuildForestSpatialSampleObservationsReference(
-            population,
-            sample_pairs
-        );
-    require(observations.distance_squared.size() ==
-                200000 &&
-                observations.environment_similarity.size() ==
-                    200000 &&
-                observations.same_species.size() == 200000 &&
-                replay.distance_squared ==
-                    observations.distance_squared &&
-                replay.environment_similarity ==
-                    observations.environment_similarity &&
-                replay.same_species == observations.same_species,
-            "forest pair observations are not deterministic bounded");
-    const std::size_t observation_bytes =
-        observations.distance_squared.size() *
-            sizeof(double) +
+    const std::size_t raw_observation_bytes =
+        observations.distance_squared.size() * sizeof(double) +
         observations.environment_similarity.size() *
             sizeof(double) +
-        observations.same_species.size() *
-            sizeof(std::uint8_t);
-    require(observation_bytes == 3400000,
-            "forest pair observation storage changed its bound");
-    require(prepared.population_version ==
-                10960672012680006616ull,
-            "forest pair observation population changed");
-    const auto indexed =
-        vf::material::
-            SampleForestSpatialQualityPreparedPairsParallelReference(
-                prepared,
-                sample_pairs,
-                4
-            );
-    const auto observed =
+        observations.same_species.size() * sizeof(std::uint8_t);
+    const std::size_t retained_bytes =
+        vf::material::PreparedForestSpatialSamplingStorageBytesReference(
+            prepared
+        );
+    require(raw_observation_bytes == 3400000 &&
+                retained_bytes == 674499 &&
+                prepared.population_version ==
+                    13386321735724611223ull,
+            "forest classified cache did not bound retained memory");
+
+    const auto raw =
         vf::material::
             SampleForestSpatialQualityPreparedObservationsParallelReference(
                 prepared,
@@ -146,50 +126,55 @@ int main() {
                 4
             );
     vf::material::ForestSpatialSamplingExecutorReference executor(4);
-    const auto reused = executor.sample(prepared);
-    require(observed.sample == indexed.sample &&
-                classified.sample == indexed.sample &&
-                reused.sample == indexed.sample,
-            "forest pair observation cache changed audit result");
+    require(classified.sample == raw.sample &&
+                executor.sample(prepared).sample == raw.sample &&
+                prepared.classified.near_environment_similarity.size() ==
+                    raw.sample.near_pair_count &&
+                prepared.classified.far_environment_similarity.size() ==
+                    raw.sample.far_pair_count &&
+                raw.sample.near_pair_count == 5071 &&
+                raw.sample.far_pair_count == 69612,
+            "forest classified cache changed audit result");
 
-    const auto indexed_timing = measure(
+    const auto raw_timing = measure(
         [&]() {
-            const auto result =
-                vf::material::
-                    SampleForestSpatialQualityPreparedPairsParallelReference(
-                        prepared,
-                        sample_pairs,
-                        4
-                    );
-            require(result.sample == indexed.sample,
-                    "indexed forest audit changed during timing");
-        },
-        20
-    );
-    const auto observed_timing = measure(
-        [&]() {
-            const auto result =
-                vf::material::
+            const auto result = vf::material::
                 SampleForestSpatialQualityPreparedObservationsParallelReference(
+                    prepared,
+                    observations,
+                    4
+                );
+            require(result.sample == raw.sample,
+                    "raw observation audit changed during timing");
+        },
+        20
+    );
+    const auto classified_timing = measure(
+        [&]() {
+            const auto result =
+                vf::material::
+                    SampleForestSpatialQualityPreparedParallelReference(
                         prepared,
-                        observations,
                         4
                     );
-            require(result.sample == indexed.sample,
-                    "observed forest audit changed during timing");
+            require(result.sample == raw.sample,
+                    "classified forest audit changed during timing");
         },
         20
     );
 
-    std::cout << "forest spatial observations: pairs="
-              << sample_pairs.size()
-              << " observation_bytes=" << observation_bytes
-              << " indexed_median_us="
-              << indexed_timing.median_us
-              << " observed_median_us="
-              << observed_timing.median_us
-              << " indexed_p95_us=" << indexed_timing.p95_us
-              << " observed_p95_us=" << observed_timing.p95_us
+    std::cout << "forest spatial classified: pairs="
+              << prepared.pair_budget
+              << " raw_bytes=" << raw_observation_bytes
+              << " retained_bytes=" << retained_bytes
+              << " near=" << raw.sample.near_pair_count
+              << " far=" << raw.sample.far_pair_count
+              << " raw_median_us=" << raw_timing.median_us
+              << " classified_median_us="
+              << classified_timing.median_us
+              << " raw_p95_us=" << raw_timing.p95_us
+              << " classified_p95_us="
+              << classified_timing.p95_us
               << " version=" << prepared.population_version << '\n';
     return 0;
 }
