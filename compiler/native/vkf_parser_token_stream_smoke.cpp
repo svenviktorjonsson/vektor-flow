@@ -77,8 +77,8 @@ std::optional<int> token_source_width(const Token& token) {
 
 class ParseFailure : public std::runtime_error {
 public:
-    ParseFailure(std::string message, Location location)
-        : std::runtime_error(std::move(message)), location_(std::move(location)) {}
+    ParseFailure(const std::string& message, Location location)
+        : std::runtime_error(message), location_(std::move(location)) {}
 
     const Location& location() const {
         return location_;
@@ -2419,7 +2419,7 @@ std::string input_text(int argc, char** argv) {
     if (argc <= 1) {
         return read_stdin();
     }
-    const std::string file_text = read_file(argv[1]);
+    std::string file_text = read_file(argv[1]);
     if (!file_text.empty()) {
         return file_text;
     }
