@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cmath>
 #include <complex>
+#include <cstdint>
 #include <cstdlib>
 #include <deque>
 #include <memory>
@@ -15,7 +16,7 @@
 #include <utility>
 #include <vector>
 
-enum class VkfSymbolicNodeKind {
+enum class VkfSymbolicNodeKind : std::uint8_t {
     Symbol,
     IntegerLiteral,
     Call,
