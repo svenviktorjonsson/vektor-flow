@@ -12385,6 +12385,7 @@ inline void lower_statements(
                 const auto& indices = array_of(field(statement, "indices", "index update"), "index update");
                 if (indices.size() > 1) {
                     std::vector<std::pair<std::string, ValueLayout>> selected_layouts;
+                    selected_layouts.reserve(indices.size());
                     for (const auto& raw_index : indices) {
                         const auto& index = object_of(raw_index, "fixed update index");
                         const auto& raw = field(index, "value", "fixed update index");
@@ -12404,6 +12405,7 @@ inline void lower_statements(
                             key, projected_layout(binding_layout, key, selected->second)});
                     }
                     std::vector<ValueLayout> expected_elements;
+                    expected_elements.reserve(selected_layouts.size());
                     for (const auto& selected : selected_layouts) {
                         expected_elements.push_back(selected.second);
                     }
