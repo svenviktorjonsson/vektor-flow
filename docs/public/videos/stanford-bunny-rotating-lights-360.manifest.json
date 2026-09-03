@@ -11,10 +11,12 @@
     "first_degree": 0,
     "last_degree": 359,
     "playback": "repeat",
-    "source_frame_width": 742,
-    "source_frame_height": 229,
-    "first_frame_checksum": "fnv1a32:62354162",
-    "last_frame_checksum": "fnv1a32:36733bcd",
+    "source_frame_width": 1486,
+    "source_frame_height": 459,
+    "renderer_msaa_samples": 4,
+    "spatial_supersampling": 2,
+    "first_frame_checksum": "fnv1a32:bd96baf6",
+    "last_frame_checksum": "fnv1a32:ed31b052",
     "vkf_error_count": 0
   },
   "encoding": {
@@ -23,10 +25,13 @@
     "fps": 30,
     "frames": 360,
     "duration_seconds": 12,
-    "width": 742,
-    "height": 228,
+    "width": 1486,
+    "height": 458,
+    "color_space": "bt709",
+    "crf": 20,
+    "preset": "slow",
     "fast_start": true
   },
-  "sha256": "ff2f9d4b32864026cd3fc1d0638ba353da40e9aaa1964693bf8298248ba45fa1",
-  "bytes": 480888
+  "sha256": "2f402434503f4c7903d740e7fd9243b3b60aa77f02c516a347fb8a468bedef82",
+  "bytes": 865128
 }

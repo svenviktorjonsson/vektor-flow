@@ -52,4 +52,16 @@ test("published rabbit orbit is one complete 360-sample repeat cycle", async () 
     },
     { codec: "H.264", fps: 30, frames: 360, duration: 12 },
   );
+  assert.deepEqual(
+    {
+      rendererSamples: manifest.capture.renderer_msaa_samples,
+      spatialScale: manifest.capture.spatial_supersampling,
+    },
+    { rendererSamples: 4, spatialScale: 2 },
+    "movie capture must preserve the renderer's antialiasing at 2x spatial resolution",
+  );
+  assert.ok(
+    manifest.encoding.width >= 1400 && manifest.encoding.height >= 450,
+    `published movie is too small for antialiased playback: ${manifest.encoding.width}x${manifest.encoding.height}`,
+  );
 });
