@@ -19,6 +19,8 @@ const EXAMPLES = Object.freeze({
   }),
   "curve-static": Object.freeze({ source: "sin(x)", kind: "plot" }),
   "curve-time": Object.freeze({ source: "sin(x-t)", kind: "plot-time" }),
+  "surface-static": Object.freeze({ source: "sin(x)*cos(y)", kind: "surface" }),
+  "surface-time": Object.freeze({ source: "sin(x-t)+cos(y)", kind: "surface-time" }),
 });
 
 registerVektorFlowPrism(Prism);
@@ -51,6 +53,14 @@ status.value = "Ready";
 
 function selectedExample() {
   return EXAMPLES[example.value] ?? EXAMPLES.console;
+}
+
+function selectedExampleIsTimed() {
+  return selectedExample().kind.endsWith("-time");
+}
+
+function selectedExampleIsSurface() {
+  return selectedExample().kind.startsWith("surface");
 }
 
 function stopAnimation() {
@@ -111,14 +121,73 @@ function drawPlot(plot, view) {
   context.stroke();
 }
 
+function drawSurface(surface, view) {
+  const ratio = Math.max(1, globalThis.devicePixelRatio || 1);
+  const width = Math.max(320, visualization.clientWidth);
+  const height = Math.max(300, visualization.clientHeight);
+  visualization.width = Math.round(width * ratio);
+  visualization.height = Math.round(height * ratio);
+  const context = visualization.getContext("2d");
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  context.lineJoin = "round";
+
+  const stride = surface.stride / Float32Array.BYTES_PER_ELEMENT;
+  const point = (index) => {
+    const offset = index * stride;
+    const x = surface.data[offset];
+    const y = surface.data[offset + 1];
+    const z = surface.data[offset + 2];
+    const nx = (x - view.xMin) / (view.xMax - view.xMin) - 0.5;
+    const ny = (y - view.yMin) / (view.yMax - view.yMin) - 0.5;
+    return Object.freeze({
+      x: width * 0.5 + (nx - ny) * width * 0.58,
+      y: height * 0.56 + (nx + ny) * height * 0.24 - z * height * 0.12,
+      z,
+      depth: nx + ny,
+    });
+  };
+
+  const faces = [];
+  for (let index = 0; index < surface.count; index += 3) {
+    const points = [point(index), point(index + 1), point(index + 2)];
+    if (points.some(({ x, y, z }) => ![x, y, z].every(Number.isFinite))) continue;
+    faces.push({
+      points,
+      depth: points.reduce((sum, item) => sum + item.depth, 0) / points.length,
+      z: points.reduce((sum, item) => sum + item.z, 0) / points.length,
+    });
+  }
+  faces.sort((left, right) => left.depth - right.depth);
+
+  for (const face of faces) {
+    const normalized = Math.max(0, Math.min(1, (face.z + 2) / 4));
+    context.beginPath();
+    context.moveTo(face.points[0].x, face.points[0].y);
+    for (let index = 1; index < face.points.length; index += 1) {
+      context.lineTo(face.points[index].x, face.points[index].y);
+    }
+    context.closePath();
+    context.fillStyle = `hsl(${160 + normalized * 105} 72% ${38 + normalized * 18}% / 0.9)`;
+    context.fill();
+    context.strokeStyle = "rgb(164 214 220 / 0.24)";
+    context.lineWidth = 0.8;
+    context.stroke();
+  }
+}
+
 async function compilePlot(t = 0) {
   const started = performance.now();
   plotterPromise ??= loadPackagedBrowserSymbolicPlotter();
   const plotter = await plotterPromise;
   plotProgram = plotter.compile(source.value);
-  drawPlot(plotter.plot(plotProgram, { t }), plotter.view);
+  if (selectedExampleIsSurface()) {
+    drawSurface(plotter.surface(plotProgram, { t }), plotter.surfaceView);
+  } else {
+    drawPlot(plotter.plot(plotProgram, { t }), plotter.view);
+  }
   showVisualization();
-  status.value = `Compiled and plotted in ${(performance.now() - started).toFixed(1)} ms`;
+  status.value = `Compiled and rendered in ${(performance.now() - started).toFixed(1)} ms`;
 }
 
 async function compileSource() {
@@ -135,15 +204,20 @@ async function compileSource() {
     status.value = `Compiled and ran in ${(performance.now() - started).toFixed(1)} ms`;
   } catch (error) {
     output.textContent = error.cause?.message ?? error.message;
+    showConsole();
     status.value = "Compile or runtime error";
   }
 }
 
 function animate(timestamp) {
   if (animationOrigin == null) animationOrigin = timestamp;
-  const t = (timestamp - animationOrigin) / 1000;
+  const t = ((timestamp - animationOrigin) / 1000) % (2 * Math.PI);
   plotterPromise.then((plotter) => {
-    drawPlot(plotter.plot(plotProgram, { t }), plotter.view);
+    if (selectedExampleIsSurface()) {
+      drawSurface(plotter.surface(plotProgram, { t }), plotter.surfaceView);
+    } else {
+      drawPlot(plotter.plot(plotProgram, { t }), plotter.view);
+    }
     status.value = `Running · t=${t.toFixed(2)}`;
   });
   animationFrame = requestAnimationFrame(animate);
@@ -170,7 +244,7 @@ example.addEventListener("change", () => {
   stopAnimation();
   const chosen = selectedExample();
   source.value = chosen.source;
-  playButton.hidden = chosen.kind !== "plot-time";
+  playButton.hidden = !selectedExampleIsTimed();
   history.replaceState(null, "", `?example=${encodeURIComponent(example.value)}`);
   renderHighlight();
   compileSource();
@@ -189,6 +263,6 @@ if (requestedExample && EXAMPLES[requestedExample]) {
   example.value = requestedExample;
   source.value = EXAMPLES[requestedExample].source;
 }
-playButton.hidden = selectedExample().kind !== "plot-time";
+playButton.hidden = !selectedExampleIsTimed();
 renderHighlight();
 compileSource();

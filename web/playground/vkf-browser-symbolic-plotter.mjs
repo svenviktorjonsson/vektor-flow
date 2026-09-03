@@ -28,6 +28,23 @@ const STYLE = Object.freeze({
   valueMax: 1.5,
 });
 
+const SURFACE_VIEW = Object.freeze({
+  ...VIEW,
+  xMin: -Math.PI,
+  xMax: Math.PI,
+  yMin: -Math.PI,
+  yMax: Math.PI,
+  fieldXSteps: 17,
+  fieldYSteps: 13,
+});
+
+const SURFACE_STYLE = Object.freeze({
+  ...STYLE,
+  faceA: 1,
+  valueMin: -2,
+  valueMax: 2,
+});
+
 export function createBrowserSymbolicPlotter(kernel) {
   if (!kernel || typeof kernel.compile !== "function" || typeof kernel.plot !== "function") {
     throw new TypeError("browser symbolic plotter requires a VKF WASM kernel");
@@ -54,7 +71,38 @@ export function createBrowserSymbolicPlotter(kernel) {
         revision,
       );
     },
+    surface(program, { t = 0 } = {}) {
+      if (!program?.handle) {
+        throw new TypeError("symbolic surface requires a compiled VKF program");
+      }
+      revision += 1;
+      const plotted = kernel.plot(
+        program.handle,
+        workspace,
+        { ...SURFACE_VIEW, t },
+        SURFACE_STYLE,
+        revision,
+      );
+      const inputStride = plotted.stride / Float32Array.BYTES_PER_ELEMENT;
+      const data = new Float32Array(plotted.count * 3);
+      for (let index = 0; index < plotted.count; index += 1) {
+        const input = index * inputStride;
+        const output = index * 3;
+        data[output] = plotted.data[input];
+        data[output + 1] = plotted.data[input + 1];
+        data[output + 2] = SURFACE_STYLE.valueMin
+          + plotted.data[input + 5] * (SURFACE_STYLE.valueMax - SURFACE_STYLE.valueMin);
+      }
+      return Object.freeze({
+        data,
+        count: plotted.count,
+        stride: 3 * Float32Array.BYTES_PER_ELEMENT,
+        xSteps: SURFACE_VIEW.fieldXSteps,
+        ySteps: SURFACE_VIEW.fieldYSteps,
+      });
+    },
     view: VIEW,
+    surfaceView: SURFACE_VIEW,
   });
 }
 
