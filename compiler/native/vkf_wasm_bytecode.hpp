@@ -97,6 +97,10 @@ enum class Opcode : std::uint16_t {
     Trap = 63,
     ArrayConcat = 64,
     FloorDivide = 65,
+    StringLess = 66,
+    StringLessEqual = 67,
+    StringGreater = 68,
+    StringGreaterEqual = 69,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -197,7 +201,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::FloorDivide);
+        <= static_cast<std::uint16_t>(Opcode::StringGreaterEqual);
 }
 
 inline bool is_valid_utf8(const std::string& value) {

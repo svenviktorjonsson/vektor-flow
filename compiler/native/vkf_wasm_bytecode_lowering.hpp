@@ -172,7 +172,11 @@ inline bool comparison_opcode(Opcode opcode) {
         || opcode == Opcode::Less
         || opcode == Opcode::LessEqual
         || opcode == Opcode::Greater
-        || opcode == Opcode::GreaterEqual;
+        || opcode == Opcode::GreaterEqual
+        || opcode == Opcode::StringLess
+        || opcode == Opcode::StringLessEqual
+        || opcode == Opcode::StringGreater
+        || opcode == Opcode::StringGreaterEqual;
 }
 
 struct ConstantBinding {
@@ -1272,11 +1276,22 @@ private:
                 state,
                 context + ".right"
             );
-            const Opcode opcode = (op == "AMPERSAND" || op == "&")
+            Opcode opcode = (op == "AMPERSAND" || op == "&")
                 && left_type == ValueType::Array
                 && right_type == ValueType::Array
                 ? Opcode::ArrayConcat
                 : lower_binary_opcode(op, context);
+            if (left_type == ValueType::String
+                && right_type == ValueType::String) {
+                if (opcode == Opcode::Less) opcode = Opcode::StringLess;
+                if (opcode == Opcode::LessEqual) {
+                    opcode = Opcode::StringLessEqual;
+                }
+                if (opcode == Opcode::Greater) opcode = Opcode::StringGreater;
+                if (opcode == Opcode::GreaterEqual) {
+                    opcode = Opcode::StringGreaterEqual;
+                }
+            }
             const ValueType result_type =
                 comparison_opcode(opcode) ? ValueType::Boolean : type;
             emit(state, opcode, result_type);
@@ -1399,6 +1414,12 @@ private:
                     intrinsic_opcode,
                     intrinsic_type
                 )) {
+                    if (name == "vkf_string_peek_scalar") {
+                        intrinsic_type = expression_type(object, context)
+                            == ValueType::String
+                            ? ValueType::String
+                            : ValueType::Number;
+                    }
                     for (std::size_t index = 0; index < args.size(); ++index) {
                         lower_expression(
                             args[index],

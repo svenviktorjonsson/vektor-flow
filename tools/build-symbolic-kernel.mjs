@@ -148,7 +148,13 @@ try {
   const json = "native/VfOverlay/vf/json.cpp";
   compile(compiler, lexer, "compiler/native/vkf_lexer_cursor_smoke.cpp");
   compile(compiler, parser, "compiler/native/vkf_parser_token_stream_smoke.cpp", json);
-  compile(compiler, lower, "compiler/native/vkf_ast_to_ir_smoke.cpp", json);
+  compile(
+    compiler,
+    lower,
+    "compiler/native/vkf_ast_to_ir_smoke.cpp",
+    "compiler/native/vkf_csv_demand_source_scanner.cpp",
+    json,
+  );
   compile(compiler, artifact, "compiler/native/vkf_symbolic_kernel_artifact.cpp", json);
 
   const source = join(root, "compiler", "self_hosted", "symbolic_expression.vkf");

@@ -89,6 +89,70 @@ test("bytecode VM lowers assertions used by the self-hosted compiler", async () 
   );
 });
 
+test("bytecode VM orders UTF-8 strings for compiler character classes", async () => {
+  await mkdir(workRoot, { recursive: true });
+  const source = path.join(workRoot, "string-order.vkf");
+  const typedIr = path.join(workRoot, "string-order.typed-ir.json");
+  const wasm = path.join(workRoot, "string-order.wasm");
+  const manifestPath = path.join(workRoot, "string-order.json");
+  await writeFile(source, [
+    "is_lower(ch:str) -> bit:",
+    '    ch >= "a" /\\ ch <= "z"',
+    "",
+  ].join("\n"), "utf8");
+
+  const tokens = run("vkf_lexer_cursor_smoke", ["--file", source, source]);
+  const ast = run("vkf_parser_token_stream_smoke", [], tokens);
+  const lowered = run("vkf_ast_to_ir_smoke", [], ast);
+  await writeFile(typedIr, lowered, "utf8");
+  run("vkf_symbolic_kernel_artifact", [
+    "--typed-ir", typedIr,
+    "--wasm", wasm,
+    "--manifest", manifestPath,
+    "--entry", "is_lower",
+  ]);
+
+  const [{ instance }, manifest] = await Promise.all([
+    WebAssembly.instantiate(await readFile(wasm)),
+    readFile(manifestPath, "utf8").then(JSON.parse),
+  ]);
+  const kernel = createSymbolicKernel({ instance, manifest });
+  assert.equal(kernel.invokeValue("is_lower", ["b"]), true);
+  assert.equal(kernel.invokeValue("is_lower", ["A"]), false);
+  assert.equal(kernel.invokeValue("is_lower", ["å"]), false);
+});
+
+test("bytecode VM returns one UTF-8 scalar as compiler text", async () => {
+  await mkdir(workRoot, { recursive: true });
+  const source = path.join(workRoot, "peek-scalar.vkf");
+  const typedIr = path.join(workRoot, "peek-scalar.typed-ir.json");
+  const wasm = path.join(workRoot, "peek-scalar.wasm");
+  const manifestPath = path.join(workRoot, "peek-scalar.json");
+  await writeFile(source, [
+    "first(source:str) -> str:",
+    "    vkf_string_peek_scalar(source, 0)",
+    "",
+  ].join("\n"), "utf8");
+
+  const tokens = run("vkf_lexer_cursor_smoke", ["--file", source, source]);
+  const ast = run("vkf_parser_token_stream_smoke", [], tokens);
+  const lowered = run("vkf_ast_to_ir_smoke", [], ast);
+  await writeFile(typedIr, lowered, "utf8");
+  run("vkf_symbolic_kernel_artifact", [
+    "--typed-ir", typedIr,
+    "--wasm", wasm,
+    "--manifest", manifestPath,
+    "--entry", "first",
+  ]);
+
+  const [{ instance }, manifest] = await Promise.all([
+    WebAssembly.instantiate(await readFile(wasm)),
+    readFile(manifestPath, "utf8").then(JSON.parse),
+  ]);
+  const kernel = createSymbolicKernel({ instance, manifest });
+  assert.equal(kernel.invokeValue("first", ["åland"]), "å");
+});
+
 test("bytecode lowering retains no definition-only typed-IR wrapper", async () => {
   const source = await readFile(
     path.join(repositoryRoot, "compiler", "native", "vkf_wasm_bytecode_lowering.hpp"),

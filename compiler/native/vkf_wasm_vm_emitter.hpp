@@ -187,6 +187,10 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::LessEqual:
         case Opcode::Greater:
         case Opcode::GreaterEqual:
+        case Opcode::StringLess:
+        case Opcode::StringLessEqual:
+        case Opcode::StringGreater:
+        case Opcode::StringGreaterEqual:
         case Opcode::LogicalAnd:
         case Opcode::LogicalOr:
         case Opcode::Power:
@@ -516,6 +520,10 @@ struct RuntimeIndexes {
     std::uint32_t make_number = 0;
     std::uint32_t truthy = 0;
     std::uint32_t equal = 0;
+    std::uint32_t string_less = 0;
+    std::uint32_t string_less_equal = 0;
+    std::uint32_t string_greater = 0;
+    std::uint32_t string_greater_equal = 0;
     std::uint32_t string_concat = 0;
     std::uint32_t utf8_length = 0;
     std::uint32_t utf8_eof = 0;
@@ -670,6 +678,53 @@ inline void emit_call_ternary_value(
     body.u8(0x10);
     body.u32_leb(helper);
     emit_finish_push(body, sp_local);
+}
+
+inline void emit_utf8_scalar_width_from_value(
+    Writer& body,
+    std::uint32_t source_local,
+    std::uint32_t offset_value_local
+) {
+    const auto emit_lead_byte = [&]() {
+        local_get(body, source_local);
+        i32_load(body, values::payload_offset);
+        local_get(body, offset_value_local);
+        f64_load(body);
+        body.u8(0xaa);
+        body.u8(0x6a);
+        body.u8(0x2d);
+        body.u32_leb(0);
+        body.u32_leb(0);
+    };
+    emit_lead_byte();
+    i32_const(body, 0x80);
+    body.u8(0x49);
+    body.u8(0x04);
+    body.u8(wasm_i32);
+    i32_const(body, 1);
+    body.u8(0x05);
+    emit_lead_byte();
+    i32_const(body, 0xe0);
+    body.u8(0x71);
+    i32_const(body, 0xc0);
+    body.u8(0x46);
+    body.u8(0x04);
+    body.u8(wasm_i32);
+    i32_const(body, 2);
+    body.u8(0x05);
+    emit_lead_byte();
+    i32_const(body, 0xf0);
+    body.u8(0x71);
+    i32_const(body, 0xe0);
+    body.u8(0x46);
+    body.u8(0x04);
+    body.u8(wasm_i32);
+    i32_const(body, 3);
+    body.u8(0x05);
+    i32_const(body, 4);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    body.u8(0x0b);
 }
 
 inline std::vector<std::uint8_t> emit_tagged_function(
@@ -835,6 +890,24 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                     body.u32_leb(runtime.make_number);
                 }
                 emit_finish_push(body, sp_local);
+                break;
+            }
+            case Opcode::StringLess:
+            case Opcode::StringLessEqual:
+            case Opcode::StringGreater:
+            case Opcode::StringGreaterEqual: {
+                const std::uint32_t helper =
+                    instruction.opcode == Opcode::StringLess
+                        ? runtime.string_less
+                    : instruction.opcode == Opcode::StringLessEqual
+                        ? runtime.string_less_equal
+                    : instruction.opcode == Opcode::StringGreater
+                        ? runtime.string_greater
+                        : runtime.string_greater_equal;
+                emit_call_binary_value(
+                    body, helper, frame_local, sp_local, local_count,
+                    temp0, temp1
+                );
                 break;
             }
             case Opcode::Negate:
@@ -1249,10 +1322,56 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 );
                 break;
             case Opcode::Utf8PeekScalar:
-                emit_call_binary_value(
-                    body, runtime.utf8_peek, frame_local, sp_local,
-                    local_count, temp0, temp1
-                );
+                if (instruction.result_type == bytecode::ValueType::String) {
+                    emit_pop_to(
+                        body, frame_local, sp_local, local_count, temp1
+                    );
+                    emit_pop_to(
+                        body, frame_local, sp_local, local_count, temp0
+                    );
+                    i32_const(body, values::slot_size + 4U);
+                    body.u8(0x10);
+                    body.u32_leb(runtime.allocate);
+                    local_set(body, temp2);
+                    local_get(body, temp2);
+                    i32_const(
+                        body,
+                        static_cast<std::uint32_t>(values::Tag::Utf8String)
+                    );
+                    i32_store(body, values::tag_offset);
+                    local_get(body, temp2);
+                    emit_utf8_scalar_width_from_value(body, temp0, temp1);
+                    i32_store(body, values::length_offset);
+                    local_get(body, temp2);
+                    local_get(body, temp2);
+                    i32_const(body, values::slot_size);
+                    body.u8(0x6a);
+                    i32_store(body, values::payload_offset);
+                    local_get(body, temp2);
+                    i32_const(body, values::slot_size);
+                    body.u8(0x6a);
+                    local_get(body, temp0);
+                    i32_load(body, values::payload_offset);
+                    local_get(body, temp1);
+                    f64_load(body);
+                    body.u8(0xaa);
+                    body.u8(0x6a);
+                    emit_utf8_scalar_width_from_value(body, temp0, temp1);
+                    body.u8(0xfc);
+                    body.u32_leb(10);
+                    body.u32_leb(0);
+                    body.u32_leb(0);
+                    emit_push_from_stack(
+                        body, frame_local, sp_local, local_count
+                    );
+                    local_get(body, temp2);
+                    emit_finish_push(body, sp_local);
+                } else {
+                    emit_call_binary_value(
+                        body, runtime.utf8_peek, frame_local, sp_local,
+                        local_count, temp0, temp1
+                    );
+                }
                 break;
             case Opcode::Utf8Advance:
                 emit_call_binary_value(
@@ -1675,6 +1794,99 @@ inline std::vector<std::uint8_t> emit_equal_function(
     local_get(body, 0);
     local_get(body, 1);
     body.u8(0x46);
+    body.u8(0x10);
+    body.u32_leb(make_boolean_index);
+    body.u8(0x0b);
+    return encoded_body(std::move(body));
+}
+
+inline std::vector<std::uint8_t> emit_string_order_function(
+    std::uint32_t make_boolean_index,
+    bytecode::Opcode comparison
+) {
+    Writer body;
+    body.u32_leb(1);
+    body.u32_leb(5);
+    body.u8(wasm_i32);
+    local_get(body, 0);
+    i32_load(body, values::length_offset);
+    local_set(body, 3);
+    local_get(body, 1);
+    i32_load(body, values::length_offset);
+    local_set(body, 4);
+    local_get(body, 3);
+    local_get(body, 4);
+    body.u8(0x49);
+    body.u8(0x04);
+    body.u8(wasm_i32);
+    local_get(body, 3);
+    body.u8(0x05);
+    local_get(body, 4);
+    body.u8(0x0b);
+    local_set(body, 5);
+    i32_const(body, 0);
+    local_set(body, 2);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, 2);
+    local_get(body, 5);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    local_get(body, 0);
+    i32_load(body, values::payload_offset);
+    local_get(body, 2);
+    body.u8(0x6a);
+    body.u8(0x2d);
+    body.u32_leb(0);
+    body.u32_leb(0);
+    local_tee(body, 6);
+    local_get(body, 1);
+    i32_load(body, values::payload_offset);
+    local_get(body, 2);
+    body.u8(0x6a);
+    body.u8(0x2d);
+    body.u32_leb(0);
+    body.u32_leb(0);
+    body.u8(0x47);
+    body.u8(0x04);
+    body.u8(0x40);
+    local_get(body, 6);
+    local_get(body, 1);
+    i32_load(body, values::payload_offset);
+    local_get(body, 2);
+    body.u8(0x6a);
+    body.u8(0x2d);
+    body.u32_leb(0);
+    body.u32_leb(0);
+    body.u8(
+        comparison == bytecode::Opcode::StringLess
+            || comparison == bytecode::Opcode::StringLessEqual
+        ? 0x49
+        : 0x4b
+    );
+    body.u8(0x10);
+    body.u32_leb(make_boolean_index);
+    body.u8(0x0f);
+    body.u8(0x0b);
+    local_get(body, 2);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, 2);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, 3);
+    local_get(body, 4);
+    body.u8(
+        comparison == bytecode::Opcode::StringLess ? 0x49
+        : comparison == bytecode::Opcode::StringLessEqual ? 0x4d
+        : comparison == bytecode::Opcode::StringGreater ? 0x4b
+        : 0x4f
+    );
     body.u8(0x10);
     body.u32_leb(make_boolean_index);
     body.u8(0x0b);
@@ -3633,7 +3845,11 @@ inline EmittedModule emit(
     runtime.make_number = runtime.make_boolean + 1;
     runtime.truthy = runtime.make_number + 1;
     runtime.equal = runtime.truthy + 1;
-    runtime.string_concat = runtime.equal + 1;
+    runtime.string_less = runtime.equal + 1;
+    runtime.string_less_equal = runtime.string_less + 1;
+    runtime.string_greater = runtime.string_less_equal + 1;
+    runtime.string_greater_equal = runtime.string_greater + 1;
+    runtime.string_concat = runtime.string_greater_equal + 1;
     runtime.utf8_length = runtime.string_concat + 1;
     runtime.utf8_eof = runtime.utf8_length + 1;
     runtime.utf8_peek = runtime.utf8_eof + 1;
@@ -3663,7 +3879,7 @@ inline EmittedModule emit(
     runtime.plot_builder_create = runtime.plot_pack + 1;
     runtime.plot_builder_push = runtime.plot_builder_create + 1;
     runtime.plot_builder_finish = runtime.plot_builder_push + 1;
-    const std::uint32_t runtime_count = 35;
+    const std::uint32_t runtime_count = 39;
     const std::uint32_t getter_count = 9;
     const std::uint32_t getter_base = function_count + runtime_count;
     const std::uint32_t heap_pointer_index = getter_base + getter_count;
@@ -3712,6 +3928,12 @@ inline EmittedModule emit(
         {detail::wasm_i32, detail::wasm_i32},
         {detail::wasm_i32}
     );
+    for (std::uint32_t index = 0; index < 4; ++index) {
+        emit_type(
+            {detail::wasm_i32, detail::wasm_i32},
+            {detail::wasm_i32}
+        );
+    }
     emit_type(
         {detail::wasm_i32, detail::wasm_i32},
         {detail::wasm_i32}
@@ -3862,6 +4084,22 @@ inline EmittedModule emit(
     code.raw(detail::emit_make_number_function(runtime.allocate));
     code.raw(detail::emit_truthy_function());
     code.raw(detail::emit_equal_function(runtime.make_boolean));
+    code.raw(detail::emit_string_order_function(
+        runtime.make_boolean,
+        bytecode::Opcode::StringLess
+    ));
+    code.raw(detail::emit_string_order_function(
+        runtime.make_boolean,
+        bytecode::Opcode::StringLessEqual
+    ));
+    code.raw(detail::emit_string_order_function(
+        runtime.make_boolean,
+        bytecode::Opcode::StringGreater
+    ));
+    code.raw(detail::emit_string_order_function(
+        runtime.make_boolean,
+        bytecode::Opcode::StringGreaterEqual
+    ));
     code.raw(detail::emit_string_concat_function(
         runtime.allocate,
         image.null_value
