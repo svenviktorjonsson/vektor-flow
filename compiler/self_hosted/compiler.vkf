@@ -1232,18 +1232,33 @@ compile_tagged_dependency_tape(source:str):
         max_stack:maximum
     )
 
-run_tagged_dependency_source(source:str) -> num:
-    statement: compile_tagged_dependency_tape(source)
-    [num] stack: [0:statement.max_stack]
+_browser_token_tape_has_output_marker(rows:[num], count:int) -> bit:
+    index: 0
+    found: false
+    (index + 1 < count /\ ~found)?>
+        row: index * 6
+        next_row: (index + 1) * 6
+        rows.(row) = 15 /\ rows.(next_row) = 15?
+            .found: true
+        .index+: 1
+    found
+
+_browser_token_tape_ends_with_newline(rows:[num], count:int) -> bit:
+    count >= 2 /\ rows.((count - 2) * 6) = 4
+
+_run_tagged_browser_numeric_tape(
+    opcodes:[num], values:[num], max_stack:num
+) -> num:
+    [num] stack: [0:max_stack]
     index: 0
     depth: 0
     result: 0
     returned: false
-    (index < statement.opcodes.length() /\ ~returned)?>
-        opcode: statement.opcodes.(index)
+    (index < opcodes.length() /\ ~returned)?>
+        opcode: opcodes.(index)
         opcode = 1?
-            (depth < statement.max_stack)?! "browser Machine IR stack overflow"
-            stack.(depth): statement.values.(index)
+            (depth < max_stack)?! "browser Machine IR stack overflow"
+            stack.(depth): values.(index)
             .depth+: 1
         opcode = 2?
             (depth >= 2)?! "browser Machine IR addition stack underflow"
@@ -1251,14 +1266,68 @@ run_tagged_dependency_source(source:str) -> num:
             left: stack.(depth - 2)
             .depth-: 1
             stack.(depth - 1): left + right
+        opcode = 4?
+            (depth >= 2)?! "browser Machine IR floor-division stack underflow"
+            right: stack.(depth - 1)
+            left: stack.(depth - 2)
+            .depth-: 1
+            stack.(depth - 1): left // right
+        opcode = 5?
+            (depth >= 2)?! "browser Machine IR multiplication stack underflow"
+            right: stack.(depth - 1)
+            left: stack.(depth - 2)
+            .depth-: 1
+            stack.(depth - 1): left * right
+        opcode = 6?
+            (depth >= 2)?! "browser Machine IR subtraction stack underflow"
+            right: stack.(depth - 1)
+            left: stack.(depth - 2)
+            .depth-: 1
+            stack.(depth - 1): left - right
+        opcode = 7?
+            (depth >= 2)?! "browser Machine IR division stack underflow"
+            right: stack.(depth - 1)
+            left: stack.(depth - 2)
+            .depth-: 1
+            stack.(depth - 1): left / right
+        opcode = 8?
+            (depth >= 2)?! "browser Machine IR remainder stack underflow"
+            right: stack.(depth - 1)
+            left: stack.(depth - 2)
+            .depth-: 1
+            stack.(depth - 1): left % right
+        opcode = 9?
+            (depth >= 2)?! "browser Machine IR power stack underflow"
+            right: stack.(depth - 1)
+            left: stack.(depth - 2)
+            .depth-: 1
+            stack.(depth - 1): left ^ right
+        opcode = 10?
+            (depth >= 1)?! "browser Machine IR negate stack underflow"
+            stack.(depth - 1): -stack.(depth - 1)
         opcode = 3?
             (depth = 1)?! "browser Machine IR return needs one result"
             .result: stack.0
             .returned: true
-        (opcode = 1 \/ opcode = 2 \/ opcode = 3)?! "browser Machine IR contains an unsupported opcode"
+        (opcode >= 1 /\ opcode <= 10)?! "browser Machine IR contains an unsupported opcode"
         .index+: 1
     returned?! "browser Machine IR did not return"
     result
+
+run_tagged_dependency_source(source:str) -> num:
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    ~_browser_token_tape_has_output_marker(tokens.rows, tokens.count)?
+        statement: compile_tagged_dependency_tape(source)
+        @: _run_tagged_browser_numeric_tape(
+            statement.opcodes, statement.values, statement.max_stack
+        )
+    normalized_source: source
+    ~_browser_token_tape_ends_with_newline(tokens.rows, tokens.count)?
+        .normalized_source: source & "\n"
+    statement: compile_tagged_printed_dynamic_grouped_arithmetic(normalized_source)
+    _run_tagged_browser_numeric_tape(
+        statement.opcodes, statement.values, statement.max_stack
+    )
 
 compile_tagged_numeric_function_call(source:str):
     tokens: lexer.tagged_numeric_function_token_tape(source)

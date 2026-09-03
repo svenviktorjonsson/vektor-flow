@@ -35,6 +35,11 @@
       "parameters": 1,
       "resultType": 1
     },
+    "__vkf_module_lexer___scan_tagged_function_tokens": {
+      "index": 24,
+      "parameters": 2,
+      "resultType": 1
+    },
     "__vkf_module_lexer___scan_tagged_statement_tokens": {
       "index": 21,
       "parameters": 3,
@@ -49,6 +54,11 @@
       "index": 2,
       "parameters": 1,
       "resultType": 4
+    },
+    "__vkf_module_lexer___tagged_function_punctuation_kind": {
+      "index": 23,
+      "parameters": 1,
+      "resultType": 1
     },
     "__vkf_module_lexer__is_alpha": {
       "index": 7,
@@ -100,6 +110,11 @@
       "parameters": 2,
       "resultType": 1
     },
+    "__vkf_module_lexer__tagged_numeric_function_token_tape": {
+      "index": 25,
+      "parameters": 1,
+      "resultType": 1
+    },
     "__vkf_module_lexer__tagged_statement_token_tape": {
       "index": 22,
       "parameters": 1,
@@ -115,49 +130,104 @@
       "parameters": 4,
       "resultType": 1
     },
+    "__vkf_module_mir___mir_dynamic_arithmetic_operator_opcode": {
+      "index": 31,
+      "parameters": 1,
+      "resultType": 2
+    },
+    "__vkf_module_mir___mir_dynamic_arithmetic_operator_precedence": {
+      "index": 32,
+      "parameters": 1,
+      "resultType": 2
+    },
+    "__vkf_module_mir__mir_tagged_dynamic_grouped_arithmetic": {
+      "index": 33,
+      "parameters": 2,
+      "resultType": 1
+    },
     "__vkf_module_mir__mir_tagged_dynamic_two_derived_bindings": {
-      "index": 25,
+      "index": 30,
       "parameters": 1,
       "resultType": 1
     },
+    "__vkf_module_parser__parse_tagged_printed_dynamic_grouped_arithmetic": {
+      "index": 26,
+      "parameters": 3,
+      "resultType": 1
+    },
     "__vkf_module_parser__parse_tagged_two_derived_bindings": {
-      "index": 23,
+      "index": 27,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "__vkf_module_typed__typed_tagged_dynamic_grouped_arithmetic": {
+      "index": 28,
       "parameters": 3,
       "resultType": 1
     },
     "__vkf_module_typed__typed_tagged_two_derived_bindings": {
-      "index": 24,
+      "index": 29,
       "parameters": 2,
       "resultType": 1
     },
+    "__vkf_module_validation__machine_ir_arithmetic_opcode_stack_effect": {
+      "index": 36,
+      "parameters": 1,
+      "resultType": 2
+    },
+    "__vkf_module_validation__machine_ir_arithmetic_opcode_tape_stack_maximum": {
+      "index": 37,
+      "parameters": 1,
+      "resultType": 2
+    },
     "__vkf_module_validation__machine_ir_numeric_opcode_depth": {
-      "index": 26,
+      "index": 34,
       "parameters": 2,
       "resultType": 2
     },
     "__vkf_module_validation__machine_ir_numeric_opcode_tape_stack_maximum": {
-      "index": 27,
+      "index": 35,
       "parameters": 1,
       "resultType": 2
     },
+    "_browser_token_tape_ends_with_newline": {
+      "index": 41,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_token_tape_has_output_marker": {
+      "index": 40,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_run_tagged_browser_numeric_tape": {
+      "index": 42,
+      "parameters": 3,
+      "resultType": 2
+    },
     "compile_tagged_dependency_tape": {
-      "index": 28,
+      "index": 39,
+      "parameters": 1,
+      "resultType": 6
+    },
+    "compile_tagged_printed_dynamic_grouped_arithmetic": {
+      "index": 38,
       "parameters": 1,
       "resultType": 6
     },
     "run_tagged_dependency_source": {
-      "index": 29,
+      "index": 43,
       "parameters": 1,
       "resultType": 2
     }
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 21248,
-    "bytecodeLength": 21243,
+    "argumentsPointer": 42832,
+    "bytecodeLength": 42831,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 21504
+    "resultsPointer": 43088
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

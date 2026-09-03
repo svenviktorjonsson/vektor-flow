@@ -23,6 +23,12 @@ const EXAMPLES = Object.freeze({
     source: "base: 40\nfirst: base + 1\nsecond: first + 1\nsecond + 1",
     kind: "console",
   }),
+  "console-arithmetic": Object.freeze({
+    id: "console-arithmetic",
+    title: "Grouped arithmetic",
+    source: "value: 100\n:: (value - (20 + 4) * 2) // (3 + 1)",
+    kind: "console",
+  }),
   ...LIVE_EXAMPLES_BY_ID,
 });
 

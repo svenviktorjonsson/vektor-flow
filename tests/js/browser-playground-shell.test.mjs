@@ -20,6 +20,8 @@ test("playground exposes an editable Prism-highlighted client-side compiler", as
   assert.match(app, /loadPackagedBrowserCompiler/u);
   assert.match(app, /loadPackagedBrowserSymbolicPlotter/u);
   assert.match(app, /compiler\.run\(source\.value\)/u);
+  assert.match(app, /console-arithmetic/u);
+  assert.match(app, /value - \(20 \+ 4\) \* 2/u);
   assert.match(examples, /surface-static/u);
   assert.match(examples, /surface-time/u);
   assert.doesNotMatch(app, /fetch\([^)]*(?:compile|run)|XMLHttpRequest|WebSocket/u);

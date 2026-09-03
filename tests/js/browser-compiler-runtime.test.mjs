@@ -25,6 +25,20 @@ test("packaged browser compiler compiles source without a server", async () => {
   ), 43);
 });
 
+test("packaged browser compiler runs grouped VKF arithmetic inside WASM", async () => {
+  const [wasm, manifest] = await Promise.all([
+    readFile(new URL("vkf-browser-compiler.wasm", artifacts)),
+    readFile(new URL("vkf-browser-compiler.json", artifacts), "utf8").then(JSON.parse),
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+
+  assert.equal(
+    compiler.run("value: 100\n:: (value - (20 + 4) * 2) // (3 + 1)"),
+    13,
+  );
+});
+
 test("browser compiler fails clearly on unsupported source", async () => {
   const [wasm, manifest] = await Promise.all([
     readFile(new URL("vkf-browser-compiler.wasm", artifacts)),
