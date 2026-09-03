@@ -182,6 +182,44 @@ BuildForestSpatialSampleObservationsReference(
     return observations;
 }
 
+inline ForestSpatialSampleObservations
+BuildForestSpatialSampleObservationsReference(
+    const ForestPopulationRealization& population,
+    std::uint64_t population_version,
+    std::size_t pair_budget
+) {
+    if (population.trees.size() < 2 || pair_budget == 0 ||
+        pair_budget > 10000000) {
+        throw std::invalid_argument(
+            "forest spatial observation request is invalid"
+        );
+    }
+    ForestSpatialSampleObservations observations;
+    observations.distance_squared.reserve(pair_budget);
+    observations.environment_similarity.reserve(pair_budget);
+    observations.same_species.reserve(pair_budget);
+    for (std::size_t sample = 0; sample < pair_budget; ++sample) {
+        const auto observation = ObserveForestSpatialPairReference(
+            population,
+            ForestSpatialSamplePairReference(
+                population_version,
+                population.trees.size(),
+                sample
+            )
+        );
+        observations.distance_squared.push_back(
+            observation.distance_squared
+        );
+        observations.environment_similarity.push_back(
+            observation.environment_similarity
+        );
+        observations.same_species.push_back(
+            observation.same_species
+        );
+    }
+    return observations;
+}
+
 inline void AccumulateForestSpatialObservationReference(
     double near_squared,
     double far_squared,
