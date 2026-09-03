@@ -86,6 +86,38 @@ test("emitter viewport visibility cannot change world-space diffuse radiance", (
   assert.deepEqual(offscreenRadiance, visibleRadiance);
 });
 
+test("sub-unit scenes retain physical inverse-square light transport", () => {
+  const light = {
+    position: [0, 0, 0.5],
+    color: [1, 1, 1],
+    intensity: 1,
+    range: 1000,
+    visibility: 1,
+  };
+  const near = lambertRadianceAtProbe(
+    { position: [0, 0, 0], normal: [0, 0, 1] },
+    light,
+  )[0];
+  const far = lambertRadianceAtProbe(
+    { position: [0, 0, -0.5], normal: [0, 0, 1] },
+    light,
+  )[0];
+
+  assert.ok(Math.abs(near / far - 4) < 1e-5);
+  assert.match(
+    compilerSource,
+    /intensity \/ max\(distance \* distance, 1\.0e-6\)/u,
+  );
+  assert.match(
+    compilerSource,
+    /max\(raw_lights\[base \+ 11u\], 0\.0\)/u,
+  );
+  assert.doesNotMatch(
+    compilerSource,
+    /max\(raw_lights\[base \+ 11u\], 1\.0e-3\)/u,
+  );
+});
+
 test("generated lighting keeps camera projection out of diffuse, aperture, and shadow ownership", () => {
   const sceneFragment = compilerSource.slice(
     compilerSource.indexOf("fn vkf_scene_fragment("),

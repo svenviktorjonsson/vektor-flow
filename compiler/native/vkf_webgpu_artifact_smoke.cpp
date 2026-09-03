@@ -1681,7 +1681,7 @@ fn vkf_light_attenuation(
   intensity: f32,
   range: f32,
 ) -> f32 {
-  let inverse_square = intensity / max(distance * distance, 1.0);
+  let inverse_square = intensity / max(distance * distance, 1.0e-6);
   if (range <= 1.0e-6) {
     return inverse_square;
   }
@@ -2460,7 +2460,7 @@ fn vkf_prepare_frame(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let base = item_index * 28u;
     derived_lights[item_index].position_and_range = vec4<f32>(
       raw_lights[base], raw_lights[base + 1u], raw_lights[base + 2u],
-      max(raw_lights[base + 11u], 1.0e-3));
+      max(raw_lights[base + 11u], 0.0));
     derived_lights[item_index].color_and_intensity = vec4<f32>(
       raw_lights[base + 6u], raw_lights[base + 7u], raw_lights[base + 8u],
       raw_lights[base + 10u]);
