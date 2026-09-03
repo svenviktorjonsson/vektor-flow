@@ -721,6 +721,7 @@ _compile_printed_dynamic_signed_integer_tape_x64(
     source:str,
     template_prefix:str,
     addition_code:str,
+    subtraction_code:str,
     negate_code:str,
     print_tail:str,
     high_bytes:[str]
@@ -742,10 +743,13 @@ _compile_printed_dynamic_signed_integer_tape_x64(
         code = 2?
             (~(addition_code = ""))?! "signed integer x64 tracer addition code is missing"
             .body: body & addition_code
+        code = 6?
+            (~(subtraction_code = ""))?! "signed integer x64 tracer subtraction code is missing"
+            .body: body & subtraction_code
         code = 3?
             (index + 1 = statement.opcodes.length())?! "signed integer x64 tracer print must terminate the tape"
             .body: body & print_tail
-        (code = 1 \/ code = 2 \/ code = 3 \/ code = 10)?! "signed integer x64 tracer encountered an unsupported opcode"
+        (code = 1 \/ code = 2 \/ code = 3 \/ code = 6 \/ code = 10)?! "signed integer x64 tracer encountered an unsupported opcode"
         .index+: 1
     template_prefix & body
 
@@ -757,7 +761,7 @@ _compile_printed_dynamic_unary_numeric_chain_x64(
     high_bytes:[str]
 ) -> str:
     _compile_printed_dynamic_signed_integer_tape_x64(
-        source, template_prefix, "", negate_code, print_tail, high_bytes
+        source, template_prefix, "", "", negate_code, print_tail, high_bytes
     )
 
 _compile_printed_dynamic_signed_addition_x64(
@@ -769,7 +773,20 @@ _compile_printed_dynamic_signed_addition_x64(
     high_bytes:[str]
 ) -> str:
     _compile_printed_dynamic_signed_integer_tape_x64(
-        source, template_prefix, addition_code, negate_code, print_tail,
+        source, template_prefix, addition_code, "", negate_code, print_tail,
+        high_bytes
+    )
+
+_compile_printed_dynamic_signed_subtraction_x64(
+    source:str,
+    template_prefix:str,
+    subtraction_code:str,
+    negate_code:str,
+    print_tail:str,
+    high_bytes:[str]
+) -> str:
+    _compile_printed_dynamic_signed_integer_tape_x64(
+        source, template_prefix, "", subtraction_code, negate_code, print_tail,
         high_bytes
     )
 
