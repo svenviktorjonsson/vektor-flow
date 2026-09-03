@@ -116,7 +116,7 @@ int main() {
     const auto right_branch = function_with(
         {Opcode::LoadLocal, Opcode::PushF64, Opcode::AddF64, Opcode::ReturnF64});
     const auto concurrent_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
-        automatic_limits, 8, left_branch, 1'048'576, right_branch, 1'048'576, true);
+        automatic_limits, 8, left_branch, right_branch, true, fft_decision);
     expect(concurrent_pair.concurrent(),
            "independent replay-safe branches above the benefit threshold must use two CPU lanes");
     expect(!automatic_limits.enable_gpu,
@@ -140,7 +140,7 @@ int main() {
 
     automatic_limits.max_cores = 1;
     const auto one_core_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
-        automatic_limits, 8, left_branch, 1'048'576, right_branch, 1'048'576, true);
+        automatic_limits, 8, left_branch, right_branch, true, fft_decision);
     expect(!one_core_pair.concurrent() && one_core_pair.lane_limit() == 1,
            "max_cores one must force serial automatic CPU execution");
     std::vector<int> serial_trace;
@@ -154,7 +154,7 @@ int main() {
 
     automatic_limits.max_cores = 2;
     const auto dependent_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
-        automatic_limits, 8, left_branch, 1'048'576, right_branch, 1'048'576, false);
+        automatic_limits, 8, left_branch, right_branch, false, fft_decision);
     expect(!dependent_pair.concurrent(),
            "branches without an independence proof must stay serial");
     serial_trace.clear();
@@ -165,18 +165,19 @@ int main() {
     expect(serial_trace == std::vector<int>({3, 4}),
            "dependent CPU branches must execute in source order");
     const auto one_available_core_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
-        automatic_limits, 1, left_branch, 1'048'576, right_branch, 1'048'576, true);
+        automatic_limits, 1, left_branch, right_branch, true, fft_decision);
     expect(!one_available_core_pair.concurrent() && one_available_core_pair.lane_limit() == 1,
            "automatic CPU execution must not exceed available cores");
-    const auto small_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
-        automatic_limits, 8, left_branch, 1'048'575, right_branch, 1'048'576, true);
-    expect(!small_pair.concurrent(),
-           "branches below the conservative benefit threshold must stay serial");
+    const auto unproven_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
+        automatic_limits, 8, left_branch, right_branch, true,
+        vkf::proof_gated_execution::assess(fft_key, unknown));
+    expect(!unproven_pair.concurrent(),
+           "eligible branches without measured proof must stay serial");
 
     const auto effectful_branch = function_with(
         {Opcode::PushString, Opcode::WriteString, Opcode::ReturnValues});
     const auto effectful_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
-        automatic_limits, 8, left_branch, 1'048'576, effectful_branch, 1'048'576, true);
+        automatic_limits, 8, left_branch, effectful_branch, true, fft_decision);
     expect(!effectful_pair.concurrent(),
            "ordered effects must stay outside automatic CPU execution");
     serial_trace.clear();
@@ -189,7 +190,7 @@ int main() {
     const auto reduction_branch = function_with(
         {Opcode::LoadLocal, Opcode::SumF64List, Opcode::ReturnF64});
     const auto reduction_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
-        automatic_limits, 8, left_branch, 1'048'576, reduction_branch, 1'048'576, true);
+        automatic_limits, 8, left_branch, reduction_branch, true, fft_decision);
     expect(!reduction_pair.concurrent(),
            "reductions must stay serial until a stable merge tree exists");
 
