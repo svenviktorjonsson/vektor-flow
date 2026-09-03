@@ -1,6 +1,7 @@
 #pragma once
 
 #include "native/material/vf_forest_tree_material_pipeline.hpp"
+#include "native/material/vf_procedural_scene_producer_packets.hpp"
 #include "native/material/vf_road_hierarchical_residency.hpp"
 #include "native/material/vf_stone_hierarchical_material_draw_packet.hpp"
 
@@ -239,11 +240,115 @@ AuditProceduralForestIntegrationReference(
     };
 }
 
+inline ProceduralSceneIntegrationEntry
+AuditProceduralRoadIntegrationReference(
+    const RoadMaterialSurfacePacket& packet
+) {
+    if (packet.source == nullptr ||
+        packet.binding_bytes.size() %
+            kRoadMaterialSurfaceBindingBytes != 0 ||
+        packet.binding_bytes.size() /
+            kRoadMaterialSurfaceBindingBytes !=
+        packet.source->detail_bytes.size() /
+            kRoadHierarchicalDetailRecordBytes) {
+        throw std::invalid_argument(
+            "procedural road surface bindings are malformed"
+        );
+    }
+    auto entry = AuditProceduralRoadIntegrationReference(
+        *packet.source
+    );
+    entry.gate = ProceduralSceneIntegrationGate::ready;
+    entry.material_bytes += packet.binding_bytes.size();
+    entry.version = packet.version;
+    return entry;
+}
+
+inline ProceduralSceneIntegrationEntry
+AuditProceduralForestIntegrationReference(
+    const ForestTreeDrawPacket& packet
+) {
+    constexpr std::size_t stride = 10;
+    if (packet.material == nullptr || packet.vertices.empty() ||
+        packet.vertices.size() % stride != 0 ||
+        packet.material_offsets.size() !=
+            packet.vertices.size() / stride) {
+        throw std::invalid_argument(
+            "procedural forest draw packet is malformed"
+        );
+    }
+    const std::size_t vertex_count =
+        packet.vertices.size() / stride;
+    ValidateProceduralSceneTriangleIndicesReference(
+        packet.indices,
+        vertex_count
+    );
+    for (const std::uint32_t offset : packet.material_offsets) {
+        if (offset >= packet.material->bytes.size()) {
+            throw std::invalid_argument(
+                "procedural forest material binding is invalid"
+            );
+        }
+    }
+    return {
+        ProceduralSceneContentKind::forest,
+        ProceduralSceneIntegrationGate::ready,
+        stride,
+        vertex_count,
+        packet.indices.size(),
+        packet.material->bytes.size() /
+            kForestTreeMaterialBundleBytes,
+        ForestTreeDrawGeometryBytesReference(packet),
+        packet.material->bytes.size(),
+        packet.version,
+    };
+}
+
 inline ProceduralSceneIntegrationReport
 AuditProceduralFixedSceneIntegrationReference(
     const StoneHierarchicalMaterialDrawPacket& stone,
     const RoadHierarchicalPacket& road,
     const ForestTreeMaterialPipelinePacket& forest
+) {
+    const std::array<ProceduralSceneIntegrationEntry, 3> entries{
+        AuditProceduralStoneIntegrationReference(stone),
+        AuditProceduralRoadIntegrationReference(road),
+        AuditProceduralForestIntegrationReference(forest),
+    };
+    std::size_t ready_entries = 0;
+    std::size_t resident_bytes = 0;
+    std::uint64_t version = 1469598103934665603ull;
+    for (const auto& entry : entries) {
+        ready_entries += entry.gate ==
+            ProceduralSceneIntegrationGate::ready;
+        resident_bytes += entry.geometry_bytes + entry.material_bytes;
+        MixProceduralSceneInventoryWordReference(
+            version,
+            static_cast<std::uint64_t>(entry.kind)
+        );
+        MixProceduralSceneInventoryWordReference(
+            version,
+            static_cast<std::uint64_t>(entry.gate)
+        );
+        MixProceduralSceneInventoryWordReference(
+            version,
+            entry.version
+        );
+    }
+    return {
+        entries,
+        ready_entries,
+        entries.size() - ready_entries,
+        resident_bytes,
+        version,
+    };
+}
+
+inline ProceduralSceneIntegrationReport
+AuditProceduralFixedSceneIntegrationReference(
+    const StoneHierarchicalMaterialDrawPacket& stone,
+    const RoadMaterialSurfacePacket& road,
+    const ForestTreeDrawPacket& forest
 ) {
     const std::array<ProceduralSceneIntegrationEntry, 3> entries{
         AuditProceduralStoneIntegrationReference(stone),
