@@ -499,6 +499,55 @@ test("compiled sample times artifact readiness through reflected GPU presentatio
   assert.equal(result.rendererEvidence.mode, "compiled-wasm-wgsl");
 });
 
+test("release startup gate rejects a fully rendered legacy JavaScript scene", () => {
+  const result = sampleFromProbe({
+    probe: {
+      timeline: [
+        { name: "dependencies:start", t: 10 },
+        { name: "dependencies:ready", t: 20 },
+        { name: "scene:buildSceneState:start", t: 30 },
+        { name: "scene:afterRenderPayload", t: 40 },
+        { name: "gpu:first-work-done", t: 50 },
+        { name: "ui:revealed", t: 60 },
+      ],
+      timeOrigin: 1000,
+      navigation: { responseEnd: 1 },
+      resources: [],
+      dependencies: { scripts: [], styles: [], domUrls: [] },
+      arenaUrl: "scene.arena",
+      arenaHydrated: true,
+      renderer: {
+        presentedFirstFrame: true,
+        surfacePassCount: 2,
+        parts: ["studio_floor", "upright_mirror"].map((id) => ({
+          id,
+          surfaceTextureReady: true,
+          runtimeTextureReady: true,
+          projectiveTexture: true,
+          surfaceWidth: 64,
+          surfaceHeight: 64,
+          hasSurfaceColorTexture: true,
+        })),
+      },
+      startup: { revealed: true },
+      readyAttribute: "1",
+      pendingAttribute: null,
+      titleVisible: true,
+      canvasVisible: true,
+    },
+    processSpawnEpochMs: 900,
+    processToProbeMs: 100,
+    screenshotSha256: "d".repeat(64),
+    screenshotBytes: 64,
+    cacheState: "warm-profile",
+  });
+
+  assert.equal(result.dependencyClosure.mode, "legacy-native-scene");
+  assert.equal(result.dependencyClosure.complete, true);
+  assert.equal(result.fullyRendered, false);
+  assert.equal(result.gatePass, false);
+});
+
 test("500 ms ratchet rejects a single slow or incomplete cold/warm sample", () => {
   const common = {
     scenePath: "C:\\scene\\vkf-scene.html",

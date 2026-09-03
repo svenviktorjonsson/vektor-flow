@@ -535,7 +535,8 @@ export function sampleFromProbe({ probe, processSpawnEpochMs, processToProbeMs, 
   const presented = probe.compiledRuntime
     ? probe.compiledRuntime.presented === true
     : probe.renderer?.presentedFirstFrame === true;
-  const fullyRendered = probe.readyAttribute === "1" && probe.pendingAttribute === null &&
+  const fullyRendered = closure.mode === "compiled-wasm-wgsl" &&
+    probe.readyAttribute === "1" && probe.pendingAttribute === null &&
     probe.startup?.revealed === true && presented &&
     probe.titleVisible === true && probe.canvasVisible === true && closure.complete;
   const rendererEvidence = probe.compiledRuntime ? {
@@ -843,7 +844,13 @@ export function summarize({ coldSamples, warmSamples, scenePath, edgePath, gpuMo
       coldDefinition: "new Edge user-data directory; operating-system file cache is not flushed",
       warmDefinition: "new Edge process reusing the immediately preceding cold sample user-data directory",
       visibleLaunchMode: "atomic reveal semantics exercised offscreen by --headless=new",
-      gateRequires: ["hardware WebGPU", "all cold samples <= 500 ms", "all warm samples <= 500 ms", "mirror dependency closure"],
+      gateRequires: [
+        "compiled WASM/WGSL runtime",
+        "hardware WebGPU",
+        "all cold samples <= 500 ms",
+        "all warm samples <= 500 ms",
+        "mirror dependency closure",
+      ],
     },
     environment: {
       platform: process.platform,
