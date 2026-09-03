@@ -12,14 +12,22 @@
     <header>
       <p class="eyebrow">Vektor Flow · runs entirely in this page</p>
       <h1>Edit VKF. Compile and run with VKF.</h1>
-      <p class="lede">This first self-hosted tracer compiles a dependency program to validated machine IR and executes it in WebAssembly. No compiler server is contacted.</p>
+      <p class="lede">Compile console programs and symbolic plots locally with VKF-authored WebAssembly. No compiler server is contacted.</p>
     </header>
 
     <section class="workbench" aria-label="Vektor Flow playground">
       <div class="pane source-pane">
         <div class="pane-bar">
-          <span>main.vkf</span>
-          <button id="compile" type="button" disabled>Run</button>
+          <label class="example-label" for="example">Example</label>
+          <select id="example" aria-label="Example">
+            <option value="console">Console · dependency chain</option>
+            <option value="curve-static">2D · static sine</option>
+            <option value="curve-time">2D + time · travelling sine</option>
+          </select>
+          <div class="actions">
+            <button id="play" type="button" hidden>Play</button>
+            <button id="compile" type="button" disabled>Run</button>
+          </div>
         </div>
         <div class="editor-shell">
           <pre class="highlight" aria-hidden="true"><code id="highlight" class="language-vektorflow"></code></pre>
@@ -35,9 +43,18 @@ second + 1</textarea>
           <span>Program output</span>
           <output id="status">Loading compiler…</output>
         </div>
-        <pre id="output" aria-live="polite">The compiler is loading locally.</pre>
+        <div class="result-shell">
+          <pre id="output" aria-live="polite">The compiler is loading locally.</pre>
+          <canvas id="visualization" aria-label="VKF visualization" hidden></canvas>
+        </div>
       </div>
     </section>
+
+    <nav class="example-links" aria-label="Try live examples">
+      <a href="?example=console">Console</a>
+      <a href="?example=curve-static">2D static</a>
+      <a href="?example=curve-time">2D with time</a>
+    </nav>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/prism.min.js"></script>

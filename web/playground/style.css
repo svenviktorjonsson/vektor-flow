@@ -51,6 +51,19 @@ h1 { margin: 8px 0 12px; font-size: clamp(2.4rem, 7vw, 5rem); line-height: .98; 
   font-size: .88rem;
 }
 
+.example-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+select {
+  min-width: 0;
+  max-width: 56%;
+  border: 1px solid #35415b;
+  border-radius: 8px;
+  padding: 7px 9px;
+  color: #e8edf7;
+  background: #0d121d;
+  font: inherit;
+}
+.actions { display: flex; gap: 8px; }
+
 button {
   border: 0;
   border-radius: 9px;
@@ -99,7 +112,32 @@ textarea::selection { background: #5685c966; }
   color: #c7d2e5;
   white-space: pre-wrap;
 }
+.result-shell { position: relative; min-height: 458px; }
+#visualization {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 458px;
+  background: linear-gradient(180deg, #0f1728, #090e18);
+}
+#visualization[hidden], #output[hidden] { display: none; }
 #status { color: #7de8bc; }
+
+.example-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.example-links a {
+  border: 1px solid #35415b;
+  border-radius: 999px;
+  padding: 8px 13px;
+  color: #bcd0ef;
+  text-decoration: none;
+  background: #111827aa;
+}
+.example-links a:hover { border-color: #7de8bc; color: #fff; }
 
 .token.comment { color: #65738b; }
 .token.string, .token.triple-quoted-string { color: #e6c17a; }
