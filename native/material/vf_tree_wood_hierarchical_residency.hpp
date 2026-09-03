@@ -394,6 +394,42 @@ inline void ValidateTreeWoodMaterialForPacking(
     }
 }
 
+inline void AppendTreeWoodSampleBytesReference(
+    std::vector<std::uint8_t>& bytes,
+    const TreeWoodHierarchicalSample& sample
+) {
+    AppendDeterministicPacketWord64(bytes, sample.tree_id);
+    AppendDeterministicPacketWord32(bytes, sample.species_id);
+    AppendDeterministicPacketWord64(bytes, sample.sample_id);
+    for (const double value : sample.growth_position) {
+        AppendDeterministicPacketFloat32(
+            bytes,
+            static_cast<float>(value)
+        );
+    }
+    for (const double value : {
+             sample.population_variation,
+             sample.species_variation,
+             sample.individual_variation,
+         }) {
+        AppendDeterministicPacketFloat32(
+            bytes,
+            static_cast<float>(value)
+        );
+    }
+    AppendDeterministicPacketFloat32(
+        bytes,
+        sample.surface_variation
+    );
+    AppendDeterministicPacketFloat32(bytes, sample.ring);
+    AppendDeterministicPacketFloat32(bytes, sample.fiber);
+    for (const float value : sample.base_color) {
+        AppendDeterministicPacketFloat32(bytes, value);
+    }
+    AppendDeterministicPacketFloat32(bytes, sample.roughness);
+    AppendDeterministicPacketFloat32(bytes, sample.reflectivity);
+}
+
 inline std::vector<std::uint8_t> PackTreeWoodMaterialBytesReference(
     const TreeWoodHierarchicalMaterialRealization& material
 ) {
@@ -403,36 +439,7 @@ inline std::vector<std::uint8_t> PackTreeWoodMaterialBytesReference(
         material.samples.size() * kTreeWoodHierarchicalRecordBytes
     );
     for (const auto& sample : material.samples) {
-        AppendDeterministicPacketWord64(bytes, sample.tree_id);
-        AppendDeterministicPacketWord32(bytes, sample.species_id);
-        AppendDeterministicPacketWord64(bytes, sample.sample_id);
-        for (const double value : sample.growth_position) {
-            AppendDeterministicPacketFloat32(
-                bytes,
-                static_cast<float>(value)
-            );
-        }
-        for (const double value : {
-                 sample.population_variation,
-                 sample.species_variation,
-                 sample.individual_variation,
-             }) {
-            AppendDeterministicPacketFloat32(
-                bytes,
-                static_cast<float>(value)
-            );
-        }
-        AppendDeterministicPacketFloat32(
-            bytes,
-            sample.surface_variation
-        );
-        AppendDeterministicPacketFloat32(bytes, sample.ring);
-        AppendDeterministicPacketFloat32(bytes, sample.fiber);
-        for (const float value : sample.base_color) {
-            AppendDeterministicPacketFloat32(bytes, value);
-        }
-        AppendDeterministicPacketFloat32(bytes, sample.roughness);
-        AppendDeterministicPacketFloat32(bytes, sample.reflectivity);
+        AppendTreeWoodSampleBytesReference(bytes, sample);
     }
     return bytes;
 }

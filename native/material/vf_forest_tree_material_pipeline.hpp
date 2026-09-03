@@ -280,7 +280,7 @@ inline void ValidateForestTreeMaterialPipelineForPacking(
 }
 
 inline std::vector<std::uint8_t>
-PackForestTreeMaterialPipelineBytesReference(
+PackForestTreeMaterialPipelineBytesDirectReference(
     const ForestTreeMaterialPipelineRealization& realization
 ) {
     ValidateForestTreeMaterialPipelineForPacking(realization);
@@ -290,53 +290,33 @@ PackForestTreeMaterialPipelineBytesReference(
         kForestTreeMaterialBundleBytes
     );
     for (const auto& bundle : realization.bundles) {
-        const auto population_bytes =
-            PackForestPopulationBytesReference(
-                {1, realization.logical_tree_capacity,
-                 {bundle.population}, 0}
-            );
-        const auto wood_energy = EvaluateTreeWoodEnergyReference(
-            {bundle.wood}
+        AppendForestPopulationTreeBytesReference(
+            bytes,
+            bundle.population
         );
-        const auto wood_bytes =
-            PackTreeWoodMaterialBytesReference(
-                {
-                    realization.logical_tree_capacity,
-                    1,
-                    {bundle.wood},
-                    wood_energy,
-                }
-            );
-        const std::vector<TreeCanopyHierarchicalSample>
-            canopy_samples{bundle.bark, bundle.foliage};
-        const auto canopy_energy =
-            EvaluateTreeCanopyEnergyReference(canopy_samples);
-        const auto canopy_bytes =
-            PackTreeCanopyHierarchicalBytesReference(
-                {
-                    realization.logical_tree_capacity,
-                    2,
-                    canopy_samples,
-                    canopy_energy,
-                }
-            );
-        bytes.insert(
-            bytes.end(),
-            population_bytes.begin(),
-            population_bytes.end()
+        AppendTreeWoodSampleBytesReference(
+            bytes,
+            bundle.wood
         );
-        bytes.insert(
-            bytes.end(),
-            wood_bytes.begin(),
-            wood_bytes.end()
+        AppendTreeCanopySampleBytesReference(
+            bytes,
+            bundle.bark
         );
-        bytes.insert(
-            bytes.end(),
-            canopy_bytes.begin(),
-            canopy_bytes.end()
+        AppendTreeCanopySampleBytesReference(
+            bytes,
+            bundle.foliage
         );
     }
     return bytes;
+}
+
+inline std::vector<std::uint8_t>
+PackForestTreeMaterialPipelineBytesReference(
+    const ForestTreeMaterialPipelineRealization& realization
+) {
+    return PackForestTreeMaterialPipelineBytesDirectReference(
+        realization
+    );
 }
 
 inline ForestTreeMaterialPipelineState

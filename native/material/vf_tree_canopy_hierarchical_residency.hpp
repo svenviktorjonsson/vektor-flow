@@ -352,6 +352,38 @@ inline void ValidateTreeCanopyForPacking(
     }
 }
 
+inline void AppendTreeCanopySampleBytesReference(
+    std::vector<std::uint8_t>& bytes,
+    const TreeCanopyHierarchicalSample& sample
+) {
+    AppendDeterministicPacketWord64(bytes, sample.primitive_id);
+    AppendDeterministicPacketWord64(bytes, sample.tree_id);
+    AppendDeterministicPacketWord64(bytes, sample.parent_id);
+    AppendDeterministicPacketWord32(
+        bytes,
+        static_cast<std::uint32_t>(sample.kind)
+    );
+    for (const double value : sample.developmental_position) {
+        AppendDeterministicPacketFloat32(
+            bytes,
+            static_cast<float>(value)
+        );
+    }
+    for (const float value : sample.axis) {
+        AppendDeterministicPacketFloat32(bytes, value);
+    }
+    AppendDeterministicPacketFloat32(bytes, sample.radius);
+    AppendDeterministicPacketFloat32(bytes, sample.extent);
+    for (const float value : sample.base_color) {
+        AppendDeterministicPacketFloat32(bytes, value);
+    }
+    AppendDeterministicPacketFloat32(bytes, sample.roughness);
+    AppendDeterministicPacketFloat32(
+        bytes,
+        sample.reflectivity
+    );
+}
+
 inline std::vector<std::uint8_t>
 PackTreeCanopyHierarchicalBytesReference(
     const TreeCanopyHierarchicalRealization& realization
@@ -363,32 +395,7 @@ PackTreeCanopyHierarchicalBytesReference(
         kTreeCanopyHierarchicalRecordBytes
     );
     for (const auto& sample : realization.samples) {
-        AppendDeterministicPacketWord64(bytes, sample.primitive_id);
-        AppendDeterministicPacketWord64(bytes, sample.tree_id);
-        AppendDeterministicPacketWord64(bytes, sample.parent_id);
-        AppendDeterministicPacketWord32(
-            bytes,
-            static_cast<std::uint32_t>(sample.kind)
-        );
-        for (const double value : sample.developmental_position) {
-            AppendDeterministicPacketFloat32(
-                bytes,
-                static_cast<float>(value)
-            );
-        }
-        for (const float value : sample.axis) {
-            AppendDeterministicPacketFloat32(bytes, value);
-        }
-        AppendDeterministicPacketFloat32(bytes, sample.radius);
-        AppendDeterministicPacketFloat32(bytes, sample.extent);
-        for (const float value : sample.base_color) {
-            AppendDeterministicPacketFloat32(bytes, value);
-        }
-        AppendDeterministicPacketFloat32(bytes, sample.roughness);
-        AppendDeterministicPacketFloat32(
-            bytes,
-            sample.reflectivity
-        );
+        AppendTreeCanopySampleBytesReference(bytes, sample);
     }
     return bytes;
 }

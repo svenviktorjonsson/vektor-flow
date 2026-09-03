@@ -345,6 +345,35 @@ inline void ValidateForestPopulationForPacking(
     }
 }
 
+inline void
+AppendForestPopulationTreeBytesReference(
+    std::vector<std::uint8_t>& bytes,
+    const ForestPopulationTree& tree
+) {
+    AppendDeterministicPacketWord64(bytes, tree.patch_id);
+    AppendDeterministicPacketWord64(bytes, tree.tree_id);
+    AppendDeterministicPacketWord64(bytes, tree.candidate_id);
+    AppendDeterministicPacketWord32(bytes, tree.species_id);
+    for (const double value : tree.position) {
+        AppendDeterministicPacketFloat32(
+            bytes,
+            static_cast<float>(value)
+        );
+    }
+    AppendDeterministicPacketFloat32(bytes, tree.age);
+    AppendDeterministicPacketFloat32(bytes, tree.size);
+    AppendDeterministicPacketFloat32(bytes, tree.health);
+    AppendDeterministicPacketFloat32(bytes, tree.orientation);
+    AppendDeterministicPacketFloat32(
+        bytes,
+        static_cast<float>(tree.environment_variation)
+    );
+    AppendDeterministicPacketFloat32(
+        bytes,
+        static_cast<float>(tree.individual_variation)
+    );
+}
+
 inline std::vector<std::uint8_t>
 PackForestPopulationBytesReference(
     const ForestPopulationRealization& realization
@@ -355,28 +384,7 @@ PackForestPopulationBytesReference(
         realization.trees.size() * kForestPopulationRecordBytes
     );
     for (const auto& tree : realization.trees) {
-        AppendDeterministicPacketWord64(bytes, tree.patch_id);
-        AppendDeterministicPacketWord64(bytes, tree.tree_id);
-        AppendDeterministicPacketWord64(bytes, tree.candidate_id);
-        AppendDeterministicPacketWord32(bytes, tree.species_id);
-        for (const double value : tree.position) {
-            AppendDeterministicPacketFloat32(
-                bytes,
-                static_cast<float>(value)
-            );
-        }
-        AppendDeterministicPacketFloat32(bytes, tree.age);
-        AppendDeterministicPacketFloat32(bytes, tree.size);
-        AppendDeterministicPacketFloat32(bytes, tree.health);
-        AppendDeterministicPacketFloat32(bytes, tree.orientation);
-        AppendDeterministicPacketFloat32(
-            bytes,
-            static_cast<float>(tree.environment_variation)
-        );
-        AppendDeterministicPacketFloat32(
-            bytes,
-            static_cast<float>(tree.individual_variation)
-        );
+        AppendForestPopulationTreeBytesReference(bytes, tree);
     }
     return bytes;
 }
