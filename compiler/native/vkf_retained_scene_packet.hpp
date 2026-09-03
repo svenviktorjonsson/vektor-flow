@@ -1176,6 +1176,7 @@ inline vf::JsonValue temporal_material_mesh(
     EvaluationContext* context,
     std::uint64_t layer_id
 ) {
+    const auto material = properties(operation, context);
     const auto evaluator = LayerTimeEvaluator::from_operation(operation, context);
     const auto current = evaluator.evaluate(0.0);
     const auto& position = current.channels.at("p");
@@ -1190,20 +1191,15 @@ inline vf::JsonValue temporal_material_mesh(
     }
 
     std::string mesh_id = "layer_" + std::to_string(layer_id);
-    const auto properties_entry = operation.find("properties");
-    if (properties_entry != operation.end()) {
-        const auto& properties = object(properties_entry->second, "temporal Frame.add properties");
-        const auto id_entry = properties.find("id");
-        if (id_entry != properties.end()) {
-            const auto id_value = detail::evaluate(id_entry->second, context);
-            if (!id_value.is_string() || id_value.as_string().empty()) {
-                throw Error("temporal Frame.add id must be a non-empty string");
-            }
-            mesh_id = id_value.as_string();
+    const auto id_entry = material.find("id");
+    if (id_entry != material.end()) {
+        if (!id_entry->second.is_string() || id_entry->second.as_string().empty()) {
+            throw Error("temporal Frame.add id must be a non-empty string");
         }
+        mesh_id = id_entry->second.as_string();
     }
 
-    return vf::JsonValue(vf::JsonValue::Object{
+    vf::JsonValue::Object mesh{
         {"id", vf::JsonValue(mesh_id)},
         {"layer_id", vf::JsonValue(static_cast<double>(layer_id))},
         {"type", vf::JsonValue("field_mesh")},
@@ -1218,7 +1214,9 @@ inline vf::JsonValue temporal_material_mesh(
         {"no_lighting", vf::JsonValue(true)},
         {"pickable", vf::JsonValue(true)},
         {"_layer_time", evaluator.descriptor()},
-    });
+    };
+    apply_surface_material(mesh, material, color[3]);
+    return vf::JsonValue(std::move(mesh));
 }
 
 struct Frame {

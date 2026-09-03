@@ -115,6 +115,8 @@ struct WasmModulePlan {
     bool has_retained_scene_arena = false;
     vf::JsonValue::Array render_parameter_sections;
     vf::JsonValue::Array render_parameter_draw_lists;
+    std::vector<vkf::native_scene::PackedRenderParameters::TemporalPositionUpdate>
+        temporal_position_updates;
 };
 
 const vf::JsonValue::Object& object_of(const vf::JsonValue& value, const std::string& context) {
@@ -431,6 +433,144 @@ void emit_camera_control_body(
         append_u8(body, 0x38);  // f32.store
         append_u32_leb(body, 2);
         append_u32_leb(body, 0);
+    }
+}
+
+void emit_temporal_position_updates(
+    std::vector<std::uint8_t>& body,
+    const std::vector<
+        vkf::native_scene::PackedRenderParameters::TemporalPositionUpdate>& updates,
+    std::uint32_t parameter_arena_offset,
+    std::uint32_t time_local
+) {
+    const auto i32_const = [&body](std::int32_t value) {
+        append_u8(body, 0x41);
+        append_i32_leb(body, value);
+    };
+    const auto f32_const = [&body](double value) {
+        append_u8(body, 0x43);
+        append_f32(body, static_cast<float>(value));
+    };
+    const auto local_get = [&body](std::uint32_t index) {
+        append_u8(body, 0x20);
+        append_u32_leb(body, index);
+    };
+    const auto local_set = [&body](std::uint32_t index) {
+        append_u8(body, 0x21);
+        append_u32_leb(body, index);
+    };
+    const auto elapsed = [&body, &i32_const] {
+        i32_const(0);
+        append_u8(body, 0x28);  // i32.load
+        append_u32_leb(body, 2);
+        append_u32_leb(body, 0);
+        append_u8(body, 0xB2);  // f32.convert_i32_s
+    };
+    const auto store = [&body, &i32_const](std::uint32_t address) {
+        i32_const(static_cast<std::int32_t>(address));
+    };
+
+    for (const auto& update : updates) {
+        const double first = update.coordinates.front();
+        const double duration = update.coordinates.back() - first;
+        if (update.mode == "repeat" || update.mode == "mirror") {
+            elapsed();
+            elapsed();
+            f32_const(update.mode == "mirror" ? duration * 2.0 : duration);
+            append_u8(body, 0x95);  // f32.div
+            append_u8(body, 0x8E);  // f32.floor
+            f32_const(update.mode == "mirror" ? duration * 2.0 : duration);
+            append_u8(body, 0x94);  // f32.mul
+            append_u8(body, 0x93);  // f32.sub
+            local_set(time_local);
+            if (update.mode == "mirror") {
+                local_get(time_local);
+                f32_const(duration);
+                append_u8(body, 0x5E);  // f32.gt
+                append_u8(body, 0x04);
+                append_u8(body, 0x7D);  // if (result f32)
+                f32_const(duration * 2.0);
+                local_get(time_local);
+                append_u8(body, 0x93);  // f32.sub
+                append_u8(body, 0x05);  // else
+                local_get(time_local);
+                append_u8(body, 0x0B);  // end
+                local_set(time_local);
+            }
+            local_get(time_local);
+            f32_const(first);
+            append_u8(body, 0x92);  // f32.add
+            local_set(time_local);
+        } else if (update.mode == "stop") {
+            elapsed();
+            f32_const(duration);
+            append_u8(body, 0x96);  // f32.min
+            f32_const(first);
+            append_u8(body, 0x92);  // f32.add
+            local_set(time_local);
+        } else {
+            elapsed();
+            f32_const(duration);
+            append_u8(body, 0x60);  // f32.ge
+            append_u8(body, 0x04);
+            append_u8(body, 0x7D);  // if (result f32)
+            f32_const(first);
+            append_u8(body, 0x05);  // else
+            elapsed();
+            f32_const(first);
+            append_u8(body, 0x92);  // f32.add
+            append_u8(body, 0x0B);  // end
+            local_set(time_local);
+        }
+
+        const auto emit_component = [&](const auto& self,
+                                        std::size_t segment,
+                                        std::size_t component) -> void {
+            local_get(time_local);
+            f32_const(update.coordinates[segment + 1]);
+            append_u8(body, 0x5F);  // f32.le
+            append_u8(body, 0x04);
+            append_u8(body, 0x7D);  // if (result f32)
+            f32_const(update.positions[segment][component]);
+            f32_const(
+                update.positions[segment + 1][component] -
+                update.positions[segment][component]);
+            local_get(time_local);
+            f32_const(update.coordinates[segment]);
+            append_u8(body, 0x93);  // f32.sub
+            f32_const(
+                update.coordinates[segment + 1] -
+                update.coordinates[segment]);
+            append_u8(body, 0x95);  // f32.div
+            append_u8(body, 0x94);  // f32.mul
+            append_u8(body, 0x92);  // f32.add
+            append_u8(body, 0x05);  // else
+            if (segment + 2 < update.positions.size()) {
+                self(self, segment + 1, component);
+            } else {
+                f32_const(update.positions.back()[component]);
+            }
+            append_u8(body, 0x0B);  // end
+        };
+
+        for (std::uint32_t component = 0; component < 3; ++component) {
+            store(parameter_arena_offset + update.object_position_offset +
+                  component * 4);
+            emit_component(emit_component, 0, component);
+            f32_const(update.positions.front()[component]);
+            append_u8(body, 0x93);  // f32.sub: object transform delta
+            append_u8(body, 0x38);  // f32.store
+            append_u32_leb(body, 2);
+            append_u32_leb(body, 0);
+            if (update.light_position_offset.has_value()) {
+                store(parameter_arena_offset + *update.light_position_offset +
+                      component * 4);
+                emit_component(emit_component, 0, component);
+                append_u8(body, 0x38);  // f32.store
+                append_u32_leb(body, 2);
+                append_u32_leb(body, 0);
+            }
+        }
     }
 }
 
@@ -1069,6 +1209,8 @@ void collect_lowered_scene_arena_bindings(
     plan.has_retained_scene_arena = true;
     plan.render_parameter_sections = lowered.render_parameters.sections;
     plan.render_parameter_draw_lists = lowered.render_parameters.draw_lists;
+    plan.temporal_position_updates =
+        lowered.render_parameters.temporal_position_updates;
 }
 
 bool collect_retained_scene_packet_binding(
@@ -2309,7 +2451,11 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
             }
         } else if (function.body_kind == FunctionSpec::BodyKind::IncrementTick) {
             if (plan.update.enabled && plan.update.axis_vector_mode) {
-                append_u32_leb(body, 0);
+                append_u32_leb(body, plan.temporal_position_updates.empty() ? 0 : 1);
+                if (!plan.temporal_position_updates.empty()) {
+                    append_u32_leb(body, 1);
+                    append_u8(body, 0x7D);
+                }
                 for (std::size_t i = 0; i < plan.update.axis_vector_length; ++i) {
                     append_u8(body, 0x41);
                     append_i32_leb(body, static_cast<std::int32_t>(i * axis_word_size));
@@ -2326,7 +2472,11 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                     append_u32_leb(body, 0);
                 }
             } else if (plan.update.enabled && plan.update.record_mode) {
-                append_u32_leb(body, 0);
+                append_u32_leb(body, plan.temporal_position_updates.empty() ? 0 : 1);
+                if (!plan.temporal_position_updates.empty()) {
+                    append_u32_leb(body, 1);
+                    append_u8(body, 0x7D);
+                }
                 for (std::size_t i = 0; i < plan.update.record_fields.size(); ++i) {
                     const FieldDesc* target_field = find_field_desc(plan.update.state_fields, plan.update.record_fields[i].first);
                     if (target_field == nullptr) {
@@ -2359,7 +2509,11 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                     }
                 }
             } else if (plan.update.enabled) {
-                append_u32_leb(body, 0);
+                append_u32_leb(body, plan.temporal_position_updates.empty() ? 0 : 1);
+                if (!plan.temporal_position_updates.empty()) {
+                    append_u32_leb(body, 1);
+                    append_u8(body, 0x7D);
+                }
                 append_u8(body, 0x41);
                 append_i32_leb(body, 0);
                 emit_update_expr(body, plan.update.scalar_expr, bindings, input_offset, &plan.update);
@@ -2367,9 +2521,14 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                 append_u32_leb(body, 2);
                 append_u32_leb(body, 0);
             } else {
-                append_u32_leb(body, 1);
+                append_u32_leb(body,
+                    plan.temporal_position_updates.empty() ? 1 : 2);
                 append_u32_leb(body, 1);
                 append_u8(body, 0x7F);
+                if (!plan.temporal_position_updates.empty()) {
+                    append_u32_leb(body, 1);
+                    append_u8(body, 0x7D);
+                }
                 append_u8(body, 0x41);
                 append_i32_leb(body, 0);
                 append_u8(body, 0x28);
@@ -2403,6 +2562,17 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                 append_u8(body, 0x36);
                 append_u32_leb(body, 2);
                 append_u32_leb(body, 0);
+            }
+            if (!plan.temporal_position_updates.empty()) {
+                if (render_parameters == nullptr) {
+                    throw WasmArtifactFailure(
+                        "temporal positions require the render parameter arena");
+                }
+                emit_temporal_position_updates(
+                    body,
+                    plan.temporal_position_updates,
+                    render_parameters->string_offset,
+                    plan.update.enabled ? 0u : 1u);
             }
         } else if (function.body_kind == FunctionSpec::BodyKind::CameraControl) {
             emit_camera_control_body(body, render_parameters->string_offset);

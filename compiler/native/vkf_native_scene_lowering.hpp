@@ -733,9 +733,19 @@ inline constexpr std::uint32_t object_stride = 128;
 }  // namespace render_parameter_layout
 
 struct PackedRenderParameters {
+    struct TemporalPositionUpdate {
+        std::string id;
+        std::string mode;
+        std::vector<double> coordinates;
+        std::vector<std::array<double, 3>> positions;
+        std::uint32_t object_position_offset = 0;
+        std::optional<std::uint32_t> light_position_offset;
+    };
+
     std::vector<std::uint8_t> arena_bytes;
     vf::JsonValue::Array sections;
     vf::JsonValue::Array draw_lists;
+    std::vector<TemporalPositionUpdate> temporal_position_updates;
 };
 
 inline double number_or(
@@ -886,6 +896,53 @@ struct GeometryEmitterView {
     bool casts_shadow = true;
 };
 
+inline std::vector<PackedRenderParameters::TemporalPositionUpdate>
+temporal_position_updates(const LiteralValue& root) {
+    std::vector<PackedRenderParameters::TemporalPositionUpdate> updates;
+    const LiteralValue* meshes = object_field(root, "meshes");
+    if (!meshes || meshes->kind != LiteralKind::Array) return updates;
+    for (const auto& mesh : meshes->array) {
+        const LiteralValue* time = object_field(mesh, "_layer_time");
+        if (!time || time->kind != LiteralKind::Object) continue;
+        const auto coordinates = numeric_vector(
+            object_field(*time, "coordinates"), "Layer t coordinates");
+        const std::string mode = string_or(object_field(*time, "mode"), "");
+        const LiteralValue* channels = object_field(*time, "channels");
+        if (mode.empty() || !channels || channels->kind != LiteralKind::Array) {
+            throw Error("temporal Layer metadata is incomplete");
+        }
+        const LiteralValue* positions = nullptr;
+        for (const auto& channel : channels->array) {
+            if (string_or(object_field(channel, "name"), "") == "p") {
+                positions = object_field(channel, "value");
+                break;
+            }
+        }
+        if (!positions || positions->kind != LiteralKind::Array ||
+            positions->array.size() != coordinates.size()) {
+            throw Error("temporal Layer position samples are incomplete");
+        }
+        PackedRenderParameters::TemporalPositionUpdate update;
+        update.id = string_or(object_field(mesh, "id"), "");
+        update.mode = mode;
+        update.coordinates = coordinates;
+        if (update.id.empty()) throw Error("temporal Layer id is missing");
+        update.positions.reserve(positions->array.size());
+        for (const auto& sample : positions->array) {
+            const auto components = numeric_vector(&sample, "Layer p_t sample");
+            if (components.size() != 2 && components.size() != 3) {
+                throw Error("Layer p_t sample must have two or three components");
+            }
+            update.positions.push_back({
+                components[0], components[1],
+                components.size() == 3 ? components[2] : 0.0,
+            });
+        }
+        updates.push_back(std::move(update));
+    }
+    return updates;
+}
+
 inline std::vector<GeometryEmitter> geometry_emitters(
     const LiteralValue& root
 ) {
@@ -900,6 +957,37 @@ inline std::vector<GeometryEmitter> geometry_emitters(
             const LiteralValue* indices = object_field(object, "indices");
             const std::string topology = string_or(
                 object_field(object, "topology"), "");
+            if (emission.present && topology == "point-list" &&
+                object_field(object, "_layer_time") && vertices &&
+                vertices->kind == LiteralKind::Array &&
+                vertices->array.size() >= 10) {
+                const double radius = std::max(
+                    number_or(object_field(object, "vertex_size"), 0.0),
+                    1.0e-6);
+                GeometryEmitter emitter;
+                emitter.id = string_or(
+                    object_field(object, "id"),
+                    "object_" + std::to_string(object_index));
+                emitter.layer_id = static_cast<std::uint32_t>(number_or(
+                    object_field(object, "layer_id"), object_index));
+                emitter.object_index = object_index;
+                emitter.position = {
+                    number_or(&vertices->array[0], 0.0),
+                    number_or(&vertices->array[1], 0.0),
+                    number_or(&vertices->array[2], 0.0),
+                };
+                emitter.normal = {
+                    number_or(&vertices->array[3], 0.0),
+                    number_or(&vertices->array[4], 0.0),
+                    number_or(&vertices->array[5], 1.0),
+                };
+                emitter.area = 3.14159265358979323846 * radius * radius;
+                emitter.casts_shadow = bool_field(object, "casts_shadow", true);
+                emitter.emission = emission;
+                emitters.push_back(std::move(emitter));
+                ++object_index;
+                continue;
+            }
             if (!emission.present || topology != "triangle-list" ||
                 !vertices || !indices ||
                 vertices->kind != LiteralKind::Array ||
@@ -1236,6 +1324,7 @@ inline PackedRenderParameters pack_render_parameters(
 ) {
     using namespace render_parameter_layout;
     PackedRenderParameters packed;
+    packed.temporal_position_updates = temporal_position_updates(root);
 
     const std::uint32_t camera_offset =
         static_cast<std::uint32_t>(packed.arena_bytes.size());
@@ -1547,6 +1636,25 @@ inline PackedRenderParameters pack_render_parameters(
     };
     pack_objects("surfaces");
     pack_objects("meshes");
+    for (auto& update : packed.temporal_position_updates) {
+        const auto object = object_indices.find(update.id);
+        if (object == object_indices.end()) {
+            throw Error("temporal Layer object is unavailable: " + update.id);
+        }
+        update.object_position_offset = objects_offset +
+            static_cast<std::uint32_t>(object->second) * object_stride;
+        const auto emitter = std::find_if(
+            emitters.begin(), emitters.end(), [&](const GeometryEmitter& candidate) {
+                return candidate.id == update.id;
+            });
+        if (emitter != emitters.end()) {
+            const std::size_t emitter_index = static_cast<std::size_t>(
+                std::distance(emitters.begin(), emitter));
+            update.light_position_offset = lights_offset +
+                static_cast<std::uint32_t>(authored_light_count + emitter_index) *
+                    light_stride;
+        }
+    }
     const std::uint32_t objects_length =
         static_cast<std::uint32_t>(packed.arena_bytes.size()) - objects_offset;
     packed.sections.push_back(vf::JsonValue(vf::JsonValue::Object{
