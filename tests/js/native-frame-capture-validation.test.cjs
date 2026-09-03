@@ -3,7 +3,7 @@ const test = require("node:test");
 
 const {
   validateNativeCapture,
-} = require("../helpers/capture_material_ui_gallery.js");
+} = require("../helpers/capture_native_frame.js");
 
 function state(view, rgba) {
   return {

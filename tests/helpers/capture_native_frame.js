@@ -54,7 +54,7 @@ function validateNativeCapture(evidence) {
 
 function main() {
   if (!process.argv[2]) {
-    throw new Error("usage: capture_material_ui_gallery.js <native-capture.json>");
+    throw new Error("usage: capture_native_frame.js <native-capture.json>");
   }
   const evidencePath = path.resolve(process.argv[2]);
   waitForEvidence(evidencePath);

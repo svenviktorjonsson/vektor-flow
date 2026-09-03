@@ -75,7 +75,7 @@ run(packageBin, [
 });
 
 const captureSummary = JSON.parse(run(process.execPath, [
-  path.join(repositoryRoot, "tests", "helpers", "capture_material_ui_gallery.js"),
+  path.join(repositoryRoot, "tests", "helpers", "capture_native_frame.js"),
   captureEvidencePath,
 ]));
 const encodingSummary = JSON.parse(run("python", [
@@ -104,7 +104,7 @@ const sourcePaths = [
   "native/VfOverlay/vf/release_overlay_host.cpp",
   "web/vf-ui/vf-compiled-webgpu-adapter.js",
   "web/vf-ui/vf-retained-event-adapter.js",
-  "tests/helpers/capture_material_ui_gallery.js",
+  "tests/helpers/capture_native_frame.js",
   "tools/encode_native_frame_capture.py",
   "tools/build_material_ui_gallery_webp.py",
   "scripts/build-material-ui-gallery-media.mjs",
