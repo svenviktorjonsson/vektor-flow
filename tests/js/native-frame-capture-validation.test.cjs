@@ -14,7 +14,7 @@ function state(view, rgba) {
   };
 }
 
-function evidence(rgba) {
+function evidence(rgba, detailRgba = rgba) {
   return {
     type: "vf_native_frame_media_capture_v1",
     schema: "vektor-flow/native-frame-media-capture-v1",
@@ -23,7 +23,7 @@ function evidence(rgba) {
     boundary: "frame-internal",
     states: [
       state("camera-default", rgba),
-      state("camera-wheel-detail", rgba),
+      state("camera-wheel-detail", detailRgba),
     ],
   };
 }
@@ -38,5 +38,14 @@ test("native frame evidence rejects a uniform placeholder", () => {
 
 test("native frame evidence accepts rendered color variation", () => {
   const rendered = [12, 18, 30, 255, 220, 96, 42, 255];
-  assert.equal(validateNativeCapture(evidence(rendered)).status, "ok");
+  const detail = [42, 96, 220, 255, 30, 18, 12, 255];
+  assert.equal(validateNativeCapture(evidence(rendered, detail)).status, "ok");
+});
+
+test("native frame evidence rejects a camera update that did not render", () => {
+  const rendered = [12, 18, 30, 255, 220, 96, 42, 255];
+  assert.throws(
+    () => validateNativeCapture(evidence(rendered, rendered)),
+    /camera states are identical/u,
+  );
 });

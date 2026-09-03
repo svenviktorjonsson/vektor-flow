@@ -35,6 +35,7 @@ function validateNativeCapture(evidence) {
   if (!Array.isArray(evidence.states) || evidence.states.length !== expectedViews.length) {
     throw new Error("native Frame.capture requires two camera states");
   }
+  const capturedStates = [];
   evidence.states.forEach((state, index) => {
     const rgba = Buffer.from(String(state.rgba_base64 || ""), "base64");
     if (state.view !== expectedViews[index] ||
@@ -48,7 +49,11 @@ function validateNativeCapture(evidence) {
         `native Frame.capture state ${index} is a uniform placeholder`,
       );
     }
+    capturedStates.push(rgba);
   });
+  if (capturedStates[0].equals(capturedStates[1])) {
+    throw new Error("native Frame.capture camera states are identical");
+  }
   return evidence;
 }
 
