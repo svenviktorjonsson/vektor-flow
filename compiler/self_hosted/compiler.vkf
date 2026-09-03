@@ -1232,6 +1232,34 @@ compile_tagged_dependency_tape(source:str):
         max_stack:maximum
     )
 
+run_tagged_dependency_source(source:str) -> num:
+    statement: compile_tagged_dependency_tape(source)
+    [num] stack: [0:statement.max_stack]
+    index: 0
+    depth: 0
+    result: 0
+    returned: false
+    (index < statement.opcodes.length() /\ ~returned)?>
+        opcode: statement.opcodes.(index)
+        opcode = 1?
+            (depth < statement.max_stack)?! "browser Machine IR stack overflow"
+            stack.(depth): statement.values.(index)
+            .depth+: 1
+        opcode = 2?
+            (depth >= 2)?! "browser Machine IR addition stack underflow"
+            right: stack.(depth - 1)
+            left: stack.(depth - 2)
+            .depth-: 1
+            stack.(depth - 1): left + right
+        opcode = 3?
+            (depth = 1)?! "browser Machine IR return needs one result"
+            .result: stack.0
+            .returned: true
+        (opcode = 1 \/ opcode = 2 \/ opcode = 3)?! "browser Machine IR contains an unsupported opcode"
+        .index+: 1
+    returned?! "browser Machine IR did not return"
+    result
+
 compile_tagged_numeric_function_call(source:str):
     tokens: lexer.tagged_numeric_function_token_tape(source)
     parsed: parser.parse_tagged_numeric_function_call(

@@ -81,7 +81,7 @@ try {
     "--manifest",
     join(outputDirectory, "vkf-browser-compiler.json"),
     "--entry",
-    "compile_tagged_dependency_tape",
+    "run_tagged_dependency_source",
     "--prune-to-entry",
   ]);
 } finally {

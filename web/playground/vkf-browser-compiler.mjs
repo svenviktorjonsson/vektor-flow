@@ -4,6 +4,7 @@ import {
 } from "../vf-ui/vf-symbolic-kernel-runtime.mjs";
 
 const ENTRY = "compile_tagged_dependency_tape";
+const RUN_ENTRY = "run_tagged_dependency_source";
 
 function wrapKernel(kernel) {
   return Object.freeze({
@@ -15,6 +16,16 @@ function wrapKernel(kernel) {
         return kernel.invokeValue(ENTRY, [source]);
       } catch (cause) {
         throw new Error("browser compiler rejected the VKF source", { cause });
+      }
+    },
+    run(source) {
+      if (typeof source !== "string") {
+        throw new TypeError("browser compiler source must be a string");
+      }
+      try {
+        return kernel.invokeValue(RUN_ENTRY, [source]);
+      } catch (cause) {
+        throw new Error("browser compiler could not run the VKF source", { cause });
       }
     },
   });

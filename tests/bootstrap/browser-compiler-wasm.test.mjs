@@ -45,6 +45,12 @@ test("browser compiler turns VKF source into validated machine IR inside WASM", 
         max_stack: 2,
       },
     );
+    assert.equal(
+      compiler.invokeValue("run_tagged_dependency_source", [
+        "base: 40\nfirst: base + 1\nsecond: first + 1\nsecond + 1",
+      ]),
+      43,
+    );
   } finally {
     await rm(work, { recursive: true, force: true });
   }

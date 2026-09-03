@@ -35,12 +35,12 @@ status.value = "Ready";
 function compileSource() {
   const started = performance.now();
   try {
-    const result = compiler.compile(source.value);
-    output.textContent = JSON.stringify(result, null, 2);
-    status.value = `Compiled in ${(performance.now() - started).toFixed(1)} ms`;
+    const result = compiler.run(source.value);
+    output.textContent = String(result);
+    status.value = `Compiled and ran in ${(performance.now() - started).toFixed(1)} ms`;
   } catch (error) {
     output.textContent = error.cause?.message ?? error.message;
-    status.value = "Compile error";
+    status.value = "Compile or runtime error";
   }
 }
 

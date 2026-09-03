@@ -15,6 +15,6 @@ test("playground exposes an editable Prism-highlighted client-side compiler", as
   assert.match(html, /prism(?:\.min)?\.js/u);
   assert.match(app, /registerVektorFlowPrism/u);
   assert.match(app, /loadPackagedBrowserCompiler/u);
-  assert.match(app, /compiler\.compile\(source\.value\)/u);
+  assert.match(app, /compiler\.run\(source\.value\)/u);
   assert.doesNotMatch(app, /fetch\([^)]*(?:compile|run)|XMLHttpRequest|WebSocket/u);
 });

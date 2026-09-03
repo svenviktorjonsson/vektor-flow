@@ -11,15 +11,15 @@
   <main>
     <header>
       <p class="eyebrow">Vektor Flow · runs entirely in this page</p>
-      <h1>Edit VKF. Compile with VKF.</h1>
-      <p class="lede">This first self-hosted tracer compiles a dependency program to validated machine IR in WebAssembly. No compiler server is contacted.</p>
+      <h1>Edit VKF. Compile and run with VKF.</h1>
+      <p class="lede">This first self-hosted tracer compiles a dependency program to validated machine IR and executes it in WebAssembly. No compiler server is contacted.</p>
     </header>
 
     <section class="workbench" aria-label="Vektor Flow playground">
       <div class="pane source-pane">
         <div class="pane-bar">
           <span>main.vkf</span>
-          <button id="compile" type="button" disabled>Compile</button>
+          <button id="compile" type="button" disabled>Run</button>
         </div>
         <div class="editor-shell">
           <pre class="highlight" aria-hidden="true"><code id="highlight" class="language-vektorflow"></code></pre>
@@ -32,7 +32,7 @@ second + 1</textarea>
 
       <div class="pane output-pane">
         <div class="pane-bar">
-          <span>Compiler output</span>
+          <span>Program output</span>
           <output id="status">Loading compiler…</output>
         </div>
         <pre id="output" aria-live="polite">The compiler is loading locally.</pre>

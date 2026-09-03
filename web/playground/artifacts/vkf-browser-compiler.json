@@ -144,15 +144,20 @@
       "index": 28,
       "parameters": 1,
       "resultType": 6
+    },
+    "run_tagged_dependency_source": {
+      "index": 29,
+      "parameters": 1,
+      "resultType": 2
     }
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 19136,
-    "bytecodeLength": 19133,
+    "argumentsPointer": 21248,
+    "bytecodeLength": 21243,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 19392
+    "resultsPointer": 21504
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,
