@@ -13877,13 +13877,69 @@ vf::JsonValue tuning_json(const TuningResult& tuning, std::string requested_poli
     return vf::JsonValue(std::move(report));
 }
 
+void fingerprint_bytes(std::uint64_t& hash, const void* bytes, std::size_t size) {
+    constexpr std::uint64_t prime = 1099511628211ull;
+    const auto* data = static_cast<const unsigned char*>(bytes);
+    for (std::size_t index = 0; index < size; ++index) {
+        hash ^= data[index];
+        hash *= prime;
+    }
+}
+
+void fingerprint_json(std::uint64_t& hash, const vf::JsonValue& value) {
+    const auto type = static_cast<std::uint8_t>(value.type());
+    fingerprint_bytes(hash, &type, sizeof(type));
+    switch (value.type()) {
+        case vf::JsonValue::Type::Null:
+            return;
+        case vf::JsonValue::Type::Boolean: {
+            const std::uint8_t boolean = value.as_boolean() ? 1u : 0u;
+            fingerprint_bytes(hash, &boolean, sizeof(boolean));
+            return;
+        }
+        case vf::JsonValue::Type::Number: {
+            const double number = value.as_number();
+            fingerprint_bytes(hash, &number, sizeof(number));
+            return;
+        }
+        case vf::JsonValue::Type::String: {
+            const auto& string = value.as_string();
+            const auto size = static_cast<std::uint64_t>(string.size());
+            fingerprint_bytes(hash, &size, sizeof(size));
+            fingerprint_bytes(hash, string.data(), string.size());
+            return;
+        }
+        case vf::JsonValue::Type::Array: {
+            const auto& array = value.as_array();
+            const auto size = static_cast<std::uint64_t>(array.size());
+            fingerprint_bytes(hash, &size, sizeof(size));
+            for (const auto& item : array) fingerprint_json(hash, item);
+            return;
+        }
+        case vf::JsonValue::Type::Object: {
+            const auto& object = value.as_object();
+            const auto size = static_cast<std::uint64_t>(object.size());
+            fingerprint_bytes(hash, &size, sizeof(size));
+            for (const auto& [key, item] : object) {
+                const auto key_size = static_cast<std::uint64_t>(key.size());
+                fingerprint_bytes(hash, &key_size, sizeof(key_size));
+                fingerprint_bytes(hash, key.data(), key.size());
+                fingerprint_json(hash, item);
+            }
+            return;
+        }
+    }
+}
+
 std::string tuning_fingerprint(const vf::JsonValue& typed_ir) {
-    std::string material = "vkf-empirical-tuner-v2\n" __DATE__ "\n" __TIME__ "\n";
-    material += vkf::target::host_x64_feature_key();
-    material.push_back('\n');
-    material += vf::json_stringify(typed_ir, -1);
-    return vkf::adaptive_optimizer::hexadecimal(
-        vkf::adaptive_optimizer::fnv1a(material));
+    std::uint64_t hash = 14695981039346656037ull;
+    constexpr std::string_view version =
+        "vkf-empirical-tuner-v3\n" __DATE__ "\n" __TIME__ "\n";
+    fingerprint_bytes(hash, version.data(), version.size());
+    const auto target = vkf::target::host_x64_feature_key();
+    fingerprint_bytes(hash, target.data(), target.size());
+    fingerprint_json(hash, typed_ir);
+    return vkf::adaptive_optimizer::hexadecimal(hash);
 }
 
 std::optional<vkf::adaptive_optimizer::Policy> load_tuning_profile(
@@ -14030,8 +14086,10 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     try {
         machine_ir = vkf::machine_ir::lower(typed_ir);
         const bool supports_simd = vkf::target::host_x64_supports_avx2();
-        optimization_decisions = vkf::adaptive_optimizer::decide_module(
-            machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
+        if (emit_debug_files) {
+            optimization_decisions = vkf::adaptive_optimizer::decide_module(
+                machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
+        }
         if (!cache_fingerprint.empty()) {
             const std::string marker = "VKF-CACHE-V1:" + cache_fingerprint;
             machine_ir.string_data.insert(
