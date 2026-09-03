@@ -138,6 +138,19 @@ test("two opposite emissive p_t Layers update only parameters", async () => {
   assert.deepEqual([...leftLight], [-1.5, 0, 0]);
   assert.deepEqual([...rightLight], [1.5, 0, 0]);
 
+  runtime.update();
+  assert.deepEqual([...leftCenter], [1, 0, 0],
+    "repeat must retain the last authored sample before closing the cycle");
+  assert.deepEqual([...rightCenter], [-1, 0, 0]);
+  runtime.update();
+  assert.deepEqual([...leftCenter], [0.5, 0, 0],
+    "the inferred closing interval must interpolate from last back to first");
+  assert.deepEqual([...rightCenter], [-0.5, 0, 0]);
+  runtime.update();
+  assert.deepEqual([...leftCenter], [0, 0, 0],
+    "repeat wraps only after every authored sample and the closing interval");
+  assert.deepEqual([...rightCenter], [0, 0, 0]);
+
   const parametersAfter = runtime.renderParameterArena();
   const topologyAfter = runtime.retainedSceneArena();
   assert.equal(parametersAfter.byteOffset, parameterPointer);

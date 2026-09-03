@@ -398,6 +398,21 @@ struct LayerTimeSample {
     int direction = 1;
 };
 
+struct LayerTimeCycle {
+    double first = 0.0;
+    double duration = 0.0;
+    double closing_interval = 0.0;
+    double repeat_period = 0.0;
+};
+
+inline LayerTimeCycle layer_time_cycle(const std::vector<double>& coordinates) {
+    const double first = coordinates.front();
+    const double duration = coordinates.back() - first;
+    const double closing_interval =
+        coordinates.back() - coordinates[coordinates.size() - 2];
+    return {first, duration, closing_interval, duration + closing_interval};
+}
+
 class LayerTimeSampler {
 public:
     LayerTimeSampler(std::vector<double> coordinates, LayerTimeMode mode)
@@ -419,10 +434,21 @@ public:
         if (!std::isfinite(elapsed) || elapsed < 0.0) {
             throw Error("Layer elapsed time must be finite and non-negative");
         }
-        const double duration = coordinates_.back() - coordinates_.front();
+        const LayerTimeCycle cycle = layer_time_cycle(coordinates_);
+        const double duration = cycle.duration;
         if (mode_ == LayerTimeMode::Repeat) {
-            return bracket(
-                coordinates_.front() + std::fmod(elapsed, duration), true, 1);
+            const double phase = std::fmod(elapsed, cycle.repeat_period);
+            if (phase >= duration) {
+                return {
+                    coordinates_.size() - 1,
+                    0,
+                    (phase - duration) / cycle.closing_interval,
+                    cycle.first + phase,
+                    true,
+                    1,
+                };
+            }
+            return bracket(cycle.first + phase, true, 1);
         }
         if (mode_ == LayerTimeMode::Mirror) {
             const double cycle = std::fmod(elapsed, duration * 2.0);

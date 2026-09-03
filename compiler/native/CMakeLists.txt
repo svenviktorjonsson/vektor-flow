@@ -101,6 +101,7 @@ endif()
 vkf_native_target(vkf_wasm_artifact_smoke vkf_wasm_artifact_smoke.cpp TRUE)
 vkf_native_target(vkf_symbolic_kernel_artifact vkf_symbolic_kernel_artifact.cpp TRUE)
 vkf_native_target(vkf_webgpu_artifact_smoke vkf_webgpu_artifact_smoke.cpp TRUE)
+vkf_native_target(vkf_layer_time_runtime_test vkf_layer_time_runtime_test.cpp TRUE)
 
 install(TARGETS
     vkf

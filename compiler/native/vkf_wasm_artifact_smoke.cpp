@@ -357,9 +357,11 @@ void emit_camera_control_body(
         append_i32_leb(body, static_cast<std::int32_t>(address));
     };
 
-    // Seven f32 locals: camera offset xyz, three temporaries, and a scale.
+    // Sixteen f32 locals: offset, authored up, rotated offset, scalar
+    // temporaries, and the current rotation axis. Camera control is expressed
+    // in the authored camera basis; no world axis is privileged.
     append_u32_leb(body, 1);
-    append_u32_leb(body, 7);
+    append_u32_leb(body, 16);
     append_u8(body, 0x7D);
 
     for (std::uint32_t axis = 0; axis < 3; ++axis) {
@@ -369,44 +371,133 @@ void emit_camera_control_body(
         local_set(3 + axis);
     }
 
-    // Horizontal orbit: four half-angle rotations around the world-up axis.
+    // Normalize the authored camera up vector into locals 6..8.
+    for (std::uint32_t axis = 0; axis < 3; ++axis) {
+        f32_load(camera_offset + 24 + axis * 4);
+        f32_load(camera_offset + 24 + axis * 4);
+        append_u8(body, 0x94);  // f32.mul
+        if (axis != 0) append_u8(body, 0x92);  // f32.add
+    }
+    append_u8(body, 0x91);  // f32.sqrt
+    f32_const(1.0e-6f);
+    append_u8(body, 0x97);  // f32.max
+    local_set(13);
+    for (std::uint32_t axis = 0; axis < 3; ++axis) {
+        f32_load(camera_offset + 24 + axis * 4);
+        local_get(13);
+        append_u8(body, 0x95);  // f32.div
+        local_set(6 + axis);
+    }
+
+    const auto emit_dot = [&](std::uint32_t lhs, std::uint32_t rhs) {
+        for (std::uint32_t axis = 0; axis < 3; ++axis) {
+            local_get(lhs + axis);
+            local_get(rhs + axis);
+            append_u8(body, 0x94);  // f32.mul
+            if (axis != 0) append_u8(body, 0x92);  // f32.add
+        }
+    };
+    const auto emit_rotation = [&](std::uint32_t rotation_axis,
+                                   std::uint32_t direction_local) {
+        f32_const(orbit_sin);
+        local_get(direction_local);
+        append_u8(body, 0xB2);  // f32.convert_i32_s
+        append_u8(body, 0x94);  // f32.mul
+        local_set(14);
+        emit_dot(rotation_axis, 3);
+        local_set(12);
+        for (std::uint32_t axis = 0; axis < 3; ++axis) {
+            const std::uint32_t next = (axis + 1) % 3;
+            const std::uint32_t last = (axis + 2) % 3;
+            f32_const(orbit_cos);
+            local_get(3 + axis);
+            append_u8(body, 0x94);  // cos * offset
+            local_get(14);
+            local_get(rotation_axis + next);
+            local_get(3 + last);
+            append_u8(body, 0x94);
+            local_get(rotation_axis + last);
+            local_get(3 + next);
+            append_u8(body, 0x94);
+            append_u8(body, 0x93);  // axis cross offset
+            append_u8(body, 0x94);
+            append_u8(body, 0x92);  // + sin * cross
+            f32_const(1.0f - orbit_cos);
+            local_get(rotation_axis + axis);
+            append_u8(body, 0x94);
+            local_get(12);
+            append_u8(body, 0x94);
+            append_u8(body, 0x92);  // + (1-cos) * axis * dot
+            local_set(9 + axis);
+        }
+    };
+
+    // Horizontal orbit: four substeps around the authored up axis.
     local_get(0);
     append_u8(body, 0x04); append_u8(body, 0x40);  // if
     for (int substep = 0; substep < 4; ++substep) {
-        f32_const(orbit_cos); local_get(3); append_u8(body, 0x94);
-        f32_const(orbit_sin); local_get(0); append_u8(body, 0xB2);
-        append_u8(body, 0x94); local_get(4); append_u8(body, 0x94);
-        append_u8(body, 0x93); local_set(6);
-        f32_const(orbit_sin); local_get(0); append_u8(body, 0xB2);
-        append_u8(body, 0x94); local_get(3); append_u8(body, 0x94);
-        f32_const(orbit_cos); local_get(4); append_u8(body, 0x94);
-        append_u8(body, 0x92); local_set(7);
-        local_get(6); local_set(3);
-        local_get(7); local_set(4);
+        emit_rotation(6, 0);
+        for (std::uint32_t axis = 0; axis < 3; ++axis) {
+            local_get(9 + axis);
+            local_set(3 + axis);
+        }
     }
     append_u8(body, 0x0B);
 
-    // Vertical orbit uses four pole-checked half-angle rotations.
+    // Vertical orbit uses the right axis derived from the current offset and
+    // authored up, then rejects a substep that would cross the pole.
     local_get(1);
     append_u8(body, 0x04); append_u8(body, 0x40);
     for (int substep = 0; substep < 4; ++substep) {
-        local_get(3); local_get(3); append_u8(body, 0x94);
-        local_get(4); local_get(4); append_u8(body, 0x94);
-        append_u8(body, 0x92); append_u8(body, 0x91); local_set(6);
-        f32_const(orbit_cos); local_get(6); append_u8(body, 0x94);
-        f32_const(orbit_sin); local_get(1); append_u8(body, 0xB2);
-        append_u8(body, 0x94); local_get(5); append_u8(body, 0x94);
-        append_u8(body, 0x93); local_set(7);
-        f32_const(orbit_sin); local_get(1); append_u8(body, 0xB2);
-        append_u8(body, 0x94); local_get(6); append_u8(body, 0x94);
-        f32_const(orbit_cos); local_get(5); append_u8(body, 0x94);
-        append_u8(body, 0x92); local_set(8);
-        local_get(7); f32_const(0.05f); append_u8(body, 0x5E);
+        for (std::uint32_t axis = 0; axis < 3; ++axis) {
+            const std::uint32_t next = (axis + 1) % 3;
+            const std::uint32_t last = (axis + 2) % 3;
+            local_get(3 + next);
+            local_get(6 + last);
+            append_u8(body, 0x94);
+            local_get(3 + last);
+            local_get(6 + next);
+            append_u8(body, 0x94);
+            append_u8(body, 0x93);  // offset cross up
+            local_set(15 + axis);
+        }
+        emit_dot(15, 15);
+        append_u8(body, 0x91);  // f32.sqrt
+        local_set(13);
+        local_get(13); f32_const(1.0e-6f); append_u8(body, 0x5E);
         append_u8(body, 0x04); append_u8(body, 0x40);
-        local_get(7); local_get(6); append_u8(body, 0x95); local_set(9);
-        local_get(3); local_get(9); append_u8(body, 0x94); local_set(3);
-        local_get(4); local_get(9); append_u8(body, 0x94); local_set(4);
-        local_get(8); local_set(5);
+        for (std::uint32_t axis = 0; axis < 3; ++axis) {
+            local_get(15 + axis);
+            local_get(13);
+            append_u8(body, 0x95);
+            local_set(15 + axis);
+        }
+        emit_rotation(15, 1);
+        emit_dot(9, 6);
+        local_set(12);
+        for (std::uint32_t axis = 0; axis < 3; ++axis) {
+            local_get(9 + axis);
+            local_get(6 + axis);
+            local_get(12);
+            append_u8(body, 0x94);
+            append_u8(body, 0x93);
+            local_get(9 + axis);
+            local_get(6 + axis);
+            local_get(12);
+            append_u8(body, 0x94);
+            append_u8(body, 0x93);
+            append_u8(body, 0x94);
+            if (axis != 0) append_u8(body, 0x92);
+        }
+        append_u8(body, 0x91);  // f32.sqrt
+        f32_const(0.05f);
+        append_u8(body, 0x5E);
+        append_u8(body, 0x04); append_u8(body, 0x40);
+        for (std::uint32_t axis = 0; axis < 3; ++axis) {
+            local_get(9 + axis);
+            local_set(3 + axis);
+        }
+        append_u8(body, 0x0B);
         append_u8(body, 0x0B);
     }
     append_u8(body, 0x0B);
@@ -419,10 +510,10 @@ void emit_camera_control_body(
     f32_const(0.90f);
     append_u8(body, 0x05);
     f32_const(1.10f);
-    append_u8(body, 0x0B); local_set(9);
-    local_get(3); local_get(9); append_u8(body, 0x94); local_set(3);
-    local_get(4); local_get(9); append_u8(body, 0x94); local_set(4);
-    local_get(5); local_get(9); append_u8(body, 0x94); local_set(5);
+    append_u8(body, 0x0B); local_set(13);
+    local_get(3); local_get(13); append_u8(body, 0x94); local_set(3);
+    local_get(4); local_get(13); append_u8(body, 0x94); local_set(4);
+    local_get(5); local_get(13); append_u8(body, 0x94); local_set(5);
     append_u8(body, 0x0B);
 
     for (std::uint32_t axis = 0; axis < 3; ++axis) {
@@ -471,15 +562,17 @@ void emit_temporal_position_updates(
     };
 
     for (const auto& update : updates) {
-        const double first = update.coordinates.front();
-        const double duration = update.coordinates.back() - first;
+        const auto cycle =
+            vkf::retained_scene::detail::layer_time_cycle(update.coordinates);
+        const double first = cycle.first;
+        const double duration = cycle.duration;
         if (update.mode == "repeat" || update.mode == "mirror") {
             elapsed();
             elapsed();
-            f32_const(update.mode == "mirror" ? duration * 2.0 : duration);
+            f32_const(update.mode == "mirror" ? duration * 2.0 : cycle.repeat_period);
             append_u8(body, 0x95);  // f32.div
             append_u8(body, 0x8E);  // f32.floor
-            f32_const(update.mode == "mirror" ? duration * 2.0 : duration);
+            f32_const(update.mode == "mirror" ? duration * 2.0 : cycle.repeat_period);
             append_u8(body, 0x94);  // f32.mul
             append_u8(body, 0x93);  // f32.sub
             local_set(time_local);
@@ -547,6 +640,18 @@ void emit_temporal_position_updates(
             append_u8(body, 0x05);  // else
             if (segment + 2 < update.positions.size()) {
                 self(self, segment + 1, component);
+            } else if (update.mode == "repeat") {
+                f32_const(update.positions.back()[component]);
+                f32_const(
+                    update.positions.front()[component] -
+                    update.positions.back()[component]);
+                local_get(time_local);
+                f32_const(update.coordinates.back());
+                append_u8(body, 0x93);  // f32.sub
+                f32_const(cycle.closing_interval);
+                append_u8(body, 0x95);  // f32.div
+                append_u8(body, 0x94);  // f32.mul
+                append_u8(body, 0x92);  // f32.add
             } else {
                 f32_const(update.positions.back()[component]);
             }
