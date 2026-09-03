@@ -122,7 +122,8 @@ function render(examples) {
   const visible = examples.filter((example) => matches(example, query));
   tree.replaceChildren();
   renderBranch(catalogueTree(visible), tree);
-  count.value = `${visible.length} of ${examples.length} examples`;
+  const runnable = visible.filter(({ browserRunnable }) => browserRunnable).length;
+  count.value = `${visible.length} of ${examples.length} examples · ${runnable} Live WASM`;
 }
 
 try {

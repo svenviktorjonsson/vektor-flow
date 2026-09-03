@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
   buildReadmeExampleCatalog,
   discoverReadmeReferencedVkfPaths,
 } from "../../tools/build-pages-example-catalog.mjs";
+import { createBrowserCompiler } from "../../web/playground/vkf-browser-compiler.mjs";
 
 const repoRoot = new URL("../../", import.meta.url);
 
@@ -78,5 +80,36 @@ test("Pages catalogue assigns stable hierarchical groups and source hashes", asy
       type: "video",
       sha256: "13d91284aa7bb986c500a9a5e53a3b89796cf625a6c4a63e51272de707e87402",
     },
+  );
+});
+
+test("README Live WASM labels exactly match programs accepted by the browser compiler", async () => {
+  const [catalog, wasm, manifest] = await Promise.all([
+    buildReadmeExampleCatalog(repoRoot),
+    readFile(new URL("../../web/playground/artifacts/vkf-browser-compiler.wasm", import.meta.url)),
+    readFile(
+      new URL("../../web/playground/artifacts/vkf-browser-compiler.json", import.meta.url),
+      "utf8",
+    ).then(JSON.parse),
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+  const accepted = [];
+
+  for (const entry of catalog.examples) {
+    const source = await readFile(new URL(`../../${entry.path}`, import.meta.url), "utf8");
+    try {
+      accepted.push({ path: entry.path, result: compiler.run(source) });
+    } catch {
+      // Rejection is the expected proof for examples not yet labelled runnable.
+    }
+  }
+
+  assert.deepEqual(accepted, [
+    { path: "examples/native_core/hello_native.vkf", result: 42 },
+  ]);
+  assert.deepEqual(
+    catalog.examples.filter(({ browserRunnable }) => browserRunnable).map(({ path }) => path),
+    accepted.map(({ path }) => path),
   );
 });
