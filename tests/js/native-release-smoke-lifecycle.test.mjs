@@ -37,9 +37,11 @@ async function waitForPath(target, timeoutMilliseconds = 5_000) {
 
 test(
   "smoke cleanup waits for a test-owned profile lock to release",
-  // Cold PowerShell startup can exceed ten seconds under a saturated Windows
-  // test run. The cleanup itself remains bounded by its 30 x 50 ms policy.
-  { skip: process.platform !== "win32", timeout: 30_000 },
+  // Cold PowerShell startup can exceed thirty seconds when the full Windows
+  // suite saturates the host. The cleanup itself remains bounded by its
+  // 30 x 50 ms policy, so this timeout covers process startup rather than
+  // relaxing the cleanup contract.
+  { skip: process.platform !== "win32", timeout: 60_000 },
   async () => {
     const testRoot = await mkdtemp(path.join(repositoryRoot, ".work-g00j-"));
     const profile = path.join(testRoot, "renamed.exe.WebView2");
