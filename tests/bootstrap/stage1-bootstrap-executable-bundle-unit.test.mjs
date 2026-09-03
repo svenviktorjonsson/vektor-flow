@@ -28,6 +28,14 @@ test("bootstrap bundle emits an executable compiler-source unit", () => {
   try {
     const sourceFile = join(work, "compiler.vkf");
     copyFileSync(join(root, "compiler", "self_hosted", "compiler.vkf"), sourceFile);
+    for (const dependency of [
+      "lexer", "parser", "typed_ir", "machine_ir", "machine_ir_validation",
+    ]) {
+      copyFileSync(
+        join(root, "compiler", "self_hosted", `${dependency}.vkf`),
+        join(work, `${dependency}.vkf`),
+      );
+    }
     const sourcePath = relative(dirname(workRoot), sourceFile).replaceAll("\\", "/");
     const canonicalSource = readFileSync(sourceFile, "utf8").replace(/\r\n/g, "\n");
     const sourceIdentity = sha256(canonicalSource);

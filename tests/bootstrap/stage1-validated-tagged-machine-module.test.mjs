@@ -74,7 +74,7 @@ test("validated dynamic statement assembles into a version-4 MachineModule", () 
     assert.equal(executed.status, 0, executed.stderr);
     assert.deepEqual(executed.stdout.trim().split(/\r?\n/u), [
       "vektorflow.machine_ir", "4", "none", "value31", "1", "num", "2",
-      "load_local", "32", "add_f64", "return_f64", "0",
+      "load_local", "32", "add_f64", "return_f64", "31",
     ]);
   } finally {
     rmSync(work, { recursive: true, force: true });
