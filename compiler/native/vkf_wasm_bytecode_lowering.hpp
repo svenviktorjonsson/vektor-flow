@@ -20,8 +20,8 @@ namespace vkf::wasm::bytecode {
 
 class BytecodeLoweringError : public std::runtime_error {
 public:
-    explicit BytecodeLoweringError(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit BytecodeLoweringError(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 namespace lowering_detail {
@@ -1417,10 +1417,13 @@ private:
                 const auto* default_argument =
                     function->second.default_arguments[index];
                 if (default_argument == nullptr) {
-                    throw BytecodeLoweringError(
-                        "missing required argument " + std::to_string(index)
-                        + " for function " + name + " in " + context
-                    );
+                    std::string message = "missing required argument ";
+                    message += std::to_string(index);
+                    message += " for function ";
+                    message += name;
+                    message += " in ";
+                    message += context;
+                    throw BytecodeLoweringError(message);
                 }
                 lower_expression(
                     *default_argument,
