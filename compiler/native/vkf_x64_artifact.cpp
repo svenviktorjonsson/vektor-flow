@@ -266,6 +266,17 @@ void write_text(const std::filesystem::path& path, const std::string& text) {
     output << text;
 }
 
+bool write_text_if_changed(const std::filesystem::path& path, const std::string& text) {
+    std::error_code error;
+    if (std::filesystem::is_regular_file(path, error) && !error &&
+        std::filesystem::file_size(path, error) == text.size() && !error &&
+        read_text(path) == text) {
+        return false;
+    }
+    write_text(path, text);
+    return true;
+}
+
 class Code {
 public:
     std::vector<unsigned char> bytes;
@@ -13338,6 +13349,81 @@ bool can_tune_machine_code(const vkf::machine_ir::Module& module) {
         module.functions.begin(), module.functions.end(), safe_function);
 }
 
+std::uint32_t tunable_policy_mask(const vkf::machine_ir::Module& module) {
+    using vkf::machine_ir::Opcode;
+    std::uint32_t relevant = 0;
+    const auto inspect = [&](const vkf::machine_ir::Function& function) {
+        const bool has_integer_local = std::find(
+            function.local_classes.begin(), function.local_classes.end(),
+            vkf::machine_ir::ValueClass::I64) != function.local_classes.end();
+        if (has_integer_local) {
+            relevant |= vkf::adaptive_optimizer::native_integer_local_bit;
+        }
+        if (function.parameters.size() >= 8u) {
+            relevant |= vkf::adaptive_optimizer::borrowed_aggregate_parameter_bit;
+        }
+        if (function.result_is_dynamic_f64_list) {
+            relevant |= vkf::adaptive_optimizer::direct_aggregate_result_bit;
+        }
+
+        bool has_multiply = false;
+        bool has_addition = false;
+        bool has_reduction = false;
+        for (const auto& instruction : function.instructions) {
+            switch (instruction.opcode) {
+                case Opcode::MultiplyF64:
+                    has_multiply = true;
+                    break;
+                case Opcode::AddF64:
+                case Opcode::SubtractF64:
+                    has_addition = true;
+                    break;
+                case Opcode::LoadF64LocalsIndex:
+                case Opcode::StoreF64LocalsIndex:
+                case Opcode::LoadF64ListIndex:
+                case Opcode::StoreF64ListIndex:
+                    relevant |= vkf::adaptive_optimizer::native_index_addressing_bit;
+                    break;
+                case Opcode::RemainderF64:
+                    relevant |= vkf::adaptive_optimizer::parity_specialization_bit;
+                    break;
+                case Opcode::SumF64Values:
+                case Opcode::MeanF64Values:
+                case Opcode::VarianceF64Values:
+                case Opcode::StdDevF64Values:
+                case Opcode::RangeF64Values:
+                case Opcode::SumF64Locals:
+                case Opcode::MeanF64Locals:
+                case Opcode::VarianceF64Locals:
+                case Opcode::StdDevF64Locals:
+                case Opcode::RangeF64Locals:
+                case Opcode::SumF64List:
+                case Opcode::MeanF64List:
+                case Opcode::VarianceF64List:
+                case Opcode::StdDevF64List:
+                case Opcode::RangeF64List:
+                    has_reduction = true;
+                    break;
+                case Opcode::ReturnValues:
+                    relevant |= vkf::adaptive_optimizer::direct_aggregate_result_bit;
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (has_reduction) {
+            relevant |= vkf::adaptive_optimizer::packed_matrix_reduction_bit;
+            relevant |= vkf::adaptive_optimizer::packed_dot_reduction_bit;
+        }
+        if ((has_multiply && has_addition) || has_reduction) {
+            relevant |= vkf::adaptive_optimizer::fused_multiply_add_bit;
+        }
+    };
+    inspect(module.entry);
+    for (const auto& function : module.functions) inspect(function);
+    return relevant;
+}
+
 struct TuningCandidateReport {
     std::string policy;
     std::string code_hash;
@@ -13547,20 +13633,26 @@ TuningResult tune_machine_code(
     }
     const bool interaction_heavy_small_vectors =
         small_vector_sqrt_count >= 4u && small_vector_store_count >= 20u;
-    const std::uint32_t guided_primary = vkf::adaptive_optimizer::policy_mask;
-    std::vector<std::uint32_t> policy_order{
-        guided_primary,
-        0u,
-    };
-    for (std::uint32_t bit = 1;
-         bit <= vkf::adaptive_optimizer::packed_dot_reduction_bit; bit <<= 1u) {
-        policy_order.push_back(vkf::adaptive_optimizer::policy_mask ^ bit);
-        policy_order.push_back(bit);
-    }
-    for (std::uint32_t mask = 0; mask <= vkf::adaptive_optimizer::policy_mask; ++mask) {
-        if (std::find(policy_order.begin(), policy_order.end(), mask) == policy_order.end()) {
+    const std::uint32_t relevant_policy_mask = tunable_policy_mask(module);
+    const std::uint32_t guided_primary = relevant_policy_mask;
+    std::vector<std::uint32_t> policy_order;
+    const auto append_policy = [&](std::uint32_t mask) {
+        if (std::find(policy_order.begin(), policy_order.end(), mask) ==
+            policy_order.end()) {
             policy_order.push_back(mask);
         }
+    };
+    append_policy(guided_primary);
+    append_policy(0u);
+    for (std::uint32_t bit = 1;
+         bit <= vkf::adaptive_optimizer::packed_dot_reduction_bit; bit <<= 1u) {
+        if ((relevant_policy_mask & bit) == 0u) continue;
+        append_policy(relevant_policy_mask ^ bit);
+        append_policy(bit);
+    }
+    for (std::uint32_t mask = 0; mask <= relevant_policy_mask; ++mask) {
+        if ((mask & ~relevant_policy_mask) != 0u) continue;
+        append_policy(mask);
     }
     for (const auto mask : policy_order) {
         // Auto selection always compares the fully enabled policy with the
@@ -13678,7 +13770,7 @@ TuningResult tune_machine_code(
             return mean(candidates[left].samples_ns) < mean(candidates[right].samples_ns);
         });
     } else {
-        std::uint32_t target_samples = 3;
+        std::uint32_t target_samples = 2;
         while (!active.empty() && result.total_runs < run_budget && Clock::now() < deadline) {
             bool sampled = false;
             for (const auto index : active) {
@@ -13699,6 +13791,11 @@ TuningResult tune_machine_code(
             std::stable_sort(active.begin(), active.end(), [&](std::size_t left, std::size_t right) {
                 return median(candidates[left].samples_ns) < median(candidates[right].samples_ns);
             });
+            const bool minimum_confidence_reached = std::all_of(
+                active.begin(), active.end(), [&](std::size_t index) {
+                    return candidates[index].samples_ns.size() >= 2u;
+                });
+            if (minimum_confidence_reached) break;
             if (active.size() > 1) active.resize((active.size() + 1u) / 2u);
             target_samples = std::min<std::uint32_t>(
                 run_budget, std::max<std::uint32_t>(target_samples + 1u, target_samples * 2u));
@@ -13850,11 +13947,11 @@ void write_tuning_profile(const std::filesystem::path& path, const TuningResult&
     profile["fingerprint"] = tuning.fingerprint;
     profile["target_features"] = std::string(vkf::target::host_x64_feature_key());
     profile["selected_policy"] = tuning.policy.name;
-    profile["total_runs"] = static_cast<double>(tuning.total_runs);
-    profile["elapsed_ms"] = tuning.elapsed_ms;
     try {
         std::filesystem::create_directories(path.parent_path());
-        write_text(path, vf::json_stringify(vf::JsonValue(std::move(profile)), 2) + "\n");
+        write_text_if_changed(
+            path,
+            vf::json_stringify(vf::JsonValue(std::move(profile)), 2) + "\n");
     } catch (const std::exception&) {
         // Optimization profiles are best-effort cache data. Compilation must
         // still succeed when a locked-down host has no writable cache root.
