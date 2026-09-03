@@ -10,8 +10,8 @@ display: Display(dim:2)
 board: display.add_frame(pos:[0.04, 0.06], size:[0.72, 0.84])
 board.set_geom_options(background:[0.012, 0.014, 0.018, 1.0], unified_renderer:true)
 board.add_camera(pos:[6.8, -7.6, 8.2], target:[0.0, 0.0, 0.2], up:[0.0, 0.0, 1.0], fov:46.0)
-board.add_light(id:"key", kind:"point", pos:[-4.8, -5.4, 6.8], target:[0.0, 0.0, 0.3], color:[1.0, 0.94, 0.78, 1.0], intensity:34.0, range:18.0, casts_shadow:true, model:"blinn_phong", source_radius:0.28)
-board.add_light(id:"fill", kind:"point", pos:[4.6, 3.8, 3.2], target:[0.0, 0.0, 0.3], color:[0.36, 0.43, 0.62, 1.0], intensity:9.0, range:16.0, casts_shadow:false, model:"blinn_phong")
+key: board.add(id:"key", x:[[-5.05,-4.55],[-5.05,-4.55]], y:[[-5.65,-5.65],[-5.15,-5.15]], z:[[6.8,6.8],[6.8,6.8]], color:[1.0,0.94,0.78,1.0], emission:[136.0,127.84,106.08], casts_shadow:true)
+fill: board.add(id:"fill", x:[[4.35,4.85],[4.35,4.85]], y:[[3.55,3.55],[4.05,4.05]], z:[[3.2,3.2],[3.2,3.2]], color:[0.36,0.43,0.62,1.0], emission:[12.96,15.48,22.32], casts_shadow:false)
 board.add(id:"board", x:[[-4.3,4.3],[-4.3,4.3]], y:[[-4.3,-4.3],[4.3,4.3]], z:[[0.0,0.0],[0.0,0.0]], color:[0.18,0.11,0.07,1.0], texture:(kind:"checker", scale:[8.0,8.0], color_a:[0.18,0.11,0.07,1.0], color_b:[0.92,0.80,0.58,1.0]), receives_shadow:true)
 
 board.add(id:"white_rook_a1", x:[[-3.79,-3.21],[-3.79,-3.21]], y:[[-3.5,-3.5],[-3.5,-3.5]], z:[[0.0,0.0],[0.84,0.84]], color:[1.00,0.96,0.78,1.0])
@@ -47,3 +47,5 @@ board.add(id:"black_pawn_e7", x:[[0.27,0.73],[0.27,0.73]], y:[[2.5,2.5],[2.5,2.5
 board.add(id:"black_pawn_f7", x:[[1.27,1.73],[1.27,1.73]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
 board.add(id:"black_pawn_g7", x:[[2.27,2.73],[2.27,2.73]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
 board.add(id:"black_pawn_h7", x:[[3.27,3.73],[3.27,3.73]], y:[[2.5,2.5],[2.5,2.5]], z:[[0.0,0.0],[0.68,0.68]], color:[0.34,0.22,0.13,1.0])
+
+view: board.push()

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, readFile, rm } from "node:fs/promises";
+import { access, cp, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const nativeDriver = process.env.VKF_NATIVE_DRIVER;
+const nativeCompilerBin = process.env.VKF_NATIVE_COMPILER_BIN;
 const chessRoot = path.join(repositoryRoot, "examples", "programs", "vkf_chess_3d");
 const chessSource = path.join(chessRoot, "main.vkf");
 const workRoot = path.join(repositoryRoot, ".work", `g03-chess-native-${process.pid}`);
@@ -44,9 +45,22 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
   timeout: 180_000,
 }, async () => {
   assert.ok(nativeDriver, "VKF_NATIVE_DRIVER must name the focused native compiler driver");
+  assert.ok(
+    nativeCompilerBin,
+    "VKF_NATIVE_COMPILER_BIN must name the focused native artifact build directory",
+  );
   const source = await readFile(chessSource, "utf8");
   assert.doesNotMatch(source, /native_scene_config_path|native_scene_runtime_packets_path/u);
   assert.doesNotMatch(source, /\.lib\.native_scene|native\.overlay_scene/u);
+  assert.doesNotMatch(source, /native_scene|add_light/u);
+  await assert.rejects(
+    access(path.join(chessRoot, "lib", "native_scene.vkf")),
+    { code: "ENOENT" },
+  );
+  await assert.rejects(
+    access(path.join(chessRoot, "runtime-packets", "main.vf-runtime-packets.json")),
+    { code: "ENOENT" },
+  );
 
   const stagedSourceRoot = path.join(workRoot, "vkf_chess_3d");
   const stagedSource = path.join(stagedSourceRoot, "main.vkf");
@@ -54,7 +68,18 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
   const capturePath = path.join(workRoot, "native-frame-capture.json");
   await mkdir(workRoot, { recursive: true });
   await cp(chessRoot, stagedSourceRoot, { recursive: true });
-  const stdout = execFileSync(nativeDriver, ["--source", stagedSource], {
+  const executable = (name) => path.join(
+    nativeCompilerBin,
+    process.platform === "win32" ? `${name}.exe` : name,
+  );
+  const stdout = execFileSync(nativeDriver, [
+    "--source",
+    stagedSource,
+    "--wasm-artifact",
+    executable("vkf_wasm_artifact_smoke"),
+    "--webgpu-artifact",
+    executable("vkf_webgpu_artifact_smoke"),
+  ], {
     cwd: stagedSourceRoot,
     encoding: "utf8",
     windowsHide: true,
@@ -86,7 +111,13 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
     "compiler-produced chess scene must retain its board frame",
   );
   const geom = packets.find(({ kind }) => kind === "display.replace").payload.display.geom.frame_0;
-  assert.equal(geom.meshes.length, 33, "board plus all 32 pieces must reach the renderer");
+  assert.equal(
+    geom.meshes.length,
+    35,
+    "board, all 32 pieces, and both emissive geometries must reach the renderer",
+  );
+  assert.ok(geom.meshes.some(({ id }) => id === "key"));
+  assert.ok(geom.meshes.some(({ id }) => id === "fill"));
 
   const capture = JSON.parse(execFileSync(process.execPath, [
     path.join(
