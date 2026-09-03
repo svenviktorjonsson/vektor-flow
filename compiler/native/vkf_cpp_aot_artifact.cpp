@@ -19,7 +19,7 @@ namespace {
 
 class AotFailure : public std::runtime_error {
 public:
-    explicit AotFailure(std::string message) : std::runtime_error(std::move(message)) {}
+    explicit AotFailure(const std::string& message) : std::runtime_error(message) {}
 };
 
 const vf::JsonValue::Object& object_of(const vf::JsonValue& value, const std::string& context) {
@@ -351,6 +351,7 @@ int compile_cpp(const std::string& compiler, const std::filesystem::path& cpp, c
         compiler, "@" + response_arg,
     };
     std::vector<const char*> argv;
+    argv.reserve(storage.size() + 1);
     for (const auto& arg : storage) argv.push_back(arg.c_str());
     argv.push_back(nullptr);
     return static_cast<int>(_spawnvp(_P_WAIT, compiler.c_str(), argv.data()));
