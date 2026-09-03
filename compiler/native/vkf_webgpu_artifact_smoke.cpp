@@ -570,7 +570,7 @@ void collect_retained_scene_entities(
             static_cast<std::uint32_t>(index);
         light.casts_shadow = emitter.casts_shadow;
         light.kind = "geometry_emitter";
-        light.show_marker = false;
+        light.show_marker = emitter.show_marker;
         light.shadow_view_count = 1;
         light.source_object_index = emitter.object_index;
         light.source_layer_id = emitter.layer_id;
@@ -579,6 +579,7 @@ void collect_retained_scene_entities(
         light.source_radius = std::sqrt(
             emitter.area / 3.14159265358979323846);
         light.area_sample_count = 8;
+        if (light.show_marker) features.light_flares = true;
         light_indices[light.id] = light.light_index;
         if (light.casts_shadow) features.shadow_map = true;
         features.lights.push_back(std::move(light));
@@ -1992,6 +1993,13 @@ fn vkf_reflect_point(
   return point - 2.0 * dot(point - plane_point, plane_normal) * plane_normal;
 }
 
+fn vkf_reflect_direction(
+  direction: vec3<f32>,
+  plane_normal: vec3<f32>,
+) -> vec3<f32> {
+  return direction - 2.0 * dot(direction, plane_normal) * plane_normal;
+}
+
 fn vkf_flip_clip_x() -> mat4x4<f32> {
   return mat4x4<f32>(
     vec4<f32>(-1.0, 0.0, 0.0, 0.0),
@@ -2058,6 +2066,19 @@ fn vkf_aperture_position(vertex_index: u32) -> vec3<f32> {
   );
   return (derived_objects[pass_state.object_index].value.model *
     vec4<f32>(local_position, 1.0)).xyz;
+}
+
+fn vkf_aperture_normal(vertex_index: u32) -> vec3<f32> {
+  let base = pass_state.aperture_float_offset +
+    vertex_index * pass_state.aperture_vertex_stride_floats;
+  let local_normal = vec3<f32>(
+    aperture_vertices[base + 3u],
+    aperture_vertices[base + 4u],
+    aperture_vertices[base + 5u]
+  );
+  return vkf_safe_normalize((
+    derived_objects[pass_state.object_index].value.normal_matrix *
+    vec4<f32>(local_normal, 0.0)).xyz);
 }
 
 fn vkf_aperture_near_plane(
@@ -2559,13 +2580,10 @@ fn vkf_prepare_reflection_camera() {
   }
   aperture_center = aperture_center / f32(pass_state.aperture_vertex_count);
   var plane_normal_sum = vec3<f32>(0.0);
-  for (var triangle_index = 1u;
-       triangle_index + 1u < pass_state.aperture_vertex_count;
-       triangle_index = triangle_index + 1u) {
-    plane_normal_sum = plane_normal_sum + cross(
-      vkf_aperture_position(triangle_index) - aperture_0,
-      vkf_aperture_position(triangle_index + 1u) - aperture_0
-    );
+  for (var vertex_index = 0u;
+       vertex_index < pass_state.aperture_vertex_count;
+       vertex_index = vertex_index + 1u) {
+    plane_normal_sum = plane_normal_sum + vkf_aperture_normal(vertex_index);
   }
   let plane_normal = vkf_safe_normalize(plane_normal_sum);
   let parent_camera_index = vkf_reflection_parent_slot(
@@ -2579,10 +2597,17 @@ fn vkf_prepare_reflection_camera() {
   let reflected_eye = vkf_reflect_point(eye, aperture_0, plane_normal);
   let reflected_target = vkf_reflect_point(
     focus_point, aperture_0, plane_normal);
+  let camera_up = vkf_safe_normalize(vec3<f32>(
+    raw_camera[6], raw_camera[7], raw_camera[8]));
+  let reflected_up = vkf_safe_normalize(vkf_reflect_direction(
+    camera_up,
+    plane_normal));
+  let texture_y_orientation = select(
+    -1.0, 1.0, dot(reflected_up, camera_up) >= 0.0);
   let reflected_view = vkf_look_at(
     reflected_eye,
     reflected_target,
-    vec3<f32>(raw_camera[6], raw_camera[7], raw_camera[8])
+    reflected_up
   );
   derived_scene.mirror_view_projection[pass_state.camera_state_index] =
     vkf_off_axis_projection(
@@ -2591,7 +2616,7 @@ fn vkf_prepare_reflection_camera() {
       max(raw_camera[11], raw_camera[10] + 0.01)
     ) * reflected_view;
   derived_scene.mirror_view_position[pass_state.camera_state_index] =
-    vec4<f32>(reflected_eye, 1.0);
+    vec4<f32>(reflected_eye, texture_y_orientation);
   derived_scene.mirror_view_target[pass_state.camera_state_index] =
     vec4<f32>(reflected_target, 1.0);
 
@@ -3127,7 +3152,11 @@ fn vkf_planar_reflection(
       mirror_ndc.z < 0.0 || mirror_ndc.z > 1.0) {
     return vec4<f32>(0.0);
   }
-  let uv = vec2<f32>(mirror_ndc.x * 0.5 + 0.5, 0.5 - mirror_ndc.y * 0.5);
+  let texture_y_orientation = scene.mirror_view_position[
+    reflection_camera_index].w;
+  let uv = vec2<f32>(
+    mirror_ndc.x * 0.5 + 0.5,
+    0.5 - mirror_ndc.y * 0.5 * texture_y_orientation);
   return textureSampleLevel(
     planar_reflection_texture, planar_reflection_sampler, uv, 0.0);
 }
@@ -3346,16 +3375,24 @@ fn vkf_emitter_geometry_vertex(
   let base = light_index * 28u;
   let source_position = vec3<f32>(
     raw_lights[base], raw_lights[base + 1u], raw_lights[base + 2u]);
-  let authored_radius = max(raw_lights[base + 12u], )wgsl"
+  let source_radius = max(raw_lights[base + 12u], 0.002);
+  let authored_radius = select(
+    max(source_radius, )wgsl"
                 << std::max(0.02, plan.retained_scene.light_marker_size)
-                << R"wgsl();
+                << R"wgsl(), source_radius,
+    u32(raw_lights[base + 13u]) == 5u);
   let direction = vkf_emitter_sphere_direction(vertex_index);
   let world_position = source_position + direction * authored_radius;
   var out: EmitterVertexOut;
   out.clip_position = view_projection * vec4<f32>(world_position, 1.0);
-  out.emitted_radiance = vec3<f32>(
+  var emitted_radiance = vec3<f32>(
     raw_lights[base + 6u], raw_lights[base + 7u], raw_lights[base + 8u]) *
     max(raw_lights[base + 10u], 0.0);
+  if (u32(raw_lights[base + 13u]) == 5u) {
+    emitted_radiance = emitted_radiance / max(
+      3.141592653589793 * authored_radius * authored_radius, 1.0e-8);
+  }
+  out.emitted_radiance = emitted_radiance;
   let is_physical = select(0.0, 1.0, u32(raw_lights[base + 13u]) != 2u);
   let is_enabled = select(0.0, 1.0, raw_lights[base + 17u] > 0.5);
   out.enabled = is_physical * is_enabled;
@@ -3418,9 +3455,12 @@ fn vkf_flare_billboard_vertex(
     raw_lights[base], raw_lights[base + 1u], raw_lights[base + 2u]);
   let source_clip = view_projection * vec4<f32>(source_position, 1.0);
   let source_ndc = source_clip.xy / max(source_clip.w, 1.0e-3);
-  let authored_radius = max(raw_lights[base + 12u], )wgsl"
+  let source_radius = max(raw_lights[base + 12u], 0.002);
+  let authored_radius = select(
+    max(source_radius, )wgsl"
                 << std::max(0.02, plan.retained_scene.light_marker_size)
-                << R"wgsl();
+                << R"wgsl(), source_radius,
+    u32(raw_lights[base + 13u]) == 5u);
   var projected_axes = vkf_projected_emitter_axes(
     source_position, authored_radius, viewer_position, view_projection);
   let half_viewport = vec2<f32>(viewport.width, viewport.height) * 0.5;
@@ -3431,19 +3471,23 @@ fn vkf_flare_billboard_vertex(
   let source_radius_px = clamp(raw_source_radius_px, 1.0, 96.0);
   projected_axes = projected_axes *
     (source_radius_px / max(raw_source_radius_px, 1.0e-6));
-  let emitted_radiance = vec3<f32>(
+  var emitted_radiance = vec3<f32>(
     raw_lights[base + 6u], raw_lights[base + 7u], raw_lights[base + 8u]) *
     max(raw_lights[base + 10u], 0.0);
-  let luminance = dot(
-    emitted_radiance, vec3<f32>(0.2126, 0.7152, 0.0722));
+  if (u32(raw_lights[base + 13u]) == 5u) {
+    emitted_radiance = emitted_radiance / max(
+      3.141592653589793 * authored_radius * authored_radius, 1.0e-8);
+  }
+  let peak_radiance = max(
+    emitted_radiance.r, max(emitted_radiance.g, emitted_radiance.b));
   let threshold = 1.0;
   let knee = 0.5;
-  var soft = clamp(luminance - threshold + knee, 0.0, 2.0 * knee);
+  var soft = clamp(peak_radiance - threshold + knee, 0.0, 2.0 * knee);
   soft = soft * soft / max(4.0 * knee, 1.0e-6);
-  let bright = max(luminance - threshold, soft);
+  let bright = max(peak_radiance - threshold, soft);
   let bloom_strength = clamp(bright / 32.0, 0.0, 1.0);
   let compactness = clamp(8.0 / (source_radius_px + 8.0), 0.0, 1.0);
-  let halo_radius_px = bloom_strength * (18.0 + 42.0 * compactness);
+  let halo_radius_px = bloom_strength * (28.0 + 58.0 * compactness);
   let flare_radius_px = max(source_radius_px, source_radius_px + halo_radius_px);
   let flare_scale = flare_radius_px / max(source_radius_px, 1.0);
   let flare_extent_ndc = max(
@@ -3531,15 +3575,16 @@ fn vkf_flare_fragment(input: FlareVertexOut) -> @location(0) vec4<f32> {
   let core_edge = max(input.source_ratio, 1.0e-3);
   let halo_distance = clamp(
     (radius - core_edge) / max(1.0 - core_edge, 1.0e-3), 0.0, 1.0);
-  let halo = pow(1.0 - halo_distance, 3.0) * input.bloom_strength;
+  let halo = pow(1.0 - halo_distance, 2.0) *
+    input.bloom_strength * 0.75;
   let cross_ray = pow(max(1.0 - min(
     abs(input.local_position.x), abs(input.local_position.y)), 0.0), 18.0) *
     (1.0 - smoothstep(core_edge, 1.0, radius)) *
-    input.bloom_strength * input.compactness * 0.12;
+    input.bloom_strength * input.compactness * 0.16;
   let bloom_color = vkf_safe_normalize(max(
     input.emitted_radiance, vec3<f32>(1.0e-6)));
   let alpha = clamp(halo + cross_ray, 0.0, 1.0);
-  let color = bloom_color * (halo + cross_ray);
+  let color = bloom_color * (halo * 1.35 + cross_ray);
   return vec4<f32>(color, alpha);
 }
 )wgsl";

@@ -875,6 +875,7 @@ struct GeometryEmitter {
     std::array<double, 3> normal{0.0, 0.0, 1.0};
     double area = 0.0;
     bool casts_shadow = true;
+    bool show_marker = false;
     RenderEmission emission;
 };
 
@@ -983,6 +984,7 @@ inline std::vector<GeometryEmitter> geometry_emitters(
                 };
                 emitter.area = 3.14159265358979323846 * radius * radius;
                 emitter.casts_shadow = bool_field(object, "casts_shadow", true);
+                emitter.show_marker = true;
                 emitter.emission = emission;
                 emitters.push_back(std::move(emitter));
                 ++object_index;
@@ -1505,7 +1507,7 @@ inline PackedRenderParameters pack_render_parameters(
             emitter.casts_shadow ? 1.0 : 0.0,
             -1.0,
             -1.0,
-            0.0,
+            emitter.show_marker ? 1.0 : 0.0,
             emitter.emission.integrated_radiance,
             emitter.emission.nonvisible_radiance,
             1.0, 0.0, 0.0, 0.0,

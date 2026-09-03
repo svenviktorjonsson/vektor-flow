@@ -143,5 +143,57 @@ test("an emissive Frame surface becomes one private WebGPU light source", async 
     wgsl,
     /receiver_distance - average_blocker_distance/u,
   );
+  assert.equal(
+    renderPlan.passes.filter(({ kind }) => kind === "light_emitters").length,
+    0,
+    "authored triangle emitters render only through their own geometry",
+  );
 
+});
+
+test("a temporal point emitter renders as readable spherical geometry", async () => {
+  await mkdir(workRoot, { recursive: true });
+  const sourceText = [
+    ": .ui.display",
+    "display: Display(dim:2)",
+    "frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])",
+    "t: [0, 1]",
+    "p: [[-0.1, 0.2, 0.0], [0.1, 0.2, 0.0]]",
+    "emitter: frame.add(p_t:p, c_tc:[[1, 0, 0, 1], [1, 0, 0, 1]], s_t:[0.02, 0.02], t:t, t_mode:\"repeat\", s_mode:data, id:\"moving_emitter\", emission:[8, 0.2, 0.1])",
+    "view: frame.push()",
+  ].join("\n");
+  const source = path.join(workRoot, "temporal-emitter.vkf");
+  const typedIrPath = path.join(workRoot, "temporal-emitter.typed-ir.json");
+  await writeFile(source, `${sourceText}\n`, "utf8");
+  const tokens = run("vkf_lexer_cursor_smoke", [sourceText]);
+  const ast = run("vkf_parser_token_stream_smoke", [], tokens);
+  await writeFile(typedIrPath, run("vkf_ast_to_ir_smoke", [], ast), "utf8");
+  const summary = JSON.parse(run("vkf_webgpu_artifact_smoke", [
+    "--source", source,
+    "--typed-ir", typedIrPath,
+  ]));
+  const [wgsl, manifest] = await Promise.all([
+    readFile(summary.artifact_path, "utf8"),
+    readFile(summary.manifest_path, "utf8").then(JSON.parse),
+  ]);
+  const renderPlan = manifest.runtime_surface.render_plan;
+
+  assert.deepEqual(renderPlan.emitter_sources.map(({ id }) => id), [
+    "moving_emitter",
+  ]);
+  assert.deepEqual(
+    renderPlan.passes
+      .filter(({ kind }) => kind === "light_emitters")
+      .map(({ vertex_count, instance_count }) => ({
+        vertex_count,
+        instance_count,
+      })),
+    [{ vertex_count: 2304, instance_count: 1 }],
+  );
+  assert.match(wgsl, /fn vkf_emitter_sphere_direction\(/u);
+  assert.match(
+    wgsl,
+    /u32\(raw_lights\[base \+ 13u\]\) == 5u[\s\S]*3\.141592653589793 \* authored_radius \* authored_radius/u,
+    "geometry-emitter markers must display authored surface radiance rather than area-integrated power",
+  );
 });

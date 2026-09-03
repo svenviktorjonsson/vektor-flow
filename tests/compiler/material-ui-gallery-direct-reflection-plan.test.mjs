@@ -56,6 +56,7 @@ test("material gallery keeps floor and mirror reflections direct", async () => {
     typedIrPath,
   ]));
   const manifest = JSON.parse(await readFile(summary.manifest_path, "utf8"));
+  const wgsl = await readFile(summary.artifact_path, "utf8");
   const render = manifest.runtime_surface.render_plan;
 
   assert.equal(render.max_reflection_depth, 1);
@@ -91,6 +92,23 @@ test("material gallery keeps floor and mirror reflections direct", async () => {
   assert.equal(render.emitter_views.length, 8);
   assert.equal(
     render.passes.filter(({ kind }) => kind === "shadow_depth").length,
-    5,
+    10,
+    "both physical sources and their reflected views must cast shadows",
+  );
+  assert.match(wgsl, /fn vkf_reflect_direction\(/u);
+  assert.match(
+    wgsl,
+    /fn vkf_aperture_normal\([\s\S]*aperture_vertices\[base \+ 3u\][\s\S]*plane_normal_sum = plane_normal_sum \+ vkf_aperture_normal\(vertex_index\)/u,
+    "grid-backed reflectors must derive their plane from retained vertex normals",
+  );
+  assert.match(
+    wgsl,
+    /let reflected_up = vkf_safe_normalize\(vkf_reflect_direction\([\s\S]*camera_up[\s\S]*plane_normal\)\);[\s\S]*vkf_look_at\([\s\S]*reflected_up/u,
+    "a horizontal floor reflection must reflect the camera up direction with the observer",
+  );
+  assert.match(
+    wgsl,
+    /let texture_y_orientation = select\([\s\S]*dot\(reflected_up, camera_up\)[\s\S]*mirror_view_position\[pass_state\.camera_state_index\][\s\S]*texture_y_orientation[\s\S]*mirror_ndc\.y \* 0\.5 \* texture_y_orientation/u,
+    "horizontal and upright reflectors must preserve their own texture orientation",
   );
 });

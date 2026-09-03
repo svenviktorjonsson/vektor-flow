@@ -42,7 +42,7 @@ function run(name, args = [], input) {
   return result.stdout;
 }
 
-test("Frame mirrors derive two-bounce views of one geometry emitter", async () => {
+test("Frame mirrors keep direct visual views and two-bounce emitter transport", async () => {
   await mkdir(workRoot, { recursive: true });
   const sourceText = [
     ": .ui.display",
@@ -80,7 +80,7 @@ test("Frame mirrors derive two-bounce views of one geometry emitter", async () =
   ]);
 
   const renderPlan = manifest.runtime_surface.render_plan;
-  assert.equal(renderPlan.max_reflection_depth, 2);
+  assert.equal(renderPlan.max_reflection_depth, 1);
   assert.equal(renderPlan.light_count, 5);
   assert.deepEqual(renderPlan.emitter_sources.map(({ id }) => id), [
     "emitter",
@@ -167,12 +167,6 @@ test("Frame mirrors derive two-bounce views of one geometry emitter", async () =
       { path: ["mirror_b"], depth: 1, object_index: 3,
         aperture_object_index: 3, aperture_vertex_count: 4,
         aperture_byte_offset: 552 },
-      { path: ["mirror_a", "mirror_b"], depth: 2, object_index: 3,
-        aperture_object_index: 3, aperture_vertex_count: 4,
-        aperture_byte_offset: 552 },
-      { path: ["mirror_b", "mirror_a"], depth: 2, object_index: 2,
-        aperture_object_index: 2, aperture_vertex_count: 4,
-        aperture_byte_offset: 368 },
     ],
   );
   assert.match(wgsl, /let reflected_light_position = vkf_reflect_point\(/u);
