@@ -556,6 +556,7 @@ _compile_printed_dynamic_numeric_tape_x64(
     multiplication_code:str,
     floating_left_integer_multiplication_code:str,
     integer_left_floating_multiplication_code:str,
+    floating_multiplication_code:str,
     subtraction_code:str,
     floating_left_integer_subtraction_code:str,
     division_code:str,
@@ -639,9 +640,14 @@ _compile_printed_dynamic_numeric_tape_x64(
                 (~(integer_left_floating_multiplication_code = ""))?! "numeric x64 tracer integer-float multiplication code is missing"
                 .body: body & integer_left_floating_multiplication_code
                 .result_representation: 1
+            left_representation = 1 /\ right_representation = 1?
+                (~(floating_multiplication_code = ""))?! "numeric x64 tracer floating multiplication code is missing"
+                .body: body & floating_multiplication_code
+                .result_representation: 1
             ((left_representation = 0 /\ right_representation = 0) \/
                 (left_representation = 1 /\ right_representation = 0) \/
-                (left_representation = 0 /\ right_representation = 1))?! "numeric x64 tracer multiplication representations are unsupported"
+                (left_representation = 0 /\ right_representation = 1) \/
+                (left_representation = 1 /\ right_representation = 1))?! "numeric x64 tracer multiplication representations are unsupported"
         code = 6?
             left_representation = 0 /\ right_representation = 0?
                 .body: body & subtraction_code
@@ -697,7 +703,7 @@ _compile_printed_dynamic_arithmetic_chain_x64(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
-        "", "", subtraction_code, "", "", "", "", "", "", print_tail, "", [""]
+        "", "", "", subtraction_code, "", "", "", "", "", "", print_tail, "", [""]
     )
 
 _compile_printed_dynamic_arithmetic_chain_x64_with_byte_arena(
@@ -711,7 +717,7 @@ _compile_printed_dynamic_arithmetic_chain_x64_with_byte_arena(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
-        "", "", subtraction_code, "", "", "", "", "", "", print_tail, "", high_bytes
+        "", "", "", subtraction_code, "", "", "", "", "", "", print_tail, "", high_bytes
     )
 
 _compile_printed_dynamic_integer_chain_x64(
@@ -728,7 +734,7 @@ _compile_printed_dynamic_integer_chain_x64(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
-        "", "", subtraction_code, "", "", "", power_code, floor_division_code, remainder_code,
+        "", "", "", subtraction_code, "", "", "", power_code, floor_division_code, remainder_code,
         print_tail, "", high_bytes
     )
 
@@ -748,7 +754,7 @@ _compile_printed_dynamic_numeric_chain_x64(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
-        "", "", subtraction_code, "", division_code, "", power_code, floor_division_code,
+        "", "", "", subtraction_code, "", division_code, "", power_code, floor_division_code,
         remainder_code, integer_print_tail, floating_print_tail, high_bytes
     )
 
@@ -768,7 +774,7 @@ _compile_printed_dynamic_grouped_numeric_chain_x64(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 1, template_prefix, addition_code, "", "", "",
-        multiplication_code, "", "", subtraction_code, "", division_code, "",
+        multiplication_code, "", "", "", subtraction_code, "", division_code, "",
         power_code, floor_division_code, remainder_code, integer_print_tail,
         floating_print_tail, high_bytes
     )
@@ -791,7 +797,7 @@ _compile_printed_dynamic_typed_numeric_chain_x64(
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code,
         floating_left_integer_addition_code, "", "", multiplication_code,
-        "", "", subtraction_code, "", division_code, "", power_code, floor_division_code,
+        "", "", "", subtraction_code, "", division_code, "", power_code, floor_division_code,
         remainder_code, integer_print_tail, floating_print_tail, high_bytes
     )
 
@@ -815,7 +821,7 @@ _compile_printed_dynamic_bidirectional_numeric_chain_x64(
         source, 0, template_prefix, addition_code,
         floating_left_integer_addition_code,
         integer_left_floating_addition_code, "", multiplication_code,
-        "", "", subtraction_code, "", division_code, "", power_code, floor_division_code,
+        "", "", "", subtraction_code, "", division_code, "", power_code, floor_division_code,
         remainder_code, integer_print_tail, floating_print_tail, high_bytes
     )
 
@@ -840,7 +846,7 @@ _compile_printed_dynamic_complete_addition_numeric_chain_x64(
         source, 0, template_prefix, addition_code,
         floating_left_integer_addition_code,
         integer_left_floating_addition_code, floating_addition_code,
-        multiplication_code, "", "", subtraction_code, "", division_code, "", power_code,
+        multiplication_code, "", "", "", subtraction_code, "", division_code, "", power_code,
         floor_division_code, remainder_code, integer_print_tail,
         floating_print_tail, high_bytes
     )
@@ -863,7 +869,7 @@ _compile_printed_dynamic_typed_multiplication_numeric_chain_x64(
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "",
         multiplication_code, floating_left_integer_multiplication_code,
-        "", subtraction_code, "", division_code, "",
+        "", "", subtraction_code, "", division_code, "",
         power_code, floor_division_code, remainder_code, integer_print_tail,
         floating_print_tail, high_bytes
     )
@@ -886,6 +892,29 @@ _compile_printed_dynamic_grouped_typed_multiplication_numeric_chain_x64(
     _compile_printed_dynamic_numeric_tape_x64(
         source, 1, template_prefix, addition_code, "", "", "",
         multiplication_code, "", integer_left_floating_multiplication_code,
+        "", subtraction_code, "", division_code, "", power_code,
+        floor_division_code, remainder_code, integer_print_tail,
+        floating_print_tail, high_bytes
+    )
+
+_compile_printed_dynamic_grouped_floating_multiplication_numeric_chain_x64(
+    source:str,
+    template_prefix:str,
+    addition_code:str,
+    multiplication_code:str,
+    floating_multiplication_code:str,
+    subtraction_code:str,
+    division_code:str,
+    power_code:str,
+    floor_division_code:str,
+    remainder_code:str,
+    integer_print_tail:str,
+    floating_print_tail:str,
+    high_bytes:[str]
+) -> str:
+    _compile_printed_dynamic_numeric_tape_x64(
+        source, 1, template_prefix, addition_code, "", "", "",
+        multiplication_code, "", "", floating_multiplication_code,
         subtraction_code, "", division_code, "", power_code,
         floor_division_code, remainder_code, integer_print_tail,
         floating_print_tail, high_bytes
@@ -908,7 +937,7 @@ _compile_printed_dynamic_typed_subtraction_numeric_chain_x64(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "",
-        multiplication_code, "", "", subtraction_code,
+        multiplication_code, "", "", "", subtraction_code,
         floating_left_integer_subtraction_code, division_code, "", power_code,
         floor_division_code, remainder_code, integer_print_tail,
         floating_print_tail, high_bytes
@@ -931,7 +960,7 @@ _compile_printed_dynamic_typed_division_numeric_chain_x64(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "",
-        multiplication_code, "", "", subtraction_code, "", division_code,
+        multiplication_code, "", "", "", subtraction_code, "", division_code,
         floating_left_integer_division_code, power_code, floor_division_code,
         remainder_code, integer_print_tail, floating_print_tail, high_bytes
     )
@@ -947,7 +976,7 @@ _compile_printed_dynamic_remainder_chain_x64(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
-        "", "", subtraction_code, "", "", "", "", "", remainder_code, print_tail, "", [""]
+        "", "", "", subtraction_code, "", "", "", "", "", remainder_code, print_tail, "", [""]
     )
 
 _compile_printed_dynamic_floor_division_chain_x64(
@@ -961,7 +990,7 @@ _compile_printed_dynamic_floor_division_chain_x64(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
-        "", "", subtraction_code, "", "", "", "", floor_division_code, "", print_tail, "", [""]
+        "", "", "", subtraction_code, "", "", "", "", floor_division_code, "", print_tail, "", [""]
     )
 
 _compile_printed_dynamic_power_chain_x64(
@@ -975,7 +1004,7 @@ _compile_printed_dynamic_power_chain_x64(
 ) -> str:
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
-        "", "", subtraction_code, "", "", "", power_code, "", "", print_tail, "", [""]
+        "", "", "", subtraction_code, "", "", "", power_code, "", "", print_tail, "", [""]
     )
 
 compile_tagged_dependency_tape(source:str):
