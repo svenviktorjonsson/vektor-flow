@@ -477,7 +477,7 @@ void collect_retained_scene_entities(
     }
     if (!features.reflective_surfaces.empty()) {
         features.planar_mirror = true;
-        features.max_reflection_depth = 2;
+        features.max_reflection_depth = 1;
     }
     features.object_count = object_index;
     const auto* lights = vkf::native_scene::object_field(root, "lights");
@@ -695,7 +695,7 @@ void collect_retained_scene_features(
     }
     if (literal_string_equals(kind, "mirror")) {
         features.planar_mirror = true;
-        features.max_reflection_depth = 2;
+        features.max_reflection_depth = 1;
     }
     const auto* casts_shadow = vkf::native_scene::object_field(
         value, "casts_shadow");
