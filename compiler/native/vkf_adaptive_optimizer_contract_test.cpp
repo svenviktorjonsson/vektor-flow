@@ -1,4 +1,5 @@
 #include "compiler/native/vkf_adaptive_optimizer.hpp"
+#include "compiler/native/vkf_proof_gated_execution.hpp"
 
 #include <chrono>
 #include <future>
@@ -31,6 +32,67 @@ Function function_with(std::initializer_list<Opcode> opcodes) {
 }  // namespace
 
 int main() {
+    using vkf::proof_gated_execution::Evidence;
+    using vkf::proof_gated_execution::Key;
+    using vkf::proof_gated_execution::PairedTiming;
+    using vkf::proof_gated_execution::Rejection;
+
+    const Key fft_key{
+        "adaptive-v4", "implementation-a", "windows-x64-avx2",
+        "numeric-fft", "complex-f64:n=1048576", "oracle-a"};
+    Evidence proven_fft{
+        fft_key, true,
+        {{100.0, 50.0}, {101.0, 51.0}, {99.0, 50.0},
+         {102.0, 52.0}, {98.0, 49.0}}};
+    const auto fft_decision =
+        vkf::proof_gated_execution::assess(fft_key, proven_fft);
+    expect(fft_decision.use_candidate,
+           "a correct statistically faster candidate must be selected");
+    expect(fft_decision.rejection == Rejection::None,
+           "a proven candidate must have no rejection reason");
+    expect(fft_decision.upper_confidence_ratio < 1.0,
+           "a proven candidate must have an upper confidence ratio below one");
+
+    Evidence symbolic_evidence = proven_fft;
+    symbolic_evidence.key.workload_family = "symbolic-expand";
+    expect(!vkf::proof_gated_execution::assess(fft_key, symbolic_evidence).use_candidate,
+           "symbolic evidence must never authorize an FFT strategy");
+    expect(vkf::proof_gated_execution::assess(fft_key, symbolic_evidence).rejection ==
+               Rejection::KeyMismatch,
+           "cross-workload evidence must be rejected as a key mismatch");
+
+    Evidence unknown{fft_key, true, {}};
+    expect(vkf::proof_gated_execution::assess(fft_key, unknown).rejection ==
+               Rejection::InsufficientSamples,
+           "unknown evidence must keep execution serial");
+    Evidence incorrect = proven_fft;
+    incorrect.equivalent_output = false;
+    expect(vkf::proof_gated_execution::assess(fft_key, incorrect).rejection ==
+               Rejection::IncorrectOutput,
+           "incorrect candidate output must keep execution serial");
+    Evidence slower{
+        fft_key, true,
+        {{100.0, 110.0}, {101.0, 112.0}, {99.0, 109.0},
+         {102.0, 111.0}, {98.0, 108.0}}};
+    expect(vkf::proof_gated_execution::assess(fft_key, slower).rejection ==
+               Rejection::NotFaster,
+           "a slower candidate must keep execution serial");
+    Evidence noisy{
+        fft_key, true,
+        {{100.0, 50.0}, {100.0, 145.0}, {100.0, 55.0},
+         {100.0, 140.0}, {100.0, 50.0}}};
+    expect(vkf::proof_gated_execution::assess(fft_key, noisy).rejection ==
+               Rejection::Unproven,
+           "a noisy apparent win must keep execution serial");
+    expect(vkf::proof_gated_execution::fingerprint(fft_key) ==
+               vkf::proof_gated_execution::fingerprint(fft_key),
+           "proof cache identity must be deterministic");
+    auto changed_shape = fft_key;
+    changed_shape.workload_shape = "complex-f64:n=2097152";
+    expect(vkf::proof_gated_execution::fingerprint(fft_key) !=
+               vkf::proof_gated_execution::fingerprint(changed_shape),
+           "a workload-shape change must invalidate cached proof");
+
     vkf::adaptive_optimizer::AutomaticFlowLimits automatic_limits;
     expect(vkf::adaptive_optimizer::automatic_cpu_partition_limit(
                automatic_limits, 12) == 12,
