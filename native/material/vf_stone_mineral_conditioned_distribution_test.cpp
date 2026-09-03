@@ -1,3 +1,4 @@
+#include "native/material/vf_material_population_distribution.hpp"
 #include "native/material/vf_stone_mineral_conditioned_distribution.hpp"
 #include "native/material/vf_stone_mineral_conditioned_material.hpp"
 
@@ -122,6 +123,71 @@ int main() {
                     albite.spectral_reflectance[2],
             "conditioned spectral and RGB values diverged");
 
+    const auto population = BuildMeasuredPopulationDistributionV1(
+        MaterialOpticalFamily::stone
+    );
+    const auto integrated = ApplyStoneMeasuredMineralPipelineReference(
+        generic,
+        stone_identity,
+        population,
+        distribution,
+        StoneMineralConditionV1::albite_plagioclase
+    );
+    require(integrated.spectral_reflectance !=
+                generic.spectral_reflectance &&
+                integrated.spectral_reflectance !=
+                    albite.spectral_reflectance,
+            "measured stone population did not reach mineral pipeline");
+    require(integrated.roughness == generic.roughness &&
+                integrated.reflectivity == generic.reflectivity &&
+                integrated.local_variation == generic.local_variation,
+            "measured stone pipeline changed unsupported properties");
+    require(ApplyStoneMeasuredMineralPipelineReference(
+                generic,
+                stone_identity,
+                population,
+                distribution,
+                StoneMineralConditionV1::albite_plagioclase
+            ) == integrated,
+            "measured stone pipeline changed for a stable identity");
+
+    auto wider_population_fit = population;
+    for (auto& member : wider_population_fit.members) {
+        for (auto& value : member.local_fit_standard_error) {
+            value *= 2.0;
+        }
+    }
+    wider_population_fit = FitMeasuredPopulationDistribution(
+        MaterialOpticalFamily::stone,
+        wider_population_fit.members
+    );
+    require(ApplyStoneMeasuredMineralPipelineReference(
+                generic,
+                stone_identity,
+                wider_population_fit,
+                distribution,
+                StoneMineralConditionV1::albite_plagioclase
+            ) == integrated,
+            "population fit error changed mineral pipeline output");
+
+    auto incompatible_evidence = distribution;
+    incompatible_evidence.provenance.source_archive_sha256 =
+        "0000000000000000000000000000000000000000000000000000000000000000";
+    bool rejected_incompatible_evidence = false;
+    try {
+        static_cast<void>(ApplyStoneMeasuredMineralPipelineReference(
+            generic,
+            stone_identity,
+            population,
+            incompatible_evidence,
+            StoneMineralConditionV1::albite_plagioclase
+        ));
+    } catch (const std::invalid_argument&) {
+        rejected_incompatible_evidence = true;
+    }
+    require(rejected_incompatible_evidence,
+            "incompatible measured evidence was composed");
+
     auto inflated_fit_error = distribution;
     for (auto& value : inflated_fit_error.conditions[0]
                            .members[0]
@@ -210,6 +276,7 @@ int main() {
               << distribution.conditions.size()
               << " members=12 source_sha="
               << distribution.provenance.source_archive_sha256
-              << " fit_error_sampled=false\n";
+              << " fit_error_sampled=false"
+                 " population_integrated=true\n";
     return 0;
 }

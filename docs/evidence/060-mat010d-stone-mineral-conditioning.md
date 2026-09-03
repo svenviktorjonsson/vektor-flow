@@ -100,6 +100,13 @@ unchanged because this evidence does not measure those effects. The adapter
 depends only on the committed measured-preset layer; it does not import the
 unfinished stone or road renderer stack.
 
+The private measured-material integration selects one MAT-010B stone
+population member from a separate identity-keyed stream before applying the
+mineral condition. Both centered factors therefore reach the same spectral
+sample without either fit-error field becoming procedural variation. The
+composition rejects a non-stone population or mismatched calibrated center,
+source DOI, archive hash, or license.
+
 Pure mineral specimen fractions are evidence for dominant composition, not
 whole-rock lithology, mineral abundance, weathering, or a universal
 geological-class prior. Asphalt wetness, wood anatomy and moisture, and leaf
@@ -119,7 +126,7 @@ The focused strict test passes with:
 ```text
 conditioned stone minerals: conditions=3 members=12
 source_sha=D232645740869A82AAFCAD5839448C50B1DC72965CE042D1374F29B7A798A91C
-fit_error_sampled=false
+fit_error_sampled=false population_integrated=true
 ```
 
 It proves exact source fits, hash-pinned provenance, two-level mean-one
@@ -127,6 +134,19 @@ conditioning, separate fit uncertainty, deterministic per-stone member
 selection, traversal independence, generator consumption, passive energy,
 spectral-to-RGB consistency, duplicate rejection, and unknown-condition
 rejection.
+
+The measured-population integration tracer was RED before the private
+composition path existed:
+
+```text
+error: use of undeclared identifier
+'ApplyStoneMeasuredMineralPipelineReference'
+```
+
+Its GREEN assertions prove that both measured factors reach the sample, a
+stable stone identity reproduces the same output, doubling every population
+local-fit standard error does not change output, unrelated material properties
+remain unchanged, and incompatible evidence cannot be composed.
 
 The official ScienceBase artifact was independently downloaded again from
 item `586e8c88e4b0f5ce109fccae`. Its 21,812,828 bytes have the catalogued MD5

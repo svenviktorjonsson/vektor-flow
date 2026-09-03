@@ -1,11 +1,13 @@
 #pragma once
 
+#include "native/material/vf_material_population_distribution.hpp"
 #include "native/material/vf_stone_mineral_conditioned_distribution.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 
 namespace vf::material {
 
@@ -93,6 +95,53 @@ inline StoneMineralMaterialSample ApplyStoneMineralConditionReference(
         sample.spectral_reflectance[0],
     };
     return sample;
+}
+
+inline StoneMineralMaterialSample
+ApplyStoneMeasuredMineralPipelineReference(
+    StoneMineralMaterialSample sample,
+    std::uint64_t stone_identity,
+    const MeasuredPopulationDistribution& population,
+    const StoneMineralConditionedDistribution& mineral_distribution,
+    StoneMineralConditionV1 condition
+) {
+    ValidateMeasuredPopulationDistribution(population);
+    ValidateStoneMineralConditionedDistribution(mineral_distribution);
+    if (population.family != MaterialOpticalFamily::stone ||
+        population.calibrated_center !=
+            mineral_distribution.calibrated_center ||
+        population.provenance.source_url !=
+            mineral_distribution.provenance.source_url ||
+        population.provenance.source_archive_sha256 !=
+            mineral_distribution.provenance.source_archive_sha256 ||
+        population.provenance.license !=
+            mineral_distribution.provenance.license) {
+        throw std::invalid_argument(
+            "stone measured pipeline evidence is incompatible"
+        );
+    }
+    const std::uint64_t population_key = MixStoneMineralIdentity(
+        stone_identity ^ 0xbb67ae8584caa73bull
+    );
+    const auto population_index = static_cast<std::size_t>(
+        population_key % population.centered_factors.size()
+    );
+    for (std::size_t band = 0; band < 3; ++band) {
+        sample.spectral_reflectance[band] *= static_cast<float>(
+            population.centered_factors[population_index][band]
+        );
+    }
+    sample.base_color = {
+        sample.spectral_reflectance[2],
+        sample.spectral_reflectance[1],
+        sample.spectral_reflectance[0],
+    };
+    return ApplyStoneMineralConditionReference(
+        sample,
+        stone_identity,
+        mineral_distribution,
+        condition
+    );
 }
 
 inline StoneMineralMaterialSample
