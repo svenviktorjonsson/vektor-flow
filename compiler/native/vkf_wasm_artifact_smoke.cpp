@@ -14,6 +14,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -115,8 +116,8 @@ struct WasmModulePlan {
     bool has_retained_scene_arena = false;
     vf::JsonValue::Array render_parameter_sections;
     vf::JsonValue::Array render_parameter_draw_lists;
-    std::vector<vkf::native_scene::PackedRenderParameters::TemporalPositionUpdate>
-        temporal_position_updates;
+    std::vector<vkf::native_scene::PackedRenderParameters::TemporalParameterUpdate>
+        temporal_parameter_updates;
 };
 
 const vf::JsonValue::Object& object_of(const vf::JsonValue& value, const std::string& context) {
@@ -357,11 +358,11 @@ void emit_camera_control_body(
         append_i32_leb(body, static_cast<std::int32_t>(address));
     };
 
-    // Sixteen f32 locals: offset, authored up, rotated offset, scalar
-    // temporaries, and the current rotation axis. Camera control is expressed
+    // Nineteen f32 locals: offset, authored up, rotated offset, scalar
+    // temporaries, current rotation axis, and the pre-control offset. Camera control is expressed
     // in the authored camera basis; no world axis is privileged.
     append_u32_leb(body, 1);
-    append_u32_leb(body, 16);
+    append_u32_leb(body, 19);
     append_u8(body, 0x7D);
 
     for (std::uint32_t axis = 0; axis < 3; ++axis) {
@@ -369,6 +370,8 @@ void emit_camera_control_body(
         f32_load(camera_offset + 12 + axis * 4);
         append_u8(body, 0x93);  // f32.sub
         local_set(3 + axis);
+        local_get(3 + axis);
+        local_set(19 + axis);
     }
 
     // Normalize the authored camera up vector into locals 6..8.
@@ -517,6 +520,15 @@ void emit_camera_control_body(
     append_u8(body, 0x0B);
 
     for (std::uint32_t axis = 0; axis < 3; ++axis) {
+        f32_store(camera_offset + 84 + axis * 4);
+        f32_load(camera_offset + 84 + axis * 4);
+        local_get(3 + axis);
+        local_get(19 + axis);
+        append_u8(body, 0x93);  // controlled offset delta
+        append_u8(body, 0x92);  // accumulate interaction offset
+        append_u8(body, 0x38);  // f32.store
+        append_u32_leb(body, 2);
+        append_u32_leb(body, 0);
         f32_store(camera_offset + axis * 4);
         f32_load(camera_offset + 12 + axis * 4);
         local_get(3 + axis);
@@ -527,10 +539,10 @@ void emit_camera_control_body(
     }
 }
 
-void emit_temporal_position_updates(
+void emit_temporal_parameter_updates(
     std::vector<std::uint8_t>& body,
     const std::vector<
-        vkf::native_scene::PackedRenderParameters::TemporalPositionUpdate>& updates,
+        vkf::native_scene::PackedRenderParameters::TemporalParameterUpdate>& updates,
     std::uint32_t parameter_arena_offset,
     std::uint32_t time_local
 ) {
@@ -559,6 +571,12 @@ void emit_temporal_position_updates(
     };
     const auto store = [&body, &i32_const](std::uint32_t address) {
         i32_const(static_cast<std::int32_t>(address));
+    };
+    const auto load = [&body, &i32_const](std::uint32_t address) {
+        i32_const(static_cast<std::int32_t>(address));
+        append_u8(body, 0x2A);  // f32.load
+        append_u32_leb(body, 2);
+        append_u32_leb(body, 0);
     };
 
     for (const auto& update : updates) {
@@ -624,10 +642,10 @@ void emit_temporal_position_updates(
             append_u8(body, 0x5F);  // f32.le
             append_u8(body, 0x04);
             append_u8(body, 0x7D);  // if (result f32)
-            f32_const(update.positions[segment][component]);
+            f32_const(update.samples[segment][component]);
             f32_const(
-                update.positions[segment + 1][component] -
-                update.positions[segment][component]);
+                update.samples[segment + 1][component] -
+                update.samples[segment][component]);
             local_get(time_local);
             f32_const(update.coordinates[segment]);
             append_u8(body, 0x93);  // f32.sub
@@ -638,13 +656,13 @@ void emit_temporal_position_updates(
             append_u8(body, 0x94);  // f32.mul
             append_u8(body, 0x92);  // f32.add
             append_u8(body, 0x05);  // else
-            if (segment + 2 < update.positions.size()) {
+            if (segment + 2 < update.samples.size()) {
                 self(self, segment + 1, component);
             } else if (update.mode == "repeat") {
-                f32_const(update.positions.back()[component]);
+                f32_const(update.samples.back()[component]);
                 f32_const(
-                    update.positions.front()[component] -
-                    update.positions.back()[component]);
+                    update.samples.front()[component] -
+                    update.samples.back()[component]);
                 local_get(time_local);
                 f32_const(update.coordinates.back());
                 append_u8(body, 0x93);  // f32.sub
@@ -653,24 +671,25 @@ void emit_temporal_position_updates(
                 append_u8(body, 0x94);  // f32.mul
                 append_u8(body, 0x92);  // f32.add
             } else {
-                f32_const(update.positions.back()[component]);
+                f32_const(update.samples.back()[component]);
             }
             append_u8(body, 0x0B);  // end
         };
 
-        for (std::uint32_t component = 0; component < 3; ++component) {
-            store(parameter_arena_offset + update.object_position_offset +
-                  component * 4);
-            emit_component(emit_component, 0, component);
-            f32_const(update.positions.front()[component]);
-            append_u8(body, 0x93);  // f32.sub: object transform delta
-            append_u8(body, 0x38);  // f32.store
-            append_u32_leb(body, 2);
-            append_u32_leb(body, 0);
-            if (update.light_position_offset.has_value()) {
-                store(parameter_arena_offset + *update.light_position_offset +
-                      component * 4);
+        for (const auto& target : update.targets) {
+            for (std::uint32_t component = 0;
+                 component < update.samples.front().size(); ++component) {
+                store(parameter_arena_offset + target.byte_offset + component * 4);
                 emit_component(emit_component, 0, component);
+                if (target.additive_offset_byte_offset.has_value()) {
+                    load(parameter_arena_offset +
+                         *target.additive_offset_byte_offset + component * 4);
+                    append_u8(body, 0x92);  // preserve interactive camera offset
+                }
+                if (target.relative_to_first) {
+                    f32_const(update.samples.front()[component]);
+                    append_u8(body, 0x93);  // f32.sub: transform delta
+                }
                 append_u8(body, 0x38);  // f32.store
                 append_u32_leb(body, 2);
                 append_u32_leb(body, 0);
@@ -1314,8 +1333,8 @@ void collect_lowered_scene_arena_bindings(
     plan.has_retained_scene_arena = true;
     plan.render_parameter_sections = lowered.render_parameters.sections;
     plan.render_parameter_draw_lists = lowered.render_parameters.draw_lists;
-    plan.temporal_position_updates =
-        lowered.render_parameters.temporal_position_updates;
+    plan.temporal_parameter_updates =
+        lowered.render_parameters.temporal_parameter_updates;
 }
 
 bool collect_retained_scene_packet_binding(
@@ -2556,8 +2575,8 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
             }
         } else if (function.body_kind == FunctionSpec::BodyKind::IncrementTick) {
             if (plan.update.enabled && plan.update.axis_vector_mode) {
-                append_u32_leb(body, plan.temporal_position_updates.empty() ? 0 : 1);
-                if (!plan.temporal_position_updates.empty()) {
+                append_u32_leb(body, plan.temporal_parameter_updates.empty() ? 0 : 1);
+                if (!plan.temporal_parameter_updates.empty()) {
                     append_u32_leb(body, 1);
                     append_u8(body, 0x7D);
                 }
@@ -2577,8 +2596,8 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                     append_u32_leb(body, 0);
                 }
             } else if (plan.update.enabled && plan.update.record_mode) {
-                append_u32_leb(body, plan.temporal_position_updates.empty() ? 0 : 1);
-                if (!plan.temporal_position_updates.empty()) {
+                append_u32_leb(body, plan.temporal_parameter_updates.empty() ? 0 : 1);
+                if (!plan.temporal_parameter_updates.empty()) {
                     append_u32_leb(body, 1);
                     append_u8(body, 0x7D);
                 }
@@ -2614,8 +2633,8 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                     }
                 }
             } else if (plan.update.enabled) {
-                append_u32_leb(body, plan.temporal_position_updates.empty() ? 0 : 1);
-                if (!plan.temporal_position_updates.empty()) {
+                append_u32_leb(body, plan.temporal_parameter_updates.empty() ? 0 : 1);
+                if (!plan.temporal_parameter_updates.empty()) {
                     append_u32_leb(body, 1);
                     append_u8(body, 0x7D);
                 }
@@ -2627,10 +2646,10 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                 append_u32_leb(body, 0);
             } else {
                 append_u32_leb(body,
-                    plan.temporal_position_updates.empty() ? 1 : 2);
+                    plan.temporal_parameter_updates.empty() ? 1 : 2);
                 append_u32_leb(body, 1);
                 append_u8(body, 0x7F);
-                if (!plan.temporal_position_updates.empty()) {
+                if (!plan.temporal_parameter_updates.empty()) {
                     append_u32_leb(body, 1);
                     append_u8(body, 0x7D);
                 }
@@ -2668,14 +2687,14 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                 append_u32_leb(body, 2);
                 append_u32_leb(body, 0);
             }
-            if (!plan.temporal_position_updates.empty()) {
+            if (!plan.temporal_parameter_updates.empty()) {
                 if (render_parameters == nullptr) {
                     throw WasmArtifactFailure(
                         "temporal positions require the render parameter arena");
                 }
-                emit_temporal_position_updates(
+                emit_temporal_parameter_updates(
                     body,
-                    plan.temporal_position_updates,
+                    plan.temporal_parameter_updates,
                     render_parameters->string_offset,
                     plan.update.enabled ? 0u : 1u);
             }
@@ -2821,6 +2840,7 @@ vf::JsonValue::Object manifest_payload(
     const UpdateFunctionPlan& update_plan,
     bool has_retained_scene_arena,
     bool has_temporal_playback,
+    const vf::JsonValue::Array& temporal_parameter_sections,
     const vf::JsonValue::Array& render_parameter_sections,
     const vf::JsonValue::Array& render_parameter_draw_lists
 ) {
@@ -2888,10 +2908,7 @@ vf::JsonValue::Object manifest_payload(
                     "vektor-flow/layer-time-playback")},
                 {"version", vf::JsonValue(1.0)},
                 {"changed_parameter_sections", vf::JsonValue(
-                    vf::JsonValue::Array{
-                        vf::JsonValue("objects"),
-                        vf::JsonValue("lights"),
-                    })},
+                    temporal_parameter_sections)},
             });
     }
     vf::JsonValue::Array exports;
@@ -3221,6 +3238,15 @@ int main(int argc, char** argv) {
             write_text(build_dir / "vf-event-program.json", plan.event_program_json + "\n");
         }
 
+        vf::JsonValue::Array temporal_parameter_sections;
+        std::set<std::string> seen_temporal_sections;
+        for (const auto& update : plan.temporal_parameter_updates) {
+            for (const auto& target : update.targets) {
+                if (seen_temporal_sections.insert(target.section).second) {
+                    temporal_parameter_sections.emplace_back(target.section);
+                }
+            }
+        }
         auto manifest = manifest_payload(
             args.source,
             source_hash,
@@ -3232,7 +3258,8 @@ int main(int argc, char** argv) {
             plan.bindings,
             plan.update,
             plan.has_retained_scene_arena,
-            !plan.temporal_position_updates.empty(),
+            !plan.temporal_parameter_updates.empty(),
+            temporal_parameter_sections,
             plan.render_parameter_sections,
             plan.render_parameter_draw_lists
         );

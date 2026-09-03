@@ -733,19 +733,26 @@ inline constexpr std::uint32_t object_stride = 128;
 }  // namespace render_parameter_layout
 
 struct PackedRenderParameters {
-    struct TemporalPositionUpdate {
+    struct TemporalParameterTarget {
+        std::string section;
+        std::uint32_t byte_offset = 0;
+        bool relative_to_first = false;
+        std::optional<std::uint32_t> additive_offset_byte_offset;
+    };
+
+    struct TemporalParameterUpdate {
         std::string id;
+        std::string channel;
         std::string mode;
         std::vector<double> coordinates;
-        std::vector<std::array<double, 3>> positions;
-        std::uint32_t object_position_offset = 0;
-        std::optional<std::uint32_t> light_position_offset;
+        std::vector<std::vector<double>> samples;
+        std::vector<TemporalParameterTarget> targets;
     };
 
     std::vector<std::uint8_t> arena_bytes;
     vf::JsonValue::Array sections;
     vf::JsonValue::Array draw_lists;
-    std::vector<TemporalPositionUpdate> temporal_position_updates;
+    std::vector<TemporalParameterUpdate> temporal_parameter_updates;
 };
 
 inline double number_or(
@@ -928,49 +935,105 @@ struct GeometryEmitterView {
     bool casts_shadow = true;
 };
 
-inline std::vector<PackedRenderParameters::TemporalPositionUpdate>
-temporal_position_updates(const LiteralValue& root) {
-    std::vector<PackedRenderParameters::TemporalPositionUpdate> updates;
+inline std::vector<PackedRenderParameters::TemporalParameterUpdate>
+temporal_parameter_updates(const LiteralValue& root) {
+    std::vector<PackedRenderParameters::TemporalParameterUpdate> updates;
+    const auto append_channel = [&](const LiteralValue& time,
+                                    const std::string& id,
+                                    const std::string& channel_name,
+                                    std::size_t width,
+                                    bool scalar,
+                                    const std::string& context) {
+        const auto coordinates = numeric_vector(
+            object_field(time, "coordinates"), context + " t coordinates");
+        const std::string mode = string_or(object_field(time, "mode"), "");
+        const LiteralValue* channels = object_field(time, "channels");
+        if (mode.empty() || !channels || channels->kind != LiteralKind::Array) {
+            throw Error(context + " temporal metadata is incomplete");
+        }
+        const LiteralValue* values = nullptr;
+        for (const auto& channel : channels->array) {
+            if (string_or(object_field(channel, "name"), "") == channel_name) {
+                values = object_field(channel, "value");
+                break;
+            }
+        }
+        if (!values || values->kind != LiteralKind::Array ||
+            values->array.size() != coordinates.size()) {
+            throw Error(context + " `" + channel_name + "_t` samples are incomplete");
+        }
+        PackedRenderParameters::TemporalParameterUpdate update;
+        update.id = id;
+        update.channel = channel_name;
+        update.mode = mode;
+        update.coordinates = coordinates;
+        update.samples.reserve(values->array.size());
+        for (const auto& sample : values->array) {
+            std::vector<double> components;
+            if (scalar) {
+                if (sample.kind != LiteralKind::Number) {
+                    throw Error(context + " `" + channel_name + "_t` samples must be numeric");
+                }
+                components.push_back(std::stod(sample.text));
+            } else {
+                components = numeric_vector(&sample, context + " sample");
+            }
+            if (components.size() != width) {
+                throw Error(context + " `" + channel_name + "_t` sample width is invalid");
+            }
+            update.samples.push_back(components);
+        }
+        updates.push_back(std::move(update));
+    };
+
+    const LiteralValue* camera = object_field(root, "camera");
+    const LiteralValue* camera_time = camera ? object_field(*camera, "_camera_time") : nullptr;
+    if (camera_time && camera_time->kind == LiteralKind::Object) {
+        const LiteralValue* channels = object_field(*camera_time, "channels");
+        if (!channels || channels->kind != LiteralKind::Array) {
+            throw Error("Camera temporal metadata is incomplete");
+        }
+        for (const auto& channel : channels->array) {
+            const std::string name = string_or(object_field(channel, "name"), "");
+            if (name == "p" || name == "target") {
+                append_channel(*camera_time, "camera", name, 3, false, "Camera");
+            } else if (name == "x" || name == "y" || name == "z" || name == "fov") {
+                append_channel(*camera_time, "camera", name, 1, true, "Camera");
+            } else {
+                throw Error("Camera temporal channel is unsupported: " + name);
+            }
+        }
+    }
+
     const LiteralValue* meshes = object_field(root, "meshes");
     if (!meshes || meshes->kind != LiteralKind::Array) return updates;
     for (const auto& mesh : meshes->array) {
         const LiteralValue* time = object_field(mesh, "_layer_time");
         if (!time || time->kind != LiteralKind::Object) continue;
-        const auto coordinates = numeric_vector(
-            object_field(*time, "coordinates"), "Layer t coordinates");
-        const std::string mode = string_or(object_field(*time, "mode"), "");
+        const std::string id = string_or(object_field(mesh, "id"), "");
+        if (id.empty()) throw Error("temporal Layer id is missing");
         const LiteralValue* channels = object_field(*time, "channels");
-        if (mode.empty() || !channels || channels->kind != LiteralKind::Array) {
-            throw Error("temporal Layer metadata is incomplete");
-        }
         const LiteralValue* positions = nullptr;
-        for (const auto& channel : channels->array) {
-            if (string_or(object_field(channel, "name"), "") == "p") {
-                positions = object_field(channel, "value");
-                break;
+        if (channels && channels->kind == LiteralKind::Array) {
+            for (const auto& channel : channels->array) {
+                if (string_or(object_field(channel, "name"), "") == "p") {
+                    positions = object_field(channel, "value");
+                    break;
+                }
             }
         }
-        if (!positions || positions->kind != LiteralKind::Array ||
-            positions->array.size() != coordinates.size()) {
+        if (!positions || positions->kind != LiteralKind::Array || positions->array.empty()) {
             throw Error("temporal Layer position samples are incomplete");
         }
-        PackedRenderParameters::TemporalPositionUpdate update;
-        update.id = string_or(object_field(mesh, "id"), "");
-        update.mode = mode;
-        update.coordinates = coordinates;
-        if (update.id.empty()) throw Error("temporal Layer id is missing");
-        update.positions.reserve(positions->array.size());
-        for (const auto& sample : positions->array) {
-            const auto components = numeric_vector(&sample, "Layer p_t sample");
-            if (components.size() != 2 && components.size() != 3) {
-                throw Error("Layer p_t sample must have two or three components");
-            }
-            update.positions.push_back({
-                components[0], components[1],
-                components.size() == 3 ? components[2] : 0.0,
-            });
+        const auto first = numeric_vector(&positions->array.front(), "Layer p_t sample");
+        if (first.size() != 2 && first.size() != 3) {
+            throw Error("Layer p_t sample must have two or three components");
         }
-        updates.push_back(std::move(update));
+        append_channel(*time, id, "p", first.size(), false, "Layer");
+        if (first.size() == 2) {
+            auto& samples = updates.back().samples;
+            for (auto& sample : samples) sample.push_back(0.0);
+        }
     }
     return updates;
 }
@@ -1337,7 +1400,7 @@ inline PackedRenderParameters pack_render_parameters(
 ) {
     using namespace render_parameter_layout;
     PackedRenderParameters packed;
-    packed.temporal_position_updates = temporal_position_updates(root);
+    packed.temporal_parameter_updates = temporal_parameter_updates(root);
 
     const std::uint32_t camera_offset =
         static_cast<std::uint32_t>(packed.arena_bytes.size());
@@ -1375,6 +1438,25 @@ inline PackedRenderParameters pack_render_parameters(
         shadow_color[0], shadow_color[1], shadow_color[2], shadow_color[3],
         shadow_lift,
     }, camera_stride);
+    for (auto& update : packed.temporal_parameter_updates) {
+        if (update.id != "camera") continue;
+        std::uint32_t field_offset = 0;
+        if (update.channel == "x") field_offset = 0;
+        else if (update.channel == "y") field_offset = 4;
+        else if (update.channel == "z") field_offset = 8;
+        else if (update.channel == "target") field_offset = 12;
+        else if (update.channel == "fov") field_offset = 36;
+        else if (update.channel != "p") {
+            throw Error("unsupported temporal Camera channel: " + update.channel);
+        }
+        std::optional<std::uint32_t> interaction_offset;
+        if (update.channel == "p") interaction_offset = camera_offset + 84;
+        else if (update.channel == "x") interaction_offset = camera_offset + 84;
+        else if (update.channel == "y") interaction_offset = camera_offset + 88;
+        else if (update.channel == "z") interaction_offset = camera_offset + 92;
+        update.targets.push_back({
+            "camera", camera_offset + field_offset, false, interaction_offset});
+    }
     packed.sections.push_back(vf::JsonValue(vf::JsonValue::Object{
         {"name", vf::JsonValue("camera")},
         {"byte_offset", vf::JsonValue(static_cast<double>(camera_offset))},
@@ -1390,6 +1472,7 @@ inline PackedRenderParameters pack_render_parameters(
             render_field("ambient", 48, 4),
             render_field("shadow_color", 64, 4),
             render_field("shadow_lift", 80, 1),
+            render_field("interaction_position_offset", 84, 3),
         })},
         {"entries", vf::JsonValue(vf::JsonValue::Array{
             render_entry(string_or(object_field(root, "frame_id"), "camera"),
@@ -1649,13 +1732,17 @@ inline PackedRenderParameters pack_render_parameters(
     };
     pack_objects("surfaces");
     pack_objects("meshes");
-    for (auto& update : packed.temporal_position_updates) {
+    for (auto& update : packed.temporal_parameter_updates) {
+        if (update.id == "camera") continue;
         const auto object = object_indices.find(update.id);
         if (object == object_indices.end()) {
             throw Error("temporal Layer object is unavailable: " + update.id);
         }
-        update.object_position_offset = objects_offset +
-            static_cast<std::uint32_t>(object->second) * object_stride;
+        update.targets.push_back({
+            "objects",
+            objects_offset + static_cast<std::uint32_t>(object->second) * object_stride,
+            true,
+        });
         const auto emitter = std::find_if(
             emitters.begin(), emitters.end(), [&](const GeometryEmitter& candidate) {
                 return candidate.id == update.id;
@@ -1663,9 +1750,13 @@ inline PackedRenderParameters pack_render_parameters(
         if (emitter != emitters.end()) {
             const std::size_t emitter_index = static_cast<std::size_t>(
                 std::distance(emitters.begin(), emitter));
-            update.light_position_offset = lights_offset +
-                static_cast<std::uint32_t>(authored_light_count + emitter_index) *
-                    light_stride;
+            update.targets.push_back({
+                "lights",
+                lights_offset +
+                    static_cast<std::uint32_t>(authored_light_count + emitter_index) *
+                        light_stride,
+                false,
+            });
         }
     }
     const std::uint32_t objects_length =

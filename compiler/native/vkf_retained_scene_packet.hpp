@@ -3,6 +3,7 @@
 #include "native/VfOverlay/vf/json.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -508,115 +509,144 @@ struct LayerTimeEvaluation {
     std::vector<LayerTimeDirtyRange> dirty_ranges;
 };
 
+struct TemporalChannelSpec {
+    std::string name;
+    std::vector<std::size_t> widths;
+    bool scalar = false;
+    bool required = true;
+};
+
 class LayerTimeEvaluator {
 public:
     static LayerTimeEvaluator from_operation(
         const vf::JsonValue::Object& operation,
         EvaluationContext* context = nullptr
     ) {
-        const auto& raw_axes = field(operation, "layer_axes", "temporal Frame.add");
+        return from_operation(
+            operation,
+            {
+                {"p", {2, 3}, false, true},
+                {"c", {4}, false, true},
+                {"s", {1}, true, true},
+            },
+            context,
+            "temporal Frame.add");
+    }
+
+    static LayerTimeEvaluator from_operation(
+        const vf::JsonValue::Object& operation,
+        const std::vector<TemporalChannelSpec>& channel_specs,
+        EvaluationContext* context,
+        const std::string& operation_context
+    ) {
+        const auto& raw_axes = field(operation, "layer_axes", operation_context);
         if (!raw_axes.is_array() || raw_axes.as_array().size() != 1 ||
             !raw_axes.as_array().front().is_string() ||
             raw_axes.as_array().front().as_string() != "t") {
-            throw Error("temporal Frame.add layer_axes must be [`t`]");
+            throw Error(operation_context + " layer_axes must be [`t`]");
         }
 
         std::vector<Channel> channels;
         std::size_t sample_count = 0;
-        const auto& raw_channels = field(operation, "channels", "temporal Frame.add");
+        const auto& raw_channels = field(operation, "channels", operation_context);
         if (!raw_channels.is_array()) {
-            throw Error("temporal Frame.add channels must be an array");
+            throw Error(operation_context + " channels must be an array");
         }
         for (const auto& raw_channel : raw_channels.as_array()) {
-            const auto& channel = object(raw_channel, "temporal Frame.add channel");
-            const std::string name = text(channel, "name", "temporal Frame.add channel");
-            if (name != "p" && name != "c" && name != "s") {
-                throw Error("temporal Frame.add only samples numeric p, c, and s channels");
+            const auto& channel = object(raw_channel, operation_context + " channel");
+            const std::string name = text(channel, "name", operation_context + " channel");
+            const auto spec = std::find_if(
+                channel_specs.begin(), channel_specs.end(), [&](const TemporalChannelSpec& candidate) {
+                    return candidate.name == name;
+                });
+            if (spec == channel_specs.end()) {
+                throw Error(operation_context + " does not support temporal `" + name + "`");
             }
             if (std::find_if(channels.begin(), channels.end(), [&](const Channel& candidate) {
                     return candidate.name == name;
                 }) != channels.end()) {
-                throw Error("temporal Frame.add contains duplicate `" + name + "` channel");
+                throw Error(operation_context + " contains duplicate `" + name + "` channel");
             }
             const auto& raw_semantic_axes = field(
-                channel, "semantic_axes", "temporal Frame.add channel");
-            const bool scalar = name == "s";
+                channel, "semantic_axes", operation_context + " channel");
+            const bool scalar = spec->scalar;
             const std::vector<std::string> expected_axes = scalar
                 ? std::vector<std::string>{"t"}
                 : std::vector<std::string>{"t", "c"};
             if (!raw_semantic_axes.is_array() ||
                 raw_semantic_axes.as_array().size() != expected_axes.size()) {
-                throw Error("temporal Frame.add `" + name + "` channel has invalid axes");
+                throw Error(operation_context + " `" + name + "` channel has invalid axes");
             }
             for (std::size_t index = 0; index < expected_axes.size(); ++index) {
                 if (!raw_semantic_axes.as_array()[index].is_string() ||
                     raw_semantic_axes.as_array()[index].as_string() != expected_axes[index]) {
-                    throw Error("temporal Frame.add `" + name + "` channel has invalid axes");
+                    throw Error(operation_context + " `" + name + "` channel has invalid axes");
                 }
             }
-            const auto& raw_value = field(channel, "value", "temporal Frame.add channel");
+            const auto& raw_value = field(channel, "value", operation_context + " channel");
             if (raw_value.is_object()) {
                 const auto kind = raw_value.as_object().find("kind");
                 if (kind != raw_value.as_object().end() && kind->second.is_string() &&
                     kind->second.as_string() == "call") {
-                    throw Error("temporal Frame.add `" + name +
+                    throw Error(operation_context + " `" + name +
                                 "` must be precomputed numeric t-axis data");
                 }
             }
             const auto evaluated = detail::evaluate(raw_value, context);
             if (!evaluated.is_array() || evaluated.as_array().size() < 2) {
-                throw Error("temporal Frame.add `" + name + "` must be precomputed numeric t-axis data");
+                throw Error(operation_context + " `" + name + "` must be precomputed numeric t-axis data");
             }
             Channel parsed;
             parsed.name = name;
+            parsed.scalar = scalar;
             parsed.values.reserve(evaluated.as_array().size());
             for (const auto& raw_sample : evaluated.as_array()) {
                 std::vector<double> values;
                 if (scalar) {
                     if (!raw_sample.is_number() || !std::isfinite(raw_sample.as_number())) {
-                        throw Error("temporal Frame.add s samples must be finite numbers");
+                        throw Error(operation_context + " `" + name + "` samples must be finite numbers");
                     }
                     values.push_back(raw_sample.as_number());
                 } else {
                     if (!raw_sample.is_array()) {
-                        throw Error("temporal Frame.add `" + name + "` samples must be numeric vectors");
+                        throw Error(operation_context + " `" + name + "` samples must be numeric vectors");
                     }
                     for (const auto& raw_value : raw_sample.as_array()) {
                         if (!raw_value.is_number() || !std::isfinite(raw_value.as_number())) {
-                            throw Error("temporal Frame.add `" + name + "` samples must be finite numeric vectors");
+                            throw Error(operation_context + " `" + name + "` samples must be finite numeric vectors");
                         }
                         values.push_back(raw_value.as_number());
                     }
                 }
                 if (parsed.width == 0) parsed.width = values.size();
                 if (values.size() != parsed.width) {
-                    throw Error("temporal Frame.add `" + name + "` samples must have one fixed width");
+                    throw Error(operation_context + " `" + name + "` samples must have one fixed width");
                 }
                 parsed.values.push_back(std::move(values));
             }
-            if ((name == "p" && parsed.width != 2 && parsed.width != 3) ||
-                (name == "c" && parsed.width != 4) ||
-                (name == "s" && parsed.width != 1)) {
-                throw Error("temporal Frame.add `" + name + "` has an invalid sample width");
+            if (std::find(spec->widths.begin(), spec->widths.end(), parsed.width) ==
+                spec->widths.end()) {
+                throw Error(operation_context + " `" + name + "` has an invalid sample width");
             }
             if (sample_count == 0) sample_count = parsed.values.size();
             if (parsed.values.size() != sample_count) {
-                throw Error("temporal Frame.add channels must share one Layer-local t length");
+                throw Error(operation_context + " channels must share one local t length");
             }
             channels.push_back(std::move(parsed));
         }
-        for (const std::string& required : {"p", "c", "s"}) {
+        for (const auto& spec : channel_specs) {
+            if (!spec.required) continue;
             if (std::none_of(channels.begin(), channels.end(), [&](const Channel& channel) {
-                    return channel.name == required;
+                    return channel.name == spec.name;
                 })) {
-                throw Error("temporal Frame.add is missing `" + required + "` channel");
+                throw Error(operation_context + " is missing `" + spec.name + "` channel");
             }
         }
 
-        const auto& time = object(field(operation, "time", "temporal Frame.add"),
-                                  "temporal Frame.add time");
-        if (text(time, "axis", "temporal Frame.add time") != "t") {
-            throw Error("temporal Frame.add time axis must be `t`");
+        const auto& time = object(field(operation, "time", operation_context),
+                                  operation_context + " time");
+        if (text(time, "axis", operation_context + " time") != "t") {
+            throw Error(operation_context + " time axis must be `t`");
         }
         const auto mode_value = detail::evaluate(
             field(time, "mode", "temporal Frame.add time"), context);
@@ -695,7 +725,7 @@ public:
             vf::JsonValue::Array samples;
             samples.reserve(channel.values.size());
             for (const auto& values : channel.values) {
-                if (channel.name == "s") {
+                if (channel.scalar) {
                     samples.emplace_back(values.front());
                     continue;
                 }
@@ -705,7 +735,7 @@ public:
                 samples.emplace_back(std::move(components));
             }
             vf::JsonValue::Array semantic_axes{vf::JsonValue("t")};
-            if (channel.name != "s") semantic_axes.emplace_back("c");
+            if (!channel.scalar) semantic_axes.emplace_back("c");
             channels.emplace_back(vf::JsonValue::Object{
                 {"name", vf::JsonValue(channel.name)},
                 {"semantic_axes", vf::JsonValue(std::move(semantic_axes))},
@@ -724,6 +754,7 @@ private:
     struct Channel {
         std::string name;
         std::size_t width = 0;
+        bool scalar = false;
         std::vector<std::vector<double>> values;
     };
 
@@ -1245,6 +1276,62 @@ inline vf::JsonValue temporal_material_mesh(
     return vf::JsonValue(std::move(mesh));
 }
 
+inline vf::JsonValue temporal_camera(
+    const vf::JsonValue::Object& operation,
+    EvaluationContext* context
+) {
+    auto camera = properties(operation, context);
+    const auto canonical_position = camera.find("p");
+    if (canonical_position != camera.end()) {
+        camera["pos"] = canonical_position->second;
+        camera.erase(canonical_position);
+    }
+    const auto evaluator = LayerTimeEvaluator::from_operation(
+        operation,
+        {
+            {"p", {3}, false, false},
+            {"x", {1}, true, false},
+            {"y", {1}, true, false},
+            {"z", {1}, true, false},
+            {"target", {3}, false, false},
+            {"fov", {1}, true, false},
+        },
+        context,
+        "temporal Frame.add_camera");
+    const auto current = evaluator.evaluate(0.0);
+    std::vector<double> position{0.0, 0.0, 5.0};
+    const auto static_position = camera.find("pos");
+    if (static_position != camera.end()) {
+        position = numbers(static_position->second, "Frame.add_camera pos");
+    }
+    const auto animated_position = current.channels.find("p");
+    if (animated_position != current.channels.end()) {
+        position = animated_position->second;
+    }
+    for (const auto& component : std::array<std::pair<const char*, std::size_t>, 3>{
+             std::pair{"x", 0u}, std::pair{"y", 1u}, std::pair{"z", 2u}}) {
+        const auto animated = current.channels.find(component.first);
+        if (animated != current.channels.end()) {
+            position[component.second] = animated->second.front();
+        }
+    }
+    vf::JsonValue::Array position_value;
+    for (const double value : position) position_value.emplace_back(value);
+    camera["pos"] = vf::JsonValue(std::move(position_value));
+    const auto animated_target = current.channels.find("target");
+    if (animated_target != current.channels.end()) {
+        vf::JsonValue::Array target_value;
+        for (const double value : animated_target->second) target_value.emplace_back(value);
+        camera["target"] = vf::JsonValue(std::move(target_value));
+    }
+    const auto animated_fov = current.channels.find("fov");
+    if (animated_fov != current.channels.end()) {
+        camera["fov"] = vf::JsonValue(animated_fov->second.front());
+    }
+    camera["_camera_time"] = evaluator.descriptor();
+    return vf::JsonValue(std::move(camera));
+}
+
 struct Frame {
     bool targeted = false;
     std::vector<double> pos;
@@ -1390,7 +1477,16 @@ inline std::optional<vf::JsonValue> compile_packets(
             if (kind == "set_geom_options") {
                 for (auto& entry : properties) found->second.options[entry.first] = std::move(entry.second);
             } else if (kind == "add_camera") {
-                found->second.camera = vf::JsonValue(std::move(properties));
+                if (operation.find("time") != operation.end()) {
+                    found->second.camera = detail::temporal_camera(operation, &evaluation);
+                } else {
+                    const auto canonical_position = properties.find("p");
+                    if (canonical_position != properties.end()) {
+                        properties["pos"] = canonical_position->second;
+                        properties.erase(canonical_position);
+                    }
+                    found->second.camera = vf::JsonValue(std::move(properties));
+                }
             } else if (kind == "add_light") {
                 found->second.lights.push_back(vf::JsonValue(std::move(properties)));
             } else {

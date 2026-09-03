@@ -3039,6 +3039,74 @@ private:
         return vf::JsonValue(std::move(out));
     }
 
+    vf::JsonValue lower_temporal_time_axis(
+        const vf::JsonValue::Object& properties,
+        std::size_t time_count,
+        const std::string& context
+    ) {
+        const auto required = [&](const std::string& name) -> const vf::JsonValue& {
+            const auto found = properties.find(name);
+            if (found == properties.end()) {
+                throw IRFailure(context + " requires `" + name + ":`");
+            }
+            return found->second;
+        };
+        const auto fixed_shape = [&](const std::string& name) {
+            const auto& value = required(name);
+            const auto result = fixed_numeric_vector_shape(string_field(
+                object_of(value, context + " " + name), "type", context + " " + name));
+            if (!result) {
+                throw IRFailure(context + " `" + name + "` requires fixed numeric data");
+            }
+            return *result;
+        };
+        const bool has_time_coordinates = properties.find("t") != properties.end();
+        const bool has_time_min = properties.find("t_min") != properties.end();
+        const bool has_time_max = properties.find("t_max") != properties.end();
+        if (has_time_coordinates && (has_time_min || has_time_max)) {
+            throw IRFailure(context + " accepts either `t:` or `t_min:` with `t_max:`");
+        }
+        if (!has_time_coordinates && (!has_time_min || !has_time_max)) {
+            throw IRFailure(context + " requires `t:` or both `t_min:` and `t_max:`");
+        }
+        if (has_time_coordinates) {
+            const auto time_shape = fixed_shape("t");
+            if (time_shape.dimensions != std::vector<std::size_t>{time_count}) {
+                throw IRFailure(context + " `t` must match the temporal channel length");
+            }
+        } else {
+            for (const std::string& name : {"t_min", "t_max"}) {
+                const auto& scalar = object_of(required(name), context + " " + name);
+                const std::string type = string_field(scalar, "type", context + " " + name);
+                if (type != "num" && type != "int") {
+                    throw IRFailure(context + " `" + name + "` requires a numeric scalar");
+                }
+            }
+        }
+        const auto& time_mode = object_of(required("t_mode"), context + " t_mode");
+        const auto& raw_time_mode = field(time_mode, "value", context + " t_mode");
+        static const std::set<std::string> time_modes{
+            "repeat", "mirror", "stop", "reset"
+        };
+        if (string_field(time_mode, "kind", context + " t_mode") != "const" ||
+            string_field(time_mode, "type", context + " t_mode") != "str" ||
+            !raw_time_mode.is_string() ||
+            time_modes.find(raw_time_mode.as_string()) == time_modes.end()) {
+            throw IRFailure(context + " t_mode must be repeat, mirror, stop, or reset");
+        }
+        vf::JsonValue::Object time;
+        time["axis"] = vf::JsonValue("t");
+        time["sample_count"] = vf::JsonValue(static_cast<double>(time_count));
+        if (has_time_coordinates) {
+            time["coordinates"] = required("t");
+        } else {
+            time["min"] = required("t_min");
+            time["max"] = required("t_max");
+        }
+        time["mode"] = required("t_mode");
+        return vf::JsonValue(std::move(time));
+    }
+
     bool lower_temporal_frame_add(
         const vf::JsonValue::Object& properties,
         vf::JsonValue::Object& operation
@@ -3081,57 +3149,12 @@ private:
             throw IRFailure("temporal Frame.add `s_t` requires shape [t]");
         }
 
-        const bool has_time_coordinates = properties.find("t") != properties.end();
-        const bool has_time_min = properties.find("t_min") != properties.end();
-        const bool has_time_max = properties.find("t_max") != properties.end();
-        if (has_time_coordinates && (has_time_min || has_time_max)) {
-            throw IRFailure(
-                "temporal Frame.add accepts either `t:` or `t_min:` with `t_max:`");
-        }
-        if (!has_time_coordinates && (!has_time_min || !has_time_max)) {
-            throw IRFailure(
-                "temporal Frame.add requires `t:` or both `t_min:` and `t_max:`");
-        }
-        if (has_time_coordinates) {
-            const auto time_shape = fixed_shape("t");
-            if (time_shape.dimensions != std::vector<std::size_t>{time_count}) {
-                throw IRFailure("temporal Frame.add `t` must match the p_t length");
-            }
-        } else {
-            const auto require_numeric_scalar = [&](const std::string& name) {
-                const auto& scalar = object_of(
-                    required(name), "temporal Frame.add " + name);
-                const std::string type = string_field(
-                    scalar, "type", "temporal Frame.add " + name);
-                if (type != "num" && type != "int") {
-                    throw IRFailure(
-                        "temporal Frame.add `" + name + "` requires a numeric scalar");
-                }
-            };
-            require_numeric_scalar("t_min");
-            require_numeric_scalar("t_max");
-        }
-
         const auto& size_mode = object_of(
             required("s_mode"), "temporal Frame.add s_mode");
         if (string_field(size_mode, "type", "temporal Frame.add s_mode") !=
             "ui_measure_space<data>") {
             throw IRFailure("temporal Frame.add requires s_mode:data");
         }
-        const auto& time_mode = object_of(
-            required("t_mode"), "temporal Frame.add t_mode");
-        const auto& raw_time_mode = field(
-            time_mode, "value", "temporal Frame.add t_mode");
-        static const std::set<std::string> time_modes{
-            "repeat", "mirror", "stop", "reset"
-        };
-        if (string_field(time_mode, "kind", "temporal Frame.add t_mode") != "const" ||
-            string_field(time_mode, "type", "temporal Frame.add t_mode") != "str" ||
-            !raw_time_mode.is_string() ||
-            time_modes.find(raw_time_mode.as_string()) == time_modes.end()) {
-            throw IRFailure("Frame.add t_mode must be repeat, mirror, stop, or reset");
-        }
-
         const auto json_axes = [](std::initializer_list<const char*> values) {
             vf::JsonValue::Array result;
             for (const auto* value : values) result.emplace_back(value);
@@ -3173,17 +3196,96 @@ private:
         operation["layer_axes"] = vf::JsonValue(json_axes({"t"}));
         operation["channels"] = vf::JsonValue(std::move(channels));
 
-        vf::JsonValue::Object time;
-        time["axis"] = vf::JsonValue("t");
-        time["sample_count"] = vf::JsonValue(static_cast<double>(time_count));
-        if (has_time_coordinates) {
-            time["coordinates"] = required("t");
-        } else {
-            time["min"] = required("t_min");
-            time["max"] = required("t_max");
+        operation["time"] = lower_temporal_time_axis(
+            properties, time_count, "temporal Frame.add");
+        return true;
+    }
+
+    bool lower_temporal_frame_camera(
+        const vf::JsonValue::Object& properties,
+        vf::JsonValue::Object& operation
+    ) {
+        struct CameraTemporalArgument {
+            const char* argument;
+            const char* channel;
+            std::size_t width;
+            bool scalar;
+            const char* value_kind;
+        };
+        static const std::array<CameraTemporalArgument, 6> arguments{{
+            {"p_t", "p", 3, false, "position"},
+            {"x_t", "x", 1, true, "position_component"},
+            {"y_t", "y", 1, true, "position_component"},
+            {"z_t", "z", 1, true, "position_component"},
+            {"target_t", "target", 3, false, "target"},
+            {"fov_t", "fov", 1, true, "fov"},
+        }};
+        const bool has_temporal = std::any_of(
+            arguments.begin(), arguments.end(), [&](const auto& argument) {
+                return properties.find(argument.argument) != properties.end();
+            });
+        if (!has_temporal) return false;
+        if (properties.find("p_t") != properties.end() &&
+            (properties.find("p") != properties.end() ||
+             properties.find("pos") != properties.end() ||
+             properties.find("x_t") != properties.end() ||
+             properties.find("y_t") != properties.end() ||
+             properties.find("z_t") != properties.end())) {
+            throw IRFailure(
+                "Frame.add_camera accepts one `p`, `p_t`, or component `_t` position source");
         }
-        time["mode"] = required("t_mode");
-        operation["time"] = vf::JsonValue(std::move(time));
+        if (properties.find("target") != properties.end() &&
+            properties.find("target_t") != properties.end()) {
+            throw IRFailure("Frame.add_camera accepts `target` or `target_t`, not both");
+        }
+        if (properties.find("fov") != properties.end() &&
+            properties.find("fov_t") != properties.end()) {
+            throw IRFailure("Frame.add_camera accepts `fov` or `fov_t`, not both");
+        }
+        const auto json_shape = [](const std::vector<std::size_t>& values) {
+            vf::JsonValue::Array result;
+            for (const auto value : values) result.emplace_back(static_cast<double>(value));
+            return result;
+        };
+        std::size_t time_count = 0;
+        vf::JsonValue::Array channels;
+        for (const auto& argument : arguments) {
+            const auto found = properties.find(argument.argument);
+            if (found == properties.end()) continue;
+            const auto shape = fixed_numeric_vector_shape(string_field(
+                object_of(found->second, "temporal Frame.add_camera " +
+                    std::string(argument.argument)),
+                "type", "temporal Frame.add_camera " +
+                    std::string(argument.argument)));
+            const bool valid_shape = shape && !shape->dimensions.empty() &&
+                shape->dimensions.front() >= 2 &&
+                ((!argument.scalar && shape->dimensions.size() == 2 &&
+                  shape->dimensions.back() == argument.width) ||
+                 (argument.scalar && shape->dimensions.size() == 1));
+            if (!valid_shape) {
+                throw IRFailure(
+                    "temporal Frame.add_camera `" + std::string(argument.argument) +
+                    "` requires shape [t" + (argument.scalar ? "]" : ",3]") );
+            }
+            if (time_count == 0) time_count = shape->dimensions.front();
+            if (shape->dimensions.front() != time_count) {
+                throw IRFailure(
+                    "temporal Frame.add_camera channels must share one t length");
+            }
+            vf::JsonValue::Object channel;
+            channel["name"] = vf::JsonValue(argument.channel);
+            vf::JsonValue::Array axes{vf::JsonValue("t")};
+            if (!argument.scalar) axes.emplace_back("c");
+            channel["semantic_axes"] = vf::JsonValue(std::move(axes));
+            channel["shape"] = vf::JsonValue(json_shape(shape->dimensions));
+            channel["value_kind"] = vf::JsonValue(argument.value_kind);
+            channel["value"] = found->second;
+            channels.emplace_back(std::move(channel));
+        }
+        operation["layer_axes"] = vf::JsonValue(vf::JsonValue::Array{vf::JsonValue("t")});
+        operation["channels"] = vf::JsonValue(std::move(channels));
+        operation["time"] = lower_temporal_time_axis(
+            properties, time_count, "temporal Frame.add_camera");
         return true;
     }
 
@@ -4005,7 +4107,9 @@ private:
                                 "background", "unified_renderer", "combine_transparent"
                             }},
                             {"add_camera", {
-                                "pos", "target", "up", "fov", "projection", "ortho_scale"
+                                "p", "pos", "target", "up", "fov", "projection", "ortho_scale",
+                                "p_t", "x_t", "y_t", "z_t", "target_t", "fov_t",
+                                "t", "t_min", "t_max", "t_mode"
                             }},
                             {"add_light", {
                                 "id", "kind", "pos", "target", "color", "intensity",
@@ -4040,10 +4144,29 @@ private:
                             properties[name] = field(
                                 named, "value", "Frame." + method + " argument");
                         }
+                        const bool temporal_camera = method == "add_camera" &&
+                            (properties.find("p_t") != properties.end() ||
+                             properties.find("x_t") != properties.end() ||
+                             properties.find("y_t") != properties.end() ||
+                             properties.find("z_t") != properties.end() ||
+                             properties.find("target_t") != properties.end() ||
+                             properties.find("fov_t") != properties.end());
                         if (method == "add_camera" &&
-                            (properties.find("pos") == properties.end() ||
-                             properties.find("target") == properties.end())) {
-                            throw IRFailure("Frame.add_camera requires `pos:` and `target:`");
+                            ((properties.find("p") == properties.end() &&
+                              properties.find("pos") == properties.end() &&
+                              properties.find("p_t") == properties.end() &&
+                              properties.find("x_t") == properties.end() &&
+                              properties.find("y_t") == properties.end() &&
+                              properties.find("z_t") == properties.end()) ||
+                             (properties.find("target") == properties.end() &&
+                              properties.find("target_t") == properties.end()))) {
+                            throw IRFailure(
+                                "Frame.add_camera requires a position channel and `target:` or `target_t:`");
+                        }
+                        if (method == "add_camera" &&
+                            properties.find("p") != properties.end() &&
+                            properties.find("pos") != properties.end()) {
+                            throw IRFailure("Frame.add_camera accepts `p:` or `pos:`, not both");
                         }
                         if (method == "add_light" &&
                             (properties.find("id") == properties.end() ||
@@ -4084,6 +4207,8 @@ private:
                             static_cast<double>(target->second.id));
                         if (temporal_add) {
                             (void)lower_temporal_frame_add(properties, operation);
+                        } else if (temporal_camera) {
+                            (void)lower_temporal_frame_camera(properties, operation);
                         }
                         operation["properties"] = vf::JsonValue(std::move(properties));
                         if (method == "add") {

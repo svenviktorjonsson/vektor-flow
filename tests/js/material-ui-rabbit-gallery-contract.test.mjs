@@ -170,6 +170,26 @@ test("opposed finite red and green emitters orbit through retained time data", (
     "an emitter is ordinary finite geometry with emissive properties");
 });
 
+test("camera follows a subtle repeating p_t cycle while keeping its target", () => {
+  const camera = calls("frame.add_camera")[0] ?? "";
+  const positions = numericArrayBinding("camera_p");
+  assert.equal(positions.length, 360);
+  assert.match(camera, /p_t:camera_p/u);
+  assert.match(camera, /target:\[-0\.015, 0\.105, 0\.055\]/u);
+  assert.match(camera, /t:t/u);
+  assert.match(camera, /t_mode:"repeat"/u);
+  assert.deepEqual(positions[0], [0, 0.15, -0.42]);
+  for (const position of positions) {
+    assert.ok(Math.abs(position[0]) <= 0.008001);
+    assert.ok(position[1] >= 0.15 && position[1] <= 0.156001);
+    assert.ok(position[2] >= -0.42 && position[2] <= -0.411999);
+  }
+  const seamDistance = Math.hypot(
+    ...positions[0].map((value, index) => value - positions.at(-1)[index]),
+  );
+  assert.ok(seamDistance < 0.0002, "the 359-to-0 repeat seam must stay smooth");
+});
+
 test("rabbit gallery exposes playback controls beside capture", () => {
   assert.match(uiMarkup, /<button[^>]*data-vf-playback-toggle[^>]*>Pause<\/button>/u);
   assert.match(uiMarkup, /<button[^>]*data-vf-playback-reset[^>]*>Reset<\/button>/u);

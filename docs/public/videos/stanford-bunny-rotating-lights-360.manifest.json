@@ -2,7 +2,7 @@
   "schema": "vektor-flow/video-evidence-v1",
   "video": "docs/public/videos/stanford-bunny-rotating-lights-360.mp4",
   "source": "examples/material_ui_gallery/app.vkf",
-  "source_sha256": "5e31fff78ca4e82c8ed553cd62d599175ea522189e9453974929abd934d4e057",
+  "source_sha256": "a5a9c8b7106ed1d4e2e1bea4bfd1fb3b73d7ff3c3d84978468a0a06207c58978",
   "capture": {
     "api": "Frame.capture",
     "execution": "native hidden WebView2/WebGPU host",
@@ -11,10 +11,10 @@
     "first_degree": 0,
     "last_degree": 359,
     "playback": "repeat",
-    "source_frame_width": 735,
-    "source_frame_height": 272,
-    "first_frame_checksum": "fnv1a32:060618db",
-    "last_frame_checksum": "fnv1a32:fce208b9",
+    "source_frame_width": 742,
+    "source_frame_height": 229,
+    "first_frame_checksum": "fnv1a32:618c0774",
+    "last_frame_checksum": "fnv1a32:935888d7",
     "vkf_error_count": 0
   },
   "encoding": {
@@ -23,10 +23,10 @@
     "fps": 30,
     "frames": 360,
     "duration_seconds": 12,
-    "width": 734,
-    "height": 272,
+    "width": 742,
+    "height": 228,
     "fast_start": true
   },
-  "sha256": "24087ed83c6923ea3252fc2f0857926524adaab74bff0aeae1f76c276164a08f",
-  "bytes": 198086
+  "sha256": "601fc9722db09c416d30d90ec8df8d45ef90bdf5555cb4f3e4eea57fb618dfa5",
+  "bytes": 170151
 }
