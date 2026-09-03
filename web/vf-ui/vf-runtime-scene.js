@@ -27,6 +27,7 @@
     var displayRefresh = options.displayRefresh || function() {};
     var isLegacyFallbackActive = options.isLegacyFallbackActive || function() { return false; };
     var livePanelsById = Object.create(null);
+    var lastInternalHtmlPatchSequence = 0;
 
     function runtimeFail(message) {
       var text = String(message || "runtime scene failure");
@@ -52,6 +53,33 @@
       var layer = getLayer();
       if (!layer || !deps.frame || !deps.frame.postNativeHostLayout) { return; }
       deps.frame.postNativeHostLayout(layer, { stageAlpha: 0 });
+    }
+
+    function applyInternalHtmlPatchPacket(packet) {
+      var patch = packet && packet.payload && packet.payload.__vf_internal_retained_html_patch;
+      var owner = patch && patch.owner;
+      var sequence = Number(packet && packet.seq);
+      if (!patch || patch.version !== 1 || !owner ||
+          !Number.isInteger(sequence) || sequence <= lastInternalHtmlPatchSequence) {
+        runtimeFail("applyInternalHtmlPatchPacket: malformed or stale private patch packet");
+      }
+      var ownerRoot = null;
+      if (owner.kind === "frame") {
+        var panel = livePanelsById[String(owner.id || "")];
+        ownerRoot = panel && panel.root;
+      } else if (owner.kind === "display") {
+        var layer = getLayer();
+        var displayId = layer && layer.dataset
+          ? String(layer.dataset.vfDisplayId || layer.id || "")
+          : "";
+        if (displayId === String(owner.id || "")) { ownerRoot = layer; }
+      }
+      if (!ownerRoot || !global.VfHtmlComponents || !global.VfHtmlComponents.__internal ||
+          typeof global.VfHtmlComponents.__internal.applyPatch !== "function") {
+        runtimeFail("applyInternalHtmlPatchPacket: retained owner is unavailable");
+      }
+      global.VfHtmlComponents.__internal.applyPatch(ownerRoot, patch);
+      lastInternalHtmlPatchSequence = sequence;
     }
 
     function applySpecRectToPanel(panel, spec) {
@@ -291,7 +319,7 @@
                 if (layer._vfMasterTeardown) { return; }
                 if (runtimeAllowsHostExit() &&
                     countExitTrackedFrames(layer) === 0 &&
-                    (!runtimeHasStandaloneDisplayContent() || runtimeSceneDeclaresFrames())) {
+                    !runtimeHasStandaloneDisplayContent()) {
                   postExitToHost();
                 }
               }
@@ -315,7 +343,9 @@
           try {
             bodySignature = JSON.stringify({
               body: Array.isArray(spec.body) ? spec.body : [],
-              body_layout: spec.body_layout || null
+              body_layout: spec.body_layout || null,
+              __vf_internal_html_components: Array.isArray(spec.__vf_internal_html_components)
+                ? spec.__vf_internal_html_components : []
             });
           } catch (_) {
             bodySignature = "";
@@ -327,6 +357,20 @@
             applySpecRectToPanel(panel, spec);
           } else if ((!spec.body || !Array.isArray(spec.body) || spec.body.length === 0) &&
                      panel.root.__vfBodySignature !== bodySignature) {
+            var internalIdentities = Array.isArray(spec.__vf_internal_html_components)
+              ? spec.__vf_internal_html_components : [];
+            var preparedInternalTree = null;
+            if (internalIdentities.length > 0) {
+              if (!global.VfHtmlComponents || !global.VfHtmlComponents.__internal ||
+                  typeof global.VfHtmlComponents.__internal.mountTree !== "function") {
+                runtimeFail("applySceneCommands: internal HTML component runtime is unavailable");
+              }
+              preparedInternalTree = document.createElement("div");
+              var preparedInternalElements = global.VfHtmlComponents.__internal.mountTree(
+                preparedInternalTree,
+                internalIdentities
+              );
+            }
             if (widgets && typeof widgets.clearFrame === "function") {
               widgets.clearFrame(id);
             }
@@ -339,6 +383,14 @@
                   body.removeChild(ch);
                 }
                 ch = next;
+              }
+              if (preparedInternalTree) {
+                while (preparedInternalTree.firstChild) {
+                  body.appendChild(preparedInternalTree.firstChild);
+                }
+                if (typeof global.VfHtmlComponents.__internal.adoptTree === "function") {
+                  global.VfHtmlComponents.__internal.adoptTree(panel.root, preparedInternalElements);
+                }
               }
             }
             panel.root.__vfBodySignature = bodySignature;
@@ -393,7 +445,8 @@
 
     return {
       syncNativeLayout: syncNativeLayout,
-      applySceneCommands: applySceneCommands
+      applySceneCommands: applySceneCommands,
+      applyInternalHtmlPatchPacket: applyInternalHtmlPatchPacket
     };
   }
 

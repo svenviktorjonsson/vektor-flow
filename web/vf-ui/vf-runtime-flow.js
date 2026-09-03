@@ -12,13 +12,20 @@
     "ui_state.replace": true,
     "display.replace": true,
     "geom.color.patch": true,
-    "widget.append_text": true
+    "widget.append_text": true,
+    "__vf_internal_html.patch": true
   };
   var FALLBACK_BOOTSTRAP_COALESCE_KINDS = {
     "scene.replace": true,
     "ui_state.replace": true,
     "display.replace": true
   };
+
+  function hasExactKeys(value, keys) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) { return false; }
+    var actual = Object.keys(value);
+    return actual.length === keys.length && actual.every(function(key) { return keys.indexOf(key) >= 0; });
+  }
 
   function validatePacketPayload(kind, payload) {
     if (_packetContract && typeof _packetContract.validatePacketPayload === "function") {
@@ -30,6 +37,24 @@
     if (kind === "display.replace" && (!payload || !payload.display || typeof payload.display !== "object")) { return "display.replace packet missing display"; }
     if (kind === "widget.append_text" && (!payload || !payload.frame_id || !payload.widget_id || payload.text == null || !Number.isFinite(Number(payload.append_seq)))) { return "widget.append_text packet missing append payload"; }
     if (kind === "geom.color.patch" && (!payload || !payload.frame_id || !Number.isFinite(Number(payload.object_id)) || Number(payload.object_id) <= 0 || payload.color == null)) { return "geom.color.patch packet missing color payload"; }
+    if (kind === "__vf_internal_html.patch") {
+      var patch = payload && payload.__vf_internal_retained_html_patch;
+      var owner = patch && patch.owner;
+      var mutation = patch && patch.mutation;
+      var tag = mutation && mutation.tag;
+      var name = mutation && mutation.name;
+      var malformed = !hasExactKeys(payload, ["__vf_internal_retained_html_patch"]) ||
+        !hasExactKeys(patch, ["version", "owner", "target", "mutation"]) || patch.version !== 1 ||
+        !hasExactKeys(owner, ["kind", "id"]) ||
+        !owner || (owner.kind !== "frame" && owner.kind !== "display") ||
+        typeof owner.id !== "string" || !owner.id ||
+        !Number.isInteger(patch.target) || patch.target < 0 ||
+        !hasExactKeys(mutation, ["tag", "name", "value"]) ||
+        !mutation || (tag !== 1 && tag !== 2) || typeof name !== "string" ||
+        typeof mutation.value !== "string" || (tag === 1 && name !== "") ||
+        (tag === 2 && (!name || /^on/i.test(name)));
+      if (malformed) { return "private retained HTML patch is malformed"; }
+    }
     return "";
   }
 
@@ -52,6 +77,7 @@
     var getRuntimeSource = options.getRuntimeSource || function() { return null; };
     var applySceneCommands = options.applySceneCommands || function() {};
     var runPureDemand = options.__internalRunPureDemand || null;
+    var applyInternalHtmlPatchPacket = options.applyInternalHtmlPatchPacket || null;
     var state = options.state || {};
     var BOOTSTRAP_COALESCE_KINDS = _packetContract && _packetContract.BOOTSTRAP_COALESCE_KINDS || FALLBACK_BOOTSTRAP_COALESCE_KINDS;
     var pureDemandQueue = [];
@@ -294,6 +320,13 @@
         var patchPayloadError = validatePacketPayload(kind, payload);
         if (patchPayloadError) { throw strictPacketRouteError(patchPayloadError); }
       }
+      if (kind === "__vf_internal_html.patch") {
+        var htmlPatchPayloadError = validatePacketPayload(kind, payload);
+        if (htmlPatchPayloadError) { throw strictPacketRouteError(htmlPatchPayloadError); }
+        if (typeof applyInternalHtmlPatchPacket !== "function") {
+          throw strictPacketRouteError("private retained HTML patch requires scene adapter");
+        }
+      }
     }
 
     function routeRuntimePacket(packet) {
@@ -304,6 +337,20 @@
       var kind = String(packet.kind || "");
       runtimeLog("info", "routeRuntimePacket: seq=" + String(packet.seq) + " kind=" + kind);
       var payload = packet.payload;
+      if (kind === "__vf_internal_html.patch") {
+        if (typeof applyInternalHtmlPatchPacket === "function") {
+          applyInternalHtmlPatchPacket(packet);
+        }
+        if (Number.isFinite(seq) && seq > Number(state.lastRuntimePacketSeq || 0)) {
+          state.lastRuntimePacketSeq = seq;
+        }
+        state.packetModeActive = true;
+        enterActiveStream("packet seq=" + String(packet.seq));
+        if (state.legacyFallbackActive) {
+          stopLegacyFallback();
+        }
+        return;
+      }
       if (kind === "scene.replace" && payload && Array.isArray(payload.commands)) {
         runtimeLog("info", "routeRuntimePacket: scene.replace commands=" + payload.commands.length);
         applySceneCommands(payload.commands);

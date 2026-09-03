@@ -3,6 +3,7 @@
 #include "native/VfOverlay/vf/json.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -13,8 +14,8 @@ namespace vkf::wasm {
 
 class TypedIrModelError : public std::runtime_error {
 public:
-    explicit TypedIrModelError(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit TypedIrModelError(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 struct TypeAliasDeclaration {
@@ -45,7 +46,7 @@ struct ExpressionStatement {
     std::size_t source_index = 0;
 };
 
-enum class ModuleItemKind {
+enum class ModuleItemKind : std::uint8_t {
     TypeAlias,
     Function,
     RuntimeBinding,
@@ -237,10 +238,11 @@ inline TypedModule parse_typed_module(const vf::JsonValue& typed_ir) {
             continue;
         }
 
-        throw TypedIrModelError(
-            "unsupported top-level typed IR declaration kind " + kind
-            + " in " + context
-        );
+        std::string message = "unsupported top-level typed IR declaration kind ";
+        message += kind;
+        message += " in ";
+        message += context;
+        throw TypedIrModelError(message);
     }
 
     return module;

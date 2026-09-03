@@ -1,0 +1,10 @@
+: .ui.display
+:.math
+
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])
+theta: [..720] / 720 * (2 * pi)
+outer: 0.62 + 0.06 * sin(6 * theta)
+inner: outer - 0.08
+frame.add(x:outer * cos(theta), y:outer * sin(theta), id:"polar_ribbon", color:[0.7, 0.3, 1, 1])
+frame.add(x:inner * cos(theta), y:inner * sin(theta), id:"inner_edge", color:[0.25, 0.75, 1, 1])

@@ -1,0 +1,121 @@
+SelectorPoint(x:num, y:num): (x:x, y:y)
+
+SelectorRow(label:str, count:num): (label:label, count:count)
+
+MixedNumeric(whole:int, fraction:num): (whole:whole, fraction:fraction)
+
+select_coordinate(point:SelectorPoint, name:str) -> num:
+    point.(name)
+
+select_mixed_numeric(row:MixedNumeric, name:str) -> num:
+    row.(name)
+
+coordinate_name(use_x:bit) -> str:
+    use_x? @: "x"
+    @: "y"
+
+StringPair(first:str, second:str): (first:first, second:second)
+
+select_text(pair:StringPair, name:str) -> str:
+    picked: pair.(name)
+    picked
+
+select_text_from_local(name:str) -> str:
+    pair: StringPair("local-left", "local-right")
+    picked: pair.(name)
+    picked
+
+fixed_homogeneous_selector_preserves_order() -> bit:
+    point: SelectorPoint(3, 4)
+    (point.(["y", "x"]) == [4.0, 3.0])?!
+
+fixed_heterogeneous_selector_returns_tuple() -> bit:
+    row: SelectorRow("three", 3)
+    (row.(["count", "label"]) == (3.0, "three"))?!
+
+normal_numeric_promotion_produces_one_num_result_type() -> bit:
+    row: MixedNumeric(3, 4.5)
+    (row.(["whole", "fraction"]) == [3.0, 4.5] /\
+     select_mixed_numeric(row, "whole") == 3 /\
+     select_mixed_numeric(row, "fraction") == 4.5)?!
+
+reflected_keys_select_unnamed_values() -> bit:
+    row: SelectorRow("four", 4)
+    (row.([:row]) == ("four", 4.0))?!
+
+scalar_string_selector_returns_scalar() -> bit:
+    point: SelectorPoint(5, 6)
+    (point.("x") == 5)?!
+
+dynamic_string_selector_reads_homogeneous_fields() -> bit:
+    point: SelectorPoint(7, 8)
+    (select_coordinate(point, "x") == 7 /\
+     select_coordinate(point, "y") == 8)?!
+
+dynamic_owned_selector_string_is_released_after_selection() -> bit:
+    point: SelectorPoint(11, 12)
+    (point.(coordinate_name(true)) == 11 /\
+     point.(coordinate_name(false)) == 12)?!
+
+dynamic_string_selector_preserves_owned_strings() -> bit:
+    pair: StringPair("left", "right")
+    (select_text(pair, "first") == "left" /\
+     select_text(pair, "second") == "right" /\
+     select_text_from_local("first") == "local-left" /\
+     select_text_from_local("second") == "local-right")?!
+
+dynamic_unknown_key_rejects_without_crashing() -> bit:
+    caught: 0
+    point: SelectorPoint(7, 8)
+    select_coordinate(point, "missing")!?
+        errors.Error => .caught: 1
+    (caught == 1)?!
+
+FallbackPair: (x:num, y:num)
+
+.(pair:FallbackPair, key:str) -> num:
+    key == "left"? @: pair.x
+    key == "right"? @: pair.y
+    @: 0
+
+fallback_name() -> str:
+    @: "left"
+
+real_fields_precede_dot_overload_and_missing_fields_fall_back() -> bit:
+    FallbackPair pair: (x:9, y:10)
+    (pair.("x") == 9 /\ pair.("left") == 9)?!
+
+select_fallback(pair:FallbackPair, key:str) -> num:
+    pair.(key)
+
+dynamic_real_fields_precede_missing_key_fallback() -> bit:
+    FallbackPair pair: (x:9, y:10)
+    (select_fallback(pair, "x") == 9 /\
+     select_fallback(pair, "left") == 9 /\
+     select_fallback(pair, "right") == 10 /\
+     select_fallback(pair, "other") == 0 /\
+     pair.(fallback_name()) == 9 /\
+     pair.(["x", "left", "y"]) == [9.0, 9.0, 10.0])?!
+
+repeated_selector_keys_preserve_lanes() -> bit:
+    point: SelectorPoint(3, 4)
+    row: SelectorRow("three", 3)
+    (point.(["x", "x"]) == [3.0, 3.0] /\
+     row.(["label", "count", "label"]) == ("three", 3.0, "three"))?!
+
+# Empty-record fallback is covered by the compiler test because the direct
+# machine runtime does not yet materialize zero-field nominal constructors.
+
+StringFallback(first:str, second:str): (first:first, second:second)
+
+.(value:StringFallback, key:str) -> str:
+    @: "fallback"
+
+select_string_fallback_from_local(key:str) -> str:
+    value: StringFallback("real", "other")
+    selected: value.(key)
+    selected
+
+real_and_missing_string_results_have_independent_lifetimes() -> bit:
+    (select_string_fallback_from_local("first") == "real" /\
+     select_string_fallback_from_local("virtual") == "fallback")?!

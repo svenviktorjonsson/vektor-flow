@@ -24,8 +24,8 @@ constexpr const char* compiler_version = "vkf-artifact-smoke-0.2";
 
 class ArtifactFailure : public std::runtime_error {
 public:
-    explicit ArtifactFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit ArtifactFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 struct StoredValue {
@@ -174,7 +174,7 @@ std::string stem_of(const std::filesystem::path& source) {
 }
 
 std::string artifact_stem_of(const std::filesystem::path& source) {
-    const std::string stem = stem_of(source);
+    std::string stem = stem_of(source);
     constexpr std::size_t max_stem_length = 16;
     if (stem.size() <= max_stem_length) {
         return stem;
@@ -1273,7 +1273,17 @@ private:
                     try {
                         last = ImportedExprParser(module_, env, expression).parse_value();
                     } catch (const ArtifactFailure& failure) {
-                        throw ArtifactFailure("in imported binding " + name + " = " + expression + ": " + failure.what());
+                        std::string message;
+                        message.reserve(
+                            27u + name.size() + expression.size() +
+                            std::char_traits<char>::length(failure.what()));
+                        message.append("in imported binding ")
+                            .append(name)
+                            .append(" = ")
+                            .append(expression)
+                            .append(": ")
+                            .append(failure.what());
+                        throw ArtifactFailure(message);
                     }
                     env[name] = last;
                     continue;
@@ -1358,10 +1368,6 @@ std::string eval_value(const vf::JsonValue& value, const ValueTable& values, con
 std::string eval_block_value(const vf::JsonValue& block, ValueTable& values, const ImportTable& imports, const LocalFunctionTable& functions, const StdlibExportTable& stdlib_exports, const std::string& ctor_name = "", std::vector<std::string>* output_lines = nullptr);
 std::string eval_match_stmt_value(const vf::JsonValue& value, ValueTable& values, const ImportTable& imports, const LocalFunctionTable& functions, const StdlibExportTable& stdlib_exports, const std::string& ctor_name = "", std::vector<std::string>* output_lines = nullptr);
 bool eval_condition_value(const vf::JsonValue& value, const ValueTable& values, const ImportTable& imports, const LocalFunctionTable& functions, const StdlibExportTable& stdlib_exports, const std::string& ctor_name = "");
-
-bool is_ui_placeholder(const std::string& rendered) {
-    return rendered.rfind("__ui_", 0) == 0;
-}
 
 double eval_numeric_value(const vf::JsonValue& value, const ValueTable& values, const ImportTable& imports, const LocalFunctionTable& functions, const StdlibExportTable& stdlib_exports, const std::string& ctor_name) {
     const auto& object = object_of(value, "typed IR numeric value");
@@ -1564,6 +1570,7 @@ std::string eval_call(
                 }
                 if (param.variadic_named) {
                     std::vector<std::pair<std::string, std::string>> rest_fields;
+                    rest_fields.reserve(named_values.size());
                     for (const auto& pair : named_values) {
                         rest_fields.push_back(pair);
                     }
@@ -1687,6 +1694,7 @@ std::string eval_call(
                         max_abs = std::max(max_abs, std::abs(x));
                     }
                     std::vector<std::string> items;
+                    items.reserve(xs.size());
                     for (double x : xs) {
                         items.push_back(format_number(max_abs == 0.0 ? 0.0 : x / max_abs));
                     }
@@ -1694,6 +1702,7 @@ std::string eval_call(
                 }
                 const double sigma = stat_std(xs);
                 std::vector<std::string> items;
+                items.reserve(xs.size());
                 for (double x : xs) {
                     items.push_back(format_number(sigma == 0.0 ? 0.0 : (x - mu) / sigma));
                 }
@@ -2122,6 +2131,7 @@ std::string eval_value(const vf::JsonValue& value, const ValueTable& values, con
                         out += ", ";
                     }
                     std::vector<std::string> row;
+                    row.reserve(right_values.size());
                     for (double right : right_values) {
                         row.push_back(format_number(left_values[i] * right));
                     }
@@ -2224,6 +2234,7 @@ std::string eval_value(const vf::JsonValue& value, const ValueTable& values, con
             );
             const double right = eval_numeric_value(field(object, "right", "binary_op"), values, imports, functions, stdlib_exports, ctor_name);
             std::vector<std::string> out;
+            out.reserve(left.size());
             for (double value : left) {
                 out.push_back(format_number(op == "STAR" ? value * right : value / right));
             }
@@ -2235,6 +2246,7 @@ std::string eval_value(const vf::JsonValue& value, const ValueTable& values, con
                 eval_value(field(object, "right", "binary_op"), values, imports, functions, stdlib_exports, ctor_name, output_lines)
             );
             std::vector<std::string> out;
+            out.reserve(right.size());
             for (double value : right) {
                 out.push_back(format_number(left * value));
             }
@@ -2265,6 +2277,7 @@ std::string eval_value(const vf::JsonValue& value, const ValueTable& values, con
                     const std::vector<double> left = parse_numeric_sequence_string(left_rendered);
                     const double right = std::stod(right_rendered);
                     std::vector<std::string> out;
+                    out.reserve(left.size());
                     for (double value : left) {
                         out.push_back(format_number(op == "STAR" ? value * right : value / right));
                     }
@@ -2277,6 +2290,7 @@ std::string eval_value(const vf::JsonValue& value, const ValueTable& values, con
                     const double left = std::stod(left_rendered);
                     const std::vector<double> right = parse_numeric_sequence_string(right_rendered);
                     std::vector<std::string> out;
+                    out.reserve(right.size());
                     for (double value : right) {
                         out.push_back(format_number(left * value));
                     }
@@ -2582,7 +2596,10 @@ std::string eval_block_value(const vf::JsonValue& block, ValueTable& values, con
             const std::string label = string_field(stmt_object, "label", "label_print");
             const std::string rendered = eval_value(field(stmt_object, "value", "label_print"), values, imports, functions, stdlib_exports, ctor_name, output_lines);
             if (output_lines != nullptr) {
-                output_lines->push_back(label + ": " + rendered);
+                std::string line;
+                line.reserve(label.size() + rendered.size() + 2u);
+                line.append(label).append(": ").append(rendered);
+                output_lines->push_back(std::move(line));
             }
             last_value.clear();
             continue;
@@ -2811,8 +2828,9 @@ std::string best_effort_value(const vf::JsonValue& value, const ValueTable& valu
     }
 }
 
-std::string escape_cmd_echo(std::string text) {
+std::string escape_cmd_echo(const std::string& text) {
     std::string out;
+    out.reserve(text.size());
     for (char ch : text) {
         if (ch == '^' || ch == '&' || ch == '|' || ch == '<' || ch == '>') {
             out.push_back('^');
@@ -3311,6 +3329,7 @@ int main(int argc, char** argv) {
 
         const std::string source_text = read_file(args.source);
         std::vector<Dependency> dependencies;
+        dependencies.reserve(args.dependencies.size());
         for (const auto& dependency : args.dependencies) {
             dependencies.push_back({dependency.first, dependency.second, stable_hash(read_file(dependency.second))});
         }

@@ -32,8 +32,8 @@ piece_at(board:any, file:num, rank:num) -> Piece:
         found.side = Side.none?
             p.captured = false?
                 rules.same_square(p, file, rank)?
-                    found: p
-        i: i + 1
+                    .found: p
+        .i: i + 1
     @: found
 
 target_side_at(state:GameState, file:num, rank:num) -> num:
@@ -57,14 +57,14 @@ path_clear_on_board(board:any, piece:Piece, to_file:num, to_rank:num) -> bit:
     done = false?>
         f = to_file?
             r = to_rank?
-                done: true
+                .done: true
         done = false?
             piece_at(board, f, r).side ~= Side.none?
-                clear: false
-                done: true
+                .clear: false
+                .done: true
         done = false?
-            f: f + df
-            r: r + dr
+            .f: f + df
+            .r: r + dr
     @: clear
 
 path_clear_from_board(state:GameState, piece:Piece, to_file:num, to_rank:num) -> bit:
@@ -216,8 +216,8 @@ king_piece_on_board(board:any, side:num) -> Piece:
             p.captured = false?
                 p.side = side?
                     p.role = PieceRole.king?
-                        found: p
-        i: i + 1
+                        .found: p
+        .i: i + 1
     @: found
 
 piece_attacks_square(board:any, attacker:Piece, file:num, rank:num) -> bit:
@@ -250,8 +250,8 @@ square_attacked_by(board:any, side:num, file:num, rank:num) -> bit:
             p.captured = false?
                 p.side = side?
                     piece_attacks_square(board, p, file, rank)?
-                        attacked: true
-        i: i + 1
+                        .attacked: true
+        .i: i + 1
     @: attacked
 
 king_safe_on_board(board:any, side:num) -> bit:
@@ -441,17 +441,17 @@ direction_has_legal_move(state:GameState, piece:Piece, df:num, dr:num) -> bit:
     done: false
     done = false?>
         within_board(f, r) = false?
-            done: true
+            .done: true
         done = false?
             move_legal_from_board(state, piece, f, r)?
-                found: true
-                done: true
+                .found: true
+                .done: true
         done = false?
             piece_at(state.board, f, r).side ~= Side.none?
-                done: true
+                .done: true
         done = false?
-            f: f + df
-            r: r + dr
+            .f: f + df
+            .r: r + dr
     @: found
 
 rook_has_legal_move(state:GameState, piece:Piece) -> bit:

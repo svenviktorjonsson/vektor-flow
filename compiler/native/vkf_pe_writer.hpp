@@ -74,6 +74,8 @@ inline std::uint32_t align_up(std::uint32_t value, std::uint32_t alignment) {
 
 class Bytes {
 public:
+    explicit Bytes(std::size_t capacity = 0) { values.reserve(capacity); }
+
     std::vector<std::uint8_t> values;
 
     void u8(std::uint8_t value) { values.push_back(value); }
@@ -165,7 +167,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto text_raw_size = detail::align_up(text_size, file_alignment);
     const auto rdata_rva = detail::align_up(text_rva + text_size, section_alignment);
 
-    detail::Bytes rdata;
+    detail::Bytes rdata(2048u + string_data.size());
     rdata.values.resize(60, 0);
     const auto msvcrt_lookup = detail::align_up(static_cast<std::uint32_t>(rdata.values.size()), 8);
     struct ImportEntry {
@@ -270,7 +272,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto kernel_iat_offset = static_cast<std::uint32_t>((msvcrt_imports.size() + 1) * 8);
     rdata.set_u32(36, idata_rva + kernel_iat_offset);
 
-    detail::Bytes idata;
+    detail::Bytes idata(512u);
     for (const auto& imported : msvcrt_imports) idata.u64(rdata_rva + imported.name_offset);
     idata.u64(0);
     for (const auto& imported : kernel_imports) idata.u64(rdata_rva + imported.name_offset);
@@ -282,7 +284,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto idata_raw_offset = rdata_raw_offset + rdata_raw_size;
     const auto image_size = detail::align_up(idata_rva + idata_raw_size, section_alignment);
 
-    detail::Bytes out;
+    detail::Bytes out(idata_raw_offset + idata_raw_size);
     out.u16(0x5a4d); out.values.resize(0x40, 0); out.set_u32(0x3c, 0x80); out.pad_to(0x80);
     out.u32(0x00004550); out.u16(0x8664); out.u16(3); out.u32(0); out.u32(0); out.u32(0);
     out.u16(240); out.u16(0x22);

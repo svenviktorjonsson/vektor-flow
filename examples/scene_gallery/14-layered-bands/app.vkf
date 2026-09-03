@@ -1,0 +1,10 @@
+: .ui.display
+:.math
+
+display: Display(dim:2)
+frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])
+x: [..512] / 256 - 1
+wave: 0.12 * sin(2 * pi * x)
+frame.add(x:x, y:wave - 0.58, id:"lower_band", color:[0.1, 0.5, 0.98, 1])
+frame.add(x:x, y:wave, id:"middle_band", color:[0.18, 0.82, 0.5, 1])
+frame.add(x:x, y:wave + 0.58, id:"upper_band", color:[0.98, 0.38, 0.14, 1])

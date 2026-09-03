@@ -1,0 +1,25 @@
+ui:.ui
+ui.set_mode("overlay")
+
+native_scene:(
+    kind:"scene_3d",
+    frame_id:"dice_frame",
+    title:"Procedural dice",
+    rect:[0.08, 0.08, 0.84, 0.84],
+    background:[0.025, 0.04, 0.075, 1],
+    camera:(pos:[4.8, -6.8, 4.5], target:[0, 0.3, 1.25], up:[0, 0, 1], fov:34),
+    plane:(center:[0, 0], size:8, z:0, color:[0.2, 0.26, 0.24, 1], texture:(kind:"checker", scale:[1, 1], color_a:[0.08, 0.12, 0.14, 1], color_b:[0.38, 0.44, 0.42, 1])),
+    cubes:[(
+        id:"die", center:[0, 0.3, 1.2], size:2.4,
+        rotation:[0, 0, 12],
+        face_color:[0.98, 0.98, 1, 1],
+        texture:(kind:"dice", color_a:[0.98, 0.98, 1, 1], color_b:[0.025, 0.025, 0.035, 1]),
+        roughness:0.18, specular_strength:0.55,
+        casts_shadow:true, receives_shadow:true
+    )],
+    lights:[
+        (id:"key", kind:"point", pos:[-4, -4, 7], color:[1, 0.86, 0.68, 1], intensity:28, range:20, casts_shadow:true, source_radius:0.16),
+        (id:"fill", kind:"point", pos:[4, -2, 4.5], color:[0.52, 0.72, 1, 1], intensity:18, range:18)
+    ],
+    shadow:(enabled:true, color:[0, 0, 0, 0.28], lift:0.002)
+)

@@ -1,0 +1,156 @@
+{
+  "schema": "vkf.large-scene-visualization",
+  "schemaVersion": 1,
+  "implementations": [
+    "vkf",
+    "deck-gl",
+    "vtk-js",
+    "plotly-scattergl"
+  ],
+  "peers": [
+    {
+      "id": "deck-gl",
+      "package": "@deck.gl/core + @deck.gl/layers",
+      "version": "9.3.11",
+      "officialSource": "https://deck.gl/docs/developer-guide/performance",
+      "adapterContract": "ScatterplotLayer with binary x/y positions, radiusUnits=pixels, fixed color, no map or picking"
+    },
+    {
+      "id": "vtk-js",
+      "package": "@kitware/vtk.js",
+      "version": "36.10.0",
+      "officialSource": "https://kitware.github.io/vtk-js/api/Rendering_Core_SphereMapper.html",
+      "adapterContract": "static vtkSphereMapper with parallel projection, radius fixed to the 2px diameter at the pinned scale, flat unlit color, no picking"
+    },
+    {
+      "id": "plotly-scattergl",
+      "package": "plotly.js-dist-min",
+      "version": "4.0.0",
+      "officialSource": "https://plotly.com/javascript/webgl-vs-svg/",
+      "adapterContract": "one scattergl markers trace with fixed ranges, hidden axes/margins, hover disabled, fixed color and size"
+    }
+  ],
+  "workloads": [
+    {
+      "id": "orthographic-points-100k-static",
+      "pointCount": 100000,
+      "fixture": {
+        "generator": "vkf-point-mix-v1",
+        "seed": 144862629,
+        "layout": "interleaved x,y float32 little-endian",
+        "sha256": "c1b3e0a927e822fc113ac65c24254565a00ed0794a1bdb59fe0001c0fcb87e63"
+      },
+      "viewport": [1280, 720],
+      "devicePixelRatio": 1,
+      "primitive": "screen-space circular point",
+      "pointDiameterPixels": 2,
+      "pointRgba": [51, 179, 230, 255],
+      "backgroundRgba": [3, 3, 3, 255],
+      "projection": "orthographic",
+      "dataMutation": "none",
+      "perFrameOperation": "none; fixed camera",
+      "comparableImplementations": ["vkf", "deck-gl", "vtk-js", "plotly-scattergl"],
+      "nonComparableImplementations": [],
+      "adapterCalibration": {
+        "plotly-scattergl": {
+          "markerSizePixels": 2.4,
+          "targetDiameterPixels": 2,
+          "basis": "sampled-frame-regions-v1 framebuffer coverage"
+        }
+      },
+      "cameraPath": {
+        "kind": "fixed",
+        "frames": 1,
+        "formula": "offset=[0,0]",
+        "xRange": [-1, 1],
+        "yRange": [-1, 1]
+      },
+      "correctness": {
+        "oracle": "sampled-frame-regions-v1",
+        "reference": "ideal-disc-source-over-v1",
+        "subpixelsPerAxis": 8,
+        "regionChannels": [
+          "foreground-coverage",
+          "premultiplied-r",
+          "premultiplied-g",
+          "premultiplied-b",
+          "alpha"
+        ],
+        "checkpoints": [0],
+        "grid": [16, 9],
+        "maxRegionError": 0.08,
+        "requiresFramebufferReadback": true
+      }
+    },
+    {
+      "id": "orthographic-points-1m-pan",
+      "pointCount": 1000000,
+      "fixture": {
+        "generator": "vkf-point-mix-v1",
+        "seed": 144862629,
+        "layout": "interleaved x,y float32 little-endian",
+        "sha256": "1520b7e81a98109b762d554900540824cb942b4f7c6bfc44b5695035893d9e5d"
+      },
+      "viewport": [1280, 720],
+      "devicePixelRatio": 1,
+      "primitive": "screen-space circular point",
+      "pointDiameterPixels": 2,
+      "pointRgba": [51, 179, 230, 255],
+      "backgroundRgba": [3, 3, 3, 255],
+      "projection": "orthographic",
+      "dataMutation": "none",
+      "perFrameOperation": "camera-only pan; position buffers remain unchanged",
+      "comparableImplementations": ["vkf", "deck-gl", "vtk-js"],
+      "nonComparableImplementations": [
+        {
+          "id": "plotly-scattergl",
+          "reason": "public Plotly.relayout camera updates reupload the immutable x/y point buffers"
+        }
+      ],
+      "cameraPath": {
+        "kind": "sinusoidal-pan",
+        "frames": 240,
+        "formula": "phase=2*pi*frame/frames; offset=[xAmplitude*sin(phase),yAmplitude*cos(phase)]",
+        "xRange": [-1, 1],
+        "yRange": [-1, 1],
+        "xAmplitude": 0.2,
+        "yAmplitude": 0.1
+      },
+      "correctness": {
+        "oracle": "sampled-frame-regions-v1",
+        "reference": "ideal-disc-source-over-v1",
+        "subpixelsPerAxis": 8,
+        "regionChannels": [
+          "foreground-coverage",
+          "premultiplied-r",
+          "premultiplied-g",
+          "premultiplied-b",
+          "alpha"
+        ],
+        "checkpoints": [0, 60, 120, 180, 239],
+        "grid": [16, 9],
+        "maxRegionError": 0.08,
+        "requiresFramebufferReadback": true
+      }
+    }
+  ],
+  "measurement": {
+    "minimumWarmupFrames": 60,
+    "minimumMeasuredFrames": 120,
+    "ratchetMetric": "steady-frame-ms",
+    "statistic": "median",
+    "timingBoundary": "camera update through explicit GPU completion; WebGL gl.finish or WebGPU queue.onSubmittedWorkDone",
+    "preparationReportedSeparately": true,
+    "order": "rotated by implementation for each repeat"
+  },
+  "releaseGates": {
+    "0.4.0": {
+      "status": "active",
+      "maxVkfToPeerRatioExclusive": 1.5
+    },
+    "0.6.0": {
+      "status": "deferred",
+      "maxVkfToPeerRatioExclusive": 0.5
+    }
+  }
+}

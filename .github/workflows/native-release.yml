@@ -15,8 +15,8 @@ permissions:
   contents: write
 
 env:
-  VKF_RELEASE_VERSION: "0.3.0"
-  VKF_PROOF_SUFFIX: "030"
+  VKF_RELEASE_VERSION: "0.4.0"
+  VKF_PROOF_SUFFIX: "040"
   ZIG_VERSION: "0.16.0"
   ZIG_LINUX_X64_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
 
@@ -53,11 +53,29 @@ jobs:
       - name: Verify linalg, physics, and symbolic native-WASM parity
         run: node tools/verify-stdlib-wasm.mjs
 
+      - name: Build embedded native UI runtime
+        shell: pwsh
+        run: .\scripts\build-native-ui-package.ps1
+
       - name: Package portable release
         shell: pwsh
         run: |
           $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "$env:VKF_RELEASE_VERSION-dev" }
-          .\scripts\package-native-release.ps1 -Version $version
+          .\scripts\package-native-release.ps1 -Version $version -UiBinaryDirectory build/v
+
+      - name: Verify portable dependency closure
+        shell: pwsh
+        run: |
+          node tools/verify-windows-release-closure.mjs `
+            --release-root=dist/releases/vektor-flow-windows-x64 `
+            --probe-toolchain-free `
+            --probe-root=build/release-dependency-probe |
+            Set-Content -LiteralPath dist/releases/windows-x64-dependency-closure.json -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\trace-native-release-modules.ps1 `
+            -ReleaseRoot dist/releases/vektor-flow-windows-x64 `
+            -WorkRoot build/release-module-trace |
+            Set-Content -LiteralPath dist/releases/windows-x64-loaded-modules.json -Encoding utf8
 
       - name: Build installer
         shell: pwsh
@@ -73,6 +91,8 @@ jobs:
             dist/releases/vektor-flow-windows-x64.zip.sha256
             dist/releases/vektor-flow-windows-x64-setup.exe
             dist/releases/vektor-flow-windows-x64-setup.exe.sha256
+            dist/releases/windows-x64-dependency-closure.json
+            dist/releases/windows-x64-loaded-modules.json
           if-no-files-found: error
 
   linux-x64:
@@ -231,16 +251,16 @@ jobs:
           node benchmarks/policy-landscape/run.mjs
           --compiler=build/native-compiler-clang/bin/vkf-strict.exe
           --runs=200
-          --output=benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci-${{ github.run_id }}
+          --output=benchmarks/policy-landscape/evidence/windows-x64-v${{ env.VKF_RELEASE_VERSION }}-ci-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-x64-policy-landscape-proof
           path: |
-            benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci-${{ github.run_id }}.json
-            benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci-${{ github.run_id }}.md
-            benchmarks/policy-landscape/evidence/windows-x64-v0.3.0-ci-${{ github.run_id }}.svg
+            benchmarks/policy-landscape/evidence/windows-x64-v${{ env.VKF_RELEASE_VERSION }}-ci-${{ github.run_id }}.json
+            benchmarks/policy-landscape/evidence/windows-x64-v${{ env.VKF_RELEASE_VERSION }}-ci-${{ github.run_id }}.md
+            benchmarks/policy-landscape/evidence/windows-x64-v${{ env.VKF_RELEASE_VERSION }}-ci-${{ github.run_id }}.svg
           if-no-files-found: error
 
   examples-windows-x64:
@@ -490,6 +510,29 @@ jobs:
             benchmarks/symbolic-comparison/results/linux-x64-${{ env.VKF_PROOF_SUFFIX }}-${{ github.run_id }}.md
           if-no-files-found: error
 
+  visual-evidence:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify committed visual evidence
+        run: node tools/verify-040-release-evidence.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-visual-evidence-proof
+          path: |
+            docs/evidence/040-g09-head-large-scene-peer-timing.md
+            docs/evidence/artifacts/040-g09-large-scene-peer-timing.json
+            docs/evidence/040-retained-cloud-indicator.md
+            docs/evidence/artifacts/040-retained-cloud-indicator.json
+            docs/evidence/artifacts/040-retained-cloud-indicator-captures/
+          if-no-files-found: error
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
@@ -503,6 +546,7 @@ jobs:
       - examples-linux-x64
       - core-linux-x64
       - symbolic-comparison-linux-x64
+      - visual-evidence
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

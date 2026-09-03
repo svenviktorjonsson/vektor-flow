@@ -1,3 +1,8 @@
+#include "vkf_static_html_bundle.hpp"
+#include "vkf_retained_scene_packet.hpp"
+#include "vkf_native_scene_lowering.hpp"
+#include "vkf_world_mesh_packet.hpp"
+
 #include <cstdint>
 #include <algorithm>
 #include <array>
@@ -22,14 +27,37 @@ namespace {
 
 constexpr const char* kNativeSceneCompilerVersion = "vkf-native-scene-compiler-0.1";
 
+std::filesystem::path long_io_path(const std::filesystem::path& path) {
+#if defined(_WIN32)
+    std::error_code error;
+    const std::filesystem::path absolute = std::filesystem::absolute(path, error);
+    const std::wstring native = (error ? path : absolute).lexically_normal().wstring();
+    if (native.rfind(L"\\\\?\\", 0) == 0) {
+        return std::filesystem::path(native);
+    }
+    if (native.rfind(L"\\\\", 0) == 0) {
+        return std::filesystem::path(L"\\\\?\\UNC\\" + native.substr(2));
+    }
+    return std::filesystem::path(L"\\\\?\\" + native);
+#else
+    return path;
+#endif
+}
+
 struct Args {
     std::filesystem::path source;
     std::filesystem::path overlay_web;
+    std::filesystem::path typed_ir;
+    std::filesystem::path wasm_artifact;
+    std::filesystem::path wasm_manifest;
+    std::filesystem::path webgpu_artifact;
+    std::filesystem::path webgpu_manifest;
     std::string scene_config_json = "{}";
     std::string runtime_packets_json = "[]";
     std::string geom_transport_json = "{}";
     std::string geom_state_json = "{}";
     std::string event_program_json = "{}";
+    std::vector<vf::static_html::Bundle> static_html_bundles;
     bool scene_config_supplied = false;
     bool runtime_packets_supplied = false;
 };
@@ -42,7 +70,9 @@ struct ArenaExternalization {
 struct CompiledUiSceneBundle {
     std::string scene_config_json;
     std::string runtime_packets_json;
+    std::string event_program_json = "{}";
     std::string provenance;
+    std::vector<vf::static_html::Bundle> static_html_bundles;
 };
 
 struct ArtifactInputProvenance {
@@ -58,7 +88,7 @@ public:
 };
 
 std::string read_file_bytes(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
+    std::ifstream input(long_io_path(path), std::ios::binary);
     if (!input) {
         throw StagerError("could not read " + path.string());
     }
@@ -68,27 +98,78 @@ std::string read_file_bytes(const std::filesystem::path& path) {
 }
 
 void write_file(const std::filesystem::path& path, const std::string& text, bool refresh_unchanged = false) {
-    std::filesystem::create_directories(path.parent_path());
+    const std::filesystem::path io_path = long_io_path(path);
+    std::filesystem::create_directories(io_path.parent_path());
     std::error_code ec;
-    if (std::filesystem::exists(path, ec) && read_file_bytes(path) == text) {
+    if (std::filesystem::exists(io_path, ec) && read_file_bytes(io_path) == text) {
         if (refresh_unchanged) {
-            std::filesystem::last_write_time(path, std::filesystem::file_time_type::clock::now(), ec);
+            std::filesystem::last_write_time(io_path, std::filesystem::file_time_type::clock::now(), ec);
         }
         return;
     }
-    std::ofstream output(path, std::ios::binary);
+    std::ofstream output(io_path, std::ios::binary);
     if (!output) {
         throw StagerError("could not write " + path.string());
     }
     output << text;
 }
 
+std::string portable_compiled_manifest(
+    const std::string& text,
+    const std::string& artifact_name
+) {
+    try {
+        vf::JsonValue manifest = vf::parse_json(text);
+        if (!manifest.is_object()) {
+            throw StagerError("compiled UI manifest must be a JSON object");
+        }
+        manifest.as_object()["artifact_path"] = vf::JsonValue(artifact_name);
+        manifest.as_object()["status"] = vf::JsonValue("compiled");
+        return vf::json_stringify(manifest, 2) + "\n";
+    } catch (const StagerError&) {
+        throw;
+    } catch (const std::exception& error) {
+        throw StagerError(
+            "could not normalize compiled UI manifest: " +
+            std::string(error.what()));
+    }
+}
+
+bool compiled_manifest_has_retained_scene_arena(
+    const std::filesystem::path& manifest_path
+) {
+    if (manifest_path.empty()) {
+        return false;
+    }
+    try {
+        const vf::JsonValue manifest = vf::parse_json(
+            read_file_bytes(std::filesystem::absolute(manifest_path)));
+        if (!manifest.is_object()) {
+            return false;
+        }
+        const auto runtime_surface = manifest.as_object().find("runtime_surface");
+        if (runtime_surface == manifest.as_object().end() ||
+            !runtime_surface->second.is_object()) {
+            return false;
+        }
+        const auto retained = runtime_surface->second.as_object().find(
+            "retained_scene_arena");
+        return retained != runtime_surface->second.as_object().end() &&
+            retained->second.is_object();
+    } catch (const std::exception& error) {
+        throw StagerError(
+            "could not inspect compiled WASM manifest: " +
+            std::string(error.what()));
+    }
+}
+
 void remove_prior_generated_scene_artifacts(const std::filesystem::path& session_dir, const std::vector<std::string>& keep_names) {
+    const std::filesystem::path io_session_dir = long_io_path(session_dir);
     std::error_code ec;
-    if (!std::filesystem::exists(session_dir, ec)) {
+    if (!std::filesystem::exists(io_session_dir, ec)) {
         return;
     }
-    for (std::filesystem::directory_iterator it(session_dir, ec), end; !ec && it != end; it.increment(ec)) {
+    for (std::filesystem::directory_iterator it(io_session_dir, ec), end; !ec && it != end; it.increment(ec)) {
         if (ec || !it->is_regular_file(ec)) {
             continue;
         }
@@ -464,289 +545,14 @@ bool source_has(const std::string& source_text, const std::string& needle) {
     return source_text.find(needle) != std::string::npos;
 }
 
-enum class VkfLiteralKind {
-    Null,
-    Bool,
-    Number,
-    String,
-    Array,
-    Object
-};
 
-struct VkfLiteralValue {
-    VkfLiteralKind kind = VkfLiteralKind::Null;
-    bool bool_value = false;
-    std::string text;
-    std::vector<VkfLiteralValue> array;
-    std::vector<std::pair<std::string, VkfLiteralValue>> object;
-};
-
-class VkfLiteralParser {
-public:
-    VkfLiteralParser(const std::string& source, std::size_t pos)
-        : source_(source), pos_(pos) {}
-
-    VkfLiteralValue parse_value() {
-        skip_ws_and_comments();
-        if (pos_ >= source_.size()) {
-            throw StagerError("native_scene literal ended unexpectedly");
-        }
-        const char ch = source_[pos_];
-        if (ch == '(') {
-            return parse_object(')');
-        }
-        if (ch == '[') {
-            return parse_array();
-        }
-        if (ch == '"') {
-            VkfLiteralValue value;
-            value.kind = VkfLiteralKind::String;
-            value.text = parse_string();
-            return value;
-        }
-        if (ch == '-' || ch == '+' || ch == '.' || std::isdigit(static_cast<unsigned char>(ch))) {
-            VkfLiteralValue value;
-            value.kind = VkfLiteralKind::Number;
-            value.text = parse_number();
-            return value;
-        }
-        if (is_identifier_start(ch)) {
-            const std::string ident = parse_identifier();
-            if (ident == "true" || ident == "false") {
-                VkfLiteralValue value;
-                value.kind = VkfLiteralKind::Bool;
-                value.bool_value = ident == "true";
-                return value;
-            }
-            if (ident == "null") {
-                return {};
-            }
-            VkfLiteralValue value;
-            value.kind = VkfLiteralKind::String;
-            value.text = ident;
-            return value;
-        }
-        throw StagerError(std::string("unexpected character in native_scene literal: ") + ch);
-    }
-
-    std::size_t pos() const {
-        return pos_;
-    }
-
-private:
-    const std::string& source_;
-    std::size_t pos_ = 0;
-
-    static bool is_identifier_start(char ch) {
-        return std::isalpha(static_cast<unsigned char>(ch)) || ch == '_';
-    }
-
-    static bool is_identifier_char(char ch) {
-        return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-';
-    }
-
-    void skip_ws_and_comments() {
-        while (pos_ < source_.size()) {
-            const char ch = source_[pos_];
-            if (std::isspace(static_cast<unsigned char>(ch))) {
-                ++pos_;
-                continue;
-            }
-            if (ch == '#') {
-                while (pos_ < source_.size() && source_[pos_] != '\n') {
-                    ++pos_;
-                }
-                continue;
-            }
-            break;
-        }
-    }
-
-    std::string parse_identifier() {
-        if (pos_ >= source_.size() || !is_identifier_start(source_[pos_])) {
-            throw StagerError("expected identifier in native_scene literal");
-        }
-        const std::size_t start = pos_;
-        ++pos_;
-        while (pos_ < source_.size() && is_identifier_char(source_[pos_])) {
-            ++pos_;
-        }
-        return source_.substr(start, pos_ - start);
-    }
-
-    std::string parse_string() {
-        if (source_[pos_] != '"') {
-            throw StagerError("expected string in native_scene literal");
-        }
-        ++pos_;
-        std::string out;
-        while (pos_ < source_.size()) {
-            const char ch = source_[pos_++];
-            if (ch == '"') {
-                return out;
-            }
-            if (ch == '\\') {
-                if (pos_ >= source_.size()) {
-                    throw StagerError("unterminated string escape in native_scene literal");
-                }
-                const char esc = source_[pos_++];
-                switch (esc) {
-                    case '"': out.push_back('"'); break;
-                    case '\\': out.push_back('\\'); break;
-                    case 'n': out.push_back('\n'); break;
-                    case 'r': out.push_back('\r'); break;
-                    case 't': out.push_back('\t'); break;
-                    default: out.push_back(esc); break;
-                }
-                continue;
-            }
-            out.push_back(ch);
-        }
-        throw StagerError("unterminated string in native_scene literal");
-    }
-
-    std::string parse_number() {
-        const std::size_t start = pos_;
-        if (pos_ < source_.size() && (source_[pos_] == '-' || source_[pos_] == '+')) {
-            ++pos_;
-        }
-        bool saw_digit = false;
-        while (pos_ < source_.size() && std::isdigit(static_cast<unsigned char>(source_[pos_]))) {
-            saw_digit = true;
-            ++pos_;
-        }
-        if (pos_ < source_.size() && source_[pos_] == '.') {
-            ++pos_;
-            while (pos_ < source_.size() && std::isdigit(static_cast<unsigned char>(source_[pos_]))) {
-                saw_digit = true;
-                ++pos_;
-            }
-        }
-        if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')) {
-            ++pos_;
-            if (pos_ < source_.size() && (source_[pos_] == '-' || source_[pos_] == '+')) {
-                ++pos_;
-            }
-            bool saw_exp_digit = false;
-            while (pos_ < source_.size() && std::isdigit(static_cast<unsigned char>(source_[pos_]))) {
-                saw_exp_digit = true;
-                ++pos_;
-            }
-            if (!saw_exp_digit) {
-                throw StagerError("invalid exponent in native_scene number");
-            }
-        }
-        if (!saw_digit) {
-            throw StagerError("invalid native_scene number");
-        }
-        return source_.substr(start, pos_ - start);
-    }
-
-    VkfLiteralValue parse_array() {
-        VkfLiteralValue value;
-        value.kind = VkfLiteralKind::Array;
-        ++pos_;
-        skip_ws_and_comments();
-        while (pos_ < source_.size() && source_[pos_] != ']') {
-            value.array.push_back(parse_value());
-            skip_ws_and_comments();
-            if (pos_ < source_.size() && source_[pos_] == ',') {
-                ++pos_;
-                skip_ws_and_comments();
-            } else if (pos_ < source_.size() && source_[pos_] != ']') {
-                throw StagerError("expected comma or ] in native_scene array");
-            }
-        }
-        if (pos_ >= source_.size() || source_[pos_] != ']') {
-            throw StagerError("unterminated native_scene array");
-        }
-        ++pos_;
-        return value;
-    }
-
-    VkfLiteralValue parse_object(char close_ch) {
-        VkfLiteralValue value;
-        value.kind = VkfLiteralKind::Object;
-        ++pos_;
-        skip_ws_and_comments();
-        while (pos_ < source_.size() && source_[pos_] != close_ch) {
-            std::string key;
-            if (source_[pos_] == '"') {
-                key = parse_string();
-            } else {
-                key = parse_identifier();
-            }
-            skip_ws_and_comments();
-            if (pos_ >= source_.size() || source_[pos_] != ':') {
-                throw StagerError("expected : after native_scene field " + key);
-            }
-            ++pos_;
-            value.object.push_back({key, parse_value()});
-            skip_ws_and_comments();
-            if (pos_ < source_.size() && source_[pos_] == ',') {
-                ++pos_;
-                skip_ws_and_comments();
-            } else if (pos_ < source_.size() && source_[pos_] != close_ch) {
-                throw StagerError("expected comma or closing paren in native_scene object");
-            }
-        }
-        if (pos_ >= source_.size() || source_[pos_] != close_ch) {
-            throw StagerError("unterminated native_scene object");
-        }
-        ++pos_;
-        return value;
-    }
-};
+using VkfLiteralKind = vkf::native_scene::LiteralKind;
+using VkfLiteralParser = vkf::native_scene::LiteralParser;
+using VkfLiteralValue = vkf::native_scene::LiteralValue;
+using vkf::native_scene::object_field;
 
 std::string vkf_literal_to_json(const VkfLiteralValue& value) {
-    switch (value.kind) {
-        case VkfLiteralKind::Null:
-            return "null";
-        case VkfLiteralKind::Bool:
-            return value.bool_value ? "true" : "false";
-        case VkfLiteralKind::Number:
-            return value.text;
-        case VkfLiteralKind::String:
-            return "\"" + json_escape(value.text) + "\"";
-        case VkfLiteralKind::Array: {
-            std::ostringstream out;
-            out << "[";
-            for (std::size_t i = 0; i < value.array.size(); ++i) {
-                if (i > 0) {
-                    out << ",";
-                }
-                out << vkf_literal_to_json(value.array[i]);
-            }
-            out << "]";
-            return out.str();
-        }
-        case VkfLiteralKind::Object: {
-            std::ostringstream out;
-            out << "{";
-            for (std::size_t i = 0; i < value.object.size(); ++i) {
-                if (i > 0) {
-                    out << ",";
-                }
-                out << "\"" << json_escape(value.object[i].first) << "\":"
-                    << vkf_literal_to_json(value.object[i].second);
-            }
-            out << "}";
-            return out.str();
-        }
-    }
-    return "null";
-}
-
-const VkfLiteralValue* object_field(const VkfLiteralValue& value, const std::string& key) {
-    if (value.kind != VkfLiteralKind::Object) {
-        return nullptr;
-    }
-    for (const auto& item : value.object) {
-        if (item.first == key) {
-            return &item.second;
-        }
-    }
-    return nullptr;
+    return vkf::native_scene::literal_to_json(value);
 }
 
 std::string literal_json_or(const VkfLiteralValue& value, const std::string& key, const std::string& fallback) {
@@ -1093,17 +899,136 @@ std::string number_json(double value) {
     return out.str();
 }
 
-std::optional<VkfLiteralValue> try_parse_native_scene_literal(const std::string& source_text) {
-    const std::size_t marker = source_text.find("native_scene:");
-    if (marker == std::string::npos) {
-        return std::nullopt;
+std::string retained_scene_launch_manifest_json(
+    const std::string& runtime_packets_json
+) {
+    vf::JsonValue::Array frames;
+    try {
+        const vf::JsonValue packets = vf::parse_json(runtime_packets_json);
+        if (!packets.is_array()) {
+            throw StagerError("compiled retained scene packets must be an array");
+        }
+        for (const auto& raw_packet : packets.as_array()) {
+            if (!raw_packet.is_object()) continue;
+            const auto& packet = raw_packet.as_object();
+            const auto kind = packet.find("kind");
+            const auto payload = packet.find("payload");
+            if (kind == packet.end() || !kind->second.is_string() ||
+                kind->second.as_string() != "scene.replace" ||
+                payload == packet.end() || !payload->second.is_object()) {
+                continue;
+            }
+            const auto commands = payload->second.as_object().find("commands");
+            if (commands == payload->second.as_object().end() ||
+                !commands->second.is_array()) {
+                continue;
+            }
+            for (const auto& raw_command : commands->second.as_array()) {
+                if (!raw_command.is_object()) continue;
+                const auto& command = raw_command.as_object();
+                const auto command_kind = command.find("kind");
+                const auto command_payload = command.find("payload");
+                if (command_kind == command.end() ||
+                    !command_kind->second.is_string() ||
+                    command_kind->second.as_string() != "frame_upsert" ||
+                    command_payload == command.end() ||
+                    !command_payload->second.is_object()) {
+                    continue;
+                }
+                const auto spec = command_payload->second.as_object().find("spec");
+                if (spec == command_payload->second.as_object().end() ||
+                    !spec->second.is_object()) {
+                    continue;
+                }
+                const auto& frame_spec = spec->second.as_object();
+                const auto id = frame_spec.find("id");
+                const auto rect = frame_spec.find("rect");
+                if (id == frame_spec.end() || !id->second.is_string() ||
+                    id->second.as_string().empty() || rect == frame_spec.end() ||
+                    !rect->second.is_object()) {
+                    throw StagerError(
+                        "compiled retained scene frame packet is malformed");
+                }
+                const auto& rect_object = rect->second.as_object();
+                const auto rect_value = [&](const char* name) -> vf::JsonValue {
+                    const auto value = rect_object.find(name);
+                    if (value == rect_object.end() || !value->second.is_number()) {
+                        throw StagerError(
+                            "compiled retained scene frame rect is malformed");
+                    }
+                    return value->second;
+                };
+                vf::JsonValue::Array packed_rect;
+                for (const char* name : {"x", "y", "w", "h"}) {
+                    packed_rect.push_back(rect_value(name));
+                }
+                vf::JsonValue::Object frame;
+                frame["id"] = id->second;
+                const auto title = frame_spec.find("title");
+                frame["title"] = title != frame_spec.end() &&
+                        title->second.is_string()
+                    ? title->second
+                    : vf::JsonValue("");
+                frame["rect"] = vf::JsonValue(std::move(packed_rect));
+                const auto aspect = frame_spec.find("aspect");
+                frame["aspect"] = aspect != frame_spec.end()
+                    ? aspect->second
+                    : vf::JsonValue(nullptr);
+                frame["visible"] = vf::JsonValue(true);
+                frames.emplace_back(std::move(frame));
+            }
+        }
+    } catch (const StagerError&) {
+        throw;
+    } catch (const std::exception& error) {
+        throw StagerError(
+            "could not derive compiled retained scene launch frames: " +
+            std::string(error.what()));
     }
-    VkfLiteralParser parser(source_text, marker + std::string("native_scene:").size());
-    VkfLiteralValue root = parser.parse_value();
-    if (root.kind != VkfLiteralKind::Object) {
-        throw StagerError("native_scene must be a field object wrapped in parens");
+    if (frames.empty()) {
+        throw StagerError("compiled retained scene has no launchable Frame");
     }
-    return root;
+    vf::JsonValue::Object manifest;
+    manifest["schema"] = vf::JsonValue("vektor-flow/launch-manifest");
+    manifest["frames"] = vf::JsonValue(std::move(frames));
+    return vf::json_stringify(vf::JsonValue(std::move(manifest)), 2) + "\n";
+}
+
+std::string native_scene_mesh_properties_json(const VkfLiteralValue& mesh) {
+    const VkfLiteralValue* vertices = object_field(mesh, "vertices");
+    const VkfLiteralValue* indices = object_field(mesh, "indices");
+    if (!vertices || !indices || !vertices->compiled_mesh_buffer || !indices->compiled_mesh_buffer) {
+        return vkf_literal_to_json(mesh);
+    }
+    // A load(Ply) mesh is rendered from the packed arena. Apply a static
+    // material color once in the compiler instead of copying and repainting
+    // every vertex in JavaScript on every application start.
+    VkfLiteralValue compiled = mesh;
+    VkfLiteralValue* compiled_vertices = object_field(compiled, "vertices");
+    const VkfLiteralValue* color = object_field(mesh, "color");
+    const bool use_vertex_color = literal_bool_or(mesh, "use_vertex_color", false);
+    if (compiled_vertices && !use_vertex_color && color &&
+        color->kind == VkfLiteralKind::Array && color->array.size() >= 3) {
+        VkfLiteralValue opaque_alpha;
+        opaque_alpha.kind = VkfLiteralKind::Number;
+        opaque_alpha.text = "1";
+        std::array<VkfLiteralValue, 4> rgba{
+            color->array[0], color->array[1], color->array[2],
+            color->array.size() >= 4 ? color->array[3] : opaque_alpha
+        };
+        for (std::size_t offset = 0; offset + 9 < compiled_vertices->array.size(); offset += 10) {
+            for (std::size_t channel = 0; channel < 4; ++channel) {
+                compiled_vertices->array[offset + 6 + channel] = rgba[channel];
+            }
+        }
+    }
+    std::string json = vkf_literal_to_json(compiled);
+    if (json.size() < 2 || json.back() != '}') {
+        return json;
+    }
+    json.pop_back();
+    json += ",\"__vf_compiled_mesh_arena\":true,\"__vf_compiled_material_color\":true}";
+    return json;
 }
 
 std::string native_scene_embedding_json(const std::vector<std::pair<std::string, std::string>>& pairs) {
@@ -1124,13 +1049,17 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
     const std::vector<std::string> rels = {
         "vf-frame.css",
         "vf-runtime-shell.js",
+        "vf-startup-gate.js",
         "vf-runtime-packet-contract.js",
+        "vf-retained-event-adapter.js",
         "vf-runtime-source.js",
+        "vf-html-components.js",
         "vf-runtime-scene.js",
         "vf-runtime-flow.js",
         "vf-render-clock.js",
         "vf-frame.js",
         "vf-widgets.js",
+        "vf-static-html-loader.js",
         "vf-shared-runtime.js",
         "vf-gpu-runtime.js",
         "vf-native-scene.js",
@@ -1152,7 +1081,7 @@ std::string runtime_asset_version_for(const std::filesystem::path& overlay_web) 
     };
     for (const std::string& rel : rels) {
         const std::filesystem::path path = overlay_web / rel;
-        if (!std::filesystem::exists(path)) {
+        if (!std::filesystem::exists(long_io_path(path))) {
             throw StagerError("runtime asset required for versioning is missing: " + path.string());
         }
         bytes += rel;
@@ -1543,6 +1472,17 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
         mesh_jsons.push_back("{\"id\":\"plane_0\",\"kind\":\"quad\",\"properties\":" +
             vkf_literal_to_json(*plane) + ",\"embedding\":" + native_scene_mesh_embedding_json("quad") + "}");
     }
+    if (const VkfLiteralValue* surfaces = object_field(root, "surfaces")) {
+        if (surfaces->kind == VkfLiteralKind::Array) {
+            for (std::size_t i = 0; i < surfaces->array.size(); ++i) {
+                const VkfLiteralValue& surface = surfaces->array[i];
+                const std::string id = literal_string_or(surface, "id", "surface_" + std::to_string(i));
+                mesh_jsons.push_back("{\"id\":\"" + json_escape(id) + "\",\"kind\":\"quad\",\"properties\":" +
+                    vkf_literal_to_json(surface) + ",\"embedding\":" + native_scene_mesh_embedding_json("quad") + "}");
+                occluder_ids.push_back(id);
+            }
+        }
+    }
     if (const VkfLiteralValue* cubes = object_field(root, "cubes")) {
         if (cubes->kind == VkfLiteralKind::Array) {
             for (std::size_t i = 0; i < cubes->array.size(); ++i) {
@@ -1561,7 +1501,7 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
                 const std::string id = literal_string_or(mesh, "id", "mesh_" + std::to_string(i));
                 const std::string kind = literal_string_or(mesh, "kind", "mesh");
                 mesh_jsons.push_back("{\"id\":\"" + json_escape(id) + "\",\"kind\":\"" + json_escape(kind) + "\",\"properties\":" +
-                    vkf_literal_to_json(mesh) + ",\"embedding\":" + native_scene_mesh_embedding_json(kind) + "}");
+                    native_scene_mesh_properties_json(mesh) + ",\"embedding\":" + native_scene_mesh_embedding_json(kind) + "}");
                 occluder_ids.push_back(id);
             }
         }
@@ -1590,6 +1530,8 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
         << literal_number_at_or(rect, 2, "0.78") << ","
         << literal_number_at_or(rect, 3, "0.80") << "],"
         << "\"aspect\":null,\"visible\":true},"
+        << R"("always_ontop":)"
+        << literal_json_or(root, "always_ontop", "false") << ","
         << "\"background\":" << literal_json_or(root, "background", "[0,0,0,0]") << ","
         << "\"camera\":{\"properties\":" << literal_json_or(root, "camera", "{}")
         << ",\"embedding\":" << native_scene_camera_embedding_json() << "},"
@@ -1607,7 +1549,7 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
         }
         out << light_jsons[i];
     }
-    out << "],\"timing\":" << literal_json_or(root, "timing", "{\"fps\":60,\"duration_seconds\":8.0,\"boundary\":\"repeat\"")
+    out << "],\"timing\":" << literal_json_or(root, "timing", "{\"fps\":60,\"duration_seconds\":8.0,\"boundary\":\"repeat\"}")
         << ",\"render_options\":{"
         << "\"show_light_markers\":" << literal_json_or(root, "show_light_markers", "false") << ","
         << "\"light_flares\":" << literal_json_or(root, "light_flares", "false") << ","
@@ -1647,21 +1589,57 @@ std::string native_scene_scene_ir_json(const VkfLiteralValue& root, const std::s
 
 std::optional<CompiledUiSceneBundle> try_compile_native_scene_from_source(
     const std::string& source_text,
+    const std::filesystem::path& source_path,
     const std::filesystem::path& overlay_web
 ) {
-    auto root = try_parse_native_scene_literal(source_text);
-    if (!root.has_value()) {
+    auto lowered = vkf::native_scene::lower_source(source_text, source_path);
+    if (!lowered.has_value()) {
         return std::nullopt;
     }
+    const auto& root = lowered->root;
     std::string polygon_solver_wgsl;
-    if (object_field(*root, "rigid_bodies_2d")) {
+    if (object_field(root, "rigid_bodies_2d")) {
         polygon_solver_wgsl = read_file_bytes(overlay_web / "shaders" / "vf-rigid-polygons-2d.wgsl");
     }
     CompiledUiSceneBundle bundle;
-    bundle.scene_config_json = native_scene_scene_ir_json(*root, polygon_solver_wgsl);
-    bundle.runtime_packets_json = native_scene_runtime_packets_json(*root);
+    bundle.scene_config_json = native_scene_scene_ir_json(root, polygon_solver_wgsl);
+    bundle.runtime_packets_json = native_scene_runtime_packets_json(root);
     bundle.provenance = "vkf-native-scene-source-lowering";
     return bundle;
+}
+
+void attach_typed_native_scene_ui(
+    CompiledUiSceneBundle& bundle,
+    const std::filesystem::path& typed_ir_path,
+    const std::filesystem::path& source_path
+) {
+    if (typed_ir_path.empty()) return;
+    try {
+        const auto root = vf::parse_json(read_file_bytes(typed_ir_path));
+        const auto packets = vf::parse_json(bundle.runtime_packets_json);
+        const auto event_program = vkf::retained_scene::compile_event_program(
+            root, packets);
+        if (event_program.has_value()) {
+            bundle.event_program_json = vf::json_stringify(*event_program, -1);
+        }
+        std::set<std::string> loaded_frames;
+        for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
+            if (!loaded_frames.insert(load.frame_id).second) {
+                throw StagerError("Frame.load initial slice accepts one load per Frame");
+            }
+            const std::filesystem::path resource_path(load.resource);
+            if (resource_path.is_absolute()) {
+                throw StagerError("Frame.load resource path must be source-relative");
+            }
+            bundle.static_html_bundles.push_back(vf::static_html::collect(
+                source_path, source_path.parent_path() / resource_path,
+                load.frame_id));
+        }
+    } catch (const vkf::retained_scene::Error& error) {
+        throw StagerError(error.what());
+    } catch (const vf::static_html::Error& error) {
+        throw StagerError(error.what());
+    }
 }
 
 std::string axis_deck_frame_command_json(
@@ -2326,47 +2304,89 @@ std::string html_text(
     const std::string& scene_config_json,
     const std::string& scene_config_filename = "",
     const std::string& arena_filename = "",
-    const std::string& runtime_asset_version = ""
+    const std::string& runtime_asset_version = "",
+    bool has_static_html = false,
+    bool has_runtime_adapter_bundle = false,
+    bool has_compiled_artifacts = false,
+    bool has_compiled_scene_arena = false,
+    const std::string& compiled_launch_manifest_json = ""
 ) {
     const std::string asset_query = runtime_asset_version.empty() ? "" : ("?v=" + json_escape(runtime_asset_version));
-    const std::string native_scene_runtime_config =
+    const std::string scene_script_dependencies =
+        has_compiled_scene_arena
+        ? "\"vf-startup-gate.js\","
+          "\"vf-runtime-packet-contract.js\","
+          "\"vf-retained-event-adapter.js\","
+          "\"vf-html-components.js\","
+          "\"vf-static-html-loader.js\","
+          "\"vf-compiled-runtime-bridge.js\","
+          "\"vf-compiled-webgpu-adapter.js\""
+        : "\"vf-startup-gate.js\","
+          "\"vf-runtime-packet-contract.js\","
+          "\"vf-retained-event-adapter.js\","
+          "\"vf-runtime-source.js\","
+          "\"vf-html-components.js\","
+          "\"vf-runtime-scene.js\","
+          "\"vf-runtime-flow.js\","
+          "\"vf-compiled-runtime-bridge.js\","
+          "\"vf-compiled-webgpu-adapter.js\","
+          "\"vf-render-clock.js\","
+          "\"vf-frame.js\","
+          "\"vf-widgets.js\","
+          "\"vf-static-html-loader.js\","
+          "\"vf-shared-runtime.js\","
+          "\"vf-gpu-runtime.js\","
+          "\"vf-axis3d-kernel.js\","
+          "\"vf-axis3d-kernel-adapter.js\","
+          "\"vf-axis3d-projection-kernel.js\","
+          "\"vf-axis3d-projection-kernel-adapter.js\","
+          "\"geom/vf-geom-math.js\","
+          "\"geom/vf-geom-core.js\","
+          "\"geom/vf-geom-material-arena.js\","
+          "\"geom/vf-geom-ledger-layout.js\","
+          "\"geom/vf-geom-ledger-transport.js\","
+          "\"geom/vf-geom-ledger.js\","
+          "\"geom/vf-geom-parametric-surface.js\","
+          "\"geom/vf-geom-frame-adapter.js\","
+          "\"geom/vf-geom-wgpu.js\","
+          "\"vf-display.js\"";
+    const std::string native_scene_runtime_config = std::string(
         "<script>window.__vfRuntimeShellConfig={"
-        "launchManifestUrl:\"vf-launch-manifest.json\","
-        "sceneStyleDeps:[{href:\"vf-frame.css\"},{href:\"vf-chess.css\"}],"
-        "sceneScriptDeps:["
-        "\"vf-runtime-packet-contract.js\","
-        "\"vf-runtime-source.js\","
-        "\"vf-runtime-scene.js\","
-        "\"vf-runtime-flow.js\","
-        "\"vf-render-clock.js\","
-        "\"vf-frame.js\","
-        "\"vf-widgets.js\","
-        "\"vf-shared-runtime.js\","
-        "\"vf-gpu-runtime.js\","
-        "\"vf-axis3d-kernel.js\","
-        "\"vf-axis3d-kernel-adapter.js\","
-        "\"vf-axis3d-projection-kernel.js\","
-        "\"vf-axis3d-projection-kernel-adapter.js\","
-        "\"geom/vf-geom-math.js\","
-        "\"geom/vf-geom-core.js\","
-        "\"geom/vf-geom-material-arena.js\","
-        "\"geom/vf-geom-ledger-layout.js\","
-        "\"geom/vf-geom-ledger-transport.js\","
-        "\"geom/vf-geom-ledger.js\","
-        "\"geom/vf-geom-parametric-surface.js\","
-        "\"geom/vf-geom-frame-adapter.js\","
-        "\"geom/vf-geom-wgpu.js\","
-        "\"vf-display.js\""
-        "]};</script>";
-    if (trim_left_copy(scene_config_json) == "[]") {
+        "launchManifestUrl:\"vf-launch-manifest.json\",")
+        + (has_runtime_adapter_bundle && !has_compiled_scene_arena
+            ? "sceneAdapterBundle:\"geom/vf-native-scene-adapters.js\","
+            : "")
+        + (has_compiled_artifacts
+            ? "compiledWasmUrl:\"vkf-program.wasm\","
+              "compiledWasmManifestUrl:\"vkf-program.wasm-manifest.json\","
+              "compiledWgslUrl:\"vkf-render.wgsl\","
+              "compiledWebGpuManifestUrl:\"vkf-render.webgpu-manifest.json\","
+            : "")
+        + "sceneStyleDeps:[{href:\"vf-frame.css\"},{href:\"vf-chess.css\"}],"
+        + (has_compiled_scene_arena
+            ? "compiledScriptDeps:["
+            : "sceneScriptDeps:[")
+        + scene_script_dependencies + "]};</script>";
+    if (!has_compiled_scene_arena &&
+        trim_left_copy(scene_config_json) == "[]") {
         return std::string("<!DOCTYPE html>\n")
-            + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
-            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
+            + "<html data-vf-startup-pending=\"1\"><head><meta charset=\"utf-8\">"
+            + "<style>html[data-vf-startup-pending=\"1\"] .vf-frame{visibility:hidden!important;pointer-events:none!important}</style>"
+            + "<title>VKF Native Scene</title></head>"
+            + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-autoboot=\"false\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\""
+            + (has_static_html
+                ? " data-vf-static-html-loads=\"vf-static-html-loads.json\""
+                : "")
+            + ">"
             + native_scene_runtime_config
             + "<script src=\"../../vf-runtime-shell.js" + asset_query + "\"></script>"
+            + "<script>(function(global){function fail(err){global.__vfLastError=err&&err.message?err.message:String(err);if(global.VfStartupGate&&typeof global.VfStartupGate.fail==='function'){global.VfStartupGate.fail(err);}throw err;}var shell=global.VfRuntimeShell;if(!shell){fail(new Error('runtime shell unavailable'));return;}var options=shell.resolveSceneBootOptions();var frame=shell.mountLaunchFramesFromUrl(shell.config.launchManifestUrl);var artifacts=shell.ensureSceneDependencies().then(function(){return shell.loadCompiledArtifacts();});Promise.all([frame,artifacts]).then(function(){shell.boot(options);}).catch(fail);})(window);</script>"
             + "</body></html>\n";
     }
-    if (is_json_array_text(scene_config_json) && scene_config_json.find("\"kind\":\"frame_upsert\"") != std::string::npos) {
+    if (!has_compiled_scene_arena &&
+        is_json_array_text(scene_config_json) &&
+        scene_config_json.find("\"kind\":\"frame_upsert\"") !=
+            std::string::npos) {
         return std::string("<!DOCTYPE html>\n")
             + "<html><head><meta charset=\"utf-8\"><title>VKF UI Scene</title></head>"
             + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
@@ -2380,6 +2400,40 @@ std::string html_text(
             + "if(window.VfFrame&&layer&&typeof window.VfFrame.postNativeHostLayout==='function'){var extra=[];if(frame){var rr=frame.getBoundingClientRect();if(rr&&rr.width>=1&&rr.height>=1){extra.push({left:rr.left,top:rr.top,right:rr.right,bottom:rr.bottom});}}window.VfFrame.postNativeHostLayout(layer,{stageAlpha:0,contentReady:true,hitRegions:extra});}}catch(e){log('layout publish failed: '+(e&&e.message?e.message:String(e)));}}"
             + "var tries=0;function tick(){tries++;if(document.querySelector('.vf-frame')){publish();log('frame visible after tries='+tries);setTimeout(publish,80);setTimeout(publish,240);return;}if(!apply()&&tries<20){setTimeout(tick,150);return;}if(tries<20){setTimeout(tick,150);}}setTimeout(tick,600);"
             + "})();</script>"
+            + "</body></html>\n";
+    }
+    if (has_compiled_scene_arena) {
+        const std::string launch_manifest_json =
+            compiled_launch_manifest_json.empty()
+                ? native_scene_launch_manifest_json(scene_config_json)
+                : compiled_launch_manifest_json;
+        return std::string("<!DOCTYPE html>\n")
+            + "<html data-vf-startup-pending=\"1\"><head><meta charset=\"utf-8\">"
+            + "<style>html[data-vf-startup-pending=\"1\"] .vf-frame{visibility:hidden!important;pointer-events:none!important}</style>"
+            + "<title>VKF Compiled Scene</title></head>"
+            + "<body data-vf-runtime-shell=\"compiled-scene\" data-vf-runtime-autoboot=\"false\""
+            + (has_static_html
+                ? " data-vf-static-html-loads=\"vf-static-html-loads.json\""
+                : "")
+            + ">"
+            + native_scene_runtime_config
+            + "<script src=\"../../vf-runtime-shell.js" + asset_query + "\"></script>"
+            + "<script>"
+            + "window.__vfCompiledLaunchManifest=" + launch_manifest_json + ";"
+            + "window.__vfNativeSceneArenaUrl=\"\";"
+            + "</script>"
+            + "<script>(function(global){"
+            + "function fail(err){global.__vfLastError=err&&err.message?err.message:String(err);if(global.VfStartupGate&&typeof global.VfStartupGate.fail==='function'){global.VfStartupGate.fail(err);}throw err;}"
+            + "function frameId(config){return String(config&&config.scene_ir&&config.scene_ir.frame&&config.scene_ir.frame.frame_id||config&&config.frame_id||'');}"
+            + "function configs(manifest,artifacts){var retained=artifacts&&artifacts.scene&&artifacts.scene.metadata&&artifacts.scene.metadata.scene||{};return (manifest&&Array.isArray(manifest.frames)?manifest.frames:[]).filter(function(frame){return frame&&frame.visible!==false&&frame.id;}).map(function(frame){return {scene_ir:Object.assign({},retained,{frame:{frame_id:String(frame.id),title:String(frame.title||''),rect:Array.isArray(frame.rect)?frame.rect.slice():[0.04,0.06,0.72,0.84],aspect:frame.aspect||null,visible:true},camera:{properties:retained.camera||{}}})};});}"
+            + "function armStartup(list){if(!global.VfStartupGate||typeof global.VfStartupGate.expectFrames!=='function'){throw new Error('atomic startup gate unavailable');}global.VfStartupGate.expectFrames(list.map(function(config){return {id:frameId(config),interaction:true,presentation:true};}).filter(function(spec){return !!spec.id;}));}"
+            + "var shell=global.VfRuntimeShell;if(!shell||typeof shell.ensureCompiledDependencies!=='function'||typeof shell.loadCompiledArtifacts!=='function'||typeof shell.bindCompiledScene!=='function'||typeof shell.bootCompiledScene!=='function'){fail(new Error('compiled scene runtime unavailable'));return;}"
+            + "var inlineLaunch=global.__vfCompiledLaunchManifest;"
+            + "var frames=inlineLaunch&&typeof shell.ensureLaunchFrameDependencies==='function'&&typeof shell.mountLaunchFrames==='function'?shell.ensureLaunchFrameDependencies().then(function(){return shell.mountLaunchFrames(global.__vfCompiledLaunchManifest);}):shell.mountLaunchFramesFromUrl(shell.config.launchManifestUrl);"
+            + "var dependencies=shell.ensureCompiledDependencies();"
+            + "var artifacts=dependencies.then(function(){return shell.loadCompiledArtifacts();});"
+            + "Promise.all([frames,artifacts]).then(function(values){var list=configs(inlineLaunch,values[1]);armStartup(list);for(var index=0;index<list.length;index+=1){var config=shell.bindCompiledScene(list[index]);shell.bootCompiledScene(config);}}).catch(fail);"
+            + "})(window);</script>"
             + "</body></html>\n";
     }
     if (is_json_array_text(scene_config_json)) {
@@ -2400,31 +2454,44 @@ std::string html_text(
             + "</script>"
             + "<script>(function(global){"
             + "function visible(c){return !(c&&c.scene_ir&&c.scene_ir.frame&&c.scene_ir.frame.visible===false);}"
-            + "function fail(err){var msg=err&&err.message?err.message:String(err);global.__vfLastError=msg;if(global.document&&document.body){document.body.setAttribute('data-vf-native-scene-error','1');var box=document.getElementById('vf-native-scene-shell-error');if(!box){box=document.createElement('div');box.id='vf-native-scene-shell-error';box.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9999;max-width:min(560px,calc(100vw - 32px));max-height:min(260px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid rgba(255,215,223,.28);border-radius:8px;background:rgba(20,12,16,.94);color:#ffd7df;font:600 14px/1.45 Consolas,Menlo,monospace;white-space:pre-wrap;pointer-events:auto';var copy=document.createElement('button');copy.textContent='Copy';copy.style.cssText='float:right;margin:0 0 8px 8px';copy.onclick=function(){try{navigator.clipboard.writeText('VKF native scene error: '+msg).catch(function(){});}catch(_){}};var close=document.createElement('button');close.textContent='Close';close.style.cssText='float:right;margin:0 0 8px 12px';close.onclick=function(){if(box&&box.parentNode){box.parentNode.removeChild(box);}};box.appendChild(close);box.appendChild(copy);document.body.appendChild(box);}var text=document.createElement('div');text.textContent='VKF native scene error: '+msg;box.appendChild(text);}throw err;}"
+             + "function fail(err){var msg=err&&err.message?err.message:String(err);global.__vfLastError=msg;if(global.VfStartupGate&&typeof global.VfStartupGate.fail==='function'){global.VfStartupGate.fail(err);}if(global.document&&document.body){document.body.setAttribute('data-vf-native-scene-error','1');var box=document.getElementById('vf-native-scene-shell-error');if(!box){box=document.createElement('div');box.id='vf-native-scene-shell-error';box.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9999;max-width:min(560px,calc(100vw - 32px));max-height:min(260px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid rgba(255,215,223,.28);border-radius:8px;background:rgba(20,12,16,.94);color:#ffd7df;font:600 14px/1.45 Consolas,Menlo,monospace;white-space:pre-wrap;pointer-events:auto';var copy=document.createElement('button');copy.textContent='Copy';copy.style.cssText='float:right;margin:0 0 8px 8px';copy.onclick=function(){try{navigator.clipboard.writeText('VKF native scene error: '+msg).catch(function(){});}catch(_){}};var close=document.createElement('button');close.textContent='Close';close.style.cssText='float:right;margin:0 0 8px 12px';close.onclick=function(){if(box&&box.parentNode){box.parentNode.removeChild(box);}};box.appendChild(close);box.appendChild(copy);document.body.appendChild(box);}var text=document.createElement('div');text.textContent='VKF native scene error: '+msg;box.appendChild(text);}throw err;}"
             + "function fetchConfig(url){return fetch(url,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene configs '+url+' ('+String(r.status)+')');}return r.text();}).then(function(text){var configs=JSON.parse(text);if(!Array.isArray(configs)){throw new Error('native scene configs must be a JSON array');}return configs;});}"
-            + "function arenaRef(value){return value&&typeof value==='object'&&value.__vf_mesh_arena===true;}"
-            + "function nowMs(){return global.performance&&typeof global.performance.now==='function'?global.performance.now():Date.now();}"
-            + "function assignArenaRef(holder,key,value,arena){var off=Number(value.byteOffset||0);var len=Number(value.length||0);var type=String(value.type||'');if(type==='float32'){holder[key]=new Float32Array(arena,off,len);return;}if(type==='uint32'){holder[key]=new Uint32Array(arena,off,len);return;}throw new Error('unknown mesh arena type '+type);}"
-            + "function hydrateConfigs(configs){var arenaUrl=String(global.__vfNativeSceneArenaUrl||'');if(!arenaUrl){return Promise.resolve(configs);}return fetch(arenaUrl,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene arena '+arenaUrl+' ('+String(r.status)+')');}return r.arrayBuffer();}).then(function(arena){return new Promise(function(resolve,reject){var stack=[];for(var i=configs.length-1;i>=0;i-=1){stack.push([configs,i,configs[i]]);}function step(){try{var start=nowMs();while(stack.length&&(nowMs()-start)<6.0){var item=stack.pop();var holder=item[0];var key=item[1];var value=item[2];if(arenaRef(value)){assignArenaRef(holder,key,value,arena);continue;}if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView&&ArrayBuffer.isView(value)){continue;}if(Array.isArray(value)){for(var ai=value.length-1;ai>=0;ai-=1){stack.push([value,ai,value[ai]]);}continue;}if(value&&typeof value==='object'){Object.keys(value).forEach(function(k){stack.push([value,k,value[k]]);});}}if(stack.length){global.setTimeout(step,0);}else{resolve(configs);}}catch(err){reject(err);}}step();});});}"
+            + (has_compiled_scene_arena
+                ? ""
+                : "function arenaRef(value){return value&&typeof value==='object'&&value.__vf_mesh_arena===true;}"
+                  "function nowMs(){return global.performance&&typeof global.performance.now==='function'?global.performance.now():Date.now();}"
+                  "function assignArenaRef(holder,key,value,arena){var off=Number(value.byteOffset||0);var len=Number(value.length||0);var type=String(value.type||'');if(type==='float32'){holder[key]=new Float32Array(arena,off,len);return;}if(type==='uint32'){holder[key]=new Uint32Array(arena,off,len);return;}throw new Error('unknown mesh arena type '+type);}"
+                  "function hydrateConfigs(configs){var arenaUrl=String(global.__vfNativeSceneArenaUrl||'');if(!arenaUrl){return Promise.resolve(configs);}return fetch(arenaUrl,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene arena '+arenaUrl+' ('+String(r.status)+')');}return r.arrayBuffer();}).then(function(arena){return new Promise(function(resolve,reject){var stack=[];for(var i=configs.length-1;i>=0;i-=1){stack.push([configs,i,configs[i]]);}function step(){try{var start=nowMs();while(stack.length&&(nowMs()-start)<6.0){var item=stack.pop();var holder=item[0];var key=item[1];var value=item[2];if(arenaRef(value)){assignArenaRef(holder,key,value,arena);continue;}if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView&&ArrayBuffer.isView(value)){continue;}if(Array.isArray(value)){for(var ai=value.length-1;ai>=0;ai-=1){stack.push([value,ai,value[ai]]);}continue;}if(value&&typeof value==='object'){Object.keys(value).forEach(function(k){stack.push([value,k,value[k]]);});}}if(stack.length){global.setTimeout(step,0);}else{resolve(configs);}}catch(err){reject(err);}}step();});});}")
             + "function configList(){if(Array.isArray(global.__vfNativeSceneConfigs)){return Promise.resolve(global.__vfNativeSceneConfigs.slice());}"
             + "var url=String(global.__vfNativeSceneConfigsUrl||'');if(!url){return Promise.reject(new Error('missing native scene configs'));}"
             + "return fetchConfig(url).then(function(configs){global.__vfNativeSceneConfigs=configs;return configs.slice();});}"
             + "function loadAt(index){if(index>=configs.length){return;}"
             + "global.__vfNativeSceneConfig=configs[index];"
             + "var s=document.createElement('script');s.src='../../vf-native-scene.js" + (asset_query.empty() ? "?" : asset_query + "&") + "view='+String(index);"
-            + "s.onload=function(){var delay=index===0?200:0;global.setTimeout(function(){loadAt(index+1);},delay);};"
+             + "s.onload=function(){loadAt(index+1);};"
             + "s.onerror=function(){fail(new Error('failed to load vf-native-scene.js for view '+String(index)));};"
             + "document.body.appendChild(s);}"
-            + "var configs=[];function load(){configList().then(hydrateConfigs).then(function(list){configs=list;configs.sort(function(a,b){return (visible(b)?1:0)-(visible(a)?1:0);});loadAt(0);}).catch(fail);}"
+             + "function startupFrameId(c){return String(c&&c.scene_ir&&c.scene_ir.frame&&c.scene_ir.frame.frame_id||c&&c.frame_id||'');}"
+             + "function armStartup(list){if(!global.VfStartupGate||typeof global.VfStartupGate.expectFrames!=='function'){throw new Error('atomic startup gate unavailable');}var expected=list.map(function(c){return {id:startupFrameId(c),interaction:visible(c),presentation:true};}).filter(function(s){return !!s.id;});global.VfStartupGate.expectFrames(expected);}"
+             + "var configs=[];function load(list){configs=list;configs.sort(function(a,b){return (visible(b)?1:0)-(visible(a)?1:0);});armStartup(configs);loadAt(0);}"
             + "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){"
-            + "window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl).then(function(){return window.VfRuntimeShell.ensureSceneDependencies();}).then(load).catch(fail);"
-            + "}else{load();}"
+            + "var framePromise=window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl);"
+            + "var depsPromise=window.VfRuntimeShell.ensureSceneDependencies();"
+            + "var artifactsPromise=depsPromise.then(function(){return window.VfRuntimeShell.loadCompiledArtifacts();});"
+            + (has_compiled_scene_arena
+                ? "var configsPromise=configList();"
+                  "Promise.all([framePromise,artifactsPromise,configsPromise]).then(function(values){var bound=values[2].map(function(config){return window.VfRuntimeShell.bindCompiledScene(config);});load(bound);}).catch(fail);"
+                : "var configsPromise=configList().then(hydrateConfigs);"
+                  "Promise.all([framePromise,artifactsPromise,configsPromise]).then(function(values){load(values[2]);}).catch(fail);")
+            + "}else{configList().then(hydrateConfigs).then(load).catch(fail);}"
             + "})(window);</script>"
             + "</body></html>\n";
     }
     const bool external_arena = !arena_filename.empty();
     return std::string("<!DOCTYPE html>\n")
-        + "<html><head><meta charset=\"utf-8\"><title>VKF Native Scene</title></head>"
+        + "<html data-vf-startup-pending=\"1\"><head><meta charset=\"utf-8\">"
+        + "<style>html[data-vf-startup-pending=\"1\"] .vf-frame{visibility:hidden!important;pointer-events:none!important}</style>"
+        + "<title>VKF Native Scene</title></head>"
         + "<body data-vf-runtime-shell=\"scene\" data-vf-runtime-autoboot=\"false\" data-vf-runtime-packet-only=\"true\" data-vf-runtime-file-packets=\"vf-runtime-packets.json\" data-vf-runtime-prefer-file-packets=\"true\">"
         + native_scene_runtime_config
         + "<script src=\"../../vf-runtime-shell.js" + asset_query + "\"></script>"
@@ -2434,19 +2501,27 @@ std::string html_text(
             : std::string("window.__vfNativeSceneArenaUrl=\"\";"))
         + "</script>"
         + "<script>(function(global){"
-        + "function fail(err){var msg=err&&err.message?err.message:String(err);window.__vfLastError=msg;if(document&&document.body){document.body.setAttribute('data-vf-native-scene-error','1');var box=document.getElementById('vf-native-scene-shell-error');if(!box){box=document.createElement('div');box.id='vf-native-scene-shell-error';box.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9999;max-width:min(560px,calc(100vw - 32px));max-height:min(260px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid rgba(255,215,223,.28);border-radius:8px;background:rgba(20,12,16,.94);color:#ffd7df;font:600 14px/1.45 Consolas,Menlo,monospace;white-space:pre-wrap;pointer-events:auto';var copy=document.createElement('button');copy.textContent='Copy';copy.style.cssText='float:right;margin:0 0 8px 8px';copy.onclick=function(){try{navigator.clipboard.writeText('VKF native scene error: '+msg).catch(function(){});}catch(_){}};var close=document.createElement('button');close.textContent='Close';close.style.cssText='float:right;margin:0 0 8px 12px';close.onclick=function(){if(box&&box.parentNode){box.parentNode.removeChild(box);}};box.appendChild(close);box.appendChild(copy);document.body.appendChild(box);}var text=document.createElement('div');text.textContent='VKF native scene error: '+msg;box.appendChild(text);}throw err;}"
-        + "function arenaRef(value){return value&&typeof value==='object'&&value.__vf_mesh_arena===true;}"
-        + "function nowMs(){return global.performance&&typeof global.performance.now==='function'?global.performance.now():Date.now();}"
-        + "function assignArenaRef(holder,key,value,arena){var off=Number(value.byteOffset||0);var len=Number(value.length||0);var type=String(value.type||'');if(type==='float32'){holder[key]=new Float32Array(arena,off,len);return;}if(type==='uint32'){holder[key]=new Uint32Array(arena,off,len);return;}throw new Error('unknown mesh arena type '+type);}"
-        + "function hydrateConfig(config){var arenaUrl=String(global.__vfNativeSceneArenaUrl||'');if(!arenaUrl){return Promise.resolve(config);}return fetch(arenaUrl,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene arena '+arenaUrl+' ('+String(r.status)+')');}return r.arrayBuffer();}).then(function(arena){return new Promise(function(resolve,reject){var stack=[[{root:config},'root',config]];function step(){try{var start=nowMs();while(stack.length&&(nowMs()-start)<6.0){var item=stack.pop();var holder=item[0];var key=item[1];var value=item[2];if(arenaRef(value)){assignArenaRef(holder,key,value,arena);continue;}if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView&&ArrayBuffer.isView(value)){continue;}if(Array.isArray(value)){for(var ai=value.length-1;ai>=0;ai-=1){stack.push([value,ai,value[ai]]);}continue;}if(value&&typeof value==='object'){Object.keys(value).forEach(function(k){stack.push([value,k,value[k]]);});}}if(stack.length){global.setTimeout(step,0);}else{resolve(config);}}catch(err){reject(err);}}step();});});}"
+        + "function fail(err){var msg=err&&err.message?err.message:String(err);window.__vfLastError=msg;if(window.VfStartupGate&&typeof window.VfStartupGate.fail==='function'){window.VfStartupGate.fail(err);}if(document&&document.body){document.body.setAttribute('data-vf-native-scene-error','1');var box=document.getElementById('vf-native-scene-shell-error');if(!box){box=document.createElement('div');box.id='vf-native-scene-shell-error';box.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9999;max-width:min(560px,calc(100vw - 32px));max-height:min(260px,calc(100vh - 32px));overflow:auto;padding:12px;border:1px solid rgba(255,215,223,.28);border-radius:8px;background:rgba(20,12,16,.94);color:#ffd7df;font:600 14px/1.45 Consolas,Menlo,monospace;white-space:pre-wrap;pointer-events:auto';var copy=document.createElement('button');copy.textContent='Copy';copy.style.cssText='float:right;margin:0 0 8px 8px';copy.onclick=function(){try{navigator.clipboard.writeText('VKF native scene error: '+msg).catch(function(){});}catch(_){}};var close=document.createElement('button');close.textContent='Close';close.style.cssText='float:right;margin:0 0 8px 12px';close.onclick=function(){if(box&&box.parentNode){box.parentNode.removeChild(box);}};box.appendChild(close);box.appendChild(copy);document.body.appendChild(box);}var text=document.createElement('div');text.textContent='VKF native scene error: '+msg;box.appendChild(text);}throw err;}"
+        + (has_compiled_scene_arena
+            ? ""
+            : "function arenaRef(value){return value&&typeof value==='object'&&value.__vf_mesh_arena===true;}"
+              "function nowMs(){return global.performance&&typeof global.performance.now==='function'?global.performance.now():Date.now();}"
+              "function assignArenaRef(holder,key,value,arena){var off=Number(value.byteOffset||0);var len=Number(value.length||0);var type=String(value.type||'');if(type==='float32'){holder[key]=new Float32Array(arena,off,len);return;}if(type==='uint32'){holder[key]=new Uint32Array(arena,off,len);return;}throw new Error('unknown mesh arena type '+type);}"
+              "function hydrateConfig(config){var arenaUrl=String(global.__vfNativeSceneArenaUrl||'');if(!arenaUrl){return Promise.resolve(config);}return fetch(arenaUrl,{cache:'force-cache'}).then(function(r){if(!r.ok){throw new Error('failed to load native scene arena '+arenaUrl+' ('+String(r.status)+')');}return r.arrayBuffer();}).then(function(arena){return new Promise(function(resolve,reject){var stack=[[{root:config},'root',config]];function step(){try{var start=nowMs();while(stack.length&&(nowMs()-start)<6.0){var item=stack.pop();var holder=item[0];var key=item[1];var value=item[2];if(arenaRef(value)){assignArenaRef(holder,key,value,arena);continue;}if(typeof ArrayBuffer!=='undefined'&&ArrayBuffer.isView&&ArrayBuffer.isView(value)){continue;}if(Array.isArray(value)){for(var ai=value.length-1;ai>=0;ai-=1){stack.push([value,ai,value[ai]]);}continue;}if(value&&typeof value==='object'){Object.keys(value).forEach(function(k){stack.push([value,k,value[k]]);});}}if(stack.length){global.setTimeout(step,0);}else{resolve(config);}}catch(err){reject(err);}}step();});});}")
         + "function load(){var s=document.createElement('script');s.src='../../vf-native-scene.js" + asset_query + "';"
         + "s.onerror=function(){fail(new Error('failed to load vf-native-scene.js'));};"
         + "document.body.appendChild(s);}"
+        + "function armStartup(config){if(!window.VfStartupGate||typeof window.VfStartupGate.expectFrames!=='function'){throw new Error('atomic startup gate unavailable');}var id=String(config&&config.scene_ir&&config.scene_ir.frame&&config.scene_ir.frame.frame_id||config&&config.frame_id||'');window.VfStartupGate.expectFrames(id?[{id:id,interaction:true,presentation:true}]:[]);}"
         + "if(window.VfRuntimeShell&&window.VfRuntimeShell.ensureSceneDependencies){"
         + "var framePromise=window.VfRuntimeShell.mountLaunchFramesFromUrl(window.VfRuntimeShell.config.launchManifestUrl);"
         + "var depsPromise=window.VfRuntimeShell.ensureSceneDependencies();"
-        + "Promise.all([framePromise,depsPromise]).then(function(){return hydrateConfig(global.__vfNativeSceneConfig);}).then(load).catch(fail);"
-        + "}else{hydrateConfig(global.__vfNativeSceneConfig).then(load).catch(fail);}"
+        + "var artifactsPromise=depsPromise.then(function(){return window.VfRuntimeShell.loadCompiledArtifacts();});"
+        + (has_compiled_scene_arena
+            ? "var configPromise=Promise.resolve(global.__vfNativeSceneConfig);"
+              "Promise.all([framePromise,artifactsPromise,configPromise]).then(function(values){var config=window.VfRuntimeShell.bindCompiledScene(values[2]);global.__vfNativeSceneConfig=config;armStartup(config);load();}).catch(fail);"
+            : "var configPromise=hydrateConfig(global.__vfNativeSceneConfig);"
+              "Promise.all([framePromise,artifactsPromise,configPromise]).then(function(values){armStartup(values[2]);load();}).catch(fail);")
+        + "}else{hydrateConfig(global.__vfNativeSceneConfig).then(function(config){armStartup(config);load();}).catch(fail);}"
         + "})(window);</script>"
         + "</body></html>\n";
 }
@@ -2491,6 +2566,676 @@ std::optional<std::string> extract_vkf_string_binding(const std::string& source,
     return std::nullopt;
 }
 
+void flatten_retained_html_numeric_value(
+    const VkfLiteralValue& value,
+    std::vector<double>& out
+) {
+    if (value.kind == VkfLiteralKind::Number) {
+        try {
+            const double number = std::stod(value.text);
+            if (!std::isfinite(number)) {
+                throw StagerError("retained HTML Frame geometry must be finite");
+            }
+            out.push_back(number);
+            return;
+        } catch (const StagerError&) {
+            throw;
+        } catch (...) {
+            throw StagerError("retained HTML Frame geometry must be numeric");
+        }
+    }
+    if (value.kind == VkfLiteralKind::Array) {
+        for (const auto& item : value.array) {
+            flatten_retained_html_numeric_value(item, out);
+        }
+        return;
+    }
+    if (value.kind == VkfLiteralKind::Object) {
+        const std::string kind = literal_string_or(value, "kind", "");
+        if (kind == "const") {
+            const VkfLiteralValue* nested = object_field(value, "value");
+            if (nested) {
+                flatten_retained_html_numeric_value(*nested, out);
+                return;
+            }
+        }
+        if (kind == "list") {
+            const VkfLiteralValue* nested = object_field(value, "items");
+            if (nested) {
+                flatten_retained_html_numeric_value(*nested, out);
+                return;
+            }
+        }
+    }
+    throw StagerError("retained HTML Frame geometry must be numeric");
+}
+
+std::optional<CompiledUiSceneBundle> try_compile_retained_scene_packets(
+    const std::filesystem::path& typed_ir_path,
+    const std::filesystem::path& source_path
+) {
+    if (typed_ir_path.empty()) return std::nullopt;
+    try {
+        const auto root = vf::parse_json(read_file_bytes(typed_ir_path));
+        const auto source_text = read_file_bytes(source_path);
+        const auto loads = vkf::native_scene::canonical_source_loads(
+            source_text, source_path);
+        const auto packets = vkf::retained_scene::compile_packets(root, &loads);
+        if (!packets.has_value()) return std::nullopt;
+        CompiledUiSceneBundle bundle;
+        bundle.scene_config_json = "[]";
+        bundle.runtime_packets_json = vf::json_stringify(*packets, -1);
+        const auto event_program = vkf::retained_scene::compile_event_program(
+            root, *packets);
+        if (event_program.has_value()) {
+            bundle.event_program_json = vf::json_stringify(*event_program, -1);
+        }
+        bundle.provenance = "vkf-retained-scene-lowering";
+        std::map<std::string, bool> loaded_frames;
+        for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
+            std::filesystem::path resource_path(load.resource);
+            if (resource_path.is_absolute()) {
+                throw StagerError("Frame.load resource path must be source-relative");
+            }
+            if (loaded_frames[load.frame_id]) {
+                throw StagerError("Frame.load initial slice accepts one load per Frame");
+            }
+            loaded_frames[load.frame_id] = true;
+            bundle.static_html_bundles.push_back(vf::static_html::collect(
+                source_path, source_path.parent_path() / resource_path,
+                load.frame_id));
+        }
+        return bundle;
+    } catch (const vkf::retained_scene::Error& error) {
+        throw StagerError(error.what());
+    } catch (const vf::static_html::Error& error) {
+        throw StagerError(error.what());
+    }
+}
+
+std::optional<CompiledUiSceneBundle> try_compile_retained_html_tree(
+    const std::filesystem::path& typed_ir_path,
+    const std::filesystem::path& source_path
+) {
+    if (typed_ir_path.empty()) return std::nullopt;
+    const std::string typed_ir_text = read_file_bytes(typed_ir_path);
+    VkfLiteralParser parser(typed_ir_text, 0);
+    const VkfLiteralValue module = parser.parse_value();
+    const VkfLiteralValue* program = object_field(module, "ui_program");
+    if (!program) return std::nullopt;
+    if (program->kind != VkfLiteralKind::Object ||
+        literal_string_or(*program, "schema", "") != "vektor-flow/ui-program") {
+        throw StagerError("typed UI program has an unsupported schema");
+    }
+    const VkfLiteralValue* operations = object_field(*program, "operations");
+    if (!operations || operations->kind != VkfLiteralKind::Array) {
+        throw StagerError("typed UI operations must be an array");
+    }
+    bool has_attachment = false;
+    for (const auto& operation : operations->array) {
+        const std::string kind = literal_string_or(operation, "kind", "");
+        if (kind == "load" || kind == "__vf_internal_attach_html_tree") {
+            has_attachment = true;
+            break;
+        }
+    }
+    if (!has_attachment) return std::nullopt;
+
+    const auto require_field = [](const VkfLiteralValue& value,
+                                  const std::string& key,
+                                  const std::string& context) -> const VkfLiteralValue& {
+        const VkfLiteralValue* found = object_field(value, key);
+        if (!found) throw StagerError("missing " + key + " in " + context);
+        return *found;
+    };
+    const auto require_number = [](const VkfLiteralValue& value,
+                                   const std::string& context) -> double {
+        if (value.kind != VkfLiteralKind::Number) {
+            throw StagerError("expected number for " + context);
+        }
+        try {
+            const double number = std::stod(value.text);
+            if (!std::isfinite(number)) throw StagerError("non-finite " + context);
+            return number;
+        } catch (const StagerError&) {
+            throw;
+        } catch (...) {
+            throw StagerError("invalid number for " + context);
+        }
+    };
+    const auto require_frame_id = [&](const VkfLiteralValue& value,
+                                      const std::string& context) -> std::uint64_t {
+        const double number = require_number(value, context);
+        if (number < 0.0 || std::floor(number) != number ||
+            number > static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
+            throw StagerError("invalid " + context);
+        }
+        return static_cast<std::uint64_t>(number);
+    };
+
+    struct FrameRect {
+        double x;
+        double y;
+        double w;
+        double h;
+    };
+    std::map<std::uint64_t, FrameRect> frames;
+    std::map<std::uint64_t, std::vector<std::string>> component_trees;
+    std::map<std::uint64_t, vf::static_html::Bundle> static_bundles;
+    for (const auto& operation : operations->array) {
+        const std::string kind = literal_string_or(operation, "kind", "");
+        if (kind == "show") continue;
+        if (kind == "add_frame") {
+            if (literal_string_or(operation, "parent_kind", "") != "display") {
+                throw StagerError(
+                    "retained HTML attachment requires a Display-owned Frame");
+            }
+            const std::uint64_t frame_id = require_frame_id(
+                require_field(operation, "frame_id", "typed UI add_frame"),
+                "typed UI frame id");
+            std::vector<double> pos;
+            std::vector<double> size;
+            flatten_retained_html_numeric_value(
+                require_field(operation, "pos", "typed UI add_frame"), pos);
+            flatten_retained_html_numeric_value(
+                require_field(operation, "size", "typed UI add_frame"), size);
+            if (pos.size() != 2 || size.size() != 2) {
+                throw StagerError(
+                    "retained HTML attachment requires two-dimensional Frame geometry");
+            }
+            frames[frame_id] = {
+                pos[0], pos[1], size[0], size[1]};
+            continue;
+        }
+        if (kind == "load") {
+            const VkfLiteralValue& target = require_field(
+                operation, "target", "Frame.load target");
+            if (literal_string_or(target, "kind", "") != "frame") {
+                throw StagerError("Frame.load requires a Frame target");
+            }
+            const std::uint64_t frame_id = require_frame_id(
+                require_field(target, "id", "Frame.load target"),
+                "Frame.load frame id");
+            const VkfLiteralValue& resource = require_field(
+                operation, "resource", "Frame.load operation");
+            if (resource.kind != VkfLiteralKind::String) {
+                throw StagerError("Frame.load resource must be a string");
+            }
+            std::filesystem::path resource_path(resource.text);
+            if (resource_path.is_absolute()) {
+                throw StagerError("Frame.load resource path must be source-relative");
+            }
+            if (static_bundles.find(frame_id) != static_bundles.end()) {
+                throw StagerError("Frame.load initial slice accepts one load per Frame");
+            }
+            resource_path = source_path.parent_path() / resource_path;
+            try {
+                static_bundles.emplace(frame_id, vf::static_html::collect(
+                    source_path, resource_path, "frame_" + std::to_string(frame_id)));
+            } catch (const vf::static_html::Error& error) {
+                throw StagerError(error.what());
+            }
+            continue;
+        }
+        if (kind == "__vf_internal_attach_html_tree") {
+            const VkfLiteralValue& target = require_field(
+                operation, "target", "internal component-tree attachment");
+            if (literal_string_or(target, "kind", "") != "frame") {
+                throw StagerError(
+                    "internal component-tree attachment requires a Frame target");
+            }
+            const std::uint64_t frame_id = require_frame_id(
+                require_field(target, "id", "internal component-tree target"),
+                "internal component-tree frame id");
+            if (component_trees.find(frame_id) != component_trees.end()) {
+                throw StagerError(
+                    "internal component-tree attachment accepts one tree per Frame");
+            }
+            const VkfLiteralValue& identities = require_field(
+                operation, "identities", "internal component-tree attachment");
+            if (identities.kind != VkfLiteralKind::Array || identities.array.empty()) {
+                throw StagerError(
+                    "internal component-tree attachment requires component identities");
+            }
+            std::vector<std::string> tree;
+            for (const auto& identity : identities.array) {
+                if (identity.kind != VkfLiteralKind::String ||
+                    (identity.text != "Div" && identity.text != "Button")) {
+                    throw StagerError(
+                        "internal component-tree attachment only accepts compiled Div and Button identities");
+                }
+                tree.push_back(identity.text);
+            }
+            component_trees.emplace(frame_id, std::move(tree));
+            continue;
+        }
+        throw StagerError(
+            "retained HTML attachment does not combine UI operation `" + kind + "`");
+    }
+
+    std::ostringstream commands;
+    bool first_command = true;
+    std::set<std::uint64_t> target_frames;
+    for (const auto& entry : component_trees) target_frames.insert(entry.first);
+    for (const auto& entry : static_bundles) target_frames.insert(entry.first);
+    for (const std::uint64_t target_frame : target_frames) {
+        const auto frame = frames.find(target_frame);
+        if (frame == frames.end()) {
+            throw StagerError(
+                "retained HTML target was not created by Display.add_frame");
+        }
+        if (!first_command) commands << ",";
+        first_command = false;
+        const std::string frame_id = "frame_" + std::to_string(target_frame);
+        commands << "{\"kind\":\"frame_upsert\",\"id\":\""
+                 << json_escape(frame_id)
+                 << "\",\"payload\":{\"spec\":{\"id\":\""
+                 << json_escape(frame_id)
+                 << "\",\"title\":\"\",\"title_align\":\"left\",";
+        commands << "\"rect\":{\"x\":" << std::setprecision(15) << frame->second.x
+                 << ",\"y\":" << frame->second.y
+                 << ",\"w\":" << frame->second.w
+                 << ",\"h\":" << frame->second.h << "},";
+        commands << "\"flags\":{\"draggable\":true,\"dockable\":true,"
+                 << "\"resizable\":true,\"closable\":true,\"use_browser\":true},"
+                 << "\"alpha\":1,\"master\":false,\"dock_location\":\"tl\","
+                 << "\"anchor\":\"tl\",\"body\":null,\"body_transparent\":false,"
+                 << "\"body_layout\":null,\"parent_id\":null,\"aspect\":null,"
+                 << "\"frameless\":false";
+        const auto tree = component_trees.find(target_frame);
+        if (tree != component_trees.end()) {
+            commands << ",\"__vf_internal_html_components\":[";
+            for (std::size_t index = 0; index < tree->second.size(); ++index) {
+                if (index > 0) commands << ",";
+                commands << "\"" << json_escape(tree->second[index]) << "\"";
+            }
+            commands << "]";
+        }
+        commands << "}}}";
+    }
+
+    CompiledUiSceneBundle bundle;
+    bundle.scene_config_json = "[]";
+    bundle.runtime_packets_json =
+        "[{\"seq\":1,\"kind\":\"scene.replace\",\"payload\":{\"commands\":[" +
+        commands.str() + "]}},{\"seq\":2,\"kind\":\"ui_state.replace\"," +
+        "\"payload\":{\"state\":{}}},{\"seq\":3,\"kind\":\"display.replace\"," +
+        "\"payload\":{\"display\":{\"screen\":[],\"frames\":{},\"geom\":{}}}}]";
+    bundle.provenance = "vkf-retained-html-tree-lowering";
+    for (auto& entry : static_bundles) {
+        bundle.static_html_bundles.push_back(std::move(entry.second));
+    }
+    return bundle;
+}
+
+class TypedWorldValueEvaluator {
+public:
+    explicit TypedWorldValueEvaluator(const VkfLiteralValue& module) {
+        const VkfLiteralValue* body = object_field(module, "body");
+        if (!body || body->kind != VkfLiteralKind::Array) {
+            throw StagerError("typed World module body must be an array");
+        }
+        for (const auto& statement : body->array) {
+            const std::string kind = literal_string_or(statement, "kind", "");
+            const std::string name = literal_string_or(statement, "name", "");
+            if (kind == "function" && !name.empty()) functions_[name] = &statement;
+            if (kind == "store_binding" && !name.empty()) bindings_[name] = &statement;
+        }
+    }
+
+    VkfLiteralValue evaluate(const VkfLiteralValue& expression) {
+        std::map<std::string, VkfLiteralValue> locals;
+        std::map<std::string, bool> active_bindings;
+        return evaluate(expression, locals, active_bindings, 0);
+    }
+
+private:
+    using Locals = std::map<std::string, VkfLiteralValue>;
+
+    static const VkfLiteralValue& require_field(
+        const VkfLiteralValue& value,
+        const std::string& key,
+        const std::string& context
+    ) {
+        const VkfLiteralValue* found = object_field(value, key);
+        if (!found) throw StagerError("typed World value is missing " + key + " in " + context);
+        return *found;
+    }
+
+    VkfLiteralValue evaluate(
+        const VkfLiteralValue& expression,
+        Locals& locals,
+        std::map<std::string, bool>& active_bindings,
+        std::size_t depth
+    ) {
+        if (depth > 64) throw StagerError("typed World value evaluation exceeded its bound");
+        if (expression.kind != VkfLiteralKind::Object) {
+            throw StagerError("typed World value expression must be an object");
+        }
+        const std::string kind = literal_string_or(expression, "kind", "");
+        if (kind == "const") {
+            return require_field(expression, "value", "const");
+        }
+        if (kind == "list" || kind == "tuple") {
+            const VkfLiteralValue& items = require_field(expression, "items", kind);
+            if (items.kind != VkfLiteralKind::Array) {
+                throw StagerError("typed World " + kind + " items must be an array");
+            }
+            VkfLiteralValue result;
+            result.kind = VkfLiteralKind::Array;
+            for (const auto& item : items.array) {
+                result.array.push_back(evaluate(item, locals, active_bindings, depth + 1));
+            }
+            return result;
+        }
+        if (kind == "record") {
+            const VkfLiteralValue& fields = require_field(expression, "fields", "record");
+            if (fields.kind != VkfLiteralKind::Array) {
+                throw StagerError("typed World record fields must be an array");
+            }
+            VkfLiteralValue result;
+            result.kind = VkfLiteralKind::Object;
+            for (const auto& field_value : fields.array) {
+                const std::string name = literal_string_or(field_value, "name", "");
+                if (name.empty()) throw StagerError("typed World record field must have a name");
+                result.object.push_back({
+                    name,
+                    evaluate(
+                        require_field(field_value, "value", "record field"),
+                        locals,
+                        active_bindings,
+                        depth + 1)
+                });
+            }
+            return result;
+        }
+        if (kind == "load") {
+            const std::string name = literal_string_or(expression, "name", "");
+            const auto local = locals.find(name);
+            if (local != locals.end()) return local->second;
+            const auto binding = bindings_.find(name);
+            if (binding == bindings_.end()) {
+                throw StagerError("typed World value references unknown binding " + name);
+            }
+            if (active_bindings[name]) {
+                throw StagerError("typed World value binding cycle at " + name);
+            }
+            active_bindings[name] = true;
+            VkfLiteralValue result = evaluate(
+                require_field(*binding->second, "value", "store_binding"),
+                locals,
+                active_bindings,
+                depth + 1);
+            active_bindings[name] = false;
+            return result;
+        }
+        if (kind == "field_access") {
+            VkfLiteralValue subject = evaluate(
+                require_field(expression, "object", "field_access"),
+                locals,
+                active_bindings,
+                depth + 1);
+            const std::string field_name = literal_string_or(expression, "field", "");
+            const VkfLiteralValue* selected = object_field(subject, field_name);
+            if (!selected) {
+                throw StagerError("typed World value has no field " + field_name);
+            }
+            return *selected;
+        }
+        if (kind == "binary_op") {
+            const std::string op = literal_string_or(expression, "op", "");
+            VkfLiteralValue left = evaluate(
+                require_field(expression, "left", "binary_op"),
+                locals,
+                active_bindings,
+                depth + 1);
+            VkfLiteralValue right = evaluate(
+                require_field(expression, "right", "binary_op"),
+                locals,
+                active_bindings,
+                depth + 1);
+            if (op != "STAR" || left.kind != VkfLiteralKind::Number ||
+                right.kind != VkfLiteralKind::Number) {
+                throw StagerError("typed World value only supports numeric multiplication");
+            }
+            VkfLiteralValue result;
+            result.kind = VkfLiteralKind::Number;
+            std::ostringstream number;
+            number << std::setprecision(17) << std::stod(left.text) * std::stod(right.text);
+            result.text = number.str();
+            return result;
+        }
+        if (kind == "call") {
+            const VkfLiteralValue& callee = require_field(expression, "callee", "call");
+            if (literal_string_or(callee, "kind", "") != "load") {
+                throw StagerError("typed World value call requires a named function");
+            }
+            const std::string function_name = literal_string_or(callee, "name", "");
+            const auto function = functions_.find(function_name);
+            if (function == functions_.end()) {
+                throw StagerError("typed World value calls unknown function " + function_name);
+            }
+            const VkfLiteralValue& params = require_field(*function->second, "params", "function");
+            const VkfLiteralValue& args = require_field(expression, "args", "call");
+            if (params.kind != VkfLiteralKind::Array || args.kind != VkfLiteralKind::Array ||
+                params.array.size() != args.array.size()) {
+                throw StagerError("typed World value call arity mismatch for " + function_name);
+            }
+            Locals function_locals;
+            for (std::size_t index = 0; index < params.array.size(); ++index) {
+                const std::string param_name = literal_string_or(params.array[index], "name", "");
+                if (param_name.empty()) throw StagerError("typed World function parameter has no name");
+                function_locals[param_name] = evaluate(
+                    args.array[index], locals, active_bindings, depth + 1);
+            }
+            const VkfLiteralValue& block = require_field(*function->second, "body", "function");
+            const VkfLiteralValue& statements = require_field(block, "body", "function block");
+            if (statements.kind != VkfLiteralKind::Array || statements.array.empty()) {
+                throw StagerError("typed World function has no result " + function_name);
+            }
+            const VkfLiteralValue& tail = statements.array.back();
+            const std::string tail_kind = literal_string_or(tail, "kind", "");
+            const std::string result_field = tail_kind == "return" ? "value" : "expr";
+            if (tail_kind != "return" && tail_kind != "expr_stmt") {
+                throw StagerError("typed World function result must be a return or expression");
+            }
+            return evaluate(
+                require_field(tail, result_field, "function result"),
+                function_locals,
+                active_bindings,
+                depth + 1);
+        }
+        throw StagerError("unsupported typed World value expression " + kind);
+    }
+
+    std::map<std::string, const VkfLiteralValue*> functions_;
+    std::map<std::string, const VkfLiteralValue*> bindings_;
+};
+
+std::vector<double> typed_world_numeric_values(
+    const VkfLiteralValue& value,
+    const std::string& context
+) {
+    std::vector<double> values;
+    const auto flatten = [&](const auto& self, const VkfLiteralValue& item) -> void {
+        if (item.kind == VkfLiteralKind::Number) {
+            try {
+                const double number = std::stod(item.text);
+                if (!std::isfinite(number)) throw StagerError(context + " must be finite");
+                values.push_back(number);
+                return;
+            } catch (const StagerError&) {
+                throw;
+            } catch (...) {
+                throw StagerError(context + " must be numeric");
+            }
+        }
+        if (item.kind == VkfLiteralKind::Array) {
+            for (const auto& child : item.array) self(self, child);
+            return;
+        }
+        throw StagerError(context + " must contain only numbers");
+    };
+    flatten(flatten, value);
+    return values;
+}
+
+std::string typed_world_number_array_json(const std::vector<double>& values) {
+    std::ostringstream out;
+    out << "[";
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) out << ",";
+        out << std::setprecision(17) << values[index];
+    }
+    out << "]";
+    return out.str();
+}
+
+std::optional<CompiledUiSceneBundle> try_compile_typed_world_presentation(
+    const std::filesystem::path& typed_ir_path
+) {
+    if (typed_ir_path.empty()) return std::nullopt;
+    const std::string typed_ir_text = read_file_bytes(typed_ir_path);
+    VkfLiteralParser parser(typed_ir_text, 0);
+    const VkfLiteralValue module = parser.parse_value();
+    const VkfLiteralValue* world_program = object_field(module, "__vf_internal_world");
+    const VkfLiteralValue* ui_program = object_field(module, "ui_program");
+    if (!world_program || !ui_program) return std::nullopt;
+    if (literal_string_or(*ui_program, "schema", "") != "vektor-flow/ui-program") {
+        throw StagerError("typed World UI program has an unsupported schema");
+    }
+    const VkfLiteralValue* worlds = object_field(*world_program, "worlds");
+    const VkfLiteralValue* world_operations = object_field(*world_program, "operations");
+    const VkfLiteralValue* operations = object_field(*ui_program, "operations");
+    if (!worlds || worlds->kind != VkfLiteralKind::Array || worlds->array.size() != 1 ||
+        !world_operations || world_operations->kind != VkfLiteralKind::Array ||
+        world_operations->array.size() != 1 || !operations ||
+        operations->kind != VkfLiteralKind::Array || operations->array.size() != 3) {
+        throw StagerError("the first typed World presentation requires one World, object, and layer");
+    }
+    const VkfLiteralValue& world = worlds->array.front();
+    const double world_dimension = literal_number_or(world, "dimension", -1.0);
+    if (literal_number_or(*world_program, "version", -1.0) != 1.0 ||
+        literal_number_or(*ui_program, "version", -1.0) != 1.0 ||
+        literal_number_or(world, "id", -1.0) != 0.0 ||
+        (world_dimension != 2.0 && world_dimension != 3.0)) {
+        throw StagerError("the first typed World presentation requires dimension 2 or 3");
+    }
+    for (const std::string option : {"em", "gravity", "rigid_collisions"}) {
+        const VkfLiteralValue* value = object_field(world, option);
+        if (!value || value->kind != VkfLiteralKind::Bool || value->bool_value) {
+            throw StagerError(
+                "the first typed World presentation requires `" + option + ":false`");
+        }
+    }
+    const VkfLiteralValue& add = operations->array[0];
+    if (literal_string_or(add, "kind", "") != "add" ||
+        literal_string_or(operations->array[1], "kind", "") != "push" ||
+        literal_string_or(operations->array[2], "kind", "") != "show") {
+        throw StagerError("typed World presentation requires ordered add, push, show operations");
+    }
+    const VkfLiteralValue* source = object_field(add, "source");
+    if (!source || literal_string_or(*source, "kind", "") != "world_embedding" ||
+        literal_number_or(*source, "world_id", -1.0) != 0.0 ||
+        literal_number_or(*source, "object_id", -1.0) != 0.0) {
+        throw StagerError("typed World layer source does not match its retained object");
+    }
+    const VkfLiteralValue& world_add = world_operations->array.front();
+    if (literal_string_or(world_add, "kind", "") != "add" ||
+        literal_number_or(world_add, "world_id", -1.0) != 0.0 ||
+        literal_number_or(world_add, "object_id", -1.0) != 0.0 ||
+        literal_string_or(world_add, "object_type", "") !=
+            literal_string_or(*source, "object_type", "")) {
+        throw StagerError("typed World object operation does not match its layer source");
+    }
+    const VkfLiteralValue* channels = object_field(add, "channels");
+    if (!channels || channels->kind != VkfLiteralKind::Array) {
+        throw StagerError("typed World layer requires presentation channels");
+    }
+
+    TypedWorldValueEvaluator evaluator(module);
+    std::map<std::string, std::vector<double>> channel_values;
+    for (const auto& channel : channels->array) {
+        const std::string name = literal_string_or(channel, "name", "");
+        if (name != "p" && name != "c" && name != "s" &&
+            name != "positions" && name != "topology" &&
+            name != "color" && name != "material") {
+            throw StagerError("typed World layer contains an unsupported channel " + name);
+        }
+        if (channel_values.find(name) != channel_values.end()) {
+            throw StagerError("typed World layer contains duplicate channel " + name);
+        }
+        const VkfLiteralValue* value = object_field(channel, "value");
+        if (!value) throw StagerError("typed World channel " + name + " has no value");
+        channel_values[name] = typed_world_numeric_values(
+            evaluator.evaluate(*value), "typed World channel " + name);
+    }
+
+    const std::string frame_id = "world_0_view_0";
+    const std::string mesh_id = "world_0_layer_0";
+    const std::string frame = axis_deck_frame_command_json(
+        frame_id, "", 0.0, 0.0, 1.0, 1.0);
+    std::string mesh_json;
+    std::string materials_suffix;
+    const bool particle_channels = channel_values.size() == 3 &&
+        channel_values.count("p") == 1 && channel_values.count("c") == 1 &&
+        channel_values.count("s") == 1;
+    const bool mesh_channels = channel_values.size() == 4 &&
+        channel_values.count("positions") == 1 && channel_values.count("topology") == 1 &&
+        channel_values.count("color") == 1 && channel_values.count("material") == 1;
+    if (particle_channels) {
+        const auto& position = channel_values["p"];
+        const auto& color = channel_values["c"];
+        const auto& size = channel_values["s"];
+        if (world_dimension != 2.0 || position.size() != 2 ||
+            color.size() != 4 || size.size() != 1) {
+            throw StagerError(
+                "the first typed World particle requires dimension 2, one position, RGBA color, and size");
+        }
+        const std::vector<double> vertices{
+            position[0], position[1], 0.0,
+            0.0, 0.0, 1.0,
+            color[0], color[1], color[2], color[3]
+        };
+        std::ostringstream mesh;
+        mesh << "{\"type\":\"field_mesh\",\"id\":\"" << mesh_id
+             << "\",\"topology\":\"point-list\",\"render_mode\":\"marker_impostor\","
+             << "\"marker_space\":\"world\",\"mode3d\":false,\"vertices\":"
+             << typed_world_number_array_json(vertices)
+             << ",\"indices\":[0],\"vertex_size\":" << std::setprecision(17) << size[0]
+             << ",\"depth_write\":false,\"no_lighting\":true,\"pickable\":true,\"layer_id\":0}";
+        mesh_json = mesh.str();
+    } else if (mesh_channels) {
+        if (world_dimension != 3.0) {
+            throw StagerError("typed World mesh channels require dimension 3");
+        }
+        try {
+            const auto mesh = vkf::world_mesh::compile(
+                channel_values["positions"], channel_values["topology"],
+                channel_values["color"], channel_values["material"]);
+            mesh_json = vkf::world_mesh::mesh_json(mesh, mesh_id, 0);
+            materials_suffix = ",\"materials\":" + vkf::world_mesh::materials_json(mesh);
+        } catch (const std::exception& error) {
+            throw StagerError(error.what());
+        }
+    } else {
+        throw StagerError(
+            "typed World layer requires either p/c/s or positions/topology/color/material channels");
+    }
+    const std::string geom = "{\"" + frame_id + "\":{\"frame\":\"" + frame_id +
+        "\",\"meshes\":[" + mesh_json + "],\"texts\":[]" + materials_suffix + "}}";
+
+    CompiledUiSceneBundle bundle;
+    bundle.scene_config_json = "[]";
+    bundle.runtime_packets_json =
+        "[{\"seq\":1,\"kind\":\"scene.replace\",\"payload\":{\"commands\":[" +
+        frame + "]}},{\"seq\":2,\"kind\":\"ui_state.replace\",\"payload\":{\"state\":{}}},"
+        "{\"seq\":3,\"kind\":\"display.replace\",\"payload\":{\"display\":{"
+        "\"screen\":[],\"frames\":{},\"geom\":" + geom + "}}}]";
+    bundle.provenance = "vkf-world-ui-program-lowering";
+    return bundle;
+}
+
 Args parse_args(int argc, char** argv) {
     Args args;
     for (int i = 1; i < argc; ++i) {
@@ -2506,6 +3251,16 @@ Args parse_args(int argc, char** argv) {
             args.source = require_value(arg);
         } else if (arg == "--overlay-web") {
             args.overlay_web = require_value(arg);
+        } else if (arg == "--typed-ir") {
+            args.typed_ir = require_value(arg);
+        } else if (arg == "--wasm-artifact") {
+            args.wasm_artifact = require_value(arg);
+        } else if (arg == "--wasm-manifest") {
+            args.wasm_manifest = require_value(arg);
+        } else if (arg == "--webgpu-artifact") {
+            args.webgpu_artifact = require_value(arg);
+        } else if (arg == "--webgpu-manifest") {
+            args.webgpu_manifest = require_value(arg);
         } else if (arg == "--scene-config") {
             args.scene_config_json = require_value(arg);
             args.scene_config_supplied = true;
@@ -2521,7 +3276,7 @@ Args parse_args(int argc, char** argv) {
         } else if (arg == "--help" || arg == "-h") {
             throw StagerError(
                 "usage: vkf_native_scene_artifact_stager --source file.vkf --overlay-web webdir "
-                "--scene-config json [--runtime-packets json]");
+                "[--typed-ir typed-ir.json] --scene-config json [--runtime-packets json]");
         } else {
             throw StagerError("unknown argument " + arg);
         }
@@ -2529,11 +3284,22 @@ Args parse_args(int argc, char** argv) {
     if (args.source.empty() || args.overlay_web.empty()) {
         throw StagerError("usage: vkf_native_scene_artifact_stager --source file.vkf --overlay-web webdir [--scene-config json]");
     }
+    const std::size_t compiled_artifact_count =
+        static_cast<std::size_t>(!args.wasm_artifact.empty()) +
+        static_cast<std::size_t>(!args.wasm_manifest.empty()) +
+        static_cast<std::size_t>(!args.webgpu_artifact.empty()) +
+        static_cast<std::size_t>(!args.webgpu_manifest.empty());
+    if (compiled_artifact_count != 0 && compiled_artifact_count != 4) {
+        throw StagerError(
+            "compiled UI staging requires all of WASM, WGSL, and both manifests");
+    }
     return args;
 }
 
 int run(int argc, char** argv) {
     const Args args = parse_args(argc, argv);
+    const bool has_compiled_scene_arena =
+        compiled_manifest_has_retained_scene_arena(args.wasm_manifest);
     const std::filesystem::path absolute_source = std::filesystem::absolute(args.source);
     if (!std::filesystem::exists(absolute_source)) {
         throw StagerError("source not found: " + absolute_source.string());
@@ -2563,7 +3329,24 @@ int run(int argc, char** argv) {
             scene_config_provenance.path = slash_path(config_path);
             scene_config_provenance.source_hash_checked = true;
         } else {
-            auto compiled_ui_scene = try_compile_native_scene_from_source(source_text, effective.overlay_web);
+            auto compiled_ui_scene = try_compile_native_scene_from_source(
+                source_text, absolute_source, effective.overlay_web);
+            if (compiled_ui_scene.has_value()) {
+                attach_typed_native_scene_ui(
+                    *compiled_ui_scene, effective.typed_ir, absolute_source);
+            }
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_retained_scene_packets(
+                    effective.typed_ir, absolute_source);
+            }
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_retained_html_tree(
+                    effective.typed_ir, absolute_source);
+            }
+            if (!compiled_ui_scene.has_value()) {
+                compiled_ui_scene = try_compile_typed_world_presentation(
+                    effective.typed_ir);
+            }
             if (!compiled_ui_scene.has_value()) {
                 compiled_ui_scene = try_compile_axis_mode_deck_from_source(source_text);
             }
@@ -2576,6 +3359,9 @@ int run(int argc, char** argv) {
                     "compile the UI scene through compiler/self_hosted/native_scene_compiler.vkf before staging");
             }
             effective.scene_config_json = compiled_ui_scene->scene_config_json;
+            effective.event_program_json = compiled_ui_scene->event_program_json;
+            effective.static_html_bundles = std::move(
+                compiled_ui_scene->static_html_bundles);
             scene_config_provenance.source = compiled_ui_scene->provenance;
             scene_config_provenance.source_hash_checked = true;
             if (!effective.runtime_packets_supplied) {
@@ -2624,11 +3410,16 @@ int run(int argc, char** argv) {
     const std::filesystem::path session_dir = std::filesystem::absolute(args.overlay_web) / "sessions" / stem;
     const std::string runtime_asset_version = runtime_asset_version_for(std::filesystem::absolute(args.overlay_web));
 
-    const bool multi_view_scene = is_json_array_text(effective.scene_config_json);
+    const std::string launch_manifest_json = has_compiled_scene_arena
+        ? retained_scene_launch_manifest_json(effective.runtime_packets_json)
+        : native_scene_launch_manifest_json(effective.scene_config_json);
+    const bool multi_view_scene = !has_compiled_scene_arena &&
+        is_json_array_text(effective.scene_config_json);
     const std::string config_filename = multi_view_scene
         ? "vf-native-scene-configs-" + fnv1a64_hex(effective.scene_config_json) + ".json"
         : "";
-    const std::string arena_filename = !arena.arena_bytes.empty()
+    const std::string arena_filename =
+        !has_compiled_scene_arena && !arena.arena_bytes.empty()
         ? "vf-native-scene-arena-" + fnv1a64_hex(arena.arena_bytes) + ".bin"
         : "";
     std::vector<std::string> generated_keep_names;
@@ -2639,6 +3430,31 @@ int run(int argc, char** argv) {
         generated_keep_names.push_back(arena_filename);
     }
     remove_prior_generated_scene_artifacts(session_dir, generated_keep_names);
+    if (!args.wasm_artifact.empty()) {
+        const std::array<std::pair<std::filesystem::path, std::string>, 4> compiled_artifacts{{
+            {args.wasm_artifact, "vkf-program.wasm"},
+            {args.wasm_manifest, "vkf-program.wasm-manifest.json"},
+            {args.webgpu_artifact, "vkf-render.wgsl"},
+            {args.webgpu_manifest, "vkf-render.webgpu-manifest.json"},
+        }};
+        for (std::size_t index = 0; index < compiled_artifacts.size(); ++index) {
+            const auto& [input, output_name] = compiled_artifacts[index];
+            const auto absolute_input = std::filesystem::absolute(input);
+            if (!std::filesystem::is_regular_file(absolute_input)) {
+                throw StagerError("compiled UI artifact not found: " + absolute_input.string());
+            }
+            std::string bytes = read_file_bytes(absolute_input);
+            if (bytes.empty()) {
+                throw StagerError("compiled UI artifact is empty: " + absolute_input.string());
+            }
+            if (index == 1) {
+                bytes = portable_compiled_manifest(bytes, "vkf-program.wasm");
+            } else if (index == 3) {
+                bytes = portable_compiled_manifest(bytes, "vkf-render.wgsl");
+            }
+            write_file(session_dir / output_name, bytes, true);
+        }
+    }
     write_file(manifest_path, manifest_text(
         absolute_source,
         source_hash,
@@ -2646,8 +3462,21 @@ int run(int argc, char** argv) {
         page_rel,
         scene_config_provenance,
         runtime_packets_provenance));
-    write_file(session_dir / "vkf-scene.html", html_text(effective.scene_config_json, config_filename, arena_filename, runtime_asset_version), true);
-    write_file(session_dir / "vf-launch-manifest.json", native_scene_launch_manifest_json(effective.scene_config_json), true);
+    write_file(session_dir / "vkf-scene.html", html_text(
+        effective.scene_config_json,
+        config_filename,
+        arena_filename,
+        runtime_asset_version,
+        !effective.static_html_bundles.empty(),
+        std::filesystem::is_regular_file(long_io_path(
+            std::filesystem::absolute(args.overlay_web) / "geom" / "vf-native-scene-adapters.js")),
+        !args.wasm_artifact.empty(),
+        has_compiled_scene_arena,
+        launch_manifest_json), true);
+    write_file(
+        session_dir / "vf-launch-manifest.json",
+        launch_manifest_json,
+        true);
     if (multi_view_scene) {
         write_file(session_dir / config_filename, effective.scene_config_json + "\n");
     }
@@ -2658,6 +3487,21 @@ int run(int argc, char** argv) {
     write_file(session_dir / "vf-geom-ledger-transport.json", effective.geom_transport_json, true);
     write_file(session_dir / "vf-geom-ledger-state.json", effective.geom_state_json, true);
     write_file(session_dir / "vf-event-program.json", effective.event_program_json, true);
+    if (!effective.static_html_bundles.empty()) {
+        std::ostringstream mounts;
+        mounts << "[";
+        for (std::size_t index = 0; index < effective.static_html_bundles.size(); ++index) {
+            if (index > 0) mounts << ",";
+            const auto& bundle = effective.static_html_bundles[index];
+            mounts << "{\"frame_id\":\"" << json_escape(bundle.frame_id)
+                   << "\",\"resource\":\"" << json_escape(bundle.entry) << "\"}";
+            for (const auto& resource : bundle.resources) {
+                write_file(session_dir / resource.name, resource.bytes);
+            }
+        }
+        mounts << "]\n";
+        write_file(session_dir / "vf-static-html-loads.json", mounts.str(), true);
+    }
 
     std::cout << "{"
               << "\"status\":\"compiled\","
@@ -2675,6 +3519,9 @@ int run(int argc, char** argv) {
 int main(int argc, char** argv) {
     try {
         return run(argc, argv);
+    } catch (const vkf::native_scene::Error& error) {
+        std::cerr << "vkf_native_scene_artifact_stager: " << error.what() << "\n";
+        return 1;
     } catch (const StagerError& error) {
         std::cerr << "vkf_native_scene_artifact_stager: " << error.what() << "\n";
         return 1;

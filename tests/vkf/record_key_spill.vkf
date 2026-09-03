@@ -1,0 +1,19 @@
+RecordKeySample(x:num, label:str): (x:x, label:label)
+
+anonymous_record_value_spill_returns_keys() -> bit:
+    value: (x:1, label:"one")
+    ({:value} == {"x":1, "label":1} /\ {:value.} == {"x":1, "label":1})?!
+
+nominal_heterogeneous_record_value_spill_returns_keys() -> bit:
+    value: RecordKeySample(7, "seven")
+    ({:value} == {"x":1, "label":1} /\ {:value.} == {"x":1, "label":1})?!
+
+record_value_spill_is_independent_of_field_values() -> bit:
+    first: (x:1, label:"first")
+    second: (x:999, label:"second")
+    ({:first} == {:second})?!
+
+tuple_and_vector_multiset_spills_keep_values() -> bit:
+    tuple_values: (1, 2, 2)
+    vector_values: [1, 2, 2]
+    ({:tuple_values} == {1:1, 2:2} /\ {:vector_values} == {1:1, 2:2})?!

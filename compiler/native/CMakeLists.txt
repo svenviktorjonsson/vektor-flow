@@ -114,6 +114,7 @@ vkf_native_target(
 )
 find_package(Threads REQUIRED)
 target_link_libraries(vkf_adaptive_optimizer_contract_test PRIVATE Threads::Threads)
+vkf_native_target(vkf_layer_time_runtime_test vkf_layer_time_runtime_test.cpp TRUE)
 
 install(TARGETS
     vkf

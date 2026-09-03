@@ -1,9 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
-enum class VkfSymbolicDomainKind {
+enum class VkfSymbolicDomainKind : std::uint8_t {
     Unknown,
     Natural,
     Integer,

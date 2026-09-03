@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -9,7 +10,7 @@ namespace vf {
 
 class JsonValue {
 public:
-    enum class Type {
+    enum class Type : std::uint8_t {
         Null,
         Boolean,
         Number,

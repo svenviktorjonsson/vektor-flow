@@ -14,7 +14,7 @@ const displaySource = fs.readFileSync(
 assert.ok(sceneSource.includes("function runtimeHasStandaloneDisplayContent()"));
 assert.ok(sceneSource.includes("function runtimeSceneDeclaresFrames()"));
 assert.ok(sceneSource.includes("global.__vfSceneDeclaredFrameCount = upserts.length;"));
-assert.ok(sceneSource.includes("(!runtimeHasStandaloneDisplayContent() || runtimeSceneDeclaresFrames())"));
+assert.ok(sceneSource.includes("!runtimeHasStandaloneDisplayContent())"));
 assert.ok(sceneSource.includes('if (attr === "false") { return false; }'));
 assert.ok(sceneSource.includes('if (attr === "true") { return true; }'));
 assert.ok(sceneSource.includes("return !!(global.chrome && global.chrome.webview);"));

@@ -1,0 +1,44 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.vf-frame__body.vf-w-grid > [data-vf-static-html-root] {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.capture-controls {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+button {
+  padding: 0.55rem 0.85rem;
+  color: #f5f8fc;
+  font: 600 0.8rem/1.2 inherit;
+  background: rgba(18, 24, 34, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 0.45rem;
+  box-shadow: 0 0.2rem 0.8rem rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+button:hover,
+button:focus-visible {
+  background: rgba(40, 52, 70, 0.94);
+  border-color: rgba(255, 255, 255, 0.52);
+  outline: none;
+}
+
+canvas.vf-geom-canvas:focus,
+canvas.vf-geom-canvas:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}

@@ -1,0 +1,11 @@
+native_scene:(
+    kind:"scene_3d", frame_id:"wireframe_points", title:"Wireframe points",
+    rect:[0.08, 0.08, 0.84, 0.84], background:[0.008, 0.018, 0.04, 1],
+    camera:(pos:[4, -6, 3.5], target:[0, 0, 0.7], up:[0, 0, 1], fov:38),
+    meshes:[(
+        id:"wireframe", kind:"field_mesh",
+        vertices:[-1.4, -0.8, 0, 0, 0, 1, 0.1, 0.72, 1, 1, 1.4, -0.8, 0, 0, 0, 1, 0.1, 0.72, 1, 1, 1.4, 0.8, 0, 0, 0, 1, 0.1, 0.72, 1, 1, -1.4, 0.8, 0, 0, 0, 1, 0.1, 0.72, 1, 1, 0, 0, 2, 0, 0, 1, 1, 0.34, 0.12, 1],
+        indices:[0, 1, 1, 2, 2, 3, 3, 0, 0, 4, 1, 4, 2, 4, 3, 4],
+        topology:"line-list", render_mode:"line", mode3d:true, color:[0.1, 0.72, 1, 1]
+    )]
+)

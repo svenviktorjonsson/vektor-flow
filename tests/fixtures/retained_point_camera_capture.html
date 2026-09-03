@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>VKF retained point camera capture</title>
+</head>
+<body>
+  <canvas id="million"></canvas>
+  <canvas id="oracle"></canvas>
+  <script type="module">
+    import { createVkfLargeSceneAdapter } from '../../benchmarks/large-scene-visualization/adapters/vkf.mjs';
+    import { generatePointFixtureBytes } from '../../benchmarks/large-scene-visualization/point-fixture.mjs';
+    import {
+      compareRegionStats,
+      framebufferRegionStats,
+      idealDiscRegionStats,
+    } from '../../benchmarks/large-scene-visualization/point-frame-oracle.mjs';
+
+    const countersByContext = new WeakMap();
+    const prototype = WebGL2RenderingContext.prototype;
+    const original = {
+      bufferData: prototype.bufferData,
+      bufferSubData: prototype.bufferSubData,
+      createBuffer: prototype.createBuffer,
+      drawArrays: prototype.drawArrays,
+    };
+    prototype.bufferData = function(...args) {
+      const counters = countersByContext.get(this);
+      if (counters) counters.bufferAllocations += 1;
+      return original.bufferData.apply(this, args);
+    };
+    prototype.bufferSubData = function(...args) {
+      const counters = countersByContext.get(this);
+      if (counters) counters.bufferWrites += 1;
+      return original.bufferSubData.apply(this, args);
+    };
+    prototype.createBuffer = function(...args) {
+      const buffer = original.createBuffer.apply(this, args);
+      const counters = countersByContext.get(this);
+      if (counters) counters.createdBuffers.push(buffer);
+      return buffer;
+    };
+    prototype.drawArrays = function(...args) {
+      const counters = countersByContext.get(this);
+      if (counters) counters.draws += 1;
+      return original.drawArrays.apply(this, args);
+    };
+
+    function instrument(canvas) {
+      const counters = { bufferAllocations: 0, bufferWrites: 0, createdBuffers: [], draws: 0 };
+      const getContext = canvas.getContext.bind(canvas);
+      let gl = null;
+      canvas.getContext = (kind, options) => {
+        const context = getContext(kind, options);
+        if (kind === 'webgl2' && context) {
+          gl = context;
+          countersByContext.set(context, counters);
+        }
+        return context;
+      };
+      return { counters, get gl() { return gl; } };
+    }
+
+    function read(gl, width, height) {
+      gl.finish();
+      const rgba = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+      return rgba;
+    }
+
+    async function sha256(bytes) {
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+    }
+
+    function pixelSummary(rgba, width, height) {
+      let pixels = 0;
+      let weightedX = 0;
+      let weightedY = 0;
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          const alpha = rgba[(y * width + x) * 4 + 3];
+          if (alpha === 0) continue;
+          pixels += 1;
+          weightedX += x * alpha;
+          weightedY += y * alpha;
+        }
+      }
+      return {
+        pixels,
+        centroid: pixels > 0 ? [weightedX / pixels / 255, weightedY / pixels / 255] : null,
+      };
+    }
+
+    async function execute() {
+      const manifestUrl = new URL('../../benchmarks/large-scene-visualization/manifest.json', import.meta.url);
+      const manifest = await (await fetch(manifestUrl)).json();
+      const workload = manifest.workloads.find(({ id }) => id === 'orthographic-points-1m-pan');
+
+      const millionCanvas = document.getElementById('million');
+      const millionInstrumentation = instrument(millionCanvas);
+      const millionAdapter = createVkfLargeSceneAdapter(millionCanvas, workload);
+      await millionAdapter.initialize();
+      const millionGl = millionInstrumentation.gl;
+      if (!millionGl) throw new Error('headless WebGL2 unavailable');
+      const million0 = read(millionGl, workload.viewport[0], workload.viewport[1]);
+      millionAdapter.renderFrame(60);
+      const million60 = read(millionGl, workload.viewport[0], workload.viewport[1]);
+
+      const oracleWorkload = structuredClone(workload);
+      oracleWorkload.pointCount = 4096;
+      oracleWorkload.viewport = [320, 180];
+      oracleWorkload.correctness.grid = [8, 4];
+      const oracleBytes = generatePointFixtureBytes(oracleWorkload.fixture, oracleWorkload.pointCount);
+      oracleWorkload.fixture.sha256 = await sha256(oracleBytes);
+      const oraclePoints = new Float32Array(oracleBytes.buffer);
+      const oracleCanvas = document.getElementById('oracle');
+      const oracleInstrumentation = instrument(oracleCanvas);
+      const oracleAdapter = createVkfLargeSceneAdapter(oracleCanvas, oracleWorkload, {
+        fixtureBytes: oracleBytes,
+      });
+      await oracleAdapter.initialize();
+      const oracleGl = oracleInstrumentation.gl;
+      const oracle0 = read(oracleGl, oracleWorkload.viewport[0], oracleWorkload.viewport[1]);
+      const oracle0Comparison = compareRegionStats(
+        idealDiscRegionStats(oraclePoints, oracleWorkload, 0),
+        framebufferRegionStats(oracle0, oracleWorkload, 0, { origin: 'bottom-left' }),
+        oracleWorkload.correctness.maxRegionError,
+      );
+      oracleAdapter.renderFrame(60);
+      const oracle60 = read(oracleGl, oracleWorkload.viewport[0], oracleWorkload.viewport[1]);
+      const oracle60Comparison = compareRegionStats(
+        idealDiscRegionStats(oraclePoints, oracleWorkload, 60),
+        framebufferRegionStats(oracle60, oracleWorkload, 60, { origin: 'bottom-left' }),
+        oracleWorkload.correctness.maxRegionError,
+      );
+
+      millionAdapter.destroy();
+      oracleAdapter.destroy();
+      const rendererInfo = millionGl.getExtension('WEBGL_debug_renderer_info');
+      return {
+        mode: 'headless-webgl2-correctness-only',
+        performanceClaim: false,
+        webgl: {
+          version: millionGl.getParameter(millionGl.VERSION),
+          vendor: rendererInfo
+            ? millionGl.getParameter(rendererInfo.UNMASKED_VENDOR_WEBGL)
+            : millionGl.getParameter(millionGl.VENDOR),
+          renderer: rendererInfo
+            ? millionGl.getParameter(rendererInfo.UNMASKED_RENDERER_WEBGL)
+            : millionGl.getParameter(millionGl.RENDERER),
+        },
+        million: {
+          pointCount: workload.pointCount,
+          sourceBytes: workload.pointCount * 2 * 4,
+          bufferWrites: millionInstrumentation.counters.bufferWrites,
+          bufferAllocations: millionInstrumentation.counters.bufferAllocations,
+          createdBuffers: millionInstrumentation.counters.createdBuffers.length,
+          draws: millionInstrumentation.counters.draws,
+          frame0Sha256: await sha256(million0),
+          frame60Sha256: await sha256(million60),
+          frame0: pixelSummary(million0, workload.viewport[0], workload.viewport[1]),
+          frame60: pixelSummary(million60, workload.viewport[0], workload.viewport[1]),
+        },
+        oracle: {
+          pointCount: oracleWorkload.pointCount,
+          frame0: oracle0Comparison,
+          frame60: oracle60Comparison,
+          bufferWrites: oracleInstrumentation.counters.bufferWrites,
+        },
+      };
+    }
+
+    execute().then((result) => {
+      window.__vfPointCameraResult = { ok: true, ...result };
+    }).catch((error) => {
+      window.__vfPointCameraResult = { ok: false, error: String(error?.stack ?? error) };
+    });
+  </script>
+</body>
+</html>

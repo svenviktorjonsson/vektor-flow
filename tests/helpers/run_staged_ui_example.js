@@ -1,0 +1,269 @@
+const crypto = require("crypto");
+const fs = require("fs");
+const http = require("http");
+const os = require("os");
+const path = require("path");
+const { spawn } = require("child_process");
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function connect(url) {
+  return await new Promise((resolve, reject) => {
+    const socket = new WebSocket(url);
+    socket.onopen = () => resolve(socket);
+    socket.onerror = reject;
+  });
+}
+
+async function cdp(socket, state, method, params = {}) {
+  return await new Promise((resolve, reject) => {
+    const id = ++state.nextId;
+    state.pending.set(id, (message) => message.error
+      ? reject(new Error(JSON.stringify(message.error)))
+      : resolve(message.result));
+    socket.send(JSON.stringify({ id, method, params }));
+  });
+}
+
+function receive(state, event) {
+  const message = JSON.parse(event.data.toString());
+  const handler = message.id && state.pending.get(message.id);
+  if (!handler) return;
+  state.pending.delete(message.id);
+  handler(message);
+}
+
+function serveOverlay(scenePath, port) {
+  const overlayRoot = path.resolve(path.dirname(scenePath), "../..");
+  const relativeScene = path.relative(overlayRoot, scenePath).replaceAll(path.sep, "/");
+  const mime = new Map([
+    [".bin", "application/octet-stream"], [".css", "text/css"], [".html", "text/html"],
+    [".js", "text/javascript"], [".json", "application/json"], [".mjs", "text/javascript"],
+    [".wasm", "application/wasm"], [".wgsl", "text/plain"],
+  ]);
+  const server = http.createServer((request, response) => {
+    const pathname = decodeURIComponent(new URL(request.url, `http://127.0.0.1:${port}`).pathname).replace(/^\/+/, "");
+    const target = path.resolve(overlayRoot, ...pathname.split("/"));
+    if (target !== overlayRoot && !target.startsWith(`${overlayRoot}${path.sep}`)) {
+      response.writeHead(403).end();
+      return;
+    }
+    fs.readFile(target, (error, bytes) => {
+      if (error) {
+        response.writeHead(error.code === "ENOENT" ? 404 : 500).end();
+        return;
+      }
+      response.writeHead(200, { "Content-Type": mime.get(path.extname(target)) || "application/octet-stream" });
+      response.end(bytes);
+    });
+  });
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => resolve({
+      server,
+      url: `http://127.0.0.1:${port}/${relativeScene}`,
+    }));
+  });
+}
+
+function nativeSceneIr(scenePath) {
+  const html = fs.readFileSync(scenePath, "utf8");
+  const match = html.match(
+    /window\.__vfNativeSceneConfig=([\s\S]*?);window\.__vfNativeSceneArenaUrl=/u,
+  );
+  return match ? JSON.parse(match[1]).scene_ir : null;
+}
+
+function rotateEulerZyx(vector, rotation) {
+  const radians = rotation.map((degrees) => Number(degrees || 0) * Math.PI / 180);
+  const [rx, ry, rz] = radians;
+  const [cx, sx] = [Math.cos(rx), Math.sin(rx)];
+  const [cy, sy] = [Math.cos(ry), Math.sin(ry)];
+  const [cz, sz] = [Math.cos(rz), Math.sin(rz)];
+  const afterX = [vector[0], (cx * vector[1]) - (sx * vector[2]), (sx * vector[1]) + (cx * vector[2])];
+  const afterY = [(cy * afterX[0]) + (sy * afterX[2]), afterX[1], (-sy * afterX[0]) + (cy * afterX[2])];
+  return [(cz * afterY[0]) - (sz * afterY[1]), (sz * afterY[0]) + (cz * afterY[1]), afterY[2]];
+}
+
+function verifyMultiFaceDie(scenePath, verification) {
+  const scene = nativeSceneIr(scenePath);
+  if (!scene) throw new Error("multi-face die verification requires native scene IR");
+  const mesh = (scene.meshes || []).find(({ id }) => id === verification.meshId);
+  if (!mesh) throw new Error(`verification mesh ${verification.meshId} is missing`);
+  const properties = mesh.properties || {};
+  const center = properties.center || [0, 0, 0];
+  const camera = scene.camera && scene.camera.properties || {};
+  const eye = camera.pos || [0, 0, 5];
+  const view = eye.map((value, axis) => Number(value) - Number(center[axis] || 0));
+  const normals = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+  const rotation = properties.rotation || [0, 0, 0];
+  const visibleFaces = normals
+    .map((normal) => rotateEulerZyx(normal, rotation))
+    .filter((normal) => normal.reduce((sum, value, axis) => sum + (value * view[axis]), 0) > 1e-6)
+    .length;
+  const markedFaces = properties.texture && properties.texture.kind === "dice" ? visibleFaces : 0;
+  const size = Number(properties.size || 0);
+  const restsOnGround = Math.abs(Number(center[2] || 0) - (size * 0.5)) <= 1e-6;
+  const result = { kind: verification.kind, meshId: verification.meshId, visibleFaces, markedFaces, restsOnGround };
+  if (visibleFaces < verification.minVisibleFaces || markedFaces < verification.minMarkedFaces || !restsOnGround) {
+    throw new Error(`multi-face die verification failed: ${JSON.stringify(result)}`);
+  }
+  return result;
+}
+
+function verifyPacketScene(scenePath, frameId, verification) {
+  if (!verification) return null;
+  if (verification.kind === "multi-face-die") {
+    return verifyMultiFaceDie(scenePath, verification);
+  }
+  const packetsPath = path.join(path.dirname(scenePath), "vf-runtime-packets.json");
+  const packets = JSON.parse(fs.readFileSync(packetsPath, "utf8"));
+  const displayPacket = packets.find(({ kind }) => kind === "display.replace");
+  const scene = displayPacket && displayPacket.payload && displayPacket.payload.display &&
+    displayPacket.payload.display.geom && displayPacket.payload.display.geom[frameId];
+  if (!scene) throw new Error(`verification scene ${frameId} is missing`);
+  const mesh = (scene.meshes || []).find(({ id }) => id === verification.meshId);
+  if (!mesh) throw new Error(`verification mesh ${verification.meshId} is missing`);
+  if (verification.kind === "constant-line-width") {
+    const z = mesh.vertices.filter((_, index) => index % 10 === 2);
+    const result = {
+      kind: verification.kind,
+      meshId: verification.meshId,
+      topology: mesh.topology,
+      renderMode: mesh.render_mode,
+      markerSpace: mesh.marker_space,
+      edgeWidth: mesh.edge_width,
+      vertexWidths: mesh.vertex_widths || null,
+      vertexCount: mesh.vertices.length / 10,
+      segmentCount: mesh.indices.length / 2,
+      allZZero: z.every((value) => value === 0),
+    };
+    if (result.topology !== "line-list" || result.renderMode !== "line" ||
+        result.markerSpace !== "pixel" || result.edgeWidth !== 1 ||
+        result.vertexWidths !== null || result.vertexCount < 256 ||
+        result.segmentCount !== result.vertexCount - 1 || !result.allZZero) {
+      throw new Error(`constant-line-width verification failed: ${JSON.stringify(result)}`);
+    }
+    return result;
+  }
+  return { kind: verification.kind, meshId: verification.meshId };
+}
+
+async function analyzeSurfaceTextures(page, pageState, frameId, verification) {
+  if (!verification || verification.kind !== "mirror-subject") return null;
+  const result = await cdp(page, pageState, "Runtime.evaluate", {
+    returnByValue: true,
+    awaitPromise: true,
+    expression: `(async () => {
+      const test = window.VfDisplay && window.VfDisplay.__test;
+      if (!test || typeof test.analyzeSurfaceTextures !== "function") return null;
+      return await test.analyzeSurfaceTextures(${JSON.stringify(frameId)}, 50);
+    })()`,
+  });
+  return result.result.value;
+}
+
+async function main() {
+  const scenePath = path.resolve(process.argv[2] || "");
+  const frameId = process.argv[3] || "";
+  const requireRenderer = process.argv[4] !== "frame-only";
+  const cdpPort = Number(process.argv[5] || "9480");
+  const compositeOutputPath = process.argv[6] ? path.resolve(process.argv[6]) : "";
+  const sceneVerification = process.argv[7] ? JSON.parse(process.argv[7]) : null;
+  if (!process.argv[2] || !frameId) {
+    throw new Error("usage: node run_staged_ui_example.js <scene> <frame-id> [renderer|frame-only] [cdp-port] [composite-output.png]");
+  }
+  const edgePath = process.env.VF_EDGE_PATH || "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+  if (!fs.existsSync(edgePath)) throw new Error(`edge missing at ${edgePath}`);
+  const served = await serveOverlay(scenePath, cdpPort + 1000);
+  const packetVerification = verifyPacketScene(scenePath, frameId, sceneVerification);
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "vf-shipped-ui-"));
+  const edge = spawn(edgePath, [
+    `--user-data-dir=${profile}`,
+    `--remote-debugging-port=${cdpPort}`,
+    "--enable-unsafe-webgpu",
+    "--enable-features=Vulkan,UseSkiaRenderer",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size=1400,1000",
+    "--headless=new",
+    served.url,
+  ], { stdio: "ignore", windowsHide: true });
+  try {
+    let version;
+    for (let attempt = 0; attempt < 100 && !version; attempt += 1) {
+      try { version = await fetch(`http://127.0.0.1:${cdpPort}/json/version`).then((response) => response.json()); } catch (_) {}
+      if (!version) await delay(200);
+    }
+    if (!version) throw new Error("hidden Edge CDP did not start");
+    let target;
+    for (let attempt = 0; attempt < 100 && !target; attempt += 1) {
+      const targets = await fetch(`http://127.0.0.1:${cdpPort}/json/list`).then((response) => response.json());
+      target = targets.find((candidate) => candidate.url === served.url);
+      if (!target) await delay(200);
+    }
+    if (!target) throw new Error("hidden page target is missing");
+    const page = await connect(target.webSocketDebuggerUrl);
+    const browser = await connect(version.webSocketDebuggerUrl);
+    const pageState = { nextId: 0, pending: new Map() };
+    const browserState = { nextId: 0, pending: new Map() };
+    page.onmessage = (event) => receive(pageState, event);
+    browser.onmessage = (event) => receive(browserState, event);
+    await cdp(page, pageState, "Page.enable");
+    await cdp(page, pageState, "Runtime.enable");
+    let evidence;
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      const result = await cdp(page, pageState, "Runtime.evaluate", {
+        returnByValue: true,
+        expression: `(() => {
+          const frame = document.querySelector('.vf-frame[data-vf-frame-id=${JSON.stringify(frameId)}]');
+          const status = window.VfDisplay && window.VfDisplay.geomFrameStatus
+            ? window.VfDisplay.geomFrameStatus(${JSON.stringify(frameId)}) : null;
+          return {
+            frame: !!frame,
+            frameChrome: !!(frame && frame.querySelector('.vf-frame__header')),
+            canvas: !!(frame && frame.querySelector('canvas')),
+            status,
+            error: window.__vfLastError || null,
+            fatal: window.__vfNativeSceneFatal || null,
+          };
+        })()`,
+      });
+      evidence = result.result.value;
+      if (evidence.error || evidence.fatal || (evidence.status && (evidence.status.initFailures.length || evidence.status.runtimeFailures.length))) {
+        throw new Error(`staged UI failed: ${JSON.stringify(evidence)}`);
+      }
+      if (evidence.frame && (!requireRenderer || (evidence.status && evidence.status.runningRenderers > 0))) break;
+      await delay(250);
+    }
+    if (!evidence.frame || (requireRenderer && !(evidence.status && evidence.status.runningRenderers > 0))) {
+      throw new Error(`staged UI never became ready: ${JSON.stringify(evidence)}`);
+    }
+    await delay(1000);
+    evidence.sceneVerification = packetVerification;
+    evidence.surfaceVerification = await analyzeSurfaceTextures(
+      page, pageState, frameId, sceneVerification,
+    );
+    const screenshot = await cdp(page, pageState, "Page.captureScreenshot", { format: "png", fromSurface: true });
+    const screenshotBytes = Buffer.from(screenshot.data, "base64");
+    evidence.composite_sha256 = crypto.createHash("sha256").update(screenshotBytes).digest("hex");
+    if (compositeOutputPath) {
+      fs.mkdirSync(path.dirname(compositeOutputPath), { recursive: true });
+      fs.writeFileSync(compositeOutputPath, screenshotBytes);
+      evidence.composite_path = compositeOutputPath;
+    }
+    evidence.hidden = true;
+    console.log(JSON.stringify(evidence));
+    try { await cdp(browser, browserState, "Browser.close"); } catch (_) {}
+  } finally {
+    try { edge.kill(); } catch (_) {}
+    await new Promise((resolve) => served.server.close(resolve));
+    await delay(500);
+    try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch (_) {}
+  }
+}
+
+main().catch((error) => {
+  console.error(error && error.stack ? error.stack : String(error));
+  process.exitCode = 1;
+});

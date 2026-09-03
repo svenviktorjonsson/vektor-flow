@@ -19,8 +19,8 @@ namespace vkf::arm64 {
 
 class EncodingFailure : public std::runtime_error {
 public:
-    explicit EncodingFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit EncodingFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 struct Result {

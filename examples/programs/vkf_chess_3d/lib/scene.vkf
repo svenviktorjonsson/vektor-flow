@@ -83,7 +83,7 @@ build_chess_scene():
     board_frame: d.frame(id:"vkf_chess_board", title:"VKF Chess - source-owned game", alpha:0.96, draggable:true, dockable:true, resizable:true, closable:true, body_transparent:true)
     d.add_frame(board_frame, (0.04, 0.05, 0.70, 0.86))
     board_frame.add_camera(pos:[5.8, -8.0, 6.2], target:[0, 0, 0], up:[0, 1, 0], fov:44, projection:"orthographic", ortho_scale:9.2)
-    board_frame.add_light(pos:[-5.5, -4.0, 7.5], target:[0, 0, 0], model:"blinn_phong", color:"white", intensity:2.6)
+    board_frame.add(x:[[-5.75, -5.25], [-5.75, -5.25]], y:[[-4.25, -4.25], [-3.75, -3.75]], z:[[7.5, 7.5], [7.5, 7.5]], id:"key", color:[1, 1, 1, 1], emission:[10.4, 10.4, 10.4], casts_shadow:true)
     board_frame.add_box(center:[0, -0.12, 0], scale:[8.6, 0.18, 8.6], color:"#0c0d10", texture:(kind:"checker", scale:[8.0, 8.0], color_a:[0.12, 0.10, 0.08, 1.0], color_b:[0.88, 0.76, 0.55, 1.0]))
     add_rank(board_frame, 1)
     add_rank(board_frame, 2)

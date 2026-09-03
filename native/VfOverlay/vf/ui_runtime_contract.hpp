@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -18,6 +20,7 @@ enum class UiRuntimePacketKind {
     GeomColorPatch,
     WidgetAppendText,
     InputEvent,
+    InternalHtmlPatch,
 };
 
 const char* ToString(UiRuntimePacketKind kind);
@@ -52,13 +55,18 @@ struct InputEventPacketPayload {
     JsonValue::Object event;
 };
 
+struct InternalHtmlPatchPacketPayload {
+    JsonValue::Object patch;
+};
+
 using UiRuntimePacketPayload = std::variant<
     SceneReplacePacketPayload,
     UiStateReplacePacketPayload,
     DisplayReplacePacketPayload,
     GeomColorPatchPacketPayload,
     WidgetAppendTextPacketPayload,
-    InputEventPacketPayload>;
+    InputEventPacketPayload,
+    InternalHtmlPatchPacketPayload>;
 
 struct UiRuntimePacket {
     std::uint64_t seq = 0;
@@ -94,6 +102,147 @@ struct InputEventMatch {
     const InputEventPacketPayload* payload = nullptr;
 };
 
+struct InternalOwnerEventInteraction;
+class InternalButtonClickedOwnerQueues;
+
+class InternalOwnerEventQueue {
+public:
+    std::optional<InputEventPacketPayload> Get();
+    std::size_t Size() const noexcept;
+    bool Empty() const noexcept;
+
+private:
+    friend class InternalButtonClickedOwnerQueues;
+    friend class InternalGeometryPickOwnerQueues;
+    struct LedgerEntry {
+        std::shared_ptr<InternalOwnerEventInteraction> interaction;
+        InputEventPacketPayload payload;
+    };
+
+    void Push(InputEventPacketPayload payload);
+    void PushLedger(
+        std::shared_ptr<InternalOwnerEventInteraction> interaction,
+        InputEventPacketPayload payload);
+
+    std::deque<InputEventPacketPayload> values_;
+    InternalButtonClickedOwnerQueues* ledger_ = nullptr;
+    std::size_t ledger_index_ = 0;
+    std::deque<LedgerEntry> ledger_values_;
+    std::optional<LedgerEntry> ledger_active_;
+};
+
+class InternalButtonClickedOwnerQueues {
+public:
+    InternalButtonClickedOwnerQueues(
+        std::string button_id,
+        std::string frame_id,
+        std::string display_id);
+    InternalButtonClickedOwnerQueues(
+        std::string button_id,
+        std::vector<std::string> frame_ids,
+        std::string display_id);
+    InternalButtonClickedOwnerQueues(const InternalButtonClickedOwnerQueues&) = delete;
+    InternalButtonClickedOwnerQueues& operator=(const InternalButtonClickedOwnerQueues&) = delete;
+    InternalButtonClickedOwnerQueues(InternalButtonClickedOwnerQueues&&) = delete;
+    InternalButtonClickedOwnerQueues& operator=(InternalButtonClickedOwnerQueues&&) = delete;
+
+    void ConsumeRuntimePacket(const UiRuntimePacket& packet);
+    InternalOwnerEventQueue& Button() noexcept;
+    InternalOwnerEventQueue& Frame() noexcept;
+    InternalOwnerEventQueue& Frame(std::size_t index);
+    std::size_t FrameCount() const noexcept;
+    InternalOwnerEventQueue& Display() noexcept;
+    void CompleteInternalOwnerEvent(
+        InternalOwnerEventQueue& owner,
+        bool prevent_default,
+        bool stop_propagation);
+    std::optional<InputEventPacketPayload> TakeInternalDefaultEvent();
+
+protected:
+    InternalButtonClickedOwnerQueues(
+        std::string component_id,
+        std::vector<std::string> frame_ids,
+        std::string display_id,
+        std::string expected_event);
+
+private:
+    friend class InternalOwnerEventQueue;
+    std::optional<InputEventPacketPayload> GetFromQueue(InternalOwnerEventQueue& owner);
+    void CompleteActive(
+        InternalOwnerEventQueue& owner,
+        bool prevent_default,
+        bool stop_propagation);
+    void FinalizeInteraction(const std::shared_ptr<InternalOwnerEventInteraction>& interaction);
+    InternalOwnerEventQueue& OwnerQueue(std::size_t index);
+
+    std::string component_id_;
+    std::string expected_event_;
+    std::vector<std::string> frame_ids_;
+    std::string display_id_;
+    std::uint64_t last_sequence_ = 0;
+    InternalOwnerEventQueue button_;
+    std::vector<InternalOwnerEventQueue> frames_;
+    InternalOwnerEventQueue display_;
+    std::deque<InputEventPacketPayload> default_events_;
+};
+
+class InternalSliderValueChangedOwnerQueues final
+    : public InternalButtonClickedOwnerQueues {
+public:
+    InternalSliderValueChangedOwnerQueues(
+        std::string input_id,
+        std::string frame_id,
+        std::string display_id);
+    InternalSliderValueChangedOwnerQueues(
+        std::string input_id,
+        std::vector<std::string> frame_ids,
+        std::string display_id);
+
+    InternalOwnerEventQueue& Input() noexcept;
+};
+
+class InternalGeometryPickOwnerQueues {
+public:
+    InternalGeometryPickOwnerQueues(
+        std::uint64_t layer_id,
+        std::string frame_id,
+        std::string display_id);
+
+    void ConsumeRuntimePacket(const UiRuntimePacket& packet);
+    InternalOwnerEventQueue& Frame() noexcept;
+    InternalOwnerEventQueue& Display() noexcept;
+
+private:
+    std::uint64_t layer_id_ = 0;
+    std::string frame_id_;
+    std::string display_id_;
+    std::uint64_t last_sequence_ = 0;
+    InternalOwnerEventQueue frame_;
+    InternalOwnerEventQueue display_;
+};
+
+using InternalRetainedId = std::variant<std::string, std::uint64_t>;
+
+struct InternalRetainedNode {
+    InternalRetainedId id;
+    std::string kind;
+    std::vector<InternalRetainedNode> children;
+};
+
+class InternalRetainedOwnerLookup {
+public:
+    explicit InternalRetainedOwnerLookup(std::vector<InternalRetainedNode> descendants);
+
+    const InternalRetainedNode* Get(const InternalRetainedId& id) const noexcept;
+    const InternalRetainedNode* GetFrom(
+        const InternalRetainedNode& owner,
+        const InternalRetainedId& id) const noexcept;
+    const std::vector<InternalRetainedNode>& Descendants() const noexcept;
+
+private:
+    std::vector<InternalRetainedNode> descendants_;
+};
+
 struct WidgetAppendTextMatch {
     const UiRuntimePacket* packet = nullptr;
     const WidgetAppendTextPacketPayload* payload = nullptr;
@@ -105,6 +254,7 @@ JsonValue ToJsonValue(const DisplayReplacePacketPayload& payload);
 JsonValue ToJsonValue(const GeomColorPatchPacketPayload& payload);
 JsonValue ToJsonValue(const WidgetAppendTextPacketPayload& payload);
 JsonValue ToJsonValue(const InputEventPacketPayload& payload);
+JsonValue ToJsonValue(const InternalHtmlPatchPacketPayload& payload);
 JsonValue ToJsonValue(const UiRuntimePacket& packet);
 JsonValue ToJsonValue(const UiRuntimePacketSnapshotMetadata& metadata);
 JsonValue ToJsonValue(const UiRuntimePacketSnapshot& snapshot);
@@ -269,6 +419,8 @@ const DisplayReplacePacketPayload* AsDisplayReplacePacketPayload(const UiRuntime
 const GeomColorPatchPacketPayload* AsGeomColorPatchPacketPayload(const UiRuntimePacket& packet) noexcept;
 const WidgetAppendTextPacketPayload* AsWidgetAppendTextPacketPayload(const UiRuntimePacket& packet) noexcept;
 const InputEventPacketPayload* AsInputEventPacketPayload(const UiRuntimePacket& packet) noexcept;
+const InternalHtmlPatchPacketPayload* AsInternalHtmlPatchPacketPayload(
+    const UiRuntimePacket& packet) noexcept;
 
 const JsonValue::Object& GetInputEventObject(const InputEventPacketPayload& payload) noexcept;
 bool HasInputEventField(const InputEventPacketPayload& payload, std::string_view key) noexcept;

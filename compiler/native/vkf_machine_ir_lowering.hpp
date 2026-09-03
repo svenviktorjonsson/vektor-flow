@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <memory>
@@ -21,6 +22,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #if defined(_WIN32) && defined(_MSC_VER)
@@ -31,8 +33,8 @@ namespace vkf::machine_ir {
 
 class LoweringFailure : public std::runtime_error {
 public:
-    explicit LoweringFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit LoweringFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 namespace detail {
@@ -75,6 +77,25 @@ inline bool bool_field(
 inline const vf::JsonValue::Array& array_of(const vf::JsonValue& value, const std::string& context) {
     if (!value.is_array()) throw LoweringFailure("expected array in " + context);
     return value.as_array();
+}
+
+inline std::string joined_text(
+    std::initializer_list<std::string_view> parts
+) {
+    std::size_t size = 0;
+    for (const auto part : parts) size += part.size();
+    std::string result;
+    result.reserve(size);
+    for (const auto part : parts) result.append(part.data(), part.size());
+    return result;
+}
+
+inline std::string qualified_name(
+    const std::string& parent,
+    const std::string& child
+) {
+    if (parent.empty()) return child;
+    return joined_text({parent, ".", child});
 }
 
 enum class ValueKind : std::uint8_t {
@@ -519,7 +540,7 @@ inline void assign_record_field_layout(
         record.selectors[field_name] = {
             record.width, layout.width, layout.kind, layout.dynamic_element};
         for (const auto& [child, slice] : layout.selectors) {
-            record.selectors[field_name + "." + child] = {
+            record.selectors[qualified_name(field_name, child)] = {
                 record.width + slice.offset, slice.width, slice.kind,
                 slice.dynamic_element
             };
@@ -1320,6 +1341,7 @@ inline void collect_error_effects(
         if (kind->second.as_string() == "assert_expr" ||
             kind->second.as_string() == "raise_expr" ||
             kind->second.as_string() == "dotted_index" ||
+            kind->second.as_string() == "record_selector" ||
             kind->second.as_string() == "update_index") {
             directly_raises = true;
         }
@@ -1354,6 +1376,11 @@ inline void collect_error_effects(
                         if (name == "match" || name == "groups") directly_raises = true;
                     }
                 }
+            }
+        } else if (kind->second.as_string() == "record_selector") {
+            const auto fallback = object.find("fallback_symbol");
+            if (fallback != object.end() && fallback->second.is_string()) {
+                callees.push_back(fallback->second.as_string());
             }
         } else if (kind->second.as_string() == "binary_op") {
             const auto op = object.find("op");
@@ -1535,7 +1562,7 @@ inline ValueLayout indexed_layout(const std::vector<ValueLayout>& elements) {
             layout.width, elements[index].width, elements[index].kind,
             elements[index].dynamic_element};
         for (const auto& [child, slice] : elements[index].selectors) {
-            layout.selectors[key + "." + child] = {
+            layout.selectors[qualified_name(key, child)] = {
                 layout.width + slice.offset, slice.width, slice.kind,
                 slice.dynamic_element
             };
@@ -1782,7 +1809,7 @@ inline ValueLayout layout_from_type(
                 layout.width, field_layout.width, field_layout.kind,
                 field_layout.dynamic_element};
             for (const auto& [child, slice] : field_layout.selectors) {
-                layout.selectors[field_name + "." + child] = {
+                layout.selectors[qualified_name(field_name, child)] = {
                     layout.width + slice.offset, slice.width, slice.kind,
                     slice.dynamic_element
                 };
@@ -1927,6 +1954,10 @@ inline DisplayShape display_shape_from_expression(
             }
             return result;
         }
+    }
+    if (kind == "record_selector") {
+        return display_shape_from_type(
+            string_field(expression, "type", "display record selector"));
     }
     if (kind == "axis_align") {
         return display_shape_from_expression(
@@ -2343,7 +2374,7 @@ inline ValueLayout layout_from_expression_shape(
             };
             const std::string field_name = string_field(record_field, "name", "record field");
             for (const auto& [child, slice] : value_layout.selectors) {
-                layout.selectors[field_name + "." + child] = {
+                layout.selectors[qualified_name(field_name, child)] = {
                     layout.width + slice.offset, slice.width, slice.kind,
                     slice.dynamic_element
                 };
@@ -2387,7 +2418,7 @@ inline ValueLayout layout_from_expression_shape(
                         field_layout.dynamic_element
                     };
                     for (const auto& [child, slice] : field_layout.selectors) {
-                        result.selectors[name + "." + child] = {
+                        result.selectors[qualified_name(name, child)] = {
                             result.width + slice.offset, slice.width, slice.kind,
                             slice.dynamic_element
                         };
@@ -2419,12 +2450,12 @@ inline ValueLayout layout_from_expression_shape(
             signatures);
     }
     if (kind == "pipe_chain") {
-        const auto source = layout_from_expression_shape(
+        auto source = layout_from_expression_shape(
             object_of(field(expression, "source", "pipe expression"), "pipe source"),
             signatures);
         const auto declared = expression.find("type");
         if (declared != expression.end() && declared->second.is_string()) {
-            const auto result = layout_from_type(declared->second.as_string(), &signatures);
+            auto result = layout_from_type(declared->second.as_string(), &signatures);
             if (result.width > 0) return result;
         }
         if (source.kind == ValueKind::Range) {
@@ -2438,9 +2469,9 @@ inline ValueLayout layout_from_expression_shape(
             symbolic_expression_surface_type(result_type->second.as_string())) {
             return {1, ValueKind::DynamicF64List, {}};
         }
-        const auto left = layout_from_expression_shape(
+        auto left = layout_from_expression_shape(
             object_of(field(expression, "left", "binary expression"), "binary left"), signatures);
-        const auto right = layout_from_expression_shape(
+        auto right = layout_from_expression_shape(
             object_of(field(expression, "right", "binary expression"), "binary right"), signatures);
         const std::string numeric_op = string_field(expression, "op", "binary expression");
         if (left.kind == ValueKind::Complex || right.kind == ValueKind::Complex) {
@@ -4240,7 +4271,7 @@ inline bool collect_record_projection(
     std::vector<ValueSlice>& slices
 ) {
     for (const auto& [name, target_slice] : ordered_record_fields(target)) {
-        const std::string path = source_path.empty() ? name : source_path + "." + name;
+        const std::string path = qualified_name(source_path, name);
         const auto found = source.selectors.find(path);
         if (found == source.selectors.end()) return false;
         const auto source_field = record_field_layout(source, path, found->second);
@@ -4441,7 +4472,7 @@ inline void emit_projected_call_layout(
             source_local + found->second.offset,
             source_field,
             record_field_layout(target, name, target_slice),
-            context + "." + name);
+            qualified_name(context, name));
     }
 }
 
@@ -4450,6 +4481,7 @@ inline bool expression_produces_owned_f64_list(
     const FunctionSignatures& signatures
 ) {
     const std::string kind = string_field(expression, "kind", "owned list expression");
+    if (kind == "record_selector") return true;
     if (kind == "list") {
         const auto type = expression.find("type");
         return type != expression.end() && type->second.is_string() &&
@@ -4484,6 +4516,7 @@ inline bool expression_produces_owned_numeric_multiset(
     const FunctionSignatures& signatures
 ) {
     const std::string kind = string_field(expression, "kind", "owned multiset expression");
+    if (kind == "record_selector") return true;
     if (kind == "multiset") return true;
     if (kind == "axis_align") {
         return expression_produces_owned_numeric_multiset(
@@ -4504,6 +4537,7 @@ inline bool expression_transfers_string_value(
     const FunctionSignatures& signatures
 ) {
     const std::string kind = string_field(expression, "kind", "string expression");
+    if (kind == "record_selector") return true;
     if (kind == "axis_align") {
         return expression_transfers_string_value(
             object_of(field(expression, "value", "axis align"), "axis align value"), signatures);
@@ -4533,6 +4567,7 @@ inline bool expression_transfers_aggregate_value(
     const FunctionSignatures& signatures
 ) {
     const std::string kind = string_field(expression, "kind", "aggregate expression");
+    if (kind == "record_selector") return true;
     if (kind == "axis_align") {
         return expression_transfers_aggregate_value(
             object_of(field(expression, "value", "axis align"), "axis align value"), signatures);
@@ -5388,7 +5423,7 @@ inline ValueLayout lower_print_expression(
     StringPool& strings,
     const DisplayShape* display_shape = nullptr
 ) {
-    const auto layout = lower_expression(expression, builder, signatures, strings);
+    auto layout = lower_expression(expression, builder, signatures, strings);
     if (layout.kind == ValueKind::Range) {
         const auto temporary = builder.add_borrowed_temporary(layout);
         Instruction store_infinite;
@@ -5640,18 +5675,6 @@ inline void emit_clone_string_multiset_entries(
         builder.emit({Opcode::CloneString});
         emit_load_local_component(builder, base + entry * 3u + 2u);
     }
-}
-
-inline ValueLayout emit_widen_complex(FunctionBuilder& builder, const ValueLayout& layout) {
-    if (layout.kind == ValueKind::Complex) return layout;
-    if (layout.kind != ValueKind::Numeric || layout.width != 1) {
-        throw LoweringFailure("complex arithmetic requires numeric operands");
-    }
-    Instruction zero;
-    zero.opcode = Opcode::PushF64;
-    zero.f64 = 0.0;
-    builder.emit(std::move(zero));
-    return {2, ValueKind::Complex, {}};
 }
 
 inline ValueLayout emit_require_real_complex(
@@ -6734,7 +6757,7 @@ inline ValueLayout lower_expression(
                 pipe_segments.begin(), pipe_segments.end(), [](const auto& segment) {
                     return references_current_pipe_value(segment);
                 });
-        const auto source = elide_unused_fixed_source
+        auto source = elide_unused_fixed_source
             ? *loaded_layout
             : lower_expression(source_expression, builder, signatures, strings);
         if (source.kind == ValueKind::Numeric || source.kind == ValueKind::Complex ||
@@ -6824,7 +6847,7 @@ inline ValueLayout lower_expression(
             step_ready_label.label = step_ready;
             builder.emit(std::move(step_ready_label));
 
-            const ValueLayout list_layout{1, ValueKind::DynamicF64List, {}};
+            ValueLayout list_layout{1, ValueKind::DynamicF64List, {}};
             const auto result_local = builder.add_owned_temporary(list_layout);
             Instruction empty;
             empty.opcode = Opcode::MakeOwnedF64List;
@@ -6942,7 +6965,7 @@ inline ValueLayout lower_expression(
             finish_label.label = finish;
             builder.emit(std::move(finish_label));
             builder.end_scope();
-            const auto declared_result = layout_from_expression_shape(
+            auto declared_result = layout_from_expression_shape(
                 expression, signatures);
             if (declared_result.kind == ValueKind::Aggregate &&
                 is_numeric_layout(declared_result) &&
@@ -7488,7 +7511,7 @@ inline ValueLayout lower_expression(
                 result.width, field_layout.width, field_layout.kind,
                 field_layout.dynamic_element};
             for (const auto& [child, slice] : field_layout.selectors) {
-                result.selectors[name + "." + child] = {
+                result.selectors[qualified_name(name, child)] = {
                     result.width + slice.offset, slice.width, slice.kind,
                     slice.dynamic_element
                 };
@@ -7770,7 +7793,7 @@ inline ValueLayout lower_expression(
                 layout.width, field_layout.width, field_layout.kind,
                 field_layout.dynamic_element};
             for (const auto& [child, slice] : field_layout.selectors) {
-                layout.selectors[field_name + "." + child] = {
+                layout.selectors[qualified_name(field_name, child)] = {
                     layout.width + slice.offset, slice.width, slice.kind,
                     slice.dynamic_element
                 };
@@ -7905,6 +7928,181 @@ inline ValueLayout lower_expression(
             emit_release_layout_local(builder, local.base, local.layout);
         }
         return result;
+    }
+    if (kind == "record_selector") {
+        const auto fallback = expression.find("fallback_symbol");
+        const auto& base = object_of(
+            field(expression, "base", "record selector"), "record selector base");
+        if (string_field(base, "kind", "record selector base") != "load") {
+            throw LoweringFailure("record selector base must be a binding");
+        }
+        const std::string binding = string_field(base, "name", "record selector base");
+        const auto& base_layout = builder.layout(binding);
+        const bool empty_record_with_fallback = fallback != expression.end() &&
+            base_layout.kind == ValueKind::Aggregate && base_layout.width == 0u &&
+            base_layout.selectors.empty();
+        if (base_layout.kind != ValueKind::Aggregate ||
+            (!is_record_layout(base_layout) && !empty_record_with_fallback)) {
+            throw LoweringFailure("record selector base must be a record");
+        }
+        const auto& selector = object_of(
+            field(expression, "selector", "record selector"), "record selector value");
+        const auto selector_layout = lower_expression(
+            selector, builder, signatures, strings);
+        if (selector_layout.kind != ValueKind::String || selector_layout.width != 2u) {
+            throw LoweringFailure("record selector value must be str");
+        }
+        const bool release_selector = expression_transfers_string_value(
+            selector, signatures);
+        const auto selector_local = release_selector
+            ? builder.add_owned_temporary(selector_layout)
+            : builder.add_borrowed_temporary(selector_layout);
+        emit_store_local_component(builder, selector_local + 1u);
+        emit_store_local_component(builder, selector_local);
+
+        const auto& fields = array_of(
+            field(expression, "fields", "record selector"), "record selector fields");
+        const FunctionSignature* fallback_signature = nullptr;
+        std::string fallback_symbol;
+        if (fallback != expression.end()) {
+            if (!fallback->second.is_string()) {
+                throw LoweringFailure("record selector fallback symbol must be str");
+            }
+            fallback_symbol = fallback->second.as_string();
+            const auto signature = signatures.find(fallback_symbol);
+            if (signature == signatures.end() || signature->second.parameters.size() != 2u ||
+                !same_layout(signature->second.parameters[0], base_layout) ||
+                !same_layout(signature->second.parameters[1], selector_layout)) {
+                throw LoweringFailure("record selector fallback signature is incompatible");
+            }
+            fallback_signature = &signature->second;
+        }
+        ValueLayout result_layout;
+        if (fields.empty()) {
+            if (fallback_signature == nullptr) {
+                throw LoweringFailure("record selector requires at least one field");
+            }
+            result_layout = fallback_signature->result;
+        } else {
+            const auto& first_field = object_of(fields.front(), "record selector field");
+            const std::string first_name = string_field(
+                first_field, "name", "record selector field");
+            const auto first_slice = base_layout.selectors.find(first_name);
+            if (first_slice == base_layout.selectors.end()) {
+                throw LoweringFailure("record selector field is not present in base layout");
+            }
+            result_layout = projected_layout(base_layout, first_name, first_slice->second);
+        }
+        if (fallback_signature != nullptr &&
+            !same_layout(fallback_signature->result, result_layout)) {
+            throw LoweringFailure("record selector fallback signature is incompatible");
+        }
+        const auto result_local = builder.add_borrowed_temporary(result_layout);
+        const auto finish = builder.next_label();
+        for (const auto& field_value : fields) {
+            const auto& descriptor = object_of(field_value, "record selector field");
+            const std::string field_name = string_field(
+                descriptor, "name", "record selector field");
+            const auto selected = base_layout.selectors.find(field_name);
+            if (selected == base_layout.selectors.end()) {
+                throw LoweringFailure("record selector field is not present in base layout");
+            }
+            const auto selected_layout = projected_layout(
+                base_layout, field_name, selected->second);
+            if (!same_layout(selected_layout, result_layout)) {
+                throw LoweringFailure("record selector fields must share one layout");
+            }
+            const auto next = builder.next_label();
+            emit_load_local_component(builder, selector_local);
+            emit_load_local_component(builder, selector_local + 1u);
+            emit_static_string(builder, strings, field_name);
+            Instruction equal;
+            equal.opcode = Opcode::StringEqual;
+            equal.owns_left = false;
+            equal.owns_right = false;
+            builder.emit(std::move(equal));
+            Instruction skip;
+            skip.opcode = Opcode::JumpIfFalse;
+            skip.label = next;
+            builder.emit(std::move(skip));
+            emit_load_binding(builder, binding, selected->second);
+            clone_nested_resource_values(result_layout, builder);
+            for (std::uint32_t component = result_layout.width; component > 0; --component) {
+                emit_store_local_component(builder, result_local + component - 1u);
+            }
+            if (release_selector) {
+                emit_release_layout_local(builder, selector_local, selector_layout);
+            }
+            Instruction done;
+            done.opcode = Opcode::Jump;
+            done.label = finish;
+            builder.emit(std::move(done));
+            Instruction next_label;
+            next_label.opcode = Opcode::Label;
+            next_label.label = next;
+            builder.emit(std::move(next_label));
+        }
+        if (fallback != expression.end()) {
+            emit_load_binding(builder, binding, {0, base_layout.width, base_layout.kind});
+            emit_load_local_component(builder, selector_local);
+            emit_load_local_component(builder, selector_local + 1u);
+            Instruction call;
+            call.opcode = Opcode::Call;
+            call.argument_count = base_layout.width + selector_layout.width;
+            call.result_count = result_layout.width;
+            call.provided_parameter_mask = 3u;
+            call.symbol = fallback_symbol;
+            call.may_error = fallback_signature->may_error;
+            if (call.may_error) {
+                if (const auto handler = builder.error_handler()) {
+                    call.has_error_handler = true;
+                    call.label = *handler;
+                    call.error_value_local = *builder.error_value_local();
+                    call.error_type_local = *builder.error_type_local();
+                }
+            }
+            builder.emit(std::move(call));
+            for (std::uint32_t component = result_layout.width; component > 0; --component) {
+                emit_store_local_component(builder, result_local + component - 1u);
+            }
+            if (release_selector) {
+                emit_release_layout_local(builder, selector_local, selector_layout);
+            }
+            Instruction done;
+            done.opcode = Opcode::Jump;
+            done.label = finish;
+            builder.emit(std::move(done));
+        }
+        if (release_selector) {
+            emit_release_layout_local(builder, selector_local, selector_layout);
+        }
+        if (fallback == expression.end()) {
+            Instruction false_value;
+            false_value.opcode = Opcode::PushF64;
+            false_value.f64 = 0.0;
+            builder.emit(std::move(false_value));
+            Instruction reject;
+            reject.opcode = Opcode::AssertTruthy;
+            const std::string message = "unknown record selector key";
+            reject.index = strings.intern(message);
+            reject.byte_count = static_cast<std::uint32_t>(message.size());
+            if (const auto handler = builder.error_handler()) {
+                reject.has_error_handler = true;
+                reject.label = *handler;
+                reject.error_value_local = *builder.error_value_local();
+                reject.error_type_local = *builder.error_type_local();
+            }
+            builder.emit(std::move(reject));
+            builder.emit({Opcode::Drop});
+        }
+        Instruction finish_label;
+        finish_label.opcode = Opcode::Label;
+        finish_label.label = finish;
+        builder.emit(std::move(finish_label));
+        for (std::uint32_t component = 0; component < result_layout.width; ++component) {
+            emit_load_local_component(builder, result_local + component);
+        }
+        return result_layout;
     }
     if (kind == "axis_align") {
         const auto& value = object_of(field(expression, "value", "axis align"), "axis align value");
@@ -8427,7 +8625,7 @@ inline ValueLayout lower_expression(
         const std::string op = string_field(expression, "op", "unary expression");
         const auto& operand_expression = object_of(
             field(expression, "operand", "unary expression"), "unary operand");
-        const auto operand = lower_expression(
+        auto operand = lower_expression(
             operand_expression, builder, signatures, strings);
         if (operand.kind == ValueKind::Complex) {
             const auto value = builder.add_borrowed_temporary(operand);
@@ -10407,7 +10605,7 @@ inline ValueLayout lower_expression(
                 throw LoweringFailure("unsupported machine IR stdlib call " + module + "." + name);
             }
             const auto& math_argument = object_of(args.front(), "math argument");
-            const auto argument = lower_expression(
+            auto argument = lower_expression(
                 math_argument, builder, signatures, strings);
             const Opcode opcode = name == "abs" ? Opcode::AbsF64
                 : name == "sqrt" ? Opcode::SqrtF64
@@ -11479,7 +11677,9 @@ inline ValueLayout lower_expression(
                         "variadic named argument value");
                     continue;
                 }
-                throw LoweringFailure("unknown named argument " + name + " for " + symbol);
+                throw LoweringFailure(joined_text({
+                    "unknown named argument ", name, " for ", symbol
+                }));
             }
             const auto index = static_cast<std::size_t>(
                 found - signature->second.parameter_names.begin());
@@ -11631,15 +11831,21 @@ inline ValueLayout lower_expression(
                 for (const auto& [name, slice] : fields) {
                     const auto supplied = variadic_named_values.find(name);
                     if (supplied == variadic_named_values.end()) {
-                        throw LoweringFailure("missing captured named argument " + name + " for " + symbol);
+                        throw LoweringFailure(joined_text({
+                            "missing captured named argument ", name, " for ", symbol
+                        }));
                     }
                     const auto& argument_expression = *supplied->second;
                     const auto layout = lower_expression(
                         argument_expression, builder, signatures, strings);
                     const auto expected = record_field_layout(parameter_layout, name, slice);
                     if (!same_layout(layout, expected)) {
-                        throw LoweringFailure(
-                            "variadic named argument layout mismatch for " + symbol + "." + name);
+                        throw LoweringFailure(joined_text({
+                            "variadic named argument layout mismatch for ",
+                            symbol,
+                            ".",
+                            name
+                        }));
                     }
                     const bool transferred =
                         (layout.kind == ValueKind::String &&
@@ -12961,6 +13167,7 @@ inline void lower_statements(
                 const auto& indices = array_of(field(statement, "indices", "index update"), "index update");
                 if (indices.size() > 1) {
                     std::vector<std::pair<std::string, ValueLayout>> selected_layouts;
+                    selected_layouts.reserve(indices.size());
                     for (const auto& raw_index : indices) {
                         const auto& index = object_of(raw_index, "fixed update index");
                         const auto& raw = field(index, "value", "fixed update index");
@@ -12980,6 +13187,7 @@ inline void lower_statements(
                             key, projected_layout(binding_layout, key, selected->second)});
                     }
                     std::vector<ValueLayout> expected_elements;
+                    expected_elements.reserve(selected_layouts.size());
                     for (const auto& selected : selected_layouts) {
                         expected_elements.push_back(selected.second);
                     }
@@ -13806,7 +14014,7 @@ inline std::optional<std::string> symbolic_vector_dimension(const std::string& t
     const std::string inside = type.substr(1, type.size() - 2);
     const auto separator = detail::find_top_level(inside, ':');
     if (separator == std::string::npos) return std::nullopt;
-    const std::string shape = detail::trim(inside.substr(separator + 1));
+    std::string shape = detail::trim(inside.substr(separator + 1));
     if (!shape.empty() &&
         (std::isalpha(static_cast<unsigned char>(shape.front())) || shape.front() == '_') &&
         std::all_of(shape.begin() + 1, shape.end(), [](unsigned char ch) {

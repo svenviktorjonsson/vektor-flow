@@ -1678,6 +1678,14 @@
       return space === "pixel" ? "pixel" : "world";
     }
 
+    function shouldUseAnalyticLineStroke(spec) {
+      return !!spec &&
+        spec.mode3d === false &&
+        String(spec.topology || "") === "line-list" &&
+        fieldMeshRenderMode(spec) === "line" &&
+        fieldMeshMarkerSpace(spec) === "pixel";
+    }
+
   function buildExpandedPointMesh(spec, camera, lights) {
     var sizingCamera = camera && camera._marker_size_camera ? camera._marker_size_camera : camera;
     var verts = spec.vertices || [];
@@ -2053,6 +2061,7 @@
     var inst = new Float32Array(segmentCount * 12);
     var viewportHeight = markerViewportHeight(sizingCamera, Number(sizingCamera && sizingCamera.viewport_height_px) || 0);
     var markerSpace = fieldMeshMarkerSpace(spec);
+    var strokeRadiusScale = shouldUseAnalyticLineStroke(spec) ? 0.5 : 1.0;
     for (var si = 0; si < segmentCount; si += 1) {
       var aIdx = Number(inds[si * 2]);
       var bIdx = Number(inds[(si * 2) + 1]);
@@ -2078,15 +2087,18 @@
       var aWidth = hasVertexWidths ? Number(vertexWidths[aIdx] || 0) : edgeRadius;
       var bWidth = hasVertexWidths ? Number(vertexWidths[bIdx] || 0) : edgeRadius;
       var aRadius = markerSpace === "pixel"
-        ? impostorWorldRadius(sizingCamera, viewportHeight, [ax, ay, az], aWidth)
-        : aWidth;
+        ? impostorWorldRadius(sizingCamera, viewportHeight, [ax, ay, az], aWidth * strokeRadiusScale)
+        : (aWidth * strokeRadiusScale);
       var bRadius = markerSpace === "pixel"
-        ? impostorWorldRadius(sizingCamera, viewportHeight, [bx, by, bz], bWidth)
-        : bWidth;
+        ? impostorWorldRadius(sizingCamera, viewportHeight, [bx, by, bz], bWidth * strokeRadiusScale)
+        : (bWidth * strokeRadiusScale);
       var cr = Number(verts[aBase + 6] == null ? 0.8 : verts[aBase + 6]);
       var cg = Number(verts[aBase + 7] == null ? 0.8 : verts[aBase + 7]);
       var cb = Number(verts[aBase + 8] == null ? 0.8 : verts[aBase + 8]);
       var ca = Number(verts[aBase + 9] == null ? 1.0 : verts[aBase + 9]);
+      if (mesh.mode3d === false || spec.receives_lighting === false || spec.no_lighting === true) {
+        ca = -Math.max(1e-4, Math.abs(ca));
+      }
       var base = si * 12;
       inst[base + 0] = ax;
       inst[base + 1] = ay;
@@ -2289,6 +2301,9 @@
     var viewportHeight = Number(viewportHeightPx || 0);
     if (!cam || !(viewportHeight > 0)) {
       return pxRadius;
+    }
+    if (String(cam.projection || "").toLowerCase() === "orthographic") {
+      return pxRadius * ((2 * Math.max(1e-6, Number(cam.ortho_scale) || 1)) / viewportHeight);
     }
     var depth = cameraDepth(cam, point);
     var verticalScale = cameraVerticalScale(cam);
@@ -2573,6 +2588,19 @@
     };
   }
 
+  function geomSpecNeedsUnifiedRenderer(spec) {
+    if (!spec || typeof spec !== "object") { return false; }
+    if (spec.instance_kind && spec.instances && Number(spec.instance_count || 0) > 0) {
+      return true;
+    }
+    if (spec.type !== "field_mesh") { return false; }
+    var topology = String(spec.topology || "");
+    var renderMode = fieldMeshRenderMode(spec);
+    return (renderMode === "marker_impostor" &&
+      (topology === "point-list" || topology === "line-list")) ||
+      shouldUseAnalyticLineStroke(spec);
+  }
+
   // Build a single-mesh object for the renderer from a spec
   function buildSingleMesh(spec, camera, lights) {
     var Core = global.VfGeomCore;
@@ -2632,13 +2660,13 @@
           : buildExpandedPointMesh(spec, camera, lights);
       } else if (
         topology === "line-list" &&
-        renderMode !== "line" &&
+        (renderMode !== "line" || shouldUseAnalyticLineStroke(spec)) &&
         (
           Number(spec.edge_width || 0) > 0 ||
           (Array.isArray(spec.vertex_widths) && spec.vertex_widths.length > 0)
         )
       ) {
-        mesh = renderMode === "marker_impostor"
+        mesh = (renderMode === "marker_impostor" || shouldUseAnalyticLineStroke(spec))
           ? buildAnalyticLineImpostorMesh(spec, camera, lights)
           : buildExpandedLineMesh(spec, camera, lights);
       }
@@ -7274,6 +7302,9 @@
         frameHeight: frameRef && frameRef.height || 0,
         frameFormat: frameRef && frameRef.format || "",
         running: !!(renderer && renderer._running),
+        renderEvidence: renderer && typeof renderer._debugRenderEvidence === "function"
+          ? renderer._debugRenderEvidence()
+          : null,
       });
     }
     return out;
@@ -7356,6 +7387,9 @@
         }) : [],
         renderOnDemand: renderer._renderOnDemand === true,
         renderPending: renderer._renderPending === true,
+        renderEvidence: typeof renderer._debugRenderEvidence === "function"
+          ? renderer._debugRenderEvidence()
+          : null,
         lastPerfSample: renderer._lastPerfSample || null,
         lastPerfSummary: renderer._lastPerfSummary || null,
         physicsProfile: renderer._lastPhysicsProfile || null,
@@ -10800,16 +10834,29 @@
       vlog("warn", "updateGeomFrame [" + fid + "]: VfGeomWgpu not loaded — geom skipped");
       return;
     }
+    var frameFit = fittedFrameContentRect(frameEl, geomFrameHost(frameEl, fid));
+    var viewportWidth = Math.max(1, Math.round(frameFit.width || 1));
+    var viewportHeight = Math.max(1, Math.round(frameFit.height || 1));
     var effectiveCamera = camera
-      ? (function () {
-          var fit = fittedFrameContentRect(frameEl, geomFrameHost(frameEl, fid));
-          return Object.assign({}, camera, {
-            viewport_width_px: Math.max(1, Math.round(fit.width || 1)),
-            viewport_height_px: Math.max(1, Math.round(fit.height || 1))
-          });
-        })()
-      : null;
-    var unifiedScene = geomSpec && geomSpec.unified_renderer === true
+      ? Object.assign({}, camera, {
+          viewport_width_px: viewportWidth,
+          viewport_height_px: viewportHeight
+        })
+      : (renderableSpecs.some(shouldUseAnalyticLineStroke)
+          ? {
+              pos: [0, 0, 5],
+              target: [0, 0, 0],
+              up: [0, 1, 0],
+              projection: "orthographic",
+              ortho_scale: 1,
+              viewport_width_px: viewportWidth,
+              viewport_height_px: viewportHeight
+            }
+          : null);
+    var unifiedScene = geomSpec && (
+      geomSpec.unified_renderer === true ||
+      renderableSpecs.some(geomSpecNeedsUnifiedRenderer)
+    )
       ? buildUnifiedFrameScene(renderableSpecs, effectiveCamera, lights, geomSpec.light_flares || null, geomSpec.background || null)
       : null;
     var combinedTransparent = !unifiedScene && geomSpec && geomSpec.combine_transparent === true && renderableSpecs.length > 1
@@ -12540,9 +12587,31 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
         setKey: function (key, code, down) {
           var k = String(key || "").toLowerCase();
           var c = String(code || "");
-          if (k) { _vfInputKeys[k] = down === true; }
-          if (c) { _vfInputCodes[c] = down === true; }
+          var nextDown = down === true;
+          var wasDown = (k && _vfInputKeys[k] === true) || (c && _vfInputCodes[c] === true);
+          if (nextDown === wasDown) { return false; }
+          if (nextDown) {
+            if (k) { _vfInputKeys[k] = true; }
+            if (c) { _vfInputCodes[c] = true; }
+          } else {
+            if (k) { delete _vfInputKeys[k]; }
+            if (c) { delete _vfInputCodes[c]; }
+          }
           this.seq = (Number(this.seq || 0) + 1) >>> 0;
+          return true;
+        },
+        releaseAll: function () {
+          var keys = Object.keys(_vfInputKeys);
+          var codes = Object.keys(_vfInputCodes);
+          if (keys.length === 0 && codes.length === 0) { return false; }
+          for (var keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+            delete _vfInputKeys[keys[keyIndex]];
+          }
+          for (var codeIndex = 0; codeIndex < codes.length; codeIndex += 1) {
+            delete _vfInputCodes[codes[codeIndex]];
+          }
+          this.seq = (Number(this.seq || 0) + 1) >>> 0;
+          return true;
         },
         isDown: function (keyOrCode) {
           var raw = String(keyOrCode || "");
@@ -12557,8 +12626,11 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
     }
 
     function keyEvt(evtName, e) {
+      if (evtName === "key_down" && e && e.repeat === true) { return; }
       if (global.VfInput && typeof global.VfInput.setKey === "function") {
-        global.VfInput.setKey(e && e.key, e && e.code, evtName === "key_down");
+        if (global.VfInput.setKey(e && e.key, e && e.code, evtName === "key_down") === false) {
+          return;
+        }
       }
       if (nativeGameCameraOwnsKey(e)) {
         return;
@@ -12570,6 +12642,7 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
         }
         if (keyId) { _vfPostedKeyDown[keyId] = true; }
       } else if (evtName === "key_up" && keyId) {
+        if (_vfPostedKeyDown[keyId] !== true) { return; }
         delete _vfPostedKeyDown[keyId];
       }
       postEvent({
@@ -12586,6 +12659,20 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
 
     global.addEventListener("keydown", function(e) { keyEvt("key_down", e); }, { passive: true, capture: true });
     global.addEventListener("keyup",   function(e) { keyEvt("key_up",   e); }, { passive: true, capture: true });
+    function releaseHeldInput() {
+      if (global.VfInput && typeof global.VfInput.releaseAll === "function") {
+        global.VfInput.releaseAll();
+      }
+      _vfPostedKeyDown = Object.create(null);
+    }
+    global.addEventListener("blur", releaseHeldInput, { passive: true, capture: true });
+    if (global.document && typeof global.document.addEventListener === "function") {
+      global.document.addEventListener("visibilitychange", function () {
+        if (global.document.visibilityState === "hidden") {
+          releaseHeldInput();
+        }
+      }, { passive: true, capture: true });
+    }
     global.addEventListener("keydown", function(e) {
       var key = String(e && e.key || "").toLowerCase();
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && key === "g" && !targetIsEditable(e.target)) {

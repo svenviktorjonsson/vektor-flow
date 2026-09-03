@@ -17,8 +17,8 @@ constexpr int bootstrap_version = 1;
 
 class BootstrapFailure : public std::runtime_error {
 public:
-    explicit BootstrapFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit BootstrapFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 struct Args {
@@ -41,7 +41,7 @@ std::string read_file(const std::filesystem::path& path) {
     return buffer.str();
 }
 
-std::string normalize_source_text(std::string text) {
+std::string normalize_source_text(const std::string& text) {
     std::string out;
     out.reserve(text.size());
     for (char ch : text) {

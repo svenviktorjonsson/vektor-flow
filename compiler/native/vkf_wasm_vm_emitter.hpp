@@ -17,8 +17,8 @@ namespace vkf::wasm::vm {
 
 class VmEmitterError : public std::runtime_error {
 public:
-    explicit VmEmitterError(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit VmEmitterError(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 struct EmitterOptions {
@@ -113,7 +113,7 @@ private:
 inline void append_section(
     Writer& module,
     std::uint8_t id,
-    std::vector<std::uint8_t> payload
+    const std::vector<std::uint8_t>& payload
 ) {
     module.u8(id);
     module.u32_leb(static_cast<std::uint32_t>(payload.size()));

@@ -15,6 +15,16 @@
   var config = rootConfig.scene_ir || rootConfig;
   var frameSpec = config.frame || {};
   var renderOptions = config.render_options || {};
+  if (
+    global.chrome &&
+    global.chrome.webview &&
+    typeof global.chrome.webview.postMessage === "function"
+  ) {
+    global.chrome.webview.postMessage({
+      type: "vf-window-mode",
+      always_ontop: config.always_ontop === true
+    });
+  }
   if (!global.__vfNativeSceneLiveCameras) {
     global.__vfNativeSceneLiveCameras = Object.create(null);
   }
@@ -865,7 +875,7 @@
       ], clip.planeNormal);
       if (side > maxSide) { maxSide = side; }
     }
-    return maxSide < -(Number(clip.epsilon || 0.0) || 0.0);
+    return maxSide <= (Number(clip.epsilon || 0.0) || 0.0);
   }
 
   function filterReflectedSourceMeshes(meshSpecs, camera, seconds) {
@@ -2687,10 +2697,16 @@
 
   function cubeMesh(cube, color) {
     var hasDynamicTransform = !!(cube.tracks && (cube.tracks.center || cube.tracks.rotation || cube.tracks.transform || cube.tracks.scale));
+    var textureKind = String(cube && cube.texture && cube.texture.kind || "").toLowerCase().trim();
+    // Face-space textures must receive canonical cube coordinates in the
+    // fragment shader. Keep the cube transform in the model matrix instead of
+    // baking it into the uploaded vertices, otherwise a rotated die samples
+    // its pips from world space and the visible faces collapse into dark slabs.
+    var preserveLocalFaceSpace = textureKind === "dice";
     var localVertices = makeCubeLocalVertices(cube.size);
     var vertices = localVertices;
     var bakedStaticTransform = false;
-    if (!hasDynamicTransform) {
+    if (!hasDynamicTransform && !preserveLocalFaceSpace) {
       if (Array.isArray(cube.transform) && cube.transform.length === 16) {
         vertices = transformVerticesByMatrix(localVertices, cube.transform);
         bakedStaticTransform = true;
@@ -8917,6 +8933,7 @@
       global.addEventListener("keydown", function (ev) {
         var key = String(ev && ev.key || "");
         if (key !== "ArrowLeft" && key !== "ArrowRight" && key !== "ArrowUp" && key !== "ArrowDown") { return; }
+        if (ev && ev.repeat === true) { return; }
         var activeFrameId = String(global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.activeFrameId || "").trim();
         var activeState = activeFrameId && global.__vfNativeSceneCameraControls && global.__vfNativeSceneCameraControls.states
           ? global.__vfNativeSceneCameraControls.states[activeFrameId]

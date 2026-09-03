@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cmath>
 #include <complex>
+#include <cstdint>
 #include <cstdlib>
 #include <deque>
 #include <memory>
@@ -15,7 +16,7 @@
 #include <utility>
 #include <vector>
 
-enum class VkfSymbolicNodeKind {
+enum class VkfSymbolicNodeKind : std::uint8_t {
     Symbol,
     IntegerLiteral,
     Call,
@@ -295,7 +296,7 @@ inline std::string vkf_sym_latex(const VkfSymbolicExpr& expr) {
     return vkf_sym_latex_node(expr.node);
 }
 
-inline std::string vkf_sym_compact(std::string text);
+inline std::string vkf_sym_compact(const std::string& text);
 
 struct VkfSymbolicSolve2 {
     VkfSymbolicExpr x;
@@ -398,6 +399,7 @@ inline vf_symbolic vkf_sym_replace_child(const vf_symbolic& expr, std::size_t in
     }
     if (expr.node->kind == VkfSymbolicNodeKind::Call) {
         std::vector<vf_symbolic> args;
+        args.reserve(expr.node->children.size());
         for (std::size_t i = 0; i < expr.node->children.size(); ++i) {
             args.push_back(i == index ? child : VkfSymbolicExpr{expr.node->children[i], {}});
         }
@@ -742,8 +744,9 @@ inline vf_symbolic vf_sym_integral(const vf_symbolic& expr, const vf_symbolic& v
 }
 inline vf_symbolic vf_sym_integral(const vf_symbolic& expr, const vf_symbolic& var, const vf_symbolic& start, const vf_symbolic& end) { return vf_sym_range_aggregate("integrate", expr, var, start, end); }
 
-inline std::string vkf_sym_compact(std::string text) {
+inline std::string vkf_sym_compact(const std::string& text) {
     std::string out;
+    out.reserve(text.size());
     for (char ch : text) {
         if (!std::isspace(static_cast<unsigned char>(ch))) out.push_back(ch);
     }
@@ -751,7 +754,7 @@ inline std::string vkf_sym_compact(std::string text) {
 }
 
 inline std::string vkf_sym_strip_outer_parens(std::string text) {
-    text = vkf_sym_compact(std::move(text));
+    text = vkf_sym_compact(text);
     bool changed = true;
     while (changed && text.size() >= 2 && text.front() == '(' && text.back() == ')') {
         changed = false;

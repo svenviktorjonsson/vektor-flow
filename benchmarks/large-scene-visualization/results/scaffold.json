@@ -1,0 +1,42 @@
+{
+  "schema": "vkf.large-scene-visualization-report",
+  "schemaVersion": 1,
+  "manifestSha256": "835f1f11a5ccadbd06f5569fcb6ea40f6f0f0f2a430d910672f770fc1d74e391",
+  "status": "scaffold",
+  "environment": {
+    "operatingSystem": "not-measured",
+    "architecture": "not-measured",
+    "cpu": "not-measured",
+    "gpu": "not-measured",
+    "browser": "not-measured",
+    "browserVersion": "not-measured",
+    "devicePixelRatio": 1,
+    "viewport": [1280, 720],
+    "powerMode": "not-measured"
+  },
+  "workloads": [
+    {
+      "id": "orthographic-points-100k-static",
+      "measurements": [
+        { "implementation": "vkf", "state": "scaffold", "comparable": true },
+        { "implementation": "deck-gl", "state": "scaffold", "comparable": true },
+        { "implementation": "vtk-js", "state": "scaffold", "comparable": true },
+        { "implementation": "plotly-scattergl", "state": "scaffold", "comparable": true }
+      ]
+    },
+    {
+      "id": "orthographic-points-1m-pan",
+      "measurements": [
+        { "implementation": "vkf", "state": "scaffold", "comparable": true },
+        { "implementation": "deck-gl", "state": "scaffold", "comparable": true },
+        { "implementation": "vtk-js", "state": "scaffold", "comparable": true },
+        {
+          "implementation": "plotly-scattergl",
+          "state": "not-applicable",
+          "comparable": false,
+          "reason": "public Plotly.relayout camera updates reupload the immutable x/y point buffers"
+        }
+      ]
+    }
+  ]
+}

@@ -2,8 +2,15 @@ cmake_minimum_required(VERSION 3.14)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
   set(CMAKE_POLICY_VERSION_MINIMUM "3.5" CACHE STRING "" FORCE)
 endif()
+if(POLICY CMP0091)
+  cmake_policy(SET CMP0091 NEW)
+endif()
 
 project(vf-overlay CXX)
+
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -124,7 +131,7 @@ else()
   set(TRANSPARENT_OVERLAY_HOST_EXE "${_vf_overlay_host}")
 endif()
 
-set(VF_OVERLAY_HOST_SOURCES
+set(VF_OVERLAY_COMPAT_HOST_SOURCES
   main.cpp
   overlay_geometry_ledger_runtime.cpp
   overlay_packet_runtime.cpp
@@ -138,6 +145,12 @@ set(VF_OVERLAY_HOST_SOURCES
   vf/geom_ledger_contract.cpp
   vf/json.cpp
   vf/ui_runtime_contract.cpp
+)
+
+set(VF_OVERLAY_RELEASE_HOST_SOURCES
+  vf/release_overlay_host.cpp
+  vf/release_host_adapter.cpp
+  vf/crash_diagnostics.cpp
 )
 
 set(VF_OVERLAY_HOST_LIBS
@@ -162,7 +175,7 @@ set(VF_OVERLAY_HOST_LIBS
 )
 
 add_library(VfOverlay SHARED
-  ${VF_OVERLAY_HOST_SOURCES}
+  ${VF_OVERLAY_COMPAT_HOST_SOURCES}
 )
 target_include_directories(VfOverlay PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -180,7 +193,7 @@ if(MSVC)
 endif()
 
 add_executable(vf-overlay WIN32
-  ${VF_OVERLAY_HOST_SOURCES}
+  ${VF_OVERLAY_RELEASE_HOST_SOURCES}
 )
 target_include_directories(vf-overlay PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -240,36 +253,42 @@ add_custom_target(vkf-embedded-vf-ui-assets
     "${VF_EMBEDDED_VF_UI_HPP}"
 )
 
-add_executable(vkf
+add_executable(vkf-ui-package
   vkf_launcher.cpp
-  ${VF_OVERLAY_HOST_SOURCES}
+  ${VF_OVERLAY_RELEASE_HOST_SOURCES}
   "${VF_EMBEDDED_VF_UI_CPP}"
   "${VF_EMBEDDED_VF_UI_RC}"
 )
-target_include_directories(vkf PRIVATE
+target_include_directories(vkf-ui-package PRIVATE
+  "${VF_REPO_ROOT}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
   "${WV2_INCLUDE_DIR}"
   "${cjson_SOURCE_DIR}"
 )
-target_compile_definitions(vkf PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST VF_OVERLAY_NO_STANDALONE_MAIN)
-target_link_libraries(vkf PRIVATE
+target_compile_definitions(vkf-ui-package PRIVATE UNICODE _UNICODE VF_VKF_EMBED_OVERLAY_HOST VF_OVERLAY_NO_STANDALONE_MAIN)
+target_link_libraries(vkf-ui-package PRIVATE
   ${VF_OVERLAY_HOST_LIBS}
   kernel32
 )
 if(MSVC)
-  target_compile_options(vkf PRIVATE /Zi)
-  target_link_options(vkf PRIVATE /DEBUG /INCREMENTAL:NO)
+  target_compile_options(vkf-ui-package PRIVATE /Zi)
+  target_link_options(vkf-ui-package PRIVATE
+    /DEBUG
+    /INCREMENTAL:NO
+    "/MAP:${CMAKE_CURRENT_BINARY_DIR}/vkf-ui-package.map"
+  )
 endif()
-add_dependencies(vkf vkf-embedded-vf-ui-assets)
+add_dependencies(vkf-ui-package vkf-embedded-vf-ui-assets)
 
 add_executable(vkf-runner WIN32
   vkf_launcher.cpp
-  ${VF_OVERLAY_HOST_SOURCES}
+  ${VF_OVERLAY_RELEASE_HOST_SOURCES}
   "${VF_EMBEDDED_VF_UI_CPP}"
   "${VF_EMBEDDED_VF_UI_RC}"
 )
 target_include_directories(vkf-runner PRIVATE
+  "${VF_REPO_ROOT}"
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
   "${WV2_INCLUDE_DIR}"
@@ -282,19 +301,41 @@ target_link_libraries(vkf-runner PRIVATE
 )
 if(MSVC)
   target_compile_options(vkf-runner PRIVATE /Zi)
-  target_link_options(vkf-runner PRIVATE /DEBUG /INCREMENTAL:NO /ENTRY:wmainCRTStartup)
+  target_link_options(vkf-runner PRIVATE
+    /DEBUG
+    /INCREMENTAL:NO
+    /ENTRY:wmainCRTStartup
+    "/MAP:${CMAKE_CURRENT_BINARY_DIR}/vkf-runner.map"
+  )
 endif()
 add_dependencies(vkf-runner vkf-embedded-vf-ui-assets)
-add_dependencies(vkf vkf-runner)
+add_dependencies(vkf-ui-package vkf-runner)
+
+add_executable(vf-release-host-adapter-test
+  vf/release_host_adapter.cpp
+  vf/release_host_adapter_test.cpp
+)
+target_include_directories(vf-release-host-adapter-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+if(MSVC)
+  target_compile_options(vf-release-host-adapter-test PRIVATE /Zi)
+  target_link_options(vf-release-host-adapter-test PRIVATE /DEBUG /INCREMENTAL:NO)
+endif()
 
 add_executable(vkf-native-scene-artifact-stager
   ../../compiler/native/vkf_native_scene_artifact_stager.cpp
+  vf/json.cpp
+)
+target_include_directories(vkf-native-scene-artifact-stager PRIVATE
+  "${VF_REPO_ROOT}"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 if(MSVC)
   target_compile_options(vkf-native-scene-artifact-stager PRIVATE /Zi)
   target_link_options(vkf-native-scene-artifact-stager PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
-add_dependencies(vkf vkf-native-scene-artifact-stager)
+add_dependencies(vkf-ui-package vkf-native-scene-artifact-stager)
 
 add_library(vf-compiled-ui-demo SHARED
   vf/compiled_ui_runtime_demo.cpp
@@ -452,6 +493,52 @@ target_link_libraries(overlay-packet-runtime-input-test PRIVATE
 if(MSVC)
   target_compile_options(overlay-packet-runtime-input-test PRIVATE /Zi)
   target_link_options(overlay-packet-runtime-input-test PRIVATE /DEBUG /INCREMENTAL:NO)
+endif()
+
+add_executable(vf-retained-scene-event-program-runtime-test
+  overlay_packet_runtime.cpp
+  retained_scene_event_program_runtime_test.cpp
+  vf/json.cpp
+  vf/ui_runtime_contract.cpp
+)
+target_include_directories(vf-retained-scene-event-program-runtime-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_compile_definitions(vf-retained-scene-event-program-runtime-test PRIVATE UNICODE _UNICODE)
+target_link_libraries(vf-retained-scene-event-program-runtime-test PRIVATE
+  user32
+  kernel32
+  ws2_32
+)
+if(MSVC)
+  target_compile_options(vf-retained-scene-event-program-runtime-test PRIVATE /Zi)
+  target_link_options(vf-retained-scene-event-program-runtime-test PRIVATE /DEBUG /INCREMENTAL:NO)
+endif()
+
+add_executable(vf-ui-owner-event-queues-test
+  ui_owner_event_queues_test.cpp
+  vf/json.cpp
+  vf/ui_runtime_contract.cpp
+)
+target_include_directories(vf-ui-owner-event-queues-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+if(MSVC)
+  target_compile_options(vf-ui-owner-event-queues-test PRIVATE /Zi)
+  target_link_options(vf-ui-owner-event-queues-test PRIVATE /DEBUG /INCREMENTAL:NO)
+endif()
+
+add_executable(vf-retained-html-patch-runtime-test
+  retained_html_patch_runtime_test.cpp
+  vf/json.cpp
+  vf/ui_runtime_contract.cpp
+)
+target_include_directories(vf-retained-html-patch-runtime-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+if(MSVC)
+  target_compile_options(vf-retained-html-patch-runtime-test PRIVATE /Zi)
+  target_link_options(vf-retained-html-patch-runtime-test PRIVATE /DEBUG /INCREMENTAL:NO)
 endif()
 
 add_executable(overlay-packet-runtime-reload-test

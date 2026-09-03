@@ -1,0 +1,92 @@
+ui:.ui
+ui.set_mode("overlay")
+
+native_scene:(
+    kind:"scene_3d",
+    frame_id:"solkatt_frame",
+    title:"Sun reflection",
+    rect:[0.08, 0.08, 0.84, 0.84],
+    aspect:"equal",
+    camera:(pos:[0, -4.8, 2.8], target:[0, 0.7, 1], fov:34, up:[0, 0, 1]),
+    show_light_markers:true,
+    light_marker_size:0.24,
+    timing:(fps:30, duration_seconds:14, boundary:"repeat"),
+    surfaces:[(
+        id:"mirror",
+        center:[0.73, 2.17, 1.1],
+        size:[2.6, 2.2],
+        rotation:[90, 0, 0],
+        color:[0.7, 0.76, 0.86, 1],
+        casts_shadow:true,
+        receives_shadow:true,
+        no_backface_specular:true,
+        surface_system:(
+            kind:"screen",
+            reverse_facing:true,
+            flip_y:true,
+            scale:[1, 1],
+            camera:(
+                fov:34,
+                up:[0, 0, 1],
+                mirror_of:(
+                    frame_id:"solkatt_frame",
+                    mesh_id:"mirror",
+                    reflect_eye_only:true,
+                    lock_aperture_camera:true,
+                    controls_enabled:false
+                )
+            )
+        )
+    )],
+    plane:(
+        id:"receiver",
+        center:[0, 0],
+        size:6,
+        z:0,
+        color:[1, 1, 1, 1],
+        roughness:0.02,
+        specular_strength:1,
+        texture:(
+            kind:"checker",
+            scale:[1, 1],
+            color_a:[0.12, 0.14, 0.18, 1],
+            color_b:[0.9, 0.92, 0.96, 1]
+        )
+    ),
+    lights:[
+        (
+            id:"sun",
+            kind:"point",
+            motion:"orbit",
+            radius:4.35,
+            height:3.3,
+            theta:-0.98,
+            angular_velocity:0.55,
+            target:[0, 0.4, 0.9],
+            model:"blinn_phong",
+            color:[1, 0.94, 0.8, 1],
+            intensity:22,
+            range:18,
+            casts_shadow:true,
+            show_marker:true,
+            source_radius:0.14,
+            spread:1
+        ),
+        (
+            id:"solkatt",
+            kind:"projected",
+            reflect_of_light_id:"sun",
+            reflect_mirror_mesh_id:"mirror",
+            model:"blinn_phong",
+            color:[1, 0.94, 0.8, 1],
+            intensity:80,
+            range:18,
+            casts_shadow:true,
+            show_marker:false,
+            source_radius:0.14,
+            spread:1,
+            aperture_face_id:"mirror"
+        )
+    ],
+    shadow:(enabled:true, color:[0, 0, 0, 0.3], lift:0.002)
+)

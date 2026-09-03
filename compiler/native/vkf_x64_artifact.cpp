@@ -1,5 +1,6 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_x64_backend.hpp"
+#include "compiler/native/vkf_x64_dce.hpp"
 #include "compiler/native/vkf_elf_writer.hpp"
 #include "compiler/native/vkf_pe_writer.hpp"
 #include "compiler/native/vkf_machine_ir.hpp"
@@ -57,7 +58,7 @@ constexpr std::size_t kCodeCapacity = 32768;
 
 class BackendFailure : public std::runtime_error {
 public:
-    explicit BackendFailure(std::string message) : std::runtime_error(std::move(message)) {}
+    explicit BackendFailure(const std::string& message) : std::runtime_error(message) {}
 };
 
 const vf::JsonValue::Object& object_of(const vf::JsonValue& value, const std::string& context) {
@@ -264,6 +265,17 @@ void write_text(const std::filesystem::path& path, const std::string& text) {
     std::ofstream output(path, std::ios::binary);
     if (!output) throw BackendFailure("could not write " + path.string());
     output << text;
+}
+
+bool write_text_if_changed(const std::filesystem::path& path, const std::string& text) {
+    std::error_code error;
+    if (std::filesystem::is_regular_file(path, error) && !error &&
+        std::filesystem::file_size(path, error) == text.size() && !error &&
+        read_text(path) == text) {
+        return false;
+    }
+    write_text(path, text);
+    return true;
 }
 
 class Code {
@@ -886,7 +898,12 @@ private:
     };
 
     struct PackedFactorFunctionPlan {
-        enum class Kind { Solve, Cholesky, Lu, LeastSquares } kind = Kind::Cholesky;
+        enum class Kind : std::uint8_t {
+            Solve,
+            Cholesky,
+            Lu,
+            LeastSquares
+        } kind = Kind::Cholesky;
         std::uint32_t matrix_base = 0;
         std::uint32_t values_base = 0;
         std::uint32_t first_output_base = 0;
@@ -8656,7 +8673,12 @@ private:
             return std::nullopt;
         };
         struct FusedOperand {
-            enum class Kind { Local, Constant, ProvenFixedIndex, StaticFixedIndex } kind = Kind::Local;
+            enum class Kind : std::uint8_t {
+                Local,
+                Constant,
+                ProvenFixedIndex,
+                StaticFixedIndex
+            } kind = Kind::Local;
             const vkf::machine_ir::Instruction* value = nullptr;
             const vkf::machine_ir::Instruction* index = nullptr;
             std::size_t next = 0;
@@ -8740,7 +8762,14 @@ private:
             }
         };
         struct ExpressionNode {
-            enum class Kind { Local, Constant, ProvenFixedIndex, StaticFixedIndex, Binary, Sqrt } kind = Kind::Local;
+            enum class Kind : std::uint8_t {
+                Local,
+                Constant,
+                ProvenFixedIndex,
+                StaticFixedIndex,
+                Binary,
+                Sqrt
+            } kind = Kind::Local;
             vkf::machine_ir::Opcode opcode = vkf::machine_ir::Opcode::Drop;
             const vkf::machine_ir::Instruction* value = nullptr;
             const vkf::machine_ir::Instruction* index = nullptr;
@@ -9262,6 +9291,110 @@ private:
                     start, start + 112u, position_x, velocity_x,
                     *first, *second, *first_mass, *second_mass};
             };
+        const auto match_dead_static_interaction_separator =
+            [&](std::size_t start) -> std::optional<StaticVector3InteractionPlan> {
+                using vkf::machine_ir::Opcode;
+                const auto& at = function.instructions;
+                std::vector<std::uint32_t> assigned_locals;
+                std::size_t position = start;
+                while (position < at.size()) {
+                    if (position + 1u < at.size() &&
+                        at[position].opcode == Opcode::PushF64 &&
+                        at[position + 1u].opcode == Opcode::StoreLocal) {
+                        assigned_locals.push_back(at[position + 1u].index);
+                        position += 2u;
+                        continue;
+                    }
+                    if (position + 2u < at.size() &&
+                        at[position].opcode == Opcode::LoadLocal &&
+                        at[position + 1u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 1u].index_local &&
+                        *at[position + 1u].index_local == at[position].index &&
+                        !at[position + 1u].may_error &&
+                        at[position + 2u].opcode == Opcode::Drop) {
+                        position += 3u;
+                        continue;
+                    }
+                    break;
+                }
+                if (position == start || assigned_locals.empty()) {
+                    return std::nullopt;
+                }
+                if (!std::all_of(
+                        at.begin() + static_cast<std::ptrdiff_t>(start),
+                        at.begin() + static_cast<std::ptrdiff_t>(position),
+                        vkf::x64::static_cursor_dce_may_scan)) {
+                    return std::nullopt;
+                }
+                const auto interaction = match_static_vector3_interaction(position);
+                if (!interaction) return std::nullopt;
+                if (!std::all_of(
+                        at.begin() + static_cast<std::ptrdiff_t>(interaction->start),
+                        at.begin() + static_cast<std::ptrdiff_t>(interaction->end + 1u),
+                        vkf::x64::static_cursor_dce_may_scan)) {
+                    return std::nullopt;
+                }
+                std::sort(assigned_locals.begin(), assigned_locals.end());
+                assigned_locals.erase(
+                    std::unique(assigned_locals.begin(), assigned_locals.end()),
+                    assigned_locals.end());
+                for (const auto local : assigned_locals) {
+                    for (std::size_t following = interaction->end + 1u;
+                         following < at.size(); ++following) {
+                        if (!vkf::x64::static_cursor_dce_may_scan(at[following])) {
+                            return std::nullopt;
+                        }
+                        const auto following_interaction =
+                            match_static_vector3_interaction(following);
+                        if (following_interaction) {
+                            if (!std::all_of(
+                                    at.begin() + static_cast<std::ptrdiff_t>(following),
+                                    at.begin() + static_cast<std::ptrdiff_t>(
+                                        following_interaction->end + 1u),
+                                    vkf::x64::static_cursor_dce_may_scan)) {
+                                return std::nullopt;
+                            }
+                            following = following_interaction->end;
+                            continue;
+                        }
+                        const auto& candidate = at[following];
+                        if (candidate.opcode == Opcode::StoreLocal &&
+                            candidate.index == local) {
+                            break;
+                        }
+                        if (following + 2u < at.size() &&
+                            candidate.opcode == Opcode::LoadLocal &&
+                            candidate.index == local &&
+                            at[following + 1u].opcode ==
+                                Opcode::LoadF64LocalsIndex &&
+                            at[following + 1u].index_local &&
+                            *at[following + 1u].index_local == local &&
+                            !at[following + 1u].may_error &&
+                            at[following + 2u].opcode == Opcode::Drop) {
+                            if (!vkf::x64::static_cursor_dce_may_scan(at[following + 1u]) ||
+                                !vkf::x64::static_cursor_dce_may_scan(at[following + 2u])) {
+                                return std::nullopt;
+                            }
+                            following += 2u;
+                            continue;
+                        }
+                        if (candidate.opcode == Opcode::Label ||
+                            candidate.opcode == Opcode::Jump ||
+                            candidate.opcode == Opcode::JumpIfFalse ||
+                            candidate.opcode == Opcode::JumpIfTrue ||
+                            candidate.opcode == Opcode::JumpIfParameterProvided) {
+                            return std::nullopt;
+                        }
+                        if ((candidate.opcode == Opcode::LoadLocal &&
+                             candidate.index == local) ||
+                            (candidate.index_local &&
+                             *candidate.index_local == local)) {
+                            return std::nullopt;
+                        }
+                    }
+                }
+                return interaction;
+            };
         const auto emit_two_static_vector3_interactions =
             [&](std::size_t start) -> std::optional<std::size_t> {
                 using vkf::machine_ir::Opcode;
@@ -9293,6 +9426,8 @@ private:
                     first->velocity_x != second->velocity_x) {
                     return std::nullopt;
                 }
+                const auto dead_separator =
+                    match_dead_static_interaction_separator(first->end + 1u);
                 const auto validate_separator = [&] {
                     for (std::size_t position = first->end + 1u;
                          position < second->start;) {
@@ -9367,7 +9502,9 @@ private:
                         }
                     }
                 };
-                emit_separator();
+                if (!dead_separator || dead_separator->start != second->start) {
+                    emit_separator();
+                }
                 const auto load_pair = [&](std::uint32_t base,
                                            std::uint32_t index,
                                            unsigned destination) {
@@ -10127,7 +10264,7 @@ private:
                 expression_index_cache = {};
                 return start + 112u;
             };
-        const auto emit_packed_scaled_vector3_update =
+        const auto match_packed_scaled_vector3_update =
             [&](std::size_t start) -> std::optional<std::size_t> {
                 using vkf::machine_ir::Opcode;
                 if (!policy_.packed_dot_reductions ||
@@ -10150,14 +10287,6 @@ private:
                     }
                     return left.opcode == Opcode::LoadLocal &&
                         left.index == right.index;
-                };
-                const auto emit_invariant_scale = [&](const auto& operand,
-                                                      unsigned destination) {
-                    if (operand.opcode == Opcode::PushF64) {
-                        emit_number(operand.f64, destination);
-                    } else {
-                        load_local(operand.index, destination);
-                    }
                 };
                 const auto lane_matches = [&](std::size_t position) {
                     return at[position].opcode == Opcode::LoadLocal &&
@@ -10210,6 +10339,157 @@ private:
                     at[start + 26u].index != first_store.index + 2u) {
                     return std::nullopt;
                 }
+                return start + 26u;
+            };
+        const auto match_dead_static_scaled_separator =
+            [&](std::size_t start) -> std::optional<std::size_t> {
+                using vkf::machine_ir::Opcode;
+                const auto& at = function.instructions;
+                std::vector<std::uint32_t> assigned_locals;
+                std::size_t position = start;
+                while (position < at.size()) {
+                    if (position + 1u < at.size() &&
+                        at[position].opcode == Opcode::PushF64 &&
+                        at[position + 1u].opcode == Opcode::StoreLocal) {
+                        assigned_locals.push_back(at[position + 1u].index);
+                        position += 2u;
+                        continue;
+                    }
+                    if (position + 2u < at.size() &&
+                        at[position].opcode == Opcode::LoadLocal &&
+                        at[position + 1u].opcode == Opcode::LoadF64LocalsIndex &&
+                        at[position + 1u].index_local &&
+                        *at[position + 1u].index_local == at[position].index &&
+                        !at[position + 1u].may_error &&
+                        at[position + 2u].opcode == Opcode::Drop) {
+                        position += 3u;
+                        continue;
+                    }
+                    break;
+                }
+                if (!std::all_of(
+                        at.begin() + static_cast<std::ptrdiff_t>(start),
+                        at.begin() + static_cast<std::ptrdiff_t>(position),
+                        vkf::x64::static_cursor_dce_may_scan)) {
+                    return std::nullopt;
+                }
+                const auto consumed_end =
+                    match_packed_scaled_vector3_update(position);
+                if (position == start || assigned_locals.empty() ||
+                    !consumed_end ||
+                    !static_integral_local_before(position, at[position].index)) {
+                    return std::nullopt;
+                }
+                if (!std::all_of(
+                        at.begin() + static_cast<std::ptrdiff_t>(position),
+                        at.begin() + static_cast<std::ptrdiff_t>(*consumed_end + 1u),
+                        vkf::x64::static_cursor_dce_may_scan)) {
+                    return std::nullopt;
+                }
+                std::sort(assigned_locals.begin(), assigned_locals.end());
+                assigned_locals.erase(
+                    std::unique(assigned_locals.begin(), assigned_locals.end()),
+                    assigned_locals.end());
+                for (const auto local : assigned_locals) {
+                    for (std::size_t following = *consumed_end + 1u;
+                         following < at.size(); ++following) {
+                        if (!vkf::x64::static_cursor_dce_may_scan(at[following])) {
+                            return std::nullopt;
+                        }
+                        const auto following_update =
+                            match_packed_scaled_vector3_update(following);
+                        if (following_update) {
+                            if (!std::all_of(
+                                    at.begin() + static_cast<std::ptrdiff_t>(following),
+                                    at.begin() + static_cast<std::ptrdiff_t>(
+                                        *following_update + 1u),
+                                    vkf::x64::static_cursor_dce_may_scan)) {
+                                return std::nullopt;
+                            }
+                            following = *following_update;
+                            continue;
+                        }
+                        const auto& candidate = at[following];
+                        if (candidate.opcode == Opcode::StoreLocal &&
+                            candidate.index == local) {
+                            break;
+                        }
+                        if (following + 2u < at.size() &&
+                            candidate.opcode == Opcode::LoadLocal &&
+                            candidate.index == local &&
+                            at[following + 1u].opcode ==
+                                Opcode::LoadF64LocalsIndex &&
+                            at[following + 1u].index_local &&
+                            *at[following + 1u].index_local == local &&
+                            !at[following + 1u].may_error &&
+                            at[following + 2u].opcode == Opcode::Drop) {
+                            if (!vkf::x64::static_cursor_dce_may_scan(at[following + 1u]) ||
+                                !vkf::x64::static_cursor_dce_may_scan(at[following + 2u])) {
+                                return std::nullopt;
+                            }
+                            following += 2u;
+                            continue;
+                        }
+                        if (candidate.opcode == Opcode::Jump) {
+                            const auto target = label_positions.find(candidate.label);
+                            if (target == label_positions.end() ||
+                                target->second >= following) {
+                                return std::nullopt;
+                            }
+                            bool overwritten = false;
+                            for (std::size_t wrapped = target->second;
+                                 wrapped < following; ++wrapped) {
+                                const auto& wrapped_candidate = at[wrapped];
+                                if (!vkf::x64::static_cursor_dce_may_scan(
+                                        wrapped_candidate)) {
+                                    return std::nullopt;
+                                }
+                                if (wrapped_candidate.opcode == Opcode::StoreLocal &&
+                                    wrapped_candidate.index == local) {
+                                    overwritten = true;
+                                    break;
+                                }
+                                if ((wrapped_candidate.opcode == Opcode::LoadLocal &&
+                                     wrapped_candidate.index == local) ||
+                                    (wrapped_candidate.index_local &&
+                                     *wrapped_candidate.index_local == local)) {
+                                    return std::nullopt;
+                                }
+                            }
+                            if (!overwritten) return std::nullopt;
+                            break;
+                        }
+                        if (candidate.opcode == Opcode::JumpIfFalse ||
+                            candidate.opcode == Opcode::JumpIfTrue ||
+                            candidate.opcode == Opcode::JumpIfParameterProvided ||
+                            (candidate.opcode == Opcode::LoadLocal &&
+                             candidate.index == local) ||
+                            (candidate.index_local &&
+                             *candidate.index_local == local)) {
+                            return std::nullopt;
+                        }
+                    }
+                }
+                return position;
+            };
+        const auto emit_packed_scaled_vector3_update =
+            [&](std::size_t start) -> std::optional<std::size_t> {
+                using vkf::machine_ir::Opcode;
+                const auto matched_end = match_packed_scaled_vector3_update(start);
+                if (!matched_end) return std::nullopt;
+                const auto& at = function.instructions;
+                const auto emit_invariant_scale = [&](const auto& operand,
+                                                      unsigned destination) {
+                    if (operand.opcode == Opcode::PushF64) {
+                        emit_number(operand.f64, destination);
+                    } else {
+                        load_local(operand.index, destination);
+                    }
+                };
+                const auto& first_current = at[start + 2u];
+                const auto& first_component = at[start + 4u];
+                const auto arithmetic = at[start + 7u].opcode;
+                const auto& first_store = at[start + 8u];
 
                 expression_index_cache = {};
                 const auto static_index = static_integral_local_before(
@@ -10284,7 +10564,7 @@ private:
                 emit_lane_store(at[start + 17u], 0u, true);
                 emit_lane_store(at[start + 26u], 3u);
                 expression_index_cache = {};
-                return start + 26u;
+                return *matched_end;
             };
         const auto emit_packed_affine_indexed_pair =
             [&](std::size_t start) -> std::optional<std::size_t> {
@@ -10568,6 +10848,20 @@ private:
                 }
             }
             if (stack_depth == 0) {
+                const auto dead_scaled_separator =
+                    match_dead_static_scaled_separator(instruction_index);
+                if (dead_scaled_separator) {
+                    expression_index_cache = {};
+                    instruction_index = *dead_scaled_separator - 1u;
+                    continue;
+                }
+                const auto dead_separator =
+                    match_dead_static_interaction_separator(instruction_index);
+                if (dead_separator) {
+                    expression_index_cache = {};
+                    instruction_index = dead_separator->start - 1u;
+                    continue;
+                }
                 const auto paired_interactions =
                     emit_two_static_vector3_interactions(instruction_index);
                 if (paired_interactions) {
@@ -13310,6 +13604,84 @@ bool can_tune_machine_code(const vkf::machine_ir::Module& module) {
         module.functions.begin(), module.functions.end(), safe_function);
 }
 
+std::uint32_t tunable_policy_mask(const vkf::machine_ir::Module& module) {
+    using vkf::machine_ir::Opcode;
+    std::uint32_t relevant = 0;
+    const auto inspect = [&](const vkf::machine_ir::Function& function) {
+        const bool has_integer_local = std::find(
+            function.local_classes.begin(), function.local_classes.end(),
+            vkf::machine_ir::ValueClass::I64) != function.local_classes.end();
+        if (has_integer_local) {
+            relevant |= vkf::adaptive_optimizer::native_integer_local_bit;
+        }
+        if (function.parameters.size() >= 8u) {
+            relevant |= vkf::adaptive_optimizer::borrowed_aggregate_parameter_bit;
+        }
+        if (function.result_is_dynamic_f64_list) {
+            relevant |= vkf::adaptive_optimizer::direct_aggregate_result_bit;
+        }
+
+        bool has_multiply = false;
+        bool has_addition = false;
+        bool has_reduction = false;
+        bool has_indexed_access = false;
+        for (const auto& instruction : function.instructions) {
+            switch (instruction.opcode) {
+                case Opcode::MultiplyF64:
+                    has_multiply = true;
+                    break;
+                case Opcode::AddF64:
+                case Opcode::SubtractF64:
+                    has_addition = true;
+                    break;
+                case Opcode::LoadF64LocalsIndex:
+                case Opcode::StoreF64LocalsIndex:
+                case Opcode::LoadF64ListIndex:
+                case Opcode::StoreF64ListIndex:
+                    relevant |= vkf::adaptive_optimizer::native_index_addressing_bit;
+                    has_indexed_access = true;
+                    break;
+                case Opcode::RemainderF64:
+                    relevant |= vkf::adaptive_optimizer::parity_specialization_bit;
+                    break;
+                case Opcode::SumF64Values:
+                case Opcode::MeanF64Values:
+                case Opcode::VarianceF64Values:
+                case Opcode::StdDevF64Values:
+                case Opcode::RangeF64Values:
+                case Opcode::SumF64Locals:
+                case Opcode::MeanF64Locals:
+                case Opcode::VarianceF64Locals:
+                case Opcode::StdDevF64Locals:
+                case Opcode::RangeF64Locals:
+                case Opcode::SumF64List:
+                case Opcode::MeanF64List:
+                case Opcode::VarianceF64List:
+                case Opcode::StdDevF64List:
+                case Opcode::RangeF64List:
+                    has_reduction = true;
+                    break;
+                case Opcode::ReturnValues:
+                    relevant |= vkf::adaptive_optimizer::direct_aggregate_result_bit;
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (has_reduction) {
+            relevant |= vkf::adaptive_optimizer::packed_matrix_reduction_bit;
+            relevant |= vkf::adaptive_optimizer::packed_dot_reduction_bit;
+        }
+        if (has_reduction ||
+            (has_indexed_access && has_multiply && has_addition)) {
+            relevant |= vkf::adaptive_optimizer::fused_multiply_add_bit;
+        }
+    };
+    inspect(module.entry);
+    for (const auto& function : module.functions) inspect(function);
+    return relevant;
+}
+
 struct TuningCandidateReport {
     std::string policy;
     std::string code_hash;
@@ -13519,20 +13891,28 @@ TuningResult tune_machine_code(
     }
     const bool interaction_heavy_small_vectors =
         small_vector_sqrt_count >= 4u && small_vector_store_count >= 20u;
-    const std::uint32_t guided_primary = vkf::adaptive_optimizer::policy_mask;
-    std::vector<std::uint32_t> policy_order{
-        guided_primary,
-        0u,
-    };
-    for (std::uint32_t bit = 1;
-         bit <= vkf::adaptive_optimizer::packed_dot_reduction_bit; bit <<= 1u) {
-        policy_order.push_back(vkf::adaptive_optimizer::policy_mask ^ bit);
-        policy_order.push_back(bit);
-    }
-    for (std::uint32_t mask = 0; mask <= vkf::adaptive_optimizer::policy_mask; ++mask) {
-        if (std::find(policy_order.begin(), policy_order.end(), mask) == policy_order.end()) {
+    const std::uint32_t relevant_policy_mask = landscape_runs == 0
+        ? tunable_policy_mask(module)
+        : vkf::adaptive_optimizer::policy_mask;
+    const std::uint32_t guided_primary = relevant_policy_mask;
+    std::vector<std::uint32_t> policy_order;
+    const auto append_policy = [&](std::uint32_t mask) {
+        if (std::find(policy_order.begin(), policy_order.end(), mask) ==
+            policy_order.end()) {
             policy_order.push_back(mask);
         }
+    };
+    append_policy(guided_primary);
+    append_policy(0u);
+    for (std::uint32_t bit = 1;
+         bit <= vkf::adaptive_optimizer::packed_dot_reduction_bit; bit <<= 1u) {
+        if ((relevant_policy_mask & bit) == 0u) continue;
+        append_policy(relevant_policy_mask ^ bit);
+        append_policy(bit);
+    }
+    for (std::uint32_t mask = 0; mask <= relevant_policy_mask; ++mask) {
+        if ((mask & ~relevant_policy_mask) != 0u) continue;
+        append_policy(mask);
     }
     for (const auto mask : policy_order) {
         // Auto selection always compares the fully enabled policy with the
@@ -13650,7 +14030,7 @@ TuningResult tune_machine_code(
             return mean(candidates[left].samples_ns) < mean(candidates[right].samples_ns);
         });
     } else {
-        std::uint32_t target_samples = 3;
+        std::uint32_t target_samples = 2;
         while (!active.empty() && result.total_runs < run_budget && Clock::now() < deadline) {
             bool sampled = false;
             for (const auto index : active) {
@@ -13671,6 +14051,11 @@ TuningResult tune_machine_code(
             std::stable_sort(active.begin(), active.end(), [&](std::size_t left, std::size_t right) {
                 return median(candidates[left].samples_ns) < median(candidates[right].samples_ns);
             });
+            const bool minimum_confidence_reached = std::all_of(
+                active.begin(), active.end(), [&](std::size_t index) {
+                    return candidates[index].samples_ns.size() >= 2u;
+                });
+            if (minimum_confidence_reached) break;
             if (active.size() > 1) active.resize((active.size() + 1u) / 2u);
             target_samples = std::min<std::uint32_t>(
                 run_budget, std::max<std::uint32_t>(target_samples + 1u, target_samples * 2u));
@@ -13752,13 +14137,69 @@ vf::JsonValue tuning_json(const TuningResult& tuning, std::string requested_poli
     return vf::JsonValue(std::move(report));
 }
 
+void fingerprint_bytes(std::uint64_t& hash, const void* bytes, std::size_t size) {
+    constexpr std::uint64_t prime = 1099511628211ull;
+    const auto* data = static_cast<const unsigned char*>(bytes);
+    for (std::size_t index = 0; index < size; ++index) {
+        hash ^= data[index];
+        hash *= prime;
+    }
+}
+
+void fingerprint_json(std::uint64_t& hash, const vf::JsonValue& value) {
+    const auto type = static_cast<std::uint8_t>(value.type());
+    fingerprint_bytes(hash, &type, sizeof(type));
+    switch (value.type()) {
+        case vf::JsonValue::Type::Null:
+            return;
+        case vf::JsonValue::Type::Boolean: {
+            const std::uint8_t boolean = value.as_boolean() ? 1u : 0u;
+            fingerprint_bytes(hash, &boolean, sizeof(boolean));
+            return;
+        }
+        case vf::JsonValue::Type::Number: {
+            const double number = value.as_number();
+            fingerprint_bytes(hash, &number, sizeof(number));
+            return;
+        }
+        case vf::JsonValue::Type::String: {
+            const auto& string = value.as_string();
+            const auto size = static_cast<std::uint64_t>(string.size());
+            fingerprint_bytes(hash, &size, sizeof(size));
+            fingerprint_bytes(hash, string.data(), string.size());
+            return;
+        }
+        case vf::JsonValue::Type::Array: {
+            const auto& array = value.as_array();
+            const auto size = static_cast<std::uint64_t>(array.size());
+            fingerprint_bytes(hash, &size, sizeof(size));
+            for (const auto& item : array) fingerprint_json(hash, item);
+            return;
+        }
+        case vf::JsonValue::Type::Object: {
+            const auto& object = value.as_object();
+            const auto size = static_cast<std::uint64_t>(object.size());
+            fingerprint_bytes(hash, &size, sizeof(size));
+            for (const auto& [key, item] : object) {
+                const auto key_size = static_cast<std::uint64_t>(key.size());
+                fingerprint_bytes(hash, &key_size, sizeof(key_size));
+                fingerprint_bytes(hash, key.data(), key.size());
+                fingerprint_json(hash, item);
+            }
+            return;
+        }
+    }
+}
+
 std::string tuning_fingerprint(const vf::JsonValue& typed_ir) {
-    std::string material = "vkf-empirical-tuner-v2\n" __DATE__ "\n" __TIME__ "\n";
-    material += vkf::target::host_x64_feature_key();
-    material.push_back('\n');
-    material += vf::json_stringify(typed_ir, -1);
-    return vkf::adaptive_optimizer::hexadecimal(
-        vkf::adaptive_optimizer::fnv1a(material));
+    std::uint64_t hash = 14695981039346656037ull;
+    constexpr std::string_view version =
+        "vkf-empirical-tuner-v3\n" __DATE__ "\n" __TIME__ "\n";
+    fingerprint_bytes(hash, version.data(), version.size());
+    const auto target = vkf::target::host_x64_feature_key();
+    fingerprint_bytes(hash, target.data(), target.size());
+    fingerprint_json(hash, typed_ir);
+    return vkf::adaptive_optimizer::hexadecimal(hash);
 }
 
 std::optional<vkf::adaptive_optimizer::Policy> load_tuning_profile(
@@ -13822,11 +14263,11 @@ void write_tuning_profile(const std::filesystem::path& path, const TuningResult&
     profile["fingerprint"] = tuning.fingerprint;
     profile["target_features"] = std::string(vkf::target::host_x64_feature_key());
     profile["selected_policy"] = tuning.policy.name;
-    profile["total_runs"] = static_cast<double>(tuning.total_runs);
-    profile["elapsed_ms"] = tuning.elapsed_ms;
     try {
         std::filesystem::create_directories(path.parent_path());
-        write_text(path, vf::json_stringify(vf::JsonValue(std::move(profile)), 2) + "\n");
+        write_text_if_changed(
+            path,
+            vf::json_stringify(vf::JsonValue(std::move(profile)), 2) + "\n");
     } catch (const std::exception&) {
         // Optimization profiles are best-effort cache data. Compilation must
         // still succeed when a locked-down host has no writable cache root.
@@ -13912,8 +14353,6 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             ? *supplied_machine_ir
             : vkf::machine_ir::lower(typed_ir);
         const bool supports_simd = vkf::target::host_x64_supports_avx2();
-        optimization_decisions = vkf::adaptive_optimizer::decide_module(
-            machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
         automatic_cpu_pair = vkf::adaptive_optimizer::select_automatic_cpu_pair(
             machine_ir, flow_limits, std::max(1u, std::thread::hardware_concurrency()));
 #ifdef _WIN32
@@ -13921,6 +14360,10 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64 &&
             machine_ir.output_count == 2u;
 #endif
+        if (emit_debug_files || automatic_cpu_pair) {
+            optimization_decisions = vkf::adaptive_optimizer::decide_module(
+                machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
+        }
         if (automatic_cpu_pair && !optimization_decisions.empty()) {
             auto& entry_decision = optimization_decisions.front();
             vkf::adaptive_optimizer::append_unique(

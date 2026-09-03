@@ -69,11 +69,11 @@ piece_score(board:any, piece:Piece, perspective:num) -> num:
 
 castle_rights_score(state:GameState, perspective:num) -> num:
     white_score: 0
-    state.white_can_castle_king? white_score: white_score + 18
-    state.white_can_castle_queen? white_score: white_score + 12
+    state.white_can_castle_king? .white_score: white_score + 18
+    state.white_can_castle_queen? .white_score: white_score + 12
     black_score: 0
-    state.black_can_castle_king? black_score: black_score + 18
-    state.black_can_castle_queen? black_score: black_score + 12
+    state.black_can_castle_king? .black_score: black_score + 18
+    state.black_can_castle_queen? .black_score: black_score + 12
     perspective = Side.white? @: white_score - black_score
     @: black_score - white_score
 
@@ -86,7 +86,7 @@ evaluate_state(state:GameState, perspective:num) -> num:
     i: 0
     score: castle_rights_score(state, perspective) + tempo_score(state, perspective)
     i < 32?>
-        score: score + piece_score(state.board, state.board.(i), perspective)
+        .score: score + piece_score(state.board, state.board.(i), perspective)
         i: i + 1
     @: score
 

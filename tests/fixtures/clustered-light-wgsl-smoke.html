@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>clustered-light WGSL smoke</title>
+<script src="/web/vf-ui/geom/vf-geom-math.js"></script>
+<script src="/web/vf-ui/geom/vf-geom-wgpu.js"></script>
+<script>
+  (async function () {
+    var outcome = "fail";
+    var detail = "unknown";
+    try {
+      var shared = await VfGeomWgpuUtil.getSharedWgpu();
+      await new Promise(function (resolve) { setTimeout(resolve, 1000); });
+      var error = String(window.__vfGeomWgpuLastError || "");
+      if (shared && !/shader vf-geom-main/i.test(error)) {
+        outcome = "pass";
+        detail = "compiled";
+      } else {
+        detail = error || (navigator.gpu ? "adapter-unavailable" : "navigator-gpu-missing");
+      }
+    } catch (error) {
+      detail = String(error && error.message || error);
+      window.__clusteredLightSmokeError = detail;
+    }
+    document.title = "clustered-light-wgsl-" + outcome;
+    fetch("/__clustered_light_wgsl_" + outcome + "?detail=" + encodeURIComponent(detail)).catch(function () {});
+  })();
+</script>

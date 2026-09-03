@@ -1,0 +1,192 @@
+{
+  "schema": "vkf-media-freshness/1",
+  "capture": {
+    "api": "VfDisplay.__test.captureGeomFrameDataUrl",
+    "composite_api": "Page.captureScreenshot",
+    "execution": "headless Edge WebGPU",
+    "fixture": "examples/material_ui_gallery/app.vkf",
+    "frame_id": "material_gallery_frame",
+    "interactions": [
+      "camera-default",
+      "camera-wheel-detail"
+    ],
+    "surface_textures": [
+      {
+        "threshold": 50,
+        "surfaces": [
+          {
+            "meshId": "studio_floor",
+            "surfaceKind": "screen",
+            "width": 1024,
+            "height": 886,
+            "threshold": 50,
+            "bbox": [
+              351,
+              76,
+              964,
+              725
+            ]
+          },
+          {
+            "meshId": "upright_mirror",
+            "surfaceKind": "screen",
+            "width": 1024,
+            "height": 675,
+            "threshold": 50,
+            "bbox": [
+              0,
+              205,
+              1023,
+              674
+            ]
+          }
+        ]
+      },
+      {
+        "threshold": 90,
+        "surfaces": [
+          {
+            "meshId": "studio_floor",
+            "surfaceKind": "screen",
+            "width": 1024,
+            "height": 886,
+            "threshold": 90,
+            "bbox": [
+              352,
+              77,
+              964,
+              716
+            ]
+          },
+          {
+            "meshId": "upright_mirror",
+            "surfaceKind": "screen",
+            "width": 1024,
+            "height": 675,
+            "threshold": 90,
+            "bbox": [
+              0,
+              205,
+              1023,
+              674
+            ]
+          }
+        ]
+      },
+      {
+        "threshold": 130,
+        "surfaces": [
+          {
+            "meshId": "studio_floor",
+            "surfaceKind": "screen",
+            "width": 1024,
+            "height": 886,
+            "threshold": 130,
+            "bbox": [
+              352,
+              77,
+              964,
+              706
+            ]
+          },
+          {
+            "meshId": "upright_mirror",
+            "surfaceKind": "screen",
+            "width": 1024,
+            "height": 675,
+            "threshold": 130,
+            "bbox": [
+              0,
+              205,
+              920,
+              674
+            ]
+          }
+        ]
+      }
+    ],
+    "surface_captures": [
+      {
+        "meshId": "studio_floor",
+        "width": 1024,
+        "height": 886,
+        "warmPixels": 51922,
+        "warmBbox": [
+          352,
+          77,
+          742,
+          716
+        ],
+        "sha256": "1891f00d8cb9d7e9cf3a3e371b884434590af52d48c84f0ad70ef3e51ef1feea"
+      },
+      {
+        "meshId": "upright_mirror",
+        "width": 1024,
+        "height": 675,
+        "warmPixels": 27440,
+        "warmBbox": [
+          0,
+          205,
+          539,
+          674
+        ],
+        "sha256": "c531b1f8b09aff0a48646cfeca8de10c4a40a87be4deb24dec6e69ae6d6f93e9"
+      }
+    ],
+    "composite_states": [
+      {
+        "view": "stanford-bunny",
+        "sha256": "bc3d85506203e02d6021c7239e9c7c7b03146da251a4e7fae716e1d30829f370",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "stanford-bunny-detail",
+        "sha256": "836954771f1889ca458fdb16f27725b6753e1cd152557d082ae7dcec8dbde660",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      }
+    ]
+  },
+  "sources": {
+    "examples/material_ui_gallery/app.vkf": "df848974d7ad999c977df29d3ee3889cbe2a83af4e2002cb36c2a0b25d23f64d",
+    "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md": "4a98e19a914f6eb96af760f848434a7a542b5fa259a8d9865ccaaebb4415b26d",
+    "examples/material_ui_gallery/assets/source/bun_zipper.ply": "b1acc63bece78444aa2e15bdcc72371a201279b98c6f5d4b74c993d02f0566fe",
+    "compiler/native/vkf_retained_scene_packet.hpp": "a14a19257de088944c6bbb5bab014f53243a14fb5f74266a08b7f8884d343560",
+    "compiler/native/vkf_native_scene_artifact_stager.cpp": "f100375305c8bd34aa9a5d97ce930b4d777997067b73f6a758ab2185a0903a78",
+    "web/vf-ui/vf-runtime-packet-contract.js": "b2081b36b47e997a42659396c092400b603835ab308f53a19c98ab8ab411e760",
+    "web/vf-ui/vf-retained-event-adapter.js": "b7082ab7a277ece450781deb5e4a56f8e3dd33ef5f78c4a921fc47dfae2f001b",
+    "web/vf-ui/vf-static-html-loader.js": "71bd12c268b023dab13be48d05caa6ee03048f0cddc761ddfc67c11390340775",
+    "web/vf-ui/vf-display.js": "f6b7751f653e145eb9cc450c371bbc72153eaf25574ee99cded760870d6534fc",
+    "web/vf-ui/geom/vf-geom-wgpu.js": "67bc9b01faa1ba666775001fdaa712f794929a22c90ad4a8fb93e1b9baae2fd0",
+    "tests/helpers/capture_material_ui_gallery.js": "31088105b8bf99db528217e12be2e545b975c882f7d6402fef77b42a9e716201",
+    "tools/build_material_ui_gallery_gif.py": "a95090699456b8bea9d56e783a03a45662e54292c8e00c3a317d23e99a6567c1",
+    "tools/build_material_ui_gallery_webp.py": "19a402c6af17c2a56b57f7d190219d9d7bcf84e910dea10772eb21044f60b1e3",
+    "scripts/build-material-ui-gallery-media.mjs": "cf15bc8eb323d3e1d0dad4567c8852d964ca2e58709821e7322f9766fca85710"
+  },
+  "media": {
+    "docs/public/images/readme-ui/material-ui-gallery.png": {
+      "sha256": "836954771f1889ca458fdb16f27725b6753e1cd152557d082ae7dcec8dbde660",
+      "width": 1376,
+      "height": 861
+    },
+    "docs/public/images/readme-ui/material-ui-gallery.webp": {
+      "sha256": "17811d213c169ba57574fc4a7767ce85f4e4eab8623bda756cf356975c4c2c1f",
+      "width": 1376,
+      "height": 861,
+      "frames": 2,
+      "loop": true,
+      "lossless": true
+    },
+    "docs/public/images/readme-ui/material-ui-gallery-renderer.webp": {
+      "sha256": "84e1cb554267f69ef12436da8bb864ed7ed63915cb48c85501fb8c55df7fa49e",
+      "width": 1278,
+      "height": 700,
+      "frames": 2,
+      "loop": true,
+      "lossless": true
+    }
+  }
+}

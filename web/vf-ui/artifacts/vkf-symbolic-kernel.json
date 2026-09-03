@@ -933,7 +933,7 @@
     "symbolic_free_variable_value": {
       "index": 126,
       "parameters": 5,
-      "resultType": 1
+      "resultType": 2
     },
     "symbolic_function_application_latex": {
       "index": 107,
@@ -2368,7 +2368,7 @@
     "symbolic_z_value": {
       "index": 130,
       "parameters": 1,
-      "resultType": 1
+      "resultType": 2
     }
   },
   "memory": {

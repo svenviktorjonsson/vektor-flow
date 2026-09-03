@@ -1,0 +1,74 @@
+{
+  "schema": "vkf-media-freshness/1",
+  "capture": {
+    "api": "VfDisplay.__test.captureGeomFrameDataUrl",
+    "composite_api": "Page.captureScreenshot",
+    "execution": "headless Edge WebGPU",
+    "fixture": "examples/material_ui_gallery/app.vkf",
+    "frame_id": "material_gallery_frame",
+    "interactions": [
+      "camera-default",
+      "camera-wheel-detail"
+    ],
+    "pairs": [
+      {
+        "view": "stanford-bunny",
+        "renderer_sha256": "77b65faa1d438a81904e0a4a04834f374e3b80771c925aaea0396d4bba5d303a",
+        "composite_sha256": "bc3d85506203e02d6021c7239e9c7c7b03146da251a4e7fae716e1d30829f370",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      },
+      {
+        "view": "stanford-bunny-detail",
+        "renderer_sha256": "b183a59aaeac4a1f761d395c900bdb46fffd92d35a4a4c6025e96381e958671d",
+        "composite_sha256": "836954771f1889ca458fdb16f27725b6753e1cd152557d082ae7dcec8dbde660",
+        "static_html": true,
+        "frame_chrome": true,
+        "webgpu_canvas": true
+      }
+    ]
+  },
+  "sources": {
+    "examples/material_ui_gallery/app.vkf": "df848974d7ad999c977df29d3ee3889cbe2a83af4e2002cb36c2a0b25d23f64d",
+    "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md": "4a98e19a914f6eb96af760f848434a7a542b5fa259a8d9865ccaaebb4415b26d",
+    "examples/material_ui_gallery/assets/source/bun_zipper.ply": "b1acc63bece78444aa2e15bdcc72371a201279b98c6f5d4b74c993d02f0566fe",
+    "compiler/native/vkf_retained_scene_packet.hpp": "a14a19257de088944c6bbb5bab014f53243a14fb5f74266a08b7f8884d343560",
+    "compiler/native/vkf_native_scene_artifact_stager.cpp": "f100375305c8bd34aa9a5d97ce930b4d777997067b73f6a758ab2185a0903a78",
+    "web/vf-ui/vf-runtime-packet-contract.js": "b2081b36b47e997a42659396c092400b603835ab308f53a19c98ab8ab411e760",
+    "web/vf-ui/vf-retained-event-adapter.js": "b7082ab7a277ece450781deb5e4a56f8e3dd33ef5f78c4a921fc47dfae2f001b",
+    "web/vf-ui/vf-static-html-loader.js": "71bd12c268b023dab13be48d05caa6ee03048f0cddc761ddfc67c11390340775",
+    "web/vf-ui/vf-display.js": "f6b7751f653e145eb9cc450c371bbc72153eaf25574ee99cded760870d6534fc",
+    "web/vf-ui/geom/vf-geom-wgpu.js": "67bc9b01faa1ba666775001fdaa712f794929a22c90ad4a8fb93e1b9baae2fd0",
+    "tests/helpers/capture_material_ui_gallery.js": "31088105b8bf99db528217e12be2e545b975c882f7d6402fef77b42a9e716201",
+    "tools/build_material_ui_gallery_gif.py": "a95090699456b8bea9d56e783a03a45662e54292c8e00c3a317d23e99a6567c1",
+    "tools/build_material_ui_gallery_webp.py": "19a402c6af17c2a56b57f7d190219d9d7bcf84e910dea10772eb21044f60b1e3",
+    "scripts/build-material-ui-gallery-media.mjs": "cf15bc8eb323d3e1d0dad4567c8852d964ca2e58709821e7322f9766fca85710"
+  },
+  "media": {
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.png": {
+      "sha256": "836954771f1889ca458fdb16f27725b6753e1cd152557d082ae7dcec8dbde660",
+      "width": 1376,
+      "height": 861
+    },
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.png": {
+      "sha256": "b183a59aaeac4a1f761d395c900bdb46fffd92d35a4a4c6025e96381e958671d",
+      "width": 1278,
+      "height": 700
+    },
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen.gif": {
+      "sha256": "1defbb78b0bb9208c650802e6581c46a1beb1f77fb8a45e0527a49e2598e5b19",
+      "width": 1376,
+      "height": 861,
+      "frames": 2,
+      "loop": true
+    },
+    "docs/public/images/readme-ui/ui-transparent-overlay-offscreen-renderer.gif": {
+      "sha256": "a3b705c9007683a17f2f470d460f75f9e22f3a3cb29bc393a885d2721e464311",
+      "width": 1278,
+      "height": 700,
+      "frames": 2,
+      "loop": true
+    }
+  }
+}

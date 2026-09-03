@@ -1,0 +1,370 @@
+{
+  "schema": "vkf.large-scene-peer-matrix-evidence",
+  "schemaVersion": 1,
+  "mode": "headless-swiftshader-correctness-first",
+  "performanceClaim": false,
+  "status": "withheld-peer-correctness-failed",
+  "globalGate": {
+    "allEightCorrect": false,
+    "timingStarted": false,
+    "validCorrectnessRows": 6,
+    "requiredCorrectnessRows": 8
+  },
+  "environment": {
+    "operatingSystem": "Windows_NT 10.0.26200",
+    "architecture": "x64",
+    "cpu": "Intel(R) Core(TM) Ultra 7 255U",
+    "browserUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+    "webgl": {
+      "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+      "vendor": "Google Inc. (Google)",
+      "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+    },
+    "viewport": [
+      1280,
+      720
+    ],
+    "devicePixelRatio": 1,
+    "launch": "--headless=new --use-angle=swiftshader --force-device-scale-factor=1"
+  },
+  "versions": {
+    "vkf": "0.3.0",
+    "deck-gl": "9.3.11",
+    "vtk-js": "36.10.0",
+    "plotly-scattergl": "4.0.0",
+    "esbuild": "0.25.9"
+  },
+  "sourceCommit": "c1b62c521bdf63ea9ce9d8e97a427bf9f7cf331b",
+  "lanes": [
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-100k-static",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vkf",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "0.4.0-dev",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Google)",
+          "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.04345160675817167,
+              "artifactSha256": "5a82edceea794c48af206ad074830dd0864da414cd00179a52c77c93dd18417a"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-100k-static",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "deck-gl",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "9.3.11",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Google)",
+          "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.01048722477775299,
+              "artifactSha256": "66fa22db92843c41a1b882c64933bcdef44095dca17c3691b13716e9fbc7df50"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-100k-static",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vtk-js",
+        "workload": "orthographic-points-100k-static",
+        "pointCount": 100000,
+        "adapterVersion": "36.10.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Google)",
+          "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.03626847662031654,
+              "artifactSha256": "f43b5d5440071e82043828abc3d6671c42925996d1ec83cc7317e3e6121332e7"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 1
+        },
+        "timing": null
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "plotly-scattergl",
+      "workload": "orthographic-points-100k-static",
+      "exitCode": 1,
+      "passed": false,
+      "result": {
+        "ok": false,
+        "error": "Error: correctness failed at frame 0: {\"passed\":false,\"maxRegionError\":0.09716515220367003,\"artifactSha256\":\"493dd552f4cf0796627becc613a39225d34851bb7a4fba1314aa827482066111\",\"diagnostics\":{\"maximum\":{\"error\":0.09716515220367003,\"region\":120,\"channel\":0,\"expected\":0.30541060932911934,\"observed\":0.2082454571254493},\"expectedMeanCoverage\":0.28827667801265816,\"observedMeanCoverage\":0.19922531307631083,\"rgba\":{\"minimum\":[3,3,3,255],\"maximum\":[51,179,230,255],\"changedPixels\":425547},\"contexts\":[{\"drawingBuffer\":[1280,720],\"error\":0},{\"drawingBuffer\":[1280,720],\"error\":0}],\"adapter\":null}}\n    at runCorrectnessThenTiming (file:///C:/Users/viktor.jonsson/OneDrive%20-%20CellMax%20Technologies%20AB/Documents/Repositories/svenviktorjonsson/vektor-flow/.worktrees/0.4/040-g02q-peer-adapters/.test-tmp/large-scene-peer-92092/large-scene-peer-bundle.mjs:194527:15)\n    at async execute (file:///C:/Users/viktor.jonsson/OneDrive%20-%20CellMax%20Technologies%20AB/Documents/Repositories/svenviktorjonsson/vektor-flow/.worktrees/0.4/040-g02q-peer-adapters/.test-tmp/large-scene-peer-92092/large-scene-peer-bundle.mjs:194606:18)",
+        "logs": []
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "deck-gl",
+      "workload": "orthographic-points-1m-pan",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "deck-gl",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "9.3.11",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Google)",
+          "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.005063779973134008,
+              "artifactSha256": "ed5cb4c1854f9f4f288926c36f61c7fd9998875bcd6d7a02dbc28f959a631e6a"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.004819222119549549,
+              "artifactSha256": "9b017f7bcc8d30370d590ba02d68fe6f26229d7fd6ac4b5bb1b91a5ce56786a2"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.005078467666753572,
+              "artifactSha256": "86aa32cf1f96d33172522edbf7debb3aefbe5a7a7f39322d85ea39df6bb29a17"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.004745516492985158,
+              "artifactSha256": "b4bcad85c543e95febc3c41b45c41c2d2a164ea76a256625a14521066af6d7de"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.004996485270967299,
+              "artifactSha256": "ba0e565528b61f50c50e567de846b114d4c1809ef278f67c8a405cab11befae2"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": null
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vtk-js",
+      "workload": "orthographic-points-1m-pan",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vtk-js",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "36.10.0",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Google)",
+          "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.01953299627639349,
+              "artifactSha256": "e133fa93310b984de21229f5226a65736321b4c70753472766b2ff1844cb7b1c"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.019611544026993166,
+              "artifactSha256": "c655c272dabda6d933f04ebb1579a72a3de50a72122e5d3b112d449ba651b215"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.020480312346480734,
+              "artifactSha256": "d2258de69d6bf07c1a4a59445dd9b917bccc78a9ee98f7c54bc2d343a9eee5c7"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.0201494347630069,
+              "artifactSha256": "44373a176e12913436e11acf79264776f57e1b0bfd022f9c8010867af39ea50d"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.021415539535228234,
+              "artifactSha256": "d42aae149ed2e8855eb453c6c31798c612a42037480e71200f0479ea34852f59"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": null
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "plotly-scattergl",
+      "workload": "orthographic-points-1m-pan",
+      "exitCode": 1,
+      "passed": false,
+      "result": {
+        "ok": false,
+        "error": "Error: correctness failed at frame 60: {\"passed\":false,\"maxRegionError\":0.08072851084070864,\"artifactSha256\":\"266d9a7470af3190efb7d0c205371464ceff13393f8514c52d89020f6942bd30\",\"diagnostics\":{\"maximum\":{\"error\":0.08072851084070864,\"region\":85,\"channel\":0,\"expected\":0.963422619481571,\"observed\":0.8826941086408624},\"expectedMeanCoverage\":0.8704373554606151,\"observedMeanCoverage\":0.8024229893549752,\"rgba\":{\"minimum\":[3,3,3,255],\"maximum\":[51,179,230,255],\"changedPixels\":828298},\"contexts\":[{\"drawingBuffer\":[1280,720],\"error\":0},{\"drawingBuffer\":[1280,720],\"error\":0}],\"adapter\":null}}\n    at runCorrectnessThenTiming (file:///C:/Users/viktor.jonsson/OneDrive%20-%20CellMax%20Technologies%20AB/Documents/Repositories/svenviktorjonsson/vektor-flow/.worktrees/0.4/040-g02q-peer-adapters/.test-tmp/large-scene-peer-25968/large-scene-peer-bundle.mjs:194527:15)\n    at async execute (file:///C:/Users/viktor.jonsson/OneDrive%20-%20CellMax%20Technologies%20AB/Documents/Repositories/svenviktorjonsson/vektor-flow/.worktrees/0.4/040-g02q-peer-adapters/.test-tmp/large-scene-peer-25968/large-scene-peer-bundle.mjs:194606:18)",
+        "logs": []
+      },
+      "stderr": ""
+    },
+    {
+      "implementation": "vkf",
+      "workload": "orthographic-points-1m-pan",
+      "exitCode": 0,
+      "passed": true,
+      "result": {
+        "ok": true,
+        "mode": "headless-peer-gpu-complete",
+        "implementation": "vkf",
+        "workload": "orthographic-points-1m-pan",
+        "pointCount": 1000000,
+        "adapterVersion": "0.4.0-dev",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+        "webgl": {
+          "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+          "vendor": "Google Inc. (Google)",
+          "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)"
+        },
+        "correctness": {
+          "passed": true,
+          "completedAtSequence": 1,
+          "checkpoints": [
+            {
+              "frame": 0,
+              "passed": true,
+              "maxRegionError": 0.026625805872608876,
+              "artifactSha256": "a6ba22cdaaa9e529cdb656f32dac36968718268bc56a5948929b58b32be1edd7"
+            },
+            {
+              "frame": 60,
+              "passed": true,
+              "maxRegionError": 0.026844088915677244,
+              "artifactSha256": "094027c314c93bfb233ff3d363cd02fde0d85ae0e0af0bb880e9ec44b7ce2cb8"
+            },
+            {
+              "frame": 120,
+              "passed": true,
+              "maxRegionError": 0.02688931476557621,
+              "artifactSha256": "45385003375fb7c9640a1e068178f5c7eec37abbe23857db59dff2ec714c1123"
+            },
+            {
+              "frame": 180,
+              "passed": true,
+              "maxRegionError": 0.027370155990065537,
+              "artifactSha256": "a623c0d647b0eebbbdd03ccaf0c958b5a39436b793c2bb574e79ef50061af99f"
+            },
+            {
+              "frame": 239,
+              "passed": true,
+              "maxRegionError": 0.027543618374620604,
+              "artifactSha256": "567e4fd5c6a5d74b03806dec2409418add0d93c7bb0a970f48075535fcc6bae4"
+            }
+          ],
+          "retained": {
+            "sourceIdentityRetained": true,
+            "largeBufferUploadsAfterInitialize": 0
+          },
+          "gpuCompletionCalls": 5
+        },
+        "timing": null
+      },
+      "stderr": ""
+    }
+  ]
+}

@@ -1,6 +1,8 @@
 # Current Topology And Embedding Contract
 
-This note records the current contract already present in the repo.
+This note records topology and explicit-remapping contracts already present in
+the repo. ADR 0008 is authoritative where older callable or `native_scene`
+wording below conflicts with the current model.
 
 It exists so future system work can reuse the existing deep parts instead of
 re-inventing them under new names.
@@ -42,9 +44,12 @@ Important properties of the contract:
 The legacy normalization implementation has been removed. Replacement ownership
 must live in the native compiler and overlay contracts before `ui` ships.
 
-## Embedding Contract
+## Explicit Embedding Contract
 
-The current custom graphics embedding contract is separate from topology.
+Data whose semantic channel names already describe its presentation uses an
+implicit identity embedding through `add` and `push`. A custom View-owned
+embedding is needed only for explicit remapping, such as momentum space, and is
+separate from topology.
 
 An embedding callable returns local scope with keys like:
 
@@ -125,9 +130,9 @@ That would let the same face identity be used for:
 - mirror assignment
 - other surface systems
 
-## Native Scene Property Embedding
+## Legacy Native Scene Property Embedding
 
-There is a second meaning of `embedding` already in native scene IR:
+There is a second legacy meaning of `embedding` in native scene IR:
 
 - canonical property name on the left
 - actual property name on the right
@@ -144,10 +149,10 @@ embedding: (
 
 This is a name-mapping contract, not a graphics embedding contract.
 
-That distinction should stay sharp:
+This is migration input only:
 
-- native scene `embedding` = property-name remapping
-- graphics embedding callable = draw lowering
+- native scene `embedding` = legacy property-name remapping
+- View embedding = optional explicit remapping of ordinary Layer data
 
 ## Direction For System Work
 

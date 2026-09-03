@@ -14,8 +14,8 @@ namespace vkf::wasm::bytecode {
 
 class BytecodeError : public std::runtime_error {
 public:
-    explicit BytecodeError(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit BytecodeError(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 enum class ValueType : std::uint8_t {

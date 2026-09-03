@@ -119,7 +119,10 @@ function main() {
       if (!existsSync(path) || !readFileSync(path).equals(bytes)) throw new Error(`${file} is stale`);
     }
     const manifestPath = join(fixtureRoot, 'manifest.json');
-    if (!existsSync(manifestPath) || readFileSync(manifestPath, 'utf8') !== generated.manifest) {
+    const checkedManifest = existsSync(manifestPath)
+      ? readFileSync(manifestPath, 'utf8').replaceAll('\r\n', '\n')
+      : null;
+    if (checkedManifest !== generated.manifest) {
       throw new Error('manifest.json is stale');
     }
     return;

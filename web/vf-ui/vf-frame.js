@@ -40,6 +40,14 @@
     return true;
   }
 
+  function encodeNativeHitRegionArena(hitRegions) {
+    return (Array.isArray(hitRegions) ? hitRegions : []).map(function (region) {
+      return [region.left, region.top, region.right, region.bottom].map(function (value) {
+        return String(Math.trunc(Number(value) || 0));
+      }).join(",");
+    }).join(";");
+  }
+
   function geometrySignature(shapes, active) {
     return JSON.stringify({ active: active || "none", shapes: shapes || [] });
   }
@@ -221,7 +229,7 @@
      * Publish overlay input geometry. The product UI owns visual rendering; native overlay hosts own
      * transparent presentation and click-through from this explicit geometry stream.
      * @param {HTMLElement} layer
-     * @param {{ stageAlpha?: number, active?: string, hitRegions?: object[], dragActive?: boolean }} o
+     * @param {{ stageAlpha?: number, active?: string, hitRegions?: object[], dragActive?: boolean, resizeActive?: boolean }} o
      */
     postNativeHostLayout(layer, o) {
       o = o || {};
@@ -348,7 +356,12 @@
         contentReady,
         toolbarPx: 160,
         dragActive: o.dragActive === true,
+        resizeActive: o.resizeActive === true,
         hitRegions: hitRegions,
+      });
+      postWebViewMessage({
+        type: "vf_host_hit_regions_v1",
+        data: encodeNativeHitRegionArena(hitRegions),
       });
       if (!overlayShapes.length && VfFrame._lastTransparentOverlayShapeCount > 0 && o.clearOverlayGeometry !== true) {
         return;
@@ -657,6 +670,25 @@
       }
     },
 
+    headerDragBounds(options) {
+      const o = options || {};
+      const layerWidth = Math.max(0, Number(o.layerWidth) || 0);
+      const layerHeight = Math.max(0, Number(o.layerHeight) || 0);
+      const frameWidth = Math.max(1, Number(o.frameWidth) || 1);
+      const headerHeight = Math.max(1, Number(o.headerHeight) || 1);
+      const padLeft = Math.max(0, Number(o.padLeft) || 0);
+      const padRight = Math.max(0, Number(o.padRight) || 0);
+      const padTop = Math.max(0, Number(o.padTop) || 0);
+      const padBottom = Math.max(0, Number(o.padBottom) || 0);
+      const reachableWidth = Math.min(frameWidth, 64);
+      return {
+        minLeft: padLeft - (frameWidth - reachableWidth),
+        maxLeft: layerWidth - padRight - reachableWidth,
+        minTop: padTop,
+        maxTop: Math.max(padTop, layerHeight - padBottom - headerHeight),
+      };
+    },
+
     /**
      * @param {{ root: HTMLElement, header: HTMLElement, layer: HTMLElement, onDragStart?: () => void, onDragMove?: () => void, onDragEnd?: () => void, shouldIgnoreDrag?: (e: PointerEvent) => boolean }} o
      */
@@ -742,14 +774,21 @@
         const padR = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
         const padT = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingTop ? lcs.paddingTop : "0") || 0));
         const padB = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
-        const minL = padL;
-        const minT = padT;
-        const maxL = Math.max(minL, layer.clientWidth - root.offsetWidth - padR);
-        const maxT = Math.max(minT, layer.clientHeight - root.offsetHeight - padB);
+        const bounds = VfFrame.headerDragBounds({
+          layerWidth: layer.clientWidth,
+          layerHeight: layer.clientHeight,
+          frameWidth: root.offsetWidth,
+          frameHeight: root.offsetHeight,
+          headerHeight: header.getBoundingClientRect().height || 32,
+          padLeft: padL,
+          padRight: padR,
+          padTop: padT,
+          padBottom: padB,
+        });
         let nl = drag.left + dx;
         let nt = drag.top + dy;
-        nl = Math.min(maxL, Math.max(minL, nl));
-        nt = Math.min(maxT, Math.max(minT, nt));
+        nl = Math.min(bounds.maxLeft, Math.max(bounds.minLeft, nl));
+        nt = Math.min(bounds.maxTop, Math.max(bounds.minTop, nt));
         drag.left = nl;
         drag.top = nt;
         root.style.left = nl + "px";
@@ -1084,6 +1123,7 @@
           VfFrame.postNativeHostLayout(layer, {
             stageAlpha: 0,
             dragActive: !!(extra && extra.dragActive),
+            resizeActive: !!(extra && extra.resizeActive),
           });
         }
       }
@@ -1160,8 +1200,8 @@
         const dy = e.clientY - resizeState.sy;
         let nw = resizeState.sw + dx;
         let nh = resizeState.sh + dy;
-        nw = Math.max(resizeState.minW, nw);
-        nh = Math.max(resizeState.minH, nh);
+        nw = Math.min(resizeState.maxW, Math.max(resizeState.minW, nw));
+        nh = Math.min(resizeState.maxH, Math.max(resizeState.minH, nh));
         root.classList.add("vf-frame--user-sized");
         root.dataset.vfFrameResizing = "1";
         window.__vfFrameResizeClockPaused = true;
@@ -1181,7 +1221,7 @@
             },
           }));
         } catch (_) {}
-        postHitRegionsToHostImpl();
+        postHitRegionsToHostImpl({ resizeActive: true });
       }
       function onResizeEnd(e) {
         if (!resizeState || e.pointerId !== resizeState.pid) return;
@@ -1224,6 +1264,12 @@
           const r = root.getBoundingClientRect();
           const minW = 200;
           const minH = minContentHeight();
+          const isNestedLayer = !!(layer && layer.classList && layer.classList.contains("vf-frame__overlay"));
+          const lcs = global.getComputedStyle ? global.getComputedStyle(layer) : null;
+          const padR = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingRight ? lcs.paddingRight : "0") || 0));
+          const padB = isNestedLayer ? 0 : Math.max(0, Math.round(parseFloat(lcs && lcs.paddingBottom ? lcs.paddingBottom : "0") || 0));
+          const maxW = Math.max(minW, layer.clientWidth - root.offsetLeft - padR);
+          const maxH = Math.max(minH, layer.clientHeight - root.offsetTop - padB);
           resizeState = {
             pid: e.pointerId,
             sx: e.clientX,
@@ -1232,12 +1278,15 @@
             sh: r.height,
             minW,
             minH,
+            maxW,
+            maxH,
           };
           root.dataset.vfFrameResizing = "1";
           window.__vfFrameResizeClockPaused = true;
           try {
             resizeGrip.setPointerCapture(e.pointerId);
           } catch (_) {}
+          postHitRegionsToHostImpl({ resizeActive: true });
         });
         resizeGrip.addEventListener("pointermove", onResizeMove);
         resizeGrip.addEventListener("pointerup", onResizeEnd);
@@ -1289,7 +1338,11 @@
           }
           root.remove();
           if (typeof VfFrame.postEmptyNativeHostLayout === "function" && layer && layer.querySelectorAll(".vf-frame").length === 0) {
-            VfFrame.postEmptyNativeHostLayout(layer);
+            if (typeof globalThis !== "undefined" && globalThis.__vfHasStandaloneDisplayContent === true) {
+              VfFrame.postNativeHostLayout(layer, { stageAlpha: 0 });
+            } else {
+              VfFrame.postEmptyNativeHostLayout(layer);
+            }
           }
           if (dockable) {
             try {
@@ -1302,7 +1355,7 @@
               if (rest && rest.length === 0) {
                 const wv = typeof globalThis !== "undefined" && globalThis.chrome && globalThis.chrome.webview;
                 if (wv && typeof wv.postMessage === "function") {
-                  wv.postMessage(JSON.stringify({ type: "close" }));
+                  wv.postMessage({ type: "close" });
                 }
               }
             } catch (_) {}
@@ -1326,5 +1379,8 @@
   };
 
   VfFrame.normalizeMinimizedDockKey = VfFrame.normalizeDockLocationKey;
+  VfFrame.__test = Object.assign(VfFrame.__test || {}, {
+    encodeNativeHitRegionArena: encodeNativeHitRegionArena,
+  });
   global.VfFrame = VfFrame;
 })(typeof window !== "undefined" ? window : this);

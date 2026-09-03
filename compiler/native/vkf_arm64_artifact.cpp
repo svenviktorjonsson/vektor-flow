@@ -17,8 +17,8 @@ namespace {
 
 class ArtifactFailure : public std::runtime_error {
 public:
-    explicit ArtifactFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit ArtifactFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 std::string read_text(const std::filesystem::path& path) {

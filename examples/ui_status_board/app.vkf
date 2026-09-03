@@ -1,0 +1,32 @@
+: .ui.display
+
+display: Display(dim:2)
+scene: display.add_frame(pos:[0.05, 0.1], size:[0.58, 0.78])
+scene.set_geom_options(background:[0.025, 0.028, 0.045, 1.0])
+
+healthy: scene.add(
+    x:[[-0.82, -0.32], [-0.82, -0.32]],
+    y:[[-0.6, -0.6], [0.58, 0.58]],
+    z:[[0.0, 0.0], [0.0, 0.0]],
+    id:"healthy",
+    color:[0.20, 0.86, 0.56, 1.0]
+)
+
+warning: scene.add(
+    x:[[-0.18, 0.28], [-0.18, 0.28]],
+    y:[[-0.6, -0.6], [0.18, 0.18]],
+    z:[[0.0, 0.0], [0.0, 0.0]],
+    id:"warning",
+    color:[1.0, 0.68, 0.20, 1.0]
+)
+
+offline: scene.add(
+    x:[[0.42, 0.84], [0.42, 0.84]],
+    y:[[-0.6, -0.6], [-0.22, -0.22]],
+    z:[[0.0, 0.0], [0.0, 0.0]],
+    id:"offline",
+    color:[0.96, 0.32, 0.40, 1.0]
+)
+
+status: display.add_frame(pos:[0.67, 0.1], size:[0.28, 0.78])
+status.load("ui/main.html")

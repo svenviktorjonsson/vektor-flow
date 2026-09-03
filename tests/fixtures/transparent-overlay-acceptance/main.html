@@ -1,0 +1,17 @@
+<link rel="stylesheet" href="theme.css">
+<main class="panel" aria-label="VKF transparent overlay acceptance">
+  <img src="assets/icon.svg" alt="VKF">
+  <nav aria-label="Views">
+    <button id="show-overview" type="button" data-view="overview">Overview</button>
+    <button id="show-details" type="button" data-view="details">Details</button>
+  </nav>
+  <section id="overview" data-view-panel="overview">
+    <h1>Overlay</h1>
+    <p>Static HTML and CSS, driven by compiled VKF events.</p>
+  </section>
+  <section id="details" data-view-panel="details" hidden>
+    <label for="detail">Live detail</label>
+    <input id="detail" type="range" min="0" max="1" step="0.05" value="0.25">
+    <output id="detail-value" for="detail">0.25</output>
+  </section>
+</main>

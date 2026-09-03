@@ -1,0 +1,28 @@
+@import "nested/palette.css";
+
+.panel {
+  box-sizing: border-box;
+  display: grid;
+  gap: 0.75rem;
+  min-height: 12rem;
+  padding: 1rem;
+  color: rgb(224, 242, 255);
+  background-color: rgba(10, 22, 38, 0.9);
+  background-image: url("assets/texture.svg");
+  border: 1px solid rgba(110, 205, 255, 0.7);
+  border-radius: 0.75rem;
+}
+
+.panel nav {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.panel button,
+.panel input {
+  accent-color: rgb(63, 208, 255);
+}
+
+.panel output {
+  font-variant-numeric: tabular-nums;
+}
