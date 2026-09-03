@@ -32,6 +32,8 @@ namespace {
 
 std::string ReadFileBytes(const fs::path& path);
 const char kNativeSceneCompilerVersion[] = "vkf-native-scene-compiler-0.1";
+constexpr DWORD kPrewarmCompilerReadyTimeoutMs = 20000u;
+constexpr DWORD kPrewarmDirectHandoffTimeoutMs = 250u;
 
 fs::path ExtendedLengthPath(const fs::path& path) {
     std::error_code error;
@@ -676,13 +678,17 @@ std::string BuildCompiledSceneBundle(
         L"vf-frame.css",
         L"vf-chess.css",
         L"vf-runtime-shell.js",
+        L"geom/vf-native-scene-adapters.js",
         L"vf-runtime-packet-contract.js",
         L"vf-retained-event-adapter.js",
         L"vf-runtime-source.js",
         L"vf-html-components.js",
         L"vf-runtime-scene.js",
         L"vf-runtime-flow.js",
+        L"vf-compiled-runtime-bridge.js",
+        L"vf-compiled-webgpu-adapter.js",
         L"vf-render-clock.js",
+        L"vf-startup-gate.js",
         L"vf-frame.js",
         L"vf-widgets.js",
         L"vf-static-html-loader.js",
@@ -826,6 +832,79 @@ std::string Fnv1a64Hex(const std::string& bytes) {
     std::ostringstream out;
     out << std::hex << std::setw(16) << std::setfill('0') << hash;
     return out.str();
+}
+
+std::wstring PrewarmEventName(const fs::path& executable, const wchar_t* role) {
+    std::error_code error;
+    const fs::path canonical = fs::weakly_canonical(executable, error);
+    const std::wstring identity = ToLowerAscii(
+        (error ? fs::absolute(executable, error) : canonical).wstring());
+    const std::string digest = Fnv1a64Hex(WideToUtf8(identity));
+    return std::wstring(L"Local\\VektorFlowCompiled-") + role + L"-" +
+           std::wstring(digest.begin(), digest.end());
+}
+
+bool TrySignalPrewarmedCompiledScene(const fs::path& executable) {
+    const std::wstring event_name = PrewarmEventName(executable, L"launch");
+    HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, event_name.c_str());
+    if (event == nullptr) return false;
+    const bool signaled = SetEvent(event) != FALSE;
+    CloseHandle(event);
+    return signaled;
+}
+
+bool WaitForPrewarmedCompiledScene(
+    const fs::path& executable, DWORD timeout_ms) {
+    const std::wstring event_name = PrewarmEventName(executable, L"launch");
+    const ULONGLONG deadline = GetTickCount64() + timeout_ms;
+    while (true) {
+        HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, event_name.c_str());
+        if (event != nullptr) {
+            const bool signaled = SetEvent(event) != FALSE;
+            CloseHandle(event);
+            return signaled;
+        }
+        if (GetTickCount64() >= deadline) return false;
+        Sleep(5u);
+    }
+}
+
+bool LaunchPrewarmedCompiledScene(const fs::path& target) {
+    const std::wstring ready_name = PrewarmEventName(target, L"ready");
+    HANDLE ready_event = CreateEventW(nullptr, TRUE, FALSE, ready_name.c_str());
+    if (ready_event == nullptr) return false;
+    ResetEvent(ready_event);
+
+    std::wstring command_line = Quote(target.wstring()) + L" --vkf-internal-prewarm";
+    std::wstring working_directory = target.parent_path().wstring();
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    const bool launched = CreateProcessW(
+        target.c_str(), command_line.data(), nullptr, nullptr, FALSE, 0, nullptr,
+        working_directory.empty() ? nullptr : working_directory.c_str(),
+        &startup, &process) != FALSE;
+    if (!launched) {
+        CloseHandle(ready_event);
+        return false;
+    }
+    CloseHandle(process.hThread);
+    HANDLE waits[] = {ready_event, process.hProcess};
+    const DWORD result = WaitForMultipleObjects(
+        static_cast<DWORD>(std::size(waits)), waits, FALSE,
+        kPrewarmCompilerReadyTimeoutMs);
+    const bool ready = result == WAIT_OBJECT_0;
+    if (!ready) {
+        if (result == WAIT_TIMEOUT) {
+            TerminateProcess(process.hProcess, 1u);
+        } else if (result != WAIT_OBJECT_0 + 1u) {
+            TerminateProcess(process.hProcess, 1u);
+        }
+        WaitForSingleObject(process.hProcess, 5000u);
+    }
+    CloseHandle(process.hProcess);
+    CloseHandle(ready_event);
+    return ready;
 }
 
 struct CompiledSceneBundleEntry {
@@ -1124,6 +1203,10 @@ int LaunchProcess(const fs::path& exe, const std::wstring& args, const fs::path&
 int StageNativeSceneArtifacts(
     const fs::path& source,
     const fs::path& typedIr,
+    const fs::path& wasmArtifact,
+    const fs::path& wasmManifest,
+    const fs::path& webgpuArtifact,
+    const fs::path& webgpuManifest,
     const fs::path& self
 ) {
     std::error_code ec;
@@ -1142,7 +1225,11 @@ int StageNativeSceneArtifacts(
     const std::wstring args =
         L"--source " + Quote(fs::absolute(source, ec).wstring()) +
         L" --overlay-web " + Quote(overlayWeb.wstring()) +
-        L" --typed-ir " + Quote(fs::absolute(typedIr, ec).wstring());
+        L" --typed-ir " + Quote(fs::absolute(typedIr, ec).wstring()) +
+        L" --wasm-artifact " + Quote(fs::absolute(wasmArtifact, ec).wstring()) +
+        L" --wasm-manifest " + Quote(fs::absolute(wasmManifest, ec).wstring()) +
+        L" --webgpu-artifact " + Quote(fs::absolute(webgpuArtifact, ec).wstring()) +
+        L" --webgpu-manifest " + Quote(fs::absolute(webgpuManifest, ec).wstring());
     return LaunchProcess(stager, args, stager.parent_path(), true);
 }
 
@@ -1327,9 +1414,51 @@ int RunCompiledScene(const fs::path& source) {
     return 0;
 }
 
+int RunOwnedCompiledScene(const fs::path& executable, bool prewarm) {
+    const std::wstring owner_name = PrewarmEventName(executable, L"owner");
+    HANDLE owner = CreateMutexW(nullptr, TRUE, owner_name.c_str());
+    if (owner == nullptr) return 1;
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(owner);
+        if (prewarm) return 1;
+        if (WaitForPrewarmedCompiledScene(
+                executable, kPrewarmDirectHandoffTimeoutMs)) {
+            return 0;
+        }
+        owner = CreateMutexW(nullptr, TRUE, owner_name.c_str());
+        if (owner == nullptr) return 1;
+        if (GetLastError() == ERROR_ALREADY_EXISTS) {
+            CloseHandle(owner);
+            return 0;
+        }
+    }
+    HANDLE launch_event = nullptr;
+    if (prewarm) {
+        const std::wstring launch_name = PrewarmEventName(executable, L"launch");
+        const std::wstring ready_name = PrewarmEventName(executable, L"ready");
+        SetEnvironmentVariableW(L"VKF_PREWARM_LAUNCH_EVENT", launch_name.c_str());
+        SetEnvironmentVariableW(L"VKF_PREWARM_READY_EVENT", ready_name.c_str());
+        launch_event = CreateEventW(nullptr, FALSE, FALSE, launch_name.c_str());
+        if (launch_event == nullptr) {
+            ReleaseMutex(owner);
+            CloseHandle(owner);
+            return 1;
+        }
+    }
+    const int result = RunCompiledScene({});
+    if (launch_event != nullptr) CloseHandle(launch_event);
+    ReleaseMutex(owner);
+    CloseHandle(owner);
+    return result;
+}
+
 int BuildPackage(
     const fs::path& source,
     const fs::path& typedIr,
+    const fs::path& wasmArtifact,
+    const fs::path& wasmManifest,
+    const fs::path& webgpuArtifact,
+    const fs::path& webgpuManifest,
     const fs::path& requestedOutput
 ) {
     std::error_code ec;
@@ -1343,7 +1472,14 @@ int BuildPackage(
     }
     const fs::path self = CurrentExePath();
 
-    const int stageResult = StageNativeSceneArtifacts(absoluteSource, absoluteTypedIr, self);
+    const int stageResult = StageNativeSceneArtifacts(
+        absoluteSource,
+        absoluteTypedIr,
+        wasmArtifact,
+        wasmManifest,
+        webgpuArtifact,
+        webgpuManifest,
+        self);
     if (stageResult != 0) {
         return stageResult;
     }
@@ -1365,6 +1501,15 @@ int BuildPackage(
     if (appendResult != 0) {
         return appendResult;
     }
+    const bool native_frame_capture =
+        GetEnvironmentVariableW(L"VKF_NATIVE_FRAME_CAPTURE_PATH", nullptr, 0) > 0;
+    if (native_frame_capture) {
+        if (LaunchProcess(target, L"", target.parent_path(), false) != 0) {
+            return Fail(L"native frame capture application could not be launched");
+        }
+    } else if (!LaunchPrewarmedCompiledScene(target)) {
+        OutputDebugStringW(L"[vkf-prewarm] warm host unavailable; direct launch will use cold fallback\n");
+    }
     const fs::path manifest = ManifestPathForSource(absoluteSource);
     fs::remove(manifest, ec);
     ec.clear();
@@ -1385,6 +1530,10 @@ int wmain(int argc, wchar_t** argv) {
         fs::path source;
         fs::path typedIr;
         fs::path output;
+        fs::path wasmArtifact;
+        fs::path wasmManifest;
+        fs::path webgpuArtifact;
+        fs::path webgpuManifest;
         for (int index = 2; index < argc; ++index) {
             const std::wstring arg = argv[index] ? argv[index] : L"";
             if (index + 1 >= argc) {
@@ -1397,19 +1546,43 @@ int wmain(int argc, wchar_t** argv) {
                 typedIr = value;
             } else if (arg == L"--output" && output.empty()) {
                 output = value;
+            } else if (arg == L"--wasm-artifact" && wasmArtifact.empty()) {
+                wasmArtifact = value;
+            } else if (arg == L"--wasm-manifest" && wasmManifest.empty()) {
+                wasmManifest = value;
+            } else if (arg == L"--webgpu-artifact" && webgpuArtifact.empty()) {
+                webgpuArtifact = value;
+            } else if (arg == L"--webgpu-manifest" && webgpuManifest.empty()) {
+                webgpuManifest = value;
             } else {
                 return Fail(L"invalid private UI package invocation");
             }
         }
-        if (source.empty() || typedIr.empty() || output.empty()) {
+        if (source.empty() || typedIr.empty() || output.empty() ||
+            wasmArtifact.empty() || wasmManifest.empty() ||
+            webgpuArtifact.empty() || webgpuManifest.empty()) {
             return Fail(L"invalid private UI package invocation");
         }
-        return BuildPackage(source, typedIr, output);
+        return BuildPackage(
+            source,
+            typedIr,
+            wasmArtifact,
+            wasmManifest,
+            webgpuArtifact,
+            webgpuManifest,
+            output);
     }
 
     const fs::path self = CurrentExePath();
+    if (argc == 2 && std::wstring(argv[1] ? argv[1] : L"") ==
+            L"--vkf-internal-prewarm" && HasAppendedSceneBundle(self)) {
+        return RunOwnedCompiledScene(self, true);
+    }
     if (argc == 1 && HasAppendedSceneBundle(self)) {
-        return RunCompiledScene({});
+        if (TrySignalPrewarmedCompiledScene(self)) {
+            return 0;
+        }
+        return RunOwnedCompiledScene(self, false);
     }
     return Fail(L"private VKF UI runtime helper cannot be invoked directly");
 }

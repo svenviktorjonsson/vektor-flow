@@ -10,6 +10,39 @@
   var PLAN_SCHEMA = "vektor-flow/retained-scene-render-plan";
   var publicApi = null;
   var deviceAcquisitions = typeof WeakMap === "function" ? new WeakMap() : null;
+  var loggedDevices = typeof WeakSet === "function" ? new WeakSet() : null;
+
+  function postRuntimeError(source, error) {
+    var globalObject = typeof globalThis !== "undefined" ? globalThis : null;
+    var bridge = globalObject && globalObject.chrome && globalObject.chrome.webview;
+    if (!bridge || typeof bridge.postMessage !== "function") { return; }
+    var message = String(error && error.message || error || "unknown error");
+    bridge.postMessage({
+      type: "vf_log",
+      level: "error",
+      source: String(source),
+      message: message,
+      t: Date.now()
+    });
+  }
+
+  function installDeviceErrorLogging(device) {
+    if (!device || loggedDevices && loggedDevices.has(device)) { return; }
+    if (loggedDevices) { loggedDevices.add(device); }
+    if (typeof device.addEventListener === "function") {
+      device.addEventListener("uncapturederror", function (event) {
+        postRuntimeError("webgpu-validation", event && event.error || event);
+      });
+    }
+    if (device.lost && typeof device.lost.then === "function") {
+      Promise.resolve(device.lost).then(function (info) {
+        if (info && String(info.reason || "") === "destroyed") { return; }
+        postRuntimeError("webgpu-device-lost", info && info.message || info);
+      }, function (error) {
+        postRuntimeError("webgpu-device-lost", error);
+      });
+    }
+  }
 
   function startupMark(name, detail) {
     var globalObject = typeof globalThis !== "undefined" ? globalThis : null;
@@ -501,14 +534,21 @@
     return target.view;
   }
 
-  function selectBoundTextureTarget(pass, draw) {
+  function boundTextureTarget(pass, draw) {
     var sources = pass && pass.reflection_sources;
     for (var i = 0; Array.isArray(sources) && i < sources.length; i += 1) {
       if (Number(sources[i].object_index) === Number(draw && draw.object_index)) {
         return String(sources[i].target || "");
       }
     }
-    return "transparent_reflection_fallback";
+    return "";
+  }
+
+  function selectBoundTextureTarget(pass, draw) {
+    var target = boundTextureTarget(pass, draw);
+    if (target) { return target; }
+    throw new Error("compiled reflection source is unavailable for Scene Instance " +
+      String(draw && draw.object_index));
   }
 
   function resolveBindingResource(prepared, pass, draw, entry, externalViews) {
@@ -517,7 +557,10 @@
     if (source === "pass.reflection_sources_by_object") {
       source = selectBoundTextureTarget(pass, draw);
     } else if (source === "pass.reflection_source") {
-      source = String(pass.reflection_source || "transparent_reflection_fallback");
+      if (!pass || !pass.reflection_source) {
+        throw new Error("compiled reflection pass has no declared source");
+      }
+      source = String(pass.reflection_source);
     }
     if (source.indexOf("render_parameter_arena.") === 0) {
       var sectionName = source.slice("render_parameter_arena.".length);
@@ -650,6 +693,7 @@
 
   function encodeRenderPass(prepared, render, pass, passIndex, pipeline, externalViews) {
     render.setPipeline(pipeline);
+    var activePipeline = pipeline;
     var targetId = pass.color && pass.color.target || pass.depth && pass.depth.target;
     var target = prepared.targets.get(String(targetId || ""));
     if (pass.viewport && pass.viewport.policy === "target" && target &&
@@ -677,8 +721,25 @@
     );
     list.entries.forEach(function (draw, drawIndex) {
       if (excludedObjectIndices.has(Number(draw.object_index))) { return; }
+      var drawPipeline = pipeline;
+      var drawPass = pass;
+      if (pass.terminal_pipeline && !boundTextureTarget(pass, draw)) {
+        drawPipeline = prepared.pipelines.get(String(pass.terminal_pipeline));
+        if (!drawPipeline) {
+          throw new Error("compiled terminal scene pipeline is unavailable: " +
+            String(pass.terminal_pipeline));
+        }
+        drawPass = Object.assign({}, pass, {
+          bind_groups: pass.terminal_bind_groups,
+          reflection_sources: undefined
+        });
+      }
+      if (drawPipeline !== activePipeline) {
+        render.setPipeline(drawPipeline);
+        activePipeline = drawPipeline;
+      }
       bindDeclaredGroups(
-        prepared, render, pipeline, pass, draw, externalViews,
+        prepared, render, drawPipeline, drawPass, draw, externalViews,
         "pass:" + String(passIndex) + ":draw:" + String(drawIndex)
       );
       render.setVertexBuffer(
@@ -1120,12 +1181,16 @@
     var root = typeof globalThis !== "undefined" ? globalThis : null;
     var raw = root && root.__vfNativeFrameMediaCapture;
     if (!raw || typeof raw !== "object") { return null; }
+    var frameCount = Math.max(0, Number(raw.frameCount || 0) | 0);
+    if (raw.mode === "time" && frameCount >= 2 && frameCount <= 360) {
+      return { mode: "time", frameCount: frameCount };
+    }
     var states = Array.isArray(raw.states) ? raw.states.map(String) : [];
     if (states.length !== 2 || states[0] !== "camera-default" ||
         states[1] !== "camera-wheel-detail") {
       throw new Error("native frame media capture requires the two gallery camera states");
     }
-    return { states: states };
+    return { mode: "camera", states: states, frameCount: states.length };
   }
 
   function benchmarkNow() {
@@ -1183,29 +1248,65 @@
     var wasm = options && options.artifacts && options.artifacts.wasm;
     var camera = prepared && prepared.parameterBuffers && prepared.parameterBuffers.get("camera");
     var queue = prepared && prepared.device && prepared.device.queue;
-    if (!wasm || typeof wasm.cameraControl !== "function" || !camera || !camera.bytes ||
+    if (!wasm || typeof wasm.cameraControl !== "function" ||
+        config.mode === "time" && typeof wasm.update !== "function" ||
+        !camera || !camera.bytes ||
         !queue || typeof queue.writeBuffer !== "function" ||
         typeof queue.onSubmittedWorkDone !== "function") {
       return Promise.reject(new Error("native frame media capture dependencies are unavailable"));
     }
     var states = [];
-    return Promise.resolve(publicApi.captureFrame(prepared)).then(function (image) {
-      states.push(capturedRgbaState(image, config.states[0]));
-      wasm.cameraControl(0, 0, -1);
-      queue.writeBuffer(camera.buffer, 0, camera.bytes);
-      publicApi.submitFrame(prepared, { reuseStaticShadows: true });
-      return Promise.resolve(queue.onSubmittedWorkDone());
-    }).then(function () {
-      return publicApi.captureFrame(prepared);
-    }).then(function (image) {
-      states.push(capturedRgbaState(image, config.states[1]));
+    var sequence = Promise.resolve();
+    for (var frameIndex = 0; frameIndex < config.frameCount; frameIndex += 1) {
+      (function (sampleIndex) {
+        sequence = sequence.then(function () {
+          if (sampleIndex === 0) { return null; }
+          if (config.mode === "time") {
+            wasm.update();
+            publicApi.submitFrame(prepared, {
+              changedParameterSections: ["objects", "lights"]
+            });
+          } else {
+            wasm.cameraControl(0, 0, -1);
+            queue.writeBuffer(camera.buffer, 0, camera.bytes);
+            publicApi.submitFrame(prepared, { reuseStaticShadows: true });
+          }
+          return Promise.resolve(queue.onSubmittedWorkDone());
+        }).then(function () {
+          return publicApi.captureFrame(prepared);
+        }).then(function (image) {
+          var view = config.mode === "time"
+            ? "orbit-degree-" + String(sampleIndex).padStart(3, "0")
+            : config.states[sampleIndex];
+          var state = capturedRgbaState(image, view);
+          if (config.mode === "time") {
+            postOffscreenCameraBenchmark({
+              type: "vf_native_frame_media_capture_frame_v1",
+              schema: "vektor-flow/native-frame-media-capture-frame-v1",
+              status: "frame",
+              sample_index: sampleIndex,
+              state: state
+            });
+          } else {
+            states.push(state);
+          }
+        });
+      })(frameIndex);
+    }
+    return sequence.then(function () {
       return {
         type: "vf_native_frame_media_capture_v1",
         schema: "vektor-flow/native-frame-media-capture-v1",
         status: "ok",
         capture_api: "Frame.capture",
         boundary: "frame-internal",
-        states: states
+        states: states,
+        playback: config.mode === "time" ? {
+          mode: "repeat",
+          sample_count: config.frameCount,
+          first_sample: 0,
+          last_sample: config.frameCount - 1
+        } : null
       };
     });
   }
@@ -1422,6 +1523,7 @@
         return Promise.all([validation, completed]).then(function (results) {
           var validationError = results[0];
           if (validationError) {
+            postRuntimeError("webgpu-validation", validationError);
             throw new Error(
               "compiled WebGPU first frame validation failed: " +
               String(validationError.message || validationError)
@@ -1493,6 +1595,7 @@
       return adapter.requestDevice();
     }).then(function(device) {
       startupMark("compiled-gpu:device-request:ready");
+      installDeviceErrorLogging(device);
       return device;
     }).catch(function(error) {
       if (deviceAcquisitions) { deviceAcquisitions.delete(gpu); }
