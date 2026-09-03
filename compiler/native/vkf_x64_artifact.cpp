@@ -13369,6 +13369,7 @@ std::uint32_t tunable_policy_mask(const vkf::machine_ir::Module& module) {
         bool has_multiply = false;
         bool has_addition = false;
         bool has_reduction = false;
+        bool has_indexed_access = false;
         for (const auto& instruction : function.instructions) {
             switch (instruction.opcode) {
                 case Opcode::MultiplyF64:
@@ -13383,6 +13384,7 @@ std::uint32_t tunable_policy_mask(const vkf::machine_ir::Module& module) {
                 case Opcode::LoadF64ListIndex:
                 case Opcode::StoreF64ListIndex:
                     relevant |= vkf::adaptive_optimizer::native_index_addressing_bit;
+                    has_indexed_access = true;
                     break;
                 case Opcode::RemainderF64:
                     relevant |= vkf::adaptive_optimizer::parity_specialization_bit;
@@ -13415,7 +13417,8 @@ std::uint32_t tunable_policy_mask(const vkf::machine_ir::Module& module) {
             relevant |= vkf::adaptive_optimizer::packed_matrix_reduction_bit;
             relevant |= vkf::adaptive_optimizer::packed_dot_reduction_bit;
         }
-        if ((has_multiply && has_addition) || has_reduction) {
+        if (has_reduction ||
+            (has_indexed_access && has_multiply && has_addition)) {
             relevant |= vkf::adaptive_optimizer::fused_multiply_add_bit;
         }
     };
@@ -13633,7 +13636,9 @@ TuningResult tune_machine_code(
     }
     const bool interaction_heavy_small_vectors =
         small_vector_sqrt_count >= 4u && small_vector_store_count >= 20u;
-    const std::uint32_t relevant_policy_mask = tunable_policy_mask(module);
+    const std::uint32_t relevant_policy_mask = landscape_runs == 0
+        ? tunable_policy_mask(module)
+        : vkf::adaptive_optimizer::policy_mask;
     const std::uint32_t guided_primary = relevant_policy_mask;
     std::vector<std::uint32_t> policy_order;
     const auto append_policy = [&](std::uint32_t mask) {
