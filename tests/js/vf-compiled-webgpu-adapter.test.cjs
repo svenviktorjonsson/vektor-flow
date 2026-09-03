@@ -1513,6 +1513,137 @@ test("compiled adapter submits compiler-declared compute and render passes in on
   assert.ok(bindGroupCreations > 0);
 });
 
+test("compiled adapter uploads only changed light parameters and redraws their views", () => {
+  const calls = [];
+  const renderPass = {
+    setPipeline(pipeline) { calls.push(["renderPipeline", pipeline.id]); },
+    setBindGroup() {},
+    setViewport() {},
+    draw() {},
+    end() {},
+  };
+  const computePass = {
+    setPipeline(pipeline) { calls.push(["computePipeline", pipeline.id]); },
+    setBindGroup() {},
+    dispatchWorkgroups() {},
+    end() {},
+  };
+  const device = {
+    queue: {
+      writeBuffer(buffer, offset, bytes) {
+        calls.push(["writeBuffer", buffer.id, offset, bytes.byteLength]);
+      },
+      submit() {},
+    },
+    createBuffer() { throw new Error("changed parameters must not recreate buffers"); },
+    createBindGroup() { throw new Error("changed parameters must not recreate bind groups"); },
+    createCommandEncoder() {
+      return {
+        beginComputePass() { return computePass; },
+        beginRenderPass() { return renderPass; },
+        finish() { return {}; },
+      };
+    },
+  };
+  const pipeline = (id) => ({ id, getBindGroupLayout() { return {}; } });
+  const cameraBuffer = { id: "camera" };
+  const lightsBuffer = { id: "lights" };
+  const objectsBuffer = { id: "objects" };
+  const arenaBuffer = { id: "arena" };
+  const parameterBuffers = new Map([
+    ["camera", { buffer: cameraBuffer, bytes: new Uint8Array(96), byteLength: 96 }],
+    ["lights", { buffer: lightsBuffer, bytes: new Uint8Array(336), byteLength: 336 }],
+    ["objects", { buffer: objectsBuffer, bytes: new Uint8Array(384), byteLength: 384 }],
+  ]);
+  const passes = [
+    { kind: "prepare_frame", pipeline: "prepare", dispatch: { x: 1, y: 1, z: 1 } },
+    { kind: "prepare_shadow_views", pipeline: "shadow-prepare", dispatch: { x: 1, y: 1, z: 1 } },
+    ...Array.from({ length: 4 }, (_, index) => ({
+      kind: "prepare_reflection_camera",
+      pipeline: `reflection-prepare-${index}`,
+      dispatch: { x: 1, y: 1, z: 1 },
+    })),
+    ...Array.from({ length: 5 }, (_, index) => ({
+      kind: "shadow_depth",
+      pipeline: `shadow-${index}`,
+      vertex_count: 3,
+    })),
+    ...Array.from({ length: 4 }, (_, index) => ({
+      kind: "planar_reflection",
+      pipeline: `reflection-${index}`,
+      vertex_count: 3,
+    })),
+  ];
+  const prepared = {
+    device,
+    arenaBuffer,
+    arenaBytes: new Uint8Array(1_438_352),
+    parameterBuffers,
+    resourceBuffers: new Map(),
+    samplers: new Map(),
+    pipelines: new Map(passes.map(({ pipeline: id }) => [id, pipeline(id)])),
+    targets: new Map(),
+    parameterDescriptor: { draw_lists: [] },
+    plan: { targets: [], passes },
+    initialTargetsReady: true,
+    shadowMapsInitialized: true,
+    bindGroupCache: new Map(),
+  };
+
+  parameterBuffers.get("lights").bytes[0] = 1;
+  adapter.submitFrame(prepared, { changedParameterSections: ["lights"] });
+
+  assert.deepEqual(
+    calls.filter(([kind]) => kind === "writeBuffer"),
+    [["writeBuffer", "lights", 0, 336]],
+    "a moving emitter must upload only its light parameter section",
+  );
+  assert.equal(
+    calls.filter(([kind]) => kind === "computePipeline").length,
+    6,
+    "direct and virtual LightViews must be refreshed",
+  );
+  assert.equal(
+    calls.filter(([, id]) => /^shadow-\d$/u.test(id)).length,
+    5,
+    "all five dependent shadow views must redraw",
+  );
+  assert.equal(
+    calls.filter(([, id]) => /^reflection-\d$/u.test(id)).length,
+    4,
+    "all four reflections must redraw with the changed illumination",
+  );
+  assert.equal(prepared.arenaBuffer, arenaBuffer);
+  assert.equal(prepared.parameterBuffers, parameterBuffers);
+  assert.equal(parameterBuffers.get("camera").buffer, cameraBuffer);
+  assert.equal(parameterBuffers.get("lights").buffer, lightsBuffer);
+  assert.equal(parameterBuffers.get("objects").buffer, objectsBuffer);
+
+  calls.length = 0;
+  adapter.submitFrame(prepared, { changedParameterSections: ["camera"] });
+  assert.deepEqual(
+    calls.filter(([kind]) => kind === "writeBuffer"),
+    [["writeBuffer", "camera", 0, 96]],
+  );
+  assert.equal(
+    calls.filter(([, id]) => /^shadow-\d$/u.test(id)).length,
+    0,
+    "camera-only changes may reuse initialized shadow maps",
+  );
+
+  calls.length = 0;
+  adapter.submitFrame(prepared, { changedParameterSections: ["objects"] });
+  assert.deepEqual(
+    calls.filter(([kind]) => kind === "writeBuffer"),
+    [["writeBuffer", "objects", 0, 384]],
+  );
+  assert.equal(
+    calls.filter(([, id]) => /^shadow-\d$/u.test(id)).length,
+    5,
+    "object changes must redraw every dependent shadow map",
+  );
+});
+
 test("compiled adapter binds a one-layer shadow target as a 2d-array view", () => {
   const viewCalls = [];
   const bindGroups = [];

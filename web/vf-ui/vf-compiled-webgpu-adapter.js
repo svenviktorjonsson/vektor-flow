@@ -691,6 +691,39 @@
     });
   }
 
+  function flushChangedParameterSections(prepared, requestedSections) {
+    if (requestedSections == null) { return []; }
+    if (!Array.isArray(requestedSections)) {
+      throw new Error("compiled retained scene changed parameter sections must be an array");
+    }
+    var changed = [];
+    var seen = Object.create(null);
+    for (var index = 0; index < requestedSections.length; index += 1) {
+      var name = String(requestedSections[index] || "").trim();
+      if (!name || seen[name]) { continue; }
+      var section = prepared.parameterBuffers && prepared.parameterBuffers.get(name);
+      if (!section || !section.buffer || !(section.bytes instanceof Uint8Array)) {
+        throw new Error("compiled retained scene parameter section is unavailable: " + name);
+      }
+      prepared.device.queue.writeBuffer(section.buffer, 0, section.bytes);
+      seen[name] = true;
+      changed.push(name);
+    }
+    return changed;
+  }
+
+  function mayReuseStaticShadows(options, changedSections) {
+    for (var index = 0; index < changedSections.length; index += 1) {
+      if (changedSections[index] === "lights" || changedSections[index] === "objects") {
+        return false;
+      }
+    }
+    if (changedSections.length) {
+      return changedSections.every(function (name) { return name === "camera"; });
+    }
+    return options.reuseStaticShadows === true;
+  }
+
   function submitFrame(prepared, options) {
     options = options || {};
     var device = prepared && prepared.device;
@@ -698,6 +731,11 @@
         !device.queue || typeof device.queue.submit !== "function") {
       throw new Error("compiled retained scene command submission is unavailable");
     }
+    var changedParameterSections = flushChangedParameterSections(
+      prepared,
+      options.changedParameterSections
+    );
+    var reuseStaticShadows = mayReuseStaticShadows(options, changedParameterSections);
     var command = device.createCommandEncoder({ label: "vkf-compiled-frame" });
     var externalViews = new Map();
     if (!prepared.initialTargetsReady) {
@@ -718,7 +756,7 @@
     }
     var executablePasses = [];
     prepared.plan.passes.forEach(function (pass, passIndex) {
-      if (options.reuseStaticShadows === true && prepared.shadowMapsInitialized &&
+      if (reuseStaticShadows && prepared.shadowMapsInitialized &&
           String(pass.kind || "") === "shadow_depth") {
         return;
       }
