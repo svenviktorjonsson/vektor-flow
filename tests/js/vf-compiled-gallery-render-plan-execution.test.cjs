@@ -158,11 +158,32 @@ test("real gallery compiled plan executes without the legacy JavaScript renderer
   const renderRoots = prepared.plan.passes.filter(({ kind }) =>
     kind === "shadow_depth" ||
     kind === "planar_reflection" ||
-    kind === "scene_color",
+    kind === "scene_color" ||
+    kind === "scene_present",
+  );
+  const shadowPasses = renderRoots.filter(({ kind }) => kind === "shadow_depth");
+  const shadowOwners = [
+    ...prepared.plan.emitter_sources,
+    ...prepared.plan.emitter_views,
+  ].filter(({ casts_shadow: castsShadow }) => castsShadow);
+  assert.deepEqual(
+    shadowPasses.map(({ light_id: lightId }) => lightId),
+    shadowOwners.map(({ id }) => id),
+    "every direct or virtual shadow-casting emitter must own exactly one depth pass",
   );
   assert.equal(
-    renderRoots.filter(({ kind }) => kind === "shadow_depth").length,
-    7,
+    new Set(shadowPasses.map(({ light_index: lightIndex }) => lightIndex)).size,
+    shadowPasses.length,
+    "direct and virtual shadow contributions must retain distinct light ownership",
+  );
+  assert.deepEqual(
+    shadowPasses.map(({ target_layer: targetLayer }) => targetLayer),
+    shadowPasses.map((_, index) => index),
+    "every shadow owner must retain a distinct depth-array layer",
+  );
+  assert.equal(
+    prepared.plan.targets.find(({ id }) => id === "shadow_depth").array_layers,
+    shadowPasses.length,
   );
   assert.equal(
     renderRoots.filter(({ kind }) => kind === "planar_reflection").length,
@@ -170,6 +191,10 @@ test("real gallery compiled plan executes without the legacy JavaScript renderer
   );
   assert.equal(
     renderRoots.filter(({ kind }) => kind === "scene_color").length,
+    1,
+  );
+  assert.equal(
+    renderRoots.filter(({ kind }) => kind === "scene_present").length,
     1,
   );
   assert.equal(
