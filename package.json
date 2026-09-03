@@ -57,7 +57,7 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "node --test tests/js/*.test.cjs tests/js/*.test.mjs",
+    "test": "node --test --test-concurrency=4 tests/js/*.test.cjs tests/js/*.test.mjs",
     "build:symbolic-kernel": "node tools/build-symbolic-kernel.mjs",
     "check:symbolic-kernel": "node tools/build-symbolic-kernel.mjs --check",
     "test:stdlib-wasm": "node tools/verify-stdlib-wasm.mjs",
