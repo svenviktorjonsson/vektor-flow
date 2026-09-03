@@ -958,6 +958,20 @@ test("material gallery compiles to a feature-specialized retained-scene GPU plan
   assert.match(wgsl, /abs\(local_normal\)/u);
   assert.match(wgsl, /planar_position\s*=\s*local_position\.xz/u);
   assert.match(wgsl, /planar_position\s*=\s*local_position\.yz/u);
+  assert.match(
+    wgsl,
+    /let pixel_span = max\(fwidth\(checker_position\), vec2<f32>\(1\.0e-3\)\);/u,
+    "procedural checker edges must be filtered over the fragment footprint",
+  );
+  assert.match(
+    wgsl,
+    /mix\(object\.checker_color_a, object\.checker_color_b, checker_coverage\)/u,
+  );
+  assert.doesNotMatch(
+    wgsl,
+    /select\(object\.checker_color_a, object\.checker_color_b, parity != 0\)/u,
+    "binary checker selection aliases at oblique viewing angles",
+  );
   assert.doesNotMatch(wgsl, /vkf_checker_color\(input\.world_position\)/u);
   assert.match(wgsl, /fn vkf_shadow_visibility\(/u);
   assert.match(wgsl, /shadow_near_far:\s*array<vec4<f32>,\s*6>/u);

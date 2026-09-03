@@ -56,10 +56,16 @@ test("published rabbit orbit is one complete 360-sample repeat cycle", async () 
     {
       rendererSamples: manifest.capture.renderer_msaa_samples,
       spatialScale: manifest.capture.spatial_supersampling,
+      checkerFilter: manifest.capture.procedural_checker_filter,
     },
-    { rendererSamples: 4, spatialScale: 2 },
+    {
+      rendererSamples: 4,
+      spatialScale: 2,
+      checkerFilter: "analytic-pixel-footprint",
+    },
     "movie capture must preserve the renderer's antialiasing at 2x spatial resolution",
   );
+  assert.ok(manifest.capture.camera_orbit_degrees >= 13);
   assert.ok(
     manifest.encoding.width >= 1400 && manifest.encoding.height >= 450,
     `published movie is too small for antialiased playback: ${manifest.encoding.width}x${manifest.encoding.height}`,

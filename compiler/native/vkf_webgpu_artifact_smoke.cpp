@@ -2788,9 +2788,16 @@ fn vkf_checker_color(
   } else if (normal_weight.x >= normal_weight.z) {
     planar_position = local_position.yz;
   }
-  let cell = vec2<i32>(floor(planar_position * object.checker_scale));
-  let parity = (cell.x + cell.y) & 1;
-  return select(object.checker_color_a, object.checker_color_b, parity != 0);
+  let checker_position = planar_position * object.checker_scale;
+  let pixel_span = max(fwidth(checker_position), vec2<f32>(1.0e-3));
+  let lower_integral = abs(
+    fract((checker_position - 0.5 * pixel_span) * 0.5) - vec2<f32>(0.5));
+  let upper_integral = abs(
+    fract((checker_position + 0.5 * pixel_span) * 0.5) - vec2<f32>(0.5));
+  let axis_average = 2.0 * (lower_integral - upper_integral) / pixel_span;
+  let checker_coverage = clamp(
+    0.5 - 0.5 * axis_average.x * axis_average.y, 0.0, 1.0);
+  return mix(object.checker_color_a, object.checker_color_b, checker_coverage);
 }
 )wgsl";
         }

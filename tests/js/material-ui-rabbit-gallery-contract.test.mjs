@@ -194,8 +194,8 @@ test("camera follows a visible repeating p_t cycle while keeping its target", ()
     return Math.acos(Math.max(-1, Math.min(1, cosine)));
   };
   assert.ok(
-    Math.max(...positions.map(angularDistance)) >= 6 * Math.PI / 180,
-    "the fixed-target camera orbit must be clearly visible, not sub-pixel drift",
+    Math.max(...positions.map(angularDistance)) >= 13 * Math.PI / 180,
+    "the fixed-target camera orbit must use the enlarged viewing arc",
   );
   for (const position of positions) {
     assert.ok(
