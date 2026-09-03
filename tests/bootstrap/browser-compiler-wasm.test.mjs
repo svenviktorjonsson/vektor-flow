@@ -57,6 +57,14 @@ test("browser compiler turns VKF source into validated machine IR inside WASM", 
       ]),
       13,
     );
+    const nativeFunctionSource = await readFile(
+      path.join(root, "examples", "native_core", "hello_native.vkf"),
+      "utf8",
+    );
+    assert.equal(
+      compiler.invokeValue("run_tagged_dependency_source", [nativeFunctionSource]),
+      42,
+    );
   } finally {
     await rm(work, { recursive: true, force: true });
   }

@@ -200,8 +200,18 @@
       "parameters": 2,
       "resultType": 1
     },
-    "_run_tagged_browser_numeric_tape": {
+    "_browser_token_tape_is_numeric_literal_function": {
       "index": 42,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_compile_tagged_numeric_literal_function_tape": {
+      "index": 43,
+      "parameters": 3,
+      "resultType": 6
+    },
+    "_run_tagged_browser_numeric_tape": {
+      "index": 44,
       "parameters": 3,
       "resultType": 2
     },
@@ -216,18 +226,18 @@
       "resultType": 6
     },
     "run_tagged_dependency_source": {
-      "index": 43,
+      "index": 45,
       "parameters": 1,
       "resultType": 2
     }
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 42832,
-    "bytecodeLength": 42831,
+    "argumentsPointer": 47512,
+    "bytecodeLength": 47511,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 43088
+    "resultsPointer": 47768
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

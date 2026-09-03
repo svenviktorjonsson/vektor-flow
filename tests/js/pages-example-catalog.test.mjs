@@ -63,6 +63,14 @@ test("Pages catalogue assigns stable hierarchical groups and source hashes", asy
     byPath.get("examples/generated/readme/core/01-bindings.vkf").media,
     null,
   );
+  assert.equal(
+    byPath.get("examples/native_core/hello_native.vkf").browserRunnable,
+    true,
+  );
+  assert.equal(
+    byPath.get("examples/generated/readme/core/01-bindings.vkf").browserRunnable,
+    false,
+  );
   assert.deepEqual(
     byPath.get("examples/material_ui_gallery/app.vkf").media,
     {

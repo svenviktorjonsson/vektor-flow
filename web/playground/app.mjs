@@ -327,7 +327,12 @@ async function loadInitialExample() {
       path: mediaPath,
       type: parameters.get("mediaType") === "video" ? "video" : "image",
     }) : null;
-    catalogExample = Object.freeze({ source: await response.text(), kind: "source", media });
+    const browserRunnable = parameters.get("browserRunnable") === "true";
+    catalogExample = Object.freeze({
+      source: await response.text(),
+      kind: browserRunnable ? "console" : "source",
+      media,
+    });
     const option = document.createElement("option");
     option.value = "catalog";
     option.textContent = `README · ${title}`;
@@ -335,12 +340,16 @@ async function loadInitialExample() {
     example.value = "catalog";
     source.value = catalogExample.source;
     playButton.hidden = true;
-    compileButton.disabled = true;
+    compileButton.disabled = !browserRunnable;
+    renderHighlight();
+    if (browserRunnable) {
+      await compileSource();
+      return;
+    }
     if (media) showReference(media, title);
     else showConsole();
     output.textContent = "Browser execution is not yet available for this full program. The source is editable; runnable coverage is added only after the VKF/WASM compiler passes it.";
     status.value = media ? "Verified native render" : "Source example";
-    renderHighlight();
     return;
   }
 

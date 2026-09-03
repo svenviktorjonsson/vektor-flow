@@ -39,6 +39,21 @@ test("packaged browser compiler runs grouped VKF arithmetic inside WASM", async 
   );
 });
 
+test("packaged browser compiler runs the README native function example", async () => {
+  const [wasm, manifest] = await Promise.all([
+    readFile(new URL("vkf-browser-compiler.wasm", artifacts)),
+    readFile(new URL("vkf-browser-compiler.json", artifacts), "utf8").then(JSON.parse),
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+  const source = await readFile(
+    new URL("../../examples/native_core/hello_native.vkf", import.meta.url),
+    "utf8",
+  );
+
+  assert.equal(compiler.run(source), 42);
+});
+
 test("browser compiler fails clearly on unsupported source", async () => {
   const [wasm, manifest] = await Promise.all([
     readFile(new URL("vkf-browser-compiler.wasm", artifacts)),

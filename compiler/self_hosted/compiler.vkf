@@ -1246,6 +1246,49 @@ _browser_token_tape_has_output_marker(rows:[num], count:int) -> bit:
 _browser_token_tape_ends_with_newline(rows:[num], count:int) -> bit:
     count >= 2 /\ rows.((count - 2) * 6) = 4
 
+_browser_token_tape_is_numeric_literal_function(
+    rows:[num], count:int
+) -> bit:
+    (count = 23 \/ count = 24)?
+        core_matches: (
+            rows.(0) = 1 /\ rows.(6) = 13 /\ rows.(12) = 1 /\
+            rows.(18) = 15 /\ rows.(24) = 1 /\ rows.(30) = 14 /\
+            rows.(36) = 20 /\ rows.(42) = 17 /\ rows.(48) = 1 /\
+            rows.(54) = 15 /\ rows.(60) = 4 /\ rows.(66) = 1 /\
+            rows.(72) = 7 /\ rows.(78) = 3 /\ rows.(84) = 4 /\
+            rows.(90) = 4 /\ rows.(96) = 15 /\ rows.(102) = 15 /\
+            rows.(108) = 1 /\ rows.(114) = 13 /\ rows.(120) = 3 /\
+            rows.(126) = 14
+        )
+        count = 23?
+            @: core_matches /\ rows.(132) = 5
+        @: core_matches /\ rows.(132) = 4 /\ rows.(138) = 5
+    false
+
+_compile_tagged_numeric_literal_function_tape(
+    source:str, rows:[num], count:int
+):
+    _browser_token_tape_is_numeric_literal_function(rows, count)?! "numeric literal function source does not match declaration-call grammar"
+    str function_name: vkf_utf8_slice(source, rows.(1), rows.(2))
+    str parameter_name: vkf_utf8_slice(source, rows.(13), rows.(14))
+    str parameter_type: vkf_utf8_slice(source, rows.(25), rows.(26))
+    str return_type: vkf_utf8_slice(source, rows.(49), rows.(50))
+    str body_name: vkf_utf8_slice(source, rows.(67), rows.(68))
+    str call_name: vkf_utf8_slice(source, rows.(109), rows.(110))
+    (parameter_type = "num" /\ return_type = "num")?! "numeric literal function requires num parameter and result"
+    (body_name = parameter_name)?! "numeric literal function body must load its parameter"
+    (call_name = function_name)?! "numeric literal function call target does not match declaration"
+    factor: rows.(81)
+    argument: rows.(123)
+    [num:4] opcodes: [1, 1, 5, 3]
+    maximum: validation.machine_ir_arithmetic_opcode_tape_stack_maximum(opcodes)
+    (
+        name:"\$entry",
+        opcodes:opcodes,
+        values:[argument, factor, 0, 0],
+        max_stack:maximum
+    )
+
 _run_tagged_browser_numeric_tape(
     opcodes:[num], values:[num], max_stack:num
 ) -> num:
@@ -1318,6 +1361,13 @@ run_tagged_dependency_source(source:str) -> num:
     tokens: lexer.tagged_numeric_function_token_tape(source)
     ~_browser_token_tape_has_output_marker(tokens.rows, tokens.count)?
         statement: compile_tagged_dependency_tape(source)
+        @: _run_tagged_browser_numeric_tape(
+            statement.opcodes, statement.values, statement.max_stack
+        )
+    _browser_token_tape_is_numeric_literal_function(tokens.rows, tokens.count)?
+        statement: _compile_tagged_numeric_literal_function_tape(
+            tokens.source, tokens.rows, tokens.count
+        )
         @: _run_tagged_browser_numeric_tape(
             statement.opcodes, statement.values, statement.max_stack
         )

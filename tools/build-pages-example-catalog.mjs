@@ -18,6 +18,10 @@ const OMITTED_DIRECTORIES = new Set([
   "node_modules",
 ]);
 
+const BROWSER_RUNNABLE_EXAMPLES = new Set([
+  "examples/native_core/hello_native.vkf",
+]);
+
 function filesystemRoot(root) {
   return root instanceof URL ? fileURLToPath(root) : resolve(root);
 }
@@ -172,6 +176,7 @@ export async function buildReadmeExampleCatalog(repoRoot) {
       kind: runtimeKind(path, groups),
       features: Object.freeze(scene?.features ?? []),
       sourceSha256: sourceSha256(source),
+      browserRunnable: BROWSER_RUNNABLE_EXAMPLES.has(path),
       media: catalogMedia(path, scene),
     });
   }));

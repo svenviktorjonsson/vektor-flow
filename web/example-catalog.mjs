@@ -38,13 +38,18 @@ function exampleLink(example) {
     parameters.set("media", example.media.path);
     parameters.set("mediaType", example.media.type);
   }
+  if (example.browserRunnable) parameters.set("browserRunnable", "true");
   const link = document.createElement("a");
-  link.className = "tree-leaf";
+  link.className = example.browserRunnable ? "tree-leaf live" : "tree-leaf";
   link.href = `./playground/?${parameters}`;
   const title = document.createElement("strong");
   title.textContent = example.title;
   const path = document.createElement("small");
-  path.textContent = example.media ? `Verified native render · ${example.path}` : `Source example · ${example.path}`;
+  path.textContent = example.browserRunnable
+    ? `Live WASM · ${example.path}`
+    : example.media
+      ? `Verified native render · ${example.path}`
+      : `Source example · ${example.path}`;
   link.append(title, path);
   return link;
 }
