@@ -2820,6 +2820,7 @@ vf::JsonValue::Object manifest_payload(
     const std::vector<WasmBinding>& bindings,
     const UpdateFunctionPlan& update_plan,
     bool has_retained_scene_arena,
+    bool has_temporal_playback,
     const vf::JsonValue::Array& render_parameter_sections,
     const vf::JsonValue::Array& render_parameter_draw_lists
 ) {
@@ -2880,6 +2881,19 @@ vf::JsonValue::Object manifest_payload(
         update_plan.axis_vector_mode ? (update_plan.axis_input_vector ? "axis_vector_vector" : "axis_vector_scalar")
         : (update_plan.record_mode ? "record" : (update_plan.enabled ? "scalar" : "builtin"))
     );
+    if (has_temporal_playback) {
+        runtime_surface["temporal_playback"] = vf::JsonValue(
+            vf::JsonValue::Object{
+                {"schema", vf::JsonValue(
+                    "vektor-flow/layer-time-playback")},
+                {"version", vf::JsonValue(1.0)},
+                {"changed_parameter_sections", vf::JsonValue(
+                    vf::JsonValue::Array{
+                        vf::JsonValue("objects"),
+                        vf::JsonValue("lights"),
+                    })},
+            });
+    }
     vf::JsonValue::Array exports;
     exports.push_back(vf::JsonValue("vkf_init"));
     exports.push_back(vf::JsonValue("vkf_update"));
@@ -3218,6 +3232,7 @@ int main(int argc, char** argv) {
             plan.bindings,
             plan.update,
             plan.has_retained_scene_arena,
+            !plan.temporal_position_updates.empty(),
             plan.render_parameter_sections,
             plan.render_parameter_draw_lists
         );

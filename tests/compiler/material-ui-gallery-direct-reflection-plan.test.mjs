@@ -89,7 +89,7 @@ test("material gallery terminates direct reflections without fallback textures",
     pass.bind_groups.every(({ entries }) => entries.every(({ binding }) =>
       binding !== 4 && binding !== 5
     ))
-  ), "a terminal reflection pass must shade authored material without reflection bindings");
+  ), "a terminal reflection pass must terminate without reflection bindings");
   assert.ok(render.targets.every(({ id }) =>
     !id.includes("fallback") &&
     !id.includes("studio_floor__upright_mirror") &&
@@ -122,6 +122,16 @@ test("material gallery terminates direct reflections without fallback textures",
   assert.match(wgsl, /fn vkf_terminal_scene_fragment\(/u);
   assert.match(
     wgsl,
+    /const VKF_BACKGROUND_RADIANCE: vec4<f32> = vec4<f32>\(0\.01200000, 0\.01800000, 0\.03200000, 1\.00000000\);/u,
+    "terminal reflection color must be the authored background",
+  );
+  assert.match(
+    wgsl,
+    /fn vkf_terminal_scene_fragment\([\s\S]*if \(object\.reflectivity >= 0\.999\) \{[\s\S]*return VKF_BACKGROUND_RADIANCE;[\s\S]*return vkf_shade_authored_material/u,
+    "a terminal mirror becomes background while a partially reflective floor keeps its authored material",
+  );
+  assert.match(
+    wgsl,
     /fn vkf_light_aperture_position\([\s\S]*let model = derived_objects\[light\.aperture_object_index\]\.value\.model;[\s\S]*return \(model \* vec4<f32>\(local_position, 1\.0\)\)\.xyz;/u,
     "emitter apertures must reuse the Scene Instance transform derived once per frame",
   );
@@ -152,8 +162,18 @@ test("material gallery terminates direct reflections without fallback textures",
   );
   assert.match(
     wgsl,
-    /plane_normal_sum = plane_normal_sum \+ cross\([\s\S]*vkf_aperture_position\(triangle_index\) - aperture_0,[\s\S]*vkf_aperture_position\(triangle_index \+ 1u\) - aperture_0/u,
-    "floor and mirror planes must come from their transformed aperture positions",
+    /let reflected_roughness = clamp\(mirror_material\.roughness, 0\.0, 1\.0\);[\s\S]*let reflected_coherence = \(1\.0 - reflected_roughness\) \*\s*\(1\.0 - reflected_roughness\);[\s\S]*reflected_power \* reflected_coherence/u,
+    "rough mirrors must attenuate the coherent caustic instead of projecting a hard full-strength contour",
+  );
+  assert.match(
+    wgsl,
+    /let reflected_radius = source\.target_and_radius\.w \+[\s\S]*reflected_roughness \* length\([\s\S]*aperture_center - source\.position_and_range\.xyz[\s\S]*target_and_radius = vec4<f32>\([\s\S]*aperture_center,[\s\S]*reflected_radius/u,
+    "rough mirrors must broaden the reflected LightView footprint",
+  );
+  assert.match(
+    wgsl,
+    /var strongest_plane_normal = vec3<f32>\(0\.0\);[\s\S]*let candidate_plane_normal = cross\([\s\S]*if \(dot\(candidate_plane_normal, candidate_plane_normal\) >[\s\S]*dot\(strongest_plane_normal, strongest_plane_normal\)\)[\s\S]*strongest_plane_normal = candidate_plane_normal/u,
+    "row-major floor vertices must select a non-cancelling transformed plane",
   );
   assert.doesNotMatch(
     wgsl,

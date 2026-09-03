@@ -1828,6 +1828,12 @@ inline vf::JsonValue::Array build_draw_lists(
     vf::JsonValue::Array scene_visible;
     vf::JsonValue::Array shadow_casters;
     std::vector<std::pair<std::string, std::size_t>> reflective_surfaces;
+    std::set<std::size_t> marker_emitter_indices;
+    for (const auto& emitter : geometry_emitters(root)) {
+        if (emitter.show_marker) {
+            marker_emitter_indices.insert(emitter.object_index);
+        }
+    }
     const auto append_collection = [&](
         const std::string& collection_name,
         std::size_t object_offset
@@ -1862,6 +1868,10 @@ inline vf::JsonValue::Array build_draw_lists(
             if (is_planar_reflective_object(
                     source, collection_name == "surfaces")) {
                 reflective_surfaces.emplace_back(id, object_index);
+            }
+            if (marker_emitter_indices.find(object_index) !=
+                marker_emitter_indices.end()) {
+                continue;
             }
             vf::JsonValue entry(vf::JsonValue::Object{
                 {"mesh_id", vf::JsonValue(id)},

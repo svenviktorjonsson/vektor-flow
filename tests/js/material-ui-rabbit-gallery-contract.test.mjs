@@ -9,6 +9,14 @@ const sourcePath = "examples/material_ui_gallery/app.vkf";
 const source = readFileSync(resolve(root, sourcePath), "utf8");
 const bunnyPath = "examples/material_ui_gallery/assets/source/bun_zipper.ply";
 const bunny = readFileSync(resolve(root, bunnyPath));
+const uiMarkup = readFileSync(
+  resolve(root, "examples/material_ui_gallery/ui/main.html"),
+  "utf8",
+);
+const uiStyles = readFileSync(
+  resolve(root, "examples/material_ui_gallery/ui/gallery.css"),
+  "utf8",
+);
 const provenance = readFileSync(
   resolve(root, "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md"),
   "utf8",
@@ -98,7 +106,11 @@ test("Stanford Bunny studio has checker continuity, physical mirrors, and shadow
   assert.doesNotMatch(floor, /surface_system|kind:"mirror"/u,
     "the floor must be distinguished only by reflectivity");
   assert.match(floor, /x:\[\[-0\.24, 0\.24\], \[-0\.24, 0\.24\]\]/u);
-  assert.match(floor, /z:\[\[-0\.18, -0\.18\], \[0\.42, 0\.42\]\]/u);
+  assert.match(
+    floor,
+    /z:\[\[0\.42, 0\.42\], \[-0\.18, -0\.18\]\]/u,
+    "the floor must face the camera so its authored reflection is visible",
+  );
   assert.match(floor, /scale:\[16\.0, 20\.0\]/u);
   assert.match(mirror,
     /faces_uvw:\[\[0, 2, 1\], \[0, 3, 2\], \[0, 4, 3\], \[0, 5, 4\]\]/u,
@@ -156,6 +168,26 @@ test("opposed finite red and green emitters orbit through retained time data", (
   assert.equal(numericArrayBinding("source_size").length, 360);
   assert.doesNotMatch(red, /\bx:|\by:|\bz:|kind:"point"|show_light_markers|source_radius/u,
     "an emitter is ordinary finite geometry with emissive properties");
+});
+
+test("rabbit gallery exposes playback controls beside capture", () => {
+  assert.match(uiMarkup, /<button[^>]*data-vf-playback-toggle[^>]*>Pause<\/button>/u);
+  assert.match(uiMarkup, /<button[^>]*data-vf-playback-reset[^>]*>Reset<\/button>/u);
+  assert.match(uiMarkup, /<button[^>]*id="capture-frame"[^>]*>Capture<\/button>/u);
+  assert.ok(
+    uiMarkup.indexOf("data-vf-playback-toggle") <
+      uiMarkup.indexOf("data-vf-playback-reset") &&
+      uiMarkup.indexOf("data-vf-playback-reset") <
+      uiMarkup.indexOf('id="capture-frame"'),
+    "Play/Pause and Reset must share the compact control row beside Capture",
+  );
+});
+
+test("rabbit gallery never flashes a focus border around the render canvas", () => {
+  assert.match(
+    uiStyles,
+    /canvas\.vf-geom-canvas:focus,\s*canvas\.vf-geom-canvas:focus-visible\s*\{[\s\S]*outline:\s*none\s*!important;[\s\S]*box-shadow:\s*none\s*!important;/u,
+  );
 });
 
 test("rabbit gallery source remains linked to hidden capture evidence", () => {

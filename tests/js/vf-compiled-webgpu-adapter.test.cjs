@@ -1,7 +1,116 @@
 const assert = require("node:assert/strict");
+const { readFileSync } = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const adapter = require("../../web/vf-ui/vf-compiled-webgpu-adapter.js");
+const adapterSource = readFileSync(
+  path.join(__dirname, "../../web/vf-ui/vf-compiled-webgpu-adapter.js"),
+  "utf8",
+);
+
+test("compiled adapter reports uncaptured WebGPU validation errors to the native VKF log", () => {
+  assert.match(adapterSource, /addEventListener\("uncapturederror"/u);
+  assert.match(adapterSource, /type:\s*"vf_log"/u);
+  assert.match(
+    adapterSource,
+    /addEventListener\("uncapturederror"[\s\S]*postRuntimeError\("webgpu-validation"/u,
+  );
+  assert.match(adapterSource, /source:\s*String\(source\)/u);
+  assert.match(adapterSource, /level:\s*"error"/u);
+});
+
+test("compiled Layer time plays live, pauses, and resets without a GPU backlog", async () => {
+  const animationFrames = [];
+  const completions = [];
+  const submissions = [];
+  const controls = new Map();
+  const control = () => ({
+    textContent: "",
+    attributes: new Map(),
+    listeners: new Map(),
+    addEventListener(name, listener) { this.listeners.set(name, listener); },
+    removeEventListener(name) { this.listeners.delete(name); },
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+  });
+  controls.set("[data-vf-playback-toggle]", control());
+  controls.set("[data-vf-playback-reset]", control());
+  const objects = { buffer: {}, bytes: Uint8Array.from([10, 20]) };
+  const lights = { buffer: {}, bytes: Uint8Array.from([30, 40]) };
+  const prepared = {
+    device: { queue: {
+      onSubmittedWorkDone() {
+        return new Promise((resolve) => completions.push(resolve));
+      },
+    } },
+    parameterBuffers: new Map([["objects", objects], ["lights", lights]]),
+  };
+  let updates = 0;
+  let resets = 0;
+  const originalSubmitFrame = adapter.submitFrame;
+  adapter.submitFrame = (_prepared, options) => submissions.push(options);
+  try {
+    const playback = adapter.attachTemporalPlayback({
+      prepared,
+      artifacts: { wasm: {
+        manifest: { runtime_surface: { temporal_playback: {
+          schema: "vektor-flow/layer-time-playback",
+          version: 1,
+          changed_parameter_sections: ["objects", "lights"],
+        } } },
+        update() {
+          updates += 1;
+          objects.bytes[0] += 1;
+          lights.bytes[0] += 1;
+        },
+        init() { resets += 1; },
+      } },
+      document: { querySelector(selector) { return controls.get(selector) || null; } },
+      requestAnimationFrame(callback) {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+      cancelAnimationFrame() {},
+    });
+    const toggle = controls.get("[data-vf-playback-toggle]");
+    const reset = controls.get("[data-vf-playback-reset]");
+    assert.equal(toggle.textContent, "Pause");
+    assert.equal(toggle.attributes.get("aria-pressed"), "true");
+
+    animationFrames.shift()(16.67);
+    assert.equal(updates, 1);
+    assert.equal(submissions.length, 1);
+    assert.deepEqual(submissions[0].changedParameterSections, ["objects", "lights"]);
+    animationFrames.shift()(33.34);
+    assert.equal(updates, 1, "display ticks must not queue animation work behind the GPU");
+    completions.shift()();
+    await Promise.resolve();
+    await Promise.resolve();
+    animationFrames.shift()(50.01);
+    assert.equal(updates, 2);
+
+    toggle.listeners.get("click")();
+    assert.equal(toggle.textContent, "Play");
+    assert.equal(toggle.attributes.get("aria-pressed"), "false");
+    completions.shift()();
+    await Promise.resolve();
+    animationFrames.shift()(66.68);
+    assert.equal(updates, 2);
+
+    reset.listeners.get("click")();
+    assert.equal(resets, 1);
+    assert.deepEqual([...objects.bytes], [10, 20]);
+    assert.deepEqual([...lights.bytes], [30, 40]);
+    assert.equal(submissions.length, 3, "reset must present the authored first sample");
+    assert.equal(toggle.textContent, "Play", "reset must preserve the paused state");
+
+    toggle.listeners.get("click")();
+    assert.equal(toggle.textContent, "Pause");
+    playback.dispose();
+  } finally {
+    adapter.submitFrame = originalSubmitFrame;
+  }
+});
 
 function fixture() {
   const calls = [];
@@ -787,6 +896,7 @@ test("compiled adapter updates only the camera arena for arrow orbit and wheel z
   const windowListeners = new Map();
   const writes = [];
   const cameraCalls = [];
+  const interactionBusy = [];
   let submissions = 0;
   const bytes = new Uint8Array(96);
   const view = new DataView(bytes.buffer);
@@ -794,6 +904,9 @@ test("compiled adapter updates only the camera arena for arrow orbit and wheel z
   [0, 0.45, 1.45].forEach((value, index) => view.setFloat32(12 + index * 4, value, true));
   [0, 0, 1].forEach((value, index) => view.setFloat32(24 + index * 4, value, true));
   const prepared = {
+    temporalPlayback: {
+      setInteractionBusy(busy) { interactionBusy.push(busy); },
+    },
     device: {
       queue: {
         writeBuffer(buffer, offset, payload) { writes.push({ buffer, offset, payload: Uint8Array.from(payload) }); },
@@ -859,6 +972,8 @@ test("compiled adapter updates only the camera arena for arrow orbit and wheel z
     assert.equal(submissions, 2);
     assert.deepEqual(cameraCalls, [[0, 0, -1], [1, 0, 0]]);
     assert.equal(writes.every((write) => write.payload.byteLength === 96), true);
+    assert.deepEqual(interactionBusy, [true, false, true, false],
+      "camera work must pause temporal submissions until its GPU frame is released");
   } finally {
     adapter.submitFrame = originalSubmitFrame;
   }

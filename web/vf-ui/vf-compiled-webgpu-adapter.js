@@ -987,6 +987,158 @@
     });
   }
 
+  function attachTemporalPlayback(options) {
+    options = options || {};
+    var prepared = options.prepared;
+    var wasm = options.artifacts && options.artifacts.wasm;
+    var runtimeSurface = wasm && wasm.manifest && wasm.manifest.runtime_surface;
+    var descriptor = runtimeSurface && runtimeSurface.temporal_playback;
+    if (!descriptor) { return null; }
+    if (descriptor.schema !== "vektor-flow/layer-time-playback" ||
+        Number(descriptor.version) !== 1) {
+      throw new Error("compiled Layer time playback descriptor is invalid");
+    }
+    var changedSections = Array.isArray(descriptor.changed_parameter_sections)
+      ? descriptor.changed_parameter_sections.map(String)
+      : [];
+    var queue = prepared && prepared.device && prepared.device.queue;
+    if (!prepared || !prepared.parameterBuffers || !wasm ||
+        typeof wasm.update !== "function" || typeof wasm.init !== "function" ||
+        !queue || typeof queue.onSubmittedWorkDone !== "function" ||
+        changedSections.length === 0) {
+      throw new Error("compiled Layer time playback dependencies are unavailable");
+    }
+    var rootDocument = options.document ||
+      (typeof document !== "undefined" ? document : null);
+    var toggleButton = rootDocument && typeof rootDocument.querySelector === "function"
+      ? rootDocument.querySelector("[data-vf-playback-toggle]")
+      : null;
+    var resetButton = rootDocument && typeof rootDocument.querySelector === "function"
+      ? rootDocument.querySelector("[data-vf-playback-reset]")
+      : null;
+    var initialSections = new Map();
+    changedSections.forEach(function (name) {
+      var section = prepared.parameterBuffers.get(name);
+      if (!section || !section.bytes) {
+        throw new Error("compiled Layer time parameter section is unavailable: " + name);
+      }
+      initialSections.set(name, Uint8Array.from(section.bytes));
+    });
+    var requestFrame = options.requestAnimationFrame ||
+      (typeof globalThis !== "undefined" &&
+       typeof globalThis.requestAnimationFrame === "function"
+        ? globalThis.requestAnimationFrame.bind(globalThis)
+        : function (callback) { return setTimeout(function () { callback(Date.now()); }, 16); });
+    var cancelFrame = options.cancelAnimationFrame ||
+      (typeof globalThis !== "undefined" &&
+       typeof globalThis.cancelAnimationFrame === "function"
+        ? globalThis.cancelAnimationFrame.bind(globalThis)
+        : clearTimeout);
+    var playing = true;
+    var disposed = false;
+    var frameInFlight = false;
+    var interactionBusy = false;
+    var frameHandle = 0;
+
+    function updateToggleButton() {
+      if (!toggleButton) { return; }
+      toggleButton.textContent = playing ? "Pause" : "Play";
+      if (typeof toggleButton.setAttribute === "function") {
+        toggleButton.setAttribute("aria-pressed", playing ? "true" : "false");
+      }
+    }
+
+    function releaseFrame() {
+      frameInFlight = false;
+    }
+
+    function submitTemporalFrame() {
+      wasm.update();
+      publicApi.submitFrame(prepared, {
+        changedParameterSections: changedSections
+      });
+      frameInFlight = true;
+      Promise.resolve(queue.onSubmittedWorkDone()).then(releaseFrame, releaseFrame);
+    }
+
+    function schedule() {
+      if (!disposed && !frameHandle) {
+        frameHandle = requestFrame(tick);
+      }
+    }
+
+    function tick() {
+      frameHandle = 0;
+      if (disposed) { return; }
+      if (playing && !frameInFlight && !interactionBusy) {
+        submitTemporalFrame();
+      }
+      if (playing) { schedule(); }
+    }
+
+    function play() {
+      if (disposed || playing) { return; }
+      playing = true;
+      updateToggleButton();
+      schedule();
+    }
+
+    function pause() {
+      if (!playing) { return; }
+      playing = false;
+      updateToggleButton();
+      if (frameHandle) {
+        cancelFrame(frameHandle);
+        frameHandle = 0;
+      }
+    }
+
+    function toggle() {
+      if (playing) { pause(); } else { play(); }
+    }
+
+    function reset() {
+      if (disposed) { return; }
+      wasm.init();
+      initialSections.forEach(function (bytes, name) {
+        prepared.parameterBuffers.get(name).bytes.set(bytes);
+      });
+      publicApi.submitFrame(prepared, {
+        changedParameterSections: changedSections
+      });
+    }
+
+    if (toggleButton && typeof toggleButton.addEventListener === "function") {
+      toggleButton.addEventListener("click", toggle);
+    }
+    if (resetButton && typeof resetButton.addEventListener === "function") {
+      resetButton.addEventListener("click", reset);
+    }
+    updateToggleButton();
+    schedule();
+    var controller = {
+      play: play,
+      pause: pause,
+      toggle: toggle,
+      reset: reset,
+      setInteractionBusy: function (busy) {
+        interactionBusy = Boolean(busy);
+      },
+      dispose: function () {
+        disposed = true;
+        if (frameHandle) { cancelFrame(frameHandle); frameHandle = 0; }
+        if (toggleButton && typeof toggleButton.removeEventListener === "function") {
+          toggleButton.removeEventListener("click", toggle);
+        }
+        if (resetButton && typeof resetButton.removeEventListener === "function") {
+          resetButton.removeEventListener("click", reset);
+        }
+      }
+    };
+    prepared.temporalPlayback = controller;
+    return controller;
+  }
+
   function attachCameraControls(options) {
     options = options || {};
     var prepared = options.prepared;
@@ -1021,8 +1173,15 @@
       (eventTarget && typeof eventTarget.cancelAnimationFrame === "function"
         ? eventTarget.cancelAnimationFrame.bind(eventTarget)
         : clearTimeout);
+    function setTemporalInteractionBusy(busy) {
+      var playback = prepared.temporalPlayback;
+      if (playback && typeof playback.setInteractionBusy === "function") {
+        playback.setInteractionBusy(busy);
+      }
+    }
     function releaseCameraFrame() {
       cameraFrameInFlight = false;
+      setTemporalInteractionBusy(false);
       if (heldSubmissionPending) {
         heldSubmissionPending = false;
         if (!disposed && anyKeyHeld()) { applyHeldKeys(); }
@@ -1031,6 +1190,7 @@
 
     function rejectCameraFrame() {
       cameraFrameInFlight = false;
+      setTemporalInteractionBusy(false);
       clearHeldKeys();
     }
 
@@ -1043,25 +1203,33 @@
           completion = queue.onSubmittedWorkDone();
         } catch (_) {
           rejectCameraFrame();
-          return;
+          return false;
         }
         Promise.resolve(completion).then(
           releaseCameraFrame,
           rejectCameraFrame
         );
+        return true;
       }
+      return false;
     }
 
     function flushCamera() {
       prepared.device.queue.writeBuffer(section.buffer, 0, section.bytes);
       publicApi.submitFrame(prepared, { reuseStaticShadows: true });
-      trackCameraFrame();
+      if (!trackCameraFrame()) { setTemporalInteractionBusy(false); }
     }
 
     function submitCamera(horizontal, vertical, zoom) {
       if (disposed || cameraFrameInFlight) { return false; }
-      wasm.cameraControl(horizontal, vertical, zoom);
-      flushCamera();
+      setTemporalInteractionBusy(true);
+      try {
+        wasm.cameraControl(horizontal, vertical, zoom);
+        flushCamera();
+      } catch (error) {
+        setTemporalInteractionBusy(false);
+        throw error;
+      }
       return true;
     }
 
@@ -1507,6 +1675,13 @@
           }
           throw error;
         }
+        var mediaCapture = nativeFrameMediaCaptureConfig();
+        if (!mediaCapture) {
+          publicApi.attachTemporalPlayback({
+            prepared: prepared,
+            artifacts: options.artifacts
+          });
+        }
         publicApi.attachCameraControls({
           prepared: prepared,
           canvas: canvas,
@@ -1531,7 +1706,6 @@
           }
           prepared.presented = true;
           if (typeof options.onPresented === "function") { options.onPresented(); }
-          var mediaCapture = nativeFrameMediaCaptureConfig();
           if (mediaCapture) {
             return runNativeFrameMediaCapture(prepared, options, mediaCapture).then(
               function (evidence) {
@@ -1610,6 +1784,7 @@
     prime: prime,
     prepare: prepare,
     mount: mount,
+    attachTemporalPlayback: attachTemporalPlayback,
     attachCameraControls: attachCameraControls,
     captureFrame: captureFrame,
     submitFrame: submitFrame

@@ -188,12 +188,42 @@ test("a temporal point emitter renders as readable spherical geometry", async ()
         vertex_count,
         instance_count,
       })),
-    [{ vertex_count: 2304, instance_count: 1 }],
+    [{ vertex_count: 9216, instance_count: 1 }],
+  );
+  assert.equal(
+    renderPlan.pipelines.find(({ id }) => id === "light_emitters")?.blend,
+    "additive",
+    "the finite source must blend into the scene instead of drawing an opaque rim",
   );
   assert.match(wgsl, /fn vkf_emitter_sphere_direction\(/u);
   assert.match(
     wgsl,
     /u32\(raw_lights\[base \+ 13u\]\) == 5u[\s\S]*3\.141592653589793 \* authored_radius \* authored_radius/u,
     "geometry-emitter markers must display authored surface radiance rather than area-integrated power",
+  );
+  assert.match(
+    wgsl,
+    /let halo_radius_px = bloom_strength \* min\([\s\S]*4\.0,[\s\S]*source_radius_px \*[\s\S]*compactness/u,
+    "flare extension must follow angular size and remain at most four pixels",
+  );
+  assert.doesNotMatch(
+    wgsl,
+    /let halo_radius_px = bloom_strength \* \([0-9]/u,
+    "flare extent must not use a fixed oversized pixel halo",
+  );
+  assert.match(
+    wgsl,
+    /fn vkf_flare_fragment\([\s\S]*let radial_gradient = 1\.0 - smoothstep\(0\.0, 1\.0, radius\);[\s\S]*let halo = radial_gradient \* radial_gradient/u,
+    "the flare must fall continuously from its center through its outer halo",
+  );
+  assert.doesNotMatch(
+    wgsl,
+    /cross_ray/u,
+    "the flare must remain purely radial without one-pixel cross artifacts",
+  );
+  assert.match(
+    wgsl,
+    /struct EmitterVertexOut \{[\s\S]*@location\(2\) view_facing: f32,[\s\S]*out\.view_facing = max\(dot\(direction, view_direction\), 0\.0\);[\s\S]*let emitter_gradient = smoothstep\(0\.0, 1\.0, input\.view_facing\);[\s\S]*return vec4<f32>\(\s*mapped_radiance \* emitter_gradient, emitter_gradient\)/u,
+    "the visible finite source must fade continuously to zero at its silhouette",
   );
 });

@@ -140,6 +140,7 @@ struct ModulePlan {
         };
         struct ObjectLocalBounds {
             bool valid = false;
+            bool contributes_shadow_bounds = true;
             std::array<double, 3> minimum{};
             std::array<double, 3> maximum{};
         };
@@ -414,6 +415,7 @@ void collect_retained_scene_entities(
                 &background->array[index], features.background[index]);
         }
     }
+    const auto emitters = vkf::native_scene::geometry_emitters(root);
     std::uint32_t object_index = 0;
     std::map<std::string, std::uint32_t> object_indices;
     for (const auto* collection_name : {"surfaces", "meshes"}) {
@@ -423,11 +425,19 @@ void collect_retained_scene_entities(
             continue;
         }
         for (const auto& object : collection->array) {
-            features.object_local_bounds.push_back(
-                collect_object_local_bounds(
-                    object, std::string(collection_name) == "surfaces"));
-            collect_direct_shadow_bounds(
-                object, std::string(collection_name) == "surfaces", features);
+            const bool contributes_shadow_bounds = std::none_of(
+                emitters.begin(), emitters.end(),
+                [object_index](const auto& emitter) {
+                    return emitter.object_index == object_index;
+                });
+            auto local_bounds = collect_object_local_bounds(
+                object, std::string(collection_name) == "surfaces");
+            local_bounds.contributes_shadow_bounds = contributes_shadow_bounds;
+            features.object_local_bounds.push_back(local_bounds);
+            if (contributes_shadow_bounds) {
+                collect_direct_shadow_bounds(
+                    object, std::string(collection_name) == "surfaces", features);
+            }
             const std::string object_id = literal_string_or(
                 vkf::native_scene::object_field(object, "id"),
                 "object_" + std::to_string(object_index));
@@ -533,7 +543,6 @@ void collect_retained_scene_entities(
         lights->kind == LiteralKind::Array
         ? static_cast<std::uint32_t>(lights->array.size())
         : 0u;
-    const auto emitters = vkf::native_scene::geometry_emitters(root);
     for (std::size_t index = 0; index < emitters.size(); ++index) {
         const auto& emitter = emitters[index];
         ModulePlan::RetainedSceneFeatures::Light light;
@@ -1747,6 +1756,11 @@ fn vkf_final_camera_response(linear_radiance: vec3<f32>) -> vec3<f32> {
         out << "const VKF_MAX_REFLECTION_DEPTH: u32 = "
             << std::max<std::uint32_t>(
                 2u, plan.retained_scene.max_reflection_depth) << "u;\n";
+        out << "const VKF_BACKGROUND_RADIANCE: vec4<f32> = vec4<f32>("
+            << wgsl_f32(plan.retained_scene.background[0]) << ", "
+            << wgsl_f32(plan.retained_scene.background[1]) << ", "
+            << wgsl_f32(plan.retained_scene.background[2]) << ", "
+            << wgsl_f32(plan.retained_scene.background[3]) << ");\n";
         out << R"wgsl(@group(0) @binding(4) var planar_reflection_texture: texture_2d<f32>;
 @group(0) @binding(5) var planar_reflection_sampler: sampler;
 
@@ -1876,6 +1890,14 @@ struct DerivedObjectSlot {
             out << "  if (object_index == " << index << "u) { return true; }\n";
         }
         out << "  return false;\n}\n";
+        out << "fn vkf_object_contributes_shadow_bounds(object_index: u32) -> bool {\n";
+        for (std::size_t index = 0;
+             index < plan.retained_scene.object_local_bounds.size(); ++index) {
+            const auto& bounds = plan.retained_scene.object_local_bounds[index];
+            if (!bounds.valid || bounds.contributes_shadow_bounds) continue;
+            out << "  if (object_index == " << index << "u) { return false; }\n";
+        }
+        out << "  return vkf_object_has_local_bounds(object_index);\n}\n";
         out << R"wgsl(
 
 fn vkf_safe_normalize(value: vec3<f32>) -> vec3<f32> {
@@ -2220,7 +2242,7 @@ fn vkf_refit_direct_shadow_bounds() -> VkfDirectShadowBounds {
   for (var object_index = 0u;
        object_index < VKF_OBJECT_COUNT;
        object_index = object_index + 1u) {
-    if (!vkf_object_has_local_bounds(object_index)) {
+    if (!vkf_object_contributes_shadow_bounds(object_index)) {
       continue;
     }
     let local_minimum = vkf_object_local_bounds_min(object_index);
@@ -2542,16 +2564,20 @@ fn vkf_prepare_reflection_camera() {
     aperture_center = aperture_center + vkf_aperture_position(vertex_index);
   }
   aperture_center = aperture_center / f32(pass_state.aperture_vertex_count);
-  var plane_normal_sum = vec3<f32>(0.0);
+  var strongest_plane_normal = vec3<f32>(0.0);
   for (var triangle_index = 1u;
        triangle_index + 1u < pass_state.aperture_vertex_count;
        triangle_index = triangle_index + 1u) {
-    plane_normal_sum = plane_normal_sum + cross(
+    let candidate_plane_normal = cross(
       vkf_aperture_position(triangle_index) - aperture_0,
       vkf_aperture_position(triangle_index + 1u) - aperture_0
     );
+    if (dot(candidate_plane_normal, candidate_plane_normal) >
+        dot(strongest_plane_normal, strongest_plane_normal)) {
+      strongest_plane_normal = candidate_plane_normal;
+    }
   }
-  let plane_normal = vkf_safe_normalize(plane_normal_sum);
+  let plane_normal = vkf_safe_normalize(strongest_plane_normal);
   let parent_camera_index = vkf_reflection_parent_slot(
     pass_state.camera_state_index);
   var eye = vec3<f32>(raw_camera[0], raw_camera[1], raw_camera[2]);
@@ -2605,6 +2631,9 @@ fn vkf_prepare_reflection_camera() {
       );
       let mirror_material =
         derived_objects[pass_state.object_index].value;
+      let reflected_roughness = clamp(mirror_material.roughness, 0.0, 1.0);
+      let reflected_coherence = (1.0 - reflected_roughness) *
+        (1.0 - reflected_roughness);
       let reflected_stokes = vkf_reflect_stokes(
         abs(dot(incident_propagation, plane_normal)),
         mirror_material.ior,
@@ -2614,7 +2643,7 @@ fn vkf_prepare_reflection_camera() {
       let reflected_power = reflected_stokes.x /
         max(local_stokes.x, 1.0e-12);
       derived_lights[light_index].color_and_intensity.w =
-        source.color_and_intensity.w * reflected_power;
+        source.color_and_intensity.w * reflected_power * reflected_coherence;
       derived_lights[light_index].polarization = reflected_stokes /
         max(reflected_stokes.x, 1.0e-12);
       let outgoing_propagation = vkf_safe_normalize(
@@ -2625,9 +2654,12 @@ fn vkf_prepare_reflection_camera() {
         reflected_light_position,
         source.position_and_range.w
       );
+      let reflected_radius = source.target_and_radius.w +
+        reflected_roughness * length(
+          aperture_center - source.position_and_range.xyz);
       derived_lights[light_index].target_and_radius = vec4<f32>(
         aperture_center,
-        source.target_and_radius.w
+        reflected_radius
       );
       derived_lights[light_index].aperture_float_offset =
         pass_state.aperture_float_offset;
@@ -3250,6 +3282,9 @@ fn vkf_terminal_scene_fragment(
   input: SceneVertexOut,
   @builtin(front_facing) front_facing: bool,
 ) -> @location(0) vec4<f32> {
+  if (object.reflectivity >= 0.999) {
+    return VKF_BACKGROUND_RADIANCE;
+  }
   return vkf_shade_authored_material(input, front_facing);
 }
 
@@ -3289,10 +3324,11 @@ struct EmitterVertexOut {
   @builtin(position) clip_position: vec4<f32>,
   @location(0) emitted_radiance: vec3<f32>,
   @location(1) enabled: f32,
+  @location(2) view_facing: f32,
 };
 
-const VKF_EMITTER_LATITUDE_SEGMENTS: u32 = 16u;
-const VKF_EMITTER_LONGITUDE_SEGMENTS: u32 = 24u;
+const VKF_EMITTER_LATITUDE_SEGMENTS: u32 = 32u;
+const VKF_EMITTER_LONGITUDE_SEGMENTS: u32 = 48u;
 const VKF_EMITTER_VERTEX_COUNT: u32 =
   VKF_EMITTER_LATITUDE_SEGMENTS * VKF_EMITTER_LONGITUDE_SEGMENTS * 6u;
 
@@ -3322,6 +3358,7 @@ fn vkf_emitter_sphere_direction(vertex_index: u32) -> vec3<f32> {
 fn vkf_emitter_geometry_vertex(
   vertex_index: u32,
   light_index: u32,
+  viewer_position: vec3<f32>,
   view_projection: mat4x4<f32>,
 ) -> EmitterVertexOut {
   let base = light_index * 28u;
@@ -3335,6 +3372,7 @@ fn vkf_emitter_geometry_vertex(
     u32(raw_lights[base + 13u]) == 5u);
   let direction = vkf_emitter_sphere_direction(vertex_index);
   let world_position = source_position + direction * authored_radius;
+  let view_direction = vkf_safe_normalize(viewer_position - world_position);
   var out: EmitterVertexOut;
   out.clip_position = view_projection * vec4<f32>(world_position, 1.0);
   var emitted_radiance = vec3<f32>(
@@ -3348,6 +3386,7 @@ fn vkf_emitter_geometry_vertex(
   let is_physical = select(0.0, 1.0, u32(raw_lights[base + 13u]) != 2u);
   let is_enabled = select(0.0, 1.0, raw_lights[base + 17u] > 0.5);
   out.enabled = is_physical * is_enabled;
+  out.view_facing = max(dot(direction, view_direction), 0.0);
   return out;
 }
 
@@ -3439,7 +3478,8 @@ fn vkf_flare_billboard_vertex(
   let bright = max(peak_radiance - threshold, soft);
   let bloom_strength = clamp(bright / 32.0, 0.0, 1.0);
   let compactness = clamp(8.0 / (source_radius_px + 8.0), 0.0, 1.0);
-  let halo_radius_px = bloom_strength * (28.0 + 58.0 * compactness);
+  let halo_radius_px = bloom_strength * min(
+    4.0, source_radius_px * (0.25 + 0.50 * compactness));
   let flare_radius_px = max(source_radius_px, source_radius_px + halo_radius_px);
   let flare_scale = flare_radius_px / max(source_radius_px, 1.0);
   let flare_extent_ndc = max(
@@ -3473,7 +3513,8 @@ fn vkf_emitter_vertex(
   @builtin(instance_index) light_index: u32,
 ) -> EmitterVertexOut {
   return vkf_emitter_geometry_vertex(
-    vertex_index, light_index, scene.view_projection);
+    vertex_index, light_index, scene.view_position.xyz,
+    scene.view_projection);
 }
 
 @vertex
@@ -3483,6 +3524,7 @@ fn vkf_reflection_emitter_vertex(
 ) -> EmitterVertexOut {
   return vkf_emitter_geometry_vertex(
     vertex_index, light_index,
+    scene.mirror_view_position[pass_state.camera_state_index].xyz,
     scene.mirror_view_projection[pass_state.camera_state_index]);
 }
 
@@ -3515,7 +3557,9 @@ fn vkf_emitter_fragment(input: EmitterVertexOut) -> @location(0) vec4<f32> {
   }
   let mapped_radiance = input.emitted_radiance /
     (vec3<f32>(1.0) + input.emitted_radiance);
-  return vec4<f32>(mapped_radiance, 1.0);
+  let emitter_gradient = smoothstep(0.0, 1.0, input.view_facing);
+  return vec4<f32>(
+    mapped_radiance * emitter_gradient, emitter_gradient);
 }
 
 @fragment
@@ -3524,19 +3568,13 @@ fn vkf_flare_fragment(input: FlareVertexOut) -> @location(0) vec4<f32> {
   if (radius > 1.0 || input.enabled <= 0.0) {
     discard;
   }
-  let core_edge = max(input.source_ratio, 1.0e-3);
-  let halo_distance = clamp(
-    (radius - core_edge) / max(1.0 - core_edge, 1.0e-3), 0.0, 1.0);
-  let halo = pow(1.0 - halo_distance, 2.0) *
+  let radial_gradient = 1.0 - smoothstep(0.0, 1.0, radius);
+  let halo = radial_gradient * radial_gradient *
     input.bloom_strength * 0.75;
-  let cross_ray = pow(max(1.0 - min(
-    abs(input.local_position.x), abs(input.local_position.y)), 0.0), 18.0) *
-    (1.0 - smoothstep(core_edge, 1.0, radius)) *
-    input.bloom_strength * input.compactness * 0.16;
   let bloom_color = vkf_safe_normalize(max(
     input.emitted_radiance, vec3<f32>(1.0e-6)));
-  let alpha = clamp(halo + cross_ray, 0.0, 1.0);
-  let color = bloom_color * (halo * 1.35 + cross_ray);
+  let alpha = clamp(halo, 0.0, 1.0);
+  let color = bloom_color * halo * 1.35;
   return vec4<f32>(color, alpha);
 }
 )wgsl";
@@ -3987,6 +4025,7 @@ vf::JsonValue::Object manifest_payload(
                 {"color_target", vf::JsonValue(true)},
                 {"color_format", vf::JsonValue("rgba16float")},
                 {"sample_count", vf::JsonValue(1.0)},
+                {"blend", vf::JsonValue("additive")},
                 {"depth_write", vf::JsonValue(true)},
                 {"depth_format", vf::JsonValue("depth32float")},
                 {"depth_compare", vf::JsonValue("less")},
@@ -4015,6 +4054,7 @@ vf::JsonValue::Object manifest_payload(
                 {"color_target", vf::JsonValue(true)},
                 {"color_format", vf::JsonValue("rgba16float")},
                 {"sample_count", vf::JsonValue(4.0)},
+                {"blend", vf::JsonValue("additive")},
                 {"depth_write", vf::JsonValue(true)},
                 {"depth_format", vf::JsonValue("depth32float")},
                 {"depth_compare", vf::JsonValue("less")},
@@ -4632,6 +4672,21 @@ vf::JsonValue::Object manifest_payload(
                         }
                     }
                 }
+                if (light.source_object_index.has_value()) {
+                    const auto source_index = *light.source_object_index;
+                    const auto already_excluded = std::any_of(
+                        excluded_object_indices.begin(),
+                        excluded_object_indices.end(),
+                        [&](const auto& value) {
+                            return value.is_number() &&
+                                static_cast<std::uint32_t>(value.as_number()) ==
+                                    source_index;
+                        });
+                    if (!already_excluded) {
+                        excluded_object_indices.push_back(vf::JsonValue(
+                            static_cast<double>(source_index)));
+                    }
+                }
                 for (std::uint32_t shadow_face = 0;
                      shadow_face < light.shadow_view_count; ++shadow_face) {
                 vf::JsonValue::Object shadow_view{
@@ -4806,7 +4861,7 @@ vf::JsonValue::Object manifest_payload(
                             static_cast<double>(camera_index))},
                         {"reflection_depth", vf::JsonValue(
                             static_cast<double>(depth))},
-                        {"vertex_count", vf::JsonValue(2304.0)},
+                        {"vertex_count", vf::JsonValue(9216.0)},
                         {"instance_count", vf::JsonValue(
                             static_cast<double>(
                                 plan.retained_scene.lights.size()))},
@@ -5002,7 +5057,7 @@ vf::JsonValue::Object manifest_payload(
                 {"color_attachment", vf::JsonValue("scene_hdr_msaa")},
                 {"resolve_target", vf::JsonValue("scene_hdr")},
                 {"depth_attachment", vf::JsonValue("scene_depth_msaa")},
-                {"vertex_count", vf::JsonValue(2304.0)},
+                {"vertex_count", vf::JsonValue(9216.0)},
                 {"instance_count", vf::JsonValue(static_cast<double>(
                     plan.retained_scene.lights.size()))},
                 {"vertex_entry", vf::JsonValue("vkf_emitter_vertex")},

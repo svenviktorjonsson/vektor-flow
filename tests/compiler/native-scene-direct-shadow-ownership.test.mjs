@@ -99,6 +99,11 @@ test("geometry emitter owns direct and mirror-reflected shadow views", async () 
     projection: "perspective",
   });
   assert.deepEqual(
+    directPasses[0].excluded_object_indices,
+    [2],
+    "a geometry emitter must not occlude its own direct LightView",
+  );
+  assert.deepEqual(
     shadowPasses.filter(({ light_id }) => light_id === "sun@mirror")
       .map(({ light_id, draw_list_id, excluded_object_indices }) => ({
         light_id,
@@ -108,18 +113,30 @@ test("geometry emitter owns direct and mirror-reflected shadow views", async () 
     [{
       light_id: "sun@mirror",
       draw_list_id: "shadow_casters",
-      excluded_object_indices: [1],
+      excluded_object_indices: [1, 2],
     }],
-    "a reflected LightView must not be occluded by its own mirror aperture",
+    "a reflected LightView excludes both its aperture and originating emitter",
   );
   assert.match(wgsl, /fn vkf_fit_direct_shadow_view_projection\(/);
   assert.match(
     wgsl,
-    /VKF_DIRECT_SHADOW_BOUNDS_MIN: vec3<f32> = vec3<f32>\(-4\.09999990, -4\.00000000, 0\.00000000\)/,
+    /VKF_DIRECT_SHADOW_BOUNDS_MIN: vec3<f32> = vec3<f32>\(-4\.00000000, -4\.00000000, 0\.00000000\)/,
+    "an emitter must not expand the scene bounds fitted from its own eye",
   );
   assert.match(
     wgsl,
-    /VKF_DIRECT_SHADOW_BOUNDS_MAX: vec3<f32> = vec3<f32>\(4\.00000000, 10\.00000000, 5\.00000000\)/,
+    /VKF_DIRECT_SHADOW_BOUNDS_MAX: vec3<f32> = vec3<f32>\(4\.00000000, 10\.00000000, 3\.50000000\)/,
+    "an emitter must not expand the scene bounds fitted from its own eye",
+  );
+  assert.match(
+    wgsl,
+    /fn vkf_object_contributes_shadow_bounds\(object_index: u32\) -> bool \{[\s\S]*if \(object_index == 2u\) \{ return false; \}/,
+    "the moving emitter object must be excluded from dynamic shadow-bound refits",
+  );
+  assert.match(
+    wgsl,
+    /if \(!vkf_object_contributes_shadow_bounds\(object_index\)\) \{\s*continue;/,
+    "dynamic shadow bounds must apply the emitter exclusion",
   );
   assert.doesNotMatch(
     wgsl,

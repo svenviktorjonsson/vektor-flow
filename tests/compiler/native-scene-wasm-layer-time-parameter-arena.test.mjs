@@ -99,6 +99,11 @@ test("two opposite emissive p_t Layers update only parameters", async () => {
   assert.equal(compilerRuns, 4, "one compiler pipeline must produce the runtime");
 
   const runtime = runtimeBridge.instantiateWasmRuntime({ bytes: wasm, manifest });
+  assert.deepEqual(manifest.runtime_surface.temporal_playback, {
+    schema: "vektor-flow/layer-time-playback",
+    version: 1,
+    changed_parameter_sections: ["objects", "lights"],
+  }, "compiled p_t Layers must declare their live playback contract");
   runtime.init();
   const parameters = runtime.renderParameterArena();
   const topology = runtime.retainedSceneArena();
@@ -110,6 +115,14 @@ test("two opposite emissive p_t Layers update only parameters", async () => {
   const leftVertices = topologyAdapter.mesh("left_emitter").vertices;
   const rightVertices = topologyAdapter.mesh("right_emitter").vertices;
   const descriptorBefore = structuredClone(parameters.descriptor);
+  for (const drawList of descriptorBefore.draw_lists) {
+    assert.equal(
+      drawList.entries.some(({ mesh_id }) =>
+        mesh_id === "left_emitter" || mesh_id === "right_emitter"),
+      false,
+      "point emitters use the dedicated smooth source pass, not duplicate point geometry",
+    );
+  }
   const parameterPointer = parameters.byteOffset;
   const parameterLength = parameters.byteLength;
 
