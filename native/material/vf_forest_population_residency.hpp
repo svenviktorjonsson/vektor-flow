@@ -321,27 +321,33 @@ RealizeForestPopulationReference(
     };
 }
 
+inline void ValidateForestPopulationTreeForPackingReference(
+    const ForestPopulationTree& tree
+) {
+    const bool finite_position = std::all_of(
+        tree.position.begin(),
+        tree.position.end(),
+        [](double value) { return std::isfinite(value); }
+    );
+    if (!finite_position || !std::isfinite(tree.age) ||
+        tree.age < 0.0f || tree.age > 1.0f ||
+        !std::isfinite(tree.size) || tree.size < 0.0f ||
+        tree.size > 1.0f || !std::isfinite(tree.health) ||
+        tree.health < 0.0f || tree.health > 1.0f ||
+        !std::isfinite(tree.orientation) ||
+        !std::isfinite(tree.environment_variation) ||
+        !std::isfinite(tree.individual_variation)) {
+        throw std::domain_error(
+            "forest packet contains invalid tree marks"
+        );
+    }
+}
+
 inline void ValidateForestPopulationForPacking(
     const ForestPopulationRealization& realization
 ) {
     for (const auto& tree : realization.trees) {
-        const bool finite_position = std::all_of(
-            tree.position.begin(),
-            tree.position.end(),
-            [](double value) { return std::isfinite(value); }
-        );
-        if (!finite_position || !std::isfinite(tree.age) ||
-            tree.age < 0.0f || tree.age > 1.0f ||
-            !std::isfinite(tree.size) || tree.size < 0.0f ||
-            tree.size > 1.0f || !std::isfinite(tree.health) ||
-            tree.health < 0.0f || tree.health > 1.0f ||
-            !std::isfinite(tree.orientation) ||
-            !std::isfinite(tree.environment_variation) ||
-            !std::isfinite(tree.individual_variation)) {
-            throw std::domain_error(
-                "forest packet contains invalid tree marks"
-            );
-        }
+        ValidateForestPopulationTreeForPackingReference(tree);
     }
 }
 

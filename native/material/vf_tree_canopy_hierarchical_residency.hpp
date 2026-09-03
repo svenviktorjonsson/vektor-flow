@@ -316,29 +316,35 @@ RealizeTreeCanopyHierarchicalReference(
     };
 }
 
+inline void ValidateTreeCanopySampleForPackingReference(
+    const TreeCanopyHierarchicalSample& sample
+) {
+    const bool passive_color = std::all_of(
+        sample.base_color.begin(),
+        sample.base_color.end(),
+        [](float value) {
+            return std::isfinite(value) &&
+                value >= 0.0f && value <= 1.0f;
+        }
+    );
+    if (!passive_color || !std::isfinite(sample.roughness) ||
+        sample.roughness < 0.0f || sample.roughness > 1.0f ||
+        !std::isfinite(sample.reflectivity) ||
+        sample.reflectivity < 0.0f ||
+        sample.reflectivity > 1.0f ||
+        !std::isfinite(sample.radius) || sample.radius <= 0.0f ||
+        !std::isfinite(sample.extent) || sample.extent <= 0.0f) {
+        throw std::domain_error(
+            "tree canopy packet contains invalid material"
+        );
+    }
+}
+
 inline void ValidateTreeCanopyForPacking(
     const TreeCanopyHierarchicalRealization& realization
 ) {
     for (const auto& sample : realization.samples) {
-        const bool passive_color = std::all_of(
-            sample.base_color.begin(),
-            sample.base_color.end(),
-            [](float value) {
-                return std::isfinite(value) &&
-                    value >= 0.0f && value <= 1.0f;
-            }
-        );
-        if (!passive_color || !std::isfinite(sample.roughness) ||
-            sample.roughness < 0.0f || sample.roughness > 1.0f ||
-            !std::isfinite(sample.reflectivity) ||
-            sample.reflectivity < 0.0f ||
-            sample.reflectivity > 1.0f ||
-            !std::isfinite(sample.radius) || sample.radius <= 0.0f ||
-            !std::isfinite(sample.extent) || sample.extent <= 0.0f) {
-            throw std::domain_error(
-                "tree canopy packet contains invalid material"
-            );
-        }
+        ValidateTreeCanopySampleForPackingReference(sample);
     }
     const auto energy =
         EvaluateTreeCanopyEnergyReference(realization.samples);

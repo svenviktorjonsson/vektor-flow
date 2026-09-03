@@ -279,11 +279,160 @@ inline void ValidateForestTreeMaterialPipelineForPacking(
     );
 }
 
+struct ForestTreeEnergyValidationCursorReference {
+    const TreeWoodHierarchicalEnergy* expected;
+    std::size_t value_index;
+    float minimum;
+    float maximum;
+    std::size_t violations;
+};
+
+inline ForestTreeEnergyValidationCursorReference
+CreateForestTreeEnergyValidationCursorReference(
+    const TreeWoodHierarchicalEnergy& expected,
+    std::size_t sample_count
+) {
+    return {
+        &expected,
+        0,
+        sample_count == 0
+            ? 0.0f
+            : std::numeric_limits<float>::infinity(),
+        sample_count == 0
+            ? 0.0f
+            : -std::numeric_limits<float>::infinity(),
+        0,
+    };
+}
+
+inline void AccumulateForestTreeEnergyValidationReference(
+    ForestTreeEnergyValidationCursorReference& cursor,
+    float value
+) {
+    if (cursor.value_index >= cursor.expected->values.size() ||
+        cursor.expected->values[cursor.value_index] != value) {
+        throw std::domain_error(
+            "forest tree packet energy values changed"
+        );
+    }
+    ++cursor.value_index;
+    cursor.minimum = std::min(cursor.minimum, value);
+    cursor.maximum = std::max(cursor.maximum, value);
+    if (value < -1.0e-7f || value > 1.0f + 1.0e-7f) {
+        ++cursor.violations;
+    }
+}
+
+inline void ValidateForestTreeWoodEnergySampleReference(
+    const TreeWoodHierarchicalSample& sample,
+    const std::array<float, 5>& cosine_probes,
+    ForestTreeEnergyValidationCursorReference& cursor
+) {
+    for (const float cosine : cosine_probes) {
+        const float one_minus = 1.0f - cosine;
+        const float square = one_minus * one_minus;
+        const float fifth = square * square * one_minus;
+        const float fresnel = sample.reflectivity +
+            (1.0f - sample.reflectivity) * fifth;
+        for (const float albedo : sample.base_color) {
+            AccumulateForestTreeEnergyValidationReference(
+                cursor,
+                fresnel + (1.0f - fresnel) * albedo
+            );
+        }
+    }
+}
+
+inline void ValidateForestTreeCanopyEnergySampleReference(
+    const TreeCanopyHierarchicalSample& sample,
+    const std::array<float, 5>& cosine_probes,
+    ForestTreeEnergyValidationCursorReference& cursor
+) {
+    for (const float cosine : cosine_probes) {
+        const float complement = 1.0f - cosine;
+        const float square = complement * complement;
+        const float fresnel = sample.reflectivity +
+            (1.0f - sample.reflectivity) *
+            square * square * complement;
+        for (const float channel : sample.base_color) {
+            AccumulateForestTreeEnergyValidationReference(
+                cursor,
+                fresnel + (1.0f - fresnel) * channel
+            );
+        }
+    }
+}
+
+inline void FinishForestTreeEnergyValidationReference(
+    const ForestTreeEnergyValidationCursorReference& cursor,
+    const std::array<float, 5>& cosine_probes,
+    const char* message
+) {
+    if (cursor.expected->cosine_probes != cosine_probes ||
+        cursor.value_index != cursor.expected->values.size() ||
+        cursor.minimum != cursor.expected->minimum ||
+        cursor.maximum != cursor.expected->maximum ||
+        cursor.violations != cursor.expected->violations ||
+        cursor.violations != 0 || cursor.minimum < 0.0f ||
+        cursor.maximum > 1.0f) {
+        throw std::domain_error(message);
+    }
+}
+
+inline void ValidateForestTreeMaterialPipelineDirectReference(
+    const ForestTreeMaterialPipelineRealization& realization
+) {
+    const TreeWoodHierarchicalEnergy defaults{};
+    auto wood = CreateForestTreeEnergyValidationCursorReference(
+        realization.wood_energy,
+        realization.bundles.size()
+    );
+    auto canopy = CreateForestTreeEnergyValidationCursorReference(
+        realization.canopy_energy,
+        realization.bundles.size() * 2
+    );
+    for (const auto& bundle : realization.bundles) {
+        ValidateForestPopulationTreeForPackingReference(
+            bundle.population
+        );
+        ValidateTreeWoodSampleForPackingReference(bundle.wood);
+        ValidateTreeCanopySampleForPackingReference(bundle.bark);
+        ValidateTreeCanopySampleForPackingReference(
+            bundle.foliage
+        );
+        ValidateForestTreeWoodEnergySampleReference(
+            bundle.wood,
+            defaults.cosine_probes,
+            wood
+        );
+        ValidateForestTreeCanopyEnergySampleReference(
+            bundle.bark,
+            defaults.cosine_probes,
+            canopy
+        );
+        ValidateForestTreeCanopyEnergySampleReference(
+            bundle.foliage,
+            defaults.cosine_probes,
+            canopy
+        );
+    }
+    FinishForestTreeEnergyValidationReference(
+        wood,
+        defaults.cosine_probes,
+        "tree/wood packet failed passive energy validation"
+    );
+    FinishForestTreeEnergyValidationReference(
+        canopy,
+        defaults.cosine_probes,
+        "tree canopy packet failed passive energy validation"
+    );
+}
+
 inline std::vector<std::uint8_t>
 PackForestTreeMaterialPipelineBytesDirectReference(
     const ForestTreeMaterialPipelineRealization& realization
 ) {
-    ValidateForestTreeMaterialPipelineForPacking(realization);
+    ValidateForestTreeMaterialPipelineDirectReference(realization);
     std::vector<std::uint8_t> bytes;
     bytes.reserve(
         realization.bundles.size() *
