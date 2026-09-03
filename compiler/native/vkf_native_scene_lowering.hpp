@@ -865,7 +865,38 @@ inline RenderEmission render_emission(const LiteralValue& owner) {
 
 inline constexpr std::uint32_t geometry_emitter_kind_code = 5;
 inline constexpr std::uint32_t reflected_emitter_view_kind_code = 2;
-inline constexpr std::uint32_t reflected_emitter_max_depth = 2;
+inline constexpr std::uint32_t planar_reflection_max_depth = 1;
+
+using PlanarReflectionPath = std::vector<std::size_t>;
+
+inline std::vector<PlanarReflectionPath> planar_reflection_paths(
+    std::size_t reflector_count,
+    std::uint32_t max_depth
+) {
+    std::vector<PlanarReflectionPath> paths;
+    if (max_depth == 0) return paths;
+    std::vector<PlanarReflectionPath> frontier;
+    for (std::size_t reflector_index = 0;
+         reflector_index < reflector_count; ++reflector_index) {
+        frontier.push_back(PlanarReflectionPath{reflector_index});
+        paths.push_back(frontier.back());
+    }
+    for (std::uint32_t depth = 2; depth <= max_depth; ++depth) {
+        std::vector<PlanarReflectionPath> next;
+        for (const auto& parent : frontier) {
+            for (std::size_t reflector_index = 0;
+                 reflector_index < reflector_count; ++reflector_index) {
+                if (reflector_index == parent.back()) continue;
+                auto child = parent;
+                child.push_back(reflector_index);
+                next.push_back(child);
+                paths.push_back(std::move(child));
+            }
+        }
+        frontier = std::move(next);
+    }
+    return paths;
+}
 
 struct GeometryEmitter {
     std::string id;
@@ -1245,32 +1276,12 @@ inline std::vector<GeometryReflector> geometry_reflectors(
 inline std::vector<GeometryEmitterView> geometry_emitter_views(
     const LiteralValue& root,
     std::uint32_t authored_light_count,
-    const std::vector<GeometryEmitter>& emitters
+    const std::vector<GeometryEmitter>& emitters,
+    std::uint32_t max_reflection_depth = planar_reflection_max_depth
 ) {
-    using ReflectionPath = std::vector<std::size_t>;
     const auto reflectors = geometry_reflectors(root);
-    std::vector<ReflectionPath> paths;
-    std::vector<ReflectionPath> frontier;
-    for (std::size_t reflector_index = 0;
-         reflector_index < reflectors.size(); ++reflector_index) {
-        frontier.push_back({reflector_index});
-        paths.push_back(frontier.back());
-    }
-    for (std::uint32_t depth = 2;
-         depth <= reflected_emitter_max_depth; ++depth) {
-        std::vector<ReflectionPath> next;
-        for (const auto& parent : frontier) {
-            for (std::size_t reflector_index = 0;
-                 reflector_index < reflectors.size(); ++reflector_index) {
-                if (reflector_index == parent.back()) continue;
-                auto child = parent;
-                child.push_back(reflector_index);
-                next.push_back(child);
-                paths.push_back(std::move(child));
-            }
-        }
-        frontier = std::move(next);
-    }
+    const auto paths = planar_reflection_paths(
+        reflectors.size(), max_reflection_depth);
 
     std::vector<GeometryEmitterView> views;
     const std::uint32_t emitter_count = static_cast<std::uint32_t>(
@@ -1278,7 +1289,7 @@ inline std::vector<GeometryEmitterView> geometry_emitter_views(
     for (std::size_t emitter_index = 0;
          emitter_index < emitters.size(); ++emitter_index) {
         const auto& emitter = emitters[emitter_index];
-        std::map<ReflectionPath, std::uint32_t> path_light_indices;
+        std::map<PlanarReflectionPath, std::uint32_t> path_light_indices;
         for (const auto& path : paths) {
             const std::uint32_t light_index = authored_light_count +
                 emitter_count + static_cast<std::uint32_t>(views.size());

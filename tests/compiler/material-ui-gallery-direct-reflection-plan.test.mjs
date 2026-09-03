@@ -35,7 +35,7 @@ function stage(name, input, args = []) {
   return result.stdout;
 }
 
-test("material gallery keeps floor and mirror reflections direct", async () => {
+test("material gallery terminates direct reflections without fallback textures", async () => {
   await mkdir(workRoot, { recursive: true });
   const sourcePath = path.join(
     repositoryRoot,
@@ -43,8 +43,7 @@ test("material gallery keeps floor and mirror reflections direct", async () => {
     "material_ui_gallery",
     "app.vkf",
   );
-  const source = await readFile(sourcePath, "utf8");
-  const tokens = stage("vkf_lexer_cursor_smoke", undefined, [source]);
+  const tokens = stage("vkf_lexer_cursor_smoke", undefined, ["--file", sourcePath]);
   const ast = stage("vkf_parser_token_stream_smoke", tokens);
   const typedIr = stage("vkf_ast_to_ir_smoke", ast);
   const typedIrPath = path.join(workRoot, "gallery.typed-ir.json");
@@ -77,38 +76,98 @@ test("material gallery keeps floor and mirror reflections direct", async () => {
   );
   assert.deepEqual(
     reflectionPasses.map(({ reflection_path }) => reflection_path),
-    [["studio_floor"], ["upright_mirror"]],
+    [
+      ["studio_floor"],
+      ["upright_mirror"],
+    ],
   );
-  assert.ok(reflectionPasses.every(({ reflection_sources }) =>
-    reflection_sources.every(({ target }) =>
-      target === "transparent_reflection_fallback"
-    )
-  ));
+  assert.ok(reflectionPasses.every((pass) =>
+    pass.pipeline === "retained_scene_terminal_hdr" &&
+    pass.fragment_entry === "vkf_terminal_scene_fragment" &&
+    pass.reflection_sources === undefined &&
+    pass.bind_resources.every((resource) => resource !== "reflection_sources") &&
+    pass.bind_groups.every(({ entries }) => entries.every(({ binding }) =>
+      binding !== 4 && binding !== 5
+    ))
+  ), "a terminal reflection pass must shade authored material without reflection bindings");
   assert.ok(render.targets.every(({ id }) =>
+    !id.includes("fallback") &&
     !id.includes("studio_floor__upright_mirror") &&
     !id.includes("upright_mirror__studio_floor")
   ));
+  assert.doesNotMatch(
+    JSON.stringify(render),
+    /fallback/iu,
+    "the reflection plan must not contain a fallback concept",
+  );
+  const scenePass = render.passes.find(({ kind }) => kind === "scene_color");
+  assert.equal(scenePass.terminal_pipeline, "retained_scene_terminal_hdr_msaa");
+  assert.ok(scenePass.terminal_bind_groups.every(({ entries }) =>
+    entries.every(({ binding }) => binding !== 4 && binding !== 5)
+  ), "non-reflective Scene Instances must use a pipeline with no reflection binding");
+  assert.ok(scenePass.terminal_bind_groups
+    .find(({ group }) => group === 2).entries
+    .every(({ binding }) => binding !== 2),
+  "terminal material shading must not bind the raw object transform arena");
+  assert.ok(scenePass.bind_groups
+    .find(({ group }) => group === 2).entries
+    .every(({ binding }) => binding !== 2),
+  "reflective shading must also consume only the derived Scene Instance transform");
+  assert.deepEqual(
+    scenePass.bind_groups.find(({ group }) => group === 3).entries
+      .map(({ binding, source }) => ({ binding, source })),
+    [{ binding: 2, source: "derived_objects" }],
+    "lighting must bind the one derived Scene Instance transform arena",
+  );
+  assert.match(wgsl, /fn vkf_terminal_scene_fragment\(/u);
+  assert.match(
+    wgsl,
+    /fn vkf_light_aperture_position\([\s\S]*let model = derived_objects\[light\.aperture_object_index\]\.value\.model;[\s\S]*return \(model \* vec4<f32>\(local_position, 1\.0\)\)\.xyz;/u,
+    "emitter apertures must reuse the Scene Instance transform derived once per frame",
+  );
+  assert.doesNotMatch(
+    wgsl,
+    /fn vkf_light_aperture_position\([\s\S]*raw_objects\[object_base/su,
+    "lighting must not reconstruct a second transform from raw object fields",
+  );
   assert.equal(render.emitter_sources.length, 2);
-  assert.equal(render.emitter_views.length, 8);
+  assert.deepEqual(
+    render.emitter_views.map(({ source_id, reflection_path }) => ({
+      source_id,
+      reflection_path,
+    })),
+    [
+      { source_id: "red_emitter", reflection_path: ["studio_floor"] },
+      { source_id: "red_emitter", reflection_path: ["upright_mirror"] },
+      { source_id: "green_emitter", reflection_path: ["studio_floor"] },
+      { source_id: "green_emitter", reflection_path: ["upright_mirror"] },
+    ],
+    "visual reflections and reflected LightViews must consume the same " +
+      "canonical direct optical paths",
+  );
   assert.equal(
     render.passes.filter(({ kind }) => kind === "shadow_depth").length,
-    10,
-    "both physical sources and their reflected views must cast shadows",
-  );
-  assert.match(wgsl, /fn vkf_reflect_direction\(/u);
-  assert.match(
-    wgsl,
-    /fn vkf_aperture_normal\([\s\S]*aperture_vertices\[base \+ 3u\][\s\S]*plane_normal_sum = plane_normal_sum \+ vkf_aperture_normal\(vertex_index\)/u,
-    "grid-backed reflectors must derive their plane from retained vertex normals",
+    6,
+    "both emitters and their direct floor/mirror views cast shadows",
   );
   assert.match(
     wgsl,
-    /let reflected_up = vkf_safe_normalize\(vkf_reflect_direction\([\s\S]*camera_up[\s\S]*plane_normal\)\);[\s\S]*vkf_look_at\([\s\S]*reflected_up/u,
-    "a horizontal floor reflection must reflect the camera up direction with the observer",
+    /plane_normal_sum = plane_normal_sum \+ cross\([\s\S]*vkf_aperture_position\(triangle_index\) - aperture_0,[\s\S]*vkf_aperture_position\(triangle_index \+ 1u\) - aperture_0/u,
+    "floor and mirror planes must come from their transformed aperture positions",
+  );
+  assert.doesNotMatch(
+    wgsl,
+    /fn vkf_aperture_normal\(/u,
+    "reflection cameras must not replace Geometry truth with stale vertex normals",
   );
   assert.match(
     wgsl,
-    /let texture_y_orientation = select\([\s\S]*dot\(reflected_up, camera_up\)[\s\S]*mirror_view_position\[pass_state\.camera_state_index\][\s\S]*texture_y_orientation[\s\S]*mirror_ndc\.y \* 0\.5 \* texture_y_orientation/u,
-    "horizontal and upright reflectors must preserve their own texture orientation",
+    /let reflected_view = vkf_look_at\([\s\S]*reflected_eye,[\s\S]*reflected_target,[\s\S]*vec3<f32>\(raw_camera\[6\], raw_camera\[7\], raw_camera\[8\]\)/u,
+    "reflected cameras must preserve the authored world-up direction",
+  );
+  assert.doesNotMatch(
+    wgsl,
+    /texture_y_orientation|reflected_up/u,
+    "reflection sampling must not apply a second orientation transform",
   );
 });

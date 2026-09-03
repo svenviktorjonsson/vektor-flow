@@ -167,36 +167,7 @@ struct ModulePlan {
     bool dom_only = false;
 };
 
-using ReflectionPath = std::vector<std::size_t>;
-
-std::vector<ReflectionPath> build_reflection_paths(
-    const ModulePlan::RetainedSceneFeatures& scene
-) {
-    std::vector<ReflectionPath> paths;
-    std::vector<ReflectionPath> frontier;
-    for (std::size_t surface_index = 0;
-         surface_index < scene.reflective_surfaces.size(); ++surface_index) {
-        frontier.push_back(ReflectionPath{surface_index});
-        paths.push_back(frontier.back());
-    }
-    for (std::uint32_t depth = 2; depth <= scene.max_reflection_depth;
-         ++depth) {
-        std::vector<ReflectionPath> next;
-        for (const auto& parent : frontier) {
-            for (std::size_t surface_index = 0;
-                 surface_index < scene.reflective_surfaces.size();
-                 ++surface_index) {
-                if (surface_index == parent.back()) continue;
-                auto child = parent;
-                child.push_back(surface_index);
-                next.push_back(child);
-                paths.push_back(std::move(child));
-            }
-        }
-        frontier = std::move(next);
-    }
-    return paths;
-}
+using ReflectionPath = vkf::native_scene::PlanarReflectionPath;
 
 std::string reflection_path_token(
     const ReflectionPath& path,
@@ -477,7 +448,8 @@ void collect_retained_scene_entities(
     }
     if (!features.reflective_surfaces.empty()) {
         features.planar_mirror = true;
-        features.max_reflection_depth = 1;
+        features.max_reflection_depth =
+            vkf::native_scene::planar_reflection_max_depth;
     }
     features.object_count = object_index;
     const auto* lights = vkf::native_scene::object_field(root, "lights");
@@ -586,7 +558,8 @@ void collect_retained_scene_entities(
     }
     const auto emitter_views = derive_reflected_emitter_views
         ? vkf::native_scene::geometry_emitter_views(
-            root, authored_light_count, emitters)
+            root, authored_light_count, emitters,
+            features.max_reflection_depth)
         : std::vector<vkf::native_scene::GeometryEmitterView>{};
     for (const auto& view : emitter_views) {
         ModulePlan::RetainedSceneFeatures::Light light;
@@ -1630,8 +1603,10 @@ std::string emit_wgsl(const ModulePlan& plan) {
             formatted << static_cast<float>(value);
             return formatted.str();
         };
-        const auto reflection_paths = build_reflection_paths(
-            plan.retained_scene);
+        const auto reflection_paths =
+            vkf::native_scene::planar_reflection_paths(
+                plan.retained_scene.reflective_surfaces.size(),
+                plan.retained_scene.max_reflection_depth);
         const std::size_t shadow_light_count = std::max<std::size_t>(
             1, retained_shadow_view_count(plan.retained_scene));
         const std::size_t reflection_camera_count = std::max<std::size_t>(
@@ -1852,7 +1827,8 @@ struct DerivedObjectSlot {
 };
 @group(3) @binding(0) var<storage, read_write> derived_scene: SceneCamera;
 @group(3) @binding(1) var<storage, read_write> derived_lights: array<SceneLight>;
-@group(3) @binding(2) var<storage, read_write> derived_objects: array<DerivedObjectSlot>;
+@group(3) @binding(2) var<storage, read> derived_objects: array<DerivedObjectSlot>;
+@group(3) @binding(3) var<storage, read_write> derived_objects_write: array<DerivedObjectSlot>;
 
 )wgsl";
         out << "const VKF_OBJECT_COUNT: u32 = "
@@ -2066,19 +2042,6 @@ fn vkf_aperture_position(vertex_index: u32) -> vec3<f32> {
   );
   return (derived_objects[pass_state.object_index].value.model *
     vec4<f32>(local_position, 1.0)).xyz;
-}
-
-fn vkf_aperture_normal(vertex_index: u32) -> vec3<f32> {
-  let base = pass_state.aperture_float_offset +
-    vertex_index * pass_state.aperture_vertex_stride_floats;
-  let local_normal = vec3<f32>(
-    aperture_vertices[base + 3u],
-    aperture_vertices[base + 4u],
-    aperture_vertices[base + 5u]
-  );
-  return vkf_safe_normalize((
-    derived_objects[pass_state.object_index].value.normal_matrix *
-    vec4<f32>(local_normal, 0.0)).xyz);
 }
 
 fn vkf_aperture_near_plane(
@@ -2511,41 +2474,41 @@ fn vkf_prepare_frame(@builtin(global_invocation_id) invocation: vec3<u32>) {
     let rotation = vkf_rotation_matrix(vec3<f32>(
       raw_objects[base + 6u], raw_objects[base + 7u],
       raw_objects[base + 8u]));
-    derived_objects[item_index].value.model =
+    derived_objects_write[item_index].value.model =
       vkf_translation_matrix(center) * rotation * vkf_scale_matrix(scale);
-    derived_objects[item_index].value.normal_matrix = rotation *
+    derived_objects_write[item_index].value.normal_matrix = rotation *
       vkf_scale_matrix(vec3<f32>(1.0) /
         max(abs(scale), vec3<f32>(1.0e-6)));
-    derived_objects[item_index].value.base_color = vec4<f32>(
+    derived_objects_write[item_index].value.base_color = vec4<f32>(
       raw_objects[base + 9u], raw_objects[base + 10u],
       raw_objects[base + 11u], raw_objects[base + 12u]);
-    derived_objects[item_index].value.checker_color_a = vec4<f32>(
+    derived_objects_write[item_index].value.checker_color_a = vec4<f32>(
       raw_objects[base + 13u], raw_objects[base + 14u],
       raw_objects[base + 15u], raw_objects[base + 16u]);
-    derived_objects[item_index].value.checker_color_b = vec4<f32>(
+    derived_objects_write[item_index].value.checker_color_b = vec4<f32>(
       raw_objects[base + 17u], raw_objects[base + 18u],
       raw_objects[base + 19u], raw_objects[base + 20u]);
-    derived_objects[item_index].value.checker_scale = vec2<f32>(
+    derived_objects_write[item_index].value.checker_scale = vec2<f32>(
       raw_objects[base + 21u], raw_objects[base + 22u]);
-    derived_objects[item_index].value.reflectivity = raw_objects[base + 23u];
-    derived_objects[item_index].value.receives_shadow =
+    derived_objects_write[item_index].value.reflectivity = raw_objects[base + 23u];
+    derived_objects_write[item_index].value.receives_shadow =
       u32(raw_objects[base + 24u]);
-    derived_objects[item_index].value.texture_kind =
+    derived_objects_write[item_index].value.texture_kind =
       u32(raw_objects[base + 25u]);
-    derived_objects[item_index].value.reflection_depth = 0u;
-    derived_objects[item_index].value.roughness =
+    derived_objects_write[item_index].value.reflection_depth = 0u;
+    derived_objects_write[item_index].value.roughness =
       clamp(raw_objects[base + 26u], 0.02, 1.0);
-    derived_objects[item_index].value.specular_strength =
+    derived_objects_write[item_index].value.specular_strength =
       max(raw_objects[base + 27u], 0.0);
-    derived_objects[item_index].value.no_backface_specular =
+    derived_objects_write[item_index].value.no_backface_specular =
       u32(raw_objects[base + 28u]);
-    derived_objects[item_index].value.surface_kind =
+    derived_objects_write[item_index].value.surface_kind =
       u32(raw_objects[base + 29u]);
-    derived_objects[item_index].value.reflection_camera_index =
+    derived_objects_write[item_index].value.reflection_camera_index =
       vkf_reflection_camera_slot(item_index);
-    derived_objects[item_index].value.object_index = item_index;
-    derived_objects[item_index].value.ior = raw_objects[base + 30u];
-    derived_objects[item_index].value.extinction = raw_objects[base + 31u];
+    derived_objects_write[item_index].value.object_index = item_index;
+    derived_objects_write[item_index].value.ior = raw_objects[base + 30u];
+    derived_objects_write[item_index].value.extinction = raw_objects[base + 31u];
   }
 }
 
@@ -2580,10 +2543,13 @@ fn vkf_prepare_reflection_camera() {
   }
   aperture_center = aperture_center / f32(pass_state.aperture_vertex_count);
   var plane_normal_sum = vec3<f32>(0.0);
-  for (var vertex_index = 0u;
-       vertex_index < pass_state.aperture_vertex_count;
-       vertex_index = vertex_index + 1u) {
-    plane_normal_sum = plane_normal_sum + vkf_aperture_normal(vertex_index);
+  for (var triangle_index = 1u;
+       triangle_index + 1u < pass_state.aperture_vertex_count;
+       triangle_index = triangle_index + 1u) {
+    plane_normal_sum = plane_normal_sum + cross(
+      vkf_aperture_position(triangle_index) - aperture_0,
+      vkf_aperture_position(triangle_index + 1u) - aperture_0
+    );
   }
   let plane_normal = vkf_safe_normalize(plane_normal_sum);
   let parent_camera_index = vkf_reflection_parent_slot(
@@ -2597,17 +2563,10 @@ fn vkf_prepare_reflection_camera() {
   let reflected_eye = vkf_reflect_point(eye, aperture_0, plane_normal);
   let reflected_target = vkf_reflect_point(
     focus_point, aperture_0, plane_normal);
-  let camera_up = vkf_safe_normalize(vec3<f32>(
-    raw_camera[6], raw_camera[7], raw_camera[8]));
-  let reflected_up = vkf_safe_normalize(vkf_reflect_direction(
-    camera_up,
-    plane_normal));
-  let texture_y_orientation = select(
-    -1.0, 1.0, dot(reflected_up, camera_up) >= 0.0);
   let reflected_view = vkf_look_at(
     reflected_eye,
     reflected_target,
-    reflected_up
+    vec3<f32>(raw_camera[6], raw_camera[7], raw_camera[8])
   );
   derived_scene.mirror_view_projection[pass_state.camera_state_index] =
     vkf_off_axis_projection(
@@ -2616,7 +2575,7 @@ fn vkf_prepare_reflection_camera() {
       max(raw_camera[11], raw_camera[10] + 0.01)
     ) * reflected_view;
   derived_scene.mirror_view_position[pass_state.camera_state_index] =
-    vec4<f32>(reflected_eye, texture_y_orientation);
+    vec4<f32>(reflected_eye, 1.0);
   derived_scene.mirror_view_target[pass_state.camera_state_index] =
     vec4<f32>(reflected_target, 1.0);
 
@@ -3044,18 +3003,7 @@ fn vkf_light_aperture_position(
     aperture_vertices[base + 1u],
     aperture_vertices[base + 2u]
   );
-  let object_base = light.aperture_object_index * 32u;
-  let center = vec3<f32>(
-    raw_objects[object_base], raw_objects[object_base + 1u],
-    raw_objects[object_base + 2u]);
-  let scale = vec3<f32>(
-    raw_objects[object_base + 3u], raw_objects[object_base + 4u],
-    raw_objects[object_base + 5u]);
-  let rotation = vkf_rotation_matrix(vec3<f32>(
-    raw_objects[object_base + 6u], raw_objects[object_base + 7u],
-    raw_objects[object_base + 8u]));
-  let model = vkf_translation_matrix(center) * rotation *
-    vkf_scale_matrix(scale);
+  let model = derived_objects[light.aperture_object_index].value.model;
   return (model * vec4<f32>(local_position, 1.0)).xyz;
 }
 
@@ -3152,11 +3100,7 @@ fn vkf_planar_reflection(
       mirror_ndc.z < 0.0 || mirror_ndc.z > 1.0) {
     return vec4<f32>(0.0);
   }
-  let texture_y_orientation = scene.mirror_view_position[
-    reflection_camera_index].w;
-  let uv = vec2<f32>(
-    mirror_ndc.x * 0.5 + 0.5,
-    0.5 - mirror_ndc.y * 0.5 * texture_y_orientation);
+  let uv = vec2<f32>(mirror_ndc.x * 0.5 + 0.5, 0.5 - mirror_ndc.y * 0.5);
   return textureSampleLevel(
     planar_reflection_texture, planar_reflection_sampler, uv, 0.0);
 }
@@ -3205,18 +3149,10 @@ fn vkf_reflect_stokes(
   );
 }
 
-@fragment
-fn vkf_scene_fragment(
+fn vkf_shade_authored_material(
   input: SceneVertexOut,
-  @builtin(front_facing) front_facing: bool,
-) -> @location(0) vec4<f32> {
-)wgsl";
-        out << R"wgsl(  if (object.surface_kind == 2u &&
-      pass_state.reflection_depth >= VKF_MAX_REFLECTION_DEPTH) {
-    return textureSampleLevel(
-      planar_reflection_texture, planar_reflection_sampler,
-      vec2<f32>(0.5), 0.0);
-  }
+  front_facing: bool,
+) -> vec4<f32> {
 )wgsl";
         out << R"wgsl(  var material_color = input.color;
 )wgsl";
@@ -3304,10 +3240,27 @@ fn vkf_scene_fragment(
     specular_rgb = specular_rgb + radiance * specular;
   }
 )wgsl";
-        out << R"wgsl(  var shaded = material_color.rgb *
+        out << R"wgsl(  let shaded = material_color.rgb *
     (scene.ambient.rgb + diffuse_rgb) + specular_rgb;
-)wgsl";
-        out << R"wgsl(  let mirror_front_visible =
+  return vec4<f32>(shaded, material_color.a);
+}
+
+@fragment
+fn vkf_terminal_scene_fragment(
+  input: SceneVertexOut,
+  @builtin(front_facing) front_facing: bool,
+) -> @location(0) vec4<f32> {
+  return vkf_shade_authored_material(input, front_facing);
+}
+
+@fragment
+fn vkf_scene_fragment(
+  input: SceneVertexOut,
+  @builtin(front_facing) front_facing: bool,
+) -> @location(0) vec4<f32> {
+  let material = vkf_shade_authored_material(input, front_facing);
+  var shaded = material.rgb;
+  let mirror_front_visible =
     object.surface_kind != 2u || front_facing;
   if (object.reflectivity > 0.0 && mirror_front_visible &&
       object.reflection_depth <= 2u) {
@@ -3316,8 +3269,7 @@ fn vkf_scene_fragment(
     let reflection_coverage = object.reflectivity * reflected.a;
     shaded = mix(shaded, reflected.rgb, reflection_coverage);
   }
-)wgsl";
-        out << R"wgsl(  return vec4<f32>(shaded, material_color.a);
+  return vec4<f32>(shaded, material.a);
 }
 )wgsl";
         if (plan.retained_scene.light_flares) {
@@ -3738,8 +3690,10 @@ vf::JsonValue::Object manifest_payload(
     manifest["dependencies"] = vf::JsonValue(std::move(deps));
     vf::JsonValue::Object runtime_surface;
     if (plan.retained_scene_render) {
-        const auto reflection_paths = build_reflection_paths(
-            plan.retained_scene);
+        const auto reflection_paths =
+            vkf::native_scene::planar_reflection_paths(
+                plan.retained_scene.reflective_surfaces.size(),
+                plan.retained_scene.max_reflection_depth);
         runtime_surface["update_mode"] = vf::JsonValue("retained_scene_render");
         runtime_surface["camera_binding"] = vf::JsonValue(0.0);
         runtime_surface["vertex_entry"] = vf::JsonValue("vkf_scene_vertex");
@@ -3976,9 +3930,35 @@ vf::JsonValue::Object manifest_payload(
             {"cull_mode", vf::JsonValue("none")},
         }));
         pipelines.push_back(vf::JsonValue(vf::JsonValue::Object{
+            {"id", vf::JsonValue("retained_scene_terminal_hdr")},
+            {"vertex_entry", vf::JsonValue("vkf_reflection_vertex")},
+            {"fragment_entry", vf::JsonValue(
+                "vkf_terminal_scene_fragment")},
+            {"depth_write", vf::JsonValue(true)},
+            {"color_target", vf::JsonValue(true)},
+            {"color_format", vf::JsonValue("rgba16float")},
+            {"sample_count", vf::JsonValue(1.0)},
+            {"depth_format", vf::JsonValue("depth32float")},
+            {"depth_compare", vf::JsonValue("less")},
+            {"cull_mode", vf::JsonValue("none")},
+        }));
+        pipelines.push_back(vf::JsonValue(vf::JsonValue::Object{
             {"id", vf::JsonValue("retained_scene_hdr_msaa")},
             {"vertex_entry", vf::JsonValue("vkf_scene_vertex")},
             {"fragment_entry", vf::JsonValue("vkf_scene_fragment")},
+            {"depth_write", vf::JsonValue(true)},
+            {"color_target", vf::JsonValue(true)},
+            {"color_format", vf::JsonValue("rgba16float")},
+            {"sample_count", vf::JsonValue(4.0)},
+            {"depth_format", vf::JsonValue("depth32float")},
+            {"depth_compare", vf::JsonValue("less")},
+            {"cull_mode", vf::JsonValue("none")},
+        }));
+        pipelines.push_back(vf::JsonValue(vf::JsonValue::Object{
+            {"id", vf::JsonValue("retained_scene_terminal_hdr_msaa")},
+            {"vertex_entry", vf::JsonValue("vkf_scene_vertex")},
+            {"fragment_entry", vf::JsonValue(
+                "vkf_terminal_scene_fragment")},
             {"depth_write", vf::JsonValue(true)},
             {"color_target", vf::JsonValue(true)},
             {"color_format", vf::JsonValue("rgba16float")},
@@ -4218,16 +4198,6 @@ vf::JsonValue::Object manifest_payload(
                 "depth", "depth32float", reflection_scale);
         }
         targets.push_back(vf::JsonValue(vf::JsonValue::Object{
-            {"id", vf::JsonValue("transparent_reflection_fallback")},
-            {"kind", vf::JsonValue("color")},
-            {"format", vf::JsonValue("rgba16float")},
-            {"size_policy", vf::JsonValue("fixed")},
-            {"width", vf::JsonValue(1.0)},
-            {"height", vf::JsonValue(1.0)},
-            {"sample_count", vf::JsonValue(1.0)},
-            {"initial_clear_value", vf::JsonValue(background_clear())},
-        }));
-        targets.push_back(vf::JsonValue(vf::JsonValue::Object{
             {"id", vf::JsonValue("scene_hdr_msaa")},
             {"kind", vf::JsonValue("color")},
             {"format", vf::JsonValue("rgba16float")},
@@ -4311,12 +4281,29 @@ vf::JsonValue::Object manifest_payload(
                         std::max<std::uint32_t>(1u,
                             static_cast<std::uint32_t>(
                                 plan.retained_scene.lights.size())) * 112u))),
-                bind_entry(2.0, "derived_objects", "storage_buffer",
+                bind_entry(3.0, "derived_objects", "storage_buffer",
                     vf::JsonValue(static_cast<double>(
                         std::max<std::uint32_t>(1u,
                             plan.retained_scene.object_count) * 256u))),
             }));
             return groups;
+        };
+        const auto derived_compute_read_bind_group = [&]() {
+            return bind_group(3.0, vf::JsonValue::Array{
+                bind_entry(0.0, "derived_scene", "storage_buffer",
+                    vf::JsonValue(static_cast<double>(
+                        derived_scene_byte_size))),
+                bind_entry(1.0, "derived_lights", "storage_buffer",
+                    vf::JsonValue(static_cast<double>(
+                        std::max<std::uint32_t>(1u,
+                            static_cast<std::uint32_t>(
+                                plan.retained_scene.lights.size())) * 112u))),
+                bind_entry(2.0, "derived_objects",
+                    "read_only_storage_buffer",
+                    vf::JsonValue(static_cast<double>(
+                        std::max<std::uint32_t>(1u,
+                            plan.retained_scene.object_count) * 256u))),
+            });
         };
         const auto compute_shadow_view_bind_groups = [&]() {
             vf::JsonValue::Array groups;
@@ -4328,8 +4315,7 @@ vf::JsonValue::Object manifest_payload(
                     "read_only_storage_buffer",
                     vf::JsonValue("section.byte_length")),
             }));
-            auto derived = compute_frame_bind_groups();
-            groups.push_back(std::move(derived[1]));
+            groups.push_back(derived_compute_read_bind_group());
             return groups;
         };
         const auto compute_reflection_bind_groups = [&]() {
@@ -4349,13 +4335,13 @@ vf::JsonValue::Object manifest_payload(
                     "read_only_storage_buffer",
                     vf::JsonValue("arena.byte_length")),
             }));
-            auto derived = compute_frame_bind_groups();
-            groups.push_back(std::move(derived[1]));
+            groups.push_back(derived_compute_read_bind_group());
             return groups;
         };
         const auto render_bind_groups = [&](const std::string& reflection,
                                              bool with_lighting,
-                                             bool with_pass_state) {
+                                             bool with_pass_state,
+                                             bool with_raw_objects) {
             vf::JsonValue::Array group0;
             group0.push_back(bind_entry(0.0, "derived_scene",
                 "uniform_buffer", vf::JsonValue(static_cast<double>(
@@ -4371,11 +4357,13 @@ vf::JsonValue::Object manifest_payload(
                 group0.push_back(bind_entry(3.0,
                     "shadow_comparison_sampler", "comparison_sampler",
                     vf::JsonValue(nullptr)));
-                group0.push_back(bind_entry(4.0, reflection,
-                    "sampled_texture_2d", vf::JsonValue(nullptr)));
-                group0.push_back(bind_entry(5.0,
-                    "planar_reflection_sampler", "filtering_sampler",
-                    vf::JsonValue(nullptr)));
+                if (!reflection.empty()) {
+                    group0.push_back(bind_entry(4.0, reflection,
+                        "sampled_texture_2d", vf::JsonValue(nullptr)));
+                    group0.push_back(bind_entry(5.0,
+                        "planar_reflection_sampler", "filtering_sampler",
+                        vf::JsonValue(nullptr)));
+                }
             }
             if (with_pass_state) {
                 group0.push_back(bind_entry(6.0, "pass_state_arena",
@@ -4388,13 +4376,24 @@ vf::JsonValue::Object manifest_payload(
                     vf::JsonValue(256.0), false),
             }));
             if (with_lighting) {
-                groups.push_back(bind_group(2.0, vf::JsonValue::Array{
-                    bind_entry(2.0, "render_parameter_arena.objects",
+                vf::JsonValue::Array group2;
+                if (with_raw_objects) {
+                    group2.push_back(bind_entry(2.0,
+                        "render_parameter_arena.objects",
                         "read_only_storage_buffer",
-                        vf::JsonValue("section.byte_length")),
-                    bind_entry(3.0, "retained_scene_arena",
+                        vf::JsonValue("section.byte_length")));
+                }
+                group2.push_back(bind_entry(3.0, "retained_scene_arena",
+                    "read_only_storage_buffer",
+                    vf::JsonValue("arena.byte_length")));
+                groups.push_back(bind_group(2.0, std::move(group2)));
+                groups.push_back(bind_group(3.0, vf::JsonValue::Array{
+                    bind_entry(2.0, "derived_objects",
                         "read_only_storage_buffer",
-                        vf::JsonValue("arena.byte_length")),
+                        vf::JsonValue(static_cast<double>(
+                            std::max<std::uint32_t>(1u,
+                                plan.retained_scene.object_count) *
+                            256u))),
                 }));
             }
             return groups;
@@ -4702,7 +4701,7 @@ vf::JsonValue::Object manifest_payload(
                         {"aperture_vertex_stride_floats", vf::JsonValue(0.0)},
                     })},
                     {"bind_groups", vf::JsonValue(
-                        render_bind_groups("", false, true))},
+                        render_bind_groups("", false, true, false))},
                 }));
                 ++shadow_layer;
                 }
@@ -4721,42 +4720,10 @@ vf::JsonValue::Object manifest_payload(
                     std::to_string(path.size());
                 const std::string target =
                     "planar_reflection_" + suffix;
-                vf::JsonValue::Array reflection_sources;
-                for (const auto& reflected_surface :
-                     plan.retained_scene.reflective_surfaces) {
-                    std::string reflected_target =
-                        "transparent_reflection_fallback";
-                    if (path.size() <
-                            plan.retained_scene.max_reflection_depth &&
-                        reflected_surface.object_index !=
-                            surface.object_index) {
-                        auto child_path = path;
-                        const auto reflected_surface_index = static_cast<
-                            std::size_t>(&reflected_surface -
-                                plan.retained_scene.reflective_surfaces.data());
-                        child_path.push_back(reflected_surface_index);
-                        reflected_target = "planar_reflection_" +
-                            reflection_path_token(child_path,
-                                plan.retained_scene, "__") + "_" +
-                            std::to_string(child_path.size());
-                    }
-                    reflection_sources.push_back(vf::JsonValue(
-                        vf::JsonValue::Object{
-                            {"surface_id", vf::JsonValue(
-                                reflected_surface.id)},
-                            {"object_index", vf::JsonValue(
-                                static_cast<double>(
-                                    reflected_surface.object_index))},
-                            {"target", vf::JsonValue(reflected_target)},
-                            {"group", vf::JsonValue(0.0)},
-                            {"binding", vf::JsonValue(4.0)},
-                            {"sampler", vf::JsonValue(
-                                "planar_reflection_sampler")},
-                        }));
-                }
                 passes.push_back(vf::JsonValue(vf::JsonValue::Object{
                     {"kind", vf::JsonValue("planar_reflection")},
-                    {"pipeline", vf::JsonValue("retained_scene_hdr")},
+                    {"pipeline", vf::JsonValue(
+                        "retained_scene_terminal_hdr")},
                     {"target", vf::JsonValue(target)},
                     {"color_attachment", vf::JsonValue(target)},
                     {"depth_attachment", vf::JsonValue(
@@ -4764,8 +4731,6 @@ vf::JsonValue::Object manifest_payload(
                     {"draw_list_id", vf::JsonValue(
                         "reflection_visible_" + surface.id + "_" +
                             std::to_string(depth))},
-                    {"reflection_sources", vf::JsonValue(
-                        std::move(reflection_sources))},
                     {"surface_id", vf::JsonValue(surface.id)},
                     {"reflection_path", reflection_path_json(path)},
                     {"object_index", vf::JsonValue(
@@ -4779,7 +4744,8 @@ vf::JsonValue::Object manifest_payload(
                         static_cast<double>(depth))},
                     {"vertex_entry", vf::JsonValue(
                         "vkf_reflection_vertex")},
-                    {"fragment_entry", vf::JsonValue("vkf_scene_fragment")},
+                    {"fragment_entry", vf::JsonValue(
+                        "vkf_terminal_scene_fragment")},
                     {"viewport", vf::JsonValue(vf::JsonValue::Object{
                         {"policy", vf::JsonValue("target")},
                     })},
@@ -4807,7 +4773,6 @@ vf::JsonValue::Object manifest_payload(
                         vf::JsonValue("draw_list:reflection_visible_" +
                             surface.id + "_" + std::to_string(depth)),
                         vf::JsonValue("shadow_depth"),
-                        vf::JsonValue("reflection_sources"),
                         vf::JsonValue("render_parameter_arena.objects"),
                         vf::JsonValue("retained_scene_arena"),
                     })},
@@ -4825,10 +4790,7 @@ vf::JsonValue::Object manifest_payload(
                         {"aperture_vertex_stride_floats", vf::JsonValue(0.0)},
                     })},
                     {"bind_groups", vf::JsonValue(
-                        render_bind_groups(
-                            "pass.reflection_sources_by_object",
-                            true,
-                            true))},
+                        render_bind_groups("", true, true, false))},
                 }));
                 if (plan.retained_scene.light_flares) {
                     passes.push_back(vf::JsonValue(vf::JsonValue::Object{
@@ -4987,6 +4949,8 @@ vf::JsonValue::Object manifest_payload(
         passes.push_back(vf::JsonValue(vf::JsonValue::Object{
             {"kind", vf::JsonValue("scene_color")},
             {"pipeline", vf::JsonValue("retained_scene_hdr_msaa")},
+            {"terminal_pipeline", vf::JsonValue(
+                "retained_scene_terminal_hdr_msaa")},
             {"target", vf::JsonValue("scene_hdr")},
             {"color_attachment", vf::JsonValue("scene_hdr_msaa")},
             {"resolve_target", vf::JsonValue("scene_hdr")},
@@ -4995,16 +4959,6 @@ vf::JsonValue::Object manifest_payload(
             {"reflection_sources", vf::JsonValue(
                 std::move(final_reflection_sources))},
             {"reflection_depth", vf::JsonValue(0.0)},
-            {"pass_state", vf::JsonValue(vf::JsonValue::Object{
-                {"camera_state_index", vf::JsonValue(0.0)},
-                {"reflection_depth", vf::JsonValue(0.0)},
-                {"light_index", vf::JsonValue(0.0)},
-                {"target_layer", vf::JsonValue(0.0)},
-                {"object_index", vf::JsonValue(0.0)},
-                {"aperture_float_offset", vf::JsonValue(0.0)},
-                {"aperture_vertex_count", vf::JsonValue(0.0)},
-                {"aperture_vertex_stride_floats", vf::JsonValue(0.0)},
-            })},
             {"vertex_entry", vf::JsonValue("vkf_scene_vertex")},
             {"fragment_entry", vf::JsonValue("vkf_scene_fragment")},
             {"viewport", vf::JsonValue(vf::JsonValue::Object{
@@ -5036,7 +4990,9 @@ vf::JsonValue::Object manifest_payload(
                 vf::JsonValue("retained_scene_arena"),
             })},
             {"bind_groups", vf::JsonValue(render_bind_groups(
-                "pass.reflection_sources_by_object", true, true))},
+                "pass.reflection_sources_by_object", true, false, false))},
+            {"terminal_bind_groups", vf::JsonValue(render_bind_groups(
+                "", true, false, false))},
         }));
         if (plan.retained_scene.light_flares) {
             passes.push_back(vf::JsonValue(vf::JsonValue::Object{
