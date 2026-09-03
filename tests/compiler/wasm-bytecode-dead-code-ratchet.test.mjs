@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
+import { createSymbolicKernel } from "../../web/vf-ui/vf-symbolic-kernel-runtime.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const nativeBin = process.env.VKF_NATIVE_COMPILER_BIN;
@@ -50,6 +51,42 @@ test("symbolic artifact lowers typed VKF through the bytecode VM", async () => {
   assert.equal(manifest.schema, "vektor-flow.symbolic-kernel");
   assert.equal(manifest.functions.square.parameters, 1);
   assert.deepEqual(Array.from((await readFile(wasm)).subarray(0, 4)), [0, 97, 115, 109]);
+});
+
+test("bytecode VM lowers assertions used by the self-hosted compiler", async () => {
+  await mkdir(workRoot, { recursive: true });
+  const source = path.join(workRoot, "checked.vkf");
+  const typedIr = path.join(workRoot, "checked.typed-ir.json");
+  const wasm = path.join(workRoot, "checked.wasm");
+  const manifestPath = path.join(workRoot, "checked.json");
+  await writeFile(source, [
+    "checked(x:num) -> num:",
+    '    (x > 0)?! "positive value required"',
+    "    x",
+    "",
+  ].join("\n"), "utf8");
+
+  const tokens = run("vkf_lexer_cursor_smoke", ["--file", source, source]);
+  const ast = run("vkf_parser_token_stream_smoke", [], tokens);
+  const lowered = run("vkf_ast_to_ir_smoke", [], ast);
+  await writeFile(typedIr, lowered, "utf8");
+  run("vkf_symbolic_kernel_artifact", [
+    "--typed-ir", typedIr,
+    "--wasm", wasm,
+    "--manifest", manifestPath,
+    "--entry", "checked",
+  ]);
+
+  const [{ instance }, manifest] = await Promise.all([
+    WebAssembly.instantiate(await readFile(wasm)),
+    readFile(manifestPath, "utf8").then(JSON.parse),
+  ]);
+  const kernel = createSymbolicKernel({ instance, manifest });
+  assert.equal(kernel.invokeValue("checked", [7]), 7);
+  assert.throws(
+    () => kernel.invokeValue("checked", [-1]),
+    /unreachable/u,
+  );
 });
 
 test("bytecode lowering retains no definition-only typed-IR wrapper", async () => {

@@ -1071,6 +1071,34 @@ private:
             state.returned = true;
             return ValueType::Void;
         }
+        if (kind == "assert_expr") {
+            lower_expression(
+                field(object, "condition", context),
+                state,
+                context + ".condition"
+            );
+            emit(state, Opcode::Duplicate, ValueType::Boolean);
+            const std::size_t failure_jump =
+                state.function->instructions.size();
+            emit(state, Opcode::JumpIfFalse, ValueType::Void);
+            const std::size_t success_jump =
+                state.function->instructions.size();
+            emit(state, Opcode::Jump, ValueType::Void);
+            const auto failure_target = checked_index(
+                state.function->instructions.size(),
+                "assertion failure"
+            );
+            emit(state, Opcode::Pop, ValueType::Void);
+            emit(state, Opcode::Trap, ValueType::Void);
+            const auto success_target = checked_index(
+                state.function->instructions.size(),
+                "assertion continuation"
+            );
+            emit(state, Opcode::Nop, ValueType::Void);
+            patch_jump(state, failure_jump, failure_target);
+            patch_jump(state, success_jump, success_target);
+            return ValueType::Boolean;
+        }
         if (kind == "binary_op") {
             const std::string op = string_field(object, "op", context);
             if (op == "AND" || op == "OR") {
