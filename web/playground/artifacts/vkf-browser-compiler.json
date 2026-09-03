@@ -1,0 +1,160 @@
+{
+  "functions": {
+    "__vkf_module_lexer__StringCursor": {
+      "index": 1,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer___append_tagged_token": {
+      "index": 20,
+      "parameters": 7,
+      "resultType": 1
+    },
+    "__vkf_module_lexer___lexer_cursor_at": {
+      "index": 13,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "__vkf_module_lexer___lexer_digit_value": {
+      "index": 15,
+      "parameters": 1,
+      "resultType": 2
+    },
+    "__vkf_module_lexer___lexer_scan_number": {
+      "index": 16,
+      "parameters": 7,
+      "resultType": 1
+    },
+    "__vkf_module_lexer___lexer_skip_identifier": {
+      "index": 14,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer___lexer_skip_number": {
+      "index": 18,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer___scan_tagged_statement_tokens": {
+      "index": 21,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "__vkf_module_lexer___string_cursor_advance": {
+      "index": 3,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer___string_cursor_peek": {
+      "index": 2,
+      "parameters": 1,
+      "resultType": 4
+    },
+    "__vkf_module_lexer__is_alpha": {
+      "index": 7,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__is_digit": {
+      "index": 4,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__is_ident_continue": {
+      "index": 8,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__is_identifier_start": {
+      "index": 11,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__is_lower": {
+      "index": 5,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__is_newline": {
+      "index": 10,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__is_number_start": {
+      "index": 12,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__is_upper": {
+      "index": 6,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__is_whitespace": {
+      "index": 9,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__number_token": {
+      "index": 17,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__tagged_statement_token_tape": {
+      "index": 22,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__tagged_token_tape": {
+      "index": 19,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_lexer__token": {
+      "index": 0,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "__vkf_module_mir__mir_tagged_dynamic_two_derived_bindings": {
+      "index": 25,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "__vkf_module_parser__parse_tagged_two_derived_bindings": {
+      "index": 23,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "__vkf_module_typed__typed_tagged_two_derived_bindings": {
+      "index": 24,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "__vkf_module_validation__machine_ir_numeric_opcode_depth": {
+      "index": 26,
+      "parameters": 2,
+      "resultType": 2
+    },
+    "__vkf_module_validation__machine_ir_numeric_opcode_tape_stack_maximum": {
+      "index": 27,
+      "parameters": 1,
+      "resultType": 2
+    },
+    "compile_tagged_dependency_tape": {
+      "index": 28,
+      "parameters": 1,
+      "resultType": 6
+    }
+  },
+  "memory": {
+    "argumentsCapacity": 16,
+    "argumentsPointer": 19136,
+    "bytecodeLength": 19133,
+    "bytecodePointer": 0,
+    "resultsCapacity": 1,
+    "resultsPointer": 19392
+  },
+  "schema": "vektor-flow.symbolic-kernel",
+  "version": 1,
+  "wasm": "vkf-browser-compiler.wasm"
+}

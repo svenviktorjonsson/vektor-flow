@@ -60,6 +60,7 @@
     "test": "node --test --test-concurrency=4 tests/js/*.test.cjs tests/js/*.test.mjs",
     "build:symbolic-kernel": "node tools/build-symbolic-kernel.mjs",
     "check:symbolic-kernel": "node tools/build-symbolic-kernel.mjs --check",
+    "build:browser-compiler": "node tools/build-browser-compiler.mjs",
     "test:stdlib-wasm": "node tools/verify-stdlib-wasm.mjs",
     "test:symbolic-benchmark-harness": "node --test benchmarks/symbolic-comparison/run.test.mjs",
     "test:linalg-benchmark-harness": "node --test benchmarks/linalg-comparison/run.test.mjs && node benchmarks/linalg-comparison/materialize-fixtures.mjs --check",
