@@ -1,0 +1,48 @@
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/configure-pages@v5
+      - name: Build native compiler and browser compiler
+        shell: pwsh
+        run: |
+          ./scripts/build-native-compiler.ps1 `
+            -OutputDirectory build/pages-compiler/bin `
+            -OnlyTargets vkf-strict,vkf_symbolic_kernel_artifact
+          $env:VKF_NATIVE_BIN = (Resolve-Path build/pages-compiler/bin)
+          npm run build:browser-compiler
+          node --test tests/bootstrap/browser-compiler-wasm.test.mjs
+      - name: Verify committed browser artifact
+        shell: pwsh
+        run: git diff --exit-code -- web/playground/artifacts
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: web
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}playground/
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
