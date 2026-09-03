@@ -1077,7 +1077,7 @@ test("material gallery compiles to a feature-specialized retained-scene GPU plan
   assert.match(
     wgsl,
     /let reflection_coverage = object\.reflectivity \* reflected\.a/u,
-    "an invalid reflection sample must preserve the already shaded surface",
+    "reflection coverage must retain the sampled background alpha at projection edges",
   );
   assert.match(
     wgsl,

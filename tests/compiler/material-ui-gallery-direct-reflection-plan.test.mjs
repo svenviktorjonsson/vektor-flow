@@ -132,6 +132,11 @@ test("material gallery terminates direct reflections without fallback textures",
   );
   assert.match(
     wgsl,
+    /fn vkf_planar_reflection\([\s\S]*if \(reflection_camera_index == 0xffffffffu\) \{\s*return VKF_BACKGROUND_RADIANCE;[\s\S]*if \(mirror_clip\.w <= 0\.0\) \{\s*return VKF_BACKGROUND_RADIANCE;[\s\S]*mirror_ndc\.z > 1\.0\) \{\s*return VKF_BACKGROUND_RADIANCE;/u,
+    "invalid reflection coordinates must resolve to the authored background instead of exposing a lit mirror-edge strip",
+  );
+  assert.match(
+    wgsl,
     /fn vkf_light_aperture_position\([\s\S]*let model = derived_objects\[light\.aperture_object_index\]\.value\.model;[\s\S]*return \(model \* vec4<f32>\(local_position, 1\.0\)\)\.xyz;/u,
     "emitter apertures must reuse the Scene Instance transform derived once per frame",
   );

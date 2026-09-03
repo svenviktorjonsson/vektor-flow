@@ -13,8 +13,8 @@
     "playback": "repeat",
     "source_frame_width": 742,
     "source_frame_height": 229,
-    "first_frame_checksum": "fnv1a32:618c0774",
-    "last_frame_checksum": "fnv1a32:ddd10f34",
+    "first_frame_checksum": "fnv1a32:62354162",
+    "last_frame_checksum": "fnv1a32:36733bcd",
     "vkf_error_count": 0
   },
   "encoding": {
@@ -27,6 +27,6 @@
     "height": 228,
     "fast_start": true
   },
-  "sha256": "d692861f5b487e4bee404eaba1cdda28346800823e69e5bfe46be15e4a4a334e",
-  "bytes": 482151
+  "sha256": "ff2f9d4b32864026cd3fc1d0638ba353da40e9aaa1964693bf8298248ba45fa1",
+  "bytes": 480888
 }

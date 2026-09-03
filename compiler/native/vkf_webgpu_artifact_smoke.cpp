@@ -3119,18 +3119,18 @@ fn vkf_planar_reflection(
   reflection_camera_index: u32,
 ) -> vec4<f32> {
   if (reflection_camera_index == 0xffffffffu) {
-    return vec4<f32>(0.0);
+    return VKF_BACKGROUND_RADIANCE;
   }
   let mirror_clip = scene.mirror_view_projection[
     reflection_camera_index] * vec4<f32>(world_position, 1.0);
   if (mirror_clip.w <= 0.0) {
-    return vec4<f32>(0.0);
+    return VKF_BACKGROUND_RADIANCE;
   }
   let mirror_ndc = mirror_clip.xyz / mirror_clip.w;
   if (mirror_ndc.x < -1.0 || mirror_ndc.x > 1.0 ||
       mirror_ndc.y < -1.0 || mirror_ndc.y > 1.0 ||
       mirror_ndc.z < 0.0 || mirror_ndc.z > 1.0) {
-    return vec4<f32>(0.0);
+    return VKF_BACKGROUND_RADIANCE;
   }
   let uv = vec2<f32>(mirror_ndc.x * 0.5 + 0.5, 0.5 - mirror_ndc.y * 0.5);
   return textureSampleLevel(
