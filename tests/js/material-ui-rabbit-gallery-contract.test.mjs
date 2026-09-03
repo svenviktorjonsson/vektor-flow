@@ -13,15 +13,10 @@ const provenance = readFileSync(
   resolve(root, "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md"),
   "utf8",
 );
-const builder = readFileSync(
-  resolve(root, "scripts/build-material-ui-gallery-media.mjs"),
-  "utf8",
-);
 const manifest = JSON.parse(readFileSync(
-  resolve(root, "docs/public/images/readme-ui/material-ui-gallery.manifest.json"),
+  resolve(root, "docs/public/videos/stanford-bunny-rotating-lights-360.manifest.json"),
   "utf8",
 ));
-const readme = readFileSync(resolve(root, "README.md"), "utf8");
 
 function calls(name) {
   const result = [];
@@ -52,10 +47,19 @@ function idOf(call) {
   return call.match(/\bid\s*:\s*"([^"]+)"/u)?.[1];
 }
 
-function canonicalHash(text) {
-  return createHash("sha256")
-    .update(Buffer.from(text.replaceAll("\r\n", "\n")))
-    .digest("hex");
+function numericArrayBinding(name) {
+  const binding = source.indexOf(`\n${name}:`);
+  assert.notEqual(binding, -1, `missing ${name} binding`);
+  const start = source.indexOf("[", binding);
+  assert.notEqual(start, -1, `missing ${name} array`);
+  let depth = 0;
+  for (let cursor = start; cursor < source.length; cursor += 1) {
+    if (source[cursor] === "[") depth += 1;
+    if (source[cursor] !== "]") continue;
+    depth -= 1;
+    if (depth === 0) return JSON.parse(source.slice(start, cursor + 1));
+  }
+  assert.fail(`unterminated ${name} array`);
 }
 
 test("material gallery loads the canonical full Stanford Bunny", () => {
@@ -68,67 +72,103 @@ test("material gallery loads the canonical full Stanford Bunny", () => {
   assert.match(provenance, /Stanford Computer Graphics Laboratory/u);
   assert.match(provenance, /noncommercial restriction/u);
   assert.match(source, /bunny:\s*load\("assets\/source\/bun_zipper\.ply"\)/u);
-  assert.match(source, /vertices:\s*bunny\.vertices/u);
-  assert.match(source, /indices:\s*bunny\.faces/u);
-  assert.doesNotMatch(source, /rabbit_(body|head|ear|tail)|frame\.add\(/u);
+  assert.match(source, /p_uc:\s*bunny\.vertices/u);
+  assert.match(source, /faces_uvw:\s*bunny\.faces/u);
+  assert.doesNotMatch(source, /rabbit_(body|head|ear|tail)|native_scene/u);
 });
 
 test("Stanford Bunny studio has checker continuity, physical mirrors, and shadow", () => {
-  assert.match(source, /id:"stanford_bunny"[\s\S]*?topology:"triangle-list"/u);
-  assert.match(source, /id:"stanford_bunny"[\s\S]*?interpolation:true/u);
-  assert.match(source, /id:"stanford_bunny"[\s\S]*?casts_shadow:true/u);
-  assert.match(source,
-    /id:"studio_floor"[\s\S]*?texture:\(kind:"checker"[\s\S]*?mesh_id:"studio_floor"/u);
-  assert.match(source,
-    /id:"studio_floor", center:\[0\.0, 3\.25, 0\.0\], size:\[7\.4, 14\.0\]/u);
-  assert.match(source,
-    /id:"studio_floor"[\s\S]*?texture:\(kind:"checker", scale:\[8\.0, 16\.0\]/u);
-  assert.match(source, /id:"upright_mirror"[\s\S]*?mesh_id:"upright_mirror"/u);
-  assert.match(source,
-    /id:"upright_mirror"[\s\S]*?alpha:1\.0, reflectivity:1\.0, roughness:0\.01/u);
-  assert.match(source,
-    /id:"upright_mirror"[\s\S]*?surface_system:\(kind:"screen", reflectivity:1\.0/u);
-  const uprightMirror = source.match(
-    /id:"upright_mirror"[\s\S]*?casts_shadow:true/u,
-  )?.[0] ?? "";
-  assert.match(uprightMirror, /flip_y:true/u);
-  assert.doesNotMatch(uprightMirror, /flip_x:true/u,
-    "the physical mirror camera already reverses X; a texture flip would undo it");
+  const additions = calls("frame.add");
+  const floor = additions.find((call) => idOf(call) === "studio_floor") ?? "";
+  const mirror = additions.find((call) => idOf(call) === "upright_mirror") ?? "";
+  const bunnyModel = additions.find((call) => idOf(call) === "stanford_bunny") ?? "";
+  const red = additions.find((call) => idOf(call) === "red_emitter") ?? "";
+  const green = additions.find((call) => idOf(call) === "green_emitter") ?? "";
+
+  assert.match(bunnyModel, /p_uc:bunny\.vertices/u);
+  assert.match(bunnyModel, /faces_uvw:bunny\.faces/u);
+  assert.match(bunnyModel, /interpolation:true/u);
+  assert.match(bunnyModel, /casts_shadow:true/u);
+  assert.match(bunnyModel, /color:\[0\.98, 0\.98, 0\.98, 1\.0\]/u,
+    "the agreed studio subject is a white Stanford Bunny");
+  assert.match(bunnyModel, /receives_shadow:true/u,
+    "the Bunny must retain modeled self-shadow gradients");
+  assert.match(floor, /texture:\(\s*kind:"checker"/u);
+  assert.match(floor, /reflectivity:0\.18/u);
+  assert.doesNotMatch(floor, /surface_system|kind:"mirror"/u,
+    "the floor must be distinguished only by reflectivity");
+  assert.match(floor, /x:\[\[-0\.24, 0\.24\], \[-0\.24, 0\.24\]\]/u);
+  assert.match(floor, /z:\[\[-0\.18, -0\.18\], \[0\.42, 0\.42\]\]/u);
+  assert.match(floor, /scale:\[16\.0, 20\.0\]/u);
+  assert.match(mirror,
+    /faces_uvw:\[\[0, 2, 1\], \[0, 3, 2\], \[0, 4, 3\], \[0, 5, 4\]\]/u,
+    "the visible studio mirror must be a six-edge polygon rather than a rectangle");
+  assert.match(mirror, /color:\[0\.34, 0\.34, 0\.34, 1\.0\]/u,
+    "the non-reflective back uses an authored neutral medium-gray rough material");
+  assert.match(mirror, /reflectivity:1\.0/u);
+  assert.match(mirror, /roughness:0\.72/u);
+  assert.match(mirror, /casts_shadow:true/u);
+  assert.match(mirror, /receives_shadow:false/u,
+    "a fully reflective screen must not run a redundant material shadow path");
+  assert.doesNotMatch(mirror, /surface_system|kind:"mirror"/u,
+    "the planar hex must be inferred from geometry and reflectivity");
+  assert.doesNotMatch(mirror, /flip_[xy]:/u,
+    "the reflected camera owns parity; material texture flips would undo it");
   assert.doesNotMatch(source, /transparent:true/u);
   assert.equal(source.match(/kind:"checker"/gu)?.length, 1,
     "the studio has one checkerboard material, not overlapping floors");
   assert.doesNotMatch(source, /\bplane:\(/u);
-  assert.match(source,
-    /id:"sun_key", kind:"point", pos:\[-5\.2, 0\.3, 7\.4\]/u,
-    "the high key stays laterally outside the mirror so its rear edge is visible");
-  assert.match(source, /id:"sun_key"[\s\S]*?intensity:58\.0[\s\S]*?casts_shadow:true/u);
-  assert.match(source, /id:"sky_fill"[\s\S]*?intensity:6\.0[\s\S]*?casts_shadow:false/u,
-    "fill light must not wash out the Bunny shadow");
-  assert.match(source, /id:"mirror_sun"[\s\S]*?intensity:92\.0/u,
-    "the mirror-projected sunlight must remain visible over direct illumination");
-  assert.match(source,
-    /id:"mirror_sun"[\s\S]*?reflect_of_light_id:"sun_key"[\s\S]*?reflect_mirror_mesh_id:"upright_mirror"/u);
-  assert.match(source,
-    /receiver_mesh:"studio_floor"[\s\S]*?occluders:\["stanford_bunny", "upright_mirror"\]/u);
-  assert.match(source, /title:"Stanford Bunny material studio"/u);
+  assert.match(red, /emission:\[24\.0, 0\.18, 0\.07\]/u);
+  assert.match(green, /emission:\[0\.07, 24\.0, 0\.18\]/u);
+  assert.match(red, /casts_shadow:true/u);
+  assert.match(green, /casts_shadow:true/u);
+  assert.doesNotMatch(source, /id:"mirror_sun"|reflect_of_light_id/u,
+    "virtual emitters must derive from the physical light and mirror geometry");
+  assert.match(source, /view:\s*frame\.push\(\)/u);
+  assert.match(source, /frame\.load\("ui\/main\.html"\)/u);
+});
+
+test("opposed finite red and green emitters orbit through retained time data", () => {
+  const red = calls("frame.add").find((call) => idOf(call) === "red_emitter") ?? "";
+  const green = calls("frame.add").find((call) => idOf(call) === "green_emitter") ?? "";
+  const time = numericArrayBinding("t");
+  const redPositions = numericArrayBinding("red_p");
+  const greenPositions = numericArrayBinding("green_p");
+  assert.deepEqual(time, Array.from({ length: 360 }, (_, degree) => degree));
+  assert.equal(redPositions.length, 360);
+  assert.equal(greenPositions.length, 360);
+  for (let degree = 0; degree < 360; degree += 1) {
+    const redPosition = redPositions[degree];
+    const greenPosition = greenPositions[degree];
+    assert.equal(redPosition[1], 0.24);
+    assert.equal(greenPosition[1], 0.24);
+    assert.ok(Math.abs(redPosition[0] + greenPosition[0]) < 1e-6);
+    assert.ok(Math.abs((redPosition[2] + greenPosition[2]) - 0.08) < 1e-6);
+  }
+  assert.match(red, /p_t:red_p/u);
+  assert.match(green, /p_t:green_p/u);
+  assert.match(red, /s_t:source_size/u);
+  assert.match(green, /s_t:source_size/u);
+  assert.match(red, /t_mode:"repeat"/u);
+  assert.match(green, /t_mode:"repeat"/u);
+  assert.equal(numericArrayBinding("red_c").length, 360);
+  assert.equal(numericArrayBinding("green_c").length, 360);
+  assert.equal(numericArrayBinding("source_size").length, 360);
+  assert.doesNotMatch(red, /\bx:|\by:|\bz:|kind:"point"|show_light_markers|source_radius/u,
+    "an emitter is ordinary finite geometry with emissive properties");
 });
 
 test("rabbit gallery source remains linked to hidden capture evidence", () => {
-  assert.equal(manifest.capture.fixture, sourcePath);
-  assert.equal(manifest.capture.execution, "headless Edge WebGPU");
-  assert.equal(manifest.capture.api, "VfDisplay.__test.captureGeomFrameDataUrl");
-  assert.equal(manifest.capture.composite_api, "Page.captureScreenshot");
-  assert.equal(manifest.sources[sourcePath], canonicalHash(source));
-  for (const linkedSource of [
-    sourcePath,
-    bunnyPath,
-    "examples/material_ui_gallery/assets/source/ASSET_SOURCE.md",
-    "tests/helpers/capture_material_ui_gallery.js",
-    "web/vf-ui/vf-display.js",
-    "web/vf-ui/geom/vf-geom-wgpu.js",
-  ]) {
-    assert.ok(manifest.sources[linkedSource], `${linkedSource} is not hash-linked`);
-    assert.ok(builder.includes(`"${linkedSource}"`), `${linkedSource} is not in the capture builder`);
-  }
-  assert.ok(readme.indexOf(`(${sourcePath})`) < readme.indexOf("material-ui-gallery.webp"));
+  assert.equal(manifest.source, sourcePath);
+  assert.equal(manifest.capture.execution, "native hidden WebView2/WebGPU host");
+  assert.equal(manifest.capture.api, "Frame.capture");
+  assert.equal(manifest.capture.boundary, "frame-internal");
+  assert.equal(manifest.source_sha256,
+    createHash("sha256").update(Buffer.from(source)).digest("hex"));
+  assert.equal(manifest.capture.samples, 360);
+  assert.equal(manifest.capture.first_degree, 0);
+  assert.equal(manifest.capture.last_degree, 359);
+  assert.equal(manifest.capture.playback, "repeat");
+  assert.notEqual(manifest.capture.first_frame_checksum,
+    manifest.capture.last_frame_checksum);
 });
