@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -51,12 +51,17 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
   const stagedSourceRoot = path.join(workRoot, "vkf_chess_3d");
   const stagedSource = path.join(stagedSourceRoot, "main.vkf");
   const output = path.join(stagedSourceRoot, "main.exe");
+  const capturePath = path.join(workRoot, "native-frame-capture.json");
   await mkdir(workRoot, { recursive: true });
   await cp(chessRoot, stagedSourceRoot, { recursive: true });
   const stdout = execFileSync(nativeDriver, ["--source", stagedSource], {
     cwd: stagedSourceRoot,
     encoding: "utf8",
     windowsHide: true,
+    env: {
+      ...process.env,
+      VKF_NATIVE_FRAME_CAPTURE_PATH: capturePath,
+    },
   });
   assert.equal(JSON.parse(stdout).status, "compiled");
 
@@ -83,26 +88,23 @@ test("the shipped chess application uses compiler-owned retained-scene staging",
   const geom = packets.find(({ kind }) => kind === "display.replace").payload.display.geom.frame_0;
   assert.equal(geom.meshes.length, 33, "board plus all 32 pieces must reach the renderer");
 
-  const overlayRoot = path.join(workRoot, "hidden-overlay");
-  for (const [relativePath, bytes] of entries) {
-    const destination = path.join(overlayRoot, ...relativePath.split("/"));
-    await mkdir(path.dirname(destination), { recursive: true });
-    await writeFile(destination, bytes);
-  }
-  const hiddenEvidence = JSON.parse(execFileSync(process.execPath, [
-    path.join(repositoryRoot, "tests", "helpers", "run_staged_ui_example.js"),
-    path.join(overlayRoot, "sessions", "main", "vkf-scene.html"),
-    "frame_0",
-    "renderer",
-    String(9900 + (process.pid % 300)),
+  const capture = JSON.parse(execFileSync(process.execPath, [
+    path.join(
+      repositoryRoot,
+      "tests",
+      "helpers",
+      "capture_native_frame.js",
+    ),
+    capturePath,
   ], {
     cwd: repositoryRoot,
     encoding: "utf8",
     timeout: 90_000,
+    maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
   }));
-  assert.equal(hiddenEvidence.hidden, true);
-  assert.equal(hiddenEvidence.frameChrome, true);
-  assert.ok(hiddenEvidence.status.runningRenderers > 0);
-  assert.match(hiddenEvidence.composite_sha256, /^[0-9a-f]{64}$/u);
+  assert.equal(capture.capture_api, "Frame.capture");
+  assert.equal(capture.boundary, "frame-internal");
+  assert.equal(capture.states.length, 2);
+  assert.ok(capture.states.every(({ width, height }) => width > 0 && height > 0));
 });
