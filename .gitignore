@@ -10,6 +10,8 @@ build/
 **/bin/
 **/obj/
 dist/
+.w/
+.work/
 .pt-pkg*/
 .tmp/
 .tmp_*/
