@@ -2191,12 +2191,12 @@ inline ValueLayout layout_from_expression_shape(
             signatures);
     }
     if (kind == "pipe_chain") {
-        const auto source = layout_from_expression_shape(
+        auto source = layout_from_expression_shape(
             object_of(field(expression, "source", "pipe expression"), "pipe source"),
             signatures);
         const auto declared = expression.find("type");
         if (declared != expression.end() && declared->second.is_string()) {
-            const auto result = layout_from_type(declared->second.as_string(), &signatures);
+            auto result = layout_from_type(declared->second.as_string(), &signatures);
             if (result.width > 0) return result;
         }
         if (source.kind == ValueKind::Range) {
@@ -2210,9 +2210,9 @@ inline ValueLayout layout_from_expression_shape(
             symbolic_expression_surface_type(result_type->second.as_string())) {
             return {1, ValueKind::DynamicF64List, {}};
         }
-        const auto left = layout_from_expression_shape(
+        auto left = layout_from_expression_shape(
             object_of(field(expression, "left", "binary expression"), "binary left"), signatures);
-        const auto right = layout_from_expression_shape(
+        auto right = layout_from_expression_shape(
             object_of(field(expression, "right", "binary expression"), "binary right"), signatures);
         const std::string numeric_op = string_field(expression, "op", "binary expression");
         if (left.kind == ValueKind::Complex || right.kind == ValueKind::Complex) {
@@ -5073,7 +5073,7 @@ inline ValueLayout lower_print_expression(
     StringPool& strings,
     const DisplayShape* display_shape = nullptr
 ) {
-    const auto layout = lower_expression(expression, builder, signatures, strings);
+    auto layout = lower_expression(expression, builder, signatures, strings);
     if (layout.kind == ValueKind::Range) {
         const auto temporary = builder.add_borrowed_temporary(layout);
         Instruction store_infinite;
@@ -6371,7 +6371,7 @@ inline ValueLayout lower_expression(
                 pipe_segments.begin(), pipe_segments.end(), [](const auto& segment) {
                     return references_current_pipe_value(segment);
                 });
-        const auto source = elide_unused_fixed_source
+        auto source = elide_unused_fixed_source
             ? *loaded_layout
             : lower_expression(source_expression, builder, signatures, strings);
         if (source.kind == ValueKind::Numeric || source.kind == ValueKind::Complex ||
@@ -6461,7 +6461,7 @@ inline ValueLayout lower_expression(
             step_ready_label.label = step_ready;
             builder.emit(std::move(step_ready_label));
 
-            const ValueLayout list_layout{1, ValueKind::DynamicF64List, {}};
+            ValueLayout list_layout{1, ValueKind::DynamicF64List, {}};
             const auto result_local = builder.add_owned_temporary(list_layout);
             Instruction empty;
             empty.opcode = Opcode::MakeOwnedF64List;
@@ -6579,7 +6579,7 @@ inline ValueLayout lower_expression(
             finish_label.label = finish;
             builder.emit(std::move(finish_label));
             builder.end_scope();
-            const auto declared_result = layout_from_expression_shape(
+            auto declared_result = layout_from_expression_shape(
                 expression, signatures);
             if (declared_result.kind == ValueKind::Aggregate &&
                 is_numeric_layout(declared_result) &&
@@ -8145,7 +8145,7 @@ inline ValueLayout lower_expression(
         const std::string op = string_field(expression, "op", "unary expression");
         const auto& operand_expression = object_of(
             field(expression, "operand", "unary expression"), "unary operand");
-        const auto operand = lower_expression(
+        auto operand = lower_expression(
             operand_expression, builder, signatures, strings);
         if (operand.kind == ValueKind::Complex) {
             const auto value = builder.add_borrowed_temporary(operand);
@@ -8516,8 +8516,8 @@ inline ValueLayout lower_expression(
                 return result;
             }
         }
-        const auto left = lower_expression(left_expression, builder, signatures, strings);
-        const auto right = lower_expression(right_expression, builder, signatures, strings);
+        auto left = lower_expression(left_expression, builder, signatures, strings);
+        auto right = lower_expression(right_expression, builder, signatures, strings);
         if (structural_arithmetic && left.kind == ValueKind::Aggregate &&
             right.kind == ValueKind::Numeric && right.width == 1) {
             const auto opcode = scalar_binary_opcode(op);
@@ -10095,7 +10095,7 @@ inline ValueLayout lower_expression(
                 throw LoweringFailure("unsupported machine IR stdlib call " + module + "." + name);
             }
             const auto& math_argument = object_of(args.front(), "math argument");
-            const auto argument = lower_expression(
+            auto argument = lower_expression(
                 math_argument, builder, signatures, strings);
             const Opcode opcode = name == "abs" ? Opcode::AbsF64
                 : name == "sqrt" ? Opcode::SqrtF64
@@ -13232,7 +13232,7 @@ inline std::optional<std::string> symbolic_vector_dimension(const std::string& t
     const std::string inside = type.substr(1, type.size() - 2);
     const auto separator = detail::find_top_level(inside, ':');
     if (separator == std::string::npos) return std::nullopt;
-    const std::string shape = detail::trim(inside.substr(separator + 1));
+    std::string shape = detail::trim(inside.substr(separator + 1));
     if (!shape.empty() &&
         (std::isalpha(static_cast<unsigned char>(shape.front())) || shape.front() == '_') &&
         std::all_of(shape.begin() + 1, shape.end(), [](unsigned char ch) {
