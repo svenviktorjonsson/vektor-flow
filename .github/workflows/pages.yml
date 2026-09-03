@@ -2,7 +2,9 @@ name: GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - codex/0.5/integration
   workflow_dispatch:
 
 permissions:
