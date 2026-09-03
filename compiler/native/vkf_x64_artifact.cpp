@@ -881,7 +881,12 @@ private:
     };
 
     struct PackedFactorFunctionPlan {
-        enum class Kind { Solve, Cholesky, Lu, LeastSquares } kind = Kind::Cholesky;
+        enum class Kind : std::uint8_t {
+            Solve,
+            Cholesky,
+            Lu,
+            LeastSquares
+        } kind = Kind::Cholesky;
         std::uint32_t matrix_base = 0;
         std::uint32_t values_base = 0;
         std::uint32_t first_output_base = 0;
@@ -8443,7 +8448,12 @@ private:
             return std::nullopt;
         };
         struct FusedOperand {
-            enum class Kind { Local, Constant, ProvenFixedIndex, StaticFixedIndex } kind = Kind::Local;
+            enum class Kind : std::uint8_t {
+                Local,
+                Constant,
+                ProvenFixedIndex,
+                StaticFixedIndex
+            } kind = Kind::Local;
             const vkf::machine_ir::Instruction* value = nullptr;
             const vkf::machine_ir::Instruction* index = nullptr;
             std::size_t next = 0;
@@ -8527,7 +8537,14 @@ private:
             }
         };
         struct ExpressionNode {
-            enum class Kind { Local, Constant, ProvenFixedIndex, StaticFixedIndex, Binary, Sqrt } kind = Kind::Local;
+            enum class Kind : std::uint8_t {
+                Local,
+                Constant,
+                ProvenFixedIndex,
+                StaticFixedIndex,
+                Binary,
+                Sqrt
+            } kind = Kind::Local;
             vkf::machine_ir::Opcode opcode = vkf::machine_ir::Opcode::Drop;
             const vkf::machine_ir::Instruction* value = nullptr;
             const vkf::machine_ir::Instruction* index = nullptr;
