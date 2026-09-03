@@ -188,6 +188,51 @@ int main() {
     require(rejected_incompatible_evidence,
             "incompatible measured evidence was composed");
 
+    std::vector<std::uint64_t> stone_identities{
+        0x243f6a8885a308d3ull,
+        0x13198a2e03707344ull,
+        0xa4093822299f31d0ull,
+        0x082efa98ec4e6c89ull,
+        0x452821e638d01377ull,
+        0xbe5466cf34e90c6cull,
+    };
+    std::vector<StoneMineralMaterialSample> integrated_forward;
+    for (const auto identity : stone_identities) {
+        integrated_forward.push_back(
+            ApplyStoneMeasuredMineralPipelineReference(
+                generic,
+                identity,
+                population,
+                distribution,
+                StoneMineralConditionV1::albite_plagioclase
+            )
+        );
+    }
+    std::reverse(stone_identities.begin(), stone_identities.end());
+    std::vector<StoneMineralMaterialSample> integrated_reverse;
+    for (const auto identity : stone_identities) {
+        integrated_reverse.push_back(
+            ApplyStoneMeasuredMineralPipelineReference(
+                generic,
+                identity,
+                population,
+                distribution,
+                StoneMineralConditionV1::albite_plagioclase
+            )
+        );
+    }
+    std::reverse(integrated_reverse.begin(), integrated_reverse.end());
+    require(std::any_of(
+                integrated_forward.begin() + 1,
+                integrated_forward.end(),
+                [&](const auto& sample) {
+                    return sample != integrated_forward.front();
+                }
+            ),
+            "measured stone identities lost sampled variation");
+    require(integrated_reverse == integrated_forward,
+            "measured stone pipeline depended on demand order");
+
     auto inflated_fit_error = distribution;
     for (auto& value : inflated_fit_error.conditions[0]
                            .members[0]

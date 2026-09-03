@@ -146,7 +146,8 @@ error: use of undeclared identifier
 Its GREEN assertions prove that both measured factors reach the sample, a
 stable stone identity reproduces the same output, doubling every population
 local-fit standard error does not change output, unrelated material properties
-remain unchanged, and incompatible evidence cannot be composed.
+remain unchanged, incompatible evidence cannot be composed, and reversing a
+multi-stone demand traversal reproduces the same per-identity samples.
 
 The official ScienceBase artifact was independently downloaded again from
 item `586e8c88e4b0f5ce109fccae`. Its 21,812,828 bytes have the catalogued MD5
