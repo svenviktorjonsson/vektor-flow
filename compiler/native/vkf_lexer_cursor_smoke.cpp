@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 static constexpr std::size_t tab_width = 8;
@@ -59,7 +60,7 @@ static std::string read_file(const std::string& path) {
     return buffer.str();
 }
 
-static std::string normalize_source_text(std::string text) {
+static std::string normalize_source_text(const std::string& text) {
     std::string out;
     out.reserve(text.size());
     for (char ch : text) {
@@ -113,7 +114,14 @@ static void emit_token(
     std::string value,
     const VkfCursor& cursor
 ) {
-    tokens.push_back({kind, value, false, std::string(cursor.file), cursor.line, cursor.column});
+    tokens.push_back({
+        std::move(kind),
+        std::move(value),
+        false,
+        std::string(cursor.file),
+        cursor.line,
+        cursor.column,
+    });
 }
 
 static void emit_raw_token(
@@ -122,7 +130,14 @@ static void emit_raw_token(
     std::string value,
     const VkfCursor& cursor
 ) {
-    tokens.push_back({kind, value, true, std::string(cursor.file), cursor.line, cursor.column});
+    tokens.push_back({
+        std::move(kind),
+        std::move(value),
+        true,
+        std::string(cursor.file),
+        cursor.line,
+        cursor.column,
+    });
 }
 
 static std::string escaped_value(std::string_view value) {
