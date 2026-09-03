@@ -1,4 +1,5 @@
 #include "native/VfOverlay/vf/json.hpp"
+#include "vkf_native_scene_lowering.hpp"
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
 #include "vkf_retained_scene_packet.hpp"
 #include "vkf_static_html_bundle.hpp"
@@ -42,12 +43,14 @@ struct WasmBinding {
         I32,
         F64,
         String,
+        Bytes,
         I32Array,
         F64Array,
     } kind;
     std::int32_t i32_value = 0;
     double f64_value = 0.0;
     std::string string_value;
+    std::vector<std::uint8_t> byte_values;
     std::vector<std::int32_t> i32_array_values;
     std::vector<double> f64_array_values;
     std::string axis_key;
@@ -109,6 +112,9 @@ struct WasmModulePlan {
     UpdateFunctionPlan update;
     std::vector<vf::static_html::Bundle> static_html_bundles;
     std::string event_program_json;
+    bool has_retained_scene_arena = false;
+    vf::JsonValue::Array render_parameter_sections;
+    vf::JsonValue::Array render_parameter_draw_lists;
 };
 
 const vf::JsonValue::Object& object_of(const vf::JsonValue& value, const std::string& context) {
@@ -300,6 +306,131 @@ void append_f64(std::vector<std::uint8_t>& out, double value) {
     std::memcpy(&bits, &value, sizeof(bits));
     for (int i = 0; i < 8; ++i) {
         out.push_back(static_cast<std::uint8_t>((bits >> (8 * i)) & 0xFFu));
+    }
+}
+
+void append_f32(std::vector<std::uint8_t>& out, float value) {
+    std::uint32_t bits = 0;
+    static_assert(sizeof(float) == sizeof(std::uint32_t),
+        "float must be 32-bit");
+    std::memcpy(&bits, &value, sizeof(bits));
+    for (int i = 0; i < 4; ++i) {
+        out.push_back(static_cast<std::uint8_t>(
+            (bits >> (8 * i)) & 0xFFu));
+    }
+}
+
+void emit_camera_control_body(
+    std::vector<std::uint8_t>& body,
+    std::uint32_t camera_offset
+) {
+    constexpr float orbit_substep = 0.0175f;
+    const float orbit_cos = std::cos(orbit_substep);
+    const float orbit_sin = std::sin(orbit_substep);
+
+    const auto i32_const = [&body](std::int32_t value) {
+        append_u8(body, 0x41);
+        append_i32_leb(body, value);
+    };
+    const auto f32_const = [&body](float value) {
+        append_u8(body, 0x43);
+        append_f32(body, value);
+    };
+    const auto local_get = [&body](std::uint32_t index) {
+        append_u8(body, 0x20);
+        append_u32_leb(body, index);
+    };
+    const auto local_set = [&body](std::uint32_t index) {
+        append_u8(body, 0x21);
+        append_u32_leb(body, index);
+    };
+    const auto f32_load = [&body, &i32_const](std::uint32_t address) {
+        i32_const(static_cast<std::int32_t>(address));
+        append_u8(body, 0x2A);
+        append_u32_leb(body, 2);
+        append_u32_leb(body, 0);
+    };
+    const auto f32_store = [&body](std::uint32_t address) {
+        append_u8(body, 0x41);
+        append_i32_leb(body, static_cast<std::int32_t>(address));
+    };
+
+    // Seven f32 locals: camera offset xyz, three temporaries, and a scale.
+    append_u32_leb(body, 1);
+    append_u32_leb(body, 7);
+    append_u8(body, 0x7D);
+
+    for (std::uint32_t axis = 0; axis < 3; ++axis) {
+        f32_load(camera_offset + axis * 4);
+        f32_load(camera_offset + 12 + axis * 4);
+        append_u8(body, 0x93);  // f32.sub
+        local_set(3 + axis);
+    }
+
+    // Horizontal orbit: four half-angle rotations around the world-up axis.
+    local_get(0);
+    append_u8(body, 0x04); append_u8(body, 0x40);  // if
+    for (int substep = 0; substep < 4; ++substep) {
+        f32_const(orbit_cos); local_get(3); append_u8(body, 0x94);
+        f32_const(orbit_sin); local_get(0); append_u8(body, 0xB2);
+        append_u8(body, 0x94); local_get(4); append_u8(body, 0x94);
+        append_u8(body, 0x93); local_set(6);
+        f32_const(orbit_sin); local_get(0); append_u8(body, 0xB2);
+        append_u8(body, 0x94); local_get(3); append_u8(body, 0x94);
+        f32_const(orbit_cos); local_get(4); append_u8(body, 0x94);
+        append_u8(body, 0x92); local_set(7);
+        local_get(6); local_set(3);
+        local_get(7); local_set(4);
+    }
+    append_u8(body, 0x0B);
+
+    // Vertical orbit uses four pole-checked half-angle rotations.
+    local_get(1);
+    append_u8(body, 0x04); append_u8(body, 0x40);
+    for (int substep = 0; substep < 4; ++substep) {
+        local_get(3); local_get(3); append_u8(body, 0x94);
+        local_get(4); local_get(4); append_u8(body, 0x94);
+        append_u8(body, 0x92); append_u8(body, 0x91); local_set(6);
+        f32_const(orbit_cos); local_get(6); append_u8(body, 0x94);
+        f32_const(orbit_sin); local_get(1); append_u8(body, 0xB2);
+        append_u8(body, 0x94); local_get(5); append_u8(body, 0x94);
+        append_u8(body, 0x93); local_set(7);
+        f32_const(orbit_sin); local_get(1); append_u8(body, 0xB2);
+        append_u8(body, 0x94); local_get(6); append_u8(body, 0x94);
+        f32_const(orbit_cos); local_get(5); append_u8(body, 0x94);
+        append_u8(body, 0x92); local_set(8);
+        local_get(7); f32_const(0.05f); append_u8(body, 0x5E);
+        append_u8(body, 0x04); append_u8(body, 0x40);
+        local_get(7); local_get(6); append_u8(body, 0x95); local_set(9);
+        local_get(3); local_get(9); append_u8(body, 0x94); local_set(3);
+        local_get(4); local_get(9); append_u8(body, 0x94); local_set(4);
+        local_get(8); local_set(5);
+        append_u8(body, 0x0B);
+    }
+    append_u8(body, 0x0B);
+
+    // Negative wheel direction moves closer; positive moves farther away.
+    local_get(2);
+    append_u8(body, 0x04); append_u8(body, 0x40);
+    local_get(2); i32_const(0); append_u8(body, 0x48);
+    append_u8(body, 0x04); append_u8(body, 0x7D);
+    f32_const(0.90f);
+    append_u8(body, 0x05);
+    f32_const(1.10f);
+    append_u8(body, 0x0B); local_set(9);
+    local_get(3); local_get(9); append_u8(body, 0x94); local_set(3);
+    local_get(4); local_get(9); append_u8(body, 0x94); local_set(4);
+    local_get(5); local_get(9); append_u8(body, 0x94); local_set(5);
+    append_u8(body, 0x0B);
+
+    for (std::uint32_t axis = 0; axis < 3; ++axis) {
+        f32_store(camera_offset + axis * 4);
+        f32_load(camera_offset + 12 + axis * 4);
+        local_get(3 + axis);
+        append_u8(body, 0x92);  // f32.add
+        append_u8(body, 0x38);  // f32.store
+        append_u32_leb(body, 2);
+        append_u32_leb(body, 0);
     }
 }
 
@@ -911,13 +1042,45 @@ void flatten_retained_html_numeric_value(
     throw WasmArtifactFailure("retained HTML Frame geometry must be numeric");
 }
 
+void collect_lowered_scene_arena_bindings(
+    const vkf::native_scene::LoweredSourceScene& lowered,
+    WasmModulePlan& plan
+) {
+    WasmBinding metadata_binding;
+    metadata_binding.name = "native_scene";
+    metadata_binding.kind = WasmBinding::Kind::String;
+    metadata_binding.string_value = lowered.packed.metadata_json;
+    plan.bindings.push_back(std::move(metadata_binding));
+
+    WasmBinding arena_binding;
+    arena_binding.name = "$ui$compiled$scene$arena";
+    arena_binding.kind = WasmBinding::Kind::Bytes;
+    arena_binding.byte_values = lowered.packed.arena_bytes;
+    plan.bindings.push_back(std::move(arena_binding));
+
+    WasmBinding render_parameters_binding;
+    render_parameters_binding.name =
+        "$ui$compiled$render$parameter$arena";
+    render_parameters_binding.kind = WasmBinding::Kind::Bytes;
+    render_parameters_binding.byte_values =
+        lowered.render_parameters.arena_bytes;
+    plan.bindings.push_back(std::move(render_parameters_binding));
+
+    plan.has_retained_scene_arena = true;
+    plan.render_parameter_sections = lowered.render_parameters.sections;
+    plan.render_parameter_draw_lists = lowered.render_parameters.draw_lists;
+}
+
 bool collect_retained_scene_packet_binding(
     const vf::JsonValue& root,
     const std::filesystem::path& source_path,
     WasmModulePlan& plan
 ) {
     try {
-        const auto packets = vkf::retained_scene::compile_packets(root);
+        const auto source_text = read_file(source_path);
+        const auto loads = vkf::native_scene::canonical_source_loads(
+            source_text, source_path);
+        const auto packets = vkf::retained_scene::compile_packets(root, &loads);
         if (!packets.has_value()) return false;
         WasmBinding packet_binding;
         packet_binding.name = "$ui$compiled$packets";
@@ -934,7 +1097,12 @@ bool collect_retained_scene_packet_binding(
             plan.event_program_json = event_binding.string_value;
             plan.bindings.push_back(std::move(event_binding));
         }
-        std::map<std::uint64_t, bool> loaded_frames;
+        if (const auto lowered =
+                vkf::native_scene::lower_typed_retained_scene(
+                    root, source_text, source_path)) {
+            collect_lowered_scene_arena_bindings(*lowered, plan);
+        }
+        std::map<std::string, bool> loaded_frames;
         for (const auto& load : vkf::retained_scene::static_html_loads(root)) {
             std::filesystem::path resource_path(load.resource);
             if (resource_path.is_absolute()) {
@@ -946,7 +1114,7 @@ bool collect_retained_scene_packet_binding(
             loaded_frames[load.frame_id] = true;
             plan.static_html_bundles.push_back(vf::static_html::collect(
                 source_path, source_path.parent_path() / resource_path,
-                "frame_" + std::to_string(load.frame_id)));
+                load.frame_id));
         }
         return true;
     } catch (const vkf::retained_scene::Error& error) {
@@ -1701,6 +1869,42 @@ WasmModulePlan collect_module_plan(
     filtered_root["body"] = vf::JsonValue(std::move(filtered_body));
     WasmModulePlan plan;
     if (collect_typed_world_packet_binding(root, plan)) return plan;
+    try {
+        const auto source_text = read_file(source_path);
+        const auto lowered = vkf::native_scene::lower_source(
+            source_text, source_path);
+        if (lowered.has_value()) {
+            collect_lowered_scene_arena_bindings(*lowered, plan);
+            for (const auto& load :
+                 vkf::retained_scene::static_html_loads(root)) {
+                const std::filesystem::path resource_path(load.resource);
+                if (resource_path.is_absolute()) {
+                    throw WasmArtifactFailure(
+                        "Frame.load resource path must be source-relative");
+                }
+                plan.static_html_bundles.push_back(vf::static_html::collect(
+                    source_path,
+                    source_path.parent_path() / resource_path,
+                    load.frame_id));
+            }
+            collect_owner_event_poll_binding(root, plan);
+            collect_owner_event_loop_binding(root, plan);
+            return plan;
+        }
+    } catch (const vkf::native_scene::Error& error) {
+        throw WasmArtifactFailure(error.what());
+    } catch (const vf::static_html::Error& error) {
+        throw WasmArtifactFailure(error.what());
+    }
+    // A retained native scene is a compiler-owned structured artifact, not a
+    // scalar computed binding. Compile it before the generic binding walk so
+    // nested records/vectors are lowered once into the retained scene packet
+    // arena instead of being interpreted as runtime arithmetic.
+    if (collect_retained_scene_packet_binding(root, source_path, plan)) {
+        collect_owner_event_poll_binding(root, plan);
+        collect_owner_event_loop_binding(root, plan);
+        return plan;
+    }
     const auto module = vkf::wasm::parse_typed_module(vf::JsonValue(std::move(filtered_root)));
     for (const auto& item : module.items) {
         if (item.kind == vkf::wasm::ModuleItemKind::TypeAlias
@@ -1749,9 +1953,7 @@ WasmModulePlan collect_module_plan(
         }
         throw WasmArtifactFailure("unsupported typed IR module item for wasm artifact emission");
     }
-    if (!collect_retained_scene_packet_binding(root, source_path, plan)) {
-        collect_retained_html_packet_binding(root, source_path, plan);
-    }
+    collect_retained_html_packet_binding(root, source_path, plan);
     collect_owner_event_poll_binding(root, plan);
     collect_owner_event_loop_binding(root, plan);
     return plan;
@@ -1902,6 +2104,10 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
         if (binding.kind == WasmBinding::Kind::String) {
             binding.string_offset = next_offset;
             next_offset += static_cast<std::uint32_t>(binding.string_value.size());
+        } else if (binding.kind == WasmBinding::Kind::Bytes) {
+            next_offset = (next_offset + 3u) & ~3u;
+            binding.string_offset = next_offset;
+            next_offset += static_cast<std::uint32_t>(binding.byte_values.size());
         } else if (binding.kind == WasmBinding::Kind::I32Array) {
             binding.string_offset = next_offset;
             next_offset += static_cast<std::uint32_t>(binding.i32_array_values.size() * 4);
@@ -1914,12 +2120,15 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
     std::vector<std::uint8_t> module = {0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00};
 
     std::vector<std::uint8_t> type_section;
-    append_u32_leb(type_section, 4);
+    append_u32_leb(type_section, 5);
     append_u8(type_section, 0x60); append_u32_leb(type_section, 0); append_u32_leb(type_section, 0);
     append_u8(type_section, 0x60); append_u32_leb(type_section, 0); append_u32_leb(type_section, 1); append_u8(type_section, 0x7F);
     append_u8(type_section, 0x60); append_u32_leb(type_section, 0); append_u32_leb(type_section, 1); append_u8(type_section, 0x7C);
     append_u8(type_section, 0x60); append_u32_leb(type_section, 1); append_u8(type_section, 0x7F);
     append_u32_leb(type_section, 1); append_u8(type_section, 0x7F);
+    append_u8(type_section, 0x60); append_u32_leb(type_section, 3);
+    append_u8(type_section, 0x7F); append_u8(type_section, 0x7F);
+    append_u8(type_section, 0x7F); append_u32_leb(type_section, 0);
     append_section(module, 1, type_section);
 
     struct FunctionSpec {
@@ -1931,6 +2140,7 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
             IncrementTick,
             I32Const,
             F64Const,
+            CameraControl,
             SetSymbolicInputLength,
             TraceSymbolicText,
         } body_kind;
@@ -1954,6 +2164,7 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
     const std::uint32_t data_offset = input_offset + input_size;
     for (auto& binding : bindings) {
         if (binding.kind == WasmBinding::Kind::String
+            || binding.kind == WasmBinding::Kind::Bytes
             || binding.kind == WasmBinding::Kind::I32Array
             || binding.kind == WasmBinding::Kind::F64Array) {
             binding.string_offset += data_offset;
@@ -1965,10 +2176,19 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
     const std::uint32_t symbolic_input_offset = symbolic_lengths_offset + 8u;
     const std::uint32_t symbolic_output_offset = symbolic_input_offset + symbolic_text_capacity;
     const std::uint32_t memory_size = symbolic_output_offset + symbolic_text_capacity;
+    const WasmBinding* render_parameters = find_binding(
+        bindings, "$ui$compiled$render$parameter$arena");
+    const bool has_camera_controls = render_parameters != nullptr &&
+        !plan.render_parameter_sections.empty() &&
+        render_parameters->byte_values.size() >= 36;
 
     functions.push_back({"vkf_init", 0, FunctionSpec::BodyKind::ResetTick});
     functions.push_back({"vkf_update", 0, FunctionSpec::BodyKind::IncrementTick});
     functions.push_back({"vkf_shutdown", 0, FunctionSpec::BodyKind::Noop});
+    if (has_camera_controls) {
+        functions.push_back({"vkf_camera_control", 4,
+            FunctionSpec::BodyKind::CameraControl});
+    }
     functions.push_back({"vkf_state_ptr", 1, FunctionSpec::BodyKind::I32Const, 0});
     functions.push_back({"vkf_state_size", 1, FunctionSpec::BodyKind::I32Const, static_cast<std::int32_t>(state_size)});
     functions.push_back({"vkf_input_ptr", 1, FunctionSpec::BodyKind::I32Const, static_cast<std::int32_t>(input_offset)});
@@ -2000,6 +2220,11 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                 static_cast<std::int32_t>(binding.string_offset)});
             functions.push_back({"vkf_get_" + suffix + "_len", 1, FunctionSpec::BodyKind::I32Const,
                 static_cast<std::int32_t>(binding.string_value.size())});
+        } else if (binding.kind == WasmBinding::Kind::Bytes) {
+            functions.push_back({"vkf_get_" + suffix + "_ptr", 1, FunctionSpec::BodyKind::I32Const,
+                static_cast<std::int32_t>(binding.string_offset)});
+            functions.push_back({"vkf_get_" + suffix + "_len", 1, FunctionSpec::BodyKind::I32Const,
+                static_cast<std::int32_t>(binding.byte_values.size())});
         } else if (binding.kind == WasmBinding::Kind::I32Array) {
             functions.push_back({"vkf_get_" + suffix + "_ptr", 1, FunctionSpec::BodyKind::I32Const,
                 static_cast<std::int32_t>(binding.string_offset)});
@@ -2179,6 +2404,8 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
                 append_u32_leb(body, 2);
                 append_u32_leb(body, 0);
             }
+        } else if (function.body_kind == FunctionSpec::BodyKind::CameraControl) {
+            emit_camera_control_body(body, render_parameters->string_offset);
         } else if (function.body_kind == FunctionSpec::BodyKind::SetSymbolicInputLength) {
             append_u32_leb(body, 0);
             append_u8(body, 0x41);
@@ -2263,6 +2490,7 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
         std::uint32_t segment_count = 0;
         for (const auto& binding : bindings) {
             if (binding.kind == WasmBinding::Kind::String
+                || binding.kind == WasmBinding::Kind::Bytes
                 || binding.kind == WasmBinding::Kind::I32Array
                 || binding.kind == WasmBinding::Kind::F64Array) {
                 ++segment_count;
@@ -2271,6 +2499,7 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
         append_u32_leb(data_section, segment_count);
         for (const auto& binding : bindings) {
             if (binding.kind != WasmBinding::Kind::String
+                && binding.kind != WasmBinding::Kind::Bytes
                 && binding.kind != WasmBinding::Kind::I32Array
                 && binding.kind != WasmBinding::Kind::F64Array) {
                 continue;
@@ -2282,6 +2511,9 @@ std::vector<std::uint8_t> build_wasm_module(WasmModulePlan plan) {
             if (binding.kind == WasmBinding::Kind::String) {
                 append_u32_leb(data_section, static_cast<std::uint32_t>(binding.string_value.size()));
                 data_section.insert(data_section.end(), binding.string_value.begin(), binding.string_value.end());
+            } else if (binding.kind == WasmBinding::Kind::Bytes) {
+                append_u32_leb(data_section, static_cast<std::uint32_t>(binding.byte_values.size()));
+                append_bytes(data_section, binding.byte_values);
             } else if (binding.kind == WasmBinding::Kind::I32Array) {
                 append_u32_leb(data_section, static_cast<std::uint32_t>(binding.i32_array_values.size() * 4));
                 for (std::int32_t value : binding.i32_array_values) {
@@ -2311,7 +2543,10 @@ vf::JsonValue::Object manifest_payload(
     const std::filesystem::path& artifact_path,
     const std::string& status,
     const std::vector<WasmBinding>& bindings,
-    const UpdateFunctionPlan& update_plan
+    const UpdateFunctionPlan& update_plan,
+    bool has_retained_scene_arena,
+    const vf::JsonValue::Array& render_parameter_sections,
+    const vf::JsonValue::Array& render_parameter_draw_lists
 ) {
     const std::uint32_t state_size = update_plan.axis_vector_mode
         ? static_cast<std::uint32_t>(update_plan.axis_vector_length * 4)
@@ -2374,6 +2609,16 @@ vf::JsonValue::Object manifest_payload(
     exports.push_back(vf::JsonValue("vkf_init"));
     exports.push_back(vf::JsonValue("vkf_update"));
     exports.push_back(vf::JsonValue("vkf_shutdown"));
+    if (!render_parameter_sections.empty()) {
+        exports.push_back(vf::JsonValue("vkf_camera_control"));
+        runtime_surface["camera_controls"] = vf::JsonValue(
+            vf::JsonValue::Object{
+                {"schema", vf::JsonValue(
+                    "vektor-flow/camera-control")},
+                {"version", vf::JsonValue(1.0)},
+                {"export", vf::JsonValue("vkf_camera_control")},
+            });
+    }
     exports.push_back(vf::JsonValue("vkf_state_ptr"));
     exports.push_back(vf::JsonValue("vkf_state_size"));
     exports.push_back(vf::JsonValue("vkf_input_ptr"));
@@ -2387,6 +2632,12 @@ vf::JsonValue::Object manifest_payload(
     exports.push_back(vf::JsonValue("vkf_symbolic_output_len"));
     exports.push_back(vf::JsonValue("vkf_symbolic_trace"));
     vf::JsonValue::Array binding_exports;
+    std::string retained_metadata_ptr_export;
+    std::string retained_metadata_len_export;
+    std::string retained_arena_ptr_export;
+    std::string retained_arena_len_export;
+    std::string render_parameters_ptr_export;
+    std::string render_parameters_len_export;
     for (const auto& binding : bindings) {
         const std::string suffix = sanitize_export_suffix(binding.name);
         vf::JsonValue::Object binding_export;
@@ -2397,6 +2648,24 @@ vf::JsonValue::Object manifest_payload(
             binding_export["len_export"] = vf::JsonValue("vkf_get_" + suffix + "_len");
             exports.push_back(vf::JsonValue("vkf_get_" + suffix + "_ptr"));
             exports.push_back(vf::JsonValue("vkf_get_" + suffix + "_len"));
+            if (binding.name == "native_scene") {
+                retained_metadata_ptr_export = "vkf_get_" + suffix + "_ptr";
+                retained_metadata_len_export = "vkf_get_" + suffix + "_len";
+            }
+        } else if (binding.kind == WasmBinding::Kind::Bytes) {
+            binding_export["kind"] = vf::JsonValue("bytes");
+            binding_export["ptr_export"] = vf::JsonValue("vkf_get_" + suffix + "_ptr");
+            binding_export["len_export"] = vf::JsonValue("vkf_get_" + suffix + "_len");
+            exports.push_back(vf::JsonValue("vkf_get_" + suffix + "_ptr"));
+            exports.push_back(vf::JsonValue("vkf_get_" + suffix + "_len"));
+            if (binding.name == "$ui$compiled$scene$arena") {
+                retained_arena_ptr_export = "vkf_get_" + suffix + "_ptr";
+                retained_arena_len_export = "vkf_get_" + suffix + "_len";
+            } else if (
+                binding.name == "$ui$compiled$render$parameter$arena") {
+                render_parameters_ptr_export = "vkf_get_" + suffix + "_ptr";
+                render_parameters_len_export = "vkf_get_" + suffix + "_len";
+            }
         } else if (binding.kind == WasmBinding::Kind::I32Array) {
             binding_export["kind"] = vf::JsonValue("axis_i32_array");
             binding_export["axis_key"] = vf::JsonValue(binding.axis_key);
@@ -2424,6 +2693,42 @@ vf::JsonValue::Object manifest_payload(
     }
     runtime_surface["exports"] = vf::JsonValue(std::move(exports));
     runtime_surface["bindings"] = vf::JsonValue(std::move(binding_exports));
+    if (has_retained_scene_arena) {
+        if (retained_metadata_ptr_export.empty() || retained_metadata_len_export.empty() ||
+            retained_arena_ptr_export.empty() || retained_arena_len_export.empty()) {
+            throw WasmArtifactFailure("retained scene arena exports are incomplete");
+        }
+        runtime_surface["retained_scene_arena"] = vf::JsonValue(vf::JsonValue::Object{
+            {"schema", vf::JsonValue("vektor-flow/retained-scene-arena")},
+            {"version", vf::JsonValue(1.0)},
+            {"metadata_encoding", vf::JsonValue("utf-8")},
+            {"byte_offsets", vf::JsonValue("relative_to_arena_ptr")},
+            {"metadata_ptr_export", vf::JsonValue(retained_metadata_ptr_export)},
+            {"metadata_len_export", vf::JsonValue(retained_metadata_len_export)},
+            {"arena_ptr_export", vf::JsonValue(retained_arena_ptr_export)},
+            {"arena_len_export", vf::JsonValue(retained_arena_len_export)},
+        });
+    }
+    if (!render_parameter_sections.empty()) {
+        if (render_parameters_ptr_export.empty() ||
+            render_parameters_len_export.empty()) {
+            throw WasmArtifactFailure(
+                "render parameter arena exports are incomplete");
+        }
+        runtime_surface["render_parameter_arena"] = vf::JsonValue(
+            vf::JsonValue::Object{
+                {"schema", vf::JsonValue(
+                    "vektor-flow/render-parameter-arena")},
+                {"version", vf::JsonValue(1.0)},
+                {"memory_export", vf::JsonValue("memory")},
+                {"ptr_export", vf::JsonValue(render_parameters_ptr_export)},
+                {"len_export", vf::JsonValue(render_parameters_len_export)},
+                {"scalar_storage", vf::JsonValue("float32")},
+                {"byte_order", vf::JsonValue("little-endian")},
+                {"sections", vf::JsonValue(render_parameter_sections)},
+                {"draw_lists", vf::JsonValue(render_parameter_draw_lists)},
+            });
+    }
     if (update_plan.axis_vector_mode) {
         runtime_surface["state_axis_key"] = vf::JsonValue(update_plan.axis_key);
         runtime_surface["state_axis_length"] = vf::JsonValue(static_cast<double>(update_plan.axis_vector_length));
@@ -2636,7 +2941,10 @@ int main(int argc, char** argv) {
             artifact_path,
             status,
             plan.bindings,
-            plan.update
+            plan.update,
+            plan.has_retained_scene_arena,
+            plan.render_parameter_sections,
+            plan.render_parameter_draw_lists
         );
         manifest["manifest_hash"] = vf::JsonValue(desired_manifest_hash);
         write_text(manifest_path, vf::json_stringify(vf::JsonValue(std::move(manifest)), 2) + "\n");

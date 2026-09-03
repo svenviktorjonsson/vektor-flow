@@ -28,7 +28,7 @@ test("native scene load embeds an indexed ASCII PLY with smooth normals", async 
     'tetra: load("tetra.ply")',
     "native_scene:(frame_id:\"ply_load\", meshes:[(",
     '  id:"tetra", kind:"field_mesh", vertices:tetra.vertices,',
-    '  indices:tetra.faces, topology:"triangle-list", color:[1,1,1,1]',
+    '  indices:tetra.faces, topology:"triangle-list", color:[0.2,0.4,0.6,0.8]',
     ")])", "",
   ].join("\n"));
 
@@ -45,4 +45,23 @@ test("native scene load embeds an indexed ASCII PLY with smooth normals", async 
   assert.equal(mesh.vertices.type, "float32");
   assert.equal(mesh.indices.type, "uint32");
   assert.equal(mesh.topology, "triangle-list");
+  assert.equal(
+    mesh.__vf_compiled_mesh_arena,
+    true,
+    "load(Ply) must stage render-ready packed geometry instead of repeating mesh math in JavaScript",
+  );
+  assert.equal(mesh.__vf_compiled_material_color, true);
+  const arenaName = page.match(/window\.__vfNativeSceneArenaUrl="([^"]+)"/u)[1];
+  const arenaBytes = await readFile(path.join(path.dirname(path.join(overlay, ...summary.page_rel.split("/"))), arenaName));
+  const arenaBuffer = arenaBytes.buffer.slice(arenaBytes.byteOffset, arenaBytes.byteOffset + arenaBytes.byteLength);
+  const packedVertices = new Float32Array(arenaBuffer, mesh.vertices.byteOffset, mesh.vertices.length);
+  for (let vertex = 0; vertex < 4; vertex += 1) {
+    const channels = packedVertices.slice(vertex * 10 + 6, vertex * 10 + 10);
+    for (const [channel, expected] of [0.2, 0.4, 0.6, 0.8].entries()) {
+      assert.ok(
+        Math.abs(channels[channel] - expected) < 1e-6,
+        "the compiler must bake the static material color into the packed vertex arena",
+      );
+    }
+  }
 });

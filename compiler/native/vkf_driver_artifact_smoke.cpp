@@ -1938,6 +1938,38 @@ int main(int argc, char** argv) {
                 write_file(
                     package_ir,
                     vf::json_stringify(*lowered_ir, -1) + "\n");
+                require_tool_exists(args.wasm_artifact, "wasm-artifact");
+                require_tool_exists(args.webgpu_artifact, "webgpu-artifact");
+                const auto ui_dependencies = resolve_stdlib_dependencies(
+                    dependency_source_text);
+                auto emit_ui_artifact = [&](const std::filesystem::path& emitter,
+                                            const std::string& phase) {
+                    std::vector<std::string> emitter_args{
+                        emitter.string(),
+                        "--source", std::filesystem::absolute(args.source).string(),
+                        "--typed-ir", package_ir.string(),
+                    };
+                    for (const auto& dependency : ui_dependencies) {
+                        emitter_args.push_back("--dependency");
+                        emitter_args.push_back(
+                            dependency.name + "=" + dependency.path.string());
+                    }
+                    const auto emitted = run_checked(emitter_args, phase);
+                    return object_of(
+                        vf::parse_json(emitted.stdout_text), phase + " summary");
+                };
+                const auto wasm_summary = emit_ui_artifact(
+                    args.wasm_artifact, "UI wasm-artifact");
+                const auto webgpu_summary = emit_ui_artifact(
+                    args.webgpu_artifact, "UI webgpu-artifact");
+                const auto wasm_path = string_field(
+                    wasm_summary, "artifact_path", "UI wasm-artifact summary");
+                const auto wasm_manifest = string_field(
+                    wasm_summary, "manifest_path", "UI wasm-artifact summary");
+                const auto webgpu_path = string_field(
+                    webgpu_summary, "artifact_path", "UI webgpu-artifact summary");
+                const auto webgpu_manifest = string_field(
+                    webgpu_summary, "manifest_path", "UI webgpu-artifact summary");
                 const auto packager = sibling_tool_path(args.self, "vkf-ui-package");
                 require_tool_exists(packager, "UI packager");
                 auto default_output = std::filesystem::absolute(args.source);
@@ -1951,6 +1983,10 @@ int main(int argc, char** argv) {
                     "--source", std::filesystem::absolute(args.source).string(),
                     "--typed-ir", package_ir.string(),
                     "--output", output.string(),
+                    "--wasm-artifact", wasm_path,
+                    "--wasm-manifest", wasm_manifest,
+                    "--webgpu-artifact", webgpu_path,
+                    "--webgpu-manifest", webgpu_manifest,
                 }, "UI package");
                 const std::string summary_text =
                     last_nonempty_line(packaged.stdout_text, "UI package");

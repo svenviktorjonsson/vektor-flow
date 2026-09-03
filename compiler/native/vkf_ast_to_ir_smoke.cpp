@@ -346,6 +346,7 @@ vf::JsonValue stdlib_function(std::string module, std::string name) {
         else if (name == "write_text" || name == "write_bytes" || name == "append_text") {
             type = "fn(str,str)->null";
         } else if (name == "print" || name == "eprint") type = "fn(any)->any";
+        else if (name == "write_to_clipboard") type = "fn(any)->null";
     } else if (module == "system") {
         if (name == "os_name" || name == "arch_name" || name == "cwd_native") type = "fn()->str";
         else if (name == "cpu_count_native") type = "fn()->int";
@@ -739,6 +740,62 @@ std::map<std::string, std::string> record_type_fields(const std::string& type_na
         if (colon != std::string::npos) fields[part.substr(0, colon)] = part.substr(colon + 1);
     }
     return fields;
+}
+
+struct EmissionVectorType {
+    bool numeric = false;
+    std::optional<std::size_t> fixed_length;
+};
+
+EmissionVectorType emission_vector_type(const std::string& type_name) {
+    if (starts_with(type_name, "list<") && type_name.back() == '>') {
+        const std::string element = type_name.substr(5, type_name.size() - 6);
+        return {element == "int" || element == "num", std::nullopt};
+    }
+    if (type_name.size() < 5 || type_name.front() != '[' ||
+        type_name.back() != ']') {
+        return {};
+    }
+    const std::string inner = type_name.substr(1, type_name.size() - 2);
+    const auto colon = inner.rfind(':');
+    if (colon == std::string::npos) return {};
+    const std::string element = inner.substr(0, colon);
+    const std::string extent = inner.substr(colon + 1);
+    if ((element != "int" && element != "num") || extent.empty() ||
+        !std::all_of(extent.begin(), extent.end(), [](const char ch) {
+            return ch >= '0' && ch <= '9';
+        })) {
+        return {};
+    }
+    return {true, static_cast<std::size_t>(std::stoull(extent))};
+}
+
+void validate_emission_type(const vf::JsonValue& expression) {
+    const auto& value = object_of(expression, "Frame.add emission");
+    const std::string type = string_field(value, "type", "Frame.add emission");
+    const auto rgb = emission_vector_type(type);
+    if (rgb.numeric) {
+        if (rgb.fixed_length.has_value() && *rgb.fixed_length == 3) return;
+        throw IRFailure("Frame.add RGB emission must have exactly three components");
+    }
+    const auto fields = record_type_fields(type);
+    if (fields.size() != 2 || fields.find("wavelength") == fields.end() ||
+        fields.find("radiance") == fields.end()) {
+        throw IRFailure(
+            "Frame.add emission must be an RGB vector or a wavelength/radiance record");
+    }
+    const auto wavelength = emission_vector_type(fields.at("wavelength"));
+    const auto radiance = emission_vector_type(fields.at("radiance"));
+    if (!wavelength.numeric || !radiance.numeric) {
+        throw IRFailure("Frame.add emission wavelength and radiance must be numeric vectors");
+    }
+    if ((wavelength.fixed_length.has_value() && *wavelength.fixed_length == 0) ||
+        (radiance.fixed_length.has_value() && *radiance.fixed_length == 0) ||
+        (wavelength.fixed_length.has_value() && radiance.fixed_length.has_value() &&
+         *wavelength.fixed_length != *radiance.fixed_length)) {
+        throw IRFailure(
+            "Frame.add emission wavelength and radiance vectors must have the same nonzero length");
+    }
 }
 
 std::vector<std::pair<std::string, std::string>> ordered_record_type_fields(
@@ -1846,7 +1903,7 @@ public:
             program["operations"] = vf::JsonValue(std::move(world_operations_));
             out["__vf_internal_world"] = vf::JsonValue(std::move(program));
         }
-        if (!ui_displays_.empty()) {
+        if (!ui_displays_.empty() || !ui_operations_.empty()) {
             vf::JsonValue::Object program;
             program["schema"] = vf::JsonValue("vektor-flow/ui-program");
             program["version"] = vf::JsonValue(1.0);
@@ -2982,6 +3039,154 @@ private:
         return vf::JsonValue(std::move(out));
     }
 
+    bool lower_temporal_frame_add(
+        const vf::JsonValue::Object& properties,
+        vf::JsonValue::Object& operation
+    ) {
+        if (properties.find("p_t") == properties.end()) return false;
+
+        const auto required = [&](const std::string& name) -> const vf::JsonValue& {
+            const auto found = properties.find(name);
+            if (found == properties.end()) {
+                throw IRFailure("temporal Frame.add requires `" + name + ":`");
+            }
+            return found->second;
+        };
+        const auto fixed_shape = [&](const std::string& name) {
+            const auto& value = required(name);
+            const auto result = fixed_numeric_vector_shape(string_field(
+                object_of(value, "temporal Frame.add " + name),
+                "type", "temporal Frame.add " + name));
+            if (!result) {
+                throw IRFailure(
+                    "temporal Frame.add `" + name + "` requires fixed numeric data");
+            }
+            return *result;
+        };
+
+        const auto position_shape = fixed_shape("p_t");
+        if (position_shape.dimensions.size() != 2 ||
+            position_shape.dimensions.front() == 0 ||
+            (position_shape.dimensions.back() != 2 &&
+             position_shape.dimensions.back() != 3)) {
+            throw IRFailure("temporal Frame.add `p_t` requires shape [t,2|3]");
+        }
+        const std::size_t time_count = position_shape.dimensions.front();
+        const auto color_shape = fixed_shape("c_tc");
+        const auto size_shape = fixed_shape("s_t");
+        if (color_shape.dimensions != std::vector<std::size_t>{time_count, 4}) {
+            throw IRFailure("temporal Frame.add `c_tc` requires shape [t,4]");
+        }
+        if (size_shape.dimensions != std::vector<std::size_t>{time_count}) {
+            throw IRFailure("temporal Frame.add `s_t` requires shape [t]");
+        }
+
+        const bool has_time_coordinates = properties.find("t") != properties.end();
+        const bool has_time_min = properties.find("t_min") != properties.end();
+        const bool has_time_max = properties.find("t_max") != properties.end();
+        if (has_time_coordinates && (has_time_min || has_time_max)) {
+            throw IRFailure(
+                "temporal Frame.add accepts either `t:` or `t_min:` with `t_max:`");
+        }
+        if (!has_time_coordinates && (!has_time_min || !has_time_max)) {
+            throw IRFailure(
+                "temporal Frame.add requires `t:` or both `t_min:` and `t_max:`");
+        }
+        if (has_time_coordinates) {
+            const auto time_shape = fixed_shape("t");
+            if (time_shape.dimensions != std::vector<std::size_t>{time_count}) {
+                throw IRFailure("temporal Frame.add `t` must match the p_t length");
+            }
+        } else {
+            const auto require_numeric_scalar = [&](const std::string& name) {
+                const auto& scalar = object_of(
+                    required(name), "temporal Frame.add " + name);
+                const std::string type = string_field(
+                    scalar, "type", "temporal Frame.add " + name);
+                if (type != "num" && type != "int") {
+                    throw IRFailure(
+                        "temporal Frame.add `" + name + "` requires a numeric scalar");
+                }
+            };
+            require_numeric_scalar("t_min");
+            require_numeric_scalar("t_max");
+        }
+
+        const auto& size_mode = object_of(
+            required("s_mode"), "temporal Frame.add s_mode");
+        if (string_field(size_mode, "type", "temporal Frame.add s_mode") !=
+            "ui_measure_space<data>") {
+            throw IRFailure("temporal Frame.add requires s_mode:data");
+        }
+        const auto& time_mode = object_of(
+            required("t_mode"), "temporal Frame.add t_mode");
+        const auto& raw_time_mode = field(
+            time_mode, "value", "temporal Frame.add t_mode");
+        static const std::set<std::string> time_modes{
+            "repeat", "mirror", "stop", "reset"
+        };
+        if (string_field(time_mode, "kind", "temporal Frame.add t_mode") != "const" ||
+            string_field(time_mode, "type", "temporal Frame.add t_mode") != "str" ||
+            !raw_time_mode.is_string() ||
+            time_modes.find(raw_time_mode.as_string()) == time_modes.end()) {
+            throw IRFailure("Frame.add t_mode must be repeat, mirror, stop, or reset");
+        }
+
+        const auto json_axes = [](std::initializer_list<const char*> values) {
+            vf::JsonValue::Array result;
+            for (const auto* value : values) result.emplace_back(value);
+            return result;
+        };
+        const auto json_shape = [](const std::vector<std::size_t>& values) {
+            vf::JsonValue::Array result;
+            for (const auto value : values) {
+                result.emplace_back(static_cast<double>(value));
+            }
+            return result;
+        };
+        vf::JsonValue::Array channels;
+        const auto add_channel = [&](const std::string& name,
+                                     std::initializer_list<const char*> axes,
+                                     const std::vector<std::size_t>& shape,
+                                     const std::string& value_kind,
+                                     const vf::JsonValue& value,
+                                     bool broadcast,
+                                     bool data_measure) {
+            vf::JsonValue::Object channel;
+            channel["name"] = vf::JsonValue(name);
+            channel["semantic_axes"] = vf::JsonValue(json_axes(axes));
+            channel["shape"] = vf::JsonValue(json_shape(shape));
+            if (broadcast) {
+                channel["broadcast_axes"] = vf::JsonValue(vf::JsonValue::Array{});
+            }
+            if (data_measure) channel["measure_space"] = vf::JsonValue("data");
+            channel["value_kind"] = vf::JsonValue(value_kind);
+            channel["value"] = value;
+            channels.emplace_back(std::move(channel));
+        };
+        add_channel("p", {"t", "c"}, position_shape.dimensions,
+                    "position", required("p_t"), false, false);
+        add_channel("c", {"t", "c"}, color_shape.dimensions,
+                    "rgba", required("c_tc"), true, false);
+        add_channel("s", {"t"}, size_shape.dimensions,
+                    "size", required("s_t"), true, true);
+        operation["layer_axes"] = vf::JsonValue(json_axes({"t"}));
+        operation["channels"] = vf::JsonValue(std::move(channels));
+
+        vf::JsonValue::Object time;
+        time["axis"] = vf::JsonValue("t");
+        time["sample_count"] = vf::JsonValue(static_cast<double>(time_count));
+        if (has_time_coordinates) {
+            time["coordinates"] = required("t");
+        } else {
+            time["min"] = required("t_min");
+            time["max"] = required("t_max");
+        }
+        time["mode"] = required("t_mode");
+        operation["time"] = vf::JsonValue(std::move(time));
+        return true;
+    }
+
     vf::JsonValue lower_world_embedding_add(
         const vf::JsonValue::Array& named_args,
         vf::JsonValue source
@@ -3316,6 +3521,9 @@ private:
             }
             if (name == "any" && !env.contains(name)) {
                 return type_const("any");
+            }
+            if (!env.contains(name) && name == "write_to_clipboard") {
+                return stdlib_function("io", name);
             }
             const std::string primitive = primitive_type_name(name, env);
             if (!primitive.empty()) {
@@ -3745,6 +3953,43 @@ private:
                         return vf::JsonValue(std::move(lookup));
                     }
                     if (spilled_ui_display && queue_type == "Frame<2>" &&
+                        method == "capture") {
+                        if (!args.empty() || !named_args.empty() || !spread_args.empty()) {
+                            throw IRFailure("Frame.capture does not accept arguments");
+                        }
+                        const auto target = ui_handle_bindings_.find(queue_name);
+                        if (target == ui_handle_bindings_.end() ||
+                            target->second.kind != "frame") {
+                            throw IRFailure("Frame.capture requires a retained Frame binding");
+                        }
+                        auto capture = node("ui_frame_capture");
+                        capture["frame_id"] = vf::JsonValue(
+                            "frame_" + std::to_string(target->second.id));
+                        capture["type"] = vf::JsonValue("list<list<list<int>>>");
+                        return vf::JsonValue(std::move(capture));
+                    }
+                    if (spilled_ui_display && queue_type == "Frame<2>" &&
+                        method == "push") {
+                        if (!args.empty() || !named_args.empty() || !spread_args.empty()) {
+                            throw IRFailure("Frame.push does not accept arguments");
+                        }
+                        const auto target = ui_handle_bindings_.find(queue_name);
+                        if (target == ui_handle_bindings_.end() ||
+                            target->second.kind != "frame") {
+                            throw IRFailure("Frame.push requires a retained Frame binding");
+                        }
+                        vf::JsonValue::Object push;
+                        push["kind"] = vf::JsonValue("push");
+                        push["frame_id"] = vf::JsonValue(
+                            static_cast<double>(target->second.id));
+                        ui_operations_.emplace_back(std::move(push));
+                        ui_result_type_ = "View";
+                        vf::JsonValue view = num_const(
+                            static_cast<double>(ui_operations_.size() - 1));
+                        view.as_object()["type"] = vf::JsonValue("View");
+                        return view;
+                    }
+                    if (spilled_ui_display && queue_type == "Frame<2>" &&
                         (method == "set_geom_options" || method == "add_camera" ||
                          method == "add_light" || method == "add")) {
                         if (!args.empty() || !spread_args.empty()) {
@@ -3769,7 +4014,10 @@ private:
                             }},
                             {"add", {
                                 "x", "y", "z", "id", "color", "representation", "render_mode",
+                                "p_uc", "faces_uvw",
+                                "p_t", "c_tc", "s_t", "t", "t_min", "t_max", "t_mode", "s_mode",
                                 "texture", "specular_strength", "roughness", "reflectivity", "alpha",
+                                "emission",
                                 "transparent", "depth_write", "receives_lighting", "no_lighting",
                                 "casts_shadow", "receives_shadow", "surface_system", "interpolation",
                                 "visible"
@@ -3802,7 +4050,21 @@ private:
                              properties.find("pos") == properties.end())) {
                             throw IRFailure("Frame.add_light requires `id:` and `pos:`");
                         }
-                        if (method == "add" &&
+                        const bool temporal_add = method == "add" &&
+                            properties.find("p_t") != properties.end();
+                        const bool indexed_add = method == "add" &&
+                            (properties.find("p_uc") != properties.end() ||
+                             properties.find("faces_uvw") != properties.end());
+                        if (indexed_add &&
+                            (properties.find("p_uc") == properties.end() ||
+                             properties.find("faces_uvw") == properties.end() ||
+                             properties.find("id") == properties.end() ||
+                             properties.find("color") == properties.end())) {
+                            throw IRFailure(
+                                "indexed Frame.add geometry requires `p_uc:`, `faces_uvw:`, "
+                                "`id:`, and `color:`");
+                        }
+                        if (method == "add" && !temporal_add && !indexed_add &&
                             (properties.find("x") == properties.end() ||
                              properties.find("y") == properties.end() ||
                              properties.find("id") == properties.end() ||
@@ -3810,10 +4072,19 @@ private:
                             throw IRFailure(
                                 "Frame.add geometry requires `x:`, `y:`, `id:`, and `color:`");
                         }
+                        if (method == "add") {
+                            const auto emission = properties.find("emission");
+                            if (emission != properties.end()) {
+                                validate_emission_type(emission->second);
+                            }
+                        }
                         vf::JsonValue::Object operation;
                         operation["kind"] = vf::JsonValue(method);
                         operation["frame_id"] = vf::JsonValue(
                             static_cast<double>(target->second.id));
+                        if (temporal_add) {
+                            (void)lower_temporal_frame_add(properties, operation);
+                        }
                         operation["properties"] = vf::JsonValue(std::move(properties));
                         if (method == "add") {
                             const std::uint64_t layer_id = next_ui_layer_++;

@@ -316,6 +316,20 @@ inline vf::JsonValue evaluate(const vf::JsonValue& raw, EvaluationContext* conte
         context->cache[name] = resolved;
         return resolved;
     }
+    if (kind == "field_access") {
+        const auto subject = evaluate(
+            field(value, "object", "retained scene field access"), context);
+        if (!subject.is_object()) {
+            throw Error("retained scene field access requires a record");
+        }
+        const std::string name = text(
+            value, "field", "retained scene field access");
+        const auto found = subject.as_object().find(name);
+        if (found == subject.as_object().end()) {
+            throw Error("retained scene field `" + name + "` is unavailable");
+        }
+        return found->second;
+    }
     if (kind == "binary_op") {
         return elementwise_binary(
             evaluate(field(value, "left", "retained scene binary operation"), context),
@@ -367,6 +381,353 @@ inline std::vector<double> numbers(const vf::JsonValue& value, const std::string
     flatten(flatten, value);
     return result;
 }
+
+enum class LayerTimeMode {
+    Repeat,
+    Mirror,
+    Stop,
+    Reset,
+};
+
+struct LayerTimeSample {
+    std::size_t lower_index = 0;
+    std::size_t upper_index = 0;
+    double alpha = 0.0;
+    double axis_position = 0.0;
+    bool running = true;
+    int direction = 1;
+};
+
+class LayerTimeSampler {
+public:
+    LayerTimeSampler(std::vector<double> coordinates, LayerTimeMode mode)
+        : coordinates_(std::move(coordinates)), mode_(mode) {
+        if (coordinates_.size() < 2) {
+            throw Error("Layer t coordinates must contain at least two values");
+        }
+        for (std::size_t index = 0; index < coordinates_.size(); ++index) {
+            if (!std::isfinite(coordinates_[index])) {
+                throw Error("Layer t coordinates must be finite");
+            }
+            if (index > 0 && coordinates_[index] <= coordinates_[index - 1]) {
+                throw Error("Layer t coordinates must be strictly increasing");
+            }
+        }
+    }
+
+    LayerTimeSample sample(double elapsed) const {
+        if (!std::isfinite(elapsed) || elapsed < 0.0) {
+            throw Error("Layer elapsed time must be finite and non-negative");
+        }
+        const double duration = coordinates_.back() - coordinates_.front();
+        if (mode_ == LayerTimeMode::Repeat) {
+            return bracket(
+                coordinates_.front() + std::fmod(elapsed, duration), true, 1);
+        }
+        if (mode_ == LayerTimeMode::Mirror) {
+            const double cycle = std::fmod(elapsed, duration * 2.0);
+            const bool returning = cycle >= duration;
+            return bracket(
+                returning
+                    ? coordinates_.back() - (cycle - duration)
+                    : coordinates_.front() + cycle,
+                true,
+                returning ? -1 : 1);
+        }
+        if (elapsed < duration) {
+            return bracket(coordinates_.front() + elapsed, true, 1);
+        }
+        if (mode_ == LayerTimeMode::Stop) {
+            return bracket(coordinates_.back(), false, 0);
+        }
+        return bracket(coordinates_.front(), false, 0);
+    }
+
+private:
+    LayerTimeSample bracket(double axis_position, bool running, int direction) const {
+        const auto upper = std::upper_bound(
+            coordinates_.begin(), coordinates_.end(), axis_position);
+        const std::size_t upper_index = upper == coordinates_.end()
+            ? coordinates_.size() - 1
+            : static_cast<std::size_t>(std::distance(coordinates_.begin(), upper));
+        const std::size_t lower_index = upper_index - 1;
+        return {
+            lower_index,
+            upper_index,
+            (axis_position - coordinates_[lower_index]) /
+                (coordinates_[upper_index] - coordinates_[lower_index]),
+            axis_position,
+            running,
+            direction,
+        };
+    }
+
+    std::vector<double> coordinates_;
+    LayerTimeMode mode_;
+};
+
+struct LayerTimeDirtyRange {
+    std::string channel;
+    std::size_t first = 0;
+    std::size_t count = 0;
+
+    bool operator==(const LayerTimeDirtyRange& other) const {
+        return channel == other.channel && first == other.first && count == other.count;
+    }
+};
+
+struct LayerTimeEvaluation {
+    LayerTimeSample time;
+    std::map<std::string, std::vector<double>> channels;
+    std::vector<LayerTimeDirtyRange> dirty_ranges;
+};
+
+class LayerTimeEvaluator {
+public:
+    static LayerTimeEvaluator from_operation(
+        const vf::JsonValue::Object& operation,
+        EvaluationContext* context = nullptr
+    ) {
+        const auto& raw_axes = field(operation, "layer_axes", "temporal Frame.add");
+        if (!raw_axes.is_array() || raw_axes.as_array().size() != 1 ||
+            !raw_axes.as_array().front().is_string() ||
+            raw_axes.as_array().front().as_string() != "t") {
+            throw Error("temporal Frame.add layer_axes must be [`t`]");
+        }
+
+        std::vector<Channel> channels;
+        std::size_t sample_count = 0;
+        const auto& raw_channels = field(operation, "channels", "temporal Frame.add");
+        if (!raw_channels.is_array()) {
+            throw Error("temporal Frame.add channels must be an array");
+        }
+        for (const auto& raw_channel : raw_channels.as_array()) {
+            const auto& channel = object(raw_channel, "temporal Frame.add channel");
+            const std::string name = text(channel, "name", "temporal Frame.add channel");
+            if (name != "p" && name != "c" && name != "s") {
+                throw Error("temporal Frame.add only samples numeric p, c, and s channels");
+            }
+            if (std::find_if(channels.begin(), channels.end(), [&](const Channel& candidate) {
+                    return candidate.name == name;
+                }) != channels.end()) {
+                throw Error("temporal Frame.add contains duplicate `" + name + "` channel");
+            }
+            const auto& raw_semantic_axes = field(
+                channel, "semantic_axes", "temporal Frame.add channel");
+            const bool scalar = name == "s";
+            const std::vector<std::string> expected_axes = scalar
+                ? std::vector<std::string>{"t"}
+                : std::vector<std::string>{"t", "c"};
+            if (!raw_semantic_axes.is_array() ||
+                raw_semantic_axes.as_array().size() != expected_axes.size()) {
+                throw Error("temporal Frame.add `" + name + "` channel has invalid axes");
+            }
+            for (std::size_t index = 0; index < expected_axes.size(); ++index) {
+                if (!raw_semantic_axes.as_array()[index].is_string() ||
+                    raw_semantic_axes.as_array()[index].as_string() != expected_axes[index]) {
+                    throw Error("temporal Frame.add `" + name + "` channel has invalid axes");
+                }
+            }
+            const auto& raw_value = field(channel, "value", "temporal Frame.add channel");
+            if (raw_value.is_object()) {
+                const auto kind = raw_value.as_object().find("kind");
+                if (kind != raw_value.as_object().end() && kind->second.is_string() &&
+                    kind->second.as_string() == "call") {
+                    throw Error("temporal Frame.add `" + name +
+                                "` must be precomputed numeric t-axis data");
+                }
+            }
+            const auto evaluated = detail::evaluate(raw_value, context);
+            if (!evaluated.is_array() || evaluated.as_array().size() < 2) {
+                throw Error("temporal Frame.add `" + name + "` must be precomputed numeric t-axis data");
+            }
+            Channel parsed;
+            parsed.name = name;
+            parsed.values.reserve(evaluated.as_array().size());
+            for (const auto& raw_sample : evaluated.as_array()) {
+                std::vector<double> values;
+                if (scalar) {
+                    if (!raw_sample.is_number() || !std::isfinite(raw_sample.as_number())) {
+                        throw Error("temporal Frame.add s samples must be finite numbers");
+                    }
+                    values.push_back(raw_sample.as_number());
+                } else {
+                    if (!raw_sample.is_array()) {
+                        throw Error("temporal Frame.add `" + name + "` samples must be numeric vectors");
+                    }
+                    for (const auto& raw_value : raw_sample.as_array()) {
+                        if (!raw_value.is_number() || !std::isfinite(raw_value.as_number())) {
+                            throw Error("temporal Frame.add `" + name + "` samples must be finite numeric vectors");
+                        }
+                        values.push_back(raw_value.as_number());
+                    }
+                }
+                if (parsed.width == 0) parsed.width = values.size();
+                if (values.size() != parsed.width) {
+                    throw Error("temporal Frame.add `" + name + "` samples must have one fixed width");
+                }
+                parsed.values.push_back(std::move(values));
+            }
+            if ((name == "p" && parsed.width != 2 && parsed.width != 3) ||
+                (name == "c" && parsed.width != 4) ||
+                (name == "s" && parsed.width != 1)) {
+                throw Error("temporal Frame.add `" + name + "` has an invalid sample width");
+            }
+            if (sample_count == 0) sample_count = parsed.values.size();
+            if (parsed.values.size() != sample_count) {
+                throw Error("temporal Frame.add channels must share one Layer-local t length");
+            }
+            channels.push_back(std::move(parsed));
+        }
+        for (const std::string& required : {"p", "c", "s"}) {
+            if (std::none_of(channels.begin(), channels.end(), [&](const Channel& channel) {
+                    return channel.name == required;
+                })) {
+                throw Error("temporal Frame.add is missing `" + required + "` channel");
+            }
+        }
+
+        const auto& time = object(field(operation, "time", "temporal Frame.add"),
+                                  "temporal Frame.add time");
+        if (text(time, "axis", "temporal Frame.add time") != "t") {
+            throw Error("temporal Frame.add time axis must be `t`");
+        }
+        const auto mode_value = detail::evaluate(
+            field(time, "mode", "temporal Frame.add time"), context);
+        if (!mode_value.is_string()) throw Error("Layer t_mode must be a string");
+        const LayerTimeMode mode = parse_mode(mode_value.as_string());
+
+        std::vector<double> coordinates;
+        const auto coordinates_entry = time.find("coordinates");
+        const auto min_entry = time.find("min");
+        const auto max_entry = time.find("max");
+        if (coordinates_entry != time.end()) {
+            if (min_entry != time.end() || max_entry != time.end()) {
+                throw Error("Layer time uses either t coordinates or t_min/t_max bounds");
+            }
+            const auto evaluated = detail::evaluate(coordinates_entry->second, context);
+            if (!evaluated.is_array() || evaluated.as_array().size() != sample_count) {
+                throw Error("Layer t coordinates must match the Layer-local t length");
+            }
+            coordinates.reserve(sample_count);
+            for (const auto& raw_coordinate : evaluated.as_array()) {
+                if (!raw_coordinate.is_number()) {
+                    throw Error("Layer t coordinates must contain only numbers");
+                }
+                coordinates.push_back(raw_coordinate.as_number());
+            }
+        } else {
+            if (min_entry == time.end() || max_entry == time.end()) {
+                throw Error("Layer time requires t coordinates or both t_min and t_max");
+            }
+            const auto minimum = detail::evaluate(min_entry->second, context);
+            const auto maximum = detail::evaluate(max_entry->second, context);
+            if (!minimum.is_number() || !maximum.is_number() ||
+                !std::isfinite(minimum.as_number()) || !std::isfinite(maximum.as_number()) ||
+                minimum.as_number() >= maximum.as_number()) {
+                throw Error("Layer t_min must be finite and less than t_max");
+            }
+            coordinates.reserve(sample_count);
+            const double step = (maximum.as_number() - minimum.as_number()) /
+                static_cast<double>(sample_count - 1);
+            for (std::size_t index = 0; index < sample_count; ++index) {
+                coordinates.push_back(index + 1 == sample_count
+                    ? maximum.as_number()
+                    : minimum.as_number() + step * static_cast<double>(index));
+            }
+        }
+        return LayerTimeEvaluator(std::move(coordinates), mode, std::move(channels));
+    }
+
+    LayerTimeEvaluation evaluate(
+        double elapsed,
+        std::vector<LayerTimeDirtyRange> existing_dirty = {}
+    ) const {
+        LayerTimeEvaluation result;
+        result.time = sampler_.sample(elapsed);
+        result.dirty_ranges = std::move(existing_dirty);
+        for (const auto& channel : channels_) {
+            std::vector<double> current(channel.width, 0.0);
+            for (std::size_t component = 0; component < channel.width; ++component) {
+                const double lower = channel.values[result.time.lower_index][component];
+                const double upper = channel.values[result.time.upper_index][component];
+                current[component] = lower + (upper - lower) * result.time.alpha;
+            }
+            result.channels[channel.name] = std::move(current);
+            result.dirty_ranges.push_back({channel.name, 0, channel.width});
+        }
+        return result;
+    }
+
+    vf::JsonValue descriptor() const {
+        vf::JsonValue::Array coordinates;
+        coordinates.reserve(coordinates_.size());
+        for (const double coordinate : coordinates_) coordinates.emplace_back(coordinate);
+        vf::JsonValue::Array channels;
+        channels.reserve(channels_.size());
+        for (const auto& channel : channels_) {
+            vf::JsonValue::Array samples;
+            samples.reserve(channel.values.size());
+            for (const auto& values : channel.values) {
+                if (channel.name == "s") {
+                    samples.emplace_back(values.front());
+                    continue;
+                }
+                vf::JsonValue::Array components;
+                components.reserve(values.size());
+                for (const double value : values) components.emplace_back(value);
+                samples.emplace_back(std::move(components));
+            }
+            vf::JsonValue::Array semantic_axes{vf::JsonValue("t")};
+            if (channel.name != "s") semantic_axes.emplace_back("c");
+            channels.emplace_back(vf::JsonValue::Object{
+                {"name", vf::JsonValue(channel.name)},
+                {"semantic_axes", vf::JsonValue(std::move(semantic_axes))},
+                {"value", vf::JsonValue(std::move(samples))},
+            });
+        }
+        return vf::JsonValue(vf::JsonValue::Object{
+            {"axis", vf::JsonValue("t")},
+            {"coordinates", vf::JsonValue(std::move(coordinates))},
+            {"mode", vf::JsonValue(mode_name(mode_))},
+            {"channels", vf::JsonValue(std::move(channels))},
+        });
+    }
+
+private:
+    struct Channel {
+        std::string name;
+        std::size_t width = 0;
+        std::vector<std::vector<double>> values;
+    };
+
+    LayerTimeEvaluator(
+        std::vector<double> coordinates,
+        LayerTimeMode mode,
+        std::vector<Channel> channels
+    ) : sampler_(coordinates, mode), coordinates_(std::move(coordinates)), mode_(mode),
+        channels_(std::move(channels)) {}
+
+    static LayerTimeMode parse_mode(const std::string& mode) {
+        if (mode == "repeat") return LayerTimeMode::Repeat;
+        if (mode == "mirror") return LayerTimeMode::Mirror;
+        if (mode == "stop") return LayerTimeMode::Stop;
+        if (mode == "reset") return LayerTimeMode::Reset;
+        throw Error("Layer t_mode must be repeat, mirror, stop, or reset");
+    }
+
+    static std::string mode_name(LayerTimeMode mode) {
+        if (mode == LayerTimeMode::Repeat) return "repeat";
+        if (mode == LayerTimeMode::Mirror) return "mirror";
+        if (mode == LayerTimeMode::Stop) return "stop";
+        return "reset";
+    }
+
+    LayerTimeSampler sampler_;
+    std::vector<double> coordinates_;
+    LayerTimeMode mode_;
+    std::vector<Channel> channels_;
+};
 
 struct NumericGrid {
     std::size_t rows = 0;
@@ -513,10 +874,146 @@ inline void align_coordinates(
     if (z.has_value()) *z = broadcast_axis_value(*z, axes, extents);
 }
 
+inline void apply_surface_material(
+    vf::JsonValue::Object& mesh,
+    const vf::JsonValue::Object& properties,
+    double alpha
+) {
+    for (const std::string& name : {
+             "representation", "render_mode", "texture", "specular_strength", "roughness",
+             "reflectivity", "emission", "alpha", "transparent", "depth_write", "casts_shadow",
+             "receives_shadow", "surface_system", "interpolation", "visible"}) {
+        const auto found = properties.find(name);
+        if (found != properties.end()) mesh[name] = found->second;
+    }
+    const auto no_lighting = properties.find("no_lighting");
+    if (no_lighting != properties.end()) {
+        mesh["no_lighting"] = no_lighting->second;
+    } else {
+        mesh["no_lighting"] = vf::JsonValue(!boolean_or(properties, "receives_lighting", true));
+    }
+    if (mesh.find("transparent") == mesh.end()) {
+        mesh["transparent"] = vf::JsonValue(alpha < 0.999);
+    }
+    if (mesh.find("depth_write") == mesh.end()) {
+        mesh["depth_write"] = vf::JsonValue(!mesh.at("transparent").as_boolean());
+    }
+}
+
+inline vf::JsonValue indexed_material_mesh(
+    const vf::JsonValue::Object& properties,
+    std::uint64_t layer_id
+) {
+    const auto& raw_positions = field(properties, "p_uc", "indexed Frame.add");
+    const auto& raw_faces = field(properties, "faces_uvw", "indexed Frame.add");
+    if (!raw_positions.is_array() || raw_positions.as_array().size() < 3) {
+        throw Error("indexed Frame.add p_uc must contain at least three positions");
+    }
+    std::vector<double> positions;
+    positions.reserve(raw_positions.as_array().size() * 3);
+    for (const auto& raw_position : raw_positions.as_array()) {
+        if (!raw_position.is_array() || raw_position.as_array().size() != 3) {
+            throw Error("indexed Frame.add p_uc positions must have three components");
+        }
+        for (const auto& raw_component : raw_position.as_array()) {
+            if (!raw_component.is_number() || !std::isfinite(raw_component.as_number())) {
+                throw Error("indexed Frame.add p_uc must contain finite numbers");
+            }
+            positions.push_back(raw_component.as_number());
+        }
+    }
+    if (!raw_faces.is_array() || raw_faces.as_array().empty()) {
+        throw Error("indexed Frame.add faces_uvw must contain at least one face");
+    }
+    vf::JsonValue::Array indices;
+    indices.reserve(raw_faces.as_array().size() * 3);
+    std::vector<double> normals(positions.size(), 0.0);
+    bool has_area = false;
+    for (const auto& raw_face : raw_faces.as_array()) {
+        if (!raw_face.is_array() || raw_face.as_array().size() != 3) {
+            throw Error("indexed Frame.add faces_uvw faces must have three indices");
+        }
+        std::size_t face[3]{};
+        for (std::size_t corner = 0; corner < 3; ++corner) {
+            const auto& raw_index = raw_face.as_array()[corner];
+            if (!raw_index.is_number() || !std::isfinite(raw_index.as_number()) ||
+                raw_index.as_number() < 0.0 ||
+                std::floor(raw_index.as_number()) != raw_index.as_number() ||
+                raw_index.as_number() >= static_cast<double>(raw_positions.as_array().size())) {
+                throw Error("indexed Frame.add faces_uvw contains an invalid position index");
+            }
+            face[corner] = static_cast<std::size_t>(raw_index.as_number());
+            indices.emplace_back(raw_index.as_number());
+        }
+        const std::size_t a = face[0] * 3;
+        const std::size_t b = face[1] * 3;
+        const std::size_t c = face[2] * 3;
+        const double ux = positions[b] - positions[a];
+        const double uy = positions[b + 1] - positions[a + 1];
+        const double uz = positions[b + 2] - positions[a + 2];
+        const double vx = positions[c] - positions[a];
+        const double vy = positions[c + 1] - positions[a + 1];
+        const double vz = positions[c + 2] - positions[a + 2];
+        const double nx = uy * vz - uz * vy;
+        const double ny = uz * vx - ux * vz;
+        const double nz = ux * vy - uy * vx;
+        if (nx * nx + ny * ny + nz * nz > 1e-24) has_area = true;
+        for (const auto vertex : face) {
+            normals[vertex * 3] += nx;
+            normals[vertex * 3 + 1] += ny;
+            normals[vertex * 3 + 2] += nz;
+        }
+    }
+    if (!has_area) throw Error("indexed Frame.add mesh must have non-zero area");
+    for (std::size_t vertex = 0; vertex < raw_positions.as_array().size(); ++vertex) {
+        const double nx = normals[vertex * 3];
+        const double ny = normals[vertex * 3 + 1];
+        const double nz = normals[vertex * 3 + 2];
+        const double length = std::sqrt(nx * nx + ny * ny + nz * nz);
+        if (length > 1e-12) {
+            normals[vertex * 3] /= length;
+            normals[vertex * 3 + 1] /= length;
+            normals[vertex * 3 + 2] /= length;
+        }
+    }
+    const auto color = numbers(field(properties, "color", "indexed Frame.add"),
+                               "indexed Frame.add color");
+    if (color.size() != 3 && color.size() != 4) {
+        throw Error("indexed Frame.add color must have three or four components");
+    }
+    const double alpha = color.size() == 4 ? color[3] : 1.0;
+    vf::JsonValue::Array vertices;
+    vertices.reserve(raw_positions.as_array().size() * 10);
+    for (std::size_t vertex = 0; vertex < raw_positions.as_array().size(); ++vertex) {
+        for (const double value : {
+                 positions[vertex * 3], positions[vertex * 3 + 1], positions[vertex * 3 + 2],
+                 normals[vertex * 3], normals[vertex * 3 + 1], normals[vertex * 3 + 2],
+                 color[0], color[1], color[2], alpha}) {
+            vertices.emplace_back(value);
+        }
+    }
+    const auto id_value = field(properties, "id", "indexed Frame.add");
+    if (!id_value.is_string()) throw Error("indexed Frame.add id must be a string");
+    vf::JsonValue::Object mesh{
+        {"id", id_value},
+        {"layer_id", vf::JsonValue(static_cast<double>(layer_id))},
+        {"type", vf::JsonValue("field_mesh")},
+        {"topology", vf::JsonValue("triangle-list")},
+        {"mode3d", vf::JsonValue(true)},
+        {"vertices", vf::JsonValue(std::move(vertices))},
+        {"indices", vf::JsonValue(std::move(indices))},
+    };
+    apply_surface_material(mesh, properties, alpha);
+    return vf::JsonValue(std::move(mesh));
+}
+
 inline vf::JsonValue material_mesh(
     const vf::JsonValue::Object& properties,
     std::uint64_t layer_id
 ) {
+    if (properties.find("p_uc") != properties.end()) {
+        return indexed_material_mesh(properties, layer_id);
+    }
     auto x_value = field(properties, "x", "Frame.add");
     auto y_value = field(properties, "y", "Frame.add");
     std::optional<vf::JsonValue> z_value;
@@ -578,6 +1075,7 @@ inline vf::JsonValue material_mesh(
         };
         for (const std::string& name : {
                  "representation", "render_mode", "alpha", "transparent", "depth_write",
+                 "emission",
                  "receives_lighting", "no_lighting", "casts_shadow", "receives_shadow",
                  "interpolation", "visible"}) {
             const auto found = properties.find(name);
@@ -669,26 +1167,58 @@ inline vf::JsonValue material_mesh(
         {"mode3d", vf::JsonValue(true)}, {"vertices", vf::JsonValue(std::move(vertices))},
         {"indices", vf::JsonValue(std::move(indices))},
     };
-    for (const std::string& name : {
-             "representation", "render_mode", "texture", "specular_strength", "roughness",
-             "reflectivity", "alpha", "transparent", "depth_write", "casts_shadow",
-             "receives_shadow", "surface_system", "interpolation", "visible"}) {
-        const auto found = properties.find(name);
-        if (found != properties.end()) mesh[name] = found->second;
-    }
-    const auto no_lighting = properties.find("no_lighting");
-    if (no_lighting != properties.end()) {
-        mesh["no_lighting"] = no_lighting->second;
-    } else {
-        mesh["no_lighting"] = vf::JsonValue(!boolean_or(properties, "receives_lighting", true));
-    }
-    if (mesh.find("transparent") == mesh.end()) {
-        mesh["transparent"] = vf::JsonValue(alpha < 0.999);
-    }
-    if (mesh.find("depth_write") == mesh.end()) {
-        mesh["depth_write"] = vf::JsonValue(!mesh.at("transparent").as_boolean());
-    }
+    apply_surface_material(mesh, properties, alpha);
     return vf::JsonValue(std::move(mesh));
+}
+
+inline vf::JsonValue temporal_material_mesh(
+    const vf::JsonValue::Object& operation,
+    EvaluationContext* context,
+    std::uint64_t layer_id
+) {
+    const auto evaluator = LayerTimeEvaluator::from_operation(operation, context);
+    const auto current = evaluator.evaluate(0.0);
+    const auto& position = current.channels.at("p");
+    const auto& color = current.channels.at("c");
+    const auto& size = current.channels.at("s");
+    vf::JsonValue::Array vertices;
+    for (const double value : {
+             position[0], position[1], position.size() == 3 ? position[2] : 0.0,
+             0.0, 0.0, 1.0,
+             color[0], color[1], color[2], color[3]}) {
+        vertices.emplace_back(value);
+    }
+
+    std::string mesh_id = "layer_" + std::to_string(layer_id);
+    const auto properties_entry = operation.find("properties");
+    if (properties_entry != operation.end()) {
+        const auto& properties = object(properties_entry->second, "temporal Frame.add properties");
+        const auto id_entry = properties.find("id");
+        if (id_entry != properties.end()) {
+            const auto id_value = detail::evaluate(id_entry->second, context);
+            if (!id_value.is_string() || id_value.as_string().empty()) {
+                throw Error("temporal Frame.add id must be a non-empty string");
+            }
+            mesh_id = id_value.as_string();
+        }
+    }
+
+    return vf::JsonValue(vf::JsonValue::Object{
+        {"id", vf::JsonValue(mesh_id)},
+        {"layer_id", vf::JsonValue(static_cast<double>(layer_id))},
+        {"type", vf::JsonValue("field_mesh")},
+        {"topology", vf::JsonValue("point-list")},
+        {"render_mode", vf::JsonValue("marker_impostor")},
+        {"marker_space", vf::JsonValue("world")},
+        {"mode3d", vf::JsonValue(position.size() == 3)},
+        {"vertices", vf::JsonValue(std::move(vertices))},
+        {"indices", vf::JsonValue(vf::JsonValue::Array{vf::JsonValue(0.0)})},
+        {"vertex_size", vf::JsonValue(size.front())},
+        {"depth_write", vf::JsonValue(false)},
+        {"no_lighting", vf::JsonValue(true)},
+        {"pickable", vf::JsonValue(true)},
+        {"_layer_time", evaluator.descriptor()},
+    });
 }
 
 struct Frame {
@@ -704,7 +1234,7 @@ struct Frame {
 }  // namespace detail
 
 struct StaticHtmlLoad {
-    std::uint64_t frame_id;
+    std::string frame_id;
     std::string resource;
 };
 
@@ -726,12 +1256,23 @@ inline std::vector<StaticHtmlLoad> static_html_loads(const vf::JsonValue& root_v
         }
         const auto& resource = detail::field(operation, "resource", "Frame.load");
         if (!resource.is_string()) throw Error("Frame.load resource must be a string");
-        result.push_back({detail::id(target, "id", "Frame.load target"), resource.as_string()});
+        const auto& raw_id = detail::field(target, "id", "Frame.load target");
+        std::string frame_id;
+        if (raw_id.is_string() && !raw_id.as_string().empty()) {
+            frame_id = raw_id.as_string();
+        } else {
+            frame_id = "frame_" + std::to_string(
+                detail::id(target, "id", "Frame.load target"));
+        }
+        result.push_back({std::move(frame_id), resource.as_string()});
     }
     return result;
 }
 
-inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_value) {
+inline std::optional<vf::JsonValue> compile_packets(
+    const vf::JsonValue& root_value,
+    const std::map<std::string, vf::JsonValue>* compile_time_bindings = nullptr
+) {
     const auto& root = detail::object(root_value, "typed IR root");
     const auto program_entry = root.find("ui_program");
     if (program_entry == root.end()) return std::nullopt;
@@ -742,6 +1283,9 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
     const auto& raw_operations = detail::field(program, "operations", "typed UI program");
     if (!raw_operations.is_array()) throw Error("typed UI operations must be an array");
     detail::EvaluationContext evaluation;
+    if (compile_time_bindings != nullptr) {
+        evaluation.cache = *compile_time_bindings;
+    }
     const auto body_entry = root.find("body");
     if (body_entry != root.end()) {
         if (!body_entry->second.is_array()) throw Error("typed IR body must be an array");
@@ -805,6 +1349,13 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
             found->second.targeted = true;
             continue;
         }
+        if (kind == "push") {
+            const auto frame_id = detail::id(operation, "frame_id", "Frame.push");
+            const auto found = frames.find(frame_id);
+            if (found == frames.end()) throw Error("Frame.push target Frame was not created");
+            found->second.targeted = true;
+            continue;
+        }
         if (kind == "set_geom_options" || kind == "add_camera" ||
             kind == "add_light" || kind == "add") {
             const auto frame_id = detail::id(operation, "frame_id", "retained scene operation");
@@ -819,8 +1370,13 @@ inline std::optional<vf::JsonValue> compile_packets(const vf::JsonValue& root_va
             } else if (kind == "add_light") {
                 found->second.lights.push_back(vf::JsonValue(std::move(properties)));
             } else {
-                found->second.meshes.push_back(detail::material_mesh(
-                    properties, detail::id(operation, "layer_id", "Frame.add")));
+                const auto layer_id = detail::id(operation, "layer_id", "Frame.add");
+                if (operation.find("time") != operation.end()) {
+                    found->second.meshes.push_back(detail::temporal_material_mesh(
+                        operation, &evaluation, layer_id));
+                } else {
+                    found->second.meshes.push_back(detail::material_mesh(properties, layer_id));
+                }
             }
             continue;
         }
@@ -995,9 +1551,77 @@ inline std::optional<vf::JsonValue> compile_event_program(
                 statements.push_back(detail::field(arm, "body", "owner event loop arm"));
             }
             vf::JsonValue::Array actions;
+            std::set<std::string> result_bindings;
             for (const auto& raw_action : statements) {
                 const auto& action = detail::object(raw_action, "owner event loop action");
-                if (detail::text(action, "kind", "owner event loop action") != "update_attr") {
+                const std::string action_kind = detail::text(
+                    action, "kind", "owner event loop action");
+                if (action_kind == "store_binding") {
+                    const auto& value = detail::object(
+                        detail::field(action, "value", "retained result binding"),
+                        "retained result binding value");
+                    if (detail::text(value, "kind", "retained result binding value") !=
+                            "ui_frame_capture") {
+                        throw Error(
+                            "retained event result bindings currently require Frame.capture()");
+                    }
+                    const std::string result = detail::text(
+                        action, "name", "retained result binding");
+                    const std::string target = detail::text(
+                        value, "frame_id", "Frame.capture action");
+                    if (result.empty() || target.empty()) {
+                        throw Error("retained Frame.capture action requires result and target");
+                    }
+                    result_bindings.insert(result);
+                    actions.push_back(vf::JsonValue(vf::JsonValue::Object{
+                        {"op", vf::JsonValue("capture_frame")},
+                        {"target", vf::JsonValue(target)},
+                        {"result", vf::JsonValue(result)},
+                    }));
+                    continue;
+                }
+                if (action_kind == "expr_stmt") {
+                    const auto& expression = detail::object(
+                        detail::field(action, "expr", "retained action expression"),
+                        "retained action expression");
+                    if (detail::text(expression, "kind", "retained action expression") !=
+                            "call") {
+                        throw Error("retained event expression requires a sink call");
+                    }
+                    const auto& callee = detail::object(
+                        detail::field(expression, "callee", "retained sink call"),
+                        "retained sink callee");
+                    if (detail::text(callee, "kind", "retained sink callee") !=
+                            "stdlib_function" ||
+                        detail::text(callee, "module", "retained sink callee") != "io" ||
+                        detail::text(callee, "name", "retained sink callee") !=
+                            "write_to_clipboard") {
+                        throw Error(
+                            "retained event expression currently requires write_to_clipboard");
+                    }
+                    const auto& args = detail::field(
+                        expression, "args", "write_to_clipboard call");
+                    if (!args.is_array() || args.as_array().size() != 1) {
+                        throw Error("write_to_clipboard requires one image result");
+                    }
+                    const auto& source = detail::object(
+                        args.as_array().front(), "write_to_clipboard image");
+                    if (detail::text(source, "kind", "write_to_clipboard image") != "load") {
+                        throw Error("write_to_clipboard requires a named image result");
+                    }
+                    const std::string source_name = detail::text(
+                        source, "name", "write_to_clipboard image");
+                    if (result_bindings.find(source_name) == result_bindings.end()) {
+                        throw Error("write_to_clipboard image result is not available");
+                    }
+                    actions.push_back(vf::JsonValue(vf::JsonValue::Object{
+                        {"op", vf::JsonValue("write_clipboard")},
+                        {"source", vf::JsonValue(source_name)},
+                        {"format", vf::JsonValue("png")},
+                    }));
+                    continue;
+                }
+                if (action_kind != "update_attr") {
                     throw Error("retained event branches currently require direct Layer member assignments");
                 }
                 const std::string base_name = detail::text(action, "base_name", "Layer patch");
