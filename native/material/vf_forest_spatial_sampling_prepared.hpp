@@ -40,18 +40,15 @@ PrepareForestSpatialSamplingReference(
     const auto bytes = PackForestPopulationBytesReference(population);
     const std::uint64_t population_version =
         HashDeterministicPacketBytes(bytes);
-    const auto observations =
-        BuildForestSpatialSampleObservationsReference(
+    auto classified =
+        BuildForestSpatialClassifiedObservationsReference(
             population,
             population_version,
-            pair_budget
+            near_distance * near_distance,
+            far_distance * far_distance,
+            pair_budget,
+            blocks
         );
-    auto classified = ClassifyForestSpatialObservationsReference(
-        observations,
-        near_distance * near_distance,
-        far_distance * far_distance,
-        blocks
-    );
     return {
         &population,
         population_version,

@@ -174,6 +174,83 @@ ClassifyForestSpatialObservationsReference(
     return classified;
 }
 
+inline ForestSpatialClassifiedObservations
+BuildForestSpatialClassifiedObservationsReference(
+    const ForestPopulationRealization& population,
+    std::uint64_t population_version,
+    double near_squared,
+    double far_squared,
+    std::size_t pair_budget,
+    const std::vector<ForestSpatialSamplingBlock>& blocks
+) {
+    if (population.trees.size() < 2 || pair_budget == 0 ||
+        pair_budget > 10000000 ||
+        !std::isfinite(near_squared) || near_squared <= 0.0 ||
+        !std::isfinite(far_squared) ||
+        far_squared <= near_squared) {
+        throw std::invalid_argument(
+            "forest streamed classification request is invalid"
+        );
+    }
+    ValidateForestSpatialSamplingBlocksReference(
+        pair_budget,
+        blocks
+    );
+    ForestSpatialClassifiedObservations classified;
+    classified.blocks.reserve(blocks.size());
+    for (const auto& block : blocks) {
+        const std::size_t near_first =
+            classified.near_environment_similarity.size();
+        const std::size_t far_first =
+            classified.far_environment_similarity.size();
+        const std::size_t last =
+            block.first_sample + block.sample_count;
+        for (std::size_t sample = block.first_sample;
+             sample < last;
+             ++sample) {
+            const auto observation =
+                ObserveForestSpatialPairReference(
+                    population,
+                    ForestSpatialSamplePairReference(
+                        population_version,
+                        population.trees.size(),
+                        sample
+                    )
+                );
+            if (observation.distance_squared <= near_squared) {
+                classified.near_environment_similarity.push_back(
+                    observation.environment_similarity
+                );
+                classified.near_same_species.push_back(
+                    observation.same_species
+                );
+            } else if (observation.distance_squared >= far_squared) {
+                classified.far_environment_similarity.push_back(
+                    observation.environment_similarity
+                );
+                classified.far_same_species.push_back(
+                    observation.same_species
+                );
+            }
+        }
+        classified.blocks.push_back(
+            {
+                near_first,
+                classified.near_environment_similarity.size() -
+                    near_first,
+                far_first,
+                classified.far_environment_similarity.size() -
+                    far_first,
+            }
+        );
+    }
+    classified.near_environment_similarity.shrink_to_fit();
+    classified.far_environment_similarity.shrink_to_fit();
+    classified.near_same_species.shrink_to_fit();
+    classified.far_same_species.shrink_to_fit();
+    return classified;
+}
+
 struct ForestSpatialSamplingBlockResult {
     std::size_t first_sample;
     ForestSpatialSamplingAccumulator accumulator;
