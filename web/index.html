@@ -60,10 +60,22 @@
       </div>
     </section>
 
+    <section class="catalogue live-catalogue" aria-labelledby="live-catalogue-heading">
+      <div class="section-heading catalogue-heading">
+        <div>
+          <p class="eyebrow">Four visual families</p>
+          <h2 id="live-catalogue-heading">40 runnable examples</h2>
+        </div>
+        <output id="live-example-count">Loading live examples…</output>
+      </div>
+      <p class="catalogue-intro">Ten examples in each family: static and animated 2D graphs, plus static and animated 3D models. Every entry opens as editable VKF and runs locally through WebAssembly.</p>
+      <nav id="live-example-tree" class="example-tree live-example-tree" aria-label="Runnable Vektor Flow examples"></nav>
+    </section>
+
     <section class="catalogue" aria-labelledby="catalogue-heading">
       <div class="section-heading catalogue-heading">
         <div>
-          <p class="eyebrow">Explore the language</p>
+          <p class="eyebrow">Complete repository catalogue</p>
           <h2 id="catalogue-heading">Every README example</h2>
         </div>
         <output id="catalog-count" aria-live="polite">Loading catalogue…</output>
@@ -73,6 +85,7 @@
         <input id="example-search" type="search" placeholder="Search graphs, materials, chess, symbolic…" autocomplete="off">
       </label>
       <nav id="example-tree" class="example-tree" aria-label="Hierarchical Vektor Flow examples"></nav>
+      <p class="catalogue-note">Every source opens in the editor. Entries marked “Verified native render” also show their checked visual result. Browser execution is enabled only when that full program passes the VKF/WASM compiler.</p>
       <noscript>The complete example tree needs JavaScript to load its static catalogue.</noscript>
     </section>
 

@@ -55,4 +55,20 @@ test("Pages catalogue assigns stable hierarchical groups and source hashes", asy
     byPath.get("examples/material_ui_gallery/app.vkf").title,
     "Material UI Gallery",
   );
+  assert.equal(
+    byPath.get("examples/scene_gallery/03-mirror/app.vkf").media.path,
+    "media/docs/public/images/scene-gallery/03-mirror.png",
+  );
+  assert.equal(
+    byPath.get("examples/generated/readme/core/01-bindings.vkf").media,
+    null,
+  );
+  assert.deepEqual(
+    byPath.get("examples/material_ui_gallery/app.vkf").media,
+    {
+      path: "media/docs/public/videos/stanford-bunny-rotating-lights-360.mp4",
+      type: "video",
+      sha256: "13d91284aa7bb986c500a9a5e53a3b89796cf625a6c4a63e51272de707e87402",
+    },
+  );
 });

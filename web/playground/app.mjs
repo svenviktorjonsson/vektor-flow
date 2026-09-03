@@ -1,6 +1,7 @@
 import { registerVektorFlowPrism } from "../editor/prism-vektorflow.mjs";
 import { loadPackagedBrowserCompiler } from "./vkf-browser-compiler.mjs";
 import { loadPackagedBrowserSymbolicPlotter } from "./vkf-browser-symbolic-plotter.mjs";
+import { LIVE_EXAMPLE_GROUPS, LIVE_EXAMPLES_BY_ID } from "./examples.mjs";
 
 const source = document.querySelector("#source");
 const highlight = document.querySelector("#highlight");
@@ -9,19 +10,33 @@ const playButton = document.querySelector("#play");
 const example = document.querySelector("#example");
 const output = document.querySelector("#output");
 const visualization = document.querySelector("#visualization");
+const reference = document.querySelector("#reference");
+const referenceImage = document.querySelector("#reference-image");
+const referenceVideo = document.querySelector("#reference-video");
 const status = document.querySelector("#status");
 const Prism = globalThis.Prism;
 
 const EXAMPLES = Object.freeze({
   console: Object.freeze({
+    id: "console",
+    title: "Dependency chain",
     source: "base: 40\nfirst: base + 1\nsecond: first + 1\nsecond + 1",
     kind: "console",
   }),
-  "curve-static": Object.freeze({ source: "sin(x)", kind: "plot" }),
-  "curve-time": Object.freeze({ source: "sin(x-t)", kind: "plot-time" }),
-  "surface-static": Object.freeze({ source: "sin(x)*cos(y)", kind: "surface" }),
-  "surface-time": Object.freeze({ source: "sin(x-t)+cos(y)", kind: "surface-time" }),
+  ...LIVE_EXAMPLES_BY_ID,
 });
+
+for (const group of LIVE_EXAMPLE_GROUPS) {
+  const options = document.createElement("optgroup");
+  options.label = group.label;
+  for (const item of group.examples) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.title;
+    options.append(option);
+  }
+  example.append(options);
+}
 
 registerVektorFlowPrism(Prism);
 
@@ -75,11 +90,25 @@ function stopAnimation() {
 function showConsole() {
   output.hidden = false;
   visualization.hidden = true;
+  reference.hidden = true;
 }
 
 function showVisualization() {
   output.hidden = true;
   visualization.hidden = false;
+  reference.hidden = true;
+}
+
+function showReference(media, title) {
+  output.hidden = true;
+  visualization.hidden = true;
+  referenceImage.hidden = true;
+  referenceVideo.hidden = true;
+  const element = media.type === "video" ? referenceVideo : referenceImage;
+  element.src = catalogueMediaUrl(media.path);
+  element.setAttribute("aria-label", `Verified native render of ${title}`);
+  element.hidden = false;
+  reference.hidden = false;
 }
 
 function drawPlot(plot, view) {
@@ -196,6 +225,10 @@ async function compileSource() {
   stopAnimation();
   const started = performance.now();
   try {
+    if (selectedExample().kind === "source") {
+      status.value = "Source example";
+      return;
+    }
     if (selectedExample().kind !== "console") {
       await compilePlot(0);
       return;
@@ -246,6 +279,7 @@ example.addEventListener("change", () => {
   stopAnimation();
   const chosen = selectedExample();
   source.value = chosen.source;
+  compileButton.disabled = chosen.kind === "source";
   playButton.hidden = !selectedExampleIsTimed();
   history.replaceState(null, "", `?example=${encodeURIComponent(example.value)}`);
   renderHighlight();
@@ -267,6 +301,14 @@ function catalogueSourceUrl(path) {
   return `./generated/sources/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
+function catalogueMediaUrl(path) {
+  if (!/^media\/docs\/public\/[a-zA-Z0-9_./-]+\.(?:png|webp|gif|mp4)$/u.test(path)
+      || path.split("/").includes("..")) {
+    throw new TypeError("Invalid catalogue media path");
+  }
+  return `./generated/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 async function loadInitialExample() {
   const parameters = new URLSearchParams(location.search);
   const requestedSource = parameters.get("source");
@@ -274,7 +316,12 @@ async function loadInitialExample() {
     const response = await fetch(catalogueSourceUrl(requestedSource));
     if (!response.ok) throw new Error(`Source request failed (${response.status})`);
     const title = parameters.get("title") || requestedSource.split("/").at(-1);
-    catalogExample = Object.freeze({ source: await response.text(), kind: "console" });
+    const mediaPath = parameters.get("media");
+    const media = mediaPath ? Object.freeze({
+      path: mediaPath,
+      type: parameters.get("mediaType") === "video" ? "video" : "image",
+    }) : null;
+    catalogExample = Object.freeze({ source: await response.text(), kind: "source", media });
     const option = document.createElement("option");
     option.value = "catalog";
     option.textContent = `README · ${title}`;
@@ -282,9 +329,11 @@ async function loadInitialExample() {
     example.value = "catalog";
     source.value = catalogExample.source;
     playButton.hidden = true;
-    showConsole();
-    output.textContent = "Press Run to compile this README example in the browser.";
-    status.value = "Source loaded";
+    compileButton.disabled = true;
+    if (media) showReference(media, title);
+    else showConsole();
+    output.textContent = "Browser execution is not yet available for this full program. The source is editable; runnable coverage is added only after the VKF/WASM compiler passes it.";
+    status.value = media ? "Verified native render" : "Source example";
     renderHighlight();
     return;
   }

@@ -17,6 +17,8 @@ test("Pages root exposes a searchable hierarchical README example tree", async (
   assert.match(app, /document\.createElement\("details"\)/u);
   assert.match(app, /URLSearchParams/u);
   assert.match(app, /source/u);
+  assert.match(app, /Verified native render/u);
+  assert.match(app, /Source example/u);
 });
 
 test("playground loads catalogue source files without server compilation", async () => {
@@ -24,5 +26,6 @@ test("playground loads catalogue source files without server compilation", async
 
   assert.match(app, /generated\/sources/u);
   assert.match(app, /requestedSource/u);
+  assert.match(app, /Browser execution is not yet available for this full program/u);
   assert.doesNotMatch(app, /fetch\([^)]*(?:compile|run)|XMLHttpRequest|WebSocket/u);
 });

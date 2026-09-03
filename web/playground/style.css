@@ -122,6 +122,16 @@ textarea::selection { background: #5685c966; }
 }
 #visualization[hidden], #output[hidden] { display: none; }
 #status { color: #7de8bc; }
+.reference { display: grid; gap: 12px; margin: 0; padding: 20px; }
+.reference[hidden] { display: none; }
+.reference img, .reference video {
+  width: 100%;
+  max-height: 620px;
+  border-radius: 10px;
+  object-fit: contain;
+  background: #05080e;
+}
+.reference figcaption { color: #8fa0b9; font-size: .82rem; }
 
 .example-links {
   display: flex;

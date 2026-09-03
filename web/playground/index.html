@@ -21,10 +21,6 @@
           <label class="example-label" for="example">Example</label>
           <select id="example" aria-label="Example">
             <option value="console">Console · dependency chain</option>
-            <option value="curve-static">2D · static sine</option>
-            <option value="curve-time">2D + time · travelling sine</option>
-            <option value="surface-static">3D · static wave surface</option>
-            <option value="surface-time">3D + time · breathing surface</option>
           </select>
           <div class="actions">
             <button id="play" type="button" hidden>Play</button>
@@ -48,6 +44,11 @@ second + 1</textarea>
         <div class="result-shell">
           <pre id="output" aria-live="polite">The compiler is loading locally.</pre>
           <canvas id="visualization" aria-label="VKF visualization" hidden></canvas>
+          <figure id="reference" class="reference" hidden>
+            <img id="reference-image" alt="" hidden>
+            <video id="reference-video" controls loop muted playsinline hidden></video>
+            <figcaption>Verified native render · source shown beside it</figcaption>
+          </figure>
         </div>
       </div>
     </section>

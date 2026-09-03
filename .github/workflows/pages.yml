@@ -37,7 +37,13 @@ jobs:
       - name: Build hierarchical README example catalogue
         shell: pwsh
         run: |
-          node --test tests/js/pages-example-catalog.test.mjs tests/js/pages-example-tree.test.mjs
+          node --test `
+            tests/js/browser-compiler-runtime.test.mjs `
+            tests/js/browser-playground-shell.test.mjs `
+            tests/js/browser-symbolic-plotter.test.mjs `
+            tests/js/pages-example-catalog.test.mjs `
+            tests/js/pages-example-tree.test.mjs `
+            tests/js/pages-live-examples.test.mjs
           node tools/build-pages-example-catalog.mjs --output=web/playground/generated
       - uses: actions/upload-pages-artifact@v4
         with:

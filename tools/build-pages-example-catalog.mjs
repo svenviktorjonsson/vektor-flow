@@ -96,6 +96,20 @@ function runtimeKind(path, groups) {
   return "console";
 }
 
+function catalogMedia(path, scene) {
+  if (scene?.media) return Object.freeze({
+    path: `media/${scene.media.path}`,
+    type: "image",
+    sha256: scene.media.sha256,
+  });
+  if (path === "examples/material_ui_gallery/app.vkf") return Object.freeze({
+    path: "media/docs/public/videos/stanford-bunny-rotating-lights-360.mp4",
+    type: "video",
+    sha256: "13d91284aa7bb986c500a9a5e53a3b89796cf625a6c4a63e51272de707e87402",
+  });
+  return null;
+}
+
 async function sceneMetadata(root) {
   const path = resolve(root, "examples", "scene_gallery", "manifest.json");
   const manifest = JSON.parse(await readFile(path, "utf8"));
@@ -158,6 +172,7 @@ export async function buildReadmeExampleCatalog(repoRoot) {
       kind: runtimeKind(path, groups),
       features: Object.freeze(scene?.features ?? []),
       sourceSha256: sourceSha256(source),
+      media: catalogMedia(path, scene),
     });
   }));
   examples.sort((left, right) => (
@@ -177,6 +192,12 @@ export async function writePagesExampleCatalog(repoRoot, outputRoot) {
     const destination = resolve(output, "sources", example.path);
     await mkdir(dirname(destination), { recursive: true });
     await copyFile(resolve(root, example.path), destination);
+    if (example.media) {
+      const mediaSource = resolve(root, example.media.path.replace(/^media\//u, ""));
+      const mediaDestination = resolve(output, example.media.path);
+      await mkdir(dirname(mediaDestination), { recursive: true });
+      await copyFile(mediaSource, mediaDestination);
+    }
   }
   await writeFile(resolve(output, "catalog.json"), `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
   return catalog;

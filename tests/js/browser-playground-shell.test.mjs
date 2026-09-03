@@ -5,9 +5,10 @@ import test from "node:test";
 const playground = new URL("../../web/playground/", import.meta.url);
 
 test("playground exposes an editable Prism-highlighted client-side compiler", async () => {
-  const [html, app] = await Promise.all([
+  const [html, app, examples] = await Promise.all([
     readFile(new URL("index.html", playground), "utf8"),
     readFile(new URL("app.mjs", playground), "utf8"),
+    readFile(new URL("examples.mjs", playground), "utf8"),
   ]);
   assert.match(html, /<textarea[^>]+id="source"/u);
   assert.match(html, /<button[^>]+id="compile"/u);
@@ -19,7 +20,7 @@ test("playground exposes an editable Prism-highlighted client-side compiler", as
   assert.match(app, /loadPackagedBrowserCompiler/u);
   assert.match(app, /loadPackagedBrowserSymbolicPlotter/u);
   assert.match(app, /compiler\.run\(source\.value\)/u);
-  assert.match(app, /surface-static/u);
-  assert.match(app, /surface-time/u);
+  assert.match(examples, /surface-static/u);
+  assert.match(examples, /surface-time/u);
   assert.doesNotMatch(app, /fetch\([^)]*(?:compile|run)|XMLHttpRequest|WebSocket/u);
 });

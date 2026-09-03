@@ -1,6 +1,10 @@
+import { LIVE_EXAMPLE_GROUPS } from "./playground/examples.mjs";
+
 const search = document.querySelector("#example-search");
 const tree = document.querySelector("#example-tree");
 const count = document.querySelector("#catalog-count");
+const liveTree = document.querySelector("#live-example-tree");
+const liveCount = document.querySelector("#live-example-count");
 
 function createBranch() {
   return { branches: new Map(), examples: [] };
@@ -30,16 +34,51 @@ function exampleLink(example) {
     kind: example.kind,
     title: example.title,
   });
+  if (example.media) {
+    parameters.set("media", example.media.path);
+    parameters.set("mediaType", example.media.type);
+  }
   const link = document.createElement("a");
   link.className = "tree-leaf";
   link.href = `./playground/?${parameters}`;
   const title = document.createElement("strong");
   title.textContent = example.title;
   const path = document.createElement("small");
-  path.textContent = example.path;
+  path.textContent = example.media ? `Verified native render · ${example.path}` : `Source example · ${example.path}`;
   link.append(title, path);
   return link;
 }
+
+function renderLiveExamples() {
+  for (const group of LIVE_EXAMPLE_GROUPS) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    const label = document.createElement("span");
+    label.textContent = group.label;
+    const size = document.createElement("span");
+    size.textContent = `${group.examples.length} runnable`;
+    summary.append(label, size);
+    details.append(summary);
+    const leaves = document.createElement("div");
+    leaves.className = "tree-leaves";
+    for (const item of group.examples) {
+      const link = document.createElement("a");
+      link.className = "tree-leaf live";
+      link.href = `./playground/?example=${encodeURIComponent(item.id)}`;
+      const title = document.createElement("strong");
+      title.textContent = item.title;
+      const source = document.createElement("small");
+      source.textContent = `Live WASM · ${item.source}`;
+      link.append(title, source);
+      leaves.append(link);
+    }
+    details.append(leaves);
+    liveTree.append(details);
+  }
+  liveCount.value = "40 live examples";
+}
+
+renderLiveExamples();
 
 function renderBranch(branch, container, depth = 0) {
   const sortedBranches = [...branch.branches.entries()]
