@@ -34,6 +34,11 @@ jobs:
       - name: Verify committed browser artifact
         shell: pwsh
         run: git diff --exit-code -- web/playground/artifacts
+      - name: Build hierarchical README example catalogue
+        shell: pwsh
+        run: |
+          node --test tests/js/pages-example-catalog.test.mjs tests/js/pages-example-tree.test.mjs
+          node tools/build-pages-example-catalog.mjs --output=web/playground/generated
       - uses: actions/upload-pages-artifact@v4
         with:
           path: web

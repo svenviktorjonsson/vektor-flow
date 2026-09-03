@@ -48,10 +48,12 @@ let plotterPromise;
 let plotProgram;
 let animationFrame;
 let animationOrigin;
+let catalogExample;
 compileButton.disabled = false;
 status.value = "Ready";
 
 function selectedExample() {
+  if (example.value === "catalog" && catalogExample) return catalogExample;
   return EXAMPLES[example.value] ?? EXAMPLES.console;
 }
 
@@ -258,11 +260,49 @@ source.addEventListener("keydown", (event) => {
   }
 });
 
-const requestedExample = new URLSearchParams(location.search).get("example");
-if (requestedExample && EXAMPLES[requestedExample]) {
-  example.value = requestedExample;
-  source.value = EXAMPLES[requestedExample].source;
+function catalogueSourceUrl(path) {
+  if (!/^examples\/[a-zA-Z0-9_./-]+\.vkf$/u.test(path) || path.split("/").includes("..")) {
+    throw new TypeError("Invalid catalogue source path");
+  }
+  return `./generated/sources/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
-playButton.hidden = !selectedExampleIsTimed();
-renderHighlight();
-compileSource();
+
+async function loadInitialExample() {
+  const parameters = new URLSearchParams(location.search);
+  const requestedSource = parameters.get("source");
+  if (requestedSource) {
+    const response = await fetch(catalogueSourceUrl(requestedSource));
+    if (!response.ok) throw new Error(`Source request failed (${response.status})`);
+    const title = parameters.get("title") || requestedSource.split("/").at(-1);
+    catalogExample = Object.freeze({ source: await response.text(), kind: "console" });
+    const option = document.createElement("option");
+    option.value = "catalog";
+    option.textContent = `README · ${title}`;
+    example.append(option);
+    example.value = "catalog";
+    source.value = catalogExample.source;
+    playButton.hidden = true;
+    showConsole();
+    output.textContent = "Press Run to compile this README example in the browser.";
+    status.value = "Source loaded";
+    renderHighlight();
+    return;
+  }
+
+  const requestedExample = parameters.get("example");
+  if (requestedExample && EXAMPLES[requestedExample]) {
+    example.value = requestedExample;
+    source.value = EXAMPLES[requestedExample].source;
+  }
+  playButton.hidden = !selectedExampleIsTimed();
+  renderHighlight();
+  await compileSource();
+}
+
+try {
+  await loadInitialExample();
+} catch (error) {
+  output.textContent = error.cause?.message ?? error.message;
+  showConsole();
+  status.value = "Source load error";
+}

@@ -60,11 +60,28 @@
       </div>
     </section>
 
+    <section class="catalogue" aria-labelledby="catalogue-heading">
+      <div class="section-heading catalogue-heading">
+        <div>
+          <p class="eyebrow">Explore the language</p>
+          <h2 id="catalogue-heading">Every README example</h2>
+        </div>
+        <output id="catalog-count" aria-live="polite">Loading catalogue…</output>
+      </div>
+      <label class="search" for="example-search">
+        <span>Find an example</span>
+        <input id="example-search" type="search" placeholder="Search graphs, materials, chess, symbolic…" autocomplete="off">
+      </label>
+      <nav id="example-tree" class="example-tree" aria-label="Hierarchical Vektor Flow examples"></nav>
+      <noscript>The complete example tree needs JavaScript to load its static catalogue.</noscript>
+    </section>
+
     <section class="architecture" aria-labelledby="architecture-heading">
       <p class="eyebrow">One language, two targets</p>
       <h2 id="architecture-heading">Browser WASM and native machine code</h2>
       <p>The browser distribution is additive. VKF still builds native executables on the computer, while the same language-owned compiler work is progressively exposed through WebAssembly for zero-install examples.</p>
     </section>
   </main>
+  <script type="module" src="./example-catalog.mjs"></script>
 </body>
 </html>
