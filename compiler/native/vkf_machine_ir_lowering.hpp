@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <memory>
@@ -20,6 +21,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #if defined(_WIN32) && defined(_MSC_VER)
@@ -76,16 +78,23 @@ inline const vf::JsonValue::Array& array_of(const vf::JsonValue& value, const st
     return value.as_array();
 }
 
+inline std::string joined_text(
+    std::initializer_list<std::string_view> parts
+) {
+    std::size_t size = 0;
+    for (const auto part : parts) size += part.size();
+    std::string result;
+    result.reserve(size);
+    for (const auto part : parts) result.append(part.data(), part.size());
+    return result;
+}
+
 inline std::string qualified_name(
     const std::string& parent,
     const std::string& child
 ) {
-    std::string result;
-    result.reserve(parent.size() + child.size() + 1u);
-    result.append(parent);
-    result.push_back('.');
-    result.append(child);
-    return result;
+    if (parent.empty()) return child;
+    return joined_text({parent, ".", child});
 }
 
 enum class ValueKind : std::uint8_t {
@@ -3995,7 +4004,7 @@ inline bool collect_record_projection(
     std::vector<ValueSlice>& slices
 ) {
     for (const auto& [name, target_slice] : ordered_record_fields(target)) {
-        const std::string path = source_path.empty() ? name : source_path + "." + name;
+        const std::string path = qualified_name(source_path, name);
         const auto found = source.selectors.find(path);
         if (found == source.selectors.end()) return false;
         const auto target_field = record_field_layout(target, name, target_slice);
@@ -4134,7 +4143,7 @@ inline void emit_projected_call_layout(
             source_local + found->second.offset,
             source_field,
             record_field_layout(target, name, target_slice),
-            context + "." + name);
+            qualified_name(context, name));
     }
 }
 
@@ -10915,7 +10924,9 @@ inline ValueLayout lower_expression(
                         "variadic named argument value");
                     continue;
                 }
-                throw LoweringFailure("unknown named argument " + name + " for " + symbol);
+                throw LoweringFailure(joined_text({
+                    "unknown named argument ", name, " for ", symbol
+                }));
             }
             const auto index = static_cast<std::size_t>(
                 found - signature->second.parameter_names.begin());
@@ -11067,15 +11078,21 @@ inline ValueLayout lower_expression(
                 for (const auto& [name, slice] : fields) {
                     const auto supplied = variadic_named_values.find(name);
                     if (supplied == variadic_named_values.end()) {
-                        throw LoweringFailure("missing captured named argument " + name + " for " + symbol);
+                        throw LoweringFailure(joined_text({
+                            "missing captured named argument ", name, " for ", symbol
+                        }));
                     }
                     const auto& argument_expression = *supplied->second;
                     const auto layout = lower_expression(
                         argument_expression, builder, signatures, strings);
                     const auto expected = record_field_layout(parameter_layout, name, slice);
                     if (!same_layout(layout, expected)) {
-                        throw LoweringFailure(
-                            "variadic named argument layout mismatch for " + symbol + "." + name);
+                        throw LoweringFailure(joined_text({
+                            "variadic named argument layout mismatch for ",
+                            symbol,
+                            ".",
+                            name
+                        }));
                     }
                     const bool transferred =
                         (layout.kind == ValueKind::String &&
