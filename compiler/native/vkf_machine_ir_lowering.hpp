@@ -76,6 +76,18 @@ inline const vf::JsonValue::Array& array_of(const vf::JsonValue& value, const st
     return value.as_array();
 }
 
+inline std::string qualified_name(
+    const std::string& parent,
+    const std::string& child
+) {
+    std::string result;
+    result.reserve(parent.size() + child.size() + 1u);
+    result.append(parent);
+    result.push_back('.');
+    result.append(child);
+    return result;
+}
+
 enum class ValueKind : std::uint8_t {
     Numeric,
     Complex,
@@ -489,7 +501,7 @@ inline void assign_record_field_layout(
     for (const auto& [field_name, layout] : fields) {
         record.selectors[field_name] = {record.width, layout.width, layout.kind};
         for (const auto& [child, slice] : layout.selectors) {
-            record.selectors[field_name + "." + child] = {
+            record.selectors[qualified_name(field_name, child)] = {
                 record.width + slice.offset, slice.width, slice.kind
             };
         }
@@ -1315,7 +1327,7 @@ inline ValueLayout indexed_layout(const std::vector<ValueLayout>& elements) {
         const std::string key = std::to_string(index);
         layout.selectors[key] = {layout.width, elements[index].width, elements[index].kind};
         for (const auto& [child, slice] : elements[index].selectors) {
-            layout.selectors[key + "." + child] = {
+            layout.selectors[qualified_name(key, child)] = {
                 layout.width + slice.offset, slice.width, slice.kind
             };
         }
@@ -1553,7 +1565,7 @@ inline ValueLayout layout_from_type(
             const auto field_layout = layout_from_type(item.substr(colon + 1), signatures);
             layout.selectors[field_name] = {layout.width, field_layout.width, field_layout.kind};
             for (const auto& [child, slice] : field_layout.selectors) {
-                layout.selectors[field_name + "." + child] = {
+                layout.selectors[qualified_name(field_name, child)] = {
                     layout.width + slice.offset, slice.width, slice.kind
                 };
             }
@@ -2118,7 +2130,7 @@ inline ValueLayout layout_from_expression_shape(
             };
             const std::string field_name = string_field(record_field, "name", "record field");
             for (const auto& [child, slice] : value_layout.selectors) {
-                layout.selectors[field_name + "." + child] = {
+                layout.selectors[qualified_name(field_name, child)] = {
                     layout.width + slice.offset, slice.width, slice.kind
                 };
             }
@@ -2160,7 +2172,7 @@ inline ValueLayout layout_from_expression_shape(
                         result.width, field_layout.width, field_layout.kind
                     };
                     for (const auto& [child, slice] : field_layout.selectors) {
-                        result.selectors[name + "." + child] = {
+                        result.selectors[qualified_name(name, child)] = {
                             result.width + slice.offset, slice.width, slice.kind
                         };
                     }
@@ -7123,7 +7135,7 @@ inline ValueLayout lower_expression(
             emit_load_binding(builder, name, {0, field_layout.width, field_layout.kind});
             result.selectors[name] = {result.width, field_layout.width, field_layout.kind};
             for (const auto& [child, slice] : field_layout.selectors) {
-                result.selectors[name + "." + child] = {
+                result.selectors[qualified_name(name, child)] = {
                     result.width + slice.offset, slice.width, slice.kind
                 };
             }
@@ -7389,7 +7401,7 @@ inline ValueLayout lower_expression(
             const std::string field_name = string_field(record_field, "name", "record field");
             layout.selectors[field_name] = {layout.width, field_layout.width, field_layout.kind};
             for (const auto& [child, slice] : field_layout.selectors) {
-                layout.selectors[field_name + "." + child] = {
+                layout.selectors[qualified_name(field_name, child)] = {
                     layout.width + slice.offset, slice.width, slice.kind
                 };
             }
