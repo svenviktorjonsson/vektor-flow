@@ -287,7 +287,7 @@ inline FunctionDecision decide(
 
 inline std::vector<FunctionDecision> decide_module(
     const machine_ir::Module& module,
-    std::string target_features,
+    const std::string& target_features,
     bool supports_simd
 ) {
     std::vector<FunctionDecision> decisions;

@@ -24,8 +24,8 @@ constexpr const char* compiler_version = "vkf-artifact-smoke-0.2";
 
 class ArtifactFailure : public std::runtime_error {
 public:
-    explicit ArtifactFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit ArtifactFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 struct StoredValue {
@@ -2807,8 +2807,9 @@ std::string best_effort_value(const vf::JsonValue& value, const ValueTable& valu
     }
 }
 
-std::string escape_cmd_echo(std::string text) {
+std::string escape_cmd_echo(const std::string& text) {
     std::string out;
+    out.reserve(text.size());
     for (char ch : text) {
         if (ch == '^' || ch == '&' || ch == '|' || ch == '<' || ch == '>') {
             out.push_back('^');

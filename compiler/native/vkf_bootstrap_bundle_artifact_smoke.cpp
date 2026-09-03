@@ -22,8 +22,8 @@ constexpr int bootstrap_version = 1;
 
 class BundleArtifactFailure : public std::runtime_error {
 public:
-    explicit BundleArtifactFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit BundleArtifactFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 struct Args {

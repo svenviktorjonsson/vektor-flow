@@ -57,7 +57,7 @@ constexpr std::size_t kCodeCapacity = 32768;
 
 class BackendFailure : public std::runtime_error {
 public:
-    explicit BackendFailure(std::string message) : std::runtime_error(std::move(message)) {}
+    explicit BackendFailure(const std::string& message) : std::runtime_error(message) {}
 };
 
 const vf::JsonValue::Object& object_of(const vf::JsonValue& value, const std::string& context) {

@@ -30,8 +30,8 @@ namespace vkf::machine_ir {
 
 class LoweringFailure : public std::runtime_error {
 public:
-    explicit LoweringFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit LoweringFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 namespace detail {

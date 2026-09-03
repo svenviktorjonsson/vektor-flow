@@ -14,7 +14,7 @@ namespace vkf::capture {
 
 class PatternFailure : public std::runtime_error {
 public:
-    explicit PatternFailure(std::string message) : std::runtime_error(std::move(message)) {}
+    explicit PatternFailure(const std::string& message) : std::runtime_error(message) {}
 };
 
 struct ByteSet {

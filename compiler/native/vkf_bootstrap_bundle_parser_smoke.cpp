@@ -23,8 +23,8 @@ constexpr int bootstrap_version = 1;
 
 class BundleParserFailure : public std::runtime_error {
 public:
-    explicit BundleParserFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit BundleParserFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 struct Args {

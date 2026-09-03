@@ -25,8 +25,8 @@ namespace {
 
 class ServerFailure : public std::runtime_error {
 public:
-    explicit ServerFailure(std::string message)
-        : std::runtime_error(std::move(message)) {}
+    explicit ServerFailure(const std::string& message)
+        : std::runtime_error(message) {}
 };
 
 struct Args {
