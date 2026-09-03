@@ -822,6 +822,78 @@ test("opt-in native media capture returns two frame-internal RGBA states", async
   }
 });
 
+test("time media capture uploads every compiler-declared parameter section", async () => {
+  const mountDevice = fixture().device;
+  mountDevice.queue.onSubmittedWorkDone = async () => {};
+  const submissions = [];
+  const originalPrepare = adapter.prepare;
+  const originalSubmitFrame = adapter.submitFrame;
+  const originalCaptureFrame = adapter.captureFrame;
+  const originalChrome = globalThis.chrome;
+  globalThis.__vfNativeFrameMediaCapture = Object.freeze({
+    mode: "time",
+    frameCount: 2,
+  });
+  globalThis.chrome = { webview: { postMessage() {} } };
+  adapter.prepare = async () => ({
+    plan: { passes: [{ kind: "scene_color" }] },
+    resourceBuffers: new Map(),
+    parameterBuffers: new Map([["camera", {
+      buffer: { id: "camera" },
+      bytes: new Uint8Array(96),
+      byteLength: 96,
+    }]]),
+  });
+  adapter.submitFrame = (_prepared, options) => submissions.push(options || null);
+  adapter.captureFrame = async () => {
+    const image = new Int32Array([10, 20, 30, 255]);
+    Object.defineProperty(image, "shape", { value: [1, 1, 4] });
+    return image;
+  };
+  try {
+    await adapter.mount({
+      canvas: {
+        width: 1784,
+        height: 995,
+        addEventListener() {},
+        removeEventListener() {},
+        focus() {},
+        getContext() { return { configure() {} }; },
+      },
+      navigator: { gpu: {
+        getPreferredCanvasFormat() { return "bgra8unorm"; },
+        async requestAdapter() {
+          return { async requestDevice() { return mountDevice; } };
+        },
+      } },
+      gpuTextureUsage: { RENDER_ATTACHMENT: 4, COPY_SRC: 8 },
+      artifacts: { wasm: {
+        manifest: { runtime_surface: { temporal_playback: {
+          schema: "vektor-flow/layer-time-playback",
+          version: 1,
+          changed_parameter_sections: ["camera", "objects", "lights"],
+        } } },
+        cameraControl() {},
+        update() {},
+      } },
+      config: { scene_ir: { camera: { properties: { controls_mode: "orbit" } } } },
+    });
+    assert.equal(submissions.length, 2, "initial and second time samples submit");
+    assert.deepEqual(
+      submissions[1].changedParameterSections,
+      ["camera", "objects", "lights"],
+      "capture must use the compiled dirty-section contract",
+    );
+  } finally {
+    adapter.prepare = originalPrepare;
+    adapter.submitFrame = originalSubmitFrame;
+    adapter.captureFrame = originalCaptureFrame;
+    delete globalThis.__vfNativeFrameMediaCapture;
+    if (originalChrome === undefined) delete globalThis.chrome;
+    else globalThis.chrome = originalChrome;
+  }
+});
+
 test("compiled Frame.capture readback materializes aligned BGRA rows as RGBA ints", async () => {
   const width = 2;
   const height = 2;

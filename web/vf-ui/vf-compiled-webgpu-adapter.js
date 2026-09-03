@@ -987,10 +987,7 @@
     });
   }
 
-  function attachTemporalPlayback(options) {
-    options = options || {};
-    var prepared = options.prepared;
-    var wasm = options.artifacts && options.artifacts.wasm;
+  function temporalChangedParameterSections(wasm) {
     var runtimeSurface = wasm && wasm.manifest && wasm.manifest.runtime_surface;
     var descriptor = runtimeSurface && runtimeSurface.temporal_playback;
     if (!descriptor) { return null; }
@@ -1001,11 +998,22 @@
     var changedSections = Array.isArray(descriptor.changed_parameter_sections)
       ? descriptor.changed_parameter_sections.map(String)
       : [];
+    if (changedSections.length === 0) {
+      throw new Error("compiled Layer time playback parameter sections are unavailable");
+    }
+    return changedSections;
+  }
+
+  function attachTemporalPlayback(options) {
+    options = options || {};
+    var prepared = options.prepared;
+    var wasm = options.artifacts && options.artifacts.wasm;
+    var changedSections = temporalChangedParameterSections(wasm);
+    if (!changedSections) { return null; }
     var queue = prepared && prepared.device && prepared.device.queue;
     if (!prepared || !prepared.parameterBuffers || !wasm ||
         typeof wasm.update !== "function" || typeof wasm.init !== "function" ||
-        !queue || typeof queue.onSubmittedWorkDone !== "function" ||
-        changedSections.length === 0) {
+        !queue || typeof queue.onSubmittedWorkDone !== "function") {
       throw new Error("compiled Layer time playback dependencies are unavailable");
     }
     var rootDocument = options.document ||
@@ -1414,6 +1422,9 @@
 
   function runNativeFrameMediaCapture(prepared, options, config) {
     var wasm = options && options.artifacts && options.artifacts.wasm;
+    var changedSections = config.mode === "time"
+      ? temporalChangedParameterSections(wasm)
+      : null;
     var camera = prepared && prepared.parameterBuffers && prepared.parameterBuffers.get("camera");
     var queue = prepared && prepared.device && prepared.device.queue;
     if (!wasm || typeof wasm.cameraControl !== "function" ||
@@ -1432,7 +1443,7 @@
           if (config.mode === "time") {
             wasm.update();
             publicApi.submitFrame(prepared, {
-              changedParameterSections: ["objects", "lights"]
+              changedParameterSections: changedSections
             });
           } else {
             wasm.cameraControl(0, 0, -1);

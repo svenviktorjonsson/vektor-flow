@@ -170,7 +170,7 @@ test("opposed finite red and green emitters orbit through retained time data", (
     "an emitter is ordinary finite geometry with emissive properties");
 });
 
-test("camera follows a subtle repeating p_t cycle while keeping its target", () => {
+test("camera follows a visible repeating p_t cycle while keeping its target", () => {
   const camera = calls("frame.add_camera")[0] ?? "";
   const positions = numericArrayBinding("camera_p");
   assert.equal(positions.length, 360);
@@ -179,15 +179,42 @@ test("camera follows a subtle repeating p_t cycle while keeping its target", () 
   assert.match(camera, /t:t/u);
   assert.match(camera, /t_mode:"repeat"/u);
   assert.deepEqual(positions[0], [0, 0.15, -0.42]);
+  const target = [-0.015, 0.105, 0.055];
+  const offset = (position) => position.map(
+    (value, index) => value - target[index],
+  );
+  const base = offset(positions[0]);
+  const baseRadius = Math.hypot(...base);
+  const angularDistance = (position) => {
+    const current = offset(position);
+    const cosine = current.reduce(
+      (sum, value, index) => sum + value * base[index],
+      0,
+    ) / (Math.hypot(...current) * baseRadius);
+    return Math.acos(Math.max(-1, Math.min(1, cosine)));
+  };
+  assert.ok(
+    Math.max(...positions.map(angularDistance)) >= 6 * Math.PI / 180,
+    "the fixed-target camera orbit must be clearly visible, not sub-pixel drift",
+  );
   for (const position of positions) {
-    assert.ok(Math.abs(position[0]) <= 0.008001);
-    assert.ok(position[1] >= 0.15 && position[1] <= 0.156001);
-    assert.ok(position[2] >= -0.42 && position[2] <= -0.411999);
+    assert.ok(
+      Math.abs(Math.hypot(...offset(position)) - baseRadius) < 2e-6,
+      "camera motion must orbit the target without unintended dolly zoom",
+    );
   }
   const seamDistance = Math.hypot(
     ...positions[0].map((value, index) => value - positions.at(-1)[index]),
   );
-  assert.ok(seamDistance < 0.0002, "the 359-to-0 repeat seam must stay smooth");
+  const largestAuthoredStep = Math.max(...positions.slice(1).map(
+    (position, degree) => Math.hypot(
+      ...position.map((value, index) => value - positions[degree][index]),
+    ),
+  ));
+  assert.ok(
+    seamDistance <= largestAuthoredStep * 1.01,
+    "the 359-to-0 repeat seam must match the authored one-degree cadence",
+  );
 });
 
 test("rabbit gallery exposes playback controls beside capture", () => {
