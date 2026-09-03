@@ -398,6 +398,7 @@ inline vf_symbolic vkf_sym_replace_child(const vf_symbolic& expr, std::size_t in
     }
     if (expr.node->kind == VkfSymbolicNodeKind::Call) {
         std::vector<vf_symbolic> args;
+        args.reserve(expr.node->children.size());
         for (std::size_t i = 0; i < expr.node->children.size(); ++i) {
             args.push_back(i == index ? child : VkfSymbolicExpr{expr.node->children[i], {}});
         }
