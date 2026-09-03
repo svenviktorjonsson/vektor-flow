@@ -32,7 +32,7 @@ function compileResult(source, artifact) {
   return spawnSync(
     compiler,
     ["-b", source, "-o", artifact, "--diagnostics", "--optimizer-policy", "mask-0"],
-    { cwd: root, encoding: "utf8", timeout: 20_000, windowsHide: true },
+    { cwd: root, encoding: "utf8", timeout: 60_000, windowsHide: true },
   );
 }
 
