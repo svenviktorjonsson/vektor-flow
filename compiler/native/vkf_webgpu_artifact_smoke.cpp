@@ -1907,9 +1907,9 @@ fn vkf_safe_normalize(value: vec3<f32>) -> vec3<f32> {
 fn vkf_adaptive_shadow_up(direction: vec3<f32>) -> vec3<f32> {
   let unit_direction = vkf_safe_normalize(direction);
   return select(
-    vec3<f32>(0.0, 0.0, 1.0),
     vec3<f32>(0.0, 1.0, 0.0),
-    abs(unit_direction.z) > 0.98
+    vec3<f32>(0.0, 0.0, 1.0),
+    abs(unit_direction.y) > 0.98
   );
 }
 
@@ -2980,7 +2980,7 @@ fn vkf_shadow_visibility(
   let texel_radius = max(texel_size.x, texel_size.y);
   let search_radius_uv = clamp(
     source_radius_uv,
-    texel_radius, 24.0 * texel_radius);
+    4.0 * texel_radius, 24.0 * texel_radius);
   let uv_min = texel_size * 0.5;
   let uv_max = vec2<f32>(1.0) - uv_min;
   var blocker_distance_sum = 0.0;
@@ -3010,7 +3010,7 @@ fn vkf_shadow_visibility(
     max(average_blocker_distance, 1.0e-4);
   let filter_radius_uv = clamp(
     source_radius_uv * penumbra_ratio,
-    texel_radius, 32.0 * texel_radius);
+    3.0 * texel_radius, 32.0 * texel_radius);
   var visibility = 0.0;
   for (var sample_index = 0u;
        sample_index < VKF_SHADOW_FILTER_SAMPLE_COUNT;
