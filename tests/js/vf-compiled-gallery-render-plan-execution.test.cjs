@@ -187,7 +187,8 @@ test("real gallery compiled plan executes without the legacy JavaScript renderer
   );
   assert.equal(
     renderRoots.filter(({ kind }) => kind === "planar_reflection").length,
-    4,
+    2,
+    "the floor and upright mirror each render once without cross-surface recursion",
   );
   assert.equal(
     renderRoots.filter(({ kind }) => kind === "scene_color").length,
@@ -205,9 +206,15 @@ test("real gallery compiled plan executes without the legacy JavaScript renderer
   const drawLists = runtime.renderParameterArena().descriptor.draw_lists;
   const expectedDrawCount = prepared.plan.passes
     .filter(({ draw_list_id }) => draw_list_id)
-    .reduce((count, pass) => count + drawLists.find(
-      ({ id }) => id === pass.draw_list_id,
-    ).entries.length, 0);
+    .reduce((count, pass) => {
+      const excludedObjectIndices = new Set(pass.excluded_object_indices || []);
+      const entries = drawLists.find(
+        ({ id }) => id === pass.draw_list_id,
+      ).entries;
+      return count + entries.filter(({ object_index: objectIndex }) =>
+        !excludedObjectIndices.has(objectIndex)
+      ).length;
+    }, 0);
   assert.ok(expectedDrawCount > 0);
   assert.equal(
     calls.filter(([kind]) => kind === "drawIndexed").length,

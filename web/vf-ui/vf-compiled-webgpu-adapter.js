@@ -670,7 +670,13 @@
       return;
     }
     var list = drawList(prepared, pass.draw_list_id);
+    var excludedObjectIndices = new Set(
+      Array.isArray(pass.excluded_object_indices)
+        ? pass.excluded_object_indices.map(Number)
+        : []
+    );
     list.entries.forEach(function (draw, drawIndex) {
+      if (excludedObjectIndices.has(Number(draw.object_index))) { return; }
       bindDeclaredGroups(
         prepared, render, pipeline, pass, draw, externalViews,
         "pass:" + String(passIndex) + ":draw:" + String(drawIndex)

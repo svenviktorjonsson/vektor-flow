@@ -1644,6 +1644,65 @@ test("compiled adapter uploads only changed light parameters and redraws their v
   );
 });
 
+test("reflected shadow passes omit their aperture draw", () => {
+  const draws = [];
+  const render = {
+    setPipeline() {},
+    setVertexBuffer() {},
+    setIndexBuffer() {},
+    drawIndexed(count) { draws.push(count); },
+    end() {},
+  };
+  const device = {
+    queue: { submit() {} },
+    createCommandEncoder() {
+      return {
+        beginRenderPass() { return render; },
+        finish() { return {}; },
+      };
+    },
+  };
+  const entry = (objectIndex, indexCount) => ({
+    object_index: objectIndex,
+    vertices: { byte_offset: objectIndex * 120, length: 30 },
+    indices: { byte_offset: 240 + objectIndex * 12, length: indexCount },
+    index_format: "uint32",
+  });
+  const prepared = {
+    device,
+    arenaBuffer: {},
+    arenaBytes: new Uint8Array(512),
+    parameterBuffers: new Map(),
+    resourceBuffers: new Map(),
+    samplers: new Map(),
+    pipelines: new Map([["shadow", { getBindGroupLayout() { return {}; } }]]),
+    targets: new Map([["depth", {
+      id: "depth", kind: "depth", width: 32, height: 32, arrayLayers: 1, view: {},
+    }]]),
+    parameterDescriptor: {
+      draw_lists: [{ id: "shadow_casters", entries: [entry(0, 3), entry(1, 6)] }],
+    },
+    plan: { targets: [], passes: [{
+      kind: "shadow_depth",
+      pipeline: "shadow",
+      draw_list_id: "shadow_casters",
+      excluded_object_indices: [1],
+      depth: {
+        target: "depth", array_layer: 0, load_op: "clear",
+        store_op: "store", clear_value: 1, read_only: false,
+      },
+      bind_groups: [],
+    }] },
+    initialTargetsReady: true,
+    shadowMapsInitialized: false,
+    bindGroupCache: new Map(),
+  };
+
+  adapter.submitFrame(prepared);
+
+  assert.deepEqual(draws, [3], "the mirror aperture must not enter its reflected LightView");
+});
+
 test("compiled adapter binds a one-layer shadow target as a 2d-array view", () => {
   const viewCalls = [];
   const bindGroups = [];

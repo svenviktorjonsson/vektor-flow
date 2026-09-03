@@ -100,8 +100,17 @@ test("geometry emitter owns direct and mirror-reflected shadow views", async () 
   });
   assert.deepEqual(
     shadowPasses.filter(({ light_id }) => light_id === "sun@mirror")
-      .map(({ light_id, draw_list_id }) => ({ light_id, draw_list_id })),
-    [{ light_id: "sun@mirror", draw_list_id: "shadow_casters" }],
+      .map(({ light_id, draw_list_id, excluded_object_indices }) => ({
+        light_id,
+        draw_list_id,
+        excluded_object_indices,
+      })),
+    [{
+      light_id: "sun@mirror",
+      draw_list_id: "shadow_casters",
+      excluded_object_indices: [1],
+    }],
+    "a reflected LightView must not be occluded by its own mirror aperture",
   );
   assert.match(wgsl, /fn vkf_fit_direct_shadow_view_projection\(/);
   assert.match(

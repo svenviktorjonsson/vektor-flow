@@ -4572,6 +4572,22 @@ vf::JsonValue::Object manifest_payload(
                     !light.derived_emitter_view
                     ? "shadow_casters_" + light.id
                     : "shadow_casters";
+                vf::JsonValue::Array excluded_object_indices;
+                if (light.derived_emitter_view) {
+                    for (const auto& surface_id : light.reflection_path) {
+                        const auto surface = std::find_if(
+                            plan.retained_scene.reflective_surfaces.begin(),
+                            plan.retained_scene.reflective_surfaces.end(),
+                            [&](const auto& candidate) {
+                                return candidate.id == surface_id;
+                            });
+                        if (surface !=
+                            plan.retained_scene.reflective_surfaces.end()) {
+                            excluded_object_indices.push_back(vf::JsonValue(
+                                static_cast<double>(surface->object_index)));
+                        }
+                    }
+                }
                 for (std::uint32_t shadow_face = 0;
                      shadow_face < light.shadow_view_count; ++shadow_face) {
                 vf::JsonValue::Object shadow_view{
@@ -4594,6 +4610,8 @@ vf::JsonValue::Object manifest_payload(
                         static_cast<double>(shadow_layer))},
                     {"depth_attachment", vf::JsonValue("shadow_depth")},
                     {"draw_list_id", vf::JsonValue(shadow_draw_list)},
+                    {"excluded_object_indices", vf::JsonValue(
+                        excluded_object_indices)},
                     {"light_id", vf::JsonValue(light.id)},
                     {"light_index", vf::JsonValue(
                         static_cast<double>(light.light_index))},
