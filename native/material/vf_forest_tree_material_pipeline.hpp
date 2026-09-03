@@ -166,8 +166,8 @@ SampleForestTreeMaterialBundleReference(
     return {population, wood, bark, foliage};
 }
 
-inline ForestTreeMaterialPipelineRealization
-RealizeForestTreeMaterialPipelineReference(
+inline std::vector<std::uint64_t>
+OrderForestTreeMaterialDemandReference(
     const ForestTreeMaterialPipelineDefinition& definition,
     const ForestPopulationRealization& forest,
     const std::vector<std::uint64_t>& demanded_tree_ids,
@@ -197,6 +197,43 @@ RealizeForestTreeMaterialPipelineReference(
             "forest tree material demand is duplicated"
         );
     }
+    return ordered_ids;
+}
+
+inline const ForestPopulationTree&
+FindForestTreeMaterialPopulationReference(
+    const ForestPopulationRealization& forest,
+    std::uint64_t tree_id
+) {
+    const auto found = std::lower_bound(
+        forest.trees.begin(),
+        forest.trees.end(),
+        tree_id,
+        [](const auto& tree, std::uint64_t id) {
+            return tree.tree_id < id;
+        }
+    );
+    if (found == forest.trees.end() || found->tree_id != tree_id) {
+        throw std::out_of_range(
+            "forest tree material identity is not resident"
+        );
+    }
+    return *found;
+}
+
+inline ForestTreeMaterialPipelineRealization
+RealizeForestTreeMaterialPipelineCopiedReference(
+    const ForestTreeMaterialPipelineDefinition& definition,
+    const ForestPopulationRealization& forest,
+    const std::vector<std::uint64_t>& demanded_tree_ids,
+    std::size_t tree_budget
+) {
+    const auto ordered_ids = OrderForestTreeMaterialDemandReference(
+        definition,
+        forest,
+        demanded_tree_ids,
+        tree_budget
+    );
     std::vector<ForestTreeMaterialBundle> bundles;
     bundles.reserve(ordered_ids.size());
     std::vector<TreeWoodHierarchicalSample> wood_samples;
@@ -204,23 +241,12 @@ RealizeForestTreeMaterialPipelineReference(
     std::vector<TreeCanopyHierarchicalSample> canopy_samples;
     canopy_samples.reserve(ordered_ids.size() * 2);
     for (const std::uint64_t tree_id : ordered_ids) {
-        const auto found = std::lower_bound(
-            forest.trees.begin(),
-            forest.trees.end(),
-            tree_id,
-            [](const auto& tree, std::uint64_t id) {
-                return tree.tree_id < id;
-            }
-        );
-        if (found == forest.trees.end() ||
-            found->tree_id != tree_id) {
-            throw std::out_of_range(
-                "forest tree material identity is not resident"
-            );
-        }
         auto bundle = SampleForestTreeMaterialBundleReference(
             definition,
-            *found
+            FindForestTreeMaterialPopulationReference(
+                forest,
+                tree_id
+            )
         );
         wood_samples.push_back(bundle.wood);
         canopy_samples.push_back(bundle.bark);
@@ -236,6 +262,139 @@ RealizeForestTreeMaterialPipelineReference(
         EvaluateTreeWoodEnergyReference(wood_samples),
         EvaluateTreeCanopyEnergyReference(canopy_samples),
     };
+}
+
+inline TreeWoodHierarchicalEnergy
+CreateForestTreeMaterialEnergyReference(
+    std::size_t sample_count
+) {
+    TreeWoodHierarchicalEnergy energy{};
+    energy.minimum = sample_count == 0
+        ? 0.0f
+        : std::numeric_limits<float>::infinity();
+    energy.maximum = sample_count == 0
+        ? 0.0f
+        : -std::numeric_limits<float>::infinity();
+    energy.violations = 0;
+    energy.values.reserve(
+        sample_count * energy.cosine_probes.size() * 3
+    );
+    return energy;
+}
+
+inline void AppendForestTreeWoodEnergyReference(
+    TreeWoodHierarchicalEnergy& energy,
+    const TreeWoodHierarchicalSample& sample
+) {
+    for (const float cosine : energy.cosine_probes) {
+        const float one_minus = 1.0f - cosine;
+        const float square = one_minus * one_minus;
+        const float fifth = square * square * one_minus;
+        const float fresnel = sample.reflectivity +
+            (1.0f - sample.reflectivity) * fifth;
+        for (const float albedo : sample.base_color) {
+            const float value = fresnel +
+                (1.0f - fresnel) * albedo;
+            energy.values.push_back(value);
+            energy.minimum = std::min(energy.minimum, value);
+            energy.maximum = std::max(energy.maximum, value);
+            if (value < -1.0e-7f || value > 1.0f + 1.0e-7f) {
+                ++energy.violations;
+            }
+        }
+    }
+}
+
+inline void AppendForestTreeCanopyEnergyReference(
+    TreeWoodHierarchicalEnergy& energy,
+    const TreeCanopyHierarchicalSample& sample
+) {
+    for (const float cosine : energy.cosine_probes) {
+        const float complement = 1.0f - cosine;
+        const float square = complement * complement;
+        const float fresnel = sample.reflectivity +
+            (1.0f - sample.reflectivity) *
+            square * square * complement;
+        for (const float channel : sample.base_color) {
+            const float value = fresnel +
+                (1.0f - fresnel) * channel;
+            energy.values.push_back(value);
+            energy.minimum = std::min(energy.minimum, value);
+            energy.maximum = std::max(energy.maximum, value);
+            if (value < -1.0e-7f || value > 1.0f + 1.0e-7f) {
+                ++energy.violations;
+            }
+        }
+    }
+}
+
+inline ForestTreeMaterialPipelineRealization
+RealizeForestTreeMaterialPipelineDirectReference(
+    const ForestTreeMaterialPipelineDefinition& definition,
+    const ForestPopulationRealization& forest,
+    const std::vector<std::uint64_t>& demanded_tree_ids,
+    std::size_t tree_budget
+) {
+    const auto ordered_ids = OrderForestTreeMaterialDemandReference(
+        definition,
+        forest,
+        demanded_tree_ids,
+        tree_budget
+    );
+    std::vector<ForestTreeMaterialBundle> bundles;
+    bundles.reserve(ordered_ids.size());
+    auto wood_energy = CreateForestTreeMaterialEnergyReference(
+        ordered_ids.size()
+    );
+    auto canopy_energy = CreateForestTreeMaterialEnergyReference(
+        ordered_ids.size() * 2
+    );
+    for (const std::uint64_t tree_id : ordered_ids) {
+        auto bundle = SampleForestTreeMaterialBundleReference(
+            definition,
+            FindForestTreeMaterialPopulationReference(
+                forest,
+                tree_id
+            )
+        );
+        AppendForestTreeWoodEnergyReference(
+            wood_energy,
+            bundle.wood
+        );
+        AppendForestTreeCanopyEnergyReference(
+            canopy_energy,
+            bundle.bark
+        );
+        AppendForestTreeCanopyEnergyReference(
+            canopy_energy,
+            bundle.foliage
+        );
+        bundles.push_back(std::move(bundle));
+    }
+    const std::uint64_t logical_capacity =
+        definition.forest.potential_patches *
+        definition.forest.potential_trees_per_patch;
+    return {
+        logical_capacity,
+        std::move(bundles),
+        std::move(wood_energy),
+        std::move(canopy_energy),
+    };
+}
+
+inline ForestTreeMaterialPipelineRealization
+RealizeForestTreeMaterialPipelineReference(
+    const ForestTreeMaterialPipelineDefinition& definition,
+    const ForestPopulationRealization& forest,
+    const std::vector<std::uint64_t>& demanded_tree_ids,
+    std::size_t tree_budget
+) {
+    return RealizeForestTreeMaterialPipelineDirectReference(
+        definition,
+        forest,
+        demanded_tree_ids,
+        tree_budget
+    );
 }
 
 inline void ValidateForestTreeMaterialPipelineForPacking(
