@@ -81,8 +81,7 @@ other platform. [Testing guide](TESTING.md) and [VS Code integration](vscode/REA
 ## Compile the browser runtime from source
 
 This is the contributor path used by the Pages build, **not a public
-`vkf --wasm` export command**. A general CLI flag for standalone WASM export has
-not been established by this walkthrough; no new flag is invented here.
+`vkf --wasm` export command**.
 
 In a source checkout, with the Windows native-build prerequisites available:
 
@@ -97,7 +96,7 @@ node tools/build-pages-readme.mjs --output=web/generated
 ```
 
 The build must pass before publishing. The
-[Pages workflow](.github/workflows/pages.yml) is the complete build recipe;
+[Pages workflow](https://github.com/svenviktorjonsson/vektor-flow/blob/main/.github/workflows/pages.yml) is the complete build recipe;
 [the browser architecture](docs/adr/0004-browser-symbolic-kernel.md) explains the
 VKF-to-WASM runtime path.
 
@@ -117,9 +116,9 @@ Native HTML/CSS applications and the browser examples have different capability
 boundaries. Native code runs with your user permissions; browser execution
 intentionally excludes filesystem, process and network access from user programs.
 
-[Return to the guide](docs/site/guide.md).
-
 ## Embed VKF in your own webpage
 
 [Build the browser bundle and connect it to HTML/CSS](docs/site/browser.md)
 without a compilation backend.
+
+[Return to the guide](docs/site/guide.md).
