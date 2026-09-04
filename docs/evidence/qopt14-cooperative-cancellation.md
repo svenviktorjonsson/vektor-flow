@@ -115,6 +115,46 @@ Timing values in this evidence are local selector observations only. They permit
 application solely through the existing measured winner proof and are not a
 portable or release-wide performance claim.
 
+## SHA-256 receipts
+
+Changed implementation and test inputs at packet commit
+`dad65acdfce6aa29d299da5a816c3ccbe16c38f5`:
+
+```text
+f609e51412035270df3591754a915c0c53ee02cceff2c2003968beb8e0111188  compiler/native/vkf_adaptive_optimizer.hpp
+b8002261882a0ae1e77612c573ec7ce92eb983ddae3ba88077cc52513552d8c0  compiler/native/vkf_adaptive_optimizer_contract_test.cpp
+ab031b55d0f3017c5ba6d7f0c3c551c604b9579bc7f36d92d58ceeb4017a8f84  compiler/native/vkf_optimization_dependency_gate.hpp
+f4a26a59a546538939a24c1e6df66a2a209eb65cba60af31341fbe9a830c4ae6  compiler/native/vkf_optimization_dependency_gate_test.cpp
+717d819612e0892a6b2697f8252a2c64a9aadf7b565958bf8309bcf9be48a3d7  compiler/native/vkf_retained_optimization_driver_integration_test.cpp
+aae33491c6aa41de1f5506ea7e1acc053a2855294550f560f9530a07997e24a0  compiler/native/vkf_x64_artifact.cpp
+49c8b9b027c0de921c13968d6e9f5a4b93cbf0472ebf1574ccc7c25dfb06296b  compiler/native/vkf_x64_backend.hpp
+```
+
+Final MSVC 19.44 x64 Release test binaries:
+
+```text
+ac7e1b62b27bb50691f2e30cb41d7012bfcee1cc6e49da265c4c4beb2ddaf30a  vkf_adaptive_optimizer_contract_test.exe
+1a27fffff3831340a4cdfe2b12f0ff04319ec95bde03c6c4eb97a6b5bcf7b2d9  vkf_retained_optimization_schedule_test.exe
+224f80641666f9e0f191dd5618fef914ce876c6e226924abbfee53999ac86ad9  vkf_retained_optimization_cache_test.exe
+eee96732789c36585e20947296b98d31c5e16325cd63cf52fbecc595f80bd495  vkf_retained_optimization_driver_test.exe
+6e7f0191d1743c7325a8310e8505102d5492ce3f2ffacea4c3a53835fcce9786  vkf_retained_optimization_composition_test.exe
+4d6d10724ee22bc9046cc455f179fa27eb5c9062d6b08c0a786554ab945ace24  vkf_optimization_dependency_gate_test.exe
+722c4e7cca50b4dd1d35fb3d5ba36d73ce78cb9c9228006f52abd3f729089130  vkf_retained_optimization_driver_integration_test.exe
+```
+
+Git identity for the code packet:
+
+```text
+commit dad65acdfce6aa29d299da5a816c3ccbe16c38f5
+tree   016b96c02cd3dad812be3039b25114d615dd0cab
+```
+
+The passing integration test deliberately removed its temporary build root at
+the end of the run. Consequently, no final emitted cancellation artifact or
+manifest remained available to hash. Earlier crash-diagnostic remnants were
+not final proof artifacts and are excluded. The integration binary, exact
+source inputs, code commit, and tree above bind the reproducible receipt.
+
 ## Remaining gates
 
 - Polling is limited to the exact proven static loop. Dynamic, nested, non-unit,
