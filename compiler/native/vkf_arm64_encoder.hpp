@@ -2244,6 +2244,28 @@ private:
                 words_.emit(0xcb0903e9u);
                 words_.emit(0x9e620120u);
                 store_d(0, frame.offset(frame.temp_base + first + 1));
+            } else if (opcode == Opcode::SliceBytes) {
+                require_stack(stack_depth, 4);
+                const std::uint32_t first = stack_depth - 4;
+                load_x(9, frame.offset(frame.temp_base + first));
+                store_x(9, frame.offset(frame.scratch_slot));
+                load_d(0, frame.offset(frame.temp_base + first + 2));
+                words_.emit(0x9e780009u);
+                store_x(9, frame.offset(frame.temp_base + first + 2));
+                load_d(0, frame.offset(frame.temp_base + first + 3));
+                words_.emit(0x9e780009u);
+                store_x(9, frame.offset(frame.temp_base + first + 3));
+                emit_owned_substring(
+                    frame,
+                    first,
+                    frame.offset(frame.temp_base + first + 2),
+                    frame.offset(frame.temp_base + first + 3));
+                if (instruction.owns_input) {
+                    load_x(0, frame.offset(frame.scratch_slot));
+                    words_.emit(0xd1002000u);
+                    call_runtime_slot(9);
+                }
+                stack_depth = first + 2;
             } else if (opcode == Opcode::ConcatStrings) {
                 require_stack(stack_depth, 4);
                 const auto first = stack_depth - 4;

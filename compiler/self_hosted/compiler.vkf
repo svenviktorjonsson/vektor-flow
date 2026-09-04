@@ -9,7 +9,7 @@ parser: .parser
 typed: .typed_ir
 mir: .machine_ir
 validation: .machine_ir_validation
-regex: .regex
+pe_x64: .pe_x64
 
 compile_tagged_empty_module(source:str):
     bit comment_only: lexer.tagged_comment_only_source(source)
@@ -1703,7 +1703,7 @@ _compile_tagged_numeric_literal_function_chain_symbols_x64(
         high_bytes
     )
 
-_compile_tagged_numeric_literal_function_chain_section_x64(
+_compile_tagged_numeric_literal_function_chain_bounded_section_x64(
     first_source:str,
     second_source:str,
     third_source:str,
@@ -1713,6 +1713,7 @@ _compile_tagged_numeric_literal_function_chain_section_x64(
     function_epilogue:str,
     result_bridge:str,
     artifact_suffix:str,
+    code_capacity:num,
     high_bytes:[str]
 ) -> str:
     first_tokens: lexer.tagged_numeric_function_token_tape(first_source)
@@ -1738,7 +1739,7 @@ _compile_tagged_numeric_literal_function_chain_section_x64(
     )
     code_size: 2 + helper_sizes + first_argument_size + 5 + 6 + 5 + 6 + 5 + 1
     artifact_tail: _compile_x64_bounded_section_tail(
-        code_size, 32768, artifact_suffix
+        code_size, code_capacity, artifact_suffix
     )
     _compile_tagged_numeric_literal_function_chain_symbols_x64(
         first_source,
@@ -1753,6 +1754,32 @@ _compile_tagged_numeric_literal_function_chain_section_x64(
         high_bytes
     )
 
+_compile_tagged_numeric_literal_function_chain_section_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    template_prefix:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    artifact_suffix:str,
+    high_bytes:[str]
+) -> str:
+    _compile_tagged_numeric_literal_function_chain_bounded_section_x64(
+        first_source,
+        second_source,
+        third_source,
+        template_prefix,
+        function_prologue,
+        multiplication_code,
+        function_epilogue,
+        result_bridge,
+        artifact_suffix,
+        32768,
+        high_bytes
+    )
+
 _compile_tagged_numeric_literal_function_chain_template_x64(
     first_source:str,
     second_source:str,
@@ -1764,20 +1791,26 @@ _compile_tagged_numeric_literal_function_chain_template_x64(
     result_bridge:str,
     high_bytes:[str]
 ) -> str:
-    sections: regex.match(
-        template,
-        '^(?P<prefix>[\s\S]*)VKFX64AOTCODE001[\s\S]{32752}(?P<suffix>[\s\S]*)$'
+    section: pe_x64.code_section(template, high_bytes)
+    template_prefix: pe_x64.slice_bytes(
+        template, 0, section.raw_offset
     )
-    _compile_tagged_numeric_literal_function_chain_section_x64(
+    artifact_suffix: pe_x64.slice_bytes(
+        template,
+        section.raw_offset + section.raw_size,
+        section.template_length
+    )
+    _compile_tagged_numeric_literal_function_chain_bounded_section_x64(
         first_source,
         second_source,
         third_source,
-        sections.prefix,
+        template_prefix,
         function_prologue,
         multiplication_code,
         function_epilogue,
         result_bridge,
-        sections.suffix,
+        artifact_suffix,
+        section.raw_size,
         high_bytes
     )
 

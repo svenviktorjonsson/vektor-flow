@@ -131,6 +131,7 @@ inline const char* opcode_name(Opcode opcode) {
         case Opcode::ExitProgram: return "exit_program";
         case Opcode::ReturnF64: return "return_f64";
         case Opcode::ReturnValues: return "return_values";
+        case Opcode::SliceBytes: return "slice_bytes";
     }
     throw std::runtime_error("unknown machine IR opcode");
 }

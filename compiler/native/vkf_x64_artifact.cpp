@@ -11654,6 +11654,31 @@ private:
                 code_.raw({0x49, 0x8d, 0x48, 0x01, 0x48, 0xf7, 0xd9,
                            0xf2, 0x48, 0x0f, 0x2a, 0xc1});
                 store_xmm(0, frame.displacement(frame.temp_base + first + 1));
+            } else if (opcode == Opcode::SliceBytes) {
+                require_stack(stack_depth, 4);
+                const unsigned first = stack_depth - 4;
+                code_.raw({0x48, 0x8b, 0x85});
+                code_.i32(frame.displacement(frame.temp_base + first));
+                code_.raw({0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.scratch_slot));
+                load_xmm(0, frame.displacement(frame.temp_base + first + 2));
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc0, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.temp_base + first + 2));
+                load_xmm(0, frame.displacement(frame.temp_base + first + 3));
+                code_.raw({0xf2, 0x48, 0x0f, 0x2c, 0xc0, 0x48, 0x89, 0x85});
+                code_.i32(frame.displacement(frame.temp_base + first + 3));
+                emit_owned_substring(
+                    frame,
+                    first,
+                    frame.displacement(frame.temp_base + first + 2),
+                    frame.displacement(frame.temp_base + first + 3));
+                if (instruction.owns_input) {
+                    code_.raw({0x48, 0x8b, 0x85});
+                    code_.i32(frame.displacement(frame.scratch_slot));
+                    code_.raw({0x48, 0x83, 0xe8, 0x08});
+                    release_pointer_in_rax();
+                }
+                stack_depth = first + 2;
             } else if (opcode == Opcode::ConcatStrings) {
                 require_stack(stack_depth, 4);
                 const unsigned first = stack_depth - 4;

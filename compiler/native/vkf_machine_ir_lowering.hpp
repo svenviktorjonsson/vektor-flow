@@ -3646,6 +3646,9 @@ public:
         } else if (opcode == Opcode::CaptureRegex) {
             require_stack(2);
             stack_depth_ = stack_depth_ - 2 + instruction.argument_count * 2;
+        } else if (opcode == Opcode::SliceBytes) {
+            require_stack(4);
+            stack_depth_ -= 2;
         } else if (opcode == Opcode::PushString) {
             stack_depth_ += 2;
         } else if (opcode == Opcode::FormatF64String || opcode == Opcode::FormatBitString ||
@@ -10649,6 +10652,103 @@ inline ValueLayout lower_expression(
         }
         const std::string symbol = string_field(callee, "name", "callee");
         const auto signature = signatures.find(symbol);
+        if (signature == signatures.end() && symbol == "_compile_raw_byte_slice") {
+            if (args.size() != 3 ||
+                !array_of(field(expression, "named_args", "compiler byte slice"),
+                    "compiler byte slice named args").empty() ||
+                !array_of(field(expression, "spread_args", "compiler byte slice"),
+                    "compiler byte slice spread args").empty()) {
+                throw LoweringFailure(
+                    "machine IR compiler byte slice requires source, start, and stop");
+            }
+            const auto& source_expression = object_of(args[0], "compiler byte slice source");
+            const bool owns_source = expression_transfers_string_value(
+                source_expression, signatures);
+            const auto source = lower_expression(
+                source_expression, builder, signatures, strings);
+            if (source.kind != ValueKind::String || source.width != 2) {
+                throw LoweringFailure("machine IR compiler byte slice source must be str");
+            }
+            const auto source_local = builder.add_borrowed_temporary(source);
+            emit_store_local_component(builder, source_local + 1u);
+            emit_store_local_component(builder, source_local);
+            const auto start = lower_expression(
+                object_of(args[1], "compiler byte slice start"), builder, signatures, strings);
+            require_scalar(start, "machine IR compiler byte slice start");
+            const auto start_local = builder.add_borrowed_temporary({});
+            emit_store_local_component(builder, start_local);
+            const auto stop = lower_expression(
+                object_of(args[2], "compiler byte slice stop"), builder, signatures, strings);
+            require_scalar(stop, "machine IR compiler byte slice stop");
+            const auto stop_local = builder.add_borrowed_temporary({});
+            emit_store_local_component(builder, stop_local);
+
+            const auto byte_count = builder.add_borrowed_temporary({});
+            emit_load_local_component(builder, source_local + 1u);
+            builder.emit({Opcode::Duplicate});
+            Instruction zero;
+            zero.opcode = Opcode::PushF64;
+            zero.f64 = 0.0;
+            builder.emit(std::move(zero));
+            builder.emit({Opcode::OrderedGreaterEqualF64});
+            const auto length_ready = builder.next_label();
+            Instruction borrowed_length;
+            borrowed_length.opcode = Opcode::JumpIfTrue;
+            borrowed_length.label = length_ready;
+            builder.emit(std::move(borrowed_length));
+            builder.emit({Opcode::NegateF64});
+            Instruction one;
+            one.opcode = Opcode::PushF64;
+            one.f64 = 1.0;
+            builder.emit(std::move(one));
+            builder.emit({Opcode::SubtractF64});
+            Instruction length_label;
+            length_label.opcode = Opcode::Label;
+            length_label.label = length_ready;
+            builder.emit(std::move(length_label));
+            emit_store_local_component(builder, byte_count);
+
+            const auto emit_assertion = [&](const std::string& message) {
+                Instruction check;
+                check.opcode = Opcode::AssertTruthy;
+                check.index = strings.intern(message);
+                check.byte_count = static_cast<std::uint32_t>(message.size());
+                check.error_type_mask = value_error_mask;
+                if (const auto handler = builder.error_handler()) {
+                    check.has_error_handler = true;
+                    check.label = *handler;
+                    check.error_value_local = *builder.error_value_local();
+                    check.error_type_local = *builder.error_type_local();
+                }
+                builder.emit(std::move(check));
+                builder.emit({Opcode::Drop});
+            };
+            emit_load_local_component(builder, start_local);
+            Instruction range_zero;
+            range_zero.opcode = Opcode::PushF64;
+            range_zero.f64 = 0.0;
+            builder.emit(std::move(range_zero));
+            builder.emit({Opcode::OrderedGreaterEqualF64});
+            emit_assertion("invalid compiler byte slice range");
+            emit_load_local_component(builder, stop_local);
+            emit_load_local_component(builder, start_local);
+            builder.emit({Opcode::OrderedGreaterEqualF64});
+            emit_assertion("invalid compiler byte slice range");
+            emit_load_local_component(builder, stop_local);
+            emit_load_local_component(builder, byte_count);
+            builder.emit({Opcode::OrderedLessEqualF64});
+            emit_assertion("invalid compiler byte slice range");
+
+            emit_load_local_component(builder, source_local);
+            emit_load_local_component(builder, source_local + 1u);
+            emit_load_local_component(builder, start_local);
+            emit_load_local_component(builder, stop_local);
+            Instruction slice;
+            slice.opcode = Opcode::SliceBytes;
+            slice.owns_input = owns_source;
+            builder.emit(std::move(slice));
+            return {2, ValueKind::String, {}};
+        }
         if (signature == signatures.end() && symbol == "vkf_utf8_slice") {
             if (args.size() != 3 ||
                 !array_of(field(expression, "named_args", "UTF-8 slice"),

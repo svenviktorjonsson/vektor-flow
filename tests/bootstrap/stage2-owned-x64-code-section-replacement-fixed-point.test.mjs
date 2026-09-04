@@ -22,7 +22,28 @@ const compiler = join(nativeBin, `vkf-strict${suffix}`);
 const runnerTemplate = join(nativeBin, `vkf_x64_runner_template${suffix}`);
 const newline = process.platform === "win32" ? "\r\n" : "\n";
 const marker = Buffer.from("VKFX64AOTCODE001", "ascii");
-const codeCapacity = 32768;
+
+function findPeSection(bytes, name) {
+  assert.equal(bytes.subarray(0, 2).toString("ascii"), "MZ", "DOS signature changed");
+  const peOffset = bytes.readUInt32LE(0x3c);
+  assert.equal(bytes.subarray(peOffset, peOffset + 4).toString("hex"), "50450000");
+  const sectionCount = bytes.readUInt16LE(peOffset + 6);
+  const optionalHeaderSize = bytes.readUInt16LE(peOffset + 20);
+  const sectionTableOffset = peOffset + 24 + optionalHeaderSize;
+  for (let index = 0; index < sectionCount; index += 1) {
+    const headerOffset = sectionTableOffset + index * 40;
+    const sectionName = bytes.subarray(headerOffset, headerOffset + 8)
+      .toString("ascii").replace(/\0.*$/, "");
+    if (sectionName === name) {
+      return {
+        headerOffset,
+        rawSize: bytes.readUInt32LE(headerOffset + 16),
+        rawOffset: bytes.readUInt32LE(headerOffset + 20),
+      };
+    }
+  }
+  assert.fail(`PE section ${name} is missing`);
+}
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -47,7 +68,7 @@ function runCompiler(artifact, lines, cwd) {
   });
 }
 
-test("Stage 2 replaces the locked x64 code section without text reinterpretation", {
+test("Stage 2 discovers and replaces a marker-free x64 PE code section", {
   skip: process.platform !== "win32",
 }, () => {
   const rootWork = process.env.VKF_TEST_WORK_ROOT
@@ -67,14 +88,24 @@ test("Stage 2 replaces the locked x64 code section without text reinterpretation
       copyFileSync(join(root, source.path), join(work, basename(source.path)));
     }
 
-    const template = readFileSync(runnerTemplate);
+    const lockedTemplate = readFileSync(runnerTemplate);
     assert.throws(
-      () => new TextDecoder("utf-8", { fatal: true }).decode(template),
+      () => new TextDecoder("utf-8", { fatal: true }).decode(lockedTemplate),
       "fixture must exercise opaque bytes that a text slice cannot preserve",
     );
-    const markerOffset = template.indexOf(marker);
-    assert.ok(markerOffset >= 0, "x64 runner marker is missing");
-    assert.ok(markerOffset + codeCapacity <= template.length, "x64 runner slot is truncated");
+    const lockedSection = findPeSection(lockedTemplate, ".vkfcod");
+    assert.equal(lockedSection.rawOffset, lockedTemplate.indexOf(marker));
+    assert.equal(lockedSection.rawSize, 32768, "locked runner capacity changed");
+    const codeCapacity = 16384;
+    const template = Buffer.from(lockedTemplate);
+    template.writeUInt32LE(codeCapacity, lockedSection.headerOffset + 16);
+    template.fill(0, lockedSection.rawOffset, lockedSection.rawOffset + marker.length);
+    assert.equal(template.indexOf(marker), -1, "fixture must not expose the locked marker");
+    const templatePath = join(work, `marker-free-template${suffix}`);
+    writeFileSync(templatePath, template);
+    const section = findPeSection(template, ".vkfcod");
+    assert.equal(section.rawSize, codeCapacity);
+    assert.equal(section.rawOffset, lockedSection.rawOffset);
 
     const functionProloguePath = join(work, "function-prologue.bin");
     const multiplicationPath = join(work, "multiplication.bin");
@@ -213,7 +244,7 @@ test("Stage 2 replaces the locked x64 code section without text reinterpretation
       firstSource,
       secondSource,
       thirdSource,
-      runnerTemplate,
+      templatePath,
       functionProloguePath,
       multiplicationPath,
       functionEpiloguePath,
@@ -260,23 +291,23 @@ test("Stage 2 replaces the locked x64 code section without text reinterpretation
     const stage2Bytes = readFileSync(stage2Program);
     assert.equal(stage2Bytes.length, template.length, "executable container size changed");
     assert.deepEqual(
-      stage2Bytes.subarray(0, markerOffset),
-      template.subarray(0, markerOffset),
+      stage2Bytes.subarray(0, section.rawOffset),
+      template.subarray(0, section.rawOffset),
       "opaque executable prefix was reinterpreted as text",
     );
     assert.deepEqual(
-      stage2Bytes.subarray(markerOffset, markerOffset + generated.length),
+      stage2Bytes.subarray(section.rawOffset, section.rawOffset + generated.length),
       generated,
       "compiler-owned code-section bytes differ from the selected artifact",
     );
     assert.deepEqual(
-      stage2Bytes.subarray(markerOffset + generated.length, markerOffset + codeCapacity),
+      stage2Bytes.subarray(section.rawOffset + generated.length, section.rawOffset + codeCapacity),
       Buffer.alloc(codeCapacity - generated.length),
       "compiler-owned code-section padding is not zero-filled",
     );
     assert.deepEqual(
-      stage2Bytes.subarray(markerOffset + codeCapacity),
-      template.subarray(markerOffset + codeCapacity),
+      stage2Bytes.subarray(section.rawOffset + codeCapacity),
+      template.subarray(section.rawOffset + codeCapacity),
       "opaque executable suffix was reinterpreted as text",
     );
     assert.deepEqual(readFileSync(stage3Compiler), readFileSync(stage2Compiler));

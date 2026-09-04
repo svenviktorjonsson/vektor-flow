@@ -175,6 +175,7 @@ enum class Opcode : std::uint8_t {
     ExitProgram,
     ReturnF64,
     ReturnValues,
+    SliceBytes,
 };
 
 struct Instruction {

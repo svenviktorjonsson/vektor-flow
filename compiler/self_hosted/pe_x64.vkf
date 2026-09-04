@@ -1,0 +1,67 @@
+# Compiler-private, byte-preserving PE section discovery for x64 artifacts.
+
+_byte(value:num, high_bytes:[str]) -> str:
+    value <= 127?
+        @: str(chr(value))
+    (value <= 255 /\ high_bytes.length() = 128)?! "x64 PE byte arena does not cover one byte"
+    high_bytes.(value - 128)
+
+slice_bytes(source:str, start:num, stop:num) -> str:
+    _compile_raw_byte_slice(source, start, stop)
+
+_byte_length(source:str) -> num:
+    position: 0
+    (vkf_string_eof(source, position) = false)?>
+        .position+: 1
+    position
+
+_byte_value(value:str, high_bytes:[str]) -> num:
+    index: 0
+    found: -1
+    (index < 256 /\ found < 0)?>
+        value = _byte(index, high_bytes)?
+            .found: index
+        .index+: 1
+    found >= 0 ?! "compiler byte value is not exactly one raw byte"
+    found
+
+_u16(source:str, offset:num, high_bytes:[str]) -> num:
+    (
+        _byte_value(slice_bytes(source, offset, offset + 1), high_bytes) +
+        256 * _byte_value(slice_bytes(source, offset + 1, offset + 2), high_bytes)
+    )
+
+_u32(source:str, offset:num, high_bytes:[str]) -> num:
+    (
+        _byte_value(slice_bytes(source, offset, offset + 1), high_bytes) +
+        256 * _byte_value(slice_bytes(source, offset + 1, offset + 2), high_bytes) +
+        65536 * _byte_value(slice_bytes(source, offset + 2, offset + 3), high_bytes) +
+        16777216 * _byte_value(slice_bytes(source, offset + 3, offset + 4), high_bytes)
+    )
+
+code_section(template:str, high_bytes:[str]):
+    template_length: _byte_length(template)
+    template_length >= 64 ?! "x64 compiler template has no complete DOS header"
+    slice_bytes(template, 0, 2) = "MZ" ?! "x64 compiler template has no DOS signature"
+    pe_offset: _u32(template, 60, high_bytes)
+    pe_offset + 24 <= template_length ?! "x64 compiler template has no complete PE header"
+    pe_signature: "PE" & _byte(0, high_bytes) & _byte(0, high_bytes)
+    slice_bytes(template, pe_offset, pe_offset + 4) = pe_signature ?! "x64 compiler template has no PE signature"
+    section_count: _u16(template, pe_offset + 6, high_bytes)
+    optional_header_size: _u16(template, pe_offset + 20, high_bytes)
+    section_table_offset: pe_offset + 24 + optional_header_size
+    section_table_offset + section_count * 40 <= template_length ?! "x64 compiler template has no complete section table"
+    code_section_name: ".vkfcod" & _byte(0, high_bytes)
+    section_index: 0
+    section_header_offset: -1
+    candidate_offset: 0
+    (section_index < section_count /\ section_header_offset < 0)?>
+        .candidate_offset: section_table_offset + section_index * 40
+        slice_bytes(template, candidate_offset, candidate_offset + 8) = code_section_name?
+            .section_header_offset: candidate_offset
+        .section_index+: 1
+    section_header_offset >= 0 ?! "x64 compiler template has no .vkfcod section"
+    raw_size: _u32(template, section_header_offset + 16, high_bytes)
+    raw_offset: _u32(template, section_header_offset + 20, high_bytes)
+    (raw_size > 0 /\ raw_offset + raw_size <= template_length) ?! "x64 compiler template has an invalid .vkfcod range"
+    (raw_offset: raw_offset, raw_size: raw_size, template_length: template_length)
