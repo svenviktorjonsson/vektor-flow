@@ -8,6 +8,7 @@
 #include "compiler/native/vkf_target.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
 #include "compiler/native/vkf_adaptive_optimizer.hpp"
+#include "compiler/native/vkf_retained_optimization_driver.hpp"
 #include "compiler/native/kernels/vkf_symmetric_eigen_x64_bytes.hpp"
 #include "compiler/native/kernels/vkf_thin_svd_x64_bytes.hpp"
 #include "compiler/native/kernels/vkf_linalg_factor_x64_bytes.hpp"
@@ -43,6 +44,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+#include <cpuid.h>
+#endif
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
@@ -13339,6 +13343,8 @@ struct TuningResult {
     bool cache_hit = false;
     std::string fingerprint;
     std::uint32_t landscape_runs = 0;
+    std::optional<vkf::retained_optimization_driver::BuildReceipt>
+        proof_receipt;
 };
 
 class ExecutableCode {
@@ -13460,6 +13466,15 @@ bool equivalent_result(double expected, double actual) {
     if (std::isinf(expected) || std::isinf(actual)) return expected == actual;
     const double scale = std::max({1.0, std::abs(expected), std::abs(actual)});
     return std::abs(expected - actual) <= scale * 1e-12;
+}
+
+bool exact_result(double expected, double actual) {
+    std::uint64_t expected_bits = 0;
+    std::uint64_t actual_bits = 0;
+    static_assert(sizeof(expected_bits) == sizeof(expected));
+    std::memcpy(&expected_bits, &expected, sizeof(expected_bits));
+    std::memcpy(&actual_bits, &actual, sizeof(actual_bits));
+    return expected_bits == actual_bits;
 }
 
 TuningResult tune_machine_code(
@@ -13723,6 +13738,129 @@ TuningResult tune_machine_code(
     return result;
 }
 
+TuningResult tune_machine_code_guided(
+    const vkf::machine_ir::Module& module,
+    std::uint32_t run_budget,
+    double time_budget_ms,
+    const vkf::retained_optimization_driver::Request& request,
+    vkf::retained_optimization_driver::BuildReceipt prepared
+) {
+    using Clock = std::chrono::steady_clock;
+    const auto started = Clock::now();
+    TuningResult result;
+    result.eligible = true;
+    result.landscape_runs = 0;
+
+    const auto baseline_policy = vkf::adaptive_optimizer::policy(
+        request.baseline_policy
+    );
+    const auto candidate_policy = vkf::adaptive_optimizer::policy(
+        request.candidate_policy
+    );
+    auto baseline_code = MachineX64Emitter(module, baseline_policy).emit();
+    auto candidate_code = MachineX64Emitter(module, candidate_policy).emit();
+    const auto baseline_hash = machine_code_hash(baseline_code);
+    const auto candidate_hash = machine_code_hash(candidate_code);
+    const auto baseline_bytes = baseline_code.size();
+    const auto candidate_bytes = candidate_code.size();
+    ExecutableCode baseline(baseline_code, module.string_data.data());
+    ExecutableCode candidate(candidate_code, module.string_data.data());
+
+    std::vector<double> baseline_samples;
+    std::vector<double> candidate_samples;
+    vkf::proof_gated_execution::Evidence evidence{
+        prepared.identity.proof_key,
+        true,
+        {},
+    };
+    const auto pair_limit = std::min<std::size_t>(
+        run_budget / 2u,
+        vkf::retained_optimization_cache::maximum_timing_pairs
+    );
+    const auto deadline = time_budget_ms > 0.0
+        ? started + std::chrono::duration_cast<Clock::duration>(
+            std::chrono::duration<double, std::milli>(time_budget_ms))
+        : started;
+    while (evidence.timings.size() < pair_limit && Clock::now() < deadline) {
+        const auto timed_run = [](const ExecutableCode& executable) {
+            const auto run_started = Clock::now();
+            const double value = executable.run();
+            const auto run_finished = Clock::now();
+            return std::pair<double, double>{
+                value,
+                std::chrono::duration<double, std::nano>(
+                    run_finished - run_started
+                ).count(),
+            };
+        };
+        std::pair<double, double> baseline_sample;
+        std::pair<double, double> candidate_sample;
+        if ((evidence.timings.size() & 1u) == 0) {
+            baseline_sample = timed_run(baseline);
+            candidate_sample = timed_run(candidate);
+        } else {
+            candidate_sample = timed_run(candidate);
+            baseline_sample = timed_run(baseline);
+        }
+        const double expected = baseline_sample.first;
+        const double actual = candidate_sample.first;
+        const double baseline_ns = baseline_sample.second;
+        const double candidate_ns = candidate_sample.second;
+        baseline_samples.push_back(baseline_ns);
+        candidate_samples.push_back(candidate_ns);
+        evidence.timings.push_back({baseline_ns, candidate_ns});
+        result.total_runs += 2;
+        if (!exact_result(expected, actual)) {
+            evidence.equivalent_output = false;
+            break;
+        }
+    }
+
+    auto receipt = vkf::retained_optimization_driver::complete(
+        request, std::move(prepared), evidence
+    );
+    result.proof_receipt = receipt;
+    if (receipt.schedule.outcome ==
+        vkf::retained_optimization_schedule::Outcome::Blocked) {
+        throw BackendFailure(
+            "automatic optimizer candidate failed exact output parity"
+        );
+    }
+    result.policy = vkf::adaptive_optimizer::policy(
+        receipt.schedule.selected_policy
+    );
+    result.code = receipt.schedule.optimization_enabled
+        ? std::move(candidate_code)
+        : std::move(baseline_code);
+    result.tuned = !evidence.timings.empty();
+    result.candidates.push_back({
+        baseline_policy.name,
+        baseline_hash,
+        baseline_bytes,
+        static_cast<std::uint32_t>(baseline_samples.size()),
+        median(baseline_samples),
+        mean(baseline_samples),
+        sample_stddev(baseline_samples),
+        !baseline_samples.empty(),
+        true,
+    });
+    result.candidates.push_back({
+        candidate_policy.name,
+        candidate_hash,
+        candidate_bytes,
+        static_cast<std::uint32_t>(candidate_samples.size()),
+        median(candidate_samples),
+        mean(candidate_samples),
+        sample_stddev(candidate_samples),
+        !candidate_samples.empty(),
+        evidence.equivalent_output,
+    });
+    result.elapsed_ms = std::chrono::duration<double, std::milli>(
+        Clock::now() - started
+    ).count();
+    return result;
+}
+
 vf::JsonValue tuning_json(const TuningResult& tuning, std::string requested_policy) {
     vf::JsonValue::Object report;
     report["requested_policy"] = std::move(requested_policy);
@@ -13812,6 +13950,127 @@ std::filesystem::path optimizer_cache_root() {
     }
 #endif
     return std::filesystem::temp_directory_path() / "vektor-flow-optimizer-cache";
+}
+
+std::string optimizer_host_material() {
+    constexpr auto contract = vkf::target::host_x64_contract();
+    std::ostringstream material;
+    material << vkf::target::name(contract.operating_system) << '|'
+             << vkf::target::name(contract.architecture) << '|'
+             << vkf::target::name(contract.object_format) << '|'
+             << vkf::target::name(contract.calling_convention) << '|'
+             << vkf::target::host_x64_feature_key() << '|'
+             << std::max(1u, std::thread::hardware_concurrency());
+    char hostname[256]{};
+#ifdef _WIN32
+    DWORD hostname_size = static_cast<DWORD>(sizeof(hostname));
+    if (GetComputerNameA(hostname, &hostname_size) != 0) {
+        material << '|' << std::string(hostname, hostname_size);
+    }
+    int registers[4]{};
+    __cpuid(registers, 0);
+    material << '|' << registers[0] << ':' << registers[1] << ':'
+             << registers[2] << ':' << registers[3];
+    __cpuid(registers, 1);
+    material << '|' << registers[0] << ':' << registers[2] << ':'
+             << registers[3];
+#else
+    if (gethostname(hostname, sizeof(hostname) - 1) == 0) {
+        material << '|' << hostname;
+    }
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+    unsigned int eax = 0;
+    unsigned int ebx = 0;
+    unsigned int ecx = 0;
+    unsigned int edx = 0;
+    if (__get_cpuid(0, &eax, &ebx, &ecx, &edx) != 0) {
+        material << '|' << eax << ':' << ebx << ':' << ecx << ':' << edx;
+    }
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx) != 0) {
+        material << '|' << eax << ':' << ecx << ':' << edx;
+    }
+#endif
+#endif
+    return material.str();
+}
+
+std::string optimizer_toolchain_material() {
+    std::ostringstream material;
+#if defined(__clang__)
+    material << "clang-" << __clang_major__ << '.' << __clang_minor__ << '.'
+             << __clang_patchlevel__;
+#elif defined(_MSC_VER)
+    material << "msvc-" << _MSC_VER;
+#elif defined(__GNUC__)
+    material << "gcc-" << __GNUC__ << '.' << __GNUC_MINOR__ << '.'
+             << __GNUC_PATCHLEVEL__;
+#else
+    material << "unknown-compiler";
+#endif
+#if defined(_MSC_FULL_VER)
+    material << "|msvc-full-" << _MSC_FULL_VER;
+#endif
+    material << "|cplusplus-" << __cplusplus
+             << "|x64-emitter-qopt03|built-" << __DATE__ << '-' << __TIME__;
+    return material.str();
+}
+
+vkf::retained_optimization_driver::Request retained_driver_request(
+    const vf::JsonValue& typed_ir,
+    const vkf::machine_ir::Module& machine_ir,
+    const std::string& source_graph_fingerprint,
+    const std::filesystem::path& legacy_profile_path,
+    bool emit_debug_files,
+    bool deterministic
+) {
+    const std::string program_json = vf::json_stringify(typed_ir, -1);
+    const std::string program_material = std::to_string(program_json.size()) +
+        ':' + program_json + '\n' +
+        std::to_string(source_graph_fingerprint.size()) + ':' +
+        source_graph_fingerprint;
+    const std::string machine_json = vf::json_stringify(
+        vkf::machine_ir::module_json(machine_ir), -1
+    );
+    std::string function_material = std::to_string(machine_json.size()) + ':' +
+        machine_json + '\n' + std::to_string(machine_ir.string_data.size()) +
+        ':';
+    if (!machine_ir.string_data.empty()) {
+        function_material.append(
+            reinterpret_cast<const char*>(machine_ir.string_data.data()),
+            machine_ir.string_data.size()
+        );
+    }
+    vkf::retained_optimization_driver::Request request{
+        {},
+        {
+            program_material,
+            std::move(function_material),
+            optimizer_host_material(),
+            optimizer_toolchain_material(),
+        },
+        deterministic,
+        {
+            "adaptive-v4",
+            "x64-machine-emitter-qopt03",
+            "numeric-entry-closure",
+            "machine-ir-v" + std::to_string(vkf::machine_ir::schema_version),
+            "bit-exact-f64-v1",
+        },
+        vkf::adaptive_optimizer::policy_from_mask(0u).name,
+        vkf::adaptive_optimizer::policy_from_mask(
+            vkf::adaptive_optimizer::policy_mask
+        ).name,
+    };
+    const auto identity =
+        vkf::retained_optimization_driver::derive_identity(request);
+    if (emit_debug_files) {
+        request.cache_path = legacy_profile_path;
+        request.cache_path.replace_extension(".proof");
+    } else {
+        request.cache_path = optimizer_cache_root() /
+            (identity.function_fingerprint + ".proof");
+    }
+    return request;
 }
 
 void write_tuning_profile(const std::filesystem::path& path, const TuningResult& tuning) {
@@ -13928,21 +14187,62 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             entry_decision.fingerprint =
                 vkf::adaptive_optimizer::decision_fingerprint(entry_decision);
         }
+        std::optional<vkf::retained_optimization_driver::Request> proof_request;
+        std::optional<vkf::retained_optimization_driver::BuildReceipt>
+            proof_prepared;
+        if (optimization_policy == "auto") {
+            proof_request = retained_driver_request(
+                typed_ir,
+                machine_ir,
+                cache_fingerprint,
+                optimizer_profile_path,
+                emit_debug_files,
+                can_tune_machine_code(machine_ir)
+            );
+            proof_prepared = vkf::retained_optimization_driver::prepare(
+                *proof_request
+            );
+        }
         if (!cache_fingerprint.empty()) {
             const std::string marker = "VKF-CACHE-V1:" + cache_fingerprint;
             machine_ir.string_data.insert(
                 machine_ir.string_data.end(), marker.begin(), marker.end());
         }
-        const auto cached_policy = optimization_policy == "auto"
-            ? load_tuning_profile(optimizer_profile_path, optimizer_fingerprint)
-            : std::nullopt;
-        if (cached_policy) {
-            selected_policy = *cached_policy;
-            tuning.policy = selected_policy;
+        if (optimization_policy == "auto") {
+            tuning.proof_receipt = *proof_prepared;
             tuning.eligible = can_tune_machine_code(machine_ir);
-            tuning.cache_hit = true;
-            code = MachineX64Emitter(machine_ir, selected_policy).emit();
-        } else if (optimization_policy == "tune" || optimization_policy == "auto") {
+            const auto outcome = proof_prepared->schedule.outcome;
+            if (outcome ==
+                    vkf::retained_optimization_schedule::Outcome::
+                        BenchmarkRequired) {
+                tuning = tune_machine_code_guided(
+                    machine_ir,
+                    optimization_run_budget,
+                    optimization_time_budget_ms,
+                    *proof_request,
+                    std::move(*proof_prepared)
+                );
+            } else if (outcome ==
+                       vkf::retained_optimization_schedule::Outcome::Blocked) {
+                throw BackendFailure(
+                    "retained automatic optimization proof is blocked"
+                );
+            } else {
+                selected_policy = vkf::adaptive_optimizer::policy(
+                    proof_prepared->schedule.selected_policy
+                );
+                tuning.policy = selected_policy;
+                tuning.cache_hit = outcome ==
+                        vkf::retained_optimization_schedule::Outcome::
+                            ReusedProgramProof ||
+                    outcome ==
+                        vkf::retained_optimization_schedule::Outcome::
+                            ReusedFunctionProof;
+                code = MachineX64Emitter(machine_ir, selected_policy).emit();
+            }
+            selected_policy = tuning.policy;
+            if (code.empty()) code = std::move(tuning.code);
+        } else if (optimization_policy == "tune") {
             tuning = tune_machine_code(
                 machine_ir, optimization_run_budget, optimization_time_budget_ms,
                 optimization_landscape_runs);
@@ -14038,7 +14338,9 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     result.optimizer_ms = tuning.elapsed_ms;
     result.optimizer_cache_hit = tuning.cache_hit;
     std::filesystem::create_directories(result.artifact_path.parent_path());
-    write_tuning_profile(optimizer_profile_path, tuning);
+    if (optimization_policy == "tune") {
+        write_tuning_profile(optimizer_profile_path, tuning);
+    }
     if (emit_debug_files) std::filesystem::create_directories(build_dir);
     const auto code_path = build_dir / "x64-code.bin";
     const auto data_path = build_dir / "x64-data.bin";
