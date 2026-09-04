@@ -216,6 +216,29 @@ test("worker materializes a strictly versioned World particle buffer", () => {
   }), /invalid World particle packet/u);
 });
 
+test("worker materializes a strictly versioned indexed field-mesh buffer", () => {
+  const mesh = {
+    magic: 1447773775, version: 1,
+    vertices: [
+      -1, -1, 0, 0, 0, 1, 0.1, 0.72, 1, 1,
+      1, 1, 0, 0, 0, 1, 0.1, 0.72, 1, 1,
+    ],
+    indices: [0, 1], topology: "line-list", render_mode: "line",
+    mode3d: true, color: [0.1, 0.72, 1, 1],
+  };
+  const output = materializeVisualOutput({ kind: "visual", packet_records: [mesh] });
+  assert.deepEqual([...output.packets[0]], [
+    1447773775, 1, 2, 2, 0.1, 0.72, 1, 1,
+    ...mesh.vertices, ...mesh.indices,
+  ]);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...mesh, line_width: 2 }],
+  }), /invalid field mesh packet/u);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...mesh, indices: [0, 2] }],
+  }), /invalid field mesh packet/u);
+});
+
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
@@ -424,6 +447,43 @@ test("trusted inline renderer draws the World particle embedding position, color
     render(1.5, -0.5, 1.1).find(([kind] = []) => kind === "arc"),
   );
   assert.ok(initial.includes("fill"));
+});
+
+test("trusted inline renderer draws native field-mesh line-list indices", () => {
+  const render = (firstX, tint) => {
+    const operations = [];
+    const context = {
+      beginPath: () => operations.push("begin"), clearRect: () => {}, fillRect: () => {},
+      lineTo: (...args) => operations.push(["line", ...args]),
+      moveTo: (...args) => operations.push(["move", ...args]),
+      stroke: () => operations.push("stroke"),
+      set fillStyle(_value) {}, set lineWidth(_value) {},
+      set strokeStyle(value) { operations.push(["strokeStyle", value]); },
+    };
+    const camera = Float64Array.from([
+      1447773768, 1, 4, -6, 3.5, 0, 0, 0.7, 0, 0, 1, 38,
+    ]);
+    const field = Float64Array.from([
+      1447773775, 1, 2, 2, ...tint,
+      firstX, -0.8, 0, 0, 0, 1, 0.1, 0.72, 1, 1,
+      1.4, 0.8, 0, 0, 0, 1, 0.1, 0.72, 1, 1,
+      0, 1,
+    ]);
+    renderInlineResult({ width: 320, height: 180, getContext: () => context }, [camera, field]);
+    return operations;
+  };
+  const initial = render(-1.4, [0.1, 0.72, 1, 1]);
+  assert.equal(initial.filter((operation) => operation === "stroke").length, 1);
+  assert.equal(initial.filter(([kind] = []) => kind === "move").length, 1);
+  assert.equal(initial.filter(([kind] = []) => kind === "line").length, 1);
+  assert.notDeepEqual(
+    initial.find(([kind] = []) => kind === "move"),
+    render(-2.4, [0.1, 0.72, 1, 1]).find(([kind] = []) => kind === "move"),
+  );
+  assert.notDeepEqual(
+    initial.find(([kind] = []) => kind === "strokeStyle"),
+    render(-1.4, [1, 0.3, 0.1, 1]).find(([kind] = []) => kind === "strokeStyle"),
+  );
 });
 
 test("terminal always appears below the editor and Result appears only for validated visual output", async () => {

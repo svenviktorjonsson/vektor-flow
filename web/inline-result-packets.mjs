@@ -134,6 +134,31 @@ export function materializeVisualOutput(output) {
         ...record.color, record.size, record.mass,
       ]);
     }
+    if (record?.magic === 1447773775) {
+      const keys = [
+        "color", "indices", "magic", "mode3d", "render_mode",
+        "topology", "version", "vertices",
+      ];
+      const vertexCount = Array.isArray(record.vertices) ? record.vertices.length / 10 : 0;
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.version !== 1 || record.topology !== "line-list"
+          || record.render_mode !== "line" || record.mode3d !== true
+          || !Array.isArray(record.vertices) || record.vertices.length === 0
+          || record.vertices.length % 10 !== 0
+          || !record.vertices.every(finiteNumber)
+          || !Array.isArray(record.indices) || record.indices.length === 0
+          || record.indices.length % 2 !== 0
+          || !record.indices.every((value) => Number.isInteger(value)
+            && value >= 0 && value < vertexCount)
+          || !finiteVector(record.color, 4)
+          || record.color.some((value) => value < 0 || value > 1)) {
+        throw new TypeError("browser compiler returned an invalid field mesh packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, vertexCount, record.indices.length,
+        ...record.color, ...record.vertices, ...record.indices,
+      ]);
+    }
     if (record?.magic !== 1447773766 || record.version !== 5
         || !Number.isInteger(record.rows) || record.rows < 1
         || !Number.isInteger(record.columns) || record.columns < 1

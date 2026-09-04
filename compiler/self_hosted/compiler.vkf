@@ -1499,6 +1499,23 @@ BrowserWorldOptions: (
     saw_rigid_collisions:bit,
     unsupported:bit
 )
+BrowserNativeFieldScene: (
+    kind:str,
+    background_source:str,
+    camera_source:str,
+    meshes_source:str,
+    unsupported:bit
+)
+BrowserNativeFieldMesh: (
+    kind:str,
+    vertices_source:str,
+    indices_source:str,
+    topology:str,
+    render_mode:str,
+    mode3d:bit,
+    color_source:str,
+    unsupported:bit
+)
 
 _browser_lifted_number(tape:any, index:int, factor:num) -> BrowserLiftedParse:
     row: index * 6
@@ -2961,6 +2978,240 @@ _run_tagged_world_source(source:str, packet_index:int) -> any:
     (packet_index = 0)?! "browser World packet index is out of range"
     _browser_world_particle_packet(source)
 
+_browser_native_field_source_matches(source:str) -> bit:
+    (_browser_find_source(source, 0, "native_scene:(") >= 0 /\
+        _browser_find_source(source, 0, "kind:\"field_mesh\"") >= 0)
+
+_browser_scan_native_field_scene(
+    source:str, offset:int, stop:int, kind:str,
+    background_source:str, camera_source:str, meshes_source:str,
+    unsupported:bit
+) -> BrowserNativeFieldScene:
+    offset >= stop?
+        @: (
+            kind:kind, background_source:background_source,
+            camera_source:camera_source, meshes_source:meshes_source,
+            unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    (_browser_source_starts_with(source, offset, "kind:", 0) \/
+        _browser_source_starts_with(source, offset, "frame_id:", 0) \/
+        _browser_source_starts_with(source, offset, "title:", 0))?
+        colon_width: 5
+        _browser_source_starts_with(source, offset, "frame_id:", 0)?
+            .colon_width: 9
+        _browser_source_starts_with(source, offset, "title:", 0)?
+            .colon_width: 6
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 34)?! "browser native scene text fields require strings"
+        value_stop: _browser_display_string_stop(source, value_start + 1)
+        next_kind: kind
+        _browser_source_starts_with(source, offset, "kind:", 0)?
+            .next_kind: vkf_utf8_slice(source, value_start + 1, value_stop)
+        @: _browser_scan_native_field_scene(
+            source, value_stop + 1, stop, next_kind,
+            background_source, camera_source, meshes_source, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "rect:", 0) \/
+        _browser_source_starts_with(source, offset, "background:", 0))?
+        colon_width: 5
+        _browser_source_starts_with(source, offset, "background:", 0)?
+            .colon_width: 11
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser native scene vector field requires a vector"
+        value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        next_background: background_source
+        _browser_source_starts_with(source, offset, "background:", 0)?
+            .next_background: vkf_utf8_slice(source, value_start, value_stop)
+        @: _browser_scan_native_field_scene(
+            source, value_stop, stop, kind, next_background,
+            camera_source, meshes_source, unsupported
+        )
+    _browser_source_starts_with(source, offset, "camera:", 0)?
+        value_start: _browser_display_value_start(source, offset + 7)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser native scene camera requires a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        @: _browser_scan_native_field_scene(
+            source, value_stop, stop, kind, background_source,
+            vkf_utf8_slice(source, value_start + 1, value_stop - 1),
+            meshes_source, unsupported
+        )
+    _browser_source_starts_with(source, offset, "meshes:", 0)?
+        value_start: _browser_display_value_start(source, offset + 7)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser native scene meshes requires a vector"
+        value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        @: _browser_scan_native_field_scene(
+            source, value_stop, stop, kind, background_source,
+            camera_source, vkf_utf8_slice(source, value_start, value_stop),
+            unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_native_field_scene(
+        source, next, stop, kind, background_source,
+        camera_source, meshes_source, unknown
+    )
+
+_browser_scan_native_field_mesh(
+    source:str, offset:int, stop:int, kind:str,
+    vertices_source:str, indices_source:str, topology:str,
+    render_mode:str, mode3d:bit, color_source:str, unsupported:bit
+) -> BrowserNativeFieldMesh:
+    offset >= stop?
+        @: (
+            kind:kind, vertices_source:vertices_source,
+            indices_source:indices_source, topology:topology,
+            render_mode:render_mode, mode3d:mode3d,
+            color_source:color_source, unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    (_browser_source_starts_with(source, offset, "id:", 0) \/
+        _browser_source_starts_with(source, offset, "kind:", 0) \/
+        _browser_source_starts_with(source, offset, "topology:", 0) \/
+        _browser_source_starts_with(source, offset, "render_mode:", 0))?
+        colon_width: 3
+        _browser_source_starts_with(source, offset, "kind:", 0)?
+            .colon_width: 5
+        _browser_source_starts_with(source, offset, "topology:", 0)?
+            .colon_width: 9
+        _browser_source_starts_with(source, offset, "render_mode:", 0)?
+            .colon_width: 12
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 34)?! "browser field mesh text fields require strings"
+        value_stop: _browser_display_string_stop(source, value_start + 1)
+        value: vkf_utf8_slice(source, value_start + 1, value_stop)
+        next_kind: kind
+        next_topology: topology
+        next_render_mode: render_mode
+        _browser_source_starts_with(source, offset, "kind:", 0)?
+            .next_kind: value
+        _browser_source_starts_with(source, offset, "topology:", 0)?
+            .next_topology: value
+        _browser_source_starts_with(source, offset, "render_mode:", 0)?
+            .next_render_mode: value
+        @: _browser_scan_native_field_mesh(
+            source, value_stop + 1, stop, next_kind,
+            vertices_source, indices_source, next_topology,
+            next_render_mode, mode3d, color_source, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "vertices:", 0) \/
+        _browser_source_starts_with(source, offset, "indices:", 0) \/
+        _browser_source_starts_with(source, offset, "color:", 0))?
+        colon_width: 6
+        _browser_source_starts_with(source, offset, "vertices:", 0)?
+            .colon_width: 9
+        _browser_source_starts_with(source, offset, "indices:", 0)?
+            .colon_width: 8
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser field mesh data requires vectors"
+        value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        value_source: vkf_utf8_slice(source, value_start, value_stop)
+        next_vertices: vertices_source
+        next_indices: indices_source
+        next_color: color_source
+        _browser_source_starts_with(source, offset, "vertices:", 0)?
+            .next_vertices: value_source
+        _browser_source_starts_with(source, offset, "indices:", 0)?
+            .next_indices: value_source
+        _browser_source_starts_with(source, offset, "color:", 0)?
+            .next_color: value_source
+        @: _browser_scan_native_field_mesh(
+            source, value_stop, stop, kind, next_vertices, next_indices,
+            topology, render_mode, mode3d, next_color, unsupported
+        )
+    _browser_source_starts_with(source, offset, "mode3d:", 0)?
+        value_start: _browser_display_value_start(source, offset + 7)
+        value: false
+        value_stop: value_start
+        _browser_source_starts_with(source, value_start, "true", 0)?
+            .value: true
+            .value_stop: value_start + 4
+        ~value?
+            _browser_source_starts_with(source, value_start, "false", 0)?
+                .value_stop: value_start + 5
+            ~_browser_source_starts_with(source, value_start, "false", 0)?
+                false?! "browser field mesh mode3d requires a boolean"
+        @: _browser_scan_native_field_mesh(
+            source, value_stop, stop, kind, vertices_source, indices_source,
+            topology, render_mode, value, color_source, unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_native_field_mesh(
+        source, next, stop, kind, vertices_source, indices_source,
+        topology, render_mode, mode3d, color_source, unknown
+    )
+
+_browser_field_indices_valid(indices:any, vertex_count:int, index:int) -> bit:
+    index = indices.length()?
+        @: true
+    ((indices.(index) >= 0 /\ indices.(index) < vertex_count /\
+        indices.(index) // 1 = indices.(index)) /\
+        _browser_field_indices_valid(indices, vertex_count, index + 1))
+
+_browser_native_field_scene(source:str, packet_index:int) -> any:
+    scene_start: _browser_find_source(source, 0, "native_scene:(")
+    (scene_start >= 0)?! "browser native field scene is missing"
+    scene_stop: _browser_display_call_stop(source, scene_start + 14, 1, false)
+    scene: _browser_scan_native_field_scene(
+        source, scene_start + 14, scene_stop - 1, "", "", "", "", false
+    )
+    (~scene.unsupported /\ scene.kind = "scene_3d" /\
+        scene.background_source != "" /\ scene.camera_source != "" /\
+        scene.meshes_source != "")?! "browser native field scene contains unsupported options"
+    background_tape: lexer.tagged_numeric_function_token_tape(scene.background_source)
+    background: _browser_lifted_value(background_tape, 0, 1).value
+    (background.length() = 4)?! "browser native field scene background must be RGBA"
+    packet_index < 0?
+        @: (
+            kind:"visual_stream", packet_count:2,
+            background:background, combine_transparent:false
+        )
+    packet_index = 0?
+        @: _browser_display_camera_source(
+            "frame.add_camera(" & scene.camera_source & ")"
+        )
+    (packet_index = 1)?! "browser native field scene packet index is out of range"
+    mesh_open: _browser_find_source(scene.meshes_source, 0, "(")
+    (mesh_open >= 0)?! "browser native field scene requires a mesh record"
+    mesh_stop: _browser_display_call_stop(
+        scene.meshes_source, mesh_open + 1, 1, false
+    )
+    (_browser_find_source(scene.meshes_source, mesh_stop, "(") = -1)?! "browser native field scene supports one mesh"
+    mesh: _browser_scan_native_field_mesh(
+        scene.meshes_source, mesh_open + 1, mesh_stop - 1,
+        "", "", "", "", "", false, "", false
+    )
+    (~mesh.unsupported /\ mesh.kind = "field_mesh" /\
+        mesh.topology = "line-list" /\ mesh.render_mode = "line" /\
+        mesh.mode3d /\ mesh.vertices_source != "" /\
+        mesh.indices_source != "" /\ mesh.color_source != "")?! "browser native field mesh contains unsupported options"
+    vertices_tape: lexer.tagged_numeric_function_token_tape(mesh.vertices_source)
+    vertices: _browser_lifted_value(vertices_tape, 0, 1).value
+    indices_tape: lexer.tagged_numeric_function_token_tape(mesh.indices_source)
+    indices: _browser_lifted_value(indices_tape, 0, 1).value
+    color_tape: lexer.tagged_numeric_function_token_tape(mesh.color_source)
+    color: _browser_lifted_value(color_tape, 0, 1).value
+    (vertices.length() > 0 /\ vertices.length() % 10 = 0 /\
+        indices.length() > 0 /\ indices.length() % 2 = 0 /\
+        color.length() = 4 /\
+        _browser_field_indices_valid(indices, vertices.length() // 10, 0))?! "browser native field mesh data is invalid"
+    (
+        magic:1447773775, version:1, vertices:vertices,
+        indices:indices, topology:mesh.topology,
+        render_mode:mesh.render_mode, mode3d:mesh.mode3d, color:color
+    )
+
 _browser_token_text(tape:any, index:int) -> str:
     row: index * 6
     vkf_utf8_slice(tape.source, tape.rows.(row + 1), tape.rows.(row + 2))
@@ -3039,6 +3290,8 @@ _run_tagged_lifted_vector_function(tape:any) -> any:
     (kind:"console", values:outputs)
 
 run_tagged_browser_source(source:str, packet_index:int) -> any:
+    _browser_native_field_source_matches(source)?
+        @: _browser_native_field_scene(source, packet_index)
     _browser_world_source_matches(source)?
         @: _run_tagged_world_source(source, packet_index)
     _browser_display_raw_source_matches(source)?

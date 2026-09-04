@@ -29,6 +29,24 @@ function decode(packet) {
       color: packet.slice(4, 8), size: packet[8], mass: packet[9],
     };
   }
+  if (packet[0] === 1447773775 && packet[1] === 1) {
+    const vertexCount = packet[2];
+    const indexCount = packet[3];
+    const dataOffset = 8;
+    const indexOffset = dataOffset + (vertexCount * 10);
+    if (!Number.isInteger(vertexCount) || vertexCount < 1
+        || !Number.isInteger(indexCount) || indexCount < 2 || indexCount % 2 !== 0
+        || packet.length !== indexOffset + indexCount
+        || !Array.from(packet.slice(4)).every(Number.isFinite)
+        || !Array.from(packet.slice(indexOffset)).every((value) => Number.isInteger(value)
+          && value >= 0 && value < vertexCount)) {
+      throw new TypeError("inline renderer received an invalid field mesh packet");
+    }
+    return {
+      kind: "fieldMesh", packet, vertexCount, indexCount,
+      dataOffset, indexOffset, color: packet.slice(4, 8),
+    };
+  }
   if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5, 6, 7].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
@@ -95,6 +113,14 @@ function channel(value) {
 function vertex(mesh, row, column) {
   const offset = mesh.dataOffset + (((row * mesh.columns) + column) * mesh.stride);
   return [mesh.packet[offset], mesh.packet[offset + 1], mesh.stride === 3 ? mesh.packet[offset + 2] : 0];
+}
+
+function fieldVertex(mesh, index) {
+  const offset = mesh.dataOffset + (index * 10);
+  return {
+    position: mesh.packet.slice(offset, offset + 3),
+    color: mesh.packet.slice(offset + 6, offset + 10),
+  };
 }
 
 const subtract = (left, right) => left.map((value, index) => value - right[index]);
@@ -218,6 +244,7 @@ export function renderInlineResult(canvas, packets) {
   const decoded = packets.map(decode);
   const meshes = decoded.filter(({ kind }) => kind === "geometry");
   const particles = decoded.filter(({ kind }) => kind === "particle");
+  const fieldMeshes = decoded.filter(({ kind }) => kind === "fieldMesh");
   const background = decoded.find(({ kind }) => kind === "background");
   const camera = decoded.find(({ kind }) => kind === "camera");
   const lights = decoded.filter(({ kind }) => kind === "light");
@@ -354,5 +381,24 @@ export function renderInlineResult(canvas, packets) {
     context.beginPath();
     context.arc(x, y, particle.size * worldScale / 2, 0, Math.PI * 2);
     context.fill();
+  }
+  if (fieldMeshes.length > 0 && !camera) {
+    throw new TypeError("inline field mesh renderer requires a retained camera packet");
+  }
+  for (const fieldMesh of fieldMeshes) {
+    for (let index = 0; index < fieldMesh.indexCount; index += 2) {
+      const first = fieldVertex(fieldMesh, fieldMesh.packet[fieldMesh.indexOffset + index]);
+      const second = fieldVertex(fieldMesh, fieldMesh.packet[fieldMesh.indexOffset + index + 1]);
+      const color = fieldMesh.color.map((value, channelIndex) => (
+        value * ((first.color[channelIndex] + second.color[channelIndex]) / 2)
+      ));
+      context.strokeStyle = rgba(color);
+      context.beginPath();
+      const [firstX, firstY] = project(first.position);
+      const [secondX, secondY] = project(second.position);
+      context.moveTo(firstX, firstY);
+      context.lineTo(secondX, secondY);
+      context.stroke();
+    }
   }
 }

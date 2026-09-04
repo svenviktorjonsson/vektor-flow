@@ -360,6 +360,40 @@ test("browser compiler applies the README World embedding to its retained partic
   assert.throws(() => compiler.run(controls.source), /browser compiler could not run the VKF source/u);
 });
 
+test("browser compiler retains the README native indexed field mesh", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const wireframe = examples.find(({ id }) => id === "readme-21");
+  const output = { ...compiler.run(wireframe.source) };
+  assert.equal(output.packet_records[0].magic, 1447773767);
+  assert.equal(output.packet_records[1].magic, 1447773768);
+  const mesh = { ...output.packet_records[2] };
+  assert.deepEqual([
+    mesh.magic, mesh.version, mesh.topology, mesh.render_mode,
+    mesh.mode3d, mesh.vertices.length, mesh.indices.length,
+  ], [1447773775, 1, "line-list", "line", true, 50, 16]);
+  assert.deepEqual(rounded([
+    ...mesh.vertices.slice(0, 10), ...mesh.color,
+  ]), [-1.4, -0.8, 0, 0, 0, 1, 0.1, 0.72, 1, 1, 0.1, 0.72, 1, 1]);
+  const typed = materializeVisualOutput(output).packets[2];
+  assert.deepEqual([...typed.slice(0, 8)], [
+    1447773775, 1, 5, 16, 0.1, 0.72, 1, 1,
+  ]);
+  const changed = { ...compiler.run(wireframe.source
+    .replace("vertices:[-1.4, -0.8", "vertices:[-2.4, -0.8")
+    .replace("color:[0.1, 0.72, 1, 1]", "color:[1, 0.3, 0.1, 1]")) };
+  assert.deepEqual(rounded([
+    changed.packet_records[2].vertices[0], ...changed.packet_records[2].color,
+  ]), [-2.4, 1, 0.3, 0.1, 1]);
+  assert.throws(
+    () => compiler.run(wireframe.source.replace('render_mode:"line"', 'render_mode:"line", line_width:2')),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(wireframe.source.replace('title:"Wireframe points",', 'title:"Wireframe points", exposure:1,')),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -377,6 +411,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 14);
+  assert.equal(runnable.length, 15);
   assert.equal(examples.length, 26);
 });
