@@ -216,7 +216,7 @@
         "sun-reflection"
       ],
       "source": "10-sun-reflection/app.vkf",
-      "sourceSha256": "2987845050a27dea0d319003aa21cd99e1371c9970a36685eb1d585fbbcd981f",
+      "sourceSha256": "80c1c07b2f9733c0016ef53801cc45914f00ffea2b544d875d0cd09587a91dfc",
       "media": {
         "path": "docs/public/images/scene-gallery/10-sun-reflection.png",
         "sha256": "853c94acc8ea8e2b49b098fcb4ed495cd0e915162ecc0c579d833ccc2fd17d30"
@@ -239,7 +239,7 @@
         "specular"
       ],
       "source": "11-roughness/app.vkf",
-      "sourceSha256": "596f7f73c3e5c84ece7e949b065d7e6214ef47197cdc7427dca0937593216031",
+      "sourceSha256": "3215588522eaff756df8f78c1b4b33d3feab92d3ece7763c0be12c3af4f08c8f",
       "media": {
         "path": "docs/public/images/scene-gallery/11-roughness.png",
         "sha256": "934436ff8901f3644c1c421c8958f37cb8baa15d4937e2648804cd38cc276f8f"
@@ -262,7 +262,7 @@
         "mirror"
       ],
       "source": "12-layered-glass/app.vkf",
-      "sourceSha256": "32e6819c984ffae9ea309394afd3612fa17807e78584840dcc2982b1ed4f4e42",
+      "sourceSha256": "276ccbb0052408b3a2c4bd4ce6a3b0916db01e0a27a8da2c55f8048e78ed6c59",
       "media": {
         "path": "docs/public/images/scene-gallery/12-layered-glass.png",
         "sha256": "d5aef464bf573e38e951bc2c23788fba93bcc65319f40cd593efdd1818ab5f44"
@@ -331,7 +331,7 @@
         "shadows"
       ],
       "source": "15-spot-light/app.vkf",
-      "sourceSha256": "2c996d41ac30f6d78bbe15101019bb5809ea9e50a32803c382b76e4addffed6d",
+      "sourceSha256": "4bb328a2febf00c79ab2f29a64b0a76a1264359b6da3132274a9b08bd0ac96d7",
       "media": {
         "path": "docs/public/images/scene-gallery/15-spot-light.png",
         "sha256": "e1fbddfd45b89e4d0be32931cf97350b73f8acbb6dc94104e653f461fcef20e3"

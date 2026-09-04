@@ -1,70 +1,65 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..", "..");
-const readme = readFileSync(resolve(root, "README.md"), "utf8")
-  .replaceAll("\r\n", "\n");
 const manifest = JSON.parse(readFileSync(
   resolve(root, "examples", "scene_gallery", "manifest.json"),
   "utf8",
 ));
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const namedFrames = new Map([
+  ["10-sun-reflection", "solkatt_frame"],
+  ["11-roughness", "roughness_frame"],
+  ["12-layered-glass", "layered_frame"],
+  ["15-spot-light", "spot_frame"],
+  ["16-dice-texture", "dice_frame"],
+  ["17-world-embedding", "world_0_view_0"],
+  ["19-wireframe-points", "wireframe_points"],
+  ["20-rigid-body-snapshot", "rigid_snapshot"],
+]);
 
-test("README presents every scene source before its linked media", () => {
-  assert.match(readme, /## Scene example gallery/);
+test("retired README scene gallery assets remain complete and hash locked", () => {
   assert.equal(manifest.examples.length, 20);
 
   for (const example of manifest.examples) {
-    const sourcePath = `examples/scene_gallery/${example.source}`;
-    const source = readFileSync(resolve(root, sourcePath), "utf8")
-      .replaceAll("\r\n", "\n")
-      .trimEnd();
-    const start = `<!-- scene-example:${example.id}:start -->`;
-    const end = `<!-- scene-example:${example.id}:end -->`;
-    const card = readme.slice(
-      readme.indexOf(start),
-      readme.indexOf(end) + end.length,
-    );
+    const source = readFileSync(resolve(
+      root,
+      "examples",
+      "scene_gallery",
+      example.source,
+    ), "utf8").replaceAll("\r\n", "\n");
+    const media = readFileSync(resolve(root, example.media.path));
 
-    assert.ok(card.startsWith(start), `${example.id} is missing its README card`);
-    assert.doesNotMatch(card, /<table>/, `${example.id} still uses a table`);
-    assert.ok(
-      card.includes(`[${example.title}](${sourcePath})`),
-      `${example.id} does not link its source`,
+    assert.ok(source.trim().length > 0, `${example.id} source is empty`);
+    assert.equal(
+      sha256(source),
+      example.sourceSha256,
+      `${example.id} source digest is stale`,
     );
-    assert.ok(
-      card.includes(`](${example.media.path})`),
-      `${example.id} does not link its capture`,
-    );
-    assert.ok(
-      card.includes(`![${example.title} full-compositor capture](${example.media.path})`),
-      `${example.id} does not display its capture`,
-    );
-    assert.ok(
-      card.includes(`\`\`\`vkf\n${source}\n\`\`\``),
-      `${example.id} does not show its current complete source`,
-    );
-    assert.ok(
-      card.indexOf(`[${example.title}](${sourcePath})`)
-        < card.indexOf("```vkf")
-        && card.indexOf("```vkf")
-          < card.indexOf(`![${example.title} full-compositor capture]`),
-      `${example.id} does not put its capture after its source`,
+    assert.equal(
+      sha256(media),
+      example.media.sha256,
+      `${example.id} media digest is stale`,
     );
   }
 });
 
-test("README describes the scene images as hidden full-compositor captures", () => {
-  const section = readme.slice(
-    readme.indexOf("## Scene example gallery"),
-    readme.indexOf("## Install VKF"),
-  );
-
-  assert.match(section, /hidden Edge/);
-  assert.match(section, /`Page\.captureScreenshot`/);
-  assert.match(section, /full composited viewport/);
-  assert.match(section, /frame chrome/);
-  assert.match(section, /WebGPU canvas/);
-  assert.match(section, /no application JavaScript/);
+test("retired scene captures retain their provenance contract", () => {
+  for (const example of manifest.examples) {
+    assert.equal(example.capture.hidden, true, `${example.id} is not hidden`);
+    assert.equal(
+      example.capture.applicationJavaScript,
+      false,
+      `${example.id} uses application JavaScript`,
+    );
+    assert.equal(example.capture.api, "Page.captureScreenshot");
+    assert.equal(
+      example.capture.frame,
+      namedFrames.get(example.id) ?? "frame_0",
+      `${example.id} capture frame changed`,
+    );
+  }
 });
