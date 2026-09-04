@@ -2033,6 +2033,12 @@ private:
                 ValueType::Number
             )
             || bind(
+                "vkf_permutation_reduction",
+                1,
+                Opcode::PermutationReduction,
+                ValueType::Number
+            )
+            || bind(
                 "vkf_math_atan2",
                 2,
                 Opcode::Atan2,

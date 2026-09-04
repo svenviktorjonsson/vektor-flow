@@ -360,6 +360,11 @@
       "parameters": 2,
       "resultType": 1
     },
+    "_browser_expect_statement": {
+      "index": 151,
+      "parameters": 3,
+      "resultType": 1
+    },
     "_browser_field_indices_valid": {
       "index": 119,
       "parameters": 3,
@@ -388,6 +393,11 @@
     "_browser_inline_space_start": {
       "index": 126,
       "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_layout_only": {
+      "index": 150,
+      "parameters": 3,
       "resultType": 1
     },
     "_browser_lifted_nested_vector": {
@@ -500,9 +510,24 @@
       "parameters": 4,
       "resultType": 6
     },
+    "_browser_numeric_literal_array": {
+      "index": 153,
+      "parameters": 1,
+      "resultType": 1
+    },
     "_browser_numeric_range": {
       "index": 138,
       "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_parity_clause": {
+      "index": 154,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_permutation_reduction_source_matches": {
+      "index": 155,
+      "parameters": 1,
       "resultType": 1
     },
     "_browser_power_final_multiplier": {
@@ -700,6 +725,11 @@
       "parameters": 1,
       "resultType": 1
     },
+    "_browser_zero_vector_statement": {
+      "index": 152,
+      "parameters": 3,
+      "resultType": 1
+    },
     "_compile_tagged_numeric_literal_function_tape": {
       "index": 44,
       "parameters": 3,
@@ -721,12 +751,17 @@
       "resultType": 1
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 150,
+      "index": 157,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_named_axis_source": {
       "index": 125,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_run_tagged_permutation_reduction_source": {
+      "index": 156,
       "parameters": 1,
       "resultType": 1
     },
@@ -751,7 +786,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 151,
+      "index": 158,
       "parameters": 2,
       "resultType": 2
     },
@@ -763,11 +798,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 270136,
-    "bytecodeLength": 270134,
+    "argumentsPointer": 284672,
+    "bytecodeLength": 284670,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 270392
+    "resultsPointer": 284928
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

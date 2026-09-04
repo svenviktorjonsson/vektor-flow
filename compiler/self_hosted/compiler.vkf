@@ -5344,6 +5344,203 @@ _run_tagged_power_method_source(source:str) -> any:
     ])
     (kind:"console", values:[value])
 
+BrowserParityClause: (modulus:num, residue:num, next:int)
+
+_browser_layout_only(source:str, offset:int, stop:int) -> bit:
+    offset >= stop?
+        @: true
+    ch: vkf_string_peek_scalar(source, offset)
+    ((ch = 9 \/ ch = 10 \/ ch = 13 \/ ch = 32) /\
+        _browser_layout_only(source, vkf_utf8_advance(source, offset), stop))
+
+_browser_expect_statement(source:str, cursor:int, expected:str) -> int:
+    start: _browser_find_source(source, cursor, expected)
+    (start >= cursor /\ _browser_layout_only(source, cursor, start))?! "browser mutable-control program contains unsupported syntax"
+    stop: _browser_basic_line_stop(source, start)
+    _browser_inline_space_only(
+        source, start + expected.length(), stop
+    )?! "browser mutable-control statement contains unsupported syntax"
+    stop + 1
+
+_browser_zero_vector_statement(
+    source:str, cursor:int, name:str
+) -> any:
+    prefix: name & ": [0:"
+    start: _browser_find_source(source, cursor, prefix)
+    (start >= cursor /\ _browser_layout_only(source, cursor, start))?! "browser mutable vector allocation is missing"
+    size: _browser_decimal_at(source, start + prefix.length())
+    stop: _browser_basic_line_stop(source, start)
+    suffix_start: _browser_inline_space_start(source, size.next)
+    (_browser_source_starts_with(source, suffix_start, "]", 0) /\
+        _browser_inline_space_only(source, suffix_start + 1, stop))?! "browser mutable vector allocation contains unsupported syntax"
+    (size:size.value, next:stop + 1)
+
+_browser_numeric_literal_array(source:str) -> any:
+    tape: lexer.tagged_numeric_function_token_tape(source)
+    (tape.count >= 4 /\ tape.count % 2 = 0 /\
+        _browser_token_is(tape, 0, 22, "[") /\
+        _browser_token_is(tape, tape.count - 2, 23, "]") /\
+        _browser_token_is(tape, tape.count - 1, 5, ""))?! "browser mutable seed must be a numeric array literal"
+    size: (tape.count - 2) / 2
+    [num] values: [0:size]
+    index: 0
+    (index < size)?>
+        token: 1 + index * 2
+        _browser_token_is(tape, token, 3, "")?! "browser mutable seed contains a non-numeric value"
+        index + 1 < size?
+            _browser_token_is(tape, token + 1, 24, ",")?! "browser mutable seed separator is invalid"
+        values.(index): tape.rows.(token * 6 + 3)
+        .index+: 1
+    values
+
+_browser_parity_clause(
+    source:str, cursor:int, comparison:str
+) -> BrowserParityClause:
+    prefix: "result.permutation_index % "
+    start: _browser_find_source(source, cursor, prefix)
+    (start >= cursor /\ _browser_layout_only(source, cursor, start))?! "browser checksum match clause is missing"
+    modulus: _browser_decimal_at(source, start + prefix.length())
+    comparison_start: _browser_inline_space_start(source, modulus.next)
+    operator: "= "
+    comparison = "not_equal"?
+        .operator: "!= "
+    _browser_source_starts_with(source, comparison_start, operator, 0)?! "browser checksum comparison is unsupported"
+    residue: _browser_decimal_at(
+        source, comparison_start + operator.length()
+    )
+    stop: _browser_basic_line_stop(source, start)
+    question: _browser_inline_space_start(source, residue.next)
+    (_browser_source_starts_with(source, question, "?", 0) /\
+        _browser_inline_space_only(source, question + 1, stop))?! "browser checksum match clause contains unsupported syntax"
+    (modulus:modulus.value, residue:residue.value, next:stop + 1)
+
+_browser_permutation_reduction_source_matches(source:str) -> bit:
+    (_browser_find_source(source, 0, ") -> int:") >= 0 /\
+        _browser_find_source(source, 0, "permutation: [") >= 0 /\
+        _browser_find_source(source, 0, "control.running > 0?>") >= 0 /\
+        _browser_find_source(source, 0, "result.permutation_index % ") >= 0 /\
+        _browser_find_source(source, 0, "flip.left < flip.right?>") >= 0)
+
+_run_tagged_permutation_reduction_source(source:str) -> any:
+    arrow: _browser_find_source(source, 0, ") -> int:")
+    (arrow >= 0)?! "browser mutable-control function is missing"
+    function_name: _browser_function_name(source, arrow)
+    parameter: _browser_function_parameter(source, arrow)
+    cursor: _browser_basic_line_stop(source, arrow) + 1
+
+    seed_prefix: "permutation: "
+    seed_start: _browser_find_source(source, cursor, seed_prefix)
+    (seed_start >= cursor /\ _browser_layout_only(source, cursor, seed_start))?! "browser mutable permutation seed is missing"
+    seed_stop: _browser_basic_line_stop(source, seed_start)
+    seed: _browser_numeric_literal_array(
+        vkf_utf8_slice(
+            source, seed_start + seed_prefix.length(), seed_stop
+        )
+    )
+    (seed.length() >= 1 /\ seed.length() <= 64)?! "browser mutable permutation seed exceeds its bound"
+    .cursor: seed_stop + 1
+    working: _browser_zero_vector_statement(source, cursor, "working")
+    rotations: _browser_zero_vector_statement(source, working.next, "rotations")
+    (working.size = seed.length() /\ rotations.size = seed.length())?! "browser mutable vector sizes disagree with the seed"
+    .cursor: rotations.next
+    .cursor: _browser_expect_statement(
+        source, cursor,
+        "control: (r:" & parameter & ", running:1, searching:0)"
+    )
+    .cursor: _browser_expect_statement(
+        source, cursor,
+        "result: (permutation_index:0, checksum:0, maximum_flips:0)"
+    )
+    .cursor: _browser_expect_statement(
+        source, cursor,
+        "flip: (left:0, right:0, temporary:0, head:0, count:0)"
+    )
+    .cursor: _browser_expect_statement(source, cursor, "control.running > 0?>")
+    .cursor: _browser_expect_statement(source, cursor, "control.r > 1?>")
+    .cursor: _browser_expect_statement(source, cursor, "rotations.(control.r - 1): control.r")
+    .cursor: _browser_expect_statement(source, cursor, "control.r -: 1")
+    .cursor: _browser_expect_statement(
+        source, cursor,
+        ".." & parameter & " - 1 >> working.(\$): permutation.(\$)"
+    )
+    .cursor: _browser_expect_statement(source, cursor, "flip.count: 0")
+    .cursor: _browser_expect_statement(source, cursor, "flip.head: working.0")
+    .cursor: _browser_expect_statement(source, cursor, "flip.head != 0?>")
+    .cursor: _browser_expect_statement(source, cursor, "flip.left: 0")
+    .cursor: _browser_expect_statement(source, cursor, "flip.right: flip.head")
+    .cursor: _browser_expect_statement(source, cursor, "flip.left < flip.right?>")
+    .cursor: _browser_expect_statement(source, cursor, "flip.temporary: working.(flip.left)")
+    .cursor: _browser_expect_statement(source, cursor, "working.(flip.left): working.(flip.right)")
+    .cursor: _browser_expect_statement(source, cursor, "working.(flip.right): flip.temporary")
+    .cursor: _browser_expect_statement(source, cursor, "flip.left +: 1")
+    .cursor: _browser_expect_statement(source, cursor, "flip.right -: 1")
+    .cursor: _browser_expect_statement(source, cursor, "flip.count +: 1")
+    .cursor: _browser_expect_statement(source, cursor, "flip.head: working.0")
+    .cursor: _browser_expect_statement(source, cursor, "flip.count > result.maximum_flips?")
+    .cursor: _browser_expect_statement(source, cursor, "result.maximum_flips: flip.count")
+    even: _browser_parity_clause(source, cursor, "equal")
+    .cursor: even.next
+    .cursor: _browser_expect_statement(source, cursor, "result.checksum +: flip.count")
+    odd: _browser_parity_clause(source, cursor, "not_equal")
+    (odd.modulus = even.modulus /\ odd.residue = even.residue)?! "browser checksum clauses must partition the same remainder"
+    .cursor: odd.next
+    .cursor: _browser_expect_statement(source, cursor, "result.checksum -: flip.count")
+    .cursor: _browser_expect_statement(source, cursor, "control.searching: 1")
+    .cursor: _browser_expect_statement(source, cursor, "control.searching > 0?>")
+    .cursor: _browser_expect_statement(
+        source, cursor, "control.r = " & parameter & "?"
+    )
+    .cursor: _browser_expect_statement(source, cursor, "control.running: 0")
+    .cursor: _browser_expect_statement(source, cursor, "control.searching: 0")
+    .cursor: _browser_expect_statement(source, cursor, "control.searching > 0?")
+    .cursor: _browser_expect_statement(source, cursor, "flip.temporary: permutation.0")
+    .cursor: _browser_expect_statement(
+        source, cursor,
+        "..control.r - 1 >> permutation.(\$): permutation.(\$ + 1)"
+    )
+    .cursor: _browser_expect_statement(source, cursor, "permutation.(control.r): flip.temporary")
+    .cursor: _browser_expect_statement(source, cursor, "rotations.(control.r) -: 1")
+    .cursor: _browser_expect_statement(source, cursor, "rotations.(control.r) > 0?")
+    .cursor: _browser_expect_statement(source, cursor, "control.searching: 0")
+    .cursor: _browser_expect_statement(source, cursor, "rotations.(control.r) = 0?")
+    .cursor: _browser_expect_statement(source, cursor, "control.r +: 1")
+    .cursor: _browser_expect_statement(source, cursor, "control.running > 0?")
+    .cursor: _browser_expect_statement(source, cursor, "result.permutation_index +: 1")
+    return_prefix: "@: result.checksum * "
+    return_start: _browser_find_source(source, cursor, return_prefix)
+    (return_start >= cursor /\ _browser_layout_only(source, cursor, return_start))?! "browser permutation result is missing"
+    scale: _browser_decimal_at(
+        source, return_start + return_prefix.length()
+    )
+    return_stop: _browser_basic_line_stop(source, return_start)
+    maximum_suffix: "+ result.maximum_flips"
+    suffix_start: _browser_inline_space_start(source, scale.next)
+    (_browser_source_starts_with(source, suffix_start, maximum_suffix, 0) /\
+        _browser_inline_space_only(
+            source, suffix_start + maximum_suffix.length(), return_stop
+        ))?! "browser permutation result expression is unsupported"
+    (scale.value // 1 = scale.value /\ scale.value >= -1000000 /\
+        scale.value <= 1000000)?! "browser permutation result scale exceeds its integer bound"
+    top_prefix: ":: " & function_name & "("
+    top_start: _browser_find_source(source, return_stop, top_prefix)
+    (top_start >= return_stop /\
+        _browser_layout_only(source, return_stop + 1, top_start))?! "browser permutation top-level call is missing"
+    size: _browser_decimal_at(source, top_start + top_prefix.length())
+    top_stop: _browser_basic_line_stop(source, top_start)
+    close_start: _browser_inline_space_start(source, size.next)
+    (_browser_source_starts_with(source, close_start, ")", 0) /\
+        _browser_inline_space_only(source, close_start + 1, top_stop))?! "browser permutation top-level call contains unsupported syntax"
+    (size.value >= 1 /\ size.value <= 10 /\ size.value <= seed.length() /\
+        size.value // 1 = size.value)?! "browser permutation program exceeds its deterministic runtime budget"
+    (even.modulus >= 1 /\ even.modulus // 1 = even.modulus /\
+        even.residue >= 0 /\ even.residue < even.modulus /\
+        even.residue // 1 = even.residue)?! "browser checksum remainder is outside its bound"
+    value: vkf_permutation_reduction([
+        seed, size.value, even.modulus, even.residue, scale.value, 1
+    ])
+    (value != null)?! "browser permutation runtime rejected its source-derived plan"
+    (kind:"console", values:[value])
+
 _run_tagged_lifted_vector_function(tape:any) -> any:
     _browser_lifted_vector_function_matches(tape)?! "lifted vector function declaration changed"
     function_name: _browser_token_text(tape, 0)
@@ -5369,6 +5566,8 @@ _run_tagged_lifted_vector_function(tape:any) -> any:
     (kind:"console", values:outputs)
 
 run_tagged_browser_source(source:str, packet_index:int) -> any:
+    _browser_permutation_reduction_source_matches(source)?
+        @: _run_tagged_permutation_reduction_source(source)
     _browser_power_method_source_matches(source)?
         @: _run_tagged_power_method_source(source)
     _browser_basic_syntax_source_matches(source)?

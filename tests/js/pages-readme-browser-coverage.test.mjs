@@ -762,6 +762,60 @@ test("browser compiler runs the complete README spectral-norm fence", { timeout:
   );
 });
 
+test("browser compiler runs the complete README fannkuch fence", { timeout: 10_000 }, async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-25");
+
+  assert.deepEqual({ ...compiler.run(example.source) }, {
+    kind: "console",
+    values: [862930],
+  });
+  assert.deepEqual({ ...compiler.run(example.source.replace(
+    ":: fannkuch(9)",
+    ":: fannkuch(7)",
+  )) }, {
+    kind: "console",
+    values: [22816],
+  });
+  assert.deepEqual({ ...compiler.run(example.source.replace(
+    "result.checksum * 100 + result.maximum_flips",
+    "result.checksum * 10 + result.maximum_flips",
+  )) }, {
+    kind: "console",
+    values: [86320],
+  });
+  assert.deepEqual({ ...compiler.run(example.source.replace(
+    "permutation: [0, 1, 2, 3",
+    "permutation: [1, 0, 2, 3",
+  )) }, {
+    kind: "console",
+    values: [-4552870],
+  });
+  assert.deepEqual({ ...compiler.run(example.source.replaceAll("% 2", "% 3")) }, {
+    kind: "console",
+    values: [-65449670],
+  });
+  assert.throws(
+    () => compiler.run(example.source.replace(
+      "working.(flip.left): working.(flip.right)",
+      "working.(flip.left): working.(flip.right) + 1",
+    )),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(example.source.replace(":: fannkuch(9)", ":: fannkuch(13)")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(example.source.replace("checksum * 100", "checksum * 1.5")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(example.source.replace("permutation: [0, 1", "permutation: [0.5, 1")),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -779,6 +833,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 23);
+  assert.equal(runnable.length, 24);
   assert.equal(examples.length, 26);
 });

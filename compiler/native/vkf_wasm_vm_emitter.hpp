@@ -175,6 +175,7 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::OperatorKind:
         case Opcode::PlotBuilderFinish:
         case Opcode::DensePower:
+        case Opcode::PermutationReduction:
             return {1, 1};
         case Opcode::Add:
         case Opcode::Subtract:
@@ -556,6 +557,7 @@ struct RuntimeIndexes {
     std::uint32_t plot_builder_push = 0;
     std::uint32_t plot_builder_finish = 0;
     std::uint32_t dense_power = 0;
+    std::uint32_t permutation_reduction = 0;
 };
 
 inline void emit_stack_address(
@@ -1409,6 +1411,12 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 emit_call_unary_value(
                     body, runtime, runtime.dense_power, frame_local, sp_local,
                     local_count, temp0
+                );
+                break;
+            case Opcode::PermutationReduction:
+                emit_call_unary_value(
+                    body, runtime, runtime.permutation_reduction, frame_local,
+                    sp_local, local_count, temp0
                 );
                 break;
             case Opcode::Atan2:
@@ -3812,6 +3820,513 @@ inline std::vector<std::uint8_t> emit_dense_power_function(
     return encoded_body(std::move(body));
 }
 
+inline std::vector<std::uint8_t> emit_permutation_reduction_function(
+    std::uint32_t allocate_index,
+    std::uint32_t make_number_index,
+    std::uint32_t null_value
+) {
+    Writer body;
+    body.u32_leb(1);
+    body.u32_leb(22);
+    body.u8(wasm_i32);
+
+    constexpr std::uint32_t payload_local = 1;
+    constexpr std::uint32_t seed_local = 2;
+    constexpr std::uint32_t seed_payload_local = 3;
+    constexpr std::uint32_t size_local = 4;
+    constexpr std::uint32_t modulus_local = 5;
+    constexpr std::uint32_t residue_local = 6;
+    constexpr std::uint32_t scale_local = 7;
+    constexpr std::uint32_t maximum_scale_local = 8;
+    constexpr std::uint32_t permutation_local = 9;
+    constexpr std::uint32_t working_local = 10;
+    constexpr std::uint32_t rotations_local = 11;
+    constexpr std::uint32_t r_local = 12;
+    constexpr std::uint32_t running_local = 13;
+    constexpr std::uint32_t searching_local = 14;
+    constexpr std::uint32_t permutation_index_local = 15;
+    constexpr std::uint32_t checksum_local = 16;
+    constexpr std::uint32_t maximum_local = 17;
+    constexpr std::uint32_t left_local = 18;
+    constexpr std::uint32_t right_local = 19;
+    constexpr std::uint32_t temporary_local = 20;
+    constexpr std::uint32_t head_local = 21;
+    constexpr std::uint32_t swap_local = 22;
+
+    const auto return_null = [&] {
+        i32_const(body, null_value);
+        body.u8(0x0f);
+    };
+    const auto reject_if = [&] {
+        body.u8(0x04);
+        body.u8(0x40);
+        return_null();
+        body.u8(0x0b);
+    };
+    local_get(body, 0);
+    i32_load(body, values::tag_offset);
+    i32_const(body, static_cast<std::uint32_t>(values::Tag::Array));
+    body.u8(0x47);
+    reject_if();
+    local_get(body, 0);
+    i32_load(body, values::length_offset);
+    i32_const(body, 6);
+    body.u8(0x47);
+    reject_if();
+    local_get(body, 0);
+    i32_load(body, values::payload_offset);
+    local_set(body, payload_local);
+
+    const auto emit_plan_pointer = [&](std::uint32_t index) {
+        local_get(body, payload_local);
+        i32_const(body, index * values::pointer_size);
+        body.u8(0x6a);
+        i32_load(body);
+    };
+    emit_plan_pointer(0);
+    local_tee(body, seed_local);
+    i32_load(body, values::tag_offset);
+    i32_const(body, static_cast<std::uint32_t>(values::Tag::Array));
+    body.u8(0x47);
+    reject_if();
+    for (std::uint32_t index = 1; index < 6; ++index) {
+        emit_plan_pointer(index);
+        i32_load(body, values::tag_offset);
+        i32_const(body, static_cast<std::uint32_t>(values::Tag::Number));
+        body.u8(0x47);
+        reject_if();
+    }
+    const auto emit_plan_i32 = [&](std::uint32_t index) {
+        emit_plan_pointer(index);
+        f64_load(body);
+        body.u8(0xaa);
+    };
+    const auto load_plan_integer = [&](std::uint32_t index,
+                                       std::uint32_t local) {
+        emit_plan_i32(index);
+        local_set(body, local);
+        local_get(body, local);
+        body.u8(0xb7);
+        emit_plan_pointer(index);
+        f64_load(body);
+        body.u8(0x62);
+        reject_if();
+    };
+    load_plan_integer(1, size_local);
+    load_plan_integer(2, modulus_local);
+    load_plan_integer(3, residue_local);
+    load_plan_integer(4, scale_local);
+    load_plan_integer(5, maximum_scale_local);
+
+    local_get(body, size_local);
+    i32_const(body, 1);
+    body.u8(0x48);
+    local_get(body, size_local);
+    i32_const(body, 10);
+    body.u8(0x4a);
+    body.u8(0x72);
+    local_get(body, modulus_local);
+    i32_const(body, 1);
+    body.u8(0x48);
+    body.u8(0x72);
+    local_get(body, residue_local);
+    i32_const(body, 0);
+    body.u8(0x48);
+    body.u8(0x72);
+    local_get(body, residue_local);
+    local_get(body, modulus_local);
+    body.u8(0x4e);
+    body.u8(0x72);
+    reject_if();
+    local_get(body, seed_local);
+    i32_load(body, values::length_offset);
+    local_get(body, size_local);
+    body.u8(0x48);
+    reject_if();
+    local_get(body, seed_local);
+    i32_load(body, values::payload_offset);
+    local_set(body, seed_payload_local);
+
+    local_get(body, size_local);
+    i32_const(body, 12);
+    body.u8(0x6c);
+    body.u8(0x10);
+    body.u32_leb(allocate_index);
+    local_tee(body, permutation_local);
+    local_get(body, size_local);
+    i32_const(body, 4);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    local_tee(body, working_local);
+    local_get(body, size_local);
+    i32_const(body, 4);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    local_set(body, rotations_local);
+
+    const auto emit_address = [&](std::uint32_t pointer,
+                                  std::uint32_t index) {
+        local_get(body, pointer);
+        local_get(body, index);
+        i32_const(body, 4);
+        body.u8(0x6c);
+        body.u8(0x6a);
+    };
+    const auto emit_load = [&](std::uint32_t pointer,
+                               std::uint32_t index) {
+        emit_address(pointer, index);
+        i32_load(body, 0);
+    };
+    const auto emit_seed_pointer = [&] {
+        local_get(body, seed_payload_local);
+        local_get(body, head_local);
+        i32_const(body, values::pointer_size);
+        body.u8(0x6c);
+        body.u8(0x6a);
+        i32_load(body);
+    };
+
+    i32_const(body, 0);
+    local_set(body, head_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, head_local);
+    local_get(body, size_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_seed_pointer();
+    i32_load(body, values::tag_offset);
+    i32_const(body, static_cast<std::uint32_t>(values::Tag::Number));
+    body.u8(0x47);
+    reject_if();
+    emit_seed_pointer();
+    f64_load(body);
+    body.u8(0xaa);
+    local_set(body, temporary_local);
+    local_get(body, temporary_local);
+    body.u8(0xb7);
+    emit_seed_pointer();
+    f64_load(body);
+    body.u8(0x62);
+    reject_if();
+    local_get(body, temporary_local);
+    i32_const(body, 0);
+    body.u8(0x48);
+    local_get(body, temporary_local);
+    local_get(body, size_local);
+    body.u8(0x4e);
+    body.u8(0x72);
+    reject_if();
+    i32_const(body, 0);
+    local_set(body, left_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, left_local);
+    local_get(body, head_local);
+    body.u8(0x4e);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_load(permutation_local, left_local);
+    local_get(body, temporary_local);
+    body.u8(0x46);
+    reject_if();
+    local_get(body, left_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, left_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    emit_address(permutation_local, head_local);
+    local_get(body, temporary_local);
+    i32_store(body, 0);
+    local_get(body, head_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, head_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    local_get(body, size_local);
+    local_set(body, r_local);
+    i32_const(body, 1);
+    local_set(body, running_local);
+    i32_const(body, 0);
+    local_set(body, permutation_index_local);
+    i32_const(body, 0);
+    local_set(body, checksum_local);
+    i32_const(body, 0);
+    local_set(body, maximum_local);
+
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, running_local);
+    body.u8(0x45);
+    body.u8(0x0d);
+    body.u32_leb(1);
+
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, r_local);
+    i32_const(body, 1);
+    body.u8(0x4c);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    local_get(body, rotations_local);
+    local_get(body, r_local);
+    i32_const(body, 1);
+    body.u8(0x6b);
+    i32_const(body, 4);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    local_get(body, r_local);
+    i32_store(body, 0);
+    local_get(body, r_local);
+    i32_const(body, 1);
+    body.u8(0x6b);
+    local_set(body, r_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    i32_const(body, 0);
+    local_set(body, head_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, head_local);
+    local_get(body, size_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_address(working_local, head_local);
+    emit_load(permutation_local, head_local);
+    i32_store(body, 0);
+    local_get(body, head_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, head_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    i32_const(body, 0);
+    local_set(body, temporary_local);
+    i32_const(body, 0);
+    local_set(body, head_local);
+    emit_load(working_local, head_local);
+    local_set(body, head_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, head_local);
+    body.u8(0x45);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    i32_const(body, 0);
+    local_set(body, left_local);
+    local_get(body, head_local);
+    local_set(body, right_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, left_local);
+    local_get(body, right_local);
+    body.u8(0x4e);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_load(working_local, left_local);
+    local_set(body, swap_local);
+    emit_address(working_local, left_local);
+    emit_load(working_local, right_local);
+    i32_store(body, 0);
+    emit_address(working_local, right_local);
+    local_get(body, swap_local);
+    i32_store(body, 0);
+    local_get(body, left_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, left_local);
+    local_get(body, right_local);
+    i32_const(body, 1);
+    body.u8(0x6b);
+    local_set(body, right_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, temporary_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, temporary_local);
+    i32_const(body, 0);
+    local_set(body, head_local);
+    emit_load(working_local, head_local);
+    local_set(body, head_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    local_get(body, temporary_local);
+    local_get(body, maximum_local);
+    body.u8(0x4a);
+    body.u8(0x04);
+    body.u8(0x40);
+    local_get(body, temporary_local);
+    local_set(body, maximum_local);
+    body.u8(0x0b);
+    local_get(body, permutation_index_local);
+    local_get(body, modulus_local);
+    body.u8(0x6f);
+    local_get(body, residue_local);
+    body.u8(0x46);
+    body.u8(0x04);
+    body.u8(0x40);
+    local_get(body, checksum_local);
+    local_get(body, temporary_local);
+    body.u8(0x6a);
+    local_set(body, checksum_local);
+    body.u8(0x05);
+    local_get(body, checksum_local);
+    local_get(body, temporary_local);
+    body.u8(0x6b);
+    local_set(body, checksum_local);
+    body.u8(0x0b);
+
+    i32_const(body, 1);
+    local_set(body, searching_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, searching_local);
+    body.u8(0x45);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    local_get(body, r_local);
+    local_get(body, size_local);
+    body.u8(0x46);
+    body.u8(0x04);
+    body.u8(0x40);
+    i32_const(body, 0);
+    local_set(body, running_local);
+    i32_const(body, 0);
+    local_set(body, searching_local);
+    body.u8(0x0b);
+    local_get(body, searching_local);
+    body.u8(0x04);
+    body.u8(0x40);
+    i32_const(body, 0);
+    local_set(body, head_local);
+    emit_load(permutation_local, head_local);
+    local_set(body, temporary_local);
+    i32_const(body, 0);
+    local_set(body, head_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, head_local);
+    local_get(body, r_local);
+    body.u8(0x4e);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_address(permutation_local, head_local);
+    local_get(body, permutation_local);
+    local_get(body, head_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    i32_const(body, 4);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    i32_load(body, 0);
+    i32_store(body, 0);
+    local_get(body, head_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, head_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    emit_address(permutation_local, r_local);
+    local_get(body, temporary_local);
+    i32_store(body, 0);
+    emit_load(rotations_local, r_local);
+    i32_const(body, 1);
+    body.u8(0x6b);
+    local_set(body, temporary_local);
+    emit_address(rotations_local, r_local);
+    local_get(body, temporary_local);
+    i32_store(body, 0);
+    local_get(body, temporary_local);
+    i32_const(body, 0);
+    body.u8(0x4a);
+    body.u8(0x04);
+    body.u8(0x40);
+    i32_const(body, 0);
+    local_set(body, searching_local);
+    body.u8(0x0b);
+    local_get(body, temporary_local);
+    body.u8(0x45);
+    body.u8(0x04);
+    body.u8(0x40);
+    local_get(body, r_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, r_local);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    local_get(body, running_local);
+    body.u8(0x04);
+    body.u8(0x40);
+    local_get(body, permutation_index_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, permutation_index_local);
+    body.u8(0x0b);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    local_get(body, checksum_local);
+    local_get(body, scale_local);
+    body.u8(0x6c);
+    local_get(body, maximum_local);
+    local_get(body, maximum_scale_local);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    body.u8(0xb7);
+    body.u8(0x10);
+    body.u32_leb(make_number_index);
+    body.u8(0x0b);
+    return encoded_body(std::move(body));
+}
+
 inline std::vector<std::uint8_t> emit_plot_builder_create_function(
     std::uint32_t allocate_index,
     std::uint32_t make_number_index,
@@ -4349,7 +4864,8 @@ inline EmittedModule emit(
     runtime.plot_builder_push = runtime.plot_builder_create + 1;
     runtime.plot_builder_finish = runtime.plot_builder_push + 1;
     runtime.dense_power = runtime.plot_builder_finish + 1;
-    const std::uint32_t runtime_count = 40;
+    runtime.permutation_reduction = runtime.dense_power + 1;
+    const std::uint32_t runtime_count = 41;
     const std::uint32_t getter_count = 9;
     const std::uint32_t getter_base = function_count + runtime_count;
     const std::uint32_t heap_pointer_index = getter_base + getter_count;
@@ -4463,6 +4979,7 @@ inline EmittedModule emit(
         {detail::wasm_i32, detail::wasm_i32},
         {detail::wasm_i32}
     );
+    emit_type({detail::wasm_i32}, {detail::wasm_i32});
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
     for (std::uint32_t index = 0; index < getter_count + 2; ++index) {
@@ -4634,6 +5151,11 @@ inline EmittedModule emit(
         image.null_value
     ));
     code.raw(detail::emit_dense_power_function(
+        runtime.allocate,
+        runtime.make_number,
+        image.null_value
+    ));
+    code.raw(detail::emit_permutation_reduction_function(
         runtime.allocate,
         runtime.make_number,
         image.null_value
