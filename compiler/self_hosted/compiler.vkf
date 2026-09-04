@@ -1381,7 +1381,7 @@ run_tagged_dependency_source(source:str) -> num:
 
 BrowserLiftedParse: (value:any, next:int)
 BrowserAxisTerm: (values:any, axis:str, next:int)
-BrowserDisplayOptions: (background:any, next:int)
+BrowserDisplayOptions: (background:any, combine_transparent:bit, next:int)
 BrowserDisplayScan: (
     packet_count:int,
     selected_source:str,
@@ -1423,6 +1423,21 @@ BrowserDisplayTexturePacket: (
     blade_length:num,
     clump_density:num,
     micro_shadow:num
+)
+BrowserDisplayOpticalFields: (
+    alpha:num,
+    transparent:bit,
+    depth_write:bit,
+    reflectivity:num,
+    present:bit
+)
+BrowserDisplayOpticalPacket: (
+    magic:int,
+    version:int,
+    alpha:num,
+    transparent:bit,
+    depth_write:bit,
+    reflectivity:num
 )
 
 _browser_lifted_number(tape:any, index:int, factor:num) -> BrowserLiftedParse:
@@ -1590,13 +1605,15 @@ _browser_display_options_call(tape:any, start:int) -> BrowserDisplayOptions:
     brackets: 0
     background: []
     saw_background: false
+    combine_transparent: false
     (parens > 0)?>
         kind: _browser_token_kind(tape, index)
         keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
             _browser_token_kind(tape, index + 1) = 15)
         keyword?
             key: _browser_token_text(tape, index)
-            (key = "background" \/ key = "unified_renderer")?! "browser display does not support this frame option"
+            (key = "background" \/ key = "unified_renderer" \/
+                key = "combine_transparent")?! "browser display does not support this frame option"
             key = "background"?
                 parsed: _browser_lifted_value(tape, index + 2, 1)
                 .background: parsed.value
@@ -1605,6 +1622,11 @@ _browser_display_options_call(tape:any, start:int) -> BrowserDisplayOptions:
             key = "unified_renderer"?
                 (_browser_token_kind(tape, index + 2) = 1 /\
                     _browser_token_text(tape, index + 2) = "true")?! "browser display requires unified rendering"
+                .index+: 1
+            key = "combine_transparent"?
+                (_browser_token_kind(tape, index + 2) = 1 /\
+                    _browser_token_text(tape, index + 2) = "true")?! "browser display requires transparent compositing"
+                .combine_transparent: true
                 .index+: 1
         ~keyword?
             kind = 13?
@@ -1618,7 +1640,7 @@ _browser_display_options_call(tape:any, start:int) -> BrowserDisplayOptions:
             .index+: 1
     saw_background?! "browser display options require a background"
     (background.length() = 4)?! "browser display background must be RGBA"
-    (background:background, next:index)
+    (background:background, combine_transparent:combine_transparent, next:index)
 
 _browser_source_starts_with(
     source:str, offset:int, expected:str, expected_offset:int
@@ -1855,6 +1877,95 @@ _browser_display_texture_packet(source:str, offset:int, in_string:bit) -> any:
         @: _browser_typed_texture_packet(fields, scale, color_a, color_b)
     _browser_display_texture_packet(source, next, false)
 
+_browser_scan_display_optical_fields(
+    source:str, offset:int, alpha:num, transparent:bit,
+    depth_write:bit, reflectivity:num, present:bit, in_string:bit
+) -> BrowserDisplayOpticalFields:
+    vkf_string_eof(source, offset)?
+        @: (
+            alpha:alpha, transparent:transparent, depth_write:depth_write,
+            reflectivity:reflectivity, present:present
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    in_string?
+        @: _browser_scan_display_optical_fields(
+            source, next, alpha, transparent, depth_write,
+            reflectivity, present, ch != 34
+        )
+    ch = 34?
+        @: _browser_scan_display_optical_fields(
+            source, next, alpha, transparent, depth_write,
+            reflectivity, present, true
+        )
+    (_browser_source_starts_with(source, offset, "alpha:", 0) \/
+        _browser_source_starts_with(source, offset, "reflectivity:", 0))?
+        colon_width: 6
+        _browser_source_starts_with(source, offset, "reflectivity:", 0)?
+            .colon_width: 13
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        value: vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))
+        next_alpha: alpha
+        next_reflectivity: reflectivity
+        _browser_source_starts_with(source, offset, "alpha:", 0)?
+            .next_alpha: value
+        _browser_source_starts_with(source, offset, "reflectivity:", 0)?
+            .next_reflectivity: value
+        @: _browser_scan_display_optical_fields(
+            source, value_stop, next_alpha, transparent, depth_write,
+            next_reflectivity, true, false
+        )
+    (_browser_source_starts_with(source, offset, "transparent:", 0) \/
+        _browser_source_starts_with(source, offset, "depth_write:", 0))?
+        colon_width: 12
+        _browser_source_starts_with(source, offset, "transparent:", 0)?
+            .colon_width: 12
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value: false
+        value_stop: value_start
+        _browser_source_starts_with(source, value_start, "true", 0)?
+            .value: true
+            .value_stop: value_start + 4
+        ~value?
+            _browser_source_starts_with(source, value_start, "false", 0)?
+                .value_stop: value_start + 5
+            ~_browser_source_starts_with(source, value_start, "false", 0)?
+                false?! "browser optical flags require booleans"
+        next_transparent: transparent
+        next_depth_write: depth_write
+        _browser_source_starts_with(source, offset, "transparent:", 0)?
+            .next_transparent: value
+        _browser_source_starts_with(source, offset, "depth_write:", 0)?
+            .next_depth_write: value
+        @: _browser_scan_display_optical_fields(
+            source, value_stop, alpha, next_transparent, next_depth_write,
+            reflectivity, true, false
+        )
+    _browser_scan_display_optical_fields(
+        source, next, alpha, transparent, depth_write,
+        reflectivity, present, false
+    )
+
+_browser_typed_optical_packet(fields:BrowserDisplayOpticalFields) -> BrowserDisplayOpticalPacket:
+    (
+        magic:1447773771, version:1, alpha:fields.alpha,
+        transparent:fields.transparent, depth_write:fields.depth_write,
+        reflectivity:fields.reflectivity
+    )
+
+_browser_display_optical_packet(source:str) -> any:
+    fields: _browser_scan_display_optical_fields(
+        source, 0, 1, false, true, 0, false, false
+    )
+    ~fields.present?
+        @: []
+    (fields.alpha >= 0 /\ fields.alpha <= 1 /\
+        fields.reflectivity >= 0 /\ fields.reflectivity <= 1)?! "browser optical parameters are invalid"
+    (fields.alpha = 1 \/ fields.transparent)?! "browser alpha requires transparent material"
+    (fields.depth_write \/ fields.transparent)?! "disabled depth writes require transparent material"
+    _browser_typed_optical_packet(fields)
+
 _browser_scan_display_mesh_source(
     source:str,
     offset:int,
@@ -1977,6 +2088,33 @@ _browser_scan_display_mesh_source(
             receives_lighting, casts_shadow, receives_shadow,
             next_roughness, next_specular, unsupported, false
         )
+    (_browser_source_starts_with(source, offset, "alpha:", 0) \/
+        _browser_source_starts_with(source, offset, "reflectivity:", 0))?
+        colon_width: 6
+        _browser_source_starts_with(source, offset, "reflectivity:", 0)?
+            .colon_width: 13
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        @: _browser_scan_display_mesh_source(
+            source, value_stop, x_source, y_source, z_source, color_source,
+            receives_lighting, casts_shadow, receives_shadow,
+            roughness, specular_strength, unsupported, false
+        )
+    (_browser_source_starts_with(source, offset, "transparent:", 0) \/
+        _browser_source_starts_with(source, offset, "depth_write:", 0))?
+        colon_width: 12
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value_stop: value_start
+        _browser_source_starts_with(source, value_start, "true", 0)?
+            .value_stop: value_start + 4
+        _browser_source_starts_with(source, value_start, "false", 0)?
+            .value_stop: value_start + 5
+        (value_stop > value_start)?! "browser optical flags require booleans"
+        @: _browser_scan_display_mesh_source(
+            source, value_stop, x_source, y_source, z_source, color_source,
+            receives_lighting, casts_shadow, receives_shadow,
+            roughness, specular_strength, unsupported, false
+        )
     _browser_source_starts_with(source, offset, "texture:", 0)?
         value_start: _browser_display_value_start(source, offset + 8)
         (vkf_string_peek_scalar(source, value_start) = 40)?! "browser texture must be a record"
@@ -2023,6 +2161,7 @@ _browser_display_mesh_source(source:str) -> any:
         .color: _browser_lifted_value(color_tape, 0, 1).value
     (color.length() = 4)?! "frame.add color must be RGBA"
     texture: _browser_display_texture_packet(source, 0, false)
+    optical: _browser_display_optical_packet(source)
     rows: x.length()
     (rows > 0)?! "frame.add geometry must contain rows"
     (
@@ -2033,7 +2172,8 @@ _browser_display_mesh_source(source:str) -> any:
         receives_shadow:fields.receives_shadow,
         roughness:fields.roughness,
         specular_strength:fields.specular_strength,
-        texture:texture
+        texture:texture,
+        optical:optical
     )
 
 _browser_display_camera_source(source:str) -> any:
@@ -2243,6 +2383,12 @@ _browser_scan_display_source(
             selected_source, selected_kind, options_source,
             true, false, false
         )
+    _browser_source_starts_with(source, offset, "controls.", 0)?
+        @: _browser_scan_display_source(
+            source, next, packet_count, packet_index,
+            selected_source, selected_kind, options_source,
+            true, false, false
+        )
     _browser_scan_display_source(
         source, next, packet_count, packet_index,
         selected_source, selected_kind, options_source,
@@ -2264,11 +2410,16 @@ _run_tagged_display_source(source:str, packet_index:int) -> any:
         (scan.selected_kind = "mesh")?! "browser display packet kind is unsupported"
         @: _browser_display_mesh_source(scan.selected_source)
     background: []
+    combine_transparent: false
     scan.options_source != ""?
         tape: lexer.tagged_numeric_function_token_tape(scan.options_source)
         options: _browser_display_options_call(tape, 4)
         .background: options.background
-    (kind:"visual_stream", packet_count:scan.packet_count, background:background)
+        .combine_transparent: options.combine_transparent
+    (
+        kind:"visual_stream", packet_count:scan.packet_count,
+        background:background, combine_transparent:combine_transparent
+    )
 
 _browser_token_text(tape:any, index:int) -> str:
     row: index * 6

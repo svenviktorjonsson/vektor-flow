@@ -133,6 +133,39 @@ test("worker rejects texture packets with fields outside the versioned contract"
   }), /invalid texture packet/u);
 });
 
+test("worker materializes a strictly versioned transparent optical buffer", () => {
+  const output = materializeVisualOutput({
+    kind: "visual",
+    packet_records: [{
+      magic: 1447773766, version: 5, rows: 1, columns: 1,
+      color: [0.08, 0.78, 0.96, 0.52], x: [[1]], y: [[2]], z: [[3]],
+      receives_lighting: true, casts_shadow: true, receives_shadow: false,
+      roughness: 0.1, specular_strength: 0.84, texture: [],
+      optical: {
+        magic: 1447773771, version: 1, alpha: 0.52,
+        transparent: true, depth_write: false, reflectivity: 0.28,
+      },
+    }],
+  });
+  assert.deepEqual([...output.packets[0]], [
+    1447773766, 6, 1, 1, 0.08, 0.78, 0.96, 0.52,
+    1, 1, 0, 0.1, 0.84, 0.52, 1, 0, 0.28, 1, 2, 3,
+  ]);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual",
+    packet_records: [{
+      magic: 1447773766, version: 5, rows: 1, columns: 1,
+      color: [1, 1, 1, 1], x: [[0]], y: [[0]], z: [[0]],
+      receives_lighting: false, casts_shadow: false, receives_shadow: false,
+      roughness: 1, specular_strength: 0, texture: [],
+      optical: {
+        magic: 1447773771, version: 1, alpha: 0.5,
+        transparent: true, depth_write: false, reflectivity: 0, ior: 1.5,
+      },
+    }],
+  }), /invalid optical packet/u);
+});
+
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
@@ -224,6 +257,28 @@ test("trusted inline renderer modulates grass from the validated material parame
   const grassColors = new Set(fillColors.slice(1));
   assert.equal(fillColors.slice(1).length, 49);
   assert.ok(grassColors.size > 8, "grass must be spatially modulated, not a two-color checker");
+});
+
+test("trusted inline renderer applies source alpha and reflectivity", () => {
+  const render = (alpha, reflectivity) => {
+    const strokes = [];
+    const context = {
+      beginPath: () => {}, clearRect: () => {}, fillRect: () => {},
+      lineTo: () => {}, moveTo: () => {}, stroke: () => {},
+      set fillStyle(_value) {}, set lineWidth(_value) {},
+      set strokeStyle(value) { strokes.push(value); },
+    };
+    const packet = Float64Array.from([
+      1447773766, 6, 1, 2, 0.08, 0.78, 0.96, 0.52,
+      0, 0, 0, 0.1, 0.84, alpha, 1, 0, reflectivity,
+      -1, 0, 0, 1, 0, 0,
+    ]);
+    renderInlineResult({ width: 320, height: 180, getContext: () => context }, [packet]);
+    return strokes.at(-1);
+  };
+  assert.match(render(0.52, 0.28), /, 0\.52\)$/u);
+  assert.match(render(0.22, 0.28), /, 0\.22\)$/u);
+  assert.notEqual(render(0.52, 0.28), render(0.52, 0.48));
 });
 
 test("terminal always appears below the editor and Result appears only for validated visual output", async () => {

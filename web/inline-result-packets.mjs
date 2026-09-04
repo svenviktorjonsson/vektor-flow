@@ -33,6 +33,25 @@ export function materializeVisualOutput(output) {
       texture.roughness, texture.blade_length, texture.clump_density, texture.micro_shadow,
     ];
   };
+  const materializeOptical = (optical) => {
+    if (optical == null || (Array.isArray(optical) && optical.length === 0)) return null;
+    const keys = ["alpha", "depth_write", "magic", "reflectivity", "transparent", "version"];
+    if (!optical || typeof optical !== "object" || Array.isArray(optical)
+        || Object.keys(optical).sort().join("\0") !== keys.join("\0")
+        || optical.magic !== 1447773771 || optical.version !== 1
+        || !finiteNumber(optical.alpha) || optical.alpha < 0 || optical.alpha > 1
+        || typeof optical.transparent !== "boolean" || typeof optical.depth_write !== "boolean"
+        || !finiteNumber(optical.reflectivity)
+        || optical.reflectivity < 0 || optical.reflectivity > 1
+        || (optical.alpha !== 1 && !optical.transparent)
+        || (!optical.depth_write && !optical.transparent)) {
+      throw new TypeError("browser compiler returned an invalid optical packet");
+    }
+    return [
+      optical.alpha, optical.transparent ? 1 : 0,
+      optical.depth_write ? 1 : 0, optical.reflectivity,
+    ];
+  };
   const packets = output.packet_records.map((record) => {
     if (record?.magic === 1447773767 && record.version === 1 && finiteVector(record.color, 4)) {
       return Float64Array.from([record.magic, record.version, ...record.color]);
@@ -72,12 +91,18 @@ export function materializeVisualOutput(output) {
       throw new TypeError("browser compiler returned an invalid visual packet");
     }
     const texture = materializeTexture(record.texture);
+    const optical = materializeOptical(record.optical);
+    if (texture && optical) {
+      throw new TypeError("browser compiler returned unsupported combined material packets");
+    }
     const values = [
-      record.magic, texture ? 5 : 4, record.rows, record.columns, ...record.color,
+      record.magic, optical ? 6 : texture ? 5 : 4,
+      record.rows, record.columns, ...record.color,
       record.receives_lighting ? 1 : 0, record.casts_shadow ? 1 : 0,
       record.receives_shadow ? 1 : 0, record.roughness, record.specular_strength,
     ];
     if (texture) values.push(...texture);
+    if (optical) values.push(...optical);
     for (let row = 0; row < record.rows; row += 1) {
       if (!finiteVector(record.x[row], record.columns)
           || !finiteVector(record.y[row], record.columns)

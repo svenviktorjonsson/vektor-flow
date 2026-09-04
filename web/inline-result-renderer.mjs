@@ -20,13 +20,14 @@ function decode(packet) {
       castsShadow: packet[14] === 1, sourceRadius: packet[15],
     };
   }
-  if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5].includes(packet[1])) {
+  if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5, 6].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
   const rows = packet[2];
   const columns = packet[3];
   const stride = packet[1] === 2 ? 2 : 3;
-  const dataOffset = packet[1] === 5 ? 28 : packet[1] === 4 ? 13 : packet[1] === 3 ? 10 : 8;
+  const dataOffset = packet[1] === 6 ? 17
+    : packet[1] === 5 ? 28 : packet[1] === 4 ? 13 : packet[1] === 3 ? 10 : 8;
   if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(columns) || columns < 1
       || packet.length !== dataOffset + (rows * columns * stride)) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
@@ -40,6 +41,10 @@ function decode(packet) {
   if (texture && ![1, 2].includes(texture.kind)) {
     throw new TypeError("inline renderer received an invalid texture packet");
   }
+  const optical = packet[1] === 6 ? {
+    alpha: packet[13], transparent: packet[14] === 1,
+    depthWrite: packet[15] === 1, reflectivity: packet[16],
+  } : null;
   return {
     kind: "geometry", packet, rows, columns, stride, dataOffset,
     receivesLighting: packet[1] >= 3 && packet[8] === 1,
@@ -47,7 +52,7 @@ function decode(packet) {
     receivesShadow: packet[1] >= 4 && packet[10] === 1,
     roughness: packet[1] >= 4 ? packet[11] : 1,
     specularStrength: packet[1] >= 4 ? packet[12] : 0,
-    texture,
+    texture, optical,
   };
 }
 
@@ -90,7 +95,10 @@ function cameraProjector(camera, canvas) {
 
 function litColor(mesh, lights) {
   const base = [mesh.packet[4], mesh.packet[5], mesh.packet[6]];
-  if (!mesh.receivesLighting || lights.length === 0) return base;
+  const reflected = mesh.optical
+    ? base.map((value) => value + ((1 - value) * mesh.optical.reflectivity * 0.35))
+    : base;
+  if (!mesh.receivesLighting || lights.length === 0) return reflected;
   const point = vertex(mesh, 0, 0);
   const light = lights[0];
   const distance = Math.hypot(...subtract(light.pos, point));
@@ -98,7 +106,7 @@ function litColor(mesh, lights) {
   const diffuse = attenuation * 0.12 * (1 - (mesh.roughness * 0.25));
   const highlight = mesh.specularStrength * (1 - mesh.roughness) * 0.3;
   const strength = Math.min(1, 0.2 + diffuse + highlight);
-  return base.map((value, index) => value * light.color[index] * strength);
+  return reflected.map((value, index) => value * light.color[index] * strength);
 }
 
 function mix(left, right, amount) {
@@ -217,7 +225,8 @@ export function renderInlineResult(canvas, packets) {
   for (const mesh of meshes) {
     drawTexture(context, project, mesh);
     const color = litColor(mesh, lights);
-    context.strokeStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${Math.max(0, Math.min(1, mesh.packet[7]))})`;
+    const alpha = mesh.optical?.transparent ? mesh.optical.alpha : mesh.packet[7];
+    context.strokeStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${Math.max(0, Math.min(1, alpha))})`;
     for (let row = 0; row < mesh.rows; row += 1) {
       drawStrip(mesh.columns, (column) => vertex(mesh, row, column));
     }

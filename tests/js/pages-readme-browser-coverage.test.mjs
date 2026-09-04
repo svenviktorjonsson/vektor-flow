@@ -127,10 +127,15 @@ test("browser compiler retains background options and multiple meshes from READM
   assert.deepEqual(rounded(changed.packet_records[0].color), [0.2, 0.3, 0.4, 1]);
   assert.deepEqual(rounded(changed.packet_records[1].color), [0.9, 0.8, 0.7, 1]);
 
+  const combined = { ...compiler.run(bands.source.replace(
+      "unified_renderer:true",
+      "unified_renderer:true, combine_transparent:true",
+    )) };
+  assert.equal(combined.packet_records.length, 4);
   assert.throws(
     () => compiler.run(bands.source.replace(
       "unified_renderer:true",
-      "unified_renderer:true, combine_transparent:true",
+      "unified_renderer:true, combine_transparent:false",
     )),
     /browser compiler could not run the VKF source/u,
   );
@@ -269,6 +274,31 @@ test("browser compiler retains source-derived README procedural textures", async
   );
 });
 
+test("browser compiler retains source-derived transparent optical material", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const glass = examples.find(({ id }) => id === "readme-06");
+  const mirror = examples.find(({ id }) => id === "readme-05");
+  const output = { ...compiler.run(glass.source) };
+  assert.deepEqual({ ...output.packet_records.at(-1).optical }, {
+    magic: 1447773771, version: 1, alpha: 0.52,
+    transparent: true, depth_write: false, reflectivity: 0.28,
+  });
+  const changed = { ...compiler.run(glass.source
+    .replace("alpha:0.52", "alpha:0.22")
+    .replace("depth_write:false", "depth_write:true")
+    .replace("reflectivity:0.28", "reflectivity:0.48")) };
+  assert.deepEqual(rounded([
+    changed.packet_records.at(-1).optical.alpha,
+    changed.packet_records.at(-1).optical.reflectivity,
+  ]), [0.22, 0.48]);
+  assert.equal(changed.packet_records.at(-1).optical.depth_write, true);
+  assert.throws(
+    () => compiler.run(glass.source.replace("reflectivity:0.28", "reflectivity:0.28, ior:1.5")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(() => compiler.run(mirror.source), /browser compiler could not run the VKF source/u);
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -286,6 +316,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 11);
+  assert.equal(runnable.length, 12);
   assert.equal(examples.length, 26);
 });
