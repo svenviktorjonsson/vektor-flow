@@ -112,6 +112,11 @@ vkf_native_target(
     vkf_adaptive_optimizer_contract_test.cpp
     FALSE
 )
+vkf_native_target(
+    vkf_retained_optimization_schedule_test
+    vkf_retained_optimization_schedule_test.cpp
+    FALSE
+)
 find_package(Threads REQUIRED)
 target_link_libraries(vkf_adaptive_optimizer_contract_test PRIVATE Threads::Threads)
 

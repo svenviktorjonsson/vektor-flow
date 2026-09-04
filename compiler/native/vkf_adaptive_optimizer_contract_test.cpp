@@ -25,7 +25,11 @@ void expect(bool condition, const std::string& message) {
 Function function_with(std::initializer_list<Opcode> opcodes) {
     Function function;
     function.name = "flow";
-    for (const auto opcode : opcodes) function.instructions.push_back(Instruction{opcode});
+    for (const auto opcode : opcodes) {
+        Instruction instruction;
+        instruction.opcode = opcode;
+        function.instructions.push_back(std::move(instruction));
+    }
     return function;
 }
 
@@ -118,7 +122,7 @@ int main() {
     const auto concurrent_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
         automatic_limits, 8, left_branch, right_branch, true, fft_decision);
     expect(concurrent_pair.concurrent(),
-           "independent replay-safe branches above the benefit threshold must use two CPU lanes");
+           "independent replay-safe branches with measured proof must use two CPU lanes");
     expect(!automatic_limits.enable_gpu,
            "automatic CPU execution must not require or imply GPU permission");
     std::promise<void> right_started;

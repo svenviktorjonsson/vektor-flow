@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/native/vkf_machine_ir.hpp"
+#include "compiler/native/vkf_proof_gated_execution.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -279,6 +280,10 @@ private:
         const AutomaticFlowLimits&, std::uint32_t,
         const machine_ir::Function&, std::uint64_t,
         const machine_ir::Function&, std::uint64_t, bool);
+    friend AutomaticCpuPairPlan automatic_cpu_pair_plan(
+        const AutomaticFlowLimits&, std::uint32_t,
+        const machine_ir::Function&, const machine_ir::Function&, bool,
+        const proof_gated_execution::Decision&);
 
     bool concurrent_ = false;
     std::uint32_t lane_limit_ = 1;
@@ -299,6 +304,28 @@ inline AutomaticCpuPairPlan automatic_cpu_pair_plan(
     if (!independent || plan.lane_limit_ < 2 ||
         left_work < automatic_cpu_minimum_branch_work ||
         right_work < automatic_cpu_minimum_branch_work) {
+        return plan;
+    }
+    plan.concurrent_ = automatic_flow_safety(left).partition_candidate &&
+        automatic_flow_safety(right).partition_candidate;
+    return plan;
+}
+
+// Measured-proof variant for new automatic scheduling paths. A correct
+// candidate is still insufficient: the paired benchmark must prove it faster
+// than baseline before concurrency can be selected.
+inline AutomaticCpuPairPlan automatic_cpu_pair_plan(
+    const AutomaticFlowLimits& limits,
+    std::uint32_t available_cores,
+    const machine_ir::Function& left,
+    const machine_ir::Function& right,
+    bool independent,
+    const proof_gated_execution::Decision& proof
+) {
+    AutomaticCpuPairPlan plan;
+    plan.lane_limit_ = std::max(
+        1u, automatic_cpu_partition_limit(limits, std::max(1u, available_cores)));
+    if (!independent || !proof.use_candidate || plan.lane_limit_ < 2) {
         return plan;
     }
     plan.concurrent_ = automatic_flow_safety(left).partition_candidate &&
