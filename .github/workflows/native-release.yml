@@ -177,6 +177,45 @@ jobs:
             dist/releases/vektor-flow-macos-arm64.pkg.sha256
           if-no-files-found: error
 
+  browser-wasm:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install browser compiler build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake ninja-build zip
+          npm ci
+
+      - name: Build and verify self-hosted browser compiler
+        run: |
+          cmake -S compiler/native -B build/native-compiler -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-compiler --parallel 2 --target vkf_strict vkf_symbolic_kernel_artifact
+          VKF_NATIVE_BIN=build/native-compiler/bin npm run build:browser-compiler
+          git diff --exit-code -- web/playground/artifacts
+          node --test tests/js/browser-compiler-runtime.test.mjs tests/js/browser-compiler-release.test.mjs
+
+      - name: Package browser compiler
+        run: |
+          mkdir -p dist/releases/vektor-flow-browser-wasm
+          node tools/package-browser-compiler.mjs --output=dist/releases/vektor-flow-browser-wasm
+          cd dist/releases
+          zip -X -r vektor-flow-browser-wasm.zip vektor-flow-browser-wasm
+          sha256sum vektor-flow-browser-wasm.zip > vektor-flow-browser-wasm.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-wasm-release
+          path: |
+            dist/releases/vektor-flow-browser-wasm.zip
+            dist/releases/vektor-flow-browser-wasm.zip.sha256
+          if-no-files-found: error
+
   linalg-windows-x64:
     needs: [windows-x64, linux-x64, macos-arm64]
     runs-on: windows-latest
@@ -539,6 +578,7 @@ jobs:
       - windows-x64
       - linux-x64
       - macos-arm64
+      - browser-wasm
       - linalg-windows-x64
       - policy-windows-x64
       - examples-windows-x64

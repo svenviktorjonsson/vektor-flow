@@ -118,3 +118,8 @@ boundaries. Native code runs with your user permissions; browser execution
 intentionally excludes filesystem, process and network access from user programs.
 
 [Return to the guide](docs/site/guide.md).
+
+## Embed VKF in your own webpage
+
+[Build the browser bundle and connect it to HTML/CSS](docs/site/browser.md)
+without a compilation backend.
