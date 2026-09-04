@@ -8,6 +8,8 @@ export function materializeVisualOutput(output) {
     && values.length === length
     && values.every((value) => typeof value === "number" && Number.isFinite(value));
   const finiteNumber = (value) => typeof value === "number" && Number.isFinite(value);
+  const identifier = (value) => typeof value === "string"
+    && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/u.test(value);
   const identifierCode = (value) => {
     let code = 2166136261;
     for (const character of value) {
@@ -80,8 +82,8 @@ export function materializeVisualOutput(output) {
         || !finiteVector(surface.camera_up, 3)
         || surface.camera_up[0] !== 0 || surface.camera_up[1] !== 0
         || surface.camera_up[2] !== 1
-        || surface.mirror_frame_id !== "frame_0"
-        || surface.mirror_mesh_id !== "mirror"
+        || !identifier(surface.mirror_frame_id)
+        || !identifier(surface.mirror_mesh_id)
         || surface.reflect_eye_only !== true
         || surface.lock_aperture_camera !== true
         || surface.controls_enabled !== false) {
@@ -144,6 +146,41 @@ export function materializeVisualOutput(output) {
         record.magic, record.version, ...record.pos, ...record.target, ...record.color,
         record.intensity, record.range, record.inner_cone_deg, record.outer_cone_deg,
         record.casts_shadow ? 1 : 0, record.source_radius,
+      ]);
+    }
+    if (record?.magic === 1447773779) {
+      const keys = [
+        "casts_shadow", "center", "color", "magic", "optical", "receives_lighting",
+        "receives_shadow", "rotation", "roughness", "size", "specular_strength",
+        "surface_system", "texture", "version",
+      ];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.version !== 1 || !finiteVector(record.center, 3)
+          || !finiteVector(record.size, 2) || record.size.some((value) => value <= 0)
+          || !finiteVector(record.rotation, 3) || !finiteVector(record.color, 4)
+          || record.color.some((value) => value < 0 || value > 1)
+          || typeof record.receives_lighting !== "boolean"
+          || typeof record.casts_shadow !== "boolean"
+          || typeof record.receives_shadow !== "boolean"
+          || !finiteNumber(record.roughness) || record.roughness < 0 || record.roughness > 1
+          || !finiteNumber(record.specular_strength)
+          || record.specular_strength < 0 || record.specular_strength > 1) {
+        throw new TypeError("browser compiler returned an invalid native surface packet");
+      }
+      const texture = materializeTexture(record.texture);
+      const optical = materializeOptical(record.optical);
+      const surfaceSystem = materializeSurfaceSystem(record.surface_system);
+      if (surfaceSystem && (!optical || surfaceSystem[1] !== optical[3])) {
+        throw new TypeError("browser compiler returned an invalid native surface material packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, ...record.center, ...record.size, ...record.rotation,
+        ...record.color, record.receives_lighting ? 1 : 0,
+        record.casts_shadow ? 1 : 0, record.receives_shadow ? 1 : 0,
+        record.roughness, record.specular_strength,
+        texture ? 1 : 0, ...(texture || Array(15).fill(0)),
+        optical ? 1 : 0, ...(optical || Array(4).fill(0)),
+        surfaceSystem ? 1 : 0, ...(surfaceSystem || Array(15).fill(0)),
       ]);
     }
     if (record?.magic === 1447773774) {

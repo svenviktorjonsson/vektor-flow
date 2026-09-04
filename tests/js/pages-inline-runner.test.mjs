@@ -300,6 +300,45 @@ test("worker materializes a strictly versioned rotated dice cube buffer", () => 
   }), /invalid native cube packet/u);
 });
 
+test("worker materializes a strict combined native glass surface buffer", () => {
+  const surface = {
+    magic: 1447773779, version: 1, center: [0, 0.7, 1.8], size: [4.6, 3.2],
+    rotation: [90, 0, 0], color: [0.08, 0.76, 0.96, 0.48],
+    receives_lighting: true, casts_shadow: true, receives_shadow: true,
+    roughness: 0.08, specular_strength: 0.9,
+    texture: {
+      magic: 1447773770, version: 1, kind: "checker", scale: [6, 4],
+      color_a: [0.05, 0.7, 0.95, 0.42], color_b: [0.3, 0.95, 0.72, 0.58],
+      roughness: 1, blade_length: 0, clump_density: 0, micro_shadow: 0,
+    },
+    optical: {
+      magic: 1447773771, version: 1, alpha: 0.48,
+      transparent: true, depth_write: false, reflectivity: 0.42,
+    },
+    surface_system: {
+      magic: 1447773773, version: 1, kind: "screen", reflectivity: 0.42,
+      reverse_facing: true, flip_y: true, scale: [1, 1], camera_fov: 42,
+      camera_up: [0, 0, 1], mirror_frame_id: "layered_frame",
+      mirror_mesh_id: "layered_glass", reflect_eye_only: true,
+      lock_aperture_camera: true, controls_enabled: false,
+    },
+  };
+  const output = materializeVisualOutput({ kind: "visual", packet_records: [surface] });
+  assert.equal(output.packets[0].length, 56);
+  assert.deepEqual([...output.packets[0].slice(0, 23)], [
+    1447773779, 1, 0, 0.7, 1.8, 4.6, 3.2, 90, 0, 0,
+    0.08, 0.76, 0.96, 0.48, 1, 1, 1, 0.08, 0.9, 1,
+    1, 6, 4,
+  ]);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...surface, blend_mode: "add" }],
+  }), /invalid native surface packet/u);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual",
+    packet_records: [{ ...surface, surface_system: { ...surface.surface_system, lens_shift: 0.2 } }],
+  }), /invalid surface system packet/u);
+});
+
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
@@ -665,6 +704,57 @@ test("trusted inline renderer rotates the die and draws procedural face marks", 
   assert.notDeepEqual(
     rotated.filter(([kind] = []) => kind === "fillStyle"),
     render([24, -18, 32], 3, 0.3).filter(([kind] = []) => kind === "fillStyle"),
+  );
+});
+
+test("trusted inline renderer composites source-derived layered glass", () => {
+  const render = (centerX, alpha, scaleX) => {
+    const operations = [];
+    const context = {
+      beginPath: () => operations.push("begin"), closePath: () => operations.push("close"),
+      clearRect: () => {}, fillRect: (...args) => operations.push(["fillRect", ...args]),
+      lineTo: (...args) => operations.push(["line", ...args]),
+      moveTo: (...args) => operations.push(["move", ...args]),
+      fill: () => operations.push("fill"), stroke: () => operations.push("stroke"),
+      save: () => operations.push("save"), clip: () => operations.push("clip"),
+      restore: () => operations.push("restore"),
+      set fillStyle(value) { operations.push(["fillStyle", value]); },
+      set lineWidth(value) { operations.push(["lineWidth", value]); },
+      set strokeStyle(value) { operations.push(["strokeStyle", value]); },
+    };
+    const background = Float64Array.from([1447773767, 1, 0.01, 0.016, 0.03, 1]);
+    const camera = Float64Array.from([
+      1447773768, 1, 5.4, -7.8, 4.2, 0, 1.1, 1.2, 0, 0, 1, 42,
+    ]);
+    const nativeSurface = ({ center, color, optical, texture, surface }) => Float64Array.from([
+      1447773779, 1, ...center, 4.6, 3.2, 90, 0, 0, ...color,
+      1, 1, 1, 0.08, 0.9,
+      texture ? 1 : 0, ...(texture || Array(15).fill(0)),
+      optical ? 1 : 0, ...(optical || Array(4).fill(0)),
+      surface ? 1 : 0, ...(surface || Array(15).fill(0)),
+    ]);
+    const backdrop = nativeSurface({
+      center: [0, 3.8, 1.8], color: [0.94, 0.22, 0.06, 1],
+    });
+    const glass = nativeSurface({
+      center: [centerX, 0.7, 1.8], color: [0.08, 0.76, 0.96, alpha],
+      texture: [1, scaleX, 4, 0.05, 0.7, 0.95, 0.42, 0.3, 0.95, 0.72, 0.58, 1, 0, 0, 0],
+      optical: [alpha, 1, 0, 0.42],
+      surface: [1, 0.42, 1, 1, 1, 1, 42, 0, 0, 1, 1959906309, 2034031908, 1, 1, 0],
+    });
+    renderInlineResult(
+      { width: 640, height: 360, getContext: () => context },
+      [background, camera, backdrop, glass],
+    );
+    return operations;
+  };
+  const initial = render(0, 0.48, 6);
+  assert.ok(initial.includes("save") && initial.includes("clip") && initial.includes("restore"));
+  assert.ok(initial.filter((operation) => operation === "fill").length >= 26);
+  assert.ok(initial.some(([kind, value] = []) => kind === "fillStyle" && /, 0\.42\)$/u.test(value)));
+  assert.notDeepEqual(
+    initial.filter(([kind] = []) => kind === "move"),
+    render(0.4, 0.35, 3).filter(([kind] = []) => kind === "move"),
   );
 });
 

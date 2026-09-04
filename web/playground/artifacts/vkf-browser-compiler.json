@@ -311,7 +311,7 @@
       "resultType": 1
     },
     "_browser_field_indices_valid": {
-      "index": 106,
+      "index": 108,
       "parameters": 3,
       "resultType": 1
     },
@@ -341,22 +341,22 @@
       "resultType": 1
     },
     "_browser_lifted_vector_function_matches": {
-      "index": 110,
+      "index": 112,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_named_axis_source_matches": {
-      "index": 111,
+      "index": 113,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_cube_packet": {
-      "index": 101,
+      "index": 103,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_cube_scene": {
-      "index": 102,
+      "index": 104,
       "parameters": 2,
       "resultType": 1
     },
@@ -366,32 +366,37 @@
       "resultType": 1
     },
     "_browser_native_dice_texture_packet": {
-      "index": 99,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_native_field_scene": {
-      "index": 107,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_native_field_source_matches": {
-      "index": 103,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_native_plane_packet": {
       "index": 100,
       "parameters": 1,
       "resultType": 1
     },
+    "_browser_native_field_scene": {
+      "index": 109,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_native_field_source_matches": {
+      "index": 105,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_native_plane_packet": {
+      "index": 102,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_native_surface_packet": {
+      "index": 101,
+      "parameters": 1,
+      "resultType": 1
+    },
     "_browser_record_list_count": {
-      "index": 97,
+      "index": 98,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_record_list_item": {
-      "index": 98,
+      "index": 99,
       "parameters": 4,
       "resultType": 4
     },
@@ -446,12 +451,12 @@
       "resultType": 1
     },
     "_browser_scan_native_field_mesh": {
-      "index": 105,
+      "index": 107,
       "parameters": 11,
       "resultType": 1
     },
     "_browser_scan_native_field_scene": {
-      "index": 104,
+      "index": 106,
       "parameters": 8,
       "resultType": 1
     },
@@ -461,8 +466,13 @@
       "resultType": 1
     },
     "_browser_scan_native_shadow": {
-      "index": 96,
+      "index": 97,
       "parameters": 8,
+      "resultType": 1
+    },
+    "_browser_scan_native_surface": {
+      "index": 96,
+      "parameters": 14,
       "resultType": 1
     },
     "_browser_scan_world_options": {
@@ -476,7 +486,7 @@
       "resultType": 1
     },
     "_browser_token_kind": {
-      "index": 109,
+      "index": 111,
       "parameters": 2,
       "resultType": 1
     },
@@ -496,7 +506,7 @@
       "resultType": 1
     },
     "_browser_token_text": {
-      "index": 108,
+      "index": 110,
       "parameters": 2,
       "resultType": 4
     },
@@ -541,12 +551,12 @@
       "resultType": 1
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 113,
+      "index": 115,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_named_axis_source": {
-      "index": 112,
+      "index": 114,
       "parameters": 1,
       "resultType": 1
     },
@@ -566,7 +576,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 114,
+      "index": 116,
       "parameters": 2,
       "resultType": 2
     },
@@ -578,11 +588,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 178960,
-    "bytecodeLength": 178956,
+    "argumentsPointer": 190136,
+    "bytecodeLength": 190136,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 179216
+    "resultsPointer": 190392
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

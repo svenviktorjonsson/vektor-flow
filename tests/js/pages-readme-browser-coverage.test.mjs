@@ -528,6 +528,68 @@ test("browser compiler retains the README rotated procedural die", async () => {
   );
 });
 
+test("browser compiler retains the README layered native glass surfaces", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const layered = examples.find(({ id }) => id === "readme-14");
+  const output = { ...compiler.run(layered.source) };
+
+  assert.deepEqual(output.packet_records.map(({ magic }) => magic), [
+    1447773767, 1447773768, 1447773766,
+    1447773779, 1447773779, 1447773769,
+  ]);
+  const [backdrop, glass] = output.packet_records.slice(3, 5).map((record) => ({ ...record }));
+  assert.deepEqual(rounded([...backdrop.center, ...backdrop.size, ...backdrop.rotation]), [
+    0, 3.8, 1.8, 5.6, 3.3, 90, 0, 0,
+  ]);
+  assert.deepEqual([backdrop.texture, backdrop.optical, backdrop.surface_system], [[], [], []]);
+  assert.deepEqual(rounded([...glass.center, ...glass.size, ...glass.rotation]), [
+    0, 0.7, 1.8, 4.6, 3.2, 90, 0, 0,
+  ]);
+  assert.deepEqual({
+    ...glass.optical,
+    alpha: rounded([glass.optical.alpha])[0],
+    reflectivity: rounded([glass.optical.reflectivity])[0],
+  }, {
+    magic: 1447773771, version: 1, alpha: 0.48,
+    transparent: true, depth_write: false, reflectivity: 0.42,
+  });
+  assert.deepEqual({
+    ...glass.texture,
+    color_a: rounded(glass.texture.color_a), color_b: rounded(glass.texture.color_b),
+  }, {
+    magic: 1447773770, version: 1, kind: "checker", scale: [6, 4],
+    color_a: [0.05, 0.7, 0.95, 0.42], color_b: [0.3, 0.95, 0.72, 0.58],
+    roughness: 1, blade_length: 0, clump_density: 0, micro_shadow: 0,
+  });
+  assert.deepEqual({
+    ...glass.surface_system,
+    reflectivity: rounded([glass.surface_system.reflectivity])[0],
+  }, {
+    magic: 1447773773, version: 1, kind: "screen", reflectivity: 0.42,
+    reverse_facing: true, flip_y: true, scale: [1, 1], camera_fov: 42,
+    camera_up: [0, 0, 1], mirror_frame_id: "layered_frame",
+    mirror_mesh_id: "layered_glass", reflect_eye_only: true,
+    lock_aperture_camera: true, controls_enabled: false,
+  });
+  assert.equal(materializeVisualOutput(output).packets[4].length, 56);
+
+  const changed = { ...compiler.run(layered.source
+    .replace("center:[0, 0.7, 1.8]", "center:[0.4, 1.2, 2]")
+    .replace("alpha:0.48", "alpha:0.35")
+    .replace("scale:[6, 4]", "scale:[3, 2]")) };
+  assert.deepEqual(rounded(changed.packet_records[4].center), [0.4, 1.2, 2]);
+  assert.equal(rounded([changed.packet_records[4].optical.alpha])[0], 0.35);
+  assert.deepEqual(changed.packet_records[4].texture.scale, [3, 2]);
+  assert.throws(
+    () => compiler.run(layered.source.replace("specular_strength:0.9", "specular_strength:0.9, blend_mode:\"add\"")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(layered.source.replace("camera:(fov:42", "camera:(fov:42, lens_shift:0.2")),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -545,6 +607,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 18);
+  assert.equal(runnable.length, 19);
   assert.equal(examples.length, 26);
 });

@@ -1554,6 +1554,19 @@ BrowserNativeDiceTexture: (
     graph_width_px:num,
     unsupported:bit
 )
+BrowserNativeSurface: (
+    center_source:str,
+    size_source:str,
+    rotation_source:str,
+    color_source:str,
+    texture_source:str,
+    surface_system_source:str,
+    roughness:num,
+    specular_strength:num,
+    casts_shadow:bit,
+    receives_shadow:bit,
+    unsupported:bit
+)
 BrowserNativeShadow: (
     enabled:bit,
     color_source:str,
@@ -3413,6 +3426,156 @@ _browser_scan_native_dice_texture(
         graph_width_px, unknown
     )
 
+_browser_scan_native_surface(
+    source:str, offset:int, stop:int,
+    center_source:str, size_source:str, rotation_source:str, color_source:str,
+    texture_source:str, surface_system_source:str,
+    roughness:num, specular_strength:num,
+    casts_shadow:bit, receives_shadow:bit, unsupported:bit
+) -> BrowserNativeSurface:
+    (offset >= stop \/ vkf_string_eof(source, offset))?
+        @: (
+            center_source:center_source, size_source:size_source,
+            rotation_source:rotation_source, color_source:color_source,
+            texture_source:texture_source,
+            surface_system_source:surface_system_source,
+            roughness:roughness, specular_strength:specular_strength,
+            casts_shadow:casts_shadow, receives_shadow:receives_shadow,
+            unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    (_browser_source_starts_with(source, offset, "center:", 0) \/
+        _browser_source_starts_with(source, offset, "size:", 0) \/
+        _browser_source_starts_with(source, offset, "rotation:", 0) \/
+        _browser_source_starts_with(source, offset, "color:", 0))?
+        colon_width: 7
+        _browser_source_starts_with(source, offset, "size:", 0)?
+            .colon_width: 5
+        _browser_source_starts_with(source, offset, "rotation:", 0)?
+            .colon_width: 9
+        _browser_source_starts_with(source, offset, "color:", 0)?
+            .colon_width: 6
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser native surface vector field requires a vector"
+        value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        value_source: vkf_utf8_slice(source, value_start, value_stop)
+        next_center: center_source
+        next_size: size_source
+        next_rotation: rotation_source
+        next_color: color_source
+        _browser_source_starts_with(source, offset, "center:", 0)?
+            .next_center: value_source
+        _browser_source_starts_with(source, offset, "size:", 0)?
+            .next_size: value_source
+        _browser_source_starts_with(source, offset, "rotation:", 0)?
+            .next_rotation: value_source
+        _browser_source_starts_with(source, offset, "color:", 0)?
+            .next_color: value_source
+        @: _browser_scan_native_surface(
+            source, value_stop, stop, next_center, next_size, next_rotation,
+            next_color, texture_source, surface_system_source,
+            roughness, specular_strength, casts_shadow, receives_shadow, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "texture:", 0) \/
+        _browser_source_starts_with(source, offset, "surface_system:", 0))?
+        colon_width: 8
+        _browser_source_starts_with(source, offset, "surface_system:", 0)?
+            .colon_width: 15
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser native surface material extension requires a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        value_source: vkf_utf8_slice(source, value_start + 1, value_stop - 1)
+        next_texture: texture_source
+        next_surface_system: surface_system_source
+        _browser_source_starts_with(source, offset, "texture:", 0)?
+            .next_texture: value_source
+        _browser_source_starts_with(source, offset, "surface_system:", 0)?
+            .next_surface_system: value_source
+        @: _browser_scan_native_surface(
+            source, value_stop, stop, center_source, size_source, rotation_source,
+            color_source, next_texture, next_surface_system,
+            roughness, specular_strength, casts_shadow, receives_shadow, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "alpha:", 0) \/
+        _browser_source_starts_with(source, offset, "reflectivity:", 0) \/
+        _browser_source_starts_with(source, offset, "roughness:", 0) \/
+        _browser_source_starts_with(source, offset, "specular_strength:", 0))?
+        colon_width: 6
+        _browser_source_starts_with(source, offset, "reflectivity:", 0)?
+            .colon_width: 13
+        _browser_source_starts_with(source, offset, "roughness:", 0)?
+            .colon_width: 10
+        _browser_source_starts_with(source, offset, "specular_strength:", 0)?
+            .colon_width: 18
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        value: vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))
+        next_roughness: roughness
+        next_specular: specular_strength
+        _browser_source_starts_with(source, offset, "roughness:", 0)?
+            .next_roughness: value
+        _browser_source_starts_with(source, offset, "specular_strength:", 0)?
+            .next_specular: value
+        @: _browser_scan_native_surface(
+            source, value_stop, stop, center_source, size_source, rotation_source,
+            color_source, texture_source, surface_system_source,
+            next_roughness, next_specular, casts_shadow, receives_shadow, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "transparent:", 0) \/
+        _browser_source_starts_with(source, offset, "depth_write:", 0) \/
+        _browser_source_starts_with(source, offset, "casts_shadow:", 0) \/
+        _browser_source_starts_with(source, offset, "receives_shadow:", 0))?
+        colon_width: 12
+        _browser_source_starts_with(source, offset, "depth_write:", 0)?
+            .colon_width: 12
+        _browser_source_starts_with(source, offset, "casts_shadow:", 0)?
+            .colon_width: 13
+        _browser_source_starts_with(source, offset, "receives_shadow:", 0)?
+            .colon_width: 16
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value: false
+        value_stop: value_start
+        _browser_source_starts_with(source, value_start, "true", 0)?
+            .value: true
+            .value_stop: value_start + 4
+        ~value?
+            _browser_source_starts_with(source, value_start, "false", 0)?
+                .value_stop: value_start + 5
+            ~_browser_source_starts_with(source, value_start, "false", 0)?
+                false?! "browser native surface flags require booleans"
+        next_casts: casts_shadow
+        next_receives: receives_shadow
+        _browser_source_starts_with(source, offset, "casts_shadow:", 0)?
+            .next_casts: value
+        _browser_source_starts_with(source, offset, "receives_shadow:", 0)?
+            .next_receives: value
+        @: _browser_scan_native_surface(
+            source, value_stop, stop, center_source, size_source, rotation_source,
+            color_source, texture_source, surface_system_source,
+            roughness, specular_strength, next_casts, next_receives, unsupported
+        )
+    _browser_source_starts_with(source, offset, "id:", 0)?
+        value_start: _browser_display_value_start(source, offset + 3)
+        (vkf_string_peek_scalar(source, value_start) = 34)?! "browser native surface id requires a string"
+        value_stop: _browser_display_string_stop(source, value_start + 1)
+        @: _browser_scan_native_surface(
+            source, value_stop + 1, stop, center_source, size_source,
+            rotation_source, color_source, texture_source, surface_system_source,
+            roughness, specular_strength, casts_shadow, receives_shadow, unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_native_surface(
+        source, next, stop, center_source, size_source, rotation_source,
+        color_source, texture_source, surface_system_source,
+        roughness, specular_strength, casts_shadow, receives_shadow, unknown
+    )
+
 _browser_scan_native_shadow(
     source:str, offset:int, stop:int, enabled:bit, color_source:str,
     lift:num, saw_enabled:bit, unsupported:bit
@@ -3498,6 +3661,48 @@ _browser_native_dice_texture_packet(source:str) -> any:
         graph_width_px:texture.graph_width_px
     )
 
+_browser_native_surface_packet(source:str) -> any:
+    surface: _browser_scan_native_surface(
+        source, 0, 2147483647, "", "", "", "", "", "",
+        1, 0, false, false, false
+    )
+    (~surface.unsupported /\ surface.center_source != "" /\
+        surface.size_source != "" /\ surface.rotation_source != "" /\
+        surface.color_source != "" /\ surface.roughness >= 0 /\
+        surface.roughness <= 1 /\ surface.specular_strength >= 0 /\
+        surface.specular_strength <= 1)?! "browser native surface contains unsupported options"
+    center_tape: lexer.tagged_numeric_function_token_tape(surface.center_source)
+    center: _browser_lifted_value(center_tape, 0, 1).value
+    size_tape: lexer.tagged_numeric_function_token_tape(surface.size_source)
+    size: _browser_lifted_value(size_tape, 0, 1).value
+    rotation_tape: lexer.tagged_numeric_function_token_tape(surface.rotation_source)
+    rotation: _browser_lifted_value(rotation_tape, 0, 1).value
+    color_tape: lexer.tagged_numeric_function_token_tape(surface.color_source)
+    color: _browser_lifted_value(color_tape, 0, 1).value
+    (center.length() = 3 /\ size.length() = 2 /\ rotation.length() = 3 /\
+        color.length() = 4 /\ size.0 > 0 /\ size.1 > 0)?! "browser native surface fields are invalid"
+    texture: []
+    surface.texture_source != ""?
+        .texture: _browser_display_texture_packet(
+            "frame.add(texture:(" & surface.texture_source & "))", 0, false
+        )
+    optical: _browser_display_optical_packet(source)
+    surface_system: _browser_display_surface_packet(source, 0, false)
+    (surface.surface_system_source = "" \/
+        (_browser_find_source(source, 0, "alpha:") >= 0 /\
+            _browser_find_source(source, 0, "transparent:") >= 0 /\
+            _browser_find_source(source, 0, "depth_write:") >= 0 /\
+            _browser_find_source(source, 0, "reflectivity:") >= 0))?! "browser native mirror requires optical material"
+    (
+        magic:1447773779, version:1, center:center, size:size,
+        rotation:rotation, color:color, receives_lighting:true,
+        casts_shadow:surface.casts_shadow,
+        receives_shadow:surface.receives_shadow,
+        roughness:surface.roughness,
+        specular_strength:surface.specular_strength,
+        texture:texture, optical:optical, surface_system:surface_system
+    )
+
 _browser_native_plane_packet(source:str) -> any:
     plane: _browser_scan_native_plane(
         source, 0, 2147483647, "", 0, 0, "", "", false
@@ -3570,8 +3775,7 @@ _browser_native_cube_scene(source:str, packet_index:int) -> any:
         scene.background_source != "" /\ scene.camera_source != "" /\
         scene.plane_source != "" /\ scene.surfaces_source != "" /\
         scene.cubes_source != "" /\ scene.lights_source != "" /\
-        scene.shadow_source != "" /\
-        _browser_find_source(scene.surfaces_source, 0, "(") = -1)?! "browser native cube scene contains unsupported options"
+        scene.shadow_source != "")?! "browser native cube scene contains unsupported options"
     shadow: _browser_scan_native_shadow(
         scene.shadow_source, 0, 2147483647,
         false, "", 0, false, false
@@ -3585,25 +3789,36 @@ _browser_native_cube_scene(source:str, packet_index:int) -> any:
     background: _browser_lifted_value(background_tape, 0, 1).value
     (background.length() = 4)?! "browser native cube scene background must be RGBA"
     cube_count: _browser_record_list_count(scene.cubes_source, 0, 0)
+    surface_count: _browser_record_list_count(scene.surfaces_source, 0, 0)
     light_count: _browser_record_list_count(scene.lights_source, 0, 0)
-    (cube_count > 0 /\ light_count > 0)?! "browser native cube scene requires cubes and lights"
+    ((cube_count > 0 \/ surface_count > 0) /\ light_count > 0)?! "browser native scene requires geometry and lights"
     packet_index < 0?
         @: (
-            kind:"visual_stream", packet_count:2 + cube_count + light_count,
+            kind:"visual_stream",
+            packet_count:2 + surface_count + cube_count + light_count,
             background:background, combine_transparent:false
         )
     packet_index = 0?
         @: _browser_display_camera_source("frame.add_camera(" & scene.camera_source & ")")
     packet_index = 1?
         @: _browser_native_plane_packet(scene.plane_source)
-    packet_index < 2 + cube_count?
-        @: _browser_native_cube_packet(
-            _browser_record_list_item(scene.cubes_source, 0, packet_index - 2, 0)
+    packet_index < 2 + surface_count?
+        @: _browser_native_surface_packet(
+            _browser_record_list_item(
+                scene.surfaces_source, 0, packet_index - 2, 0
+            )
         )
-    (packet_index < 2 + cube_count + light_count)?! "browser native cube scene packet index is out of range"
+    packet_index < 2 + surface_count + cube_count?
+        @: _browser_native_cube_packet(
+            _browser_record_list_item(
+                scene.cubes_source, 0, packet_index - 2 - surface_count, 0
+            )
+        )
+    (packet_index < 2 + surface_count + cube_count + light_count)?! "browser native scene packet index is out of range"
     _browser_display_light_source(
         "frame.add_light(" & _browser_record_list_item(
-            scene.lights_source, 0, packet_index - 2 - cube_count, 0
+            scene.lights_source, 0,
+            packet_index - 2 - surface_count - cube_count, 0
         ) & ")"
     )
 

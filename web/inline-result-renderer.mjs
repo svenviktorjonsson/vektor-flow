@@ -98,6 +98,74 @@ function decode(packet) {
       },
     };
   }
+  if (packet[0] === 1447773779 && packet[1] === 1 && packet.length === 56
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && packet[5] > 0 && packet[6] > 0
+      && Array.from(packet.slice(10, 14)).every((value) => value >= 0 && value <= 1)
+      && [0, 1].includes(packet[14]) && [0, 1].includes(packet[15])
+      && [0, 1].includes(packet[16])
+      && packet[17] >= 0 && packet[17] <= 1
+      && packet[18] >= 0 && packet[18] <= 1
+      && [0, 1].includes(packet[19]) && [0, 1].includes(packet[35])
+      && [0, 1].includes(packet[40])) {
+    const texture = packet[19] === 1 ? {
+      kind: packet[20], scale: packet.slice(21, 23),
+      colorA: packet.slice(23, 27), colorB: packet.slice(27, 31),
+      roughness: packet[31], bladeLength: packet[32],
+      clumpDensity: packet[33], microShadow: packet[34],
+    } : null;
+    const optical = packet[35] === 1 ? {
+      alpha: packet[36], transparent: packet[37] === 1,
+      depthWrite: packet[38] === 1, reflectivity: packet[39],
+    } : null;
+    const surfaceSystem = packet[40] === 1 ? {
+      kind: packet[41], reflectivity: packet[42],
+      reverseFacing: packet[43] === 1, flipY: packet[44] === 1,
+      scale: packet.slice(45, 47), cameraFov: packet[47],
+      cameraUp: packet.slice(48, 51), frameCode: packet[51], meshCode: packet[52],
+      reflectEyeOnly: packet[53] === 1,
+      lockApertureCamera: packet[54] === 1,
+      controlsEnabled: packet[55] === 1,
+    } : null;
+    const emptyPayload = (present, start, stop) => present === 1
+      || Array.from(packet.slice(start, stop)).every((value) => value === 0);
+    if (!emptyPayload(packet[19], 20, 35)
+        || (texture && (![1, 2].includes(texture.kind)
+          || texture.scale.some((value) => value <= 0)
+          || Array.from(packet.slice(23, 31)).some((value) => value < 0 || value > 1)))
+        || !emptyPayload(packet[35], 36, 40)
+        || (optical && (optical.alpha < 0 || optical.alpha > 1
+          || ![0, 1].includes(packet[37]) || ![0, 1].includes(packet[38])
+          || optical.reflectivity < 0 || optical.reflectivity > 1))
+        || !emptyPayload(packet[40], 41, 56)
+        || (surfaceSystem && (surfaceSystem.kind !== 1
+          || surfaceSystem.reflectivity < 0 || surfaceSystem.reflectivity > 1
+          || !surfaceSystem.reverseFacing || !surfaceSystem.flipY
+          || surfaceSystem.scale[0] !== 1 || surfaceSystem.scale[1] !== 1
+          || surfaceSystem.cameraFov <= 0 || surfaceSystem.cameraFov >= 180
+          || surfaceSystem.cameraUp[0] !== 0 || surfaceSystem.cameraUp[1] !== 0
+          || surfaceSystem.cameraUp[2] !== 1
+          || !Number.isInteger(surfaceSystem.frameCode) || surfaceSystem.frameCode < 0
+          || surfaceSystem.frameCode > 0xffffffff
+          || !Number.isInteger(surfaceSystem.meshCode) || surfaceSystem.meshCode < 0
+          || surfaceSystem.meshCode > 0xffffffff
+          || !surfaceSystem.reflectEyeOnly || !surfaceSystem.lockApertureCamera
+          || surfaceSystem.controlsEnabled
+          || !optical || surfaceSystem.reflectivity !== optical.reflectivity))) {
+      throw new TypeError("inline renderer received an invalid native surface packet");
+    }
+    const surface = {
+      center: packet.slice(2, 5), size: packet.slice(5, 7),
+      rotation: packet.slice(7, 10),
+    };
+    return {
+      kind: "geometry", packet, rows: 2, columns: 2, stride: 3, dataOffset: 0,
+      points: rectangleCorners(surface), color: packet.slice(10, 14), nativeSurface: true,
+      receivesLighting: packet[14] === 1, castsShadow: packet[15] === 1,
+      receivesShadow: packet[16] === 1, roughness: packet[17],
+      specularStrength: packet[18], texture, optical, surfaceSystem,
+    };
+  }
   if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5, 6, 7].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
@@ -141,7 +209,10 @@ function decode(packet) {
       || surfaceSystem.cameraFov <= 0 || surfaceSystem.cameraFov >= 180
       || surfaceSystem.cameraUp[0] !== 0 || surfaceSystem.cameraUp[1] !== 0
       || surfaceSystem.cameraUp[2] !== 1
-      || surfaceSystem.frameCode !== 3398114705 || surfaceSystem.meshCode !== 801718722
+      || !Number.isInteger(surfaceSystem.frameCode) || surfaceSystem.frameCode < 0
+      || surfaceSystem.frameCode > 0xffffffff
+      || !Number.isInteger(surfaceSystem.meshCode) || surfaceSystem.meshCode < 0
+      || surfaceSystem.meshCode > 0xffffffff
       || !surfaceSystem.reflectEyeOnly || !surfaceSystem.lockApertureCamera
       || surfaceSystem.controlsEnabled)) {
     throw new TypeError("inline renderer received an invalid surface system packet");
@@ -162,6 +233,7 @@ function channel(value) {
 }
 
 function vertex(mesh, row, column) {
+  if (mesh.points) return mesh.points[(row * mesh.columns) + column];
   const offset = mesh.dataOffset + (((row * mesh.columns) + column) * mesh.stride);
   return [mesh.packet[offset], mesh.packet[offset + 1], mesh.stride === 3 ? mesh.packet[offset + 2] : 0];
 }
@@ -174,30 +246,43 @@ function fieldVertex(mesh, index) {
   };
 }
 
-function cubeCorners(cube) {
-  const half = cube.size / 2;
-  const radians = Array.from(cube.rotation, (value) => value * Math.PI / 180);
+function rotateEuler(point, rotation) {
+  const radians = Array.from(rotation, (value) => value * Math.PI / 180);
   const [sinX, sinY, sinZ] = radians.map(Math.sin);
   const [cosX, cosY, cosZ] = radians.map(Math.cos);
-  const rotate = ([x, y, z]) => {
-    const afterX = [x, (y * cosX) - (z * sinX), (y * sinX) + (z * cosX)];
-    const afterY = [
-      (afterX[0] * cosY) + (afterX[2] * sinY),
-      afterX[1],
-      (-afterX[0] * sinY) + (afterX[2] * cosY),
-    ];
-    return [
-      (afterY[0] * cosZ) - (afterY[1] * sinZ),
-      (afterY[0] * sinZ) + (afterY[1] * cosZ),
-      afterY[2],
-    ];
-  };
+  const [x, y, z] = point;
+  const afterX = [x, (y * cosX) - (z * sinX), (y * sinX) + (z * cosX)];
+  const afterY = [
+    (afterX[0] * cosY) + (afterX[2] * sinY),
+    afterX[1],
+    (-afterX[0] * sinY) + (afterX[2] * cosY),
+  ];
+  return [
+    (afterY[0] * cosZ) - (afterY[1] * sinZ),
+    (afterY[0] * sinZ) + (afterY[1] * cosZ),
+    afterY[2],
+  ];
+}
+
+function cubeCorners(cube) {
+  const half = cube.size / 2;
   return [
     [-half, -half, -half], [half, -half, -half],
     [-half, half, -half], [half, half, -half],
     [-half, -half, half], [half, -half, half],
     [-half, half, half], [half, half, half],
-  ].map((corner) => rotate(corner).map((value, index) => value + cube.center[index]));
+  ].map((corner) => rotateEuler(corner, cube.rotation)
+    .map((value, index) => value + cube.center[index]));
+}
+
+function rectangleCorners(surface) {
+  const halfWidth = surface.size[0] / 2;
+  const halfHeight = surface.size[1] / 2;
+  return [
+    [-halfWidth, -halfHeight, 0], [halfWidth, -halfHeight, 0],
+    [-halfWidth, halfHeight, 0], [halfWidth, halfHeight, 0],
+  ].map((corner) => rotateEuler(corner, surface.rotation)
+    .map((value, index) => value + surface.center[index]));
 }
 
 const dicePips = (value) => {
@@ -269,7 +354,9 @@ function cameraProjector(camera, canvas) {
 }
 
 function litColor(mesh, lights) {
-  const base = [mesh.packet[4], mesh.packet[5], mesh.packet[6]];
+  const base = mesh.color
+    ? Array.from(mesh.color.slice(0, 3))
+    : [mesh.packet[4], mesh.packet[5], mesh.packet[6]];
   const reflected = mesh.optical
     ? base.map((value) => value + ((1 - value) * mesh.optical.reflectivity * 0.35))
     : base;
@@ -452,11 +539,26 @@ export function renderInlineResult(canvas, packets) {
       for (const reflected of meshes.slice(0, meshIndex)) {
         const color = litColor(reflected, lights);
         const sourceAlpha = reflected.optical?.transparent
-          ? reflected.optical.alpha : reflected.packet[7];
+          ? reflected.optical.alpha : (reflected.color?.[3] ?? reflected.packet[7]);
         const alpha = Math.max(0, Math.min(
           1, sourceAlpha * mesh.surfaceSystem.reflectivity,
         ));
         context.strokeStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${alpha})`;
+        if (reflected.nativeSurface) {
+          context.fillStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${alpha})`;
+          context.beginPath();
+          [
+            vertex(reflected, 0, 0), vertex(reflected, 0, reflected.columns - 1),
+            vertex(reflected, reflected.rows - 1, reflected.columns - 1),
+            vertex(reflected, reflected.rows - 1, 0),
+          ].forEach((point, index) => {
+            const [x, y] = mirrorProject(point);
+            if (index === 0) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          });
+          context.closePath();
+          context.fill();
+        }
         for (let row = 0; row < reflected.rows; row += 1) {
           drawStrip(
             reflected.columns,
@@ -476,9 +578,26 @@ export function renderInlineResult(canvas, packets) {
       }
       context.restore();
     }
+    if (mesh.nativeSurface) {
+      const surfaceColor = litColor(mesh, lights);
+      const surfaceAlpha = mesh.optical?.transparent
+        ? mesh.optical.alpha : mesh.color[3];
+      context.fillStyle = `rgba(${channel(surfaceColor[0])}, ${channel(surfaceColor[1])}, ${channel(surfaceColor[2])}, ${Math.max(0, Math.min(1, surfaceAlpha))})`;
+      context.beginPath();
+      [vertex(mesh, 0, 0), vertex(mesh, 0, mesh.columns - 1),
+        vertex(mesh, mesh.rows - 1, mesh.columns - 1),
+        vertex(mesh, mesh.rows - 1, 0)].forEach((point, index) => {
+        const [x, y] = project(point);
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.fill();
+    }
     drawTexture(context, project, mesh);
     const color = litColor(mesh, lights);
-    const alpha = mesh.optical?.transparent ? mesh.optical.alpha : mesh.packet[7];
+    const alpha = mesh.optical?.transparent
+      ? mesh.optical.alpha : (mesh.color?.[3] ?? mesh.packet[7]);
     context.strokeStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${Math.max(0, Math.min(1, alpha))})`;
     for (let row = 0; row < mesh.rows; row += 1) {
       drawStrip(mesh.columns, (column) => vertex(mesh, row, column));
