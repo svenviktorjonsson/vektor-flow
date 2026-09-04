@@ -9,6 +9,7 @@
 #include "compiler/native/vkf_capture_pattern.hpp"
 #include "compiler/native/vkf_adaptive_optimizer.hpp"
 #include "compiler/native/vkf_retained_optimization_driver.hpp"
+#include "compiler/native/vkf_retained_optimization_composition.hpp"
 #include "compiler/native/kernels/vkf_symmetric_eigen_x64_bytes.hpp"
 #include "compiler/native/kernels/vkf_thin_svd_x64_bytes.hpp"
 #include "compiler/native/kernels/vkf_linalg_factor_x64_bytes.hpp"
@@ -25,6 +26,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -13314,6 +13316,93 @@ bool can_tune_machine_code(const vkf::machine_ir::Module& module) {
         module.functions.begin(), module.functions.end(), safe_function);
 }
 
+bool is_independent_proof_leaf(const vkf::machine_ir::Function& function) {
+    if (!function.parameters.empty() || !function.result_is_numeric_scalar) {
+        return false;
+    }
+    const auto safety = vkf::adaptive_optimizer::automatic_flow_safety(function);
+    if (!safety.deterministic || !safety.replay_safe) return false;
+    return std::all_of(
+        function.instructions.begin(),
+        function.instructions.end(),
+        [](const auto& instruction) {
+            using Opcode = vkf::machine_ir::Opcode;
+            switch (instruction.opcode) {
+                case Opcode::PushF64:
+                case Opcode::LoadLocal:
+                case Opcode::StoreLocal:
+                case Opcode::Drop:
+                case Opcode::Duplicate:
+                case Opcode::IdentityF64:
+                case Opcode::NegateF64:
+                case Opcode::LogicalNotF64:
+                case Opcode::BooleanizeF64:
+                case Opcode::AddF64:
+                case Opcode::SubtractF64:
+                case Opcode::MultiplyF64:
+                case Opcode::DivideF64:
+                case Opcode::FloorDivideF64:
+                case Opcode::AbsF64:
+                case Opcode::SqrtF64:
+                case Opcode::SinF64:
+                case Opcode::CosF64:
+                case Opcode::ExpF64:
+                case Opcode::LnF64:
+                case Opcode::RemainderF64:
+                case Opcode::PowerF64:
+                case Opcode::LogicalXorF64:
+                case Opcode::OrderedLessF64:
+                case Opcode::OrderedLessEqualF64:
+                case Opcode::OrderedGreaterF64:
+                case Opcode::OrderedGreaterEqualF64:
+                case Opcode::OrderedEqualF64:
+                case Opcode::UnorderedNotEqualF64:
+                case Opcode::EqualBits:
+                case Opcode::NotEqualBits:
+                case Opcode::Label:
+                case Opcode::Jump:
+                case Opcode::JumpIfFalse:
+                case Opcode::JumpIfTrue:
+                case Opcode::ReturnF64:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    );
+}
+
+bool can_compose_function_proofs(const vkf::machine_ir::Module& module) {
+    return module.output_kind == vkf::machine_ir::OutputKind::F64 &&
+        is_independent_proof_leaf(module.entry) &&
+        std::all_of(
+            module.functions.begin(),
+            module.functions.end(),
+            is_independent_proof_leaf
+        );
+}
+
+std::vector<const vkf::machine_ir::Function*> proof_leaf_functions(
+    const vkf::machine_ir::Module& module
+) {
+    std::vector<const vkf::machine_ir::Function*> functions{&module.entry};
+    for (const auto& function : module.functions) functions.push_back(&function);
+    return functions;
+}
+
+vkf::machine_ir::Module isolated_leaf_module(
+    const vkf::machine_ir::Module& module,
+    const vkf::machine_ir::Function& function
+) {
+    vkf::machine_ir::Module isolated;
+    isolated.entry = function;
+    isolated.output_kind = vkf::machine_ir::OutputKind::F64;
+    isolated.output_count = 1;
+    isolated.outputs = {vkf::machine_ir::OutputKind::F64};
+    isolated.string_data = module.string_data;
+    return isolated;
+}
+
 struct TuningCandidateReport {
     std::string policy;
     std::string code_hash;
@@ -13345,6 +13434,8 @@ struct TuningResult {
     std::uint32_t landscape_runs = 0;
     std::optional<vkf::retained_optimization_driver::BuildReceipt>
         proof_receipt;
+    std::optional<vkf::retained_optimization_composition::Receipt>
+        function_proof_receipt;
 };
 
 class ExecutableCode {
@@ -13861,6 +13952,107 @@ TuningResult tune_machine_code_guided(
     return result;
 }
 
+TuningResult tune_machine_code_composed(
+    const vkf::machine_ir::Module& module,
+    std::uint32_t run_budget,
+    double time_budget_ms,
+    const vkf::retained_optimization_composition::Request& request,
+    vkf::retained_optimization_composition::Receipt receipt
+) {
+    using Clock = std::chrono::steady_clock;
+    const auto started = Clock::now();
+    const auto deadline = time_budget_ms > 0.0
+        ? started + std::chrono::duration_cast<Clock::duration>(
+            std::chrono::duration<double, std::milli>(time_budget_ms))
+        : started;
+    const auto functions = proof_leaf_functions(module);
+    if (functions.size() != receipt.functions.size()) {
+        throw BackendFailure("automatic function proof receipt count mismatch");
+    }
+
+    TuningResult result;
+    result.eligible = true;
+    std::uint32_t remaining_runs = run_budget;
+    std::size_t remaining_measurements = std::count_if(
+        receipt.functions.begin(),
+        receipt.functions.end(),
+        [](const auto& function) {
+            return function.build.schedule.outcome ==
+                vkf::retained_optimization_schedule::Outcome::
+                    BenchmarkRequired;
+        }
+    );
+    bool measured = false;
+    for (std::size_t index = 0; index < functions.size(); ++index) {
+        auto& function = receipt.functions[index];
+        if (function.build.schedule.outcome ==
+            vkf::retained_optimization_schedule::Outcome::Blocked) {
+            throw BackendFailure(
+                "retained automatic function proof is blocked"
+            );
+        }
+        if (function.build.schedule.outcome !=
+            vkf::retained_optimization_schedule::Outcome::BenchmarkRequired) {
+            continue;
+        }
+        const double total_remaining_ms = std::max(
+            0.0,
+            std::chrono::duration<double, std::milli>(
+                deadline - Clock::now()
+            ).count()
+        );
+        const auto function_run_budget = remaining_measurements == 0u
+            ? 0u
+            : static_cast<std::uint32_t>(
+                remaining_runs / remaining_measurements
+            );
+        const double function_time_budget_ms = remaining_measurements == 0u
+            ? 0.0
+            : total_remaining_ms /
+                static_cast<double>(remaining_measurements);
+        const auto isolated = isolated_leaf_module(module, *functions[index]);
+        auto measured_function = tune_machine_code_guided(
+            isolated,
+            function_run_budget,
+            function_time_budget_ms,
+            function.request,
+            std::move(function.build)
+        );
+        measured = true;
+        remaining_runs = measured_function.total_runs >= remaining_runs
+            ? 0u
+            : remaining_runs - measured_function.total_runs;
+        --remaining_measurements;
+        result.total_runs += measured_function.total_runs;
+        result.candidates.insert(
+            result.candidates.end(),
+            std::make_move_iterator(measured_function.candidates.begin()),
+            std::make_move_iterator(measured_function.candidates.end())
+        );
+        if (!measured_function.proof_receipt) {
+            throw BackendFailure(
+                "automatic function measurement produced no proof receipt"
+            );
+        }
+        function.build = std::move(*measured_function.proof_receipt);
+    }
+
+    vkf::retained_optimization_composition::refresh(receipt, request);
+    if (receipt.reason ==
+        vkf::retained_optimization_composition::Reason::Blocked) {
+        throw BackendFailure("automatic function proof composition is blocked");
+    }
+    result.policy = vkf::adaptive_optimizer::policy(receipt.selected_policy);
+    result.code = MachineX64Emitter(module, result.policy).emit();
+    result.cache_hit = !measured && receipt.optimization_enabled;
+    result.tuned = measured;
+    result.function_proof_receipt = std::move(receipt);
+    result.elapsed_ms = std::chrono::duration<double, std::milli>(
+        Clock::now() - started
+    ).count();
+    return result;
+}
+
 vf::JsonValue tuning_json(const TuningResult& tuning, std::string requested_policy) {
     vf::JsonValue::Object report;
     report["requested_policy"] = std::move(requested_policy);
@@ -14011,8 +14203,27 @@ std::string optimizer_toolchain_material() {
     material << "|msvc-full-" << _MSC_FULL_VER;
 #endif
     material << "|cplusplus-" << __cplusplus
-             << "|x64-emitter-qopt03|built-" << __DATE__ << '-' << __TIME__;
+             << "|x64-emitter-qopt04|built-" << __DATE__ << '-' << __TIME__;
     return material.str();
+}
+
+std::string optimizer_program_material(
+    const vf::JsonValue& typed_ir,
+    const std::string& source_graph_fingerprint
+) {
+    const std::string program_json = vf::json_stringify(typed_ir, -1);
+    return std::to_string(program_json.size()) + ':' + program_json + '\n' +
+        std::to_string(source_graph_fingerprint.size()) + ':' +
+        source_graph_fingerprint;
+}
+
+std::string optimizer_function_material(
+    const vkf::machine_ir::Function& function
+) {
+    const std::string function_json = vf::json_stringify(
+        vkf::machine_ir::function_json(function), -1
+    );
+    return std::to_string(function_json.size()) + ':' + function_json;
 }
 
 vkf::retained_optimization_driver::Request retained_driver_request(
@@ -14023,11 +14234,9 @@ vkf::retained_optimization_driver::Request retained_driver_request(
     bool emit_debug_files,
     bool deterministic
 ) {
-    const std::string program_json = vf::json_stringify(typed_ir, -1);
-    const std::string program_material = std::to_string(program_json.size()) +
-        ':' + program_json + '\n' +
-        std::to_string(source_graph_fingerprint.size()) + ':' +
-        source_graph_fingerprint;
+    const std::string program_material = optimizer_program_material(
+        typed_ir, source_graph_fingerprint
+    );
     const std::string machine_json = vf::json_stringify(
         vkf::machine_ir::module_json(machine_ir), -1
     );
@@ -14069,6 +14278,50 @@ vkf::retained_optimization_driver::Request retained_driver_request(
     } else {
         request.cache_path = optimizer_cache_root() /
             (identity.function_fingerprint + ".proof");
+    }
+    return request;
+}
+
+vkf::retained_optimization_composition::Request retained_composition_request(
+    const vf::JsonValue& typed_ir,
+    const vkf::machine_ir::Module& machine_ir,
+    const std::string& source_graph_fingerprint,
+    const std::filesystem::path& legacy_profile_path,
+    bool emit_debug_files
+) {
+    auto cache_root = optimizer_cache_root() / "function-proofs";
+    if (emit_debug_files) {
+        cache_root = legacy_profile_path;
+        cache_root.replace_extension();
+        cache_root += "-functions";
+    }
+    vkf::retained_optimization_composition::Request request{
+        cache_root,
+        optimizer_program_material(typed_ir, source_graph_fingerprint),
+        optimizer_host_material(),
+        optimizer_toolchain_material(),
+        {
+            "adaptive-v4",
+            "x64-leaf-emitter-qopt04",
+            "numeric-zero-argument-leaf",
+            "bit-exact-f64-v1",
+        },
+        vkf::adaptive_optimizer::policy_from_mask(0u).name,
+        vkf::adaptive_optimizer::policy_from_mask(
+            vkf::adaptive_optimizer::policy_mask &
+            ~(
+                vkf::adaptive_optimizer::borrowed_aggregate_parameter_bit |
+                vkf::adaptive_optimizer::direct_aggregate_result_bit
+            )
+        ).name,
+        {},
+    };
+    for (const auto* function : proof_leaf_functions(machine_ir)) {
+        request.functions.push_back({
+            function->name,
+            optimizer_function_material(*function),
+            true,
+        });
     }
     return request;
 }
@@ -14190,18 +14443,36 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         std::optional<vkf::retained_optimization_driver::Request> proof_request;
         std::optional<vkf::retained_optimization_driver::BuildReceipt>
             proof_prepared;
+        std::optional<vkf::retained_optimization_composition::Request>
+            function_proof_request;
+        std::optional<vkf::retained_optimization_composition::Receipt>
+            function_proof_prepared;
         if (optimization_policy == "auto") {
-            proof_request = retained_driver_request(
-                typed_ir,
-                machine_ir,
-                cache_fingerprint,
-                optimizer_profile_path,
-                emit_debug_files,
-                can_tune_machine_code(machine_ir)
-            );
-            proof_prepared = vkf::retained_optimization_driver::prepare(
-                *proof_request
-            );
+            if (can_compose_function_proofs(machine_ir)) {
+                function_proof_request = retained_composition_request(
+                    typed_ir,
+                    machine_ir,
+                    cache_fingerprint,
+                    optimizer_profile_path,
+                    emit_debug_files
+                );
+                function_proof_prepared =
+                    vkf::retained_optimization_composition::prepare(
+                        *function_proof_request
+                    );
+            } else {
+                proof_request = retained_driver_request(
+                    typed_ir,
+                    machine_ir,
+                    cache_fingerprint,
+                    optimizer_profile_path,
+                    emit_debug_files,
+                    can_tune_machine_code(machine_ir)
+                );
+                proof_prepared = vkf::retained_optimization_driver::prepare(
+                    *proof_request
+                );
+            }
         }
         if (!cache_fingerprint.empty()) {
             const std::string marker = "VKF-CACHE-V1:" + cache_fingerprint;
@@ -14209,36 +14480,47 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
                 machine_ir.string_data.end(), marker.begin(), marker.end());
         }
         if (optimization_policy == "auto") {
-            tuning.proof_receipt = *proof_prepared;
-            tuning.eligible = can_tune_machine_code(machine_ir);
-            const auto outcome = proof_prepared->schedule.outcome;
-            if (outcome ==
-                    vkf::retained_optimization_schedule::Outcome::
-                        BenchmarkRequired) {
-                tuning = tune_machine_code_guided(
+            if (function_proof_request) {
+                tuning = tune_machine_code_composed(
                     machine_ir,
                     optimization_run_budget,
                     optimization_time_budget_ms,
-                    *proof_request,
-                    std::move(*proof_prepared)
-                );
-            } else if (outcome ==
-                       vkf::retained_optimization_schedule::Outcome::Blocked) {
-                throw BackendFailure(
-                    "retained automatic optimization proof is blocked"
+                    *function_proof_request,
+                    std::move(*function_proof_prepared)
                 );
             } else {
-                selected_policy = vkf::adaptive_optimizer::policy(
-                    proof_prepared->schedule.selected_policy
-                );
-                tuning.policy = selected_policy;
-                tuning.cache_hit = outcome ==
+                tuning.proof_receipt = *proof_prepared;
+                tuning.eligible = can_tune_machine_code(machine_ir);
+                const auto outcome = proof_prepared->schedule.outcome;
+                if (outcome ==
+                        vkf::retained_optimization_schedule::Outcome::
+                            BenchmarkRequired) {
+                    tuning = tune_machine_code_guided(
+                        machine_ir,
+                        optimization_run_budget,
+                        optimization_time_budget_ms,
+                        *proof_request,
+                        std::move(*proof_prepared)
+                    );
+                } else if (outcome ==
+                           vkf::retained_optimization_schedule::Outcome::
+                               Blocked) {
+                    throw BackendFailure(
+                        "retained automatic optimization proof is blocked"
+                    );
+                } else {
+                    selected_policy = vkf::adaptive_optimizer::policy(
+                        proof_prepared->schedule.selected_policy
+                    );
+                    tuning.policy = selected_policy;
+                    tuning.cache_hit = outcome ==
                         vkf::retained_optimization_schedule::Outcome::
                             ReusedProgramProof ||
-                    outcome ==
+                        outcome ==
                         vkf::retained_optimization_schedule::Outcome::
                             ReusedFunctionProof;
-                code = MachineX64Emitter(machine_ir, selected_policy).emit();
+                    code = MachineX64Emitter(machine_ir, selected_policy).emit();
+                }
             }
             selected_policy = tuning.policy;
             if (code.empty()) code = std::move(tuning.code);

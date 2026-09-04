@@ -127,6 +127,11 @@ vkf_native_target(
     vkf_retained_optimization_driver_test.cpp
     FALSE
 )
+vkf_native_target(
+    vkf_retained_optimization_composition_test
+    vkf_retained_optimization_composition_test.cpp
+    FALSE
+)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|x86_64)")
     vkf_native_target(
         vkf_retained_optimization_driver_integration_test

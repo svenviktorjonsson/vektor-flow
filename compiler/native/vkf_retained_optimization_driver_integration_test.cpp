@@ -35,6 +35,57 @@ const vf::JsonValue& member(
     return value.as_object().at(name);
 }
 
+void append_integer_loop(
+    vkf::machine_ir::Function& function,
+    double result
+) {
+    function.max_stack = 2;
+    function.result_is_numeric_scalar = true;
+    function.locals = {"counter"};
+    function.local_classes = {vkf::machine_ir::ValueClass::I64};
+    vkf::machine_ir::Instruction instruction;
+    instruction.opcode = vkf::machine_ir::Opcode::PushF64;
+    instruction.f64 = 0.0;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::StoreLocal;
+    instruction.index = 0;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::Label;
+    instruction.label = 1;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::LoadLocal;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::PushF64;
+    instruction.f64 = 10000.0;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::OrderedLessF64;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::JumpIfFalse;
+    instruction.label = 2;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::LoadLocal;
+    instruction.index = 0;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::PushF64;
+    instruction.f64 = 1.0;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::AddF64;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::StoreLocal;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::Jump;
+    instruction.label = 1;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::Label;
+    instruction.label = 2;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::PushF64;
+    instruction.f64 = result;
+    function.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::ReturnF64;
+    function.instructions.push_back(instruction);
+}
+
 }  // namespace
 
 int main() {
@@ -42,7 +93,7 @@ int main() {
         std::chrono::steady_clock::now().time_since_epoch().count()
     );
     const auto root = std::filesystem::temp_directory_path() /
-        ("vkf-qopt03-integration-" + unique);
+        ("vkf-qopt04-integration-" + unique);
     std::filesystem::create_directories(root);
     const auto source = root / "answer.vkf";
     const auto typed_ir_path = root / "answer.typed.json";
@@ -57,22 +108,18 @@ int main() {
     }
 
     vf::JsonValue::Object typed_module;
-    typed_module["schema"] = "private-qopt03-test";
+    typed_module["schema"] = "private-qopt04-test";
     const vf::JsonValue typed_ir(std::move(typed_module));
 
     vkf::machine_ir::Module machine;
     machine.output_kind = vkf::machine_ir::OutputKind::F64;
     machine.output_count = 1;
     machine.entry.name = "entry";
-    machine.entry.max_stack = 1;
-    machine.entry.result_is_numeric_scalar = true;
-    vkf::machine_ir::Instruction constant;
-    constant.opcode = vkf::machine_ir::Opcode::PushF64;
-    constant.f64 = 42.0;
-    machine.entry.instructions.push_back(constant);
-    vkf::machine_ir::Instruction finish;
-    finish.opcode = vkf::machine_ir::Opcode::ReturnF64;
-    machine.entry.instructions.push_back(finish);
+    append_integer_loop(machine.entry, 42.0);
+    vkf::machine_ir::Function independent;
+    independent.name = "independent";
+    append_integer_loop(independent, 7.0);
+    machine.functions.push_back(std::move(independent));
 
     const auto compiled = vkf_x64_backend::compile(
         typed_ir,
@@ -81,7 +128,7 @@ int main() {
         {},
         true,
         artifact,
-        {},
+        "source-graph-v1",
         "auto",
         32,
         2000.0,
@@ -91,14 +138,49 @@ int main() {
     const auto manifest = vf::parse_json(read_text(compiled.manifest_path));
     const auto& tuning = member(manifest, "empirical_tuning");
     const auto& candidates = member(tuning, "candidates").as_array();
-    expect(candidates.size() == 2,
-           "real auto compilation must measure only baseline and one guided candidate");
+    expect(candidates.size() == 4,
+           "real auto compilation must measure two candidates for each independent leaf");
     expect(member(candidates[0], "policy").as_string() == "mask-0" &&
-               member(candidates[1], "policy").as_string() == "mask-ff",
-           "real auto compilation must report baseline before the guided candidate");
-    expect(member(candidates[0], "correct").as_boolean() &&
-               member(candidates[1], "correct").as_boolean(),
-           "both real machine-code candidates must preserve exact output parity");
+               member(candidates[1], "policy").as_string() == "mask-fc" &&
+               member(candidates[2], "policy").as_string() == "mask-0" &&
+               member(candidates[3], "policy").as_string() == "mask-fc",
+           "each leaf must report baseline before its ABI-neutral guided candidate");
+    bool exact_candidates = true;
+    for (const auto& candidate : candidates) {
+        exact_candidates = exact_candidates &&
+            member(candidate, "tested").as_boolean() &&
+            member(candidate, "correct").as_boolean();
+    }
+    expect(exact_candidates,
+           "every real per-function candidate must be measured and preserve exact output parity");
+
+    machine.functions[0].instructions[13].f64 = 8.0;
+    const auto incrementally_compiled = vkf_x64_backend::compile(
+        typed_ir,
+        source,
+        typed_ir_path,
+        {},
+        true,
+        artifact,
+        "source-graph-v2",
+        "auto",
+        32,
+        2000.0,
+        0,
+        &machine
+    );
+    const auto incremental_manifest = vf::parse_json(
+        read_text(incrementally_compiled.manifest_path)
+    );
+    const auto& incremental_candidates = member(
+        member(incremental_manifest, "empirical_tuning"), "candidates"
+    ).as_array();
+    expect(incremental_candidates.size() == 2 &&
+               member(incremental_candidates[0], "policy").as_string() ==
+                   "mask-0" &&
+               member(incremental_candidates[1], "policy").as_string() ==
+                   "mask-fc",
+           "surrounding code changes must reuse the unchanged entry proof and measure only the changed leaf");
 
     const auto stdout_path = root / "answer.stdout";
     const std::string command =
@@ -121,7 +203,9 @@ int main() {
 
     std::filesystem::remove_all(root);
     std::cout << "retained optimization driver integration: candidates="
-              << candidates.size() << " exact_output=" << (run_status == 0)
+              << candidates.size() << " incremental_candidates="
+              << incremental_candidates.size() << " exact_output="
+              << (run_status == 0)
               << '\n';
     return failures == 0 ? 0 : 1;
 }
