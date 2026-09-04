@@ -251,9 +251,19 @@ int main() {
     nested_call_pair.functions = {
         heavy_calling_branch("left"),
         heavy_calling_branch("right"),
-        function_with({Opcode::PushF64, Opcode::ReturnF64}),
+        function_with({Opcode::WriteString}),
     };
     nested_call_pair.functions.back().name = "shared";
+    const auto nested_dependency =
+        vkf::optimization_dependency_gate::analyze_pair(
+            nested_call_pair, "left", "right"
+        );
+    expect(nested_dependency.effect_knowledge_complete &&
+               !nested_dependency.effects_proven_absent &&
+               nested_dependency.reason ==
+                   vkf::optimization_dependency_gate::Reason::
+                       TransitiveOrderedEffect,
+           "automatic pair analysis must expose the transitive ordered effect");
     expect(!vkf::adaptive_optimizer::select_automatic_cpu_pair(
                nested_call_pair, automatic_limits, 8),
            "nested calls without transitive dependency proof must not select parallel emission");
