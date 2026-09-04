@@ -881,12 +881,22 @@ _compile_printed_dynamic_numeric_chain_x64(
     remainder_code:str,
     integer_print_tail:str,
     floating_print_tail:str,
-    high_bytes:[str]
+    high_bytes:[str],
+    negate_code:str=""
 ) -> str:
+    ~(negate_code = "")?
+        @: _compile_printed_dynamic_numeric_tape_x64(
+            source, 1, template_prefix, addition_code, "", "", "",
+            multiplication_code, "", "", "", subtraction_code, "", "", "",
+            division_code, "", "", "", power_code, floor_division_code,
+            remainder_code, integer_print_tail, floating_print_tail, high_bytes,
+            negate_code
+        )
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
         "", "", "", subtraction_code, "", "", "", division_code, "", "", "", power_code, floor_division_code,
-        remainder_code, integer_print_tail, floating_print_tail, high_bytes
+        remainder_code, integer_print_tail, floating_print_tail, high_bytes,
+        negate_code
     )
 
 _compile_printed_dynamic_grouped_numeric_chain_x64(
