@@ -17,6 +17,9 @@ export function materializeVisualOutput(output) {
     }
     return code >>> 0;
   };
+  const finiteSingleContour = (value) => Array.isArray(value)
+    && value.length === 1 && Array.isArray(value[0]) && value[0].length >= 3
+    && value[0].every((point) => finiteVector(point, 2));
   const materializeTexture = (texture) => {
     if (texture == null || (Array.isArray(texture) && texture.length === 0)) return null;
     const keys = [
@@ -111,6 +114,19 @@ export function materializeVisualOutput(output) {
         record.magic, record.version, ...record.pos, ...record.target, ...record.up, record.fov,
       ]);
     }
+    if (record?.magic === 1447773768 && record.version === 2) {
+      const keys = ["magic", "ortho_scale", "pos", "projection", "target", "up", "version"];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.projection !== "orthographic" || !finiteVector(record.pos, 3)
+          || !finiteVector(record.target, 3) || !finiteVector(record.up, 3)
+          || !finiteNumber(record.ortho_scale) || record.ortho_scale <= 0) {
+        throw new TypeError("browser compiler returned an invalid orthographic camera packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, ...record.pos, ...record.target, ...record.up,
+        record.ortho_scale, 2,
+      ]);
+    }
     if (record?.magic === 1447773769 && record.version === 1
         && finiteVector(record.pos, 3) && finiteVector(record.target, 3)
         && finiteVector(record.color, 4) && finiteNumber(record.intensity)
@@ -119,6 +135,21 @@ export function materializeVisualOutput(output) {
       return Float64Array.from([
         record.magic, record.version, ...record.pos, ...record.target, ...record.color,
         record.intensity, record.range, record.casts_shadow ? 1 : 0, record.source_radius,
+      ]);
+    }
+    if (record?.magic === 1447773769 && record.version === 2) {
+      const keys = ["color", "id", "intensity", "kind", "magic", "pos", "range", "version"];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || !identifier(record.id) || record.kind !== "point"
+          || !finiteVector(record.pos, 3) || !finiteVector(record.color, 4)
+          || record.color.some((value) => value < 0 || value > 1)
+          || !finiteNumber(record.intensity) || record.intensity <= 0
+          || !finiteNumber(record.range) || record.range <= 0) {
+        throw new TypeError("browser compiler returned an invalid native point light packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, identifierCode(record.id), ...record.pos,
+        ...record.color, record.intensity, record.range, 1,
       ]);
     }
     if (record?.magic === 1447773777) {
@@ -148,6 +179,18 @@ export function materializeVisualOutput(output) {
         record.casts_shadow ? 1 : 0, record.source_radius,
       ]);
     }
+    if (record?.magic === 1447773780 && record.version === 2) {
+      const keys = ["boundary", "duration_seconds", "fps", "magic", "version"];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || !Number.isInteger(record.fps) || record.fps < 1 || record.fps > 240
+          || !finiteNumber(record.duration_seconds) || record.duration_seconds <= 0
+          || record.boundary !== "repeat") {
+        throw new TypeError("browser compiler returned an invalid native scene timing packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, record.fps, record.duration_seconds, 1,
+      ]);
+    }
     if (record?.magic === 1447773780) {
       const keys = [
         "aspect", "boundary", "duration_seconds", "fps", "light_marker_size",
@@ -164,6 +207,52 @@ export function materializeVisualOutput(output) {
       return Float64Array.from([
         record.magic, record.version, record.fps, record.duration_seconds,
         1, record.show_light_markers ? 1 : 0, record.light_marker_size, 1,
+      ]);
+    }
+    if (record?.magic === 1447773783) {
+      const keys = [
+        "gravity", "height", "magic", "max_substeps", "solver_iterations",
+        "step_dt", "version", "width",
+      ];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.version !== 1 || !finiteNumber(record.width) || record.width <= 0
+          || !finiteNumber(record.height) || record.height <= 0
+          || !finiteVector(record.gravity, 2)
+          || !Number.isInteger(record.solver_iterations) || record.solver_iterations < 1
+          || !finiteNumber(record.step_dt) || record.step_dt <= 0
+          || !Number.isInteger(record.max_substeps) || record.max_substeps < 1) {
+        throw new TypeError("browser compiler returned an invalid rigid world packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, record.width, record.height, ...record.gravity,
+        record.solver_iterations, record.step_dt, record.max_substeps,
+      ]);
+    }
+    if (record?.magic === 1447773784) {
+      const staticKeys = ["color", "contours", "id", "magic", "position", "static", "version"];
+      const dynamicKeys = [
+        "angular_velocity", "color", "contours", "density", "e_n", "id", "magic",
+        "position", "static", "velocity", "version",
+      ];
+      const keys = record.static === true ? staticKeys : dynamicKeys;
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.version !== 1 || !identifier(record.id)
+          || typeof record.static !== "boolean" || !finiteSingleContour(record.contours)
+          || !finiteVector(record.position, 2) || !finiteVector(record.color, 4)
+          || record.color.some((value) => value < 0 || value > 1)
+          || (!record.static && (!finiteVector(record.velocity, 2)
+            || !finiteNumber(record.angular_velocity)
+            || !finiteNumber(record.density) || record.density <= 0
+            || !finiteNumber(record.e_n) || record.e_n < 0 || record.e_n > 1))) {
+        throw new TypeError("browser compiler returned an invalid rigid body packet");
+      }
+      const contour = record.contours[0];
+      return Float64Array.from([
+        record.magic, record.version, identifierCode(record.id), record.static ? 1 : 0,
+        ...record.position, ...(record.static ? [0, 0] : record.velocity),
+        0, record.static ? 0 : record.angular_velocity,
+        record.static ? 1 : record.density, record.static ? 0.35 : record.e_n,
+        ...record.color, contour.length, ...contour.flat(),
       ]);
     }
     if (record?.magic === 1447773781) {

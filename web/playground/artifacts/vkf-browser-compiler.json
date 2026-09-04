@@ -311,7 +311,7 @@
       "resultType": 1
     },
     "_browser_field_indices_valid": {
-      "index": 113,
+      "index": 119,
       "parameters": 3,
       "resultType": 1
     },
@@ -341,84 +341,109 @@
       "resultType": 1
     },
     "_browser_lifted_vector_function_matches": {
-      "index": 117,
+      "index": 123,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_named_axis_source_matches": {
-      "index": 118,
+      "index": 124,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_cube_packet": {
-      "index": 108,
+      "index": 114,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_cube_scene": {
-      "index": 109,
+      "index": 115,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_native_cube_source_matches": {
-      "index": 92,
+      "index": 98,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_dice_texture_packet": {
-      "index": 105,
+      "index": 111,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_field_scene": {
-      "index": 114,
+      "index": 120,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_native_field_source_matches": {
-      "index": 110,
+      "index": 116,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_light_references_valid": {
-      "index": 102,
+      "index": 108,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_native_plane_packet": {
-      "index": 107,
+      "index": 113,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_native_rigid_body_packet": {
+      "index": 96,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_native_rigid_scene": {
+      "index": 97,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_native_rigid_source_matches": {
+      "index": 92,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_native_rigid_world_packet": {
+      "index": 94,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_surface_packet": {
-      "index": 106,
+      "index": 112,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_timing_packet": {
-      "index": 99,
+      "index": 105,
       "parameters": 4,
       "resultType": 6
     },
     "_browser_record_list_count": {
-      "index": 103,
+      "index": 109,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_record_list_has_id": {
-      "index": 101,
+      "index": 107,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_record_list_item": {
-      "index": 104,
+      "index": 110,
       "parameters": 4,
       "resultType": 4
     },
     "_browser_record_string_field": {
-      "index": 100,
+      "index": 106,
       "parameters": 2,
       "resultType": 4
+    },
+    "_browser_rigid_contour_valid": {
+      "index": 95,
+      "parameters": 2,
+      "resultType": 1
     },
     "_browser_scan_display_mesh_source": {
       "index": 81,
@@ -456,42 +481,47 @@
       "resultType": 1
     },
     "_browser_scan_native_cube": {
-      "index": 95,
+      "index": 101,
       "parameters": 13,
       "resultType": 1
     },
     "_browser_scan_native_cube_scene": {
-      "index": 93,
+      "index": 99,
       "parameters": 13,
       "resultType": 1
     },
     "_browser_scan_native_dice_texture": {
-      "index": 96,
+      "index": 102,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_native_field_mesh": {
-      "index": 112,
+      "index": 118,
       "parameters": 11,
       "resultType": 1
     },
     "_browser_scan_native_field_scene": {
-      "index": 111,
+      "index": 117,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_native_plane": {
-      "index": 94,
+      "index": 100,
+      "parameters": 11,
+      "resultType": 1
+    },
+    "_browser_scan_native_rigid_scene": {
+      "index": 93,
       "parameters": 11,
       "resultType": 1
     },
     "_browser_scan_native_shadow": {
-      "index": 98,
+      "index": 104,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_native_surface": {
-      "index": 97,
+      "index": 103,
       "parameters": 15,
       "resultType": 1
     },
@@ -511,7 +541,7 @@
       "resultType": 1
     },
     "_browser_token_kind": {
-      "index": 116,
+      "index": 122,
       "parameters": 2,
       "resultType": 1
     },
@@ -531,7 +561,7 @@
       "resultType": 1
     },
     "_browser_token_text": {
-      "index": 115,
+      "index": 121,
       "parameters": 2,
       "resultType": 4
     },
@@ -576,12 +606,12 @@
       "resultType": 1
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 120,
+      "index": 126,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_named_axis_source": {
-      "index": 119,
+      "index": 125,
       "parameters": 1,
       "resultType": 1
     },
@@ -601,7 +631,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 121,
+      "index": 127,
       "parameters": 2,
       "resultType": 2
     },
@@ -613,11 +643,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 211800,
-    "bytecodeLength": 211796,
+    "argumentsPointer": 235888,
+    "bytecodeLength": 235882,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 212056
+    "resultsPointer": 236144
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

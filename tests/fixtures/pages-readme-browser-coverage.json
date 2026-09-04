@@ -2,7 +2,7 @@
   "schema": "vektor-flow/pages-readme-browser-coverage",
   "version": 1,
   "base_commit": "f91cb6d0",
-  "browser_runnable_after_slice": ["readme-01", "readme-02", "readme-03", "readme-04", "readme-05", "readme-06", "readme-07", "readme-08", "readme-09", "readme-10", "readme-12", "readme-13", "readme-14", "readme-15", "readme-16", "readme-17", "readme-18", "readme-19", "readme-20", "readme-21"],
+  "browser_runnable_after_slice": ["readme-01", "readme-02", "readme-03", "readme-04", "readme-05", "readme-06", "readme-07", "readme-08", "readme-09", "readme-10", "readme-12", "readme-13", "readme-14", "readme-15", "readme-16", "readme-17", "readme-18", "readme-19", "readme-20", "readme-21", "readme-22"],
   "clusters": [
     {
       "id": "vector-semantics",

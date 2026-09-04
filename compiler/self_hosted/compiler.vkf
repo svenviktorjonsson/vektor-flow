@@ -1589,6 +1589,16 @@ BrowserNativeTiming: (
     boundary:str,
     unsupported:bit
 )
+BrowserNativeRigidScene: (
+    rect_source:str,
+    background_source:str,
+    camera_source:str,
+    lights_source:str,
+    timing_source:str,
+    rigid_world_source:str,
+    rigid_bodies_source:str,
+    unsupported:bit
+)
 BrowserNativeShadow: (
     enabled:bit,
     color_source:str,
@@ -2682,23 +2692,34 @@ _browser_display_camera_source(source:str) -> any:
     target: []
     up: []
     fov: 0
+    projection: ""
+    ortho_scale: 0
     (parens > 0)?>
         kind: _browser_token_kind(tape, index)
         keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
             _browser_token_kind(tape, index + 1) = 15)
         keyword?
             key: _browser_token_text(tape, index)
-            (key = "pos" \/ key = "target" \/ key = "up" \/ key = "fov")?! "browser camera does not support this option"
-            parsed: _browser_lifted_value(tape, index + 2, 1)
-            key = "pos"?
-                .pos: parsed.value
-            key = "target"?
-                .target: parsed.value
-            key = "up"?
-                .up: parsed.value
-            key = "fov"?
-                .fov: parsed.value
-            .index: parsed.next
+            (key = "pos" \/ key = "target" \/ key = "up" \/ key = "fov" \/
+                key = "projection" \/ key = "ortho_scale")?! "browser camera does not support this option"
+            key = "projection"?
+                (_browser_token_kind(tape, index + 2) = 25)?! "browser camera projection requires a string"
+                encoded: _browser_token_text(tape, index + 2)
+                .projection: vkf_utf8_slice(encoded, 1, encoded.length() - 1)
+                .index: index + 3
+            key != "projection"?
+                parsed: _browser_lifted_value(tape, index + 2, 1)
+                key = "pos"?
+                    .pos: parsed.value
+                key = "target"?
+                    .target: parsed.value
+                key = "up"?
+                    .up: parsed.value
+                key = "fov"?
+                    .fov: parsed.value
+                key = "ortho_scale"?
+                    .ortho_scale: parsed.value
+                .index: parsed.next
         ~keyword?
             kind = 13?
                 .parens+: 1
@@ -2709,7 +2730,14 @@ _browser_display_camera_source(source:str) -> any:
             kind = 23?
                 .brackets-: 1
             .index+: 1
-    (pos.length() = 3 /\ target.length() = 3 /\ up.length() = 3 /\ fov > 0)?! "browser camera requires pos, target, up, and fov"
+    projection != ""?
+        (projection = "orthographic" /\ pos.length() = 3 /\ target.length() = 3 /\
+            up.length() = 3 /\ ortho_scale > 0 /\ fov = 0)?! "browser orthographic camera fields are invalid"
+        @: (
+            magic:1447773768, version:2, pos:pos, target:target, up:up,
+            projection:"orthographic", ortho_scale:ortho_scale
+        )
+    (ortho_scale = 0 /\ pos.length() = 3 /\ target.length() = 3 /\ up.length() = 3 /\ fov > 0)?! "browser camera requires pos, target, up, and fov"
     (magic:1447773768, version:1, pos:pos, target:target, up:up, fov:fov)
 
 _browser_signed_lifted_value(tape:any, index:int) -> BrowserLiftedParse:
@@ -2864,6 +2892,17 @@ _browser_display_light_source(source:str) -> any:
             target:target, model:model, color:color, intensity:intensity, range:range,
             casts_shadow:casts_shadow, show_marker:show_marker,
             source_radius:source_radius, spread:spread
+        )
+    (light_kind = "point" /\ target.length() = 0)?
+        (id != "" /\ pos.length() = 3 /\ color.length() = 4 /\ intensity > 0 /\
+            range > 0 /\ motion = "" /\ model = "" /\
+            reflect_of_light_id = "" /\ reflect_mirror_mesh_id = "" /\
+            aperture_face_id = "" /\ radius = 0 /\ height = 0 /\ theta = 0 /\
+            angular_velocity = 0 /\ spread = 0 /\ ~saw_show_marker /\
+            ~casts_shadow /\ source_radius = 0)?! "browser native point light fields are invalid"
+        @: (
+            magic:1447773769, version:2, id:id, kind:"point", pos:pos,
+            color:color, intensity:intensity, range:range
         )
     (pos.length() = 3 /\ target.length() = 3 /\ color.length() = 4 /\
         intensity > 0 /\ range > 0 /\ source_radius >= 0 /\ motion = "" /\
@@ -3165,6 +3204,310 @@ _run_tagged_world_source(source:str, packet_index:int) -> any:
         )
     (packet_index = 0)?! "browser World packet index is out of range"
     _browser_world_particle_packet(source)
+
+_browser_native_rigid_source_matches(source:str) -> bit:
+    (_browser_find_source(source, 0, "native_scene:(") >= 0 /\
+        _browser_find_source(source, 0, "rigid_world_2d:(") >= 0 /\
+        _browser_find_source(source, 0, "rigid_bodies_2d:[") >= 0)
+
+_browser_scan_native_rigid_scene(
+    source:str, offset:int, stop:int, rect_source:str,
+    background_source:str, camera_source:str, lights_source:str,
+    timing_source:str, rigid_world_source:str, rigid_bodies_source:str,
+    unsupported:bit
+) -> BrowserNativeRigidScene:
+    offset >= stop?
+        @: (
+            rect_source:rect_source, background_source:background_source,
+            camera_source:camera_source, lights_source:lights_source,
+            timing_source:timing_source, rigid_world_source:rigid_world_source,
+            rigid_bodies_source:rigid_bodies_source, unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    (_browser_source_starts_with(source, offset, "frame_id:", 0) \/
+        _browser_source_starts_with(source, offset, "title:", 0))?
+        colon_width: 9
+        _browser_source_starts_with(source, offset, "title:", 0)?
+            .colon_width: 6
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 34)?! "browser rigid scene metadata requires strings"
+        value_stop: _browser_display_string_stop(source, value_start + 1)
+        @: _browser_scan_native_rigid_scene(
+            source, value_stop + 1, stop, rect_source, background_source,
+            camera_source, lights_source, timing_source, rigid_world_source,
+            rigid_bodies_source, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "rect:", 0) \/
+        _browser_source_starts_with(source, offset, "background:", 0) \/
+        _browser_source_starts_with(source, offset, "lights:", 0) \/
+        _browser_source_starts_with(source, offset, "rigid_bodies_2d:", 0))?
+        colon_width: 5
+        _browser_source_starts_with(source, offset, "background:", 0)?
+            .colon_width: 11
+        _browser_source_starts_with(source, offset, "lights:", 0)?
+            .colon_width: 7
+        _browser_source_starts_with(source, offset, "rigid_bodies_2d:", 0)?
+            .colon_width: 16
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser rigid scene collection requires a vector"
+        value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        value_source: vkf_utf8_slice(source, value_start, value_stop)
+        next_rect: rect_source
+        next_background: background_source
+        next_lights: lights_source
+        next_bodies: rigid_bodies_source
+        _browser_source_starts_with(source, offset, "rect:", 0)?
+            .next_rect: value_source
+        _browser_source_starts_with(source, offset, "background:", 0)?
+            .next_background: value_source
+        _browser_source_starts_with(source, offset, "lights:", 0)?
+            .next_lights: value_source
+        _browser_source_starts_with(source, offset, "rigid_bodies_2d:", 0)?
+            .next_bodies: value_source
+        @: _browser_scan_native_rigid_scene(
+            source, value_stop, stop, next_rect, next_background,
+            camera_source, next_lights, timing_source, rigid_world_source,
+            next_bodies, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "camera:", 0) \/
+        _browser_source_starts_with(source, offset, "timing:", 0) \/
+        _browser_source_starts_with(source, offset, "rigid_world_2d:", 0))?
+        colon_width: 7
+        _browser_source_starts_with(source, offset, "timing:", 0)?
+            .colon_width: 7
+        _browser_source_starts_with(source, offset, "rigid_world_2d:", 0)?
+            .colon_width: 15
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser rigid scene record requires a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        value_source: vkf_utf8_slice(source, value_start + 1, value_stop - 1)
+        next_camera: camera_source
+        next_timing: timing_source
+        next_world: rigid_world_source
+        _browser_source_starts_with(source, offset, "camera:", 0)?
+            .next_camera: value_source
+        _browser_source_starts_with(source, offset, "timing:", 0)?
+            .next_timing: value_source
+        _browser_source_starts_with(source, offset, "rigid_world_2d:", 0)?
+            .next_world: value_source
+        @: _browser_scan_native_rigid_scene(
+            source, value_stop, stop, rect_source, background_source,
+            next_camera, lights_source, next_timing, next_world,
+            rigid_bodies_source, unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_native_rigid_scene(
+        source, next, stop, rect_source, background_source, camera_source,
+        lights_source, timing_source, rigid_world_source, rigid_bodies_source,
+        unknown
+    )
+
+_browser_native_rigid_world_packet(source:str) -> any:
+    tape: lexer.tagged_numeric_function_token_tape("frame.add(" & source & ")")
+    index: 4
+    parens: 1
+    brackets: 0
+    width: 0
+    height: 0
+    gravity: []
+    solver_iterations: 0
+    step_dt: 0
+    max_substeps: 0
+    (parens > 0)?>
+        kind: _browser_token_kind(tape, index)
+        keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
+            _browser_token_kind(tape, index + 1) = 15)
+        keyword?
+            key: _browser_token_text(tape, index)
+            (key = "width" \/ key = "height" \/ key = "gravity" \/
+                key = "solver_iterations" \/ key = "step_dt" \/
+                key = "max_substeps")?! "browser rigid world contains unsupported options"
+            parsed: _browser_lifted_value(tape, index + 2, 1)
+            key = "width"?
+                .width: parsed.value
+            key = "height"?
+                .height: parsed.value
+            key = "gravity"?
+                .gravity: parsed.value
+            key = "solver_iterations"?
+                .solver_iterations: parsed.value
+            key = "step_dt"?
+                .step_dt: parsed.value
+            key = "max_substeps"?
+                .max_substeps: parsed.value
+            .index: parsed.next
+        ~keyword?
+            kind = 13?
+                .parens+: 1
+            kind = 14?
+                .parens-: 1
+            kind = 22?
+                .brackets+: 1
+            kind = 23?
+                .brackets-: 1
+            .index+: 1
+    (width > 0 /\ height > 0 /\ gravity.length() = 2 /\
+        solver_iterations > 0 /\ solver_iterations // 1 = solver_iterations /\
+        step_dt > 0 /\ max_substeps > 0 /\ max_substeps // 1 = max_substeps)?! "browser rigid world fields are invalid"
+    (
+        magic:1447773783, version:1, width:width, height:height,
+        gravity:gravity, solver_iterations:solver_iterations,
+        step_dt:step_dt, max_substeps:max_substeps
+    )
+
+_browser_rigid_contour_valid(contour:any, index:int) -> bit:
+    index = contour.length()?
+        @: contour.length() >= 3
+    (contour.(index).length() = 2 /\
+        _browser_rigid_contour_valid(contour, index + 1))
+
+_browser_native_rigid_body_packet(source:str) -> any:
+    tape: lexer.tagged_numeric_function_token_tape("frame.add(" & source & ")")
+    index: 4
+    parens: 1
+    brackets: 0
+    id: ""
+    contour: []
+    position: []
+    velocity: []
+    angular_velocity: 0
+    density: 0
+    e_n: 0
+    static: false
+    color: []
+    saw_static: false
+    saw_angular_velocity: false
+    saw_density: false
+    saw_e_n: false
+    (parens > 0)?>
+        kind: _browser_token_kind(tape, index)
+        keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
+            _browser_token_kind(tape, index + 1) = 15)
+        keyword?
+            key: _browser_token_text(tape, index)
+            (key = "id" \/ key = "contours" \/ key = "position" \/
+                key = "velocity" \/ key = "angular_velocity" \/
+                key = "density" \/ key = "e_n" \/ key = "static" \/
+                key = "color")?! "browser rigid body contains unsupported options"
+            key = "id"?
+                (_browser_token_kind(tape, index + 2) = 25)?! "browser rigid body id requires a string"
+                encoded: _browser_token_text(tape, index + 2)
+                .id: vkf_utf8_slice(encoded, 1, encoded.length() - 1)
+                .index: index + 3
+            key = "contours"?
+                (_browser_token_kind(tape, index + 2) = 22 /\
+                    _browser_token_kind(tape, index + 3) = 22)?! "browser rigid body supports one contour"
+                parsed: _browser_lifted_value(tape, index + 3, 1)
+                (_browser_token_kind(tape, parsed.next) = 23)?! "browser rigid body supports one contour"
+                .contour: parsed.value
+                .index: parsed.next + 1
+            (key = "position" \/ key = "velocity" \/ key = "color")?
+                parsed: _browser_lifted_value(tape, index + 2, 1)
+                key = "position"?
+                    .position: parsed.value
+                key = "velocity"?
+                    .velocity: parsed.value
+                key = "color"?
+                    .color: parsed.value
+                .index: parsed.next
+            (key = "angular_velocity" \/ key = "density" \/ key = "e_n")?
+                parsed: _browser_signed_lifted_value(tape, index + 2)
+                key = "angular_velocity"?
+                    .angular_velocity: parsed.value
+                    .saw_angular_velocity: true
+                key = "density"?
+                    .density: parsed.value
+                    .saw_density: true
+                key = "e_n"?
+                    .e_n: parsed.value
+                    .saw_e_n: true
+                .index: parsed.next
+            key = "static"?
+                (_browser_token_kind(tape, index + 2) = 1)?! "browser rigid body static flag requires a boolean"
+                flag: _browser_token_text(tape, index + 2)
+                (flag = "true" \/ flag = "false")?! "browser rigid body static flag requires a boolean"
+                .static: flag = "true"
+                .saw_static: true
+                .index: index + 3
+        ~keyword?
+            kind = 13?
+                .parens+: 1
+            kind = 14?
+                .parens-: 1
+            kind = 22?
+                .brackets+: 1
+            kind = 23?
+                .brackets-: 1
+            .index+: 1
+    (id != "" /\ position.length() = 2 /\ color.length() = 4 /\
+        _browser_rigid_contour_valid(contour, 0))?! "browser rigid body fields are invalid"
+    static?
+        (saw_static /\ velocity.length() = 0 /\ ~saw_angular_velocity /\
+            ~saw_density /\ ~saw_e_n)?! "browser static rigid body fields are invalid"
+        @: (
+            magic:1447773784, version:1, id:id, contours:[contour],
+            position:position, static:true, color:color
+        )
+    (~saw_static /\ velocity.length() = 2 /\ saw_angular_velocity /\
+        saw_density /\ density > 0 /\ saw_e_n /\ e_n >= 0 /\ e_n <= 1)?! "browser dynamic rigid body fields are invalid"
+    (
+        magic:1447773784, version:1, id:id, contours:[contour],
+        position:position, static:false, color:color, velocity:velocity,
+        angular_velocity:angular_velocity, density:density, e_n:e_n
+    )
+
+_browser_native_rigid_scene(source:str, packet_index:int) -> any:
+    scene_start: _browser_find_source(source, 0, "native_scene:(")
+    (scene_start >= 0)?! "browser native rigid scene is missing"
+    scene_stop: _browser_display_call_stop(source, scene_start + 14, 1, false)
+    scene: _browser_scan_native_rigid_scene(
+        source, scene_start + 14, scene_stop - 1,
+        "", "", "", "", "", "", "", false
+    )
+    (~scene.unsupported /\ scene.rect_source != "" /\
+        scene.background_source != "" /\ scene.camera_source != "" /\
+        scene.lights_source != "" /\ scene.timing_source != "" /\
+        scene.rigid_world_source != "" /\ scene.rigid_bodies_source != "")?! "browser native rigid scene contains unsupported options"
+    rect_tape: lexer.tagged_numeric_function_token_tape(scene.rect_source)
+    rect: _browser_lifted_value(rect_tape, 0, 1).value
+    background_tape: lexer.tagged_numeric_function_token_tape(scene.background_source)
+    background: _browser_lifted_value(background_tape, 0, 1).value
+    (rect.length() = 4 /\ rect.0 >= 0 /\ rect.1 >= 0 /\ rect.2 > 0 /\
+        rect.3 > 0 /\ rect.0 + rect.2 <= 1 /\ rect.1 + rect.3 <= 1 /\
+        background.length() = 4)?! "browser native rigid scene layout is invalid"
+    light_count: _browser_record_list_count(scene.lights_source, 0, 0)
+    body_count: _browser_record_list_count(scene.rigid_bodies_source, 0, 0)
+    (light_count > 0 /\ body_count > 0)?! "browser native rigid scene requires lights and bodies"
+    packet_index < 0?
+        @: (
+            kind:"visual_stream", packet_count:3 + light_count + body_count,
+            background:background, combine_transparent:false
+        )
+    packet_index = 0?
+        @: _browser_display_camera_source("frame.add_camera(" & scene.camera_source & ")")
+    packet_index = 1?
+        @: _browser_native_timing_packet(scene.timing_source, "", false, 0)
+    packet_index < 2 + light_count?
+        @: _browser_display_light_source(
+            "frame.add_light(" & _browser_record_list_item(
+                scene.lights_source, 0, packet_index - 2, 0
+            ) & ")"
+        )
+    packet_index = 2 + light_count?
+        @: _browser_native_rigid_world_packet(scene.rigid_world_source)
+    (packet_index < 3 + light_count + body_count)?! "browser native rigid scene packet index is out of range"
+    _browser_native_rigid_body_packet(
+        _browser_record_list_item(
+            scene.rigid_bodies_source, 0,
+            packet_index - 3 - light_count, 0
+        )
+    )
 
 _browser_native_cube_source_matches(source:str) -> bit:
     (_browser_find_source(source, 0, "native_scene:(") >= 0 /\
@@ -3857,6 +4200,13 @@ _browser_native_timing_packet(source:str, aspect:str, show_markers:bit, marker_s
             kind = 23?
                 .brackets-: 1
             .index+: 1
+    aspect = ""?
+        (fps > 0 /\ fps <= 240 /\ duration_seconds > 0 /\ boundary = "repeat" /\
+            ~show_markers /\ marker_size = 0)?! "browser native timing fields are invalid"
+        @: (
+            magic:1447773780, version:2, fps:fps,
+            duration_seconds:duration_seconds, boundary:boundary
+        )
     (fps > 0 /\ fps <= 240 /\ duration_seconds > 0 /\ boundary = "repeat" /\
         aspect = "equal" /\ marker_size > 0)?! "browser native timing fields are invalid"
     (
@@ -4462,6 +4812,8 @@ _run_tagged_lifted_vector_function(tape:any) -> any:
     (kind:"console", values:outputs)
 
 run_tagged_browser_source(source:str, packet_index:int) -> any:
+    _browser_native_rigid_source_matches(source)?
+        @: _browser_native_rigid_scene(source, packet_index)
     _browser_native_field_source_matches(source)?
         @: _browser_native_field_scene(source, packet_index)
     _browser_native_cube_source_matches(source)?

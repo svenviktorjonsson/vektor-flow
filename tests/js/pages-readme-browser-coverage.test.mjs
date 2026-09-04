@@ -660,6 +660,51 @@ test("browser compiler retains the README layered native glass surfaces", async 
   );
 });
 
+test("browser compiler retains the README rigid-body world", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-22");
+  const output = { ...compiler.run(example.source) };
+
+  assert.deepEqual(output.packet_records.map(({ magic, version }) => [magic, version]), [
+    [1447773767, 1], [1447773768, 2], [1447773780, 2], [1447773769, 2],
+    [1447773783, 1], [1447773784, 1], [1447773784, 1],
+  ]);
+  assert.deepEqual({ ...output.packet_records[1] }, {
+    magic: 1447773768, version: 2, pos: [0, 0, 12], target: [0, 0, 0],
+    up: [0, 1, 0], projection: "orthographic", ortho_scale: 6,
+  });
+  assert.deepEqual({ ...output.packet_records[4] }, {
+    magic: 1447773783, version: 1, width: 10, height: 6, gravity: [0, -3],
+    solver_iterations: 10, step_dt: 0.008333, max_substeps: 8,
+  });
+  assert.equal(output.packet_records[5].id, "floor");
+  assert.equal(output.packet_records[5].static, true);
+  assert.equal(output.packet_records[6].id, "spinner");
+  assert.deepEqual(output.packet_records[6].velocity, [2.4, 0]);
+  assert.equal(output.packet_records[6].angular_velocity, 2.8);
+  assert.equal(rounded([output.packet_records[6].e_n])[0], 0.86);
+  const typed = materializeVisualOutput(output).packets;
+  assert.deepEqual(typed.map(({ length }) => length), [6, 13, 5, 13, 9, 25, 25]);
+
+  const changed = { ...compiler.run(example.source
+    .replace("ortho_scale:6", "ortho_scale:4")
+    .replace("gravity:[0, -3]", "gravity:[0, -5]")
+    .replace("velocity:[2.4, 0]", "velocity:[1.2, 0]")
+    .replace("angular_velocity:2.8", "angular_velocity:1.4")) };
+  assert.equal(changed.packet_records[1].ortho_scale, 4);
+  assert.deepEqual(changed.packet_records[4].gravity, [0, -5]);
+  assert.deepEqual(changed.packet_records[6].velocity, [1.2, 0]);
+  assert.equal(changed.packet_records[6].angular_velocity, 1.4);
+  assert.throws(
+    () => compiler.run(example.source.replace("max_substeps:8", "max_substeps:8, damping:0.1")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(example.source.replace("e_n:0.86", "e_n:0.86, friction:0.1")),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -677,6 +722,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 20);
+  assert.equal(runnable.length, 21);
   assert.equal(examples.length, 26);
 });

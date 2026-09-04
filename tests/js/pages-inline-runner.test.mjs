@@ -365,6 +365,78 @@ test("worker materializes strict timing, orbit-light, and reflected-light packet
   }] }), /invalid orbit light packet/u);
 });
 
+test("worker materializes strict orthographic rigid-world packets", () => {
+  const output = materializeVisualOutput({ kind: "visual", packet_records: [
+    { magic: 1447773768, version: 2, pos: [0, 0, 12], target: [0, 0, 0],
+      up: [0, 1, 0], projection: "orthographic", ortho_scale: 6 },
+    { magic: 1447773780, version: 2, fps: 60, duration_seconds: 8, boundary: "repeat" },
+    { magic: 1447773769, version: 2, id: "key", kind: "point", pos: [-3, -3, 8],
+      color: [1, 0.94, 0.82, 1], intensity: 32, range: 24 },
+    { magic: 1447773783, version: 1, width: 10, height: 6, gravity: [0, -3],
+      solver_iterations: 10, step_dt: 0.008333, max_substeps: 8 },
+    { magic: 1447773784, version: 1, id: "floor",
+      contours: [[[-4, -0.3], [4, -0.3], [4, 0.3], [-4, 0.3]]],
+      position: [0, -2.2], static: true, color: [0.12, 0.58, 0.92, 1] },
+    { magic: 1447773784, version: 1, id: "spinner",
+      contours: [[[0, 0.72], [0.62, 0], [0, -0.72], [-0.62, 0]]],
+      position: [-2, 1.4], static: false, color: [1, 0.38, 0.12, 1],
+      velocity: [2.4, 0], angular_velocity: 2.8, density: 1, e_n: 0.86 },
+  ] });
+  assert.deepEqual([...output.packets[0]], [1447773768, 2, 0, 0, 12, 0, 0, 0, 0, 1, 0, 6, 2]);
+  assert.deepEqual([...output.packets[1]], [1447773780, 2, 60, 8, 1]);
+  assert.equal(output.packets[3].length, 9);
+  assert.equal(output.packets[4].length, 25);
+  assert.equal(output.packets[4][3], 1);
+  assert.equal(output.packets[5][3], 0);
+  assert.equal(output.packets[5][9], 2.8);
+  assert.throws(() => materializeVisualOutput({ kind: "visual", packet_records: [{
+    magic: 1447773783, version: 1, width: 10, height: 6, gravity: [0, -3],
+    solver_iterations: 10, step_dt: 0.008333, max_substeps: 8, damping: 0.1,
+  }] }), /invalid rigid world packet/u);
+});
+
+test("trusted inline renderer repeats canonical rigid-body motion", () => {
+  const records = [
+    { magic: 1447773767, version: 1, color: [0.008, 0.018, 0.04, 1] },
+    { magic: 1447773768, version: 2, pos: [0, 0, 12], target: [0, 0, 0],
+      up: [0, 1, 0], projection: "orthographic", ortho_scale: 6 },
+    { magic: 1447773780, version: 2, fps: 60, duration_seconds: 8, boundary: "repeat" },
+    { magic: 1447773769, version: 2, id: "key", kind: "point", pos: [-3, -3, 8],
+      color: [1, 0.94, 0.82, 1], intensity: 32, range: 24 },
+    { magic: 1447773783, version: 1, width: 10, height: 6, gravity: [0, -3],
+      solver_iterations: 10, step_dt: 0.008333, max_substeps: 8 },
+    { magic: 1447773784, version: 1, id: "floor",
+      contours: [[[-4, -0.3], [4, -0.3], [4, 0.3], [-4, 0.3]]],
+      position: [0, -2.2], static: true, color: [0.12, 0.58, 0.92, 1] },
+    { magic: 1447773784, version: 1, id: "spinner",
+      contours: [[[0, 0.72], [0.62, 0], [0, -0.72], [-0.62, 0]]],
+      position: [-2, 1.4], static: false, color: [1, 0.38, 0.12, 1],
+      velocity: [2.4, 0], angular_velocity: 2.8, density: 1, e_n: 0.86 },
+  ];
+  const render = (timeMs, orthoScale = 6) => {
+    const operations = [];
+    const context = {
+      clearRect: () => {}, fillRect: () => {}, beginPath: () => operations.push("begin"),
+      closePath: () => operations.push("close"), fill: () => operations.push("fill"),
+      stroke: () => operations.push("stroke"),
+      moveTo: (...args) => operations.push(["move", ...args]),
+      lineTo: (...args) => operations.push(["line", ...args]),
+      arc: (...args) => operations.push(["arc", ...args]),
+      set fillStyle(value) { operations.push(["fillStyle", value]); },
+      set strokeStyle(value) { operations.push(["strokeStyle", value]); },
+      set lineWidth(value) { operations.push(["lineWidth", value]); },
+    };
+    const source = records.map((record) => record.magic === 1447773768
+      ? { ...record, ortho_scale: orthoScale } : record);
+    const { packets } = materializeVisualOutput({ kind: "visual", packet_records: source });
+    renderInlineResult({ width: 640, height: 360, getContext: () => context }, packets, timeMs);
+    return operations.filter(([kind] = []) => kind === "move" || kind === "line");
+  };
+  assert.notDeepEqual(render(0), render(1000));
+  assert.deepEqual(render(0), render(8000));
+  assert.notDeepEqual(render(1000, 6), render(1000, 4));
+});
+
 test("trusted inline renderer animates the orbit marker and projects the reflected aperture", () => {
   const render = (timeMs, radius = 4.35) => {
     const operations = [];

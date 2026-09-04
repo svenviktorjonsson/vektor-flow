@@ -1,3 +1,5 @@
+import { stepRigidPolygonWorld2D } from "./vf-ui/vf-physics-engine.mjs";
+
 const MAGIC = 1447773766;
 
 function decode(packet) {
@@ -13,11 +15,31 @@ function decode(packet) {
       up: packet.slice(8, 11), fov: packet[11],
     };
   }
+  if (packet[0] === 1447773768 && packet[1] === 2 && packet.length === 13
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && packet[11] > 0 && packet[12] === 2) {
+    return {
+      kind: "camera", pos: packet.slice(2, 5), target: packet.slice(5, 8),
+      up: packet.slice(8, 11), projection: "orthographic", orthoScale: packet[11],
+    };
+  }
   if (packet[0] === 1447773769 && packet[1] === 1 && packet.length === 16) {
     return {
       kind: "light", pos: packet.slice(2, 5), target: packet.slice(5, 8),
       color: packet.slice(8, 12), intensity: packet[12], range: packet[13],
       castsShadow: packet[14] === 1, sourceRadius: packet[15], type: "point",
+    };
+  }
+  if (packet[0] === 1447773769 && packet[1] === 2 && packet.length === 13
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && Number.isInteger(packet[2]) && packet[2] >= 0
+      && Array.from(packet.slice(6, 10)).every((value) => value >= 0 && value <= 1)
+      && packet[10] > 0 && packet[11] > 0 && packet[12] === 1) {
+    return {
+      kind: "light", idCode: packet[2], pos: packet.slice(3, 6),
+      target: Float64Array.from([0, 0, 0]), color: packet.slice(6, 10),
+      intensity: packet[10], range: packet[11], castsShadow: false,
+      sourceRadius: 0, type: "point",
     };
   }
   if (packet[0] === 1447773777 && packet[1] === 1 && packet.length === 18
@@ -43,6 +65,42 @@ function decode(packet) {
       kind: "timing", fps: packet[2], durationSeconds: packet[3],
       boundary: "repeat", showLightMarkers: packet[5] === 1,
       lightMarkerSize: packet[6], aspect: "equal",
+    };
+  }
+  if (packet[0] === 1447773780 && packet[1] === 2 && packet.length === 5
+      && Number.isInteger(packet[2]) && packet[2] >= 1 && packet[2] <= 240
+      && Number.isFinite(packet[3]) && packet[3] > 0 && packet[4] === 1) {
+    return {
+      kind: "timing", fps: packet[2], durationSeconds: packet[3],
+      boundary: "repeat", showLightMarkers: false,
+    };
+  }
+  if (packet[0] === 1447773783 && packet[1] === 1 && packet.length === 9
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && packet[2] > 0 && packet[3] > 0
+      && Number.isInteger(packet[6]) && packet[6] > 0 && packet[7] > 0
+      && Number.isInteger(packet[8]) && packet[8] > 0) {
+    return {
+      kind: "rigidWorld", width: packet[2], height: packet[3],
+      gravity: packet.slice(4, 6), solverIterations: packet[6],
+      stepDt: packet[7], maxSubsteps: packet[8],
+    };
+  }
+  if (packet[0] === 1447773784 && packet[1] === 1 && packet.length >= 23
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && Number.isInteger(packet[2]) && packet[2] >= 0 && [0, 1].includes(packet[3])
+      && packet[10] > 0 && packet[11] >= 0 && packet[11] <= 1
+      && Array.from(packet.slice(12, 16)).every((value) => value >= 0 && value <= 1)
+      && Number.isInteger(packet[16]) && packet[16] >= 3
+      && packet.length === 17 + (packet[16] * 2)) {
+    const localVertices = Array.from({ length: packet[16] }, (_, index) => (
+      [packet[17 + (index * 2)], packet[18 + (index * 2)]]
+    ));
+    return {
+      kind: "rigidBody", idCode: packet[2], static: packet[3] === 1,
+      position: packet.slice(4, 6), velocity: packet.slice(6, 8), angle: packet[8],
+      angularVelocity: packet[9], density: packet[10], eN: packet[11],
+      color: packet.slice(12, 16), localVertices,
     };
   }
   if (packet[0] === 1447773781 && packet[1] === 1 && packet.length === 21
@@ -430,6 +488,16 @@ function cameraProjector(camera, canvas) {
   const forward = normalize(subtract(camera.target, camera.pos));
   const right = normalize(cross(forward, camera.up));
   const up = cross(right, forward);
+  if (camera.projection === "orthographic") {
+    const aspect = canvas.width / canvas.height;
+    return (point) => {
+      const relative = subtract(point, camera.target);
+      return [
+        canvas.width * (0.5 + (dot(relative, right) / (camera.orthoScale * aspect))),
+        canvas.height * (0.5 - (dot(relative, up) / camera.orthoScale)),
+      ];
+    };
+  }
   const focal = 1 / Math.tan((camera.fov * Math.PI) / 360);
   const aspect = canvas.width / canvas.height;
   return (point) => {
@@ -527,18 +595,60 @@ function drawTexture(context, project, mesh) {
   }
 }
 
+function rigidWorldAt(world, bodies, timing, elapsedMs) {
+  if (!world && bodies.length === 0) return null;
+  if (!world || bodies.length === 0 || !timing) {
+    throw new TypeError("inline rigid-body scene requires world, bodies, and timing packets");
+  }
+  const frameStep = 1 / timing.fps;
+  const simulatedPerFrame = Math.min(frameStep, world.stepDt * world.maxSubsteps);
+  const elapsedSeconds = (elapsedMs / 1000) * (simulatedPerFrame / frameStep);
+  return stepRigidPolygonWorld2D({
+    width: world.width,
+    height: world.height,
+    gravity: Array.from(world.gravity),
+    solverIterations: world.solverIterations,
+    maxStep: world.stepDt,
+    bodies: bodies.map((body) => ({
+      id: String(body.idCode),
+      localVertices: body.localVertices.map((point) => [...point]),
+      position: Array.from(body.position),
+      velocity: Array.from(body.velocity),
+      angle: body.angle,
+      angularVelocity: body.angularVelocity,
+      density: body.density,
+      e_n: body.eN,
+      static: body.static,
+      color: Array.from(body.color),
+    })),
+  }, elapsedSeconds);
+}
+
+function rigidWorldVertices(body) {
+  const sine = Math.sin(body.angle);
+  const cosine = Math.cos(body.angle);
+  return body.localVertices.map(([x, y]) => [
+    body.position[0] + (x * cosine) - (y * sine),
+    body.position[1] + (x * sine) + (y * cosine),
+    0,
+  ]);
+}
+
 export function renderInlineResult(canvas, packets, timeMs = 0) {
   const decoded = packets.map(decode);
   const meshes = decoded.filter(({ kind }) => kind === "geometry");
   const particles = decoded.filter(({ kind }) => kind === "particle");
   const fieldMeshes = decoded.filter(({ kind }) => kind === "fieldMesh");
   const cubes = decoded.filter(({ kind }) => kind === "cube");
+  const rigidWorld = decoded.find(({ kind }) => kind === "rigidWorld") || null;
+  const rigidBodies = decoded.filter(({ kind }) => kind === "rigidBody");
   const background = decoded.find(({ kind }) => kind === "background");
   const camera = decoded.find(({ kind }) => kind === "camera");
   const timing = decoded.find(({ kind }) => kind === "timing") || null;
   const elapsedMs = timing
     ? ((Math.max(0, Number(timeMs) || 0) % (timing.durationSeconds * 1000)))
     : Math.max(0, Number(timeMs) || 0);
+  const rigidState = rigidWorldAt(rigidWorld, rigidBodies, timing, elapsedMs);
   const orbitLights = decoded.filter(({ kind }) => kind === "orbitLight").map((light) => {
     const angle = light.theta + (light.angularVelocity * elapsedMs / 1000);
     return {
@@ -591,6 +701,35 @@ export function renderInlineResult(canvas, packets, timeMs = 0) {
     : "#080d19";
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.lineWidth = 2;
+  if (rigidState) {
+    if (lights.length === 0) {
+      throw new TypeError("inline rigid-body scene requires a light packet");
+    }
+    const light = lights[0];
+    for (const body of rigidState.bodies) {
+      const vertices = rigidWorldVertices(body);
+      const distance = Math.hypot(
+        light.pos[0] - body.position[0],
+        light.pos[1] - body.position[1],
+        light.pos[2],
+      );
+      const strength = Math.min(
+        1, 0.35 + (light.intensity / Math.max(1, distance * distance)) * 0.5,
+      );
+      const color = body.color.map((value, index) => (
+        index === 3 ? value : value * light.color[index] * strength
+      ));
+      context.fillStyle = rgba(color);
+      context.beginPath();
+      vertices.forEach((point, index) => {
+        const [x, y] = project(point);
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.fill();
+    }
+  }
   const drawStrip = (count, pointAt, projector = project) => {
     context.beginPath();
     for (let index = 0; index < count; index += 1) {
