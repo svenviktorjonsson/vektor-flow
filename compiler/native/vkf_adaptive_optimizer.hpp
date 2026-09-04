@@ -284,7 +284,7 @@ private:
     friend AutomaticCpuPairPlan automatic_cpu_pair_plan(
         const AutomaticFlowLimits&, std::uint32_t,
         const machine_ir::Function&, const machine_ir::Function&, bool,
-        const proof_gated_execution::Decision&);
+        const proof_gated_execution::Decision&, bool);
 
     bool concurrent_ = false;
     std::uint32_t lane_limit_ = 1;
@@ -321,7 +321,8 @@ inline AutomaticCpuPairPlan automatic_cpu_pair_plan(
     const machine_ir::Function& left,
     const machine_ir::Function& right,
     bool independent,
-    const proof_gated_execution::Decision& proof
+    const proof_gated_execution::Decision& proof,
+    bool deterministic_error_propagation = false
 ) {
     AutomaticCpuPairPlan plan;
     plan.lane_limit_ = std::max(
@@ -329,8 +330,16 @@ inline AutomaticCpuPairPlan automatic_cpu_pair_plan(
     if (!independent || !proof.use_candidate || plan.lane_limit_ < 2) {
         return plan;
     }
-    plan.concurrent_ = automatic_flow_safety(left).partition_candidate &&
-        automatic_flow_safety(right).partition_candidate;
+    const auto branch_candidate = [&](const machine_ir::Function& function) {
+        const auto safety = automatic_flow_safety(function);
+        if (safety.partition_candidate) return true;
+        return deterministic_error_propagation && safety.deterministic &&
+            !safety.requires_ordered_effects &&
+            !safety.requires_stable_reduction_tree &&
+            function.owned_f64_list_locals.empty() &&
+            function.owned_string_locals.empty();
+    };
+    plan.concurrent_ = branch_candidate(left) && branch_candidate(right);
     return plan;
 }
 
@@ -351,10 +360,24 @@ auto execute_automatic_cpu_pair(
             std::move(left_value), std::move(right_value));
     }
     auto left_future = std::async(std::launch::async, std::forward<LeftDemand>(left));
-    auto right_value = std::forward<RightDemand>(right)();
-    auto left_value = left_future.get();
+    std::optional<RightResult> right_value;
+    std::exception_ptr right_error;
+    try {
+        right_value.emplace(std::forward<RightDemand>(right)());
+    } catch (...) {
+        right_error = std::current_exception();
+    }
+    std::optional<LeftResult> left_value;
+    std::exception_ptr left_error;
+    try {
+        left_value.emplace(left_future.get());
+    } catch (...) {
+        left_error = std::current_exception();
+    }
+    if (left_error) std::rethrow_exception(left_error);
+    if (right_error) std::rethrow_exception(right_error);
     return std::tuple<LeftResult, RightResult>(
-        std::move(left_value), std::move(right_value));
+        std::move(*left_value), std::move(*right_value));
 }
 
 inline std::uint64_t automatic_static_loop_work(
@@ -413,6 +436,7 @@ struct AutomaticCpuPairEntryShape {
     std::size_t right_load = 0;
     std::size_t result = 0;
     bool literal_scalar_arguments = false;
+    bool error_capable = false;
 };
 
 inline std::optional<AutomaticCpuPairEntryShape>
@@ -450,13 +474,13 @@ automatic_cpu_pair_entry_shape(const machine_ir::Module& module) {
         left_call.provided_parameter_mask != expected_mask ||
         right_call.provided_parameter_mask != expected_mask ||
         left_call.result_count != 1u || right_call.result_count != 1u ||
-        left_call.may_error || right_call.may_error ||
         left_store.index == right_store.index ||
         left_load.index != left_store.index ||
         right_load.index != right_store.index || result.result_count != 2u ||
         left_call.symbol == right_call.symbol) {
         return std::nullopt;
     }
+    shape.error_capable = left_call.may_error || right_call.may_error;
     return shape;
 }
 
@@ -487,7 +511,13 @@ inline bool select_automatic_cpu_pair(
         left->parameters.size() != right->parameters.size() ||
         left->parameters.size() !=
             static_cast<std::size_t>(shape->literal_scalar_arguments) ||
-        !left->result_is_numeric_scalar || !right->result_is_numeric_scalar) {
+        !left->result_is_numeric_scalar || !right->result_is_numeric_scalar ||
+        left_call.may_error != left->may_error ||
+        right_call.may_error != right->may_error ||
+        (shape->error_capable &&
+         (!dependency_receipt.error_knowledge_complete ||
+          !dependency_receipt.errors_source_ordered ||
+          !dependency_receipt.join_cleanup_required))) {
         return false;
     }
     const auto left_work = automatic_static_loop_work(*left);
@@ -504,7 +534,8 @@ inline bool select_automatic_cpu_pair(
             *left,
             *right,
             true,
-            *measured_call_graph_proof
+            *measured_call_graph_proof,
+            dependency_receipt.error_knowledge_complete
         );
         return plan.concurrent();
     }

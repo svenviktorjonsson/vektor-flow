@@ -2989,14 +2989,16 @@ private:
         const Frame& frame,
         const std::string& symbol,
         std::uint32_t result_local,
-        std::optional<double> literal_argument = std::nullopt
+        std::optional<double> literal_argument = std::nullopt,
+        std::optional<std::uint32_t> argument_slot = std::nullopt
     ) {
+        const auto slot = argument_slot.value_or(frame.temp_base);
         if (literal_argument) {
             emit_number(*literal_argument);
-            store_xmm(0, frame.displacement(frame.temp_base));
+            store_xmm(0, frame.displacement(slot));
         }
         code_.raw({0x4c, 0x8d, 0x95});
-        code_.i32(frame.displacement(frame.temp_base));
+        code_.i32(frame.displacement(slot));
         code_.raw({0x4c, 0x8d, 0x9d});
         code_.i32(frame.displacement(result_local));
         code_.byte(0xe8);
@@ -3014,24 +3016,44 @@ private:
 #else
         const auto shape =
             vkf::adaptive_optimizer::automatic_cpu_pair_entry_shape(module_);
+        const auto required_stack = shape && shape->error_capable
+            ? 10u
+            : shape && shape->literal_scalar_arguments ? 4u : 2u;
         if (!shape || function.locals.size() < 2u ||
-            function.max_stack < (shape->literal_scalar_arguments ? 4u : 2u) ||
+            function.max_stack < required_stack ||
             module_.output_kind != vkf::machine_ir::OutputKind::MultipleF64 ||
             module_.output_count != 2u) {
             throw BackendFailure("invalid selected automatic CPU pair entry");
         }
-        frame.frame_bytes += shape->literal_scalar_arguments ? 32u : 16u;
+        frame.frame_bytes += shape->error_capable
+            ? 80u
+            : shape->literal_scalar_arguments ? 32u : 16u;
         prologue(frame);
         save_runtime_context(frame);
-        const auto context_runtime = frame.temp_base +
-            (shape->literal_scalar_arguments ? 3u : 1u);
-        const auto context_result = frame.temp_base +
-            (shape->literal_scalar_arguments ? 1u : 0u);
+        const auto context_runtime = frame.temp_base + (shape->error_capable
+            ? 9u
+            : shape->literal_scalar_arguments ? 3u : 1u);
+        const auto context_result = frame.temp_base + (shape->error_capable
+            ? 7u
+            : shape->literal_scalar_arguments ? 1u : 0u);
         code_.raw({0x4c, 0x89, 0xa5});
         code_.i32(frame.displacement(context_runtime));
         if (shape->literal_scalar_arguments) {
             emit_number(function.instructions[0].f64);
-            store_xmm(0, frame.displacement(frame.temp_base + 2u));
+            store_xmm(
+                0,
+                frame.displacement(
+                    frame.temp_base + (shape->error_capable ? 8u : 2u)
+                )
+            );
+        }
+        if (shape->error_capable) {
+            code_.raw({0xc7, 0x85});
+            code_.i32(frame.displacement(frame.temp_base + 4u));
+            code_.i32(0);
+            code_.raw({0xc7, 0x85});
+            code_.i32(frame.displacement(frame.temp_base));
+            code_.i32(0);
         }
 
         code_.raw({0x48, 0xc7, 0x44, 0x24, 0x20});
@@ -3057,8 +3079,18 @@ private:
             1,
             shape->literal_scalar_arguments
                 ? std::optional<double>(function.instructions[3].f64)
+                : std::nullopt,
+            shape->error_capable
+                ? std::optional<std::uint32_t>(frame.temp_base + 3u)
                 : std::nullopt
         );
+        if (shape->error_capable) {
+            code_.raw({0x4c, 0x89, 0x85});
+            code_.i32(frame.displacement(frame.temp_base + 2u));
+            store_xmm(2, frame.displacement(frame.temp_base + 1u));
+            code_.raw({0x44, 0x89, 0x8d});
+            code_.i32(frame.displacement(frame.temp_base));
+        }
         code_.raw({0x48, 0x8b, 0x8d});
         code_.i32(frame.displacement(0));
         code_.byte(0xba);
@@ -3066,11 +3098,39 @@ private:
         call_private_pe_runtime_slot(38);
         code_.raw({0x85, 0xc0, 0x0f, 0x84});
         const auto wait_succeeded = code_.rel32_placeholder();
+        code_.raw({0x48, 0x8b, 0x8d});
+        code_.i32(frame.displacement(0));
+        call_private_pe_runtime_slot(39);
         emit_abort();
         code_.patch_rel32(wait_succeeded, code_.position());
         code_.raw({0x48, 0x8b, 0x8d});
         code_.i32(frame.displacement(0));
         call_private_pe_runtime_slot(39);
+        if (shape->error_capable) {
+            code_.raw({0x44, 0x8b, 0x8d});
+            code_.i32(frame.displacement(frame.temp_base + 4u));
+            code_.raw({0x45, 0x85, 0xc9, 0x0f, 0x84});
+            const auto left_succeeded = code_.rel32_placeholder();
+            code_.raw({0x4c, 0x8b, 0x85});
+            code_.i32(frame.displacement(frame.temp_base + 6u));
+            load_xmm(2, frame.displacement(frame.temp_base + 5u));
+            emit_exact_error_capture();
+            restore_runtime_context(frame);
+            epilogue();
+            code_.patch_rel32(left_succeeded, code_.position());
+
+            code_.raw({0x44, 0x8b, 0x8d});
+            code_.i32(frame.displacement(frame.temp_base));
+            code_.raw({0x45, 0x85, 0xc9, 0x0f, 0x84});
+            const auto right_succeeded = code_.rel32_placeholder();
+            code_.raw({0x4c, 0x8b, 0x85});
+            code_.i32(frame.displacement(frame.temp_base + 2u));
+            load_xmm(2, frame.displacement(frame.temp_base + 1u));
+            emit_exact_error_capture();
+            restore_runtime_context(frame);
+            epilogue();
+            code_.patch_rel32(right_succeeded, code_.position());
+        }
         load_xmm(0, frame.displacement(context_result));
         store_xmm(0, frame.displacement(0));
 
@@ -3097,15 +3157,27 @@ private:
             code_.patch_rel32(reference, thunk);
         }
         code_.raw({0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x30,
-                   0x4c, 0x89, 0x65, 0xf8,
+                   0x4c, 0x89, 0x65, 0xf8});
+        if (shape->error_capable) {
+            code_.raw({0x48, 0x89, 0x4d, 0xf0});
+        }
+        code_.raw({
                    0x4c, 0x8b, 0x21,
                    0x4c, 0x8d, 0x51, 0x08});
         code_.raw({0x4c, 0x8d, 0x59});
-        code_.byte(shape->literal_scalar_arguments ? 0x10 : 0x08);
+        code_.byte(shape->error_capable || shape->literal_scalar_arguments
+            ? 0x10
+            : 0x08);
         code_.byte(0xe8);
         calls_.push_back({
             code_.rel32_placeholder(),
             module_.entry.instructions[shape->left_call].symbol});
+        if (shape->error_capable) {
+            code_.raw({0x48, 0x8b, 0x4d, 0xf0,
+                       0x4c, 0x89, 0x41, 0x18,
+                       0xf2, 0x0f, 0x11, 0x51, 0x20,
+                       0x44, 0x89, 0x49, 0x28});
+        }
         code_.raw({0x4c, 0x8b, 0x65, 0xf8, 0x31, 0xc0, 0xc9, 0xc3});
 #endif
     }
@@ -3113,6 +3185,19 @@ private:
     void emit_abort() {
         call_runtime_slot(10);
         code_.byte(0xcc);
+    }
+
+    void emit_exact_error_capture() {
+#ifdef _WIN32
+        // Internal error ABI: r8 points at the message, xmm2 carries its f64
+        // length, and r9d carries the exact error mask. Marshal those values
+        // to the host call ABI so the proof runner can compare error outcomes;
+        // the packaged abort import safely ignores the extra arguments.
+        code_.raw({0x4c, 0x89, 0xc1,
+                   0x66, 0x48, 0x0f, 0x7e, 0xd2,
+                   0x45, 0x89, 0xc8});
+#endif
+        call_runtime_slot(10);
     }
 
     void move_pointer_argument_from_rax() {
@@ -12889,7 +12974,9 @@ private:
                         code_.raw({0x45, 0x85, 0xc9});
                         const auto succeeded = emit_jump(0x84);
                         if (entry) {
-                            emit_abort();
+                            emit_exact_error_capture();
+                            restore_runtime_context(frame);
+                            epilogue();
                         } else {
                             code_.raw({0x4c, 0x89, 0x85});
                             code_.i32(frame.displacement(frame.error_pointer_slot));
@@ -13351,12 +13438,11 @@ bool can_benchmark_automatic_cpu_pair(
         module.output_count != 2u) {
         return false;
     }
-    const auto safe_function = [](const vkf::machine_ir::Function& function) {
-        return vkf::adaptive_optimizer::automatic_flow_safety(function).replay_safe;
-    };
-    return safe_function(module.entry) && std::all_of(
-        module.functions.begin(), module.functions.end(), safe_function
-    );
+    // Candidate eligibility already carries the exact entry shape plus the
+    // complete dependency/value/borrow/error proof. Reapplying whole-function
+    // replay safety here would incorrectly reject the narrowly admitted
+    // deterministic terminal-error contract.
+    return true;
 #endif
 }
 
@@ -13488,10 +13574,34 @@ struct TuningResult {
         dependency_receipt;
 };
 
+struct ExactExecutionOutcome {
+    std::vector<std::uint64_t> values;
+    std::string error_message;
+    std::uint64_t error_length_bits = 0;
+    std::uint32_t error_type = 0;
+    bool error = false;
+    bool partial_results = false;
+
+    bool operator==(const ExactExecutionOutcome& other) const {
+        return values == other.values && error_message == other.error_message &&
+            error_length_bits == other.error_length_bits &&
+            error_type == other.error_type && error == other.error &&
+            partial_results == other.partial_results;
+    }
+
+    bool operator!=(const ExactExecutionOutcome& other) const {
+        return !(*this == other);
+    }
+};
+
 class ExecutableCode {
 public:
-    ExecutableCode(const std::vector<unsigned char>& code, const unsigned char* string_data)
-        : size_(code.size()) {
+    ExecutableCode(
+        const std::vector<unsigned char>& code,
+        const unsigned char* string_data,
+        std::size_t string_size
+    ) : size_(code.size()), string_data_(string_data),
+        string_size_(string_size) {
         if (code.empty()) throw BackendFailure("cannot benchmark empty x64 code");
 #ifdef _WIN32
         memory_ = VirtualAlloc(nullptr, size_, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
@@ -13555,16 +13665,22 @@ public:
         using Entry = double (*)(const std::uintptr_t*);
         std::jmp_buf escape;
         active_escape_ = &escape;
+        active_string_data_ = string_data_;
+        active_string_size_ = string_size_;
         if (setjmp(escape) != 0) {
             active_escape_ = nullptr;
+            active_string_data_ = nullptr;
+            active_string_size_ = 0;
             throw BackendFailure("optimizer candidate raised a runtime error");
         }
         const double result = reinterpret_cast<Entry>(memory_)(runtime_.data());
         active_escape_ = nullptr;
+        active_string_data_ = nullptr;
+        active_string_size_ = 0;
         return result;
     }
 
-    std::vector<std::uint64_t> run_exact(
+    ExactExecutionOutcome run_exact(
         vkf::machine_ir::OutputKind output_kind,
         std::uint32_t output_count
     ) const {
@@ -13572,7 +13688,9 @@ public:
             const double value = run();
             std::uint64_t bits = 0;
             std::memcpy(&bits, &value, sizeof(bits));
-            return {bits};
+            ExactExecutionOutcome outcome;
+            outcome.values = {bits};
+            return outcome;
         }
         if (output_kind != vkf::machine_ir::OutputKind::MultipleF64 ||
             output_count == 0u || output_count > 2u) {
@@ -13586,24 +13704,82 @@ public:
         );
         using Entry = void (*)(const std::uintptr_t*);
         std::jmp_buf escape;
+        ExactExecutionOutcome outcome;
         active_escape_ = &escape;
+        active_outcome_ = &outcome;
+        active_string_data_ = string_data_;
+        active_string_size_ = string_size_;
         if (setjmp(escape) != 0) {
             active_escape_ = nullptr;
+            active_outcome_ = nullptr;
+            active_string_data_ = nullptr;
+            active_string_size_ = 0;
+            if (outcome.error) {
+                outcome.partial_results = std::any_of(
+                    bytes + vkf::machine_ir::runtime_output_base,
+                    bytes + vkf::machine_ir::runtime_output_base +
+                        static_cast<std::size_t>(output_count) *
+                            sizeof(std::uint64_t),
+                    [](unsigned char value) { return value != 0; }
+                );
+                return outcome;
+            }
             throw BackendFailure("optimizer candidate raised a runtime error");
         }
         reinterpret_cast<Entry>(memory_)(runtime_.data());
         active_escape_ = nullptr;
-        std::vector<std::uint64_t> result(output_count);
+        active_outcome_ = nullptr;
+        active_string_data_ = nullptr;
+        active_string_size_ = 0;
+        if (outcome.error) {
+            outcome.partial_results = std::any_of(
+                bytes + vkf::machine_ir::runtime_output_base,
+                bytes + vkf::machine_ir::runtime_output_base +
+                    static_cast<std::size_t>(output_count) *
+                        sizeof(std::uint64_t),
+                [](unsigned char value) { return value != 0; }
+            );
+            return outcome;
+        }
+        outcome.values.resize(output_count);
         std::memcpy(
-            result.data(),
+            outcome.values.data(),
             bytes + vkf::machine_ir::runtime_output_base,
-            result.size() * sizeof(std::uint64_t)
+            outcome.values.size() * sizeof(std::uint64_t)
         );
-        return result;
+        return outcome;
     }
 
 private:
-    [[noreturn]] static void tuning_abort() {
+    static void tuning_abort(
+        const unsigned char* error_pointer,
+        std::uint64_t error_length_bits,
+        std::uint32_t error_type
+    ) {
+        const auto pointer = reinterpret_cast<std::uintptr_t>(error_pointer);
+        const auto strings = reinterpret_cast<std::uintptr_t>(
+            active_string_data_
+        );
+        double error_length = 0.0;
+        std::memcpy(
+            &error_length, &error_length_bits, sizeof(error_length)
+        );
+        if (active_outcome_ && strings != 0u && pointer >= strings &&
+            pointer <= strings + active_string_size_ &&
+            std::isfinite(error_length) && error_length >= 0.0 &&
+            error_length == std::floor(error_length) &&
+            error_length <= static_cast<double>(active_string_size_) &&
+            static_cast<std::size_t>(error_length) <=
+                strings + active_string_size_ - pointer) {
+            active_outcome_->error = true;
+            active_outcome_->error_message.assign(
+                reinterpret_cast<const char*>(error_pointer),
+                static_cast<std::size_t>(error_length)
+            );
+            active_outcome_->error_length_bits = error_length_bits;
+            active_outcome_->error_type = error_type;
+            return;
+        }
         if (active_escape_) std::longjmp(*active_escape_, 1);
         std::abort();
     }
@@ -13615,8 +13791,13 @@ private:
 
     void* memory_ = nullptr;
     std::size_t size_ = 0;
+    const unsigned char* string_data_ = nullptr;
+    std::size_t string_size_ = 0;
     mutable std::array<std::uintptr_t, 42> runtime_{};
     inline static thread_local std::jmp_buf* active_escape_ = nullptr;
+    inline static thread_local ExactExecutionOutcome* active_outcome_ = nullptr;
+    inline static thread_local const unsigned char* active_string_data_ = nullptr;
+    inline static thread_local std::size_t active_string_size_ = 0;
 };
 
 double median(std::vector<double> samples) {
@@ -13741,7 +13922,9 @@ TuningResult tune_machine_code(
         }
         std::unique_ptr<ExecutableCode> executable;
         if (representative == candidates.size()) {
-            executable = std::make_unique<ExecutableCode>(code, module.string_data.data());
+            executable = std::make_unique<ExecutableCode>(
+                code, module.string_data.data(), module.string_data.size()
+            );
         }
         candidates.push_back({
             std::move(selected), std::move(code), std::move(executable), {},
@@ -13941,8 +14124,12 @@ TuningResult tune_machine_code_guided(
     const auto candidate_hash = machine_code_hash(candidate_code);
     const auto baseline_bytes = baseline_code.size();
     const auto candidate_bytes = candidate_code.size();
-    ExecutableCode baseline(baseline_code, module.string_data.data());
-    ExecutableCode candidate(candidate_code, module.string_data.data());
+    ExecutableCode baseline(
+        baseline_code, module.string_data.data(), module.string_data.size()
+    );
+    ExecutableCode candidate(
+        candidate_code, module.string_data.data(), module.string_data.size()
+    );
 
     std::vector<double> baseline_samples;
     std::vector<double> candidate_samples;
@@ -13966,15 +14153,15 @@ TuningResult tune_machine_code_guided(
                 module.output_kind, module.output_count
             );
             const auto run_finished = Clock::now();
-            return std::pair<std::vector<std::uint64_t>, double>{
+            return std::pair<ExactExecutionOutcome, double>{
                 std::move(value),
                 std::chrono::duration<double, std::nano>(
                     run_finished - run_started
                 ).count(),
             };
         };
-        std::pair<std::vector<std::uint64_t>, double> baseline_sample;
-        std::pair<std::vector<std::uint64_t>, double> candidate_sample;
+        std::pair<ExactExecutionOutcome, double> baseline_sample;
+        std::pair<ExactExecutionOutcome, double> candidate_sample;
         if ((evidence.timings.size() & 1u) == 0) {
             baseline_sample = timed_run(baseline);
             candidate_sample = timed_run(candidate);
@@ -13988,7 +14175,9 @@ TuningResult tune_machine_code_guided(
         candidate_samples.push_back(candidate_ns);
         evidence.timings.push_back({baseline_ns, candidate_ns});
         result.total_runs += 2;
-        if (baseline_sample.first != candidate_sample.first) {
+        if (baseline_sample.first != candidate_sample.first ||
+            baseline_sample.first.partial_results ||
+            candidate_sample.first.partial_results) {
             evidence.equivalent_output = false;
             break;
         }
@@ -14294,7 +14483,7 @@ std::string optimizer_toolchain_material() {
     material << "|msvc-full-" << _MSC_FULL_VER;
 #endif
     material << "|cplusplus-" << __cplusplus
-             << "|x64-emitter-qopt11|built-" << __DATE__ << '-' << __TIME__;
+             << "|x64-emitter-qopt12|built-" << __DATE__ << '-' << __TIME__;
     return material.str();
 }
 
@@ -14359,7 +14548,7 @@ vkf::retained_optimization_driver::Request retained_driver_request(
         {
             "adaptive-v4",
             automatic_cpu_pair_candidate
-                ? "x64-threaded-pair-qopt11"
+                ? "x64-threaded-pair-qopt12"
                 : "x64-machine-emitter-qopt03",
             automatic_cpu_pair_candidate
                 ? "independent-multi-result-graph"

@@ -70,6 +70,20 @@ metadata keep the pair serial with an explicit private reason. Multiple root
 parameters and other target or result shapes remain serial. This host-specific
 proof is not a general wall-clock performance claim.
 
+The same exact pair shape may contain one statically bounded, terminal
+`AssertTruthy` in either otherwise-pure root. The dependency receipt must prove
+the complete fallible closure, source-ordered error selection, and mandatory
+join/cleanup before the pair is eligible. Serial and threaded candidates compare
+the exact error message bytes, length bits, and error mask as well as the ordered
+numeric results; any partial result rejects the candidate. A threaded artifact
+records each lane's result or error privately, waits for the worker, closes its
+handle, and only then propagates the left/source-first error when both lanes fail.
+It never publishes partial results or retries serially. The admitted roots are
+finite and side-effect-free, so the safe cancellation policy is cooperative:
+the other lane runs to completion before the join rather than using unsafe forced
+thread termination. Handled, dynamic, nested, resource-owning, or incompletely
+described fallibility remains serial.
+
 The only approved public scheduling settings are process-wide ceilings:
 
 ~~~vkf

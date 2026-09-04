@@ -276,6 +276,45 @@ vkf::machine_ir::Module independent_multi_result_graph() {
     return module;
 }
 
+vkf::machine_ir::Module fallible_multi_result_graph(
+    bool left_succeeds,
+    bool right_succeeds
+) {
+    auto module = independent_multi_result_graph();
+    module.string_data.assign(
+        {'l','e','f','t',' ','f','a','i','l','u','r','e',
+         'r','i','g','h','t',' ','f','a','i','l','u','r','e'}
+    );
+    const auto make_fallible = [](
+        vkf::machine_ir::Function& function,
+        bool succeeds,
+        std::uint32_t message_offset,
+        std::uint32_t message_size
+    ) {
+        function.may_error = true;
+        vkf::machine_ir::Instruction condition;
+        condition.opcode = vkf::machine_ir::Opcode::PushF64;
+        condition.f64 = succeeds ? 1.0 : 0.0;
+        vkf::machine_ir::Instruction assertion;
+        assertion.opcode = vkf::machine_ir::Opcode::AssertTruthy;
+        assertion.index = message_offset;
+        assertion.byte_count = message_size;
+        vkf::machine_ir::Instruction drop;
+        drop.opcode = vkf::machine_ir::Opcode::Drop;
+        function.instructions.insert(
+            function.instructions.end() - 2,
+            {condition, assertion, drop}
+        );
+    };
+    make_fallible(module.functions[0], left_succeeds, 0, 12);
+    make_fallible(module.functions[1], right_succeeds, 12, 13);
+    module.entry.may_error = true;
+    module.entry.max_stack = 10;
+    module.entry.instructions[1].may_error = true;
+    module.entry.instructions[4].may_error = true;
+    return module;
+}
+
 }  // namespace
 
 int main() {
@@ -600,6 +639,97 @@ int main() {
                read_text(pair_stdout_path) == expected_pair_stdout,
            "the measured multi-result artifact must preserve both exact results in source order");
 
+    auto right_error_graph = fallible_multi_result_graph(true, false);
+    const auto right_error_source = root / "right-error.vkf";
+    const auto right_error_ir = root / "right-error.typed.json";
+    {
+        std::ofstream output(right_error_source);
+        output << "right error proof\n";
+    }
+    const auto right_error_artifact = root /
+#ifdef _WIN32
+        "right-error.exe";
+#else
+        "right-error.native";
+#endif
+    const auto right_error_compiled = vkf_x64_backend::compile(
+        typed_ir, right_error_source, right_error_ir, {}, true,
+        right_error_artifact, "right-error-pair-v1", "auto", 10, 20000.0,
+        0, &right_error_graph
+    );
+    const auto right_error_manifest = vf::parse_json(
+        read_text(right_error_compiled.manifest_path)
+    );
+    const auto& right_error_tuning = member(
+        right_error_manifest, "empirical_tuning"
+    );
+    const auto& right_error_candidates = member(
+        right_error_tuning, "candidates"
+    ).as_array();
+    const auto right_error_selected = member(
+        right_error_tuning, "selected_policy"
+    ).as_string();
+    expect(right_error_candidates.size() == 2 &&
+               member(right_error_candidates[0], "correct").as_boolean() &&
+               member(right_error_candidates[1], "correct").as_boolean(),
+           "a right-root error must retain exact serial/threaded error parity with two bounded candidates");
+    const auto reused_right_error = vkf_x64_backend::compile(
+        typed_ir, right_error_source, right_error_ir, {}, true,
+        right_error_artifact, "right-error-pair-v2", "auto", 10, 20000.0,
+        0, &right_error_graph
+    );
+    const auto reused_right_error_manifest = vf::parse_json(
+        read_text(reused_right_error.manifest_path)
+    );
+    const auto& reused_right_error_tuning = member(
+        reused_right_error_manifest, "empirical_tuning"
+    );
+    expect(member(reused_right_error_tuning, "candidates").as_array().empty() &&
+               member(reused_right_error_tuning, "selected_policy").as_string() ==
+                   right_error_selected,
+           "an unchanged fallible pair must reuse its retained exact-error proof across a surrounding source change");
+    const auto right_error_stdout = root / "right-error.stdout";
+    const std::string right_error_command =
+#ifdef _WIN32
+        "\"\"" + right_error_compiled.artifact_path.string() + "\" > \"" +
+            right_error_stdout.string() + "\" 2>&1\"";
+#else
+        "\"" + right_error_compiled.artifact_path.string() + "\" > \"" +
+            right_error_stdout.string() + "\" 2>&1";
+#endif
+    const int right_error_status = std::system(right_error_command.c_str());
+    expect(right_error_status != 0 && read_text(right_error_stdout).empty(),
+           "a fallible artifact must return no partial results and must not fall back to serial output");
+
+    auto concurrent_error_graph = fallible_multi_result_graph(false, false);
+    const auto concurrent_error_source = root / "concurrent-error.vkf";
+    const auto concurrent_error_ir = root / "concurrent-error.typed.json";
+    {
+        std::ofstream output(concurrent_error_source);
+        output << "concurrent error proof\n";
+    }
+    const auto concurrent_error_artifact = root /
+#ifdef _WIN32
+        "concurrent-error.exe";
+#else
+        "concurrent-error.native";
+#endif
+    const auto concurrent_error_compiled = vkf_x64_backend::compile(
+        typed_ir, concurrent_error_source, concurrent_error_ir, {}, true,
+        concurrent_error_artifact, "concurrent-error-pair-v1", "auto", 10,
+        20000.0, 0, &concurrent_error_graph
+    );
+    const auto concurrent_error_manifest = vf::parse_json(
+        read_text(concurrent_error_compiled.manifest_path)
+    );
+    const auto& concurrent_error_candidates = member(
+        member(concurrent_error_manifest, "empirical_tuning"), "candidates"
+    ).as_array();
+    expect(concurrent_error_candidates.size() == 2 &&
+               member(concurrent_error_candidates[0], "correct").as_boolean() &&
+               member(concurrent_error_candidates[1], "correct").as_boolean(),
+           "concurrent root errors must benchmark as the exact source-first error after joining both lanes");
+
     std::filesystem::remove_all(root);
     std::cout << "retained optimization driver integration: candidates="
               << candidates.size() << " incremental_candidates="
@@ -614,6 +744,10 @@ int main() {
               << member(pair_candidates[1], "median_ns").as_number()
               << " changed_pair_candidates="
               << changed_pair_candidates.size()
+              << " right_error_candidates=" << right_error_candidates.size()
+              << " right_error_selected=" << right_error_selected
+              << " concurrent_error_candidates="
+              << concurrent_error_candidates.size()
               << '\n';
     return failures == 0 ? 0 : 1;
 }

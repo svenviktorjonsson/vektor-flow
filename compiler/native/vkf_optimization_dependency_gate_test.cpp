@@ -313,6 +313,72 @@ int main() {
                literal_root_pair.reason == gate::Reason::Independent,
            "entry-supplied literal scalar roots must prove read-only parameter provenance");
 
+    root_left.may_error = true;
+    root_right.may_error = true;
+    vkf::machine_ir::Instruction assertion_condition;
+    assertion_condition.opcode = vkf::machine_ir::Opcode::PushF64;
+    assertion_condition.f64 = 0.0;
+    vkf::machine_ir::Instruction assertion;
+    assertion.opcode = vkf::machine_ir::Opcode::AssertTruthy;
+    assertion.index = 0;
+    assertion.byte_count = 12;
+    vkf::machine_ir::Instruction drop_assertion;
+    drop_assertion.opcode = vkf::machine_ir::Opcode::Drop;
+    root_left.instructions.insert(
+        root_left.instructions.begin(),
+        {assertion_condition, assertion, drop_assertion}
+    );
+    assertion.index = 12;
+    root_right.instructions.insert(
+        root_right.instructions.begin(),
+        {assertion_condition, assertion, drop_assertion}
+    );
+    module.string_data.assign(
+        {'l','e','f','t',' ','f','a','i','l','u','r','e',
+         'r','i','g','h','t',' ','f','a','i','l','u','r','e'}
+    );
+    module.entry.instructions[1].may_error = true;
+    module.entry.instructions[4].may_error = true;
+    module.functions = {root_left, root_right};
+    const auto deterministic_error_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(deterministic_error_pair.error_knowledge_complete &&
+               deterministic_error_pair.errors_source_ordered &&
+               deterministic_error_pair.join_cleanup_required &&
+               deterministic_error_pair.parallelism_allowed &&
+               deterministic_error_pair.reason == gate::Reason::Independent,
+           "static terminal root errors must be eligible only with source-order and join-cleanup proof");
+
+    root_left.instructions[1].has_error_handler = true;
+    module.functions = {root_left, root_right};
+    const auto handled_error_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(!handled_error_pair.error_knowledge_complete &&
+               handled_error_pair.reason == gate::Reason::TransitiveFallibility &&
+               !handled_error_pair.parallelism_allowed,
+           "handled or non-terminal fallibility must remain serial");
+    root_left.instructions[1].has_error_handler = false;
+    root_left.owned_f64_list_locals = {0};
+    module.functions = {root_left, root_right};
+    const auto owned_error_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(!owned_error_pair.error_knowledge_complete &&
+               owned_error_pair.reason == gate::Reason::TransitiveFallibility &&
+               !owned_error_pair.parallelism_allowed,
+           "terminal fallibility must not mask an owned-resource dependency");
+    root_left.owned_f64_list_locals.clear();
+    root_left.may_error = false;
+    root_right.may_error = false;
+    root_left.instructions.erase(root_left.instructions.begin(), root_left.instructions.begin() + 3);
+    root_right.instructions.erase(root_right.instructions.begin(), root_right.instructions.begin() + 3);
+    module.entry.instructions[1].may_error = false;
+    module.entry.instructions[4].may_error = false;
+    module.string_data.clear();
+    module.functions = {root_left, root_right};
+
     module.entry.instructions[0].opcode = vkf::machine_ir::Opcode::AddF64;
     const auto computed_root_pair = gate::analyze_pair(
         module, "root_left", "root_right"

@@ -76,6 +76,9 @@ struct Receipt {
     bool mutable_borrows_proven_disjoint = false;
     bool alias_knowledge_complete = false;
     bool mutable_aliases_proven_disjoint = false;
+    bool error_knowledge_complete = false;
+    bool errors_source_ordered = false;
+    bool join_cleanup_required = false;
     bool resolved_call_graph = false;
 };
 
@@ -142,6 +145,10 @@ inline Reason direct_effect_reason(const machine_ir::Function& function) {
         if (instruction.opcode == machine_ir::Opcode::WriteString) {
             reason = strongest_effect_reason(
                 reason, Reason::TransitiveOrderedEffect
+            );
+        } else if (instruction.opcode == machine_ir::Opcode::AssertTruthy) {
+            reason = strongest_effect_reason(
+                reason, Reason::TransitiveFallibility
             );
         } else if (!proven_scalar_pure(instruction.opcode)) {
             reason = strongest_effect_reason(
@@ -457,6 +464,67 @@ inline Reason resolve_call_closure(
     return reason;
 }
 
+inline bool deterministic_terminal_error_contract(
+    const machine_ir::Module& module,
+    const machine_ir::Function& function,
+    const std::vector<std::string>& transitive_dependencies
+) {
+    if (!function.owned_f64_list_locals.empty() ||
+        !function.owned_string_locals.empty()) {
+        return false;
+    }
+    for (const auto& dependency_name : transitive_dependencies) {
+        const auto* dependency = find_function(module, dependency_name);
+        if (dependency == nullptr || dependency->may_error ||
+            !dependency->owned_f64_list_locals.empty() ||
+            !dependency->owned_string_locals.empty()) {
+            return false;
+        }
+        for (const auto& instruction : dependency->instructions) {
+            if (instruction.may_error ||
+                instruction.opcode == machine_ir::Opcode::RethrowError ||
+                instruction.opcode == machine_ir::Opcode::RaiseErrorValue ||
+                instruction.opcode == machine_ir::Opcode::AssertTruthy ||
+                instruction.opcode == machine_ir::Opcode::AssertTruthyString ||
+                (instruction.opcode != machine_ir::Opcode::Call &&
+                 !proven_scalar_pure(instruction.opcode))) {
+                return false;
+            }
+        }
+    }
+    std::optional<std::size_t> assertion_index;
+    for (std::size_t index = 0; index < function.instructions.size(); ++index) {
+        const auto& instruction = function.instructions[index];
+        if (instruction.opcode == machine_ir::Opcode::AssertTruthy) {
+            if (assertion_index || instruction.has_error_handler ||
+                instruction.index > module.string_data.size() ||
+                instruction.byte_count >
+                    module.string_data.size() - instruction.index) {
+                return false;
+            }
+            assertion_index = index;
+            continue;
+        }
+        if (instruction.may_error ||
+            instruction.opcode == machine_ir::Opcode::RethrowError ||
+            instruction.opcode == machine_ir::Opcode::RaiseErrorValue ||
+            instruction.opcode == machine_ir::Opcode::AssertTruthyString ||
+            (instruction.opcode != machine_ir::Opcode::Call &&
+             !proven_scalar_pure(instruction.opcode))) {
+            return false;
+        }
+    }
+    if (!function.may_error) return !assertion_index;
+    return assertion_index && *assertion_index + 3u < function.instructions.size() &&
+        *assertion_index + 4u == function.instructions.size() &&
+        function.instructions[*assertion_index + 1u].opcode ==
+            machine_ir::Opcode::Drop &&
+        function.instructions[*assertion_index + 2u].opcode ==
+            machine_ir::Opcode::LoadLocal &&
+        function.instructions[*assertion_index + 3u].opcode ==
+            machine_ir::Opcode::ReturnF64;
+}
+
 inline Receipt analyze_pair(
     const machine_ir::Module& module,
     std::string_view left_name,
@@ -507,6 +575,21 @@ inline Receipt analyze_pair(
         closure_reason = strongest_effect_reason(
             closure_reason, closure
         );
+    }
+    const bool has_fallible_root = left->may_error || right->may_error;
+    const bool deterministic_error_pair = has_fallible_root &&
+        deterministic_terminal_error_contract(
+            module, *left, receipt.functions[0].transitive_dependencies
+        ) &&
+        deterministic_terminal_error_contract(
+            module, *right, receipt.functions[1].transitive_dependencies
+        );
+    receipt.error_knowledge_complete = deterministic_error_pair;
+    receipt.errors_source_ordered = deterministic_error_pair;
+    receipt.join_cleanup_required = deterministic_error_pair;
+    if (closure_reason == Reason::TransitiveFallibility &&
+        deterministic_error_pair) {
+        closure_reason = Reason::Independent;
     }
     receipt.effect_knowledge_complete = true;
     receipt.effects_proven_absent = closure_reason == Reason::Independent;

@@ -2,8 +2,10 @@
 #include "compiler/native/vkf_proof_gated_execution.hpp"
 
 #include <chrono>
+#include <atomic>
 #include <future>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -198,6 +200,27 @@ int main() {
         });
     expect(std::get<0>(concurrent_values) == 11 && std::get<1>(concurrent_values) == 22,
            "automatic CPU branches must overlap and retain source-order results");
+
+    std::atomic<int> completed_error_branches{0};
+    std::string concurrent_error;
+    try {
+        (void)vkf::adaptive_optimizer::execute_automatic_cpu_pair(
+            concurrent_pair,
+            [&]() -> int {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                ++completed_error_branches;
+                throw std::runtime_error("left error");
+            },
+            [&]() -> int {
+                ++completed_error_branches;
+                throw std::runtime_error("right error");
+            }
+        );
+    } catch (const std::runtime_error& error) {
+        concurrent_error = error.what();
+    }
+    expect(completed_error_branches == 2 && concurrent_error == "left error",
+           "concurrent branch errors must join both lanes and propagate the source-first error");
 
     automatic_limits.max_cores = 1;
     const auto one_core_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
