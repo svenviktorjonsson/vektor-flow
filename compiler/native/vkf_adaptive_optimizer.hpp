@@ -284,7 +284,7 @@ private:
     friend AutomaticCpuPairPlan automatic_cpu_pair_plan(
         const AutomaticFlowLimits&, std::uint32_t,
         const machine_ir::Function&, const machine_ir::Function&, bool,
-        const proof_gated_execution::Decision&, bool);
+        const proof_gated_execution::Decision&, bool, bool);
 
     bool concurrent_ = false;
     std::uint32_t lane_limit_ = 1;
@@ -322,7 +322,8 @@ inline AutomaticCpuPairPlan automatic_cpu_pair_plan(
     const machine_ir::Function& right,
     bool independent,
     const proof_gated_execution::Decision& proof,
-    bool deterministic_error_propagation = false
+    bool deterministic_error_propagation = false,
+    bool fixed_source_order_reduction = false
 ) {
     AutomaticCpuPairPlan plan;
     plan.lane_limit_ = std::max(
@@ -333,6 +334,10 @@ inline AutomaticCpuPairPlan automatic_cpu_pair_plan(
     const auto branch_candidate = [&](const machine_ir::Function& function) {
         const auto safety = automatic_flow_safety(function);
         if (safety.partition_candidate) return true;
+        if (fixed_source_order_reduction && safety.replay_safe &&
+            safety.requires_stable_reduction_tree) {
+            return true;
+        }
         return deterministic_error_propagation && safety.deterministic &&
             !safety.requires_ordered_effects &&
             !safety.requires_stable_reduction_tree &&
@@ -535,7 +540,8 @@ inline bool select_automatic_cpu_pair(
             *right,
             true,
             *measured_call_graph_proof,
-            dependency_receipt.error_knowledge_complete
+            dependency_receipt.error_knowledge_complete,
+            dependency_receipt.reduction_tree_source_ordered
         );
         return plan.concurrent();
     }

@@ -315,6 +315,31 @@ vkf::machine_ir::Module fallible_multi_result_graph(
     return module;
 }
 
+vkf::machine_ir::Module fixed_reduction_multi_result_graph() {
+    auto module = independent_multi_result_graph();
+    vkf::machine_ir::Instruction positive_scale;
+    positive_scale.opcode = vkf::machine_ir::Opcode::PushF64;
+    positive_scale.f64 = 1.0e16;
+    auto negative_scale = positive_scale;
+    negative_scale.f64 = -1.0e16;
+    vkf::machine_ir::Instruction source_order_sum;
+    source_order_sum.opcode = vkf::machine_ir::Opcode::SumF64Values;
+    source_order_sum.argument_count = 3;
+    for (std::size_t index = 0; index < 2; ++index) {
+        auto& root = module.functions[index];
+        root.max_stack = 3;
+        root.instructions.insert(
+            root.instructions.end() - 2,
+            {positive_scale, negative_scale}
+        );
+        root.instructions.insert(
+            root.instructions.end() - 1,
+            source_order_sum
+        );
+    }
+    return module;
+}
+
 }  // namespace
 
 int main() {
@@ -639,6 +664,95 @@ int main() {
                read_text(pair_stdout_path) == expected_pair_stdout,
            "the measured multi-result artifact must preserve both exact results in source order");
 
+    auto reduction_graph = fixed_reduction_multi_result_graph();
+    const auto reduction_source = root / "fixed-reduction.vkf";
+    const auto reduction_ir = root / "fixed-reduction.typed.json";
+    {
+        std::ofstream output(reduction_source);
+        output << "fixed source-order reduction proof\n";
+    }
+    const auto reduction_artifact = root /
+#ifdef _WIN32
+        "fixed-reduction.exe";
+#else
+        "fixed-reduction.native";
+#endif
+    const auto reduction_compiled = vkf_x64_backend::compile(
+        typed_ir, reduction_source, reduction_ir, {}, true,
+        reduction_artifact, "fixed-reduction-pair-v1", "auto", 10,
+        20000.0, 0, &reduction_graph
+    );
+    const auto reduction_manifest = vf::parse_json(
+        read_text(reduction_compiled.manifest_path)
+    );
+    const auto& reduction_tuning = member(
+        reduction_manifest, "empirical_tuning"
+    );
+    const auto& reduction_candidates = member(
+        reduction_tuning, "candidates"
+    ).as_array();
+    const auto reduction_selected = member(
+        reduction_tuning, "selected_policy"
+    ).as_string();
+    expect(reduction_candidates.size() == 2 &&
+               member(reduction_candidates[0], "correct").as_boolean() &&
+               member(reduction_candidates[1], "correct").as_boolean() &&
+               member(reduction_tuning, "total_runs").as_number() <= 10.0,
+           "a fixed source-order reduction must prove bit-exact serial/threaded parity with two bounded candidates");
+    if (reduction_candidates.size() != 2u) {
+        std::filesystem::remove_all(root);
+        return 1;
+    }
+    const auto reused_reduction = vkf_x64_backend::compile(
+        typed_ir, reduction_source, reduction_ir, {}, true,
+        reduction_artifact, "fixed-reduction-pair-v2", "auto", 10,
+        20000.0, 0, &reduction_graph
+    );
+    const auto reused_reduction_manifest = vf::parse_json(
+        read_text(reused_reduction.manifest_path)
+    );
+    const auto& reused_reduction_tuning = member(
+        reused_reduction_manifest, "empirical_tuning"
+    );
+    expect(member(reused_reduction_tuning, "candidates").as_array().empty() &&
+               member(reused_reduction_tuning, "selected_policy").as_string() ==
+                   reduction_selected &&
+               reused_reduction.machine_code_fingerprint ==
+                   reduction_compiled.machine_code_fingerprint,
+           "an unchanged fixed reduction tree must reuse its proof across a surrounding source change");
+    reduction_graph.functions[0].instructions[
+        reduction_graph.functions[0].instructions.size() - 5
+    ].f64 = -1.0e16;
+    reduction_graph.functions[0].instructions[
+        reduction_graph.functions[0].instructions.size() - 4
+    ].f64 = 1.0e16;
+    const auto changed_reduction = vkf_x64_backend::compile(
+        typed_ir, reduction_source, reduction_ir, {}, true,
+        reduction_artifact, "fixed-reduction-pair-v3", "auto", 10,
+        20000.0, 0, &reduction_graph
+    );
+    const auto changed_reduction_manifest = vf::parse_json(
+        read_text(changed_reduction.manifest_path)
+    );
+    const auto& changed_reduction_candidates = member(
+        member(changed_reduction_manifest, "empirical_tuning"), "candidates"
+    ).as_array();
+    expect(changed_reduction_candidates.size() == 2,
+           "a changed reduction operand order must invalidate retained proof and remeasure exactly two candidates");
+    const auto reduction_stdout = root / "fixed-reduction.stdout";
+    const std::string reduction_command =
+#ifdef _WIN32
+        "\"\"" + reduction_compiled.artifact_path.string() + "\" > \"" +
+            reduction_stdout.string() + "\"\"";
+#else
+        "\"" + reduction_compiled.artifact_path.string() + "\" > \"" +
+            reduction_stdout.string() + "\"";
+#endif
+    const int reduction_status = std::system(reduction_command.c_str());
+    expect(reduction_status == 0 &&
+               read_text(reduction_stdout) == expected_pair_stdout,
+           "the production reduction artifact must preserve the adversarial source-order IEEE result");
+
     auto right_error_graph = fallible_multi_result_graph(true, false);
     const auto right_error_source = root / "right-error.vkf";
     const auto right_error_ir = root / "right-error.typed.json";
@@ -744,6 +858,14 @@ int main() {
               << member(pair_candidates[1], "median_ns").as_number()
               << " changed_pair_candidates="
               << changed_pair_candidates.size()
+              << " reduction_candidates=" << reduction_candidates.size()
+              << " reduction_selected=" << reduction_selected
+              << " reduction_serial_median_ns="
+              << member(reduction_candidates[0], "median_ns").as_number()
+              << " reduction_threaded_median_ns="
+              << member(reduction_candidates[1], "median_ns").as_number()
+              << " changed_reduction_candidates="
+              << changed_reduction_candidates.size()
               << " right_error_candidates=" << right_error_candidates.size()
               << " right_error_selected=" << right_error_selected
               << " concurrent_error_candidates="

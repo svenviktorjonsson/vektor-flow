@@ -20,6 +20,7 @@ enum class Reason {
     TransitiveOrderedEffect,
     TransitiveFallibility,
     TransitiveOwnedResource,
+    ReductionOrderUnknown,
     TransitiveUnclassifiedOperation,
     ValueDependency,
     ParameterProvenanceUnknown,
@@ -41,6 +42,7 @@ inline std::string_view reason_name(Reason reason) {
         case Reason::TransitiveFallibility: return "transitive-fallibility";
         case Reason::TransitiveOwnedResource:
             return "transitive-owned-resource";
+        case Reason::ReductionOrderUnknown: return "reduction-order-unknown";
         case Reason::TransitiveUnclassifiedOperation:
             return "transitive-unclassified-operation";
         case Reason::ValueDependency: return "value-dependency";
@@ -79,6 +81,9 @@ struct Receipt {
     bool error_knowledge_complete = false;
     bool errors_source_ordered = false;
     bool join_cleanup_required = false;
+    bool reduction_knowledge_complete = false;
+    bool reduction_tree_source_ordered = false;
+    std::vector<std::string> reduction_tree;
     bool resolved_call_graph = false;
 };
 
@@ -101,6 +106,40 @@ inline FunctionReceipt analyze_function(
 }
 
 inline bool proven_scalar_pure(machine_ir::Opcode opcode);
+
+inline bool exact_source_order_reduction(
+    const machine_ir::Instruction& instruction
+) {
+    return instruction.opcode == machine_ir::Opcode::SumF64Values &&
+        instruction.argument_count > 0u;
+}
+
+inline bool numeric_reduction(machine_ir::Opcode opcode) {
+    using Opcode = machine_ir::Opcode;
+    switch (opcode) {
+        case Opcode::SumF64Values:
+        case Opcode::MeanF64Values:
+        case Opcode::VarianceF64Values:
+        case Opcode::StdDevF64Values:
+        case Opcode::RangeF64Values:
+        case Opcode::CountValues:
+        case Opcode::SumF64Locals:
+        case Opcode::MeanF64Locals:
+        case Opcode::VarianceF64Locals:
+        case Opcode::StdDevF64Locals:
+        case Opcode::RangeF64Locals:
+        case Opcode::CountLocalValues:
+        case Opcode::SumF64List:
+        case Opcode::MeanF64List:
+        case Opcode::VarianceF64List:
+        case Opcode::StdDevF64List:
+        case Opcode::RangeF64List:
+        case Opcode::CountF64List:
+            return true;
+        default:
+            return false;
+    }
+}
 inline Reason direct_value_reason(const machine_ir::Function& function);
 inline bool direct_mutable_alias_unknown(
     const machine_ir::Function& function
@@ -111,7 +150,8 @@ inline int effect_reason_priority(Reason reason) {
         case Reason::TransitiveOwnedResource: return 1;
         case Reason::TransitiveFallibility: return 2;
         case Reason::TransitiveOrderedEffect: return 3;
-        case Reason::TransitiveUnclassifiedOperation: return 4;
+        case Reason::ReductionOrderUnknown: return 4;
+        case Reason::TransitiveUnclassifiedOperation: return 5;
         default: return 0;
     }
 }
@@ -150,7 +190,13 @@ inline Reason direct_effect_reason(const machine_ir::Function& function) {
             reason = strongest_effect_reason(
                 reason, Reason::TransitiveFallibility
             );
-        } else if (!proven_scalar_pure(instruction.opcode)) {
+        } else if (numeric_reduction(instruction.opcode) &&
+                   !exact_source_order_reduction(instruction)) {
+            reason = strongest_effect_reason(
+                reason, Reason::ReductionOrderUnknown
+            );
+        } else if (!exact_source_order_reduction(instruction) &&
+                   !proven_scalar_pure(instruction.opcode)) {
             reason = strongest_effect_reason(
                 reason, Reason::TransitiveUnclassifiedOperation
             );
@@ -568,6 +614,7 @@ inline Receipt analyze_pair(
         );
         if (closure == Reason::UnresolvedCall ||
             closure == Reason::RecursiveCallGraph ||
+            closure == Reason::ReductionOrderUnknown ||
             closure == Reason::TransitiveUnclassifiedOperation) {
             receipt.reason = closure;
             return receipt;
@@ -577,6 +624,36 @@ inline Receipt analyze_pair(
         );
     }
     const bool has_fallible_root = left->may_error || right->may_error;
+    const auto record_reductions = [&](const machine_ir::Function& function) {
+        for (std::size_t index = 0; index < function.instructions.size();
+             ++index) {
+            const auto& instruction = function.instructions[index];
+            if (exact_source_order_reduction(instruction)) {
+                const auto node = function.name + "#" +
+                    std::to_string(index) +
+                    ":sum-f64-values:left-fold:" +
+                    std::to_string(instruction.argument_count);
+                if (std::find(
+                        receipt.reduction_tree.begin(),
+                        receipt.reduction_tree.end(),
+                        node
+                    ) == receipt.reduction_tree.end()) {
+                    receipt.reduction_tree.push_back(node);
+                }
+            }
+        }
+    };
+    record_reductions(*left);
+    record_reductions(*right);
+    for (const auto& function_receipt : receipt.functions) {
+        for (const auto& dependency_name :
+             function_receipt.transitive_dependencies) {
+            const auto* dependency = find_function(module, dependency_name);
+            if (dependency != nullptr) record_reductions(*dependency);
+        }
+    }
+    receipt.reduction_knowledge_complete = !receipt.reduction_tree.empty();
+    receipt.reduction_tree_source_ordered = !receipt.reduction_tree.empty();
     const bool deterministic_error_pair = has_fallible_root &&
         deterministic_terminal_error_contract(
             module, *left, receipt.functions[0].transitive_dependencies

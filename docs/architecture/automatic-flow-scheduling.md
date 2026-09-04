@@ -84,6 +84,19 @@ the other lane runs to completion before the join rather than using unsafe force
 thread termination. Handled, dynamic, nested, resource-owning, or incompletely
 described fallibility remains serial.
 
+A pair root may also contain fixed-arity `SumF64Values` only when its private
+receipt records every reduction as `sum-f64-values:left-fold:<arity>` in exact
+function/instruction order. The Windows x64 serial and threaded candidates call
+the same root body, whose scalar additions remain the original stack-order IEEE
+left fold; parallelism is between roots and never partitions or reassociates a
+reduction. Candidate outputs must be bit-exact, and a reduction-tree or operand
+change invalidates retained proof. List/local reductions, mean/variance and
+other associative-looking operations, malformed or unknown arity, and any plan
+that cannot preserve source-order IEEE evaluation remain serial with the private
+reason `reduction-order-unknown`. A proof miss still benchmarks only the serial
+baseline and one guided threaded candidate and applies threading only on a
+measured win.
+
 The only approved public scheduling settings are process-wide ceilings:
 
 ~~~vkf

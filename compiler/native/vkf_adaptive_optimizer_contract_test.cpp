@@ -333,6 +333,30 @@ int main() {
                8,
                pure_graph_decision),
            "only a measured-faster value- and alias-independent pure call graph may select the CPU pair candidate");
+    auto fixed_reduction_pair = nested_call_pair;
+    Instruction positive_scale = instruction(Opcode::PushF64, 0, 1.0e16);
+    Instruction negative_scale = instruction(Opcode::PushF64, 0, -1.0e16);
+    Instruction source_order_sum = instruction(Opcode::SumF64Values);
+    source_order_sum.argument_count = 3;
+    for (std::size_t index = 0; index < 2; ++index) {
+        auto& root = fixed_reduction_pair.functions[index];
+        root.max_stack = 3;
+        root.instructions.insert(
+            root.instructions.end() - 1,
+            {positive_scale, negative_scale, source_order_sum}
+        );
+    }
+    const auto fixed_reduction_receipt =
+        vkf::optimization_dependency_gate::analyze_pair(
+            fixed_reduction_pair, "left", "right"
+        );
+    expect(fixed_reduction_receipt.reduction_tree_source_ordered &&
+               vkf::adaptive_optimizer::select_automatic_cpu_pair(
+                   fixed_reduction_pair,
+                   automatic_limits,
+                   8,
+                   pure_graph_decision),
+           "a measured fixed source-order reduction pair must preserve its exact tree in two CPU lanes");
     Evidence pure_graph_unknown{pure_graph_key, true, {}};
     expect(!vkf::adaptive_optimizer::select_automatic_cpu_pair(
                nested_call_pair,

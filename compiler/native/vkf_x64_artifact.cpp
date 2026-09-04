@@ -14483,7 +14483,7 @@ std::string optimizer_toolchain_material() {
     material << "|msvc-full-" << _MSC_FULL_VER;
 #endif
     material << "|cplusplus-" << __cplusplus
-             << "|x64-emitter-qopt12|built-" << __DATE__ << '-' << __TIME__;
+             << "|x64-emitter-qopt13|built-" << __DATE__ << '-' << __TIME__;
     return material.str();
 }
 
@@ -14548,7 +14548,7 @@ vkf::retained_optimization_driver::Request retained_driver_request(
         {
             "adaptive-v4",
             automatic_cpu_pair_candidate
-                ? "x64-threaded-pair-qopt12"
+                ? "x64-threaded-pair-qopt13"
                 : "x64-machine-emitter-qopt03",
             automatic_cpu_pair_candidate
                 ? "independent-multi-result-graph"

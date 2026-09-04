@@ -313,6 +313,51 @@ int main() {
                literal_root_pair.reason == gate::Reason::Independent,
            "entry-supplied literal scalar roots must prove read-only parameter provenance");
 
+    auto reduction_left = root_left;
+    auto reduction_right = root_right;
+    vkf::machine_ir::Instruction positive_scale;
+    positive_scale.opcode = vkf::machine_ir::Opcode::PushF64;
+    positive_scale.f64 = 1.0e16;
+    auto negative_scale = positive_scale;
+    negative_scale.f64 = -1.0e16;
+    vkf::machine_ir::Instruction fixed_sum;
+    fixed_sum.opcode = vkf::machine_ir::Opcode::SumF64Values;
+    fixed_sum.argument_count = 3;
+    reduction_left.instructions.insert(
+        reduction_left.instructions.end() - 1,
+        {positive_scale, negative_scale, fixed_sum}
+    );
+    reduction_right.instructions = reduction_left.instructions;
+    module.functions = {reduction_left, reduction_right};
+    const auto fixed_reduction_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(fixed_reduction_pair.reduction_knowledge_complete &&
+               fixed_reduction_pair.reduction_tree_source_ordered &&
+               fixed_reduction_pair.reduction_tree ==
+                   std::vector<std::string>({
+                       "root_left#3:sum-f64-values:left-fold:3",
+                       "root_right#3:sum-f64-values:left-fold:3",
+                   }) &&
+               fixed_reduction_pair.parallelism_allowed &&
+               fixed_reduction_pair.reason == gate::Reason::Independent,
+           "fixed-arity numeric sums must prove their exact source-order IEEE reduction tree");
+
+    reduction_left.instructions[reduction_left.instructions.size() - 2].opcode =
+        vkf::machine_ir::Opcode::SumF64List;
+    module.functions = {reduction_left, reduction_right};
+    const auto unknown_reduction_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(!unknown_reduction_pair.reduction_knowledge_complete &&
+               !unknown_reduction_pair.reduction_tree_source_ordered &&
+               !unknown_reduction_pair.parallelism_allowed &&
+               unknown_reduction_pair.reason ==
+                   gate::Reason::ReductionOrderUnknown &&
+               gate::reason_name(unknown_reduction_pair.reason) ==
+                   "reduction-order-unknown",
+           "a reduction without an exact source-order tree must remain serial with an explicit reason");
+
     root_left.may_error = true;
     root_right.may_error = true;
     vkf::machine_ir::Instruction assertion_condition;
