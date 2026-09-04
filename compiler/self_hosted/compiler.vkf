@@ -571,7 +571,8 @@ _compile_printed_dynamic_numeric_tape_x64(
     integer_print_tail:str,
     floating_print_tail:str,
     high_bytes:[str],
-    negate_code:str=""
+    negate_code:str="",
+    floating_negate_code:str=""
 ) -> str:
     statement: _compile_dynamic_numeric_statement(source, grouped)
     (statement.max_stack >= 2 /\ statement.max_stack <= 3)?! "integer x64 tracer stack maximum changed"
@@ -586,12 +587,14 @@ _compile_printed_dynamic_numeric_tape_x64(
     left_representation: 0
     right_representation: 0
     result_representation: 0
+    operand_representation: 0
     (index < statement.opcodes.length())?>
         .code: statement.opcodes.(index)
         .binary: code = 2 \/ code = 4 \/ code = 5 \/ code = 6 \/ code = 7 \/ code = 8 \/ code = 9
         .left_representation: 0
         .right_representation: 0
         .result_representation: 0
+        .operand_representation: 0
         binary = 1?
             (representation_depth >= 2)?! "numeric x64 tracer representation stack underflow"
             representation_depth = 2?
@@ -703,11 +706,19 @@ _compile_printed_dynamic_numeric_tape_x64(
             .body: body & power_code
         code = 10?
             (representation_depth >= 1)?! "numeric x64 tracer negation stack underflow"
-            ((representation_depth = 1 /\ representation0 = 0) \/
-                (representation_depth = 2 /\ representation1 = 0) \/
-                (representation_depth = 3 /\ representation2 = 0))?! "numeric x64 tracer negation requires an integer operand"
-            (~(negate_code = ""))?! "numeric x64 tracer negation code is missing"
-            .body: body & negate_code
+            representation_depth = 1?
+                .operand_representation: representation0
+            representation_depth = 2?
+                .operand_representation: representation1
+            representation_depth = 3?
+                .operand_representation: representation2
+            operand_representation = 0?
+                (~(negate_code = ""))?! "numeric x64 tracer negation code is missing"
+                .body: body & negate_code
+            operand_representation = 1?
+                (~(floating_negate_code = ""))?! "numeric x64 tracer floating negation code is missing"
+                .body: body & floating_negate_code
+            (operand_representation = 0 \/ operand_representation = 1)?! "numeric x64 tracer negation representation is unsupported"
         binary = 1?
             .representation_depth-: 1
             representation_depth = 1?
@@ -882,21 +893,22 @@ _compile_printed_dynamic_numeric_chain_x64(
     integer_print_tail:str,
     floating_print_tail:str,
     high_bytes:[str],
-    negate_code:str=""
+    negate_code:str="",
+    floating_negate_code:str=""
 ) -> str:
-    ~(negate_code = "")?
+    (~(negate_code = "") \/ ~(floating_negate_code = ""))?
         @: _compile_printed_dynamic_numeric_tape_x64(
             source, 1, template_prefix, addition_code, "", "", "",
             multiplication_code, "", "", "", subtraction_code, "", "", "",
             division_code, "", "", "", power_code, floor_division_code,
             remainder_code, integer_print_tail, floating_print_tail, high_bytes,
-            negate_code
+            negate_code, floating_negate_code
         )
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
         "", "", "", subtraction_code, "", "", "", division_code, "", "", "", power_code, floor_division_code,
         remainder_code, integer_print_tail, floating_print_tail, high_bytes,
-        negate_code
+        negate_code, floating_negate_code
     )
 
 _compile_printed_dynamic_grouped_numeric_chain_x64(
