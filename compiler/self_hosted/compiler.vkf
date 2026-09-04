@@ -488,6 +488,18 @@ _compile_x64_forward_rel32(displacement:num, high_bytes:[str]) -> str:
         _compile_x64_arena_byte((displacement // 16777216) % 256, high_bytes)
     )
 
+_compile_x64_signed_rel32(displacement:num, high_bytes:[str]) -> str:
+    (displacement >= -2147483648 /\ displacement <= 2147483647)?! "x64 signed relocation is outside rel32"
+    encoded: displacement
+    encoded < 0?
+        .encoded+: 4294967296
+    (
+        _compile_x64_arena_byte(encoded % 256, high_bytes) &
+        _compile_x64_arena_byte((encoded // 256) % 256, high_bytes) &
+        _compile_x64_arena_byte((encoded // 65536) % 256, high_bytes) &
+        _compile_x64_arena_byte((encoded // 16777216) % 256, high_bytes)
+    )
+
 _compile_x64_positive_immediate_from_arena(
     value:num, high_bytes:[str]
 ) -> str:
@@ -1405,6 +1417,38 @@ _compile_tagged_numeric_literal_function_x64(
         function_prologue &
         _compile_x64_positive_immediate_from_arena(statement.values.1, high_bytes) &
         multiplication_code & function_epilogue & artifact_tail
+    )
+
+_compile_tagged_numeric_literal_function_backward_x64(
+    source:str,
+    template_prefix:str,
+    entry_displacement:num,
+    backward_displacement:num,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    artifact_tail:str,
+    high_bytes:[str]
+) -> str:
+    (entry_displacement >= 0 /\ entry_displacement <= 127)?! "x64 entry relocation is outside positive rel8"
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    statement: _compile_tagged_numeric_literal_function_tape(
+        tokens.source, tokens.rows, tokens.count
+    )
+    (
+        statement.max_stack = 2 /\ statement.opcodes.length() = 4 /\
+        statement.opcodes.0 = 1 /\ statement.opcodes.1 = 1 /\
+        statement.opcodes.2 = 5 /\ statement.opcodes.3 = 3
+    )?! "numeric literal function x64 tape changed"
+    (
+        template_prefix & _compile_x64_arena_byte(235, high_bytes) &
+        _compile_x64_byte(entry_displacement) & function_prologue &
+        _compile_x64_positive_immediate_from_arena(statement.values.1, high_bytes) &
+        multiplication_code & function_epilogue &
+        _compile_x64_positive_immediate_from_arena(statement.values.0, high_bytes) &
+        _compile_x64_arena_byte(232, high_bytes) &
+        _compile_x64_signed_rel32(backward_displacement, high_bytes) &
+        _compile_x64_arena_byte(195, high_bytes) & artifact_tail
     )
 
 _run_tagged_browser_numeric_tape(
