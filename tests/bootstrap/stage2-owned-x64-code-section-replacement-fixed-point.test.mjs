@@ -218,6 +218,110 @@ function makeMiddleRunnerTemplate(lockedTemplate, lockedSection) {
   return compact;
 }
 
+function resourceDataEntries(bytes) {
+  const peOffset = bytes.readUInt32LE(0x3c);
+  const optionalHeaderOffset = peOffset + 24;
+  const resource = findPeSection(bytes, ".rsrc");
+  assert.ok(resource, "resource section is missing");
+  const resourceRva = bytes.readUInt32LE(optionalHeaderOffset + 112 + 2 * 8);
+  const resourceSize = bytes.readUInt32LE(optionalHeaderOffset + 116 + 2 * 8);
+  assert.equal(resourceRva, resource.virtualAddress);
+  const entries = [];
+  function walk(directoryOffset) {
+    assert.ok(directoryOffset + 16 <= resourceSize, "resource directory is truncated");
+    const directory = resource.rawOffset + directoryOffset;
+    const count = bytes.readUInt16LE(directory + 12) + bytes.readUInt16LE(directory + 14);
+    assert.ok(directoryOffset + 16 + count * 8 <= resourceSize, "resource entries are truncated");
+    for (let index = 0; index < count; index += 1) {
+      const entry = directory + 16 + index * 8;
+      const target = bytes.readUInt32LE(entry + 4);
+      const targetOffset = target & 0x7fffffff;
+      if ((target & 0x80000000) !== 0) {
+        walk(targetOffset);
+      } else {
+        assert.ok(targetOffset + 16 <= resourceSize, "resource data entry is truncated");
+        entries.push(resource.rawOffset + targetOffset);
+      }
+    }
+  }
+  walk(0);
+  return entries;
+}
+
+function makeResourceMiddleRunnerTemplate(lockedTemplate, lockedSection) {
+  const peOffset = lockedTemplate.readUInt32LE(0x3c);
+  const optionalHeaderSize = lockedTemplate.readUInt16LE(peOffset + 20);
+  const optionalHeaderOffset = peOffset + 24;
+  const sectionTableOffset = optionalHeaderOffset + optionalHeaderSize;
+  const sectionAlignment = lockedTemplate.readUInt32LE(optionalHeaderOffset + 32);
+  const sizeOfHeaders = lockedTemplate.readUInt32LE(optionalHeaderOffset + 60);
+  const crt = findPeSection(lockedTemplate, ".CRT");
+  const resources = findPeSection(lockedTemplate, ".rsrc");
+  const relocations = findPeSection(lockedTemplate, ".reloc");
+  assert.ok(crt && resources && relocations, "locked runner suffix sections changed");
+  const compact = Buffer.concat([
+    lockedTemplate.subarray(0, lockedSection.rawOffset),
+    lockedTemplate.subarray(crt.rawOffset, crt.rawOffset + crt.rawSize),
+    lockedTemplate.subarray(resources.rawOffset, resources.rawOffset + resources.rawSize),
+    lockedTemplate.subarray(
+      relocations.rawOffset,
+      relocations.rawOffset + relocations.rawSize,
+    ),
+  ]);
+  const retainedCount = 7;
+  compact.writeUInt16LE(retainedCount, peOffset + 6);
+  compact.fill(0, lockedSection.headerOffset, sizeOfHeaders);
+  for (const [index, section] of [crt, resources, relocations].entries()) {
+    lockedTemplate.copy(
+      compact,
+      lockedSection.headerOffset + index * 40,
+      section.headerOffset,
+      section.headerOffset + 40,
+    );
+    compact.writeUInt32LE(0x5000 + index * 0x1000, lockedSection.headerOffset + index * 40 + 12);
+    compact.writeUInt32LE(
+      lockedSection.rawOffset + index * 512,
+      lockedSection.headerOffset + index * 40 + 20,
+    );
+  }
+  compact.writeUInt32LE(
+    compact.readUInt32LE(optionalHeaderOffset + 8) - lockedSection.rawSize,
+    optionalHeaderOffset + 8,
+  );
+  compact.writeUInt32LE(0x8000, optionalHeaderOffset + 56);
+  compact.writeUInt32LE(0x6000, optionalHeaderOffset + 112 + 2 * 8);
+  compact.writeUInt32LE(0x7000, optionalHeaderOffset + 112 + 5 * 8);
+  const resourceEntries = resourceDataEntries(lockedTemplate);
+  assert.deepEqual(resourceEntries.map((offset) => offset - resources.rawOffset), [0x48]);
+  compact.writeUInt32LE(0x6060, lockedSection.rawOffset + crt.rawSize + 0x48);
+  compact.writeUInt32LE(
+    0x5000,
+    lockedSection.rawOffset + crt.rawSize + resources.rawSize,
+  );
+  const checksumOffset = optionalHeaderOffset + 64;
+  compact.writeUInt32LE(0, checksumOffset);
+  compact.writeUInt32LE(peChecksum(compact, checksumOffset), checksumOffset);
+  assert.notEqual(compact.readUInt32LE(checksumOffset), 0);
+  assert.deepEqual(
+    resourceDataEntries(compact).map((offset) => compact.readUInt32LE(offset)),
+    [0x6060],
+  );
+  assert.equal(compact.length, 0x1200);
+  for (let index = 0; index + 1 < retainedCount; index += 1) {
+    const current = sectionTableOffset + index * 40;
+    const next = current + 40;
+    assert.equal(
+      compact.readUInt32LE(current + 12) + align(Math.max(
+        compact.readUInt32LE(current + 8),
+        compact.readUInt32LE(current + 16),
+      ), sectionAlignment),
+      compact.readUInt32LE(next + 12),
+      "resource fixture must have no virtual gap",
+    );
+  }
+  return compact;
+}
+
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -269,13 +373,16 @@ function verifyCodeSectionFixture(mode) {
     assert.equal(lockedSection.rawOffset, lockedTemplate.indexOf(marker));
     assert.equal(lockedSection.rawSize, 32768, "locked runner capacity changed");
     const packed = mode === "packed";
-    const middle = mode === "middle";
+    const resourceMiddle = mode === "resource";
+    const middle = mode === "middle" || resourceMiddle;
     const growing = packed || middle;
     const codeCapacity = mode === "missing" ? lockedSection.rawSize : growing ? 512 : 16384;
     const template = packed
       ? makePackedRunnerTemplate(lockedTemplate, lockedSection)
       : middle
-        ? makeMiddleRunnerTemplate(lockedTemplate, lockedSection)
+        ? resourceMiddle
+          ? makeResourceMiddleRunnerTemplate(lockedTemplate, lockedSection)
+          : makeMiddleRunnerTemplate(lockedTemplate, lockedSection)
         : Buffer.from(lockedTemplate);
     if (mode === "missing") {
       template.fill(0, lockedSection.headerOffset, lockedSection.headerOffset + 40);
@@ -399,9 +506,15 @@ function verifyCodeSectionFixture(mode) {
         expectedTemplate.readUInt32LE(optionalHeaderOffset + 8) + codeCapacity,
         optionalHeaderOffset + 8,
       );
-      expectedTemplate.writeUInt32LE(0x8000, optionalHeaderOffset + 56);
+      expectedTemplate.writeUInt32LE(resourceMiddle ? 0x9000 : 0x8000, optionalHeaderOffset + 56);
       expectedTemplate.writeUInt32LE(0, optionalHeaderOffset + 64);
-      expectedTemplate.writeUInt32LE(0x7000, optionalHeaderOffset + 112 + 5 * 8);
+      if (resourceMiddle) {
+        expectedTemplate.writeUInt32LE(0x7000, optionalHeaderOffset + 112 + 2 * 8);
+      }
+      expectedTemplate.writeUInt32LE(
+        resourceMiddle ? 0x8000 : 0x7000,
+        optionalHeaderOffset + 112 + 5 * 8,
+      );
       const header = Buffer.alloc(40);
       header.write(".vkfcod", 0, "ascii");
       header.writeUInt32LE(generated.length, 8);
@@ -410,7 +523,7 @@ function verifyCodeSectionFixture(mode) {
       header.writeUInt32LE(lockedSection.rawOffset, 20);
       header.writeUInt32LE(0x60000040, 36);
       header.copy(expectedTemplate, lockedSection.headerOffset);
-      for (let index = 1; index <= 2; index += 1) {
+      for (let index = 1; index <= (resourceMiddle ? 3 : 2); index += 1) {
         const headerOffset = lockedSection.headerOffset + index * 40;
         expectedTemplate.writeUInt32LE(
           expectedTemplate.readUInt32LE(headerOffset + 12) + 0x1000,
@@ -421,7 +534,15 @@ function verifyCodeSectionFixture(mode) {
           headerOffset + 20,
         );
       }
-      expectedTemplate.writeUInt32LE(0x6000, lockedSection.rawOffset + 512);
+      if (resourceMiddle) {
+        const dataEntries = resourceDataEntries(template);
+        assert.deepEqual(dataEntries.map((offset) => template.readUInt32LE(offset)), [0x6060]);
+        expectedTemplate.writeUInt32LE(0x7060, dataEntries[0]);
+      }
+      expectedTemplate.writeUInt32LE(
+        0x6000,
+        lockedSection.rawOffset + (resourceMiddle ? 1024 : 512),
+      );
     }
     writeFileSync(functionProloguePath, functionPrologue);
     writeFileSync(multiplicationPath, multiplication);
@@ -621,4 +742,10 @@ test("Stage 2 inserts x64 code before later PE sections", {
   skip: process.platform !== "win32",
 }, () => {
   verifyCodeSectionFixture("middle");
+});
+
+test("Stage 2 relocates nested PE resource data during code insertion", {
+  skip: process.platform !== "win32",
+}, () => {
+  verifyCodeSectionFixture("resource");
 });

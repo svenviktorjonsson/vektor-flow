@@ -86,6 +86,59 @@ _replace_u16(source:str, offset:num, value:num, high_bytes:[str]) -> str:
 _replace_u32(source:str, offset:num, value:num, high_bytes:[str]) -> str:
     _replace_bytes(source, offset, offset + 4, _u32_bytes(value, high_bytes))
 
+_relocate_resource_directory(
+    image:str,
+    resource_raw_offset:num,
+    resource_size:num,
+    directory_offset:num,
+    insertion_virtual_address:num,
+    virtual_growth:num,
+    high_bytes:[str]
+) -> str:
+    directory_offset + 16 <= resource_size ?! "x64 compiler template has a truncated resource directory"
+    directory_raw_offset: resource_raw_offset + directory_offset
+    entry_count: (
+        _u16(image, directory_raw_offset + 12, high_bytes) +
+        _u16(image, directory_raw_offset + 14, high_bytes)
+    )
+    directory_offset + 16 + entry_count * 8 <= resource_size ?! "x64 compiler template has truncated resource entries"
+    updated: image
+    entry_index: 0
+    entry_raw_offset: 0
+    target: 0
+    target_offset: 0
+    data_raw_offset: 0
+    data_virtual_address: 0
+    (entry_index < entry_count)?>
+        .entry_raw_offset: directory_raw_offset + 16 + entry_index * 8
+        .target: _u32(image, entry_raw_offset + 4, high_bytes)
+        .target_offset: target % 2147483648
+        target >= 2147483648?
+            .updated: _relocate_resource_directory(
+                updated,
+                resource_raw_offset,
+                resource_size,
+                target_offset,
+                insertion_virtual_address,
+                virtual_growth,
+                high_bytes
+            )
+        target < 2147483648?
+            target_offset + 16 <= resource_size ?! "x64 compiler template has a truncated resource data entry"
+            .data_raw_offset: resource_raw_offset + target_offset
+            .data_virtual_address: _u32(
+                updated, data_raw_offset, high_bytes
+            )
+            data_virtual_address >= insertion_virtual_address?
+                .updated: _replace_u32(
+                    updated,
+                    data_raw_offset,
+                    data_virtual_address + virtual_growth,
+                    high_bytes
+                )
+        .entry_index+: 1
+    updated
+
 code_section(template:str, required_code_size:num, high_bytes:[str]):
     template_length: _byte_length(template)
     template_length >= 64 ?! "x64 compiler template has no complete DOS header"
@@ -307,6 +360,16 @@ materialize_code_section(
     directory_offset: 0
     directory_address: 0
     symbol_table_offset: 0
+    resource_directory_address: 0
+    resource_directory_size: 0
+    resource_section_index: 0
+    resource_raw_offset: -1
+    resource_candidate_header: 0
+    resource_candidate_virtual_size: 0
+    resource_candidate_virtual_address: 0
+    resource_candidate_raw_size: 0
+    resource_candidate_raw_offset: 0
+    resource_candidate_span: 0
     relocation_directory_address: 0
     relocation_directory_size: 0
     relocation_section_index: 0
@@ -411,6 +474,52 @@ materialize_code_section(
             .updated: _replace_u32(
                 updated, pe_offset + 12,
                 symbol_table_offset + raw_size, high_bytes
+            )
+        .resource_directory_address: _u32(
+            template, optional_header_offset + 112 + 2 * 8, high_bytes
+        )
+        .resource_directory_size: _u32(
+            template, optional_header_offset + 116 + 2 * 8, high_bytes
+        )
+        (resource_section_index < section_count)?>
+            .resource_candidate_header: (
+                section_table_offset + resource_section_index * 40
+            )
+            .resource_candidate_virtual_size: _u32(
+                template, resource_candidate_header + 8, high_bytes
+            )
+            .resource_candidate_virtual_address: _u32(
+                template, resource_candidate_header + 12, high_bytes
+            )
+            .resource_candidate_raw_size: _u32(
+                template, resource_candidate_header + 16, high_bytes
+            )
+            .resource_candidate_raw_offset: _u32(
+                template, resource_candidate_header + 20, high_bytes
+            )
+            .resource_candidate_span: resource_candidate_virtual_size
+            resource_candidate_raw_size > resource_candidate_span?
+                .resource_candidate_span: resource_candidate_raw_size
+            (
+                resource_directory_size > 0 /\
+                resource_directory_address >= resource_candidate_virtual_address /\
+                resource_directory_address + resource_directory_size <= resource_candidate_virtual_address + resource_candidate_span
+            )?
+                .resource_raw_offset: (
+                    resource_candidate_raw_offset +
+                    resource_directory_address - resource_candidate_virtual_address
+                )
+            .resource_section_index+: 1
+        resource_directory_size > 0?
+            resource_raw_offset >= 0 ?! "x64 compiler template has an unmapped resource directory"
+            .updated: _relocate_resource_directory(
+                updated,
+                resource_raw_offset,
+                resource_directory_size,
+                0,
+                virtual_address,
+                virtual_growth,
+                high_bytes
             )
         .relocation_directory_address: _u32(
             template, optional_header_offset + 112 + 5 * 8, high_bytes
