@@ -1,0 +1,28 @@
+{
+  "schema": "vektor-flow/pages-readme-browser-coverage",
+  "version": 1,
+  "base_commit": "f91cb6d0",
+  "browser_runnable_after_slice": ["readme-01"],
+  "clusters": [
+    {
+      "id": "vector-semantics",
+      "examples": ["readme-01", "readme-02"],
+      "requires": ["typed functions", "recursive vector lifting", "named axes", "elementwise and outer products"]
+    },
+    {
+      "id": "retained-display",
+      "examples": ["readme-03", "readme-04", "readme-05", "readme-06", "readme-07", "readme-08", "readme-09", "readme-10", "readme-11", "readme-15", "readme-16", "readme-19", "readme-20"],
+      "requires": ["module imports", "Display and Frame", "retained geometry packets", "camera and lights", "materials and textures", "HTML events", "World embedding"]
+    },
+    {
+      "id": "declarative-native-scene",
+      "examples": ["readme-12", "readme-13", "readme-14", "readme-17", "readme-18", "readme-21", "readme-22"],
+      "requires": ["records and nested collections", "native_scene packet lowering", "materials and lighting", "animation", "field meshes", "rigid bodies"]
+    },
+    {
+      "id": "control-and-benchmarks",
+      "examples": ["readme-23", "readme-24", "readme-25", "readme-26"],
+      "requires": ["functions and records", "mutable locals", "loops and match", "dynamic and fixed vectors", "math intrinsics", "large execution budgets"]
+    }
+  ]
+}

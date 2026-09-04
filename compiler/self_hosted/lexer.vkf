@@ -592,6 +592,12 @@ _tagged_function_punctuation_kind(ch:str) -> int:
         @: 18
     ch = "@"?
         @: 19
+    ch = "["?
+        @: 22
+    ch = "]"?
+        @: 23
+    ch = ","?
+        @: 24
     (ch = "-")?! "function token tape encountered unsupported punctuation"
     20
 

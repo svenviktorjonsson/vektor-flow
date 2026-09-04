@@ -85,6 +85,28 @@ test("terminal always appears below the editor and Result appears only for valid
   assert.deepEqual(events, ["start", ["terminal", "Program emitted UI output."], ["result", packets], "finish"]);
 });
 
+test("terminal renders VKF console values as one output line per emitted value", async () => {
+  const terminal = [];
+  const controller = createInlineExampleController({
+    runner: {
+      run: async () => ({
+        output: { kind: "console", values: [[2, 4, 6], [[2, 4], [6, 8]]] },
+        packets: null,
+      }),
+    },
+    view: {
+      start: () => {},
+      showTerminal: (value) => terminal.push(value),
+      hideResult: () => {},
+      showResult: () => {},
+      finish: () => {},
+    },
+  });
+
+  await controller.run("complete README vector example");
+  assert.deepEqual(terminal, ["[2,4,6]\n[[2,4],[6,8]]"]);
+});
+
 test("unsupported execution reports failure without a fallback Result", async () => {
   const events = [];
   const controller = createInlineExampleController({

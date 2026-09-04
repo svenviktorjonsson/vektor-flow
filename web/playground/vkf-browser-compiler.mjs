@@ -4,7 +4,7 @@ import {
 } from "../vf-ui/vf-symbolic-kernel-runtime.mjs";
 
 const ENTRY = "compile_tagged_dependency_tape";
-const RUN_ENTRY = "run_tagged_dependency_source";
+const RUN_ENTRY = "run_tagged_browser_source";
 const FORBIDDEN_CAPABILITIES = Object.freeze([
   [/(?:^|[^\p{L}\p{N}_])(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\s*\(/iu, "network"],
   [/(?:^|[^\p{L}\p{N}_])(?:network|http|server|socket)\s*\./iu, "network"],

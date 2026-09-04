@@ -1379,6 +1379,97 @@ run_tagged_dependency_source(source:str) -> num:
         statement.opcodes, statement.values, statement.max_stack
     )
 
+BrowserLiftedParse: (value:any, next:int)
+
+_browser_lifted_numeric_vector(
+    tape:any, index:int, factor:num, values:any
+) -> BrowserLiftedParse:
+    row: index * 6
+    tape.rows.(row) = 23?
+        @: (value:values, next:index + 1)
+    (tape.rows.(row) = 3)?! "lifted vector argument must contain numeric leaves"
+    value: tape.rows.(row + 3) * factor
+    next_row: (index + 1) * 6
+    next_kind: tape.rows.(next_row)
+    next_kind = 24?
+        @: _browser_lifted_numeric_vector(
+            tape, index + 2, factor, values & [value]
+        )
+    (next_kind = 23)?! "lifted vector argument requires comma or closing bracket"
+    (value:values & [value], next:index + 2)
+
+_browser_lifted_nested_vector(
+    tape:any, index:int, factor:num, values:any
+) -> BrowserLiftedParse:
+    (_browser_token_kind(tape, index) = 23)?
+        @: (value:values, next:index + 1)
+    (_browser_token_kind(tape, index) = 22)?! "nested lifted vector requires vector rows"
+    row: _browser_lifted_numeric_vector(tape, index + 1, factor, [])
+    next_kind: _browser_token_kind(tape, row.next)
+    next_kind = 24?
+        @: _browser_lifted_nested_vector(
+            tape, row.next + 1, factor, values & [row.value]
+        )
+    (next_kind = 23)?! "nested lifted vector requires comma or closing bracket"
+    (value:values & [row.value], next:row.next + 1)
+
+_browser_lifted_value(
+    tape:any, index:int, factor:num
+) -> BrowserLiftedParse:
+    row: index * 6
+    kind: tape.rows.(row)
+    kind = 3?
+        @: (value:tape.rows.(row + 3) * factor, next:index + 1)
+    (kind = 22)?! "lifted vector argument must contain numeric leaves"
+    _browser_token_kind(tape, index + 1) = 22?
+        @: _browser_lifted_nested_vector(tape, index + 1, factor, [])
+    _browser_lifted_numeric_vector(tape, index + 1, factor, [])
+
+_browser_token_text(tape:any, index:int) -> str:
+    row: index * 6
+    vkf_utf8_slice(tape.source, tape.rows.(row + 1), tape.rows.(row + 2))
+
+_browser_token_kind(tape:any, index:int) -> int:
+    tape.rows.(index * 6)
+
+_browser_lifted_vector_function_matches(tape:any) -> bit:
+    tape.count > 20 /\ tape.rows.0 = 1 /\ tape.rows.6 = 13 /\ tape.rows.12 = 1 /\
+    tape.rows.18 = 15 /\ tape.rows.24 = 1 /\ tape.rows.30 = 14 /\
+    tape.rows.36 = 20 /\ tape.rows.42 = 17 /\ tape.rows.48 = 1 /\
+    tape.rows.54 = 15 /\ tape.rows.60 = 1 /\ tape.rows.66 = 7 /\
+    tape.rows.72 = 3 /\ _browser_token_text(tape, 4) = "int" /\
+    _browser_token_text(tape, 8) = "int"
+
+_run_tagged_lifted_vector_function(tape:any) -> any:
+    _browser_lifted_vector_function_matches(tape)?! "lifted vector function declaration changed"
+    function_name: _browser_token_text(tape, 0)
+    parameter_name: _browser_token_text(tape, 2)
+    (_browser_token_text(tape, 10) = parameter_name)?! "lifted vector body must load its parameter"
+    factor: tape.rows.(75)
+    index: 13
+    (index < tape.count /\ _browser_token_kind(tape, index) = 4)?>
+        .index+: 1
+    outputs: []
+    (_browser_token_kind(tape, index) != 5)?>
+        (_browser_token_kind(tape, index) = 15 /\
+            _browser_token_kind(tape, index + 1) = 15 /\
+            _browser_token_kind(tape, index + 2) = 1 /\
+            _browser_token_kind(tape, index + 3) = 13)?! "lifted vector output call changed"
+        (_browser_token_text(tape, index + 2) = function_name)?! "lifted vector output must call the declared function"
+        parsed: _browser_lifted_value(tape, index + 4, factor)
+        (_browser_token_kind(tape, parsed.next) = 14)?! "lifted vector output call requires a closing parenthesis"
+        .outputs: outputs & [parsed.value]
+        .index: parsed.next + 1
+        (index < tape.count /\ _browser_token_kind(tape, index) = 4)?>
+            .index+: 1
+    (kind:"console", values:outputs)
+
+run_tagged_browser_source(source:str) -> any:
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    _browser_lifted_vector_function_matches(tokens)?
+        @: _run_tagged_lifted_vector_function(tokens)
+    run_tagged_dependency_source(source)
+
 compile_tagged_numeric_function_call(source:str):
     tokens: lexer.tagged_numeric_function_token_tape(source)
     parsed: parser.parse_tagged_numeric_function_call(
