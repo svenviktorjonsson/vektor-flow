@@ -8,7 +8,10 @@ keeping tuples and records explicit.**
 Vektor Flow (VKF) is an experimental language for compact native programs,
 structured data, mathematics, and eventually visual applications.
 
-**[Try VKF live at vektorflow.org](https://vektorflow.org/)** — every VKF block on this page is editable in place and runs client-side through WebAssembly when that compiler path is supported. Unsupported programs fail clearly; there is no server execution or fallback rendering.
+**[Try VKF live at vektorflow.org](https://vektorflow.org/)** — every VKF
+block on this page is editable in place and runs client-side through WebAssembly
+when that compiler path is supported. Unsupported programs fail clearly; there
+is no server execution or fallback rendering.
 
 > [!WARNING]
 > VKF 0.4.0 is an unsupported experimental preview. It has bugs, incomplete
