@@ -275,6 +275,26 @@
       "parameters": 1,
       "resultType": 1
     },
+    "_browser_decimal_at": {
+      "index": 137,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_dense_composition": {
+      "index": 145,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_dense_term": {
+      "index": 143,
+      "parameters": 5,
+      "resultType": 6
+    },
+    "_browser_dense_transform": {
+      "index": 144,
+      "parameters": 3,
+      "resultType": 1
+    },
     "_browser_display_bracket_stop": {
       "index": 67,
       "parameters": 3,
@@ -350,6 +370,16 @@
       "parameters": 3,
       "resultType": 1
     },
+    "_browser_function_name": {
+      "index": 139,
+      "parameters": 2,
+      "resultType": 4
+    },
+    "_browser_function_parameter": {
+      "index": 140,
+      "parameters": 2,
+      "resultType": 4
+    },
     "_browser_inline_space_only": {
       "index": 127,
       "parameters": 3,
@@ -383,6 +413,16 @@
     "_browser_lifted_vector_function_matches": {
       "index": 123,
       "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_line_start_before": {
+      "index": 136,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_line_start_before_walk": {
+      "index": 135,
+      "parameters": 4,
       "resultType": 1
     },
     "_browser_named_axis_source_matches": {
@@ -459,6 +499,26 @@
       "index": 105,
       "parameters": 4,
       "resultType": 6
+    },
+    "_browser_numeric_range": {
+      "index": 138,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_power_final_multiplier": {
+      "index": 147,
+      "parameters": 2,
+      "resultType": 2
+    },
+    "_browser_power_method_source_matches": {
+      "index": 148,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_power_state": {
+      "index": 146,
+      "parameters": 3,
+      "resultType": 1
     },
     "_browser_record_list_count": {
       "index": 109,
@@ -580,6 +640,11 @@
       "parameters": 4,
       "resultType": 1
     },
+    "_browser_token_is": {
+      "index": 142,
+      "parameters": 4,
+      "resultType": 1
+    },
     "_browser_token_kind": {
       "index": 122,
       "parameters": 2,
@@ -614,6 +679,11 @@
       "index": 72,
       "parameters": 4,
       "resultType": 1
+    },
+    "_browser_vector_return_size": {
+      "index": 141,
+      "parameters": 2,
+      "resultType": 2
     },
     "_browser_world_argument_start": {
       "index": 63,
@@ -651,12 +721,17 @@
       "resultType": 1
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 135,
+      "index": 150,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_named_axis_source": {
       "index": 125,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_run_tagged_power_method_source": {
+      "index": 149,
       "parameters": 1,
       "resultType": 1
     },
@@ -676,7 +751,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 136,
+      "index": 151,
       "parameters": 2,
       "resultType": 2
     },
@@ -688,11 +763,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 242808,
-    "bytecodeLength": 242802,
+    "argumentsPointer": 270136,
+    "bytecodeLength": 270134,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 243064
+    "resultsPointer": 270392
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

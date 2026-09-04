@@ -4886,6 +4886,464 @@ _run_tagged_basic_syntax_source(source:str) -> any:
         ]
     )
 
+BrowserNumericRange: (bound:num, variable:str, next:int)
+BrowserDenseTransform: (
+    name:str,
+    parameter:str,
+    size:num,
+    numerator:num,
+    diagonal_shift:num,
+    diagonal_divisor:num,
+    offset:num,
+    axis:int
+)
+BrowserDenseComposition: (name:str, parameter:str, outer:str, inner:str)
+BrowserPowerState: (
+    state_name:str,
+    first_name:str,
+    second_name:str,
+    first_fill:num,
+    second_fill:num,
+    size:num
+)
+
+_browser_line_start_before_walk(
+    source:str, index:int, target:int, latest:int
+) -> int:
+    index >= target?
+        @: latest
+    next: vkf_utf8_advance(source, index)
+    vkf_string_peek_scalar(source, index) = 10?
+        @: _browser_line_start_before_walk(source, next, target, next)
+    _browser_line_start_before_walk(source, next, target, latest)
+
+_browser_line_start_before(source:str, target:int) -> int:
+    _browser_line_start_before_walk(source, 0, target, 0)
+
+_browser_decimal_at(source:str, offset:int) -> any:
+    start: _browser_inline_space_start(source, offset)
+    stop: vkf_decimal_scan_end(source, start)
+    (stop > start)?! "browser numeric program requires a decimal literal"
+    (value:vkf_decimal_parse(vkf_utf8_slice(source, start, stop)), next:stop)
+
+_browser_numeric_range(source:str, offset:int) -> BrowserNumericRange:
+    _browser_source_starts_with(source, offset, "..", 0)?! "browser numeric range requires '..'"
+    first: _browser_decimal_at(source, offset + 2)
+    cursor: _browser_inline_space_start(source, first.next)
+    bound: first.value
+    vkf_string_peek_scalar(source, cursor) = 45?
+        second: _browser_decimal_at(source, cursor + 1)
+        .bound: bound - second.value
+        .cursor: _browser_inline_space_start(source, second.next)
+    _browser_source_starts_with(source, cursor, ">>", 0)?! "browser numeric range requires '>>'"
+    line_stop: _browser_basic_line_stop(source, cursor)
+    variable_start: _browser_inline_space_start(source, line_stop + 1)
+    variable_stop: _browser_find_source(source, variable_start, ":")
+    variable_line_stop: _browser_basic_line_stop(source, variable_start)
+    ~(variable_stop > variable_start /\ variable_stop < variable_line_stop)?
+        @: (bound:bound, variable:"", next:line_stop + 1)
+    value_start: _browser_inline_space_start(source, variable_stop + 1)
+    vkf_string_peek_scalar(source, value_start) != 36?
+        @: (bound:bound, variable:"", next:line_stop + 1)
+    _browser_inline_space_only(
+        source, vkf_utf8_advance(source, value_start), variable_line_stop
+    )?! "browser numeric range index binding contains unsupported syntax"
+    (
+        bound:bound,
+        variable:vkf_utf8_slice(source, variable_start, variable_stop),
+        next:variable_line_stop + 1
+    )
+
+_browser_function_name(source:str, arrow:int) -> str:
+    line_start: _browser_line_start_before(source, arrow)
+    open: _browser_find_source(source, line_start, "(")
+    (open > line_start /\ open < arrow)?! "browser numeric function name is invalid"
+    vkf_utf8_slice(source, line_start, open)
+
+_browser_function_parameter(source:str, arrow:int) -> str:
+    line_start: _browser_line_start_before(source, arrow)
+    open: _browser_find_source(source, line_start, "(")
+    colon: _browser_find_source(source, open, ":")
+    (open >= 0 /\ colon > open /\ colon < arrow)?! "browser numeric function parameter is invalid"
+    vkf_utf8_slice(source, open + 1, colon)
+
+_browser_vector_return_size(source:str, arrow:int) -> num:
+    size_start: _browser_find_source(source, arrow, "[num:")
+    (size_start > arrow)?! "browser numeric vector result size is missing"
+    size: _browser_decimal_at(source, size_start + 5)
+    cursor: _browser_inline_space_start(source, size.next)
+    (vkf_string_peek_scalar(source, cursor) = 93)?! "browser numeric vector result size is malformed"
+    size.value
+
+_browser_token_is(tape:any, index:int, kind:int, text:str) -> bit:
+    (index < tape.count /\ _browser_token_kind(tape, index) = kind /\
+        (text = "" \/ _browser_token_text(tape, index) = text))
+
+_browser_dense_term(
+    source:str,
+    diagonal:str,
+    outer:str,
+    inner:str,
+    parameter:str
+) -> any:
+    tape: lexer.tagged_numeric_function_token_tape(source)
+    (tape.count = 26 /\
+        _browser_token_is(tape, 0, 13, "(") /\
+        _browser_token_is(tape, 1, 3, "") /\
+        _browser_token_is(tape, 2, 9, "/") /\
+        _browser_token_is(tape, 3, 13, "(") /\
+        _browser_token_is(tape, 4, 1, diagonal) /\
+        _browser_token_is(tape, 5, 7, "*") /\
+        _browser_token_is(tape, 6, 13, "(") /\
+        _browser_token_is(tape, 7, 1, diagonal) /\
+        _browser_token_is(tape, 8, 2, "+") /\
+        _browser_token_is(tape, 9, 3, "") /\
+        _browser_token_is(tape, 10, 14, ")") /\
+        _browser_token_is(tape, 11, 9, "/") /\
+        _browser_token_is(tape, 12, 3, "") /\
+        _browser_token_is(tape, 13, 2, "+") /\
+        _browser_token_is(tape, 14, 1, "") /\
+        _browser_token_is(tape, 15, 2, "+") /\
+        _browser_token_is(tape, 16, 3, "") /\
+        _browser_token_is(tape, 17, 14, ")") /\
+        _browser_token_is(tape, 18, 14, ")") /\
+        _browser_token_is(tape, 19, 7, "*") /\
+        _browser_token_is(tape, 20, 1, parameter) /\
+        _browser_token_is(tape, 21, 16, ".") /\
+        _browser_token_is(tape, 22, 13, "(") /\
+        _browser_token_is(tape, 23, 1, inner) /\
+        _browser_token_is(tape, 24, 14, ")") /\
+        _browser_token_is(tape, 25, 5, ""))?! "browser dense transform expression is unsupported"
+    axis_name: _browser_token_text(tape, 14)
+    axis: 0
+    axis_name = inner?
+        .axis: 1
+    (axis_name = outer \/ axis_name = inner)?! "browser dense transform axis is unknown"
+    (
+        numerator:tape.rows.(1 * 6 + 3),
+        diagonal_shift:tape.rows.(9 * 6 + 3),
+        diagonal_divisor:tape.rows.(12 * 6 + 3),
+        offset:tape.rows.(16 * 6 + 3),
+        axis:axis
+    )
+
+_browser_dense_transform(
+    source:str, arrow:int, stop:int
+) -> BrowserDenseTransform:
+    name: _browser_function_name(source, arrow)
+    parameter: _browser_function_parameter(source, arrow)
+    size: _browser_vector_return_size(source, arrow)
+    (size >= 1 /\ size <= 2048 /\ size // 1 = size)?! "browser numeric vector size exceeds the bounded runtime"
+    body_start: _browser_basic_line_stop(source, arrow) + 1
+    output_start: _browser_find_source(source, body_start, "output: [0:")
+    (output_start >= body_start /\ output_start < stop)?! "browser dense transform requires vector allocation"
+    allocation: _browser_decimal_at(source, output_start + 11)
+    (allocation.value = size)?! "browser dense transform allocation disagrees with its result type"
+    outer_start: _browser_find_source(source, allocation.next, "..")
+    (outer_start >= 0 /\ outer_start < stop)?! "browser dense transform requires an outer range"
+    outer: _browser_numeric_range(source, outer_start)
+    (outer.variable != "" /\ outer.bound + 1 = size)?! "browser dense transform outer range disagrees with its vector size"
+    total_start: _browser_find_source(source, outer.next, "total: 0")
+    inner_start: _browser_find_source(source, outer.next, "..")
+    (total_start >= outer.next /\ total_start < inner_start /\ inner_start < stop)?! "browser dense transform requires a zero reduction and inner range"
+    inner: _browser_numeric_range(source, inner_start)
+    (inner.variable != "" /\ inner.bound + 1 = size)?! "browser dense transform inner range disagrees with its vector size"
+    diagonal_start: _browser_inline_space_start(source, inner.next)
+    diagonal_colon: _browser_find_source(source, diagonal_start, ":")
+    diagonal_stop: _browser_basic_line_stop(source, diagonal_start)
+    (diagonal_colon > diagonal_start /\ diagonal_colon < diagonal_stop)?! "browser dense transform diagonal binding is invalid"
+    diagonal_name: vkf_utf8_slice(source, diagonal_start, diagonal_colon)
+    diagonal_tape: lexer.tagged_numeric_function_token_tape(
+        vkf_utf8_slice(source, diagonal_colon + 1, diagonal_stop)
+    )
+    diagonal_forward: (
+        _browser_token_is(diagonal_tape, 0, 1, outer.variable) /\
+        _browser_token_is(diagonal_tape, 2, 1, inner.variable)
+    )
+    diagonal_reverse: (
+        _browser_token_is(diagonal_tape, 0, 1, inner.variable) /\
+        _browser_token_is(diagonal_tape, 2, 1, outer.variable)
+    )
+    (diagonal_tape.count = 4 /\ (diagonal_forward \/ diagonal_reverse) /\
+        _browser_token_is(diagonal_tape, 1, 2, "+") /\
+        _browser_token_is(diagonal_tape, 3, 5, ""))?! "browser dense transform diagonal expression is unsupported"
+    update_start: _browser_inline_space_start(source, diagonal_stop + 1)
+    _browser_source_starts_with(source, update_start, ".total+:", 0)?! "browser dense transform reduction update is invalid"
+    update_stop: _browser_basic_line_stop(source, update_start)
+    term: _browser_dense_term(
+        vkf_utf8_slice(source, update_start + 8, update_stop),
+        diagonal_name, outer.variable, inner.variable, parameter
+    )
+    output_store: _browser_find_source(source, update_stop, "output.(")
+    return_start: _browser_find_source(source, output_store, "@: output")
+    (output_store > update_stop /\ output_store < return_start /\ return_start < stop)?! "browser dense transform indexed store or return is missing"
+    (
+        name:name,
+        parameter:parameter,
+        size:size,
+        numerator:term.numerator,
+        diagonal_shift:term.diagonal_shift,
+        diagonal_divisor:term.diagonal_divisor,
+        offset:term.offset,
+        axis:term.axis
+    )
+
+_browser_dense_composition(
+    source:str, arrow:int, stop:int
+) -> BrowserDenseComposition:
+    name: _browser_function_name(source, arrow)
+    parameter: _browser_function_parameter(source, arrow)
+    body_start: _browser_inline_space_start(
+        source, _browser_basic_line_stop(source, arrow) + 1
+    )
+    body_stop: _browser_basic_line_stop(source, body_start)
+    (body_stop <= stop)?! "browser vector composition body is invalid"
+    tape: lexer.tagged_numeric_function_token_tape(
+        vkf_utf8_slice(source, body_start, body_stop)
+    )
+    (tape.count = 8 /\
+        _browser_token_is(tape, 0, 1, "") /\
+        _browser_token_is(tape, 1, 13, "(") /\
+        _browser_token_is(tape, 2, 1, "") /\
+        _browser_token_is(tape, 3, 13, "(") /\
+        _browser_token_is(tape, 4, 1, parameter) /\
+        _browser_token_is(tape, 5, 14, ")") /\
+        _browser_token_is(tape, 6, 14, ")") /\
+        _browser_token_is(tape, 7, 5, ""))?! "browser vector composition expression is unsupported"
+    (
+        name:name,
+        parameter:parameter,
+        outer:_browser_token_text(tape, 0),
+        inner:_browser_token_text(tape, 2)
+    )
+
+_browser_dense_transform_by_name(
+    first:BrowserDenseTransform,
+    second:BrowserDenseTransform,
+    name:str,
+    values:any
+) -> any:
+    name = first.name?
+        @: _browser_execute_dense_transform(first, values)
+    name = second.name?
+        @: _browser_execute_dense_transform(second, values)
+    false?! "browser vector composition calls an unknown transform"
+    values
+
+_browser_execute_dense_transform(
+    transform:BrowserDenseTransform, values:any
+) -> any:
+    (values.length() = transform.size)?! "browser dense transform input size mismatch"
+    [num] output: [0:transform.size]
+    i: 0
+    (i < transform.size)?>
+        total: 0
+        j: 0
+        (j < transform.size)?>
+            diagonal: i + j
+            axis_value: i
+            transform.axis = 1?
+                .axis_value: j
+            denominator: (
+                diagonal * (diagonal + transform.diagonal_shift) /
+                transform.diagonal_divisor + axis_value + transform.offset
+            )
+            (denominator != 0)?! "browser dense transform divided by zero"
+            .total+: transform.numerator / denominator * values.(j)
+            .j+: 1
+        output.(i): total
+        .i+: 1
+    output
+
+_browser_execute_dense_composition(
+    composition:BrowserDenseComposition,
+    first:BrowserDenseTransform,
+    second:BrowserDenseTransform,
+    values:any
+) -> any:
+    inner: _browser_dense_transform_by_name(
+        first, second, composition.inner, values
+    )
+    _browser_dense_transform_by_name(
+        first, second, composition.outer, inner
+    )
+
+_browser_power_state(source:str, driver_start:int, size:num) -> BrowserPowerState:
+    state_start: _browser_find_source(source, driver_start, "state: (")
+    (state_start >= driver_start)?! "browser power iteration state is missing"
+    state_stop: _browser_basic_line_stop(source, state_start)
+    tape: lexer.tagged_numeric_function_token_tape(
+        vkf_utf8_slice(source, state_start, state_stop)
+    )
+    (tape.count = 20 /\
+        _browser_token_is(tape, 0, 1, "") /\
+        _browser_token_is(tape, 1, 15, ":") /\
+        _browser_token_is(tape, 2, 13, "(") /\
+        _browser_token_is(tape, 3, 1, "") /\
+        _browser_token_is(tape, 4, 15, ":") /\
+        _browser_token_is(tape, 5, 22, "[") /\
+        _browser_token_is(tape, 6, 3, "") /\
+        _browser_token_is(tape, 7, 15, ":") /\
+        _browser_token_is(tape, 8, 3, "") /\
+        _browser_token_is(tape, 9, 23, "]") /\
+        _browser_token_is(tape, 10, 24, ",") /\
+        _browser_token_is(tape, 11, 1, "") /\
+        _browser_token_is(tape, 12, 15, ":") /\
+        _browser_token_is(tape, 13, 22, "[") /\
+        _browser_token_is(tape, 14, 3, "") /\
+        _browser_token_is(tape, 15, 15, ":") /\
+        _browser_token_is(tape, 16, 3, "") /\
+        _browser_token_is(tape, 17, 23, "]") /\
+        _browser_token_is(tape, 18, 14, ")") /\
+        _browser_token_is(tape, 19, 5, ""))?! "browser power iteration state contains unsupported syntax"
+    first_size: tape.rows.(8 * 6 + 3)
+    second_size: tape.rows.(16 * 6 + 3)
+    (first_size = size /\ second_size = size)?! "browser power iteration state size mismatch"
+    (
+        state_name:_browser_token_text(tape, 0),
+        first_name:_browser_token_text(tape, 3),
+        second_name:_browser_token_text(tape, 11),
+        first_fill:tape.rows.(6 * 6 + 3),
+        second_fill:tape.rows.(14 * 6 + 3),
+        size:size
+    )
+
+_browser_filled_vector(size:num, value:num) -> any:
+    [num] values: [0:size]
+    index: 0
+    (index < size)?>
+        values.(index): value
+        .index+: 1
+    values
+
+_browser_power_final_multiplier(source:str, return_start:int) -> num:
+    return_stop: _browser_basic_line_stop(source, return_start)
+    tape: lexer.tagged_numeric_function_token_tape(
+        vkf_utf8_slice(source, return_start + 2, return_stop)
+    )
+    base: (
+        tape.count >= 11 /\
+        _browser_token_is(tape, 0, 1, "sqrt") /\
+        _browser_token_is(tape, 1, 13, "(") /\
+        _browser_token_is(tape, 2, 1, "result") /\
+        _browser_token_is(tape, 3, 16, ".") /\
+        _browser_token_is(tape, 4, 1, "numerator") /\
+        _browser_token_is(tape, 5, 9, "/") /\
+        _browser_token_is(tape, 6, 1, "result") /\
+        _browser_token_is(tape, 7, 16, ".") /\
+        _browser_token_is(tape, 8, 1, "denominator") /\
+        _browser_token_is(tape, 9, 14, ")")
+    )
+    base /\ _browser_token_is(tape, 10, 5, "")?
+        @: 1
+    (tape.count = 13 /\ base /\
+        _browser_token_is(tape, 10, 7, "*") /\
+        _browser_token_is(tape, 11, 3, "") /\
+        _browser_token_is(tape, 12, 5, ""))?! "browser power result expression is unsupported"
+    tape.rows.(11 * 6 + 3)
+
+_browser_power_method_source_matches(source:str) -> bit:
+    (_browser_find_source(source, 0, ":.math") >= 0 /\
+        _browser_find_source(source, 0, ") -> [num:") >= 0 /\
+        _browser_find_source(source, 0, "output: [0:") >= 0 /\
+        _browser_find_source(source, 0, "state: (") >= 0 /\
+        _browser_find_source(source, 0, "sqrt(") >= 0 /\
+        _browser_find_source(source, 0, ":: ") >= 0)
+
+_run_tagged_power_method_source(source:str) -> any:
+    first_arrow: _browser_find_source(source, 0, ") -> [num:")
+    second_arrow: _browser_find_source(source, first_arrow + 1, ") -> [num:")
+    third_arrow: _browser_find_source(source, second_arrow + 1, ") -> [num:")
+    fourth_arrow: _browser_find_source(source, third_arrow + 1, ") -> [num:")
+    driver_arrow: _browser_find_source(source, third_arrow + 1, ") -> num:")
+    (first_arrow >= 0 /\ second_arrow > first_arrow /\ third_arrow > second_arrow /\
+        fourth_arrow < 0 /\ driver_arrow > third_arrow)?! "browser power program function graph is unsupported"
+    second_start: _browser_line_start_before(source, second_arrow)
+    third_start: _browser_line_start_before(source, third_arrow)
+    driver_start: _browser_line_start_before(source, driver_arrow)
+    first: _browser_dense_transform(source, first_arrow, second_start)
+    second: _browser_dense_transform(source, second_arrow, third_start)
+    (first.size = second.size)?! "browser composed transforms require matching vector sizes"
+    composition: _browser_dense_composition(source, third_arrow, driver_start)
+    state: _browser_power_state(source, driver_start, first.size)
+    iteration_start: _browser_find_source(
+        source, _browser_basic_line_stop(source, _browser_find_source(source, driver_start, "state: (")), ".."
+    )
+    iteration: _browser_numeric_range(source, iteration_start)
+    steps: iteration.bound + 1
+    (steps >= 1 /\ steps <= 64 /\ steps // 1 = steps)?! "browser power iteration count exceeds the bounded runtime"
+    work: first.size * first.size * steps * 4
+    (work <= 20000000)?! "browser power program exceeds its operation budget"
+    first_assignment: _browser_find_source(
+        source, iteration.next,
+        state.state_name & "." & state.second_name & ":"
+    )
+    second_assignment: _browser_find_source(
+        source, first_assignment + 1,
+        state.state_name & "." & state.first_name & ":"
+    )
+    (first_assignment >= 0 /\ second_assignment > first_assignment)?! "browser power iteration assignments are missing"
+    first_call: _browser_find_source(source, first_assignment, composition.name)
+    second_call: _browser_find_source(source, second_assignment, composition.name)
+    (first_call > first_assignment /\ first_call < second_assignment /\ second_call > second_assignment)?! "browser power iteration must call its vector composition"
+    first_expected: (
+        state.state_name & "." & state.second_name & ": " &
+        composition.name & "(" & state.state_name & "." & state.first_name & ")"
+    )
+    second_expected: (
+        state.state_name & "." & state.first_name & ": " &
+        composition.name & "(" & state.state_name & "." & state.second_name & ")"
+    )
+    first_stop: _browser_basic_line_stop(source, first_assignment)
+    second_stop: _browser_basic_line_stop(source, second_assignment)
+    (_browser_source_starts_with(source, first_assignment, first_expected, 0) /\
+        _browser_inline_space_only(
+            source, first_assignment + first_expected.length(), first_stop
+        ))?! "browser power first assignment contains unsupported syntax"
+    (_browser_source_starts_with(source, second_assignment, second_expected, 0) /\
+        _browser_inline_space_only(
+            source, second_assignment + second_expected.length(), second_stop
+        ))?! "browser power second assignment contains unsupported syntax"
+    result_start: _browser_find_source(source, second_assignment, "result: (numerator:0, denominator:0)")
+    reduction_start: _browser_find_source(source, result_start, "..")
+    (result_start > second_assignment /\ reduction_start > result_start)?! "browser power reduction is missing"
+    reduction: _browser_numeric_range(source, reduction_start)
+    (reduction.bound + 1 = state.size)?! "browser power reduction size mismatch"
+    numerator_update: _browser_find_source(source, reduction.next, "result.numerator +: u.(\$) * v.(\$)")
+    denominator_update: _browser_find_source(source, reduction.next, "result.denominator +: v.(\$) * v.(\$)")
+    (numerator_update >= 0 /\ denominator_update > numerator_update)?! "browser power reduction expression is unsupported"
+    return_start: _browser_find_source(source, denominator_update, "@: ")
+    (return_start > denominator_update)?! "browser power result is missing"
+    multiplier: _browser_power_final_multiplier(source, return_start)
+    driver_name: _browser_function_name(source, driver_arrow)
+    top_start: _browser_find_source(
+        source, _browser_basic_line_stop(source, return_start), ":: "
+    )
+    top_expected: ":: " & driver_name & "()"
+    top_stop: _browser_basic_line_stop(source, top_start)
+    (top_start >= 0 /\
+        _browser_source_starts_with(source, top_start, top_expected, 0) /\
+        _browser_inline_space_only(
+            source, top_start + top_expected.length(), top_stop
+        ))?! "browser power top-level call contains unsupported syntax"
+    inner: first
+    composition.inner = second.name?
+        .inner: second
+    (composition.inner = first.name \/ composition.inner = second.name)?! "browser vector composition inner transform is unknown"
+    outer: first
+    composition.outer = second.name?
+        .outer: second
+    (composition.outer = first.name \/ composition.outer = second.name)?! "browser vector composition outer transform is unknown"
+    value: vkf_dense_power([
+        state.size, steps,
+        inner.numerator, inner.diagonal_shift, inner.diagonal_divisor,
+        inner.offset, inner.axis,
+        outer.numerator, outer.diagonal_shift, outer.diagonal_divisor,
+        outer.offset, outer.axis,
+        state.first_fill, state.second_fill, multiplier
+    ])
+    (kind:"console", values:[value])
+
 _run_tagged_lifted_vector_function(tape:any) -> any:
     _browser_lifted_vector_function_matches(tape)?! "lifted vector function declaration changed"
     function_name: _browser_token_text(tape, 0)
@@ -4911,6 +5369,8 @@ _run_tagged_lifted_vector_function(tape:any) -> any:
     (kind:"console", values:outputs)
 
 run_tagged_browser_source(source:str, packet_index:int) -> any:
+    _browser_power_method_source_matches(source)?
+        @: _run_tagged_power_method_source(source)
     _browser_basic_syntax_source_matches(source)?
         @: _run_tagged_basic_syntax_source(source)
     _browser_native_rigid_source_matches(source)?

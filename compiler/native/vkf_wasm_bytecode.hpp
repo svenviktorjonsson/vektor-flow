@@ -101,6 +101,7 @@ enum class Opcode : std::uint16_t {
     StringLessEqual = 67,
     StringGreater = 68,
     StringGreaterEqual = 69,
+    DensePower = 70,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -201,7 +202,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::StringGreaterEqual);
+        <= static_cast<std::uint16_t>(Opcode::DensePower);
 }
 
 inline bool is_valid_utf8(const std::string& value) {

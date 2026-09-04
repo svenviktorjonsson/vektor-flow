@@ -2027,6 +2027,12 @@ private:
                 ValueType::Number
             )
             || bind(
+                "vkf_dense_power",
+                1,
+                Opcode::DensePower,
+                ValueType::Number
+            )
+            || bind(
                 "vkf_math_atan2",
                 2,
                 Opcode::Atan2,

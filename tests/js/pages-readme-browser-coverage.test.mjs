@@ -723,6 +723,45 @@ test("browser compiler runs the complete README basic-syntax fence", async () =>
   );
 });
 
+test("browser compiler runs the complete README spectral-norm fence", { timeout: 10_000 }, async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-24");
+
+  assert.deepEqual({ ...compiler.run(example.source) }, {
+    kind: "console",
+    values: [1.2742241159529069],
+  });
+  assert.deepEqual({ ...compiler.run(example.source.replace(
+    "sqrt(result.numerator / result.denominator)",
+    "sqrt(result.numerator / result.denominator) * 2",
+  )) }, {
+    kind: "console",
+    values: [2.5484482319058137],
+  });
+  const fewerIterations = compiler.run(example.source.replace("..9 >>", "..1 >>"));
+  assert.equal(fewerIterations.kind, "console");
+  assert.equal(Math.round(fewerIterations.values[0] * 1e14) / 1e14, 1.27422411594123);
+  assert.throws(
+    () => compiler.run(example.source.replace("sqrt(", "cbrt(")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(example.source.replace(
+      "state.v: multiply_at_av(state.u)",
+      "state.v: multiply_at_av(state.v)",
+    )),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(example.source.replace(":: spectral_norm()", ":: multiply_at_av()")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(example.source.replaceAll("500", "1000000")),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -740,6 +779,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 22);
+  assert.equal(runnable.length, 23);
   assert.equal(examples.length, 26);
 });
