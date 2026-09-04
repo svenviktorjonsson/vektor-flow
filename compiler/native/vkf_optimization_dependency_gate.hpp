@@ -3,6 +3,7 @@
 #include "compiler/native/vkf_machine_ir.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,6 +21,8 @@ enum class Reason {
     TransitiveOwnedResource,
     TransitiveUnclassifiedOperation,
     ValueDependency,
+    ParameterProvenanceUnknown,
+    MutableBorrowUnknown,
     MutableAliasUnknown,
     MissingFunction,
     SameFunction,
@@ -40,6 +43,9 @@ inline std::string_view reason_name(Reason reason) {
         case Reason::TransitiveUnclassifiedOperation:
             return "transitive-unclassified-operation";
         case Reason::ValueDependency: return "value-dependency";
+        case Reason::ParameterProvenanceUnknown:
+            return "parameter-provenance-unknown";
+        case Reason::MutableBorrowUnknown: return "mutable-borrow-unknown";
         case Reason::MutableAliasUnknown: return "mutable-alias-unknown";
         case Reason::MissingFunction: return "missing-function";
         case Reason::SameFunction: return "same-function";
@@ -64,6 +70,9 @@ struct Receipt {
     bool effects_proven_absent = false;
     bool value_knowledge_complete = false;
     bool values_proven_independent = false;
+    bool parameter_provenance_complete = false;
+    bool borrow_regions_complete = false;
+    bool mutable_borrows_proven_disjoint = false;
     bool alias_knowledge_complete = false;
     bool mutable_aliases_proven_disjoint = false;
     bool resolved_call_graph = false;
@@ -171,6 +180,71 @@ inline bool direct_mutable_alias_unknown(
         );
 }
 
+inline Reason parameter_call_reason(
+    const machine_ir::Function& caller,
+    std::size_t instruction_index,
+    const machine_ir::Function& callee
+) {
+    const auto& call = caller.instructions[instruction_index];
+    const auto parameter_count = callee.parameters.size();
+    if (call.argument_count != parameter_count || call.result_count != 1u ||
+        parameter_count > 32u) {
+        return Reason::ParameterProvenanceUnknown;
+    }
+    if (parameter_count == 0u) {
+        return call.provided_parameter_mask == 0u
+            ? Reason::Independent
+            : Reason::ParameterProvenanceUnknown;
+    }
+    if (instruction_index < parameter_count) {
+        return Reason::ParameterProvenanceUnknown;
+    }
+    if (callee.parameter_is_numeric_scalar.size() != parameter_count ||
+        callee.locals.size() < parameter_count ||
+        callee.local_classes.size() < parameter_count ||
+        !std::equal(
+            callee.parameters.begin(), callee.parameters.end(),
+            callee.locals.begin()
+        ) ||
+        !std::all_of(
+            callee.parameter_is_numeric_scalar.begin(),
+            callee.parameter_is_numeric_scalar.end(),
+            [](bool numeric) { return numeric; }
+        ) ||
+        !std::all_of(
+            callee.local_classes.begin(),
+            callee.local_classes.begin() +
+                static_cast<std::ptrdiff_t>(parameter_count),
+            [](machine_ir::ValueClass value_class) {
+                return value_class == machine_ir::ValueClass::F64;
+            }
+        ) || !callee.result_is_numeric_scalar || callee.parameter_mask_local ||
+        call.owns_input || call.owns_left || call.owns_right) {
+        return Reason::MutableBorrowUnknown;
+    }
+    const auto provided_mask = parameter_count == 32u
+        ? 0xffffffffu
+        : (1u << parameter_count) - 1u;
+    if (call.provided_parameter_mask != provided_mask) {
+        return Reason::ParameterProvenanceUnknown;
+    }
+    for (std::size_t offset = 0; offset < parameter_count; ++offset) {
+        if (caller.instructions[
+                instruction_index - parameter_count + offset
+            ].opcode != machine_ir::Opcode::PushF64) {
+            return Reason::ParameterProvenanceUnknown;
+        }
+    }
+    for (const auto& instruction : callee.instructions) {
+        if ((instruction.opcode == machine_ir::Opcode::StoreLocal ||
+             instruction.opcode == machine_ir::Opcode::StoreF64LocalsIndex) &&
+            instruction.index < parameter_count) {
+            return Reason::MutableBorrowUnknown;
+        }
+    }
+    return Reason::Independent;
+}
+
 inline Receipt analyze_module(const machine_ir::Module& module) {
     Receipt receipt;
     receipt.functions.reserve(module.functions.size() + 1u);
@@ -233,6 +307,9 @@ inline Receipt analyze_module(const machine_ir::Module& module) {
     receipt.parallelism_allowed = true;
     receipt.value_knowledge_complete = true;
     receipt.values_proven_independent = true;
+    receipt.parameter_provenance_complete = true;
+    receipt.borrow_regions_complete = true;
+    receipt.mutable_borrows_proven_disjoint = true;
     receipt.alias_knowledge_complete = true;
     receipt.mutable_aliases_proven_disjoint = true;
     return receipt;
@@ -298,9 +375,11 @@ inline bool proven_scalar_pure(machine_ir::Opcode opcode) {
 inline Reason resolve_call_closure(
     const machine_ir::Module& module,
     const machine_ir::Function& function,
+    bool parameters_proven,
     std::vector<std::string>& visiting,
     std::vector<std::string>& transitive_dependencies,
     Reason& value_reason,
+    Reason& parameter_reason,
     bool& mutable_alias_unknown
 ) {
     if (std::find(visiting.begin(), visiting.end(), function.name) !=
@@ -308,16 +387,17 @@ inline Reason resolve_call_closure(
         return Reason::RecursiveCallGraph;
     }
     visiting.push_back(function.name);
-    const auto direct_value = direct_value_reason(function);
-    if (direct_value == Reason::ValueDependency ||
-        (direct_value == Reason::ParameterizedFunction &&
-         value_reason == Reason::Independent)) {
-        value_reason = direct_value;
+    if (!function.parameters.empty() && !parameters_proven &&
+        value_reason == Reason::Independent) {
+        value_reason = Reason::ParameterizedFunction;
     }
     mutable_alias_unknown = mutable_alias_unknown ||
         direct_mutable_alias_unknown(function);
     Reason reason = direct_effect_reason(function);
-    for (const auto& instruction : function.instructions) {
+    for (std::size_t instruction_index = 0;
+         instruction_index < function.instructions.size();
+         ++instruction_index) {
+        const auto& instruction = function.instructions[instruction_index];
         if (instruction.opcode != machine_ir::Opcode::Call) continue;
         if (std::find(
                 transitive_dependencies.begin(),
@@ -328,12 +408,21 @@ inline Reason resolve_call_closure(
         }
         const auto* dependency = find_function(module, instruction.symbol);
         if (dependency == nullptr) return Reason::UnresolvedCall;
+        const auto call_reason = parameter_call_reason(
+            function, instruction_index, *dependency
+        );
+        if (call_reason != Reason::Independent &&
+            parameter_reason == Reason::Independent) {
+            parameter_reason = call_reason;
+        }
         const auto nested = resolve_call_closure(
             module,
             *dependency,
+            call_reason == Reason::Independent,
             visiting,
             transitive_dependencies,
             value_reason,
+            parameter_reason,
             mutable_alias_unknown
         );
         if (nested == Reason::UnresolvedCall ||
@@ -366,15 +455,18 @@ inline Receipt analyze_pair(
     std::vector<std::string> visiting;
     Reason closure_reason = Reason::Independent;
     Reason value_reason = Reason::Independent;
+    Reason parameter_reason = Reason::Independent;
     bool mutable_alias_unknown = false;
     for (std::size_t index = 0; index < receipt.functions.size(); ++index) {
         const auto* function = index == 0u ? left : right;
         const auto closure = resolve_call_closure(
             module,
             *function,
+            false,
             visiting,
             receipt.functions[index].transitive_dependencies,
             value_reason,
+            parameter_reason,
             mutable_alias_unknown
         );
         if (closure == Reason::UnresolvedCall ||
@@ -393,12 +485,24 @@ inline Receipt analyze_pair(
         receipt.reason = closure_reason;
         return receipt;
     }
-    receipt.value_knowledge_complete =
-        value_reason == Reason::Independent;
+    receipt.value_knowledge_complete = value_reason == Reason::Independent &&
+        parameter_reason != Reason::ParameterProvenanceUnknown;
     receipt.values_proven_independent = receipt.value_knowledge_complete;
-    receipt.alias_knowledge_complete = !mutable_alias_unknown;
+    receipt.parameter_provenance_complete =
+        parameter_reason != Reason::ParameterProvenanceUnknown;
+    receipt.borrow_regions_complete =
+        parameter_reason != Reason::MutableBorrowUnknown;
+    receipt.mutable_borrows_proven_disjoint =
+        receipt.borrow_regions_complete;
+    receipt.alias_knowledge_complete = !mutable_alias_unknown &&
+        receipt.borrow_regions_complete;
     receipt.mutable_aliases_proven_disjoint =
         receipt.alias_knowledge_complete;
+    if (parameter_reason == Reason::ParameterProvenanceUnknown ||
+        parameter_reason == Reason::MutableBorrowUnknown) {
+        receipt.reason = parameter_reason;
+        return receipt;
+    }
     if (mutable_alias_unknown) {
         receipt.reason = Reason::MutableAliasUnknown;
         return receipt;
@@ -427,6 +531,9 @@ inline Receipt analyze_pair(
     receipt.independence_proven = true;
     receipt.composition_allowed = true;
     receipt.parallelism_allowed = true;
+    receipt.parameter_provenance_complete = true;
+    receipt.borrow_regions_complete = true;
+    receipt.mutable_borrows_proven_disjoint = true;
     return receipt;
 }
 

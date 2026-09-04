@@ -59,8 +59,13 @@ observation, and then commits both results in source order. Thread creation or
 join failure aborts the artifact; a selected threaded policy never silently
 falls back to serial execution. An unchanged function/dependency graph may
 reuse the retained proof only under the same host and toolchain fingerprints.
-Other target and result shapes remain serial. This host-specific proof is not a
-general wall-clock performance claim.
+Inside either otherwise-proven root closure, a parameterized call is admitted
+only when each argument is an immediate numeric literal passed by value into a
+fully described, read-only scalar parameter slot. Computed argument provenance,
+defaults, parameter writes, ownership transfer, address/aggregate parameters,
+or incomplete borrow metadata keep the pair serial with an explicit private
+reason. Other target and result shapes remain serial. This host-specific proof
+is not a general wall-clock performance claim.
 
 The only approved public scheduling settings are process-wide ceilings:
 

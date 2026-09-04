@@ -191,13 +191,80 @@ int main() {
                value_dependent.effects_proven_absent &&
                !value_dependent.value_knowledge_complete &&
                !value_dependent.values_proven_independent &&
+               !value_dependent.parameter_provenance_complete &&
                value_dependent.alias_knowledge_complete &&
                value_dependent.mutable_aliases_proven_disjoint &&
-               value_dependent.reason == gate::Reason::ValueDependency &&
+               value_dependent.reason ==
+                   gate::Reason::ParameterProvenanceUnknown &&
                gate::reason_name(value_dependent.reason) ==
-                   "value-dependency" &&
+                   "parameter-provenance-unknown" &&
                !value_dependent.parallelism_allowed,
            "a parameter-fed closure must remain serial without a value-flow independence proof");
+
+    vkf::machine_ir::Instruction literal;
+    literal.opcode = vkf::machine_ir::Opcode::PushF64;
+    literal.f64 = 3.0;
+    vkf::machine_ir::Instruction parameter_call;
+    parameter_call.opcode = vkf::machine_ir::Opcode::Call;
+    parameter_call.symbol = "parameter_shared";
+    parameter_call.argument_count = 1;
+    parameter_call.result_count = 1;
+    parameter_call.provided_parameter_mask = 1;
+    vkf::machine_ir::Function parameter_left;
+    parameter_left.name = "parameter_left";
+    parameter_left.instructions = {literal, parameter_call};
+    literal.f64 = 5.0;
+    vkf::machine_ir::Function parameter_right;
+    parameter_right.name = "parameter_right";
+    parameter_right.instructions = {literal, parameter_call};
+    vkf::machine_ir::Instruction load_parameter;
+    load_parameter.opcode = vkf::machine_ir::Opcode::LoadLocal;
+    load_parameter.index = 0;
+    vkf::machine_ir::Function parameter_shared;
+    parameter_shared.name = "parameter_shared";
+    parameter_shared.parameters = {"value"};
+    parameter_shared.parameter_is_numeric_scalar = {true};
+    parameter_shared.locals = {"value"};
+    parameter_shared.local_classes = {vkf::machine_ir::ValueClass::F64};
+    parameter_shared.result_is_numeric_scalar = true;
+    parameter_shared.instructions = {load_parameter, finish};
+    module.functions = {
+        parameter_left, parameter_right, parameter_shared,
+    };
+    const auto scalar_parameter_pair = gate::analyze_pair(
+        module, "parameter_left", "parameter_right"
+    );
+    expect(scalar_parameter_pair.parameter_provenance_complete &&
+               scalar_parameter_pair.borrow_regions_complete &&
+               scalar_parameter_pair.mutable_borrows_proven_disjoint &&
+               scalar_parameter_pair.value_knowledge_complete &&
+               scalar_parameter_pair.values_proven_independent &&
+               scalar_parameter_pair.alias_knowledge_complete &&
+               scalar_parameter_pair.mutable_aliases_proven_disjoint &&
+               scalar_parameter_pair.reason == gate::Reason::Independent &&
+               scalar_parameter_pair.independence_proven &&
+               scalar_parameter_pair.parallelism_allowed,
+           "distinct literal scalar arguments and read-only scalar parameter regions must prove the pair independent");
+
+    parameter_shared.parameter_is_numeric_scalar = {false};
+    parameter_shared.local_classes = {vkf::machine_ir::ValueClass::Address};
+    module.functions = {
+        parameter_left, parameter_right, parameter_shared,
+    };
+    const auto mutable_parameter_pair = gate::analyze_pair(
+        module, "parameter_left", "parameter_right"
+    );
+    expect(mutable_parameter_pair.parameter_provenance_complete &&
+               !mutable_parameter_pair.borrow_regions_complete &&
+               !mutable_parameter_pair.mutable_borrows_proven_disjoint &&
+               !mutable_parameter_pair.alias_knowledge_complete &&
+               !mutable_parameter_pair.mutable_aliases_proven_disjoint &&
+               mutable_parameter_pair.reason ==
+                   gate::Reason::MutableBorrowUnknown &&
+               gate::reason_name(mutable_parameter_pair.reason) ==
+                   "mutable-borrow-unknown" &&
+               !mutable_parameter_pair.parallelism_allowed,
+           "an address parameter must remain serial when mutable borrow regions are unknown");
 
     module.entry.instructions.clear();
     module.functions = {right};
@@ -244,6 +311,8 @@ int main() {
               << gate::reason_name(receipt.reason) << " pair="
               << gate::reason_name(pair.reason) << " independent="
               << independent.independence_proven << " pure_call="
-              << gate::reason_name(complete_pure.reason) << '\n';
+              << gate::reason_name(complete_pure.reason) << " parameter_pair="
+              << gate::reason_name(scalar_parameter_pair.reason) << " borrow="
+              << gate::reason_name(mutable_parameter_pair.reason) << '\n';
     return failures == 0 ? 0 : 1;
 }

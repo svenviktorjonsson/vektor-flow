@@ -401,9 +401,9 @@ inline std::uint64_t automatic_static_loop_work(
     return 0;
 }
 
-// Resolved call graphs require the measured-proof overload. The production
-// adapter deliberately supplies no such proof yet, so newly admitted graph
-// shapes remain serial until the exact artifact pair is benchmarked.
+// Resolved call graphs require the measured-proof overload. Static dependency,
+// value, and borrow facts admit a benchmark candidate; only the retained exact
+// artifact-pair measurement can select concurrent execution.
 inline bool select_automatic_cpu_pair(
     const machine_ir::Module& module,
     const AutomaticFlowLimits& limits,

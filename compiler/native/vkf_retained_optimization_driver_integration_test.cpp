@@ -164,14 +164,20 @@ void append_calling_loop(
 ) {
     append_integer_loop(function, result);
     function.instructions[4].f64 = 1048576.0;
+    vkf::machine_ir::Instruction argument;
+    argument.opcode = vkf::machine_ir::Opcode::PushF64;
+    argument.f64 = result / 2.0;
     vkf::machine_ir::Instruction call;
     call.opcode = vkf::machine_ir::Opcode::Call;
     call.symbol = "shared";
+    call.argument_count = 1;
     call.result_count = 1;
+    call.provided_parameter_mask = 1;
     vkf::machine_ir::Instruction drop;
     drop.opcode = vkf::machine_ir::Opcode::Drop;
-    function.instructions.insert(function.instructions.begin() + 7, call);
-    function.instructions.insert(function.instructions.begin() + 8, drop);
+    function.instructions.insert(function.instructions.begin() + 7, argument);
+    function.instructions.insert(function.instructions.begin() + 8, call);
+    function.instructions.insert(function.instructions.begin() + 9, drop);
 }
 
 vkf::machine_ir::Module independent_multi_result_graph() {
@@ -183,11 +189,15 @@ vkf::machine_ir::Module independent_multi_result_graph() {
     append_calling_loop(right, 43.0);
     vkf::machine_ir::Function shared;
     shared.name = "shared";
+    shared.parameters = {"value"};
+    shared.parameter_is_numeric_scalar = {true};
+    shared.locals = {"value"};
+    shared.local_classes = {vkf::machine_ir::ValueClass::F64};
     shared.max_stack = 1;
     shared.result_is_numeric_scalar = true;
     vkf::machine_ir::Instruction instruction;
-    instruction.opcode = vkf::machine_ir::Opcode::PushF64;
-    instruction.f64 = 1.0;
+    instruction.opcode = vkf::machine_ir::Opcode::LoadLocal;
+    instruction.index = 0;
     shared.instructions.push_back(instruction);
     instruction = {};
     instruction.opcode = vkf::machine_ir::Opcode::ReturnF64;
@@ -515,7 +525,19 @@ int main() {
                    pair_candidates[0], "runs"
                ).as_number()) + " selected=" + pair_selected_policy);
 
-    pair_graph.functions[2].instructions[0].f64 = 2.0;
+    vkf::machine_ir::Instruction dependency_delta;
+    dependency_delta.opcode = vkf::machine_ir::Opcode::PushF64;
+    dependency_delta.f64 = 2.0;
+    vkf::machine_ir::Instruction dependency_add;
+    dependency_add.opcode = vkf::machine_ir::Opcode::AddF64;
+    pair_graph.functions[2].instructions.insert(
+        pair_graph.functions[2].instructions.begin() + 1,
+        dependency_delta
+    );
+    pair_graph.functions[2].instructions.insert(
+        pair_graph.functions[2].instructions.begin() + 2,
+        dependency_add
+    );
     const auto changed_pair = vkf_x64_backend::compile(
         typed_ir, pair_source, pair_typed_ir_path, {}, true, pair_artifact,
         "independent-multi-result-graph-v3", "auto", 10, 20000.0, 0,
