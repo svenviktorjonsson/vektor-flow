@@ -1488,6 +1488,17 @@ BrowserDisplaySurfacePacket: (
     lock_aperture_camera:bit,
     controls_enabled:bit
 )
+BrowserWorldOptions: (
+    dimension:int,
+    em:bit,
+    gravity:bit,
+    rigid_collisions:bit,
+    saw_dimension:bit,
+    saw_em:bit,
+    saw_gravity:bit,
+    saw_rigid_collisions:bit,
+    unsupported:bit
+)
 
 _browser_lifted_number(tape:any, index:int, factor:num) -> BrowserLiftedParse:
     row: index * 6
@@ -1707,6 +1718,21 @@ _browser_source_starts_with(
         expected,
         vkf_utf8_advance(expected, expected_offset)
     )
+
+_browser_find_source(source:str, offset:int, expected:str) -> int:
+    vkf_string_eof(source, offset)?
+        @: -1
+    _browser_source_starts_with(source, offset, expected, 0)?
+        @: offset
+    _browser_find_source(source, vkf_utf8_advance(source, offset), expected)
+
+_browser_world_argument_start(source:str, offset:int) -> int:
+    vkf_string_eof(source, offset)?
+        @: offset
+    ch: vkf_string_peek_scalar(source, offset)
+    (ch = 9 \/ ch = 10 \/ ch = 13 \/ ch = 32 \/ ch = 44)?
+        @: _browser_world_argument_start(source, vkf_utf8_advance(source, offset))
+    offset
 
 _browser_display_raw_source_matches(source:str) -> bit:
     ~_browser_source_starts_with(source, 0, ": .ui.display", 0)?
@@ -2795,6 +2821,146 @@ _run_tagged_display_source(source:str, packet_index:int) -> any:
         background:background, combine_transparent:combine_transparent
     )
 
+_browser_scan_world_options(
+    source:str, offset:int, stop:int, dimension:int,
+    em:bit, gravity:bit, rigid_collisions:bit,
+    saw_dimension:bit, saw_em:bit, saw_gravity:bit,
+    saw_rigid_collisions:bit, unsupported:bit
+) -> BrowserWorldOptions:
+    offset >= stop?
+        @: (
+            dimension:dimension, em:em, gravity:gravity,
+            rigid_collisions:rigid_collisions,
+            saw_dimension:saw_dimension, saw_em:saw_em,
+            saw_gravity:saw_gravity,
+            saw_rigid_collisions:saw_rigid_collisions,
+            unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    _browser_source_starts_with(source, offset, "dim:", 0)?
+        value_start: _browser_display_value_start(source, offset + 4)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        value: vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))
+        @: _browser_scan_world_options(
+            source, value_stop, stop, value, em, gravity, rigid_collisions,
+            true, saw_em, saw_gravity, saw_rigid_collisions, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "em:", 0) \/
+        _browser_source_starts_with(source, offset, "gravity:", 0) \/
+        _browser_source_starts_with(source, offset, "rigid_collisions:", 0))?
+        colon_width: 3
+        _browser_source_starts_with(source, offset, "gravity:", 0)?
+            .colon_width: 8
+        _browser_source_starts_with(source, offset, "rigid_collisions:", 0)?
+            .colon_width: 17
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value: false
+        value_stop: value_start
+        _browser_source_starts_with(source, value_start, "true", 0)?
+            .value: true
+            .value_stop: value_start + 4
+        ~value?
+            _browser_source_starts_with(source, value_start, "false", 0)?
+                .value_stop: value_start + 5
+            ~_browser_source_starts_with(source, value_start, "false", 0)?
+                false?! "browser World flags require booleans"
+        next_em: em
+        next_gravity: gravity
+        next_rigid_collisions: rigid_collisions
+        next_saw_em: saw_em
+        next_saw_gravity: saw_gravity
+        next_saw_rigid_collisions: saw_rigid_collisions
+        _browser_source_starts_with(source, offset, "em:", 0)?
+            .next_em: value
+            .next_saw_em: true
+        _browser_source_starts_with(source, offset, "gravity:", 0)?
+            .next_gravity: value
+            .next_saw_gravity: true
+        _browser_source_starts_with(source, offset, "rigid_collisions:", 0)?
+            .next_rigid_collisions: value
+            .next_saw_rigid_collisions: true
+        @: _browser_scan_world_options(
+            source, value_stop, stop, dimension,
+            next_em, next_gravity, next_rigid_collisions,
+            saw_dimension, next_saw_em, next_saw_gravity,
+            next_saw_rigid_collisions, unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_world_options(
+        source, next, stop, dimension, em, gravity, rigid_collisions,
+        saw_dimension, saw_em, saw_gravity, saw_rigid_collisions, unknown
+    )
+
+_browser_world_source_matches(source:str) -> bit:
+    (_browser_source_starts_with(source, 0, ": .ui.display", 0) /\
+        _browser_find_source(source, 0, ": .physics") >= 0 /\
+        _browser_find_source(source, 0, "Particle(position:[num:2], color:[num:4], radius:num, mass:num):") >= 0 /\
+        _browser_find_source(source, 0, "p_u:[particle.position]") >= 0 /\
+        _browser_find_source(source, 0, "c_uc:[particle.color]") >= 0 /\
+        _browser_find_source(source, 0, "s_u:[particle.radius * 2]") >= 0 /\
+        _browser_find_source(source, 0, "s_mode:data") >= 0 /\
+        _browser_find_source(source, 0, "view: d.append_world(w, embedding)") >= 0 /\
+        _browser_find_source(source, 0, "d.show()") >= 0)
+
+_browser_world_particle_packet(source:str) -> any:
+    world_start: _browser_find_source(source, 0, "w: World(")
+    (world_start >= 0)?! "browser World requires a retained World binding"
+    world_stop: _browser_display_call_stop(source, world_start + 9, 1, false)
+    options: _browser_scan_world_options(
+        source, world_start + 9, world_stop - 1,
+        0, false, false, false, false, false, false, false, false
+    )
+    (~options.unsupported /\ options.saw_dimension /\ options.saw_em /\
+        options.saw_gravity /\ options.saw_rigid_collisions)?! "browser World contains unsupported options"
+    (options.dimension = 2 /\ ~options.em /\ ~options.gravity /\
+        ~options.rigid_collisions)?! "browser World effects are unsupported"
+    particle_start: _browser_find_source(source, world_stop, "w.add(Particle(")
+    (particle_start >= 0)?! "browser World requires one Particle"
+    position_start: _browser_world_argument_start(source, particle_start + 15)
+    (vkf_string_peek_scalar(source, position_start) = 91)?! "browser World Particle position must be a vector"
+    position_stop: _browser_display_bracket_stop(source, position_start + 1, 1)
+    color_start: _browser_world_argument_start(source, position_stop)
+    (vkf_string_peek_scalar(source, color_start) = 91)?! "browser World Particle color must be a vector"
+    color_stop: _browser_display_bracket_stop(source, color_start + 1, 1)
+    radius_start: _browser_world_argument_start(source, color_stop)
+    radius_stop: vkf_decimal_scan_end(source, radius_start)
+    mass_start: _browser_world_argument_start(source, radius_stop)
+    mass_stop: vkf_decimal_scan_end(source, mass_start)
+    close: _browser_display_value_start(source, mass_stop)
+    (vkf_string_peek_scalar(source, close) = 41)?! "browser World Particle has unsupported arguments"
+    position_tape: lexer.tagged_numeric_function_token_tape(
+        vkf_utf8_slice(source, position_start, position_stop)
+    )
+    position: _browser_lifted_value(position_tape, 0, 1).value
+    color_tape: lexer.tagged_numeric_function_token_tape(
+        vkf_utf8_slice(source, color_start, color_stop)
+    )
+    color: _browser_lifted_value(color_tape, 0, 1).value
+    radius: vkf_decimal_parse(vkf_utf8_slice(source, radius_start, radius_stop))
+    mass: vkf_decimal_parse(vkf_utf8_slice(source, mass_start, mass_stop))
+    (position.length() = 2 /\ color.length() = 4 /\
+        radius > 0 /\ mass > 0)?! "browser World Particle values are invalid"
+    (
+        magic:1447773774, version:1, position:position,
+        color:color, size:radius * 2, mass:mass
+    )
+
+_run_tagged_world_source(source:str, packet_index:int) -> any:
+    _browser_world_source_matches(source)?! "browser World embedding shape is unsupported"
+    packet_index < 0?
+        @: (
+            kind:"visual_stream", packet_count:1,
+            background:[], combine_transparent:false
+        )
+    (packet_index = 0)?! "browser World packet index is out of range"
+    _browser_world_particle_packet(source)
+
 _browser_token_text(tape:any, index:int) -> str:
     row: index * 6
     vkf_utf8_slice(tape.source, tape.rows.(row + 1), tape.rows.(row + 2))
@@ -2873,6 +3039,8 @@ _run_tagged_lifted_vector_function(tape:any) -> any:
     (kind:"console", values:outputs)
 
 run_tagged_browser_source(source:str, packet_index:int) -> any:
+    _browser_world_source_matches(source)?
+        @: _run_tagged_world_source(source, packet_index)
     _browser_display_raw_source_matches(source)?
         @: _run_tagged_display_source(source, packet_index)
     tokens: lexer.tagged_numeric_function_token_tape(source)

@@ -20,6 +20,15 @@ function decode(packet) {
       castsShadow: packet[14] === 1, sourceRadius: packet[15],
     };
   }
+  if (packet[0] === 1447773774 && packet[1] === 1 && packet.length === 10
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && Array.from(packet.slice(4, 8)).every((value) => value >= 0 && value <= 1)
+      && packet[8] > 0 && packet[9] > 0) {
+    return {
+      kind: "particle", position: packet.slice(2, 4),
+      color: packet.slice(4, 8), size: packet[8], mass: packet[9],
+    };
+  }
   if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5, 6, 7].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
@@ -208,6 +217,7 @@ function drawTexture(context, project, mesh) {
 export function renderInlineResult(canvas, packets) {
   const decoded = packets.map(decode);
   const meshes = decoded.filter(({ kind }) => kind === "geometry");
+  const particles = decoded.filter(({ kind }) => kind === "particle");
   const background = decoded.find(({ kind }) => kind === "background");
   const camera = decoded.find(({ kind }) => kind === "camera");
   const lights = decoded.filter(({ kind }) => kind === "light");
@@ -335,5 +345,14 @@ export function renderInlineResult(canvas, packets) {
         drawStrip(mesh.rows, (row) => vertex(mesh, row, column));
       }
     }
+  }
+  const worldScale = Math.min(canvas.width, canvas.height) * (4 / 15);
+  for (const particle of particles) {
+    const x = (canvas.width / 2) + (particle.position[0] * worldScale);
+    const y = (canvas.height / 2) - (particle.position[1] * worldScale);
+    context.fillStyle = rgba(particle.color);
+    context.beginPath();
+    context.arc(x, y, particle.size * worldScale / 2, 0, Math.PI * 2);
+    context.fill();
   }
 }

@@ -201,6 +201,21 @@ test("worker materializes a strictly versioned mirror surface buffer", () => {
   }), /invalid surface system packet/u);
 });
 
+test("worker materializes a strictly versioned World particle buffer", () => {
+  const particle = {
+    magic: 1447773774, version: 1, position: [1.5, -0.5],
+    color: [1, 0.2, 0.1, 1], size: 1.1, mass: 2,
+  };
+  const output = materializeVisualOutput({ kind: "visual", packet_records: [particle] });
+  assert.deepEqual([...output.packets[0]], [
+    1447773774, 1, 1.5, -0.5, 1, 0.2, 0.1, 1, 1.1, 2,
+  ]);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual",
+    packet_records: [{ ...particle, velocity: [1, 0] }],
+  }), /invalid World particle packet/u);
+});
+
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
@@ -377,6 +392,38 @@ test("trusted inline renderer clips source-derived geometry into the mirror came
   };
   assert.notDeepEqual(reflectedMove(initial), reflectedMove(render(0.9, 50)));
   assert.notDeepEqual(reflectedStyle(initial), reflectedStyle(render(0.6, 43)));
+});
+
+test("trusted inline renderer draws the World particle embedding position, color, and size", () => {
+  const render = (x, y, size) => {
+    const operations = [];
+    const context = {
+      beginPath: () => operations.push("begin"),
+      arc: (...args) => operations.push(["arc", ...args]),
+      clearRect: () => {}, fillRect: () => {}, fill: () => operations.push("fill"),
+      lineTo: () => {}, moveTo: () => {}, stroke: () => {},
+      set fillStyle(value) { operations.push(["fillStyle", value]); },
+      set lineWidth(_value) {}, set strokeStyle(_value) {},
+    };
+    const particle = Float64Array.from([
+      1447773774, 1, x, y, 0.12, 0.72, 1, 1, size, 1,
+    ]);
+    renderInlineResult({ width: 320, height: 180, getContext: () => context }, [particle]);
+    return operations;
+  };
+  const initial = render(0, 0, 0.7);
+  assert.ok(initial.some(([kind, value] = []) => kind === "fillStyle"
+    && value === "rgba(31, 184, 255, 1)"));
+  const initialArc = initial.find(([kind] = []) => kind === "arc");
+  assert.deepEqual([initialArc[0], initialArc[1], initialArc[2], initialArc[4], initialArc[5]], [
+    "arc", 160, 90, 0, Math.PI * 2,
+  ]);
+  assert.equal(Math.round(initialArc[3] * 1e9) / 1e9, 16.8);
+  assert.notDeepEqual(
+    initial.find(([kind] = []) => kind === "arc"),
+    render(1.5, -0.5, 1.1).find(([kind] = []) => kind === "arc"),
+  );
+  assert.ok(initial.includes("fill"));
 });
 
 test("terminal always appears below the editor and Result appears only for validated visual output", async () => {

@@ -119,6 +119,21 @@ export function materializeVisualOutput(output) {
         record.intensity, record.range, record.casts_shadow ? 1 : 0, record.source_radius,
       ]);
     }
+    if (record?.magic === 1447773774) {
+      const keys = ["color", "magic", "mass", "position", "size", "version"];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.version !== 1 || !finiteVector(record.position, 2)
+          || !finiteVector(record.color, 4)
+          || record.color.some((value) => value < 0 || value > 1)
+          || !finiteNumber(record.size) || record.size <= 0
+          || !finiteNumber(record.mass) || record.mass <= 0) {
+        throw new TypeError("browser compiler returned an invalid World particle packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, ...record.position,
+        ...record.color, record.size, record.mass,
+      ]);
+    }
     if (record?.magic !== 1447773766 || record.version !== 5
         || !Number.isInteger(record.rows) || record.rows < 1
         || !Number.isInteger(record.columns) || record.columns < 1

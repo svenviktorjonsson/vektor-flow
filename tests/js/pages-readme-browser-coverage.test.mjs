@@ -324,6 +324,42 @@ test("browser compiler retains the README mirror surface and virtual camera", as
   );
 });
 
+test("browser compiler applies the README World embedding to its retained particle", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const world = examples.find(({ id }) => id === "readme-19");
+  const controls = examples.find(({ id }) => id === "readme-11");
+  const output = { ...compiler.run(world.source) };
+  const particle = { ...output.packet_records.at(-1) };
+  assert.deepEqual([particle.magic, particle.version], [1447773774, 1]);
+  assert.deepEqual(rounded([
+    ...particle.position, ...particle.color, particle.size, particle.mass,
+  ]), [0, 0, 0.12, 0.72, 1, 1, 0.7, 1]);
+  assert.deepEqual(rounded([...materializeVisualOutput(output).packets.at(-1)]), [
+    1447773774, 1, 0, 0, 0.12, 0.72, 1, 1, 0.7, 1,
+  ]);
+  const changed = { ...compiler.run(world.source
+    .replace("[0, 0], [0.12, 0.72, 1, 1], 0.35, 1", "[1.5, -0.5], [1, 0.2, 0.1, 1], 0.55, 2")) };
+  assert.deepEqual(rounded([
+    ...changed.packet_records.at(-1).position,
+    ...changed.packet_records.at(-1).color,
+    changed.packet_records.at(-1).size,
+    changed.packet_records.at(-1).mass,
+  ]), [1.5, -0.5, 1, 0.2, 0.1, 1, 1.1, 2]);
+  assert.throws(
+    () => compiler.run(world.source.replace("gravity:false", "gravity:true")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(world.source.replace("rigid_collisions:false", "rigid_collisions:false, drag:0.2")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(world.source.replace("particle.radius * 2", "particle.radius * 3")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(() => compiler.run(controls.source), /browser compiler could not run the VKF source/u);
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -341,6 +377,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 13);
+  assert.equal(runnable.length, 14);
   assert.equal(examples.length, 26);
 });
