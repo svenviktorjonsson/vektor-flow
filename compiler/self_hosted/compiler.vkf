@@ -1381,6 +1381,15 @@ run_tagged_dependency_source(source:str) -> num:
 
 BrowserLiftedParse: (value:any, next:int)
 BrowserAxisTerm: (values:any, axis:str, next:int)
+BrowserDisplayCall: (packet:any, next:int)
+
+_browser_lifted_number(tape:any, index:int, factor:num) -> BrowserLiftedParse:
+    row: index * 6
+    tape.rows.(row) = 3?
+        @: (value:tape.rows.(row + 3) * factor, next:index + 1)
+    (tape.rows.(row) = 20 /\ _browser_token_kind(tape, index + 1) = 3)?! "lifted vector argument must contain numeric leaves"
+    next_row: (index + 1) * 6
+    (value:0 - tape.rows.(next_row + 3) * factor, next:index + 2)
 
 _browser_lifted_numeric_vector(
     tape:any, index:int, factor:num, values:any
@@ -1388,16 +1397,15 @@ _browser_lifted_numeric_vector(
     row: index * 6
     tape.rows.(row) = 23?
         @: (value:values, next:index + 1)
-    (tape.rows.(row) = 3)?! "lifted vector argument must contain numeric leaves"
-    value: tape.rows.(row + 3) * factor
-    next_row: (index + 1) * 6
-    next_kind: tape.rows.(next_row)
+    parsed: _browser_lifted_number(tape, index, factor)
+    value: parsed.value
+    next_kind: _browser_token_kind(tape, parsed.next)
     next_kind = 24?
         @: _browser_lifted_numeric_vector(
-            tape, index + 2, factor, values & [value]
+            tape, parsed.next + 1, factor, values & [value]
         )
     (next_kind = 23)?! "lifted vector argument requires comma or closing bracket"
-    (value:values & [value], next:index + 2)
+    (value:values & [value], next:parsed.next + 1)
 
 _browser_lifted_nested_vector(
     tape:any, index:int, factor:num, values:any
@@ -1534,6 +1542,111 @@ _browser_axis_lookup(
         @: values.(index)
     _browser_axis_lookup(names, values, name, index + 1)
 
+_browser_display_packet_values(
+    x:any, y:any, z:any, row:int, column:int, values:any
+) -> any:
+    (row = x.length())?
+        (row = y.length() /\ row = z.length())?! "display geometry row counts differ"
+        @: values
+    (row < y.length() /\ row < z.length() /\
+        x.(row).length() = y.(row).length() /\
+        x.(row).length() = z.(row).length())?! "display geometry row widths differ"
+    (column = x.(row).length())?
+        @: _browser_display_packet_values(x, y, z, row + 1, 0, values)
+    _browser_display_packet_values(
+        x, y, z, row, column + 1,
+        values & [x.(row).(column), y.(row).(column), z.(row).(column)]
+    )
+
+_browser_display_mesh_call(tape:any, start:int) -> BrowserDisplayCall:
+    index: start
+    parens: 1
+    brackets: 0
+    x: []
+    y: []
+    z: []
+    color: [0.2, 0.7, 1, 1]
+    saw_x: false
+    saw_y: false
+    saw_z: false
+    (parens > 0)?>
+        kind: _browser_token_kind(tape, index)
+        keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
+            _browser_token_kind(tape, index + 1) = 15)
+        keyword?
+            key: _browser_token_text(tape, index)
+            retained: key = "x" \/ key = "y" \/ key = "z" \/ key = "color"
+            (retained \/ key = "id")?! "browser display does not support this frame.add option"
+            retained?
+                parsed: _browser_lifted_value(tape, index + 2, 1)
+                key = "x"?
+                    .x: parsed.value
+                    .saw_x: true
+                key = "y"?
+                    .y: parsed.value
+                    .saw_y: true
+                key = "z"?
+                    .z: parsed.value
+                    .saw_z: true
+                key = "color"?
+                    .color: parsed.value
+                .index: parsed.next
+            ~retained?
+                .index+: 1
+        ~keyword?
+            kind = 13?
+                .parens+: 1
+            kind = 14?
+                .parens-: 1
+            kind = 22?
+                .brackets+: 1
+            kind = 23?
+                .brackets-: 1
+            .index+: 1
+    (saw_x /\ saw_y /\ saw_z)?! "frame.add requires x, y, and z geometry"
+    (color.length() = 4)?! "frame.add color must be RGBA"
+    rows: x.length()
+    (rows > 0)?! "frame.add geometry must contain rows"
+    columns: x.0.length()
+    packet: ([1447773766, 1, rows, columns] & color &
+        _browser_display_packet_values(x, y, z, 0, 0, []))
+    (packet:packet, next:index)
+
+_browser_display_source_matches(tape:any) -> bit:
+    tape.count > 10 /\ _browser_token_kind(tape, 0) = 15 /\
+    _browser_token_kind(tape, 1) = 16 /\
+    _browser_token_text(tape, 2) = "ui" /\
+    _browser_token_kind(tape, 3) = 16 /\
+    _browser_token_text(tape, 4) = "display"
+
+_run_tagged_display_source(tape:any) -> any:
+    index: 0
+    packets: []
+    unsupported: false
+    (index < tape.count)?>
+        unsupported_call: (_browser_token_kind(tape, index) = 1 /\
+            _browser_token_text(tape, index) = "frame" /\
+            _browser_token_kind(tape, index + 1) = 16 /\
+            (_browser_token_text(tape, index + 2) = "set_geom_options" \/
+                _browser_token_text(tape, index + 2) = "add_camera" \/
+                _browser_token_text(tape, index + 2) = "add_light"))
+        unsupported_call?
+            .unsupported: true
+        mesh_call: (_browser_token_kind(tape, index) = 1 /\
+            _browser_token_text(tape, index) = "frame" /\
+            _browser_token_kind(tape, index + 1) = 16 /\
+            _browser_token_text(tape, index + 2) = "add" /\
+            _browser_token_kind(tape, index + 3) = 13)
+        mesh_call?
+            mesh: _browser_display_mesh_call(tape, index + 4)
+            .packets: packets & [mesh.packet]
+            .index: mesh.next
+        ~mesh_call?
+            .index+: 1
+    ~unsupported?! "browser display source requires unsupported scene features"
+    (packets.length() > 0)?! "display source did not retain geometry"
+    (kind:"visual", packet_values:packets)
+
 _browser_token_text(tape:any, index:int) -> str:
     row: index * 6
     vkf_utf8_slice(tape.source, tape.rows.(row + 1), tape.rows.(row + 2))
@@ -1617,6 +1730,8 @@ run_tagged_browser_source(source:str) -> any:
         @: _run_tagged_lifted_vector_function(tokens)
     _browser_named_axis_source_matches(tokens)?
         @: _run_tagged_named_axis_source(tokens)
+    _browser_display_source_matches(tokens)?
+        @: _run_tagged_display_source(tokens)
     run_tagged_dependency_source(source)
 
 compile_tagged_numeric_function_call(source:str):

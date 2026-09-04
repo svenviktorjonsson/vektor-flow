@@ -1,6 +1,7 @@
 import { highlightVkf } from "./editor/vkf-highlighter.mjs";
 import { createInlineExampleController } from "./inline-example-controller.mjs";
 import { createInlineRunner } from "./inline-runner.mjs";
+import { renderInlineResult } from "./inline-result-renderer.mjs";
 
 const readme = globalThis.document.querySelector("#readme-documentation");
 
@@ -47,6 +48,12 @@ function prepareExample(example, runner) {
         result.className = "readme-example-result";
         result.setAttribute("aria-label", "Result");
         result.dataset.packetCount = String(packets.length);
+        const canvas = globalThis.document.createElement("canvas");
+        canvas.width = 640;
+        canvas.height = 360;
+        canvas.setAttribute("aria-label", "VKF visual output");
+        result.append(canvas);
+        renderInlineResult(canvas, packets);
         layout.append(result);
         layout.classList.add("has-result");
       },

@@ -4,6 +4,8 @@ import test from "node:test";
 
 import { createInlineRunner } from "../../web/inline-runner.mjs";
 import { createInlineExampleController } from "../../web/inline-example-controller.mjs";
+import { materializeVisualOutput } from "../../web/inline-result-packets.mjs";
+import { renderInlineResult } from "../../web/inline-result-renderer.mjs";
 
 test("inline runner fetches only fixed static artifacts and sends bytes to a worker", async () => {
   const requests = [];
@@ -57,6 +59,51 @@ test("inline runner terminates an unresponsive worker", async () => {
 
   await assert.rejects(() => runner.run(":: while true"), /timed out; worker terminated/u);
   assert.equal(WorkerStub.instance.terminated, true);
+});
+
+test("worker materializes only validated WASM visual packets as typed buffers", () => {
+  const output = materializeVisualOutput({
+    kind: "visual",
+    packet_values: [[1447773766, 1, 1, 1, 0.1, 0.2, 0.3, 1, 2, 3, 4]],
+  });
+
+  assert.equal(output.kind, "visual");
+  assert.equal(output.packet_values, undefined);
+  assert.equal(output.packets.length, 1);
+  assert.ok(output.packets[0] instanceof Float64Array);
+  assert.deepEqual([...output.packets[0]], [
+    1447773766, 1, 1, 1, 0.1, 0.2, 0.3, 1, 2, 3, 4,
+  ]);
+  assert.throws(
+    () => materializeVisualOutput({ kind: "visual", packet_values: [[1447773766, 1, 1, 1, 0, 0, 0, 1, NaN, 0, 0]] }),
+    /invalid visual packet/u,
+  );
+});
+
+test("trusted inline renderer draws validated retained geometry packets", () => {
+  const operations = [];
+  const context = {
+    beginPath: () => operations.push("begin"),
+    clearRect: (...args) => operations.push(["clear", ...args]),
+    fillRect: (...args) => operations.push(["fill", ...args]),
+    lineTo: (...args) => operations.push(["line", ...args]),
+    moveTo: (...args) => operations.push(["move", ...args]),
+    stroke: () => operations.push("stroke"),
+    set fillStyle(value) { operations.push(["fillStyle", value]); },
+    set lineWidth(value) { operations.push(["lineWidth", value]); },
+    set strokeStyle(value) { operations.push(["strokeStyle", value]); },
+  };
+  const canvas = { width: 320, height: 180, getContext: () => context };
+  const packet = Float64Array.from([
+    1447773766, 1, 1, 2, 0.1, 0.2, 0.3, 1,
+    1, 3, 5, 2, 4, 6,
+  ]);
+
+  renderInlineResult(canvas, [packet]);
+  assert.ok(operations.some(([kind] = []) => kind === "fill"));
+  assert.ok(operations.some(([kind] = []) => kind === "move"));
+  assert.ok(operations.some(([kind] = []) => kind === "line"));
+  assert.ok(operations.includes("stroke"));
 });
 
 test("terminal always appears below the editor and Result appears only for validated visual output", async () => {
@@ -129,6 +176,8 @@ test("worker exposes no host capability imports or networking path", async () =>
 
   assert.match(worker, /WebAssembly\.Module\.imports\(module\)/u);
   assert.match(worker, /Object\.freeze\(\{\}\)/u);
+  assert.match(worker, /materializeVisualOutput\(compiler\.run\(data\.source\)\)/u);
+  assert.match(worker, /output\.packets\.map\(\(packet\) => packet\.buffer\)/u);
   assert.doesNotMatch(worker, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|process|localhost)\b/u);
   assert.doesNotMatch(worker, /\b(?:window|document|navigator)\b/u);
 });

@@ -601,6 +601,12 @@ _tagged_function_punctuation_kind(ch:str) -> int:
     (ch = "-")?! "function token tape encountered unsupported punctuation"
     20
 
+_scan_tagged_function_string(cursor:StringCursor) -> StringCursor:
+    ~cursor.eof?! "unterminated string literal"
+    cursor.peek() = "\""?
+        @: cursor.advance()
+    _scan_tagged_function_string(cursor.advance())
+
 _scan_tagged_function_tokens(
     cursor:StringCursor, tape:TaggedTokenTape
 ) -> TaggedTokenTape:
@@ -633,6 +639,13 @@ _scan_tagged_function_tokens(
             number.value, cursor.line, cursor.column
         )
         @: _scan_tagged_function_tokens(stop, number_tape)
+    cursor.peek() = "\""?
+        string_stop: _scan_tagged_function_string(cursor.advance())
+        string_tape: _append_tagged_token(
+            tape, 25, cursor.position, string_stop.position,
+            0, cursor.line, cursor.column
+        )
+        @: _scan_tagged_function_tokens(string_stop, string_tape)
     stop: cursor.advance()
     kind_code: _tagged_function_punctuation_kind(cursor.peek())
     floor_divide: cursor.peek() = "/" /\ stop.peek() = "/"

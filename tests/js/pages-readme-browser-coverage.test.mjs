@@ -7,6 +7,7 @@ import { createBrowserCompiler } from "../../web/playground/vkf-browser-compiler
 
 const root = new URL("../../", import.meta.url);
 const artifacts = new URL("../../web/playground/artifacts/", import.meta.url);
+const rounded = (values) => values.map((value) => Math.round(value * 1e9) / 1e9);
 
 async function compilerAndExamples() {
   const [document, wasm, manifest] = await Promise.all([
@@ -70,6 +71,30 @@ test("browser compiler runs the complete README named-axis tensor fence", async 
   });
 });
 
+test("browser compiler emits retained geometry packets for the complete README display fence", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-03");
+  const output = { ...compiler.run(example.source) };
+
+  assert.equal(output.kind, "visual");
+  assert.equal(output.packet_values.length, 1);
+  assert.deepEqual(rounded(output.packet_values[0].slice(0, 11)), [
+    1447773766, 1, 2, 7, 0.12, 0.72, 1, 1, -3, -0.12, 0,
+  ]);
+  assert.equal(output.packet_values[0].length, 50);
+
+  const changed = { ...compiler.run([
+    ": .ui.display",
+    "display: Display(dim:2)",
+    "frame: display.add_frame(pos:[0, 0], size:[1, 1])",
+    "frame.add(x:[[1, 2]], y:[[3, 4]], z:[[5, 6]], id:\"probe\", color:[0.1, 0.2, 0.3, 1])",
+  ].join("\n")) };
+  assert.deepEqual(changed.packet_values.map(rounded), [[
+    1447773766, 1, 1, 2, 0.1, 0.2, 0.3, 1,
+    1, 3, 5, 2, 4, 6,
+  ]]);
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -87,6 +112,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 2);
+  assert.equal(runnable.length, 3);
   assert.equal(examples.length, 26);
 });

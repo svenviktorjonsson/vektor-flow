@@ -38,6 +38,7 @@ a { color: #0969da; }
 .readme-example-terminal > span { color: #8b949e; font: 600 11px/1 sans-serif; text-transform: uppercase; }
 .readme-example-output { margin: 8px 0 0; overflow: auto; white-space: pre-wrap; }
 .readme-example-result { min-height: 220px; border-left: 1px solid #d0d7de; padding: 16px; background: #fff; }
+.readme-example-result canvas { display: block; width: 100%; height: auto; border-radius: 4px; }
 .vf-token.comment { color: #8b949e; }
 .vf-token.string { color: #a5d6ff; }
 .vf-token.number { color: #79c0ff; }
