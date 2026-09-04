@@ -94,6 +94,7 @@ published download.
 | Windows x64 | `vektor-flow-windows-x64-setup.exe` | Run it; optionally add VKF to `PATH`. |
 | Linux x64 (Debian/Ubuntu) | `vektor-flow-linux-x64.deb` | `sudo apt install ./vektor-flow-linux-x64.deb` |
 | macOS Apple Silicon | `vektor-flow-macos-arm64.pkg` | Open it and follow the installer. |
+| Browser WebAssembly | `vektor-flow-browser-wasm.zip` | Extract it beside the static webpage that embeds VKF. |
 
 Portable `.zip` and `.tar.gz` archives are on the same release page. Linux and
 macOS archives include a per-user `install.sh`; do not run it with `sudo`.
@@ -125,6 +126,37 @@ names the executable.
 Passing a `.vkf` file is the run command; there is no `-r`. A fingerprint of
 source, imports, target, compiler, and output choice allows unchanged programs
 to reuse their executable.
+
+### Browser WebAssembly Compiler
+
+The same release page provides `vektor-flow-browser-wasm.zip` for integration
+into static webpages. Extract it into the webpage directory and serve that
+directory over HTTP or HTTPS. The bundle compiles and runs VKF entirely client-side.
+It does not contact a VKF server and has no fallback interpreter or renderer.
+
+```html
+<textarea id="vkf-source">double(value:int) -> int: value * 2
+:: double([1, 2, 3])</textarea>
+<button id="run-vkf">Run VKF</button>
+<pre id="vkf-output"></pre>
+
+<script type="module">
+  import { loadPackagedBrowserCompiler } from "./vkf-browser-compiler.mjs";
+
+  const compiler = await loadPackagedBrowserCompiler();
+  document.querySelector("#run-vkf").addEventListener("click", () => {
+    const source = document.querySelector("#vkf-source").value;
+    const result = compiler.run(source);
+    document.querySelector("#vkf-output").textContent =
+      result.kind === "console" ? result.values.join("\n") : JSON.stringify(result);
+  });
+</script>
+```
+
+The JavaScript host may update its own page, but VKF user code receives no
+network, server, filesystem, process, DOM, localhost, or host API access.
+Unsupported source fails with a clear browser-compiler error. The WASM module
+has no host imports.
 
 ## Basic Syntax
 
