@@ -152,6 +152,8 @@ int main() {
 
     auto slower_request = request;
     slower_request.cache_path = temporary_root / "slower.proof";
+    slower_request.current_epoch_seconds = 1'000;
+    slower_request.negative_retention_seconds = 60;
     auto slower = proven;
     slower.timings = {
         {100.0, 110.0},
@@ -168,8 +170,47 @@ int main() {
                retained_baseline.schedule.selected_policy == "mask-0" &&
                driver::selection_reason_name(retained_baseline) ==
                    "measurement-rejected" &&
-               driver::store_reason_name(retained_baseline) == "not-attempted",
-           "a measured slower candidate must explicitly retain baseline without storage");
+               driver::store_reason_name(retained_baseline) == "stored",
+           "a measured slower candidate must explicitly retain baseline with bounded storage");
+    auto live_negative_request = slower_request;
+    live_negative_request.current_epoch_seconds = 1'059;
+    const auto live_negative = driver::prepare(live_negative_request);
+    expect(live_negative.cache_reason == cache::LoadReason::NegativeProgramHit &&
+               live_negative.schedule.outcome ==
+                   schedule::Outcome::ReusedNegativeProof &&
+               live_negative.schedule.selected_policy == "mask-0" &&
+               live_negative.schedule.benchmark_policies.empty() &&
+               !live_negative.schedule.optimization_enabled,
+           "a live negative proof must explicitly reuse baseline without exploration");
+    auto surrounding_negative_request = live_negative_request;
+    surrounding_negative_request.material.program += "|unrelated-change";
+    const auto surrounding_negative = driver::prepare(
+        surrounding_negative_request
+    );
+    expect(surrounding_negative.cache_reason ==
+               cache::LoadReason::NegativeFunctionHit &&
+               surrounding_negative.schedule.outcome ==
+                   schedule::Outcome::ReusedNegativeProof &&
+               surrounding_negative.schedule.benchmark_policies.empty(),
+           "an unchanged function may reuse a live negative proof across surrounding code changes");
+    auto changed_negative_request = live_negative_request;
+    changed_negative_request.material.function += "|changed";
+    const auto changed_negative = driver::prepare(changed_negative_request);
+    expect(changed_negative.cache_reason == cache::LoadReason::FunctionMismatch &&
+               changed_negative.schedule.outcome ==
+                   schedule::Outcome::BenchmarkRequired &&
+               changed_negative.schedule.benchmark_policies ==
+                   std::vector<std::string>({"mask-0", "mask-ff"}),
+           "a changed function must invalidate a live negative proof and remeasure two candidates");
+    auto expired_negative_request = slower_request;
+    expired_negative_request.current_epoch_seconds = 1'060;
+    const auto expired_negative = driver::prepare(expired_negative_request);
+    expect(expired_negative.cache_reason == cache::LoadReason::NegativeExpired &&
+               expired_negative.schedule.outcome ==
+                   schedule::Outcome::BenchmarkRequired &&
+               expired_negative.schedule.benchmark_policies ==
+                   std::vector<std::string>({"mask-0", "mask-ff"}),
+           "an expired negative proof must be rejected and schedule exactly two candidates");
 
     auto blocked_store_request = request;
     blocked_store_request.cache_path = temporary_root / "blocked.proof";
@@ -194,6 +235,10 @@ int main() {
               << " changed=" << driver::cache_reason_name(function_miss)
               << " slower="
               << driver::selection_reason_name(retained_baseline)
+              << " negative=" << driver::cache_reason_name(live_negative)
+              << " negative_function="
+              << driver::cache_reason_name(surrounding_negative)
+              << " expired=" << driver::cache_reason_name(expired_negative)
               << " store=" << driver::store_reason_name(store_rejected)
               << '\n';
     return failures == 0 ? 0 : 1;

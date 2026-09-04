@@ -5,12 +5,15 @@
 
 #include <filesystem>
 #include <iomanip>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
 
 namespace vkf::retained_optimization_driver {
+
+inline constexpr std::uint64_t default_negative_retention_seconds = 86'400;
 
 struct FingerprintMaterial {
     std::string program;
@@ -34,6 +37,8 @@ struct Request {
     ProofScope proof;
     std::string baseline_policy;
     std::string candidate_policy;
+    std::uint64_t current_epoch_seconds = 0;
+    std::uint64_t negative_retention_seconds = 0;
 };
 
 struct BuildReceipt {
@@ -125,7 +130,10 @@ inline BuildReceipt prepare(const Request& request) {
     BuildReceipt receipt;
     receipt.identity = derive_identity(request);
     const auto cached = retained_optimization_cache::load(
-        request.cache_path, receipt.identity, request.deterministic
+        request.cache_path,
+        receipt.identity,
+        request.deterministic,
+        request.current_epoch_seconds
     );
     receipt.cache_reason = cached.reason;
     receipt.schedule = retained_optimization_schedule::plan({
@@ -161,12 +169,31 @@ inline BuildReceipt complete(
         nullptr,
         &measured,
     });
-    if (receipt.schedule.outcome ==
-        retained_optimization_schedule::Outcome::EnabledByMeasurement) {
+    const bool candidate_enabled = receipt.schedule.outcome ==
+        retained_optimization_schedule::Outcome::EnabledByMeasurement;
+    const bool retain_negative = receipt.schedule.outcome ==
+            retained_optimization_schedule::Outcome::BaselineExplicitlyRetained &&
+        (receipt.schedule.proof.rejection ==
+             proof_gated_execution::Rejection::NotFaster ||
+         receipt.schedule.proof.rejection ==
+             proof_gated_execution::Rejection::Unproven) &&
+        request.current_epoch_seconds != 0 &&
+        request.negative_retention_seconds != 0;
+    if (candidate_enabled || retain_negative) {
+        const auto maximum = std::numeric_limits<std::uint64_t>::max();
+        const auto negative_expiry = retain_negative
+            ? request.current_epoch_seconds >
+                    maximum - request.negative_retention_seconds
+                ? maximum
+                : request.current_epoch_seconds +
+                    request.negative_retention_seconds
+            : 0;
         const retained_optimization_cache::Record record{
             receipt.identity,
             request.deterministic,
             measured,
+            request.current_epoch_seconds,
+            negative_expiry,
         };
         receipt.store_reason = retained_optimization_cache::store_atomic(
             request.cache_path, record

@@ -2,6 +2,7 @@
 
 #include "compiler/native/vkf_retained_optimization_driver.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
@@ -33,6 +34,8 @@ struct Request {
     std::string baseline_policy;
     std::string candidate_policy;
     std::vector<Function> functions;
+    std::uint64_t current_epoch_seconds = 0;
+    std::uint64_t negative_retention_seconds = 0;
 };
 
 struct FunctionBuild {
@@ -123,6 +126,8 @@ inline Receipt prepare(const Request& request) {
             },
             request.baseline_policy,
             request.candidate_policy,
+            request.current_epoch_seconds,
+            request.negative_retention_seconds,
         };
         auto build = retained_optimization_driver::prepare(driver_request);
         receipt.functions.push_back({

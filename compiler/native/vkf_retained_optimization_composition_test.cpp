@@ -62,13 +62,17 @@ int main() {
             {"right", "machine-leaf:{push:22,return}", true},
         },
     };
+    request.current_epoch_seconds = 10'000;
+    request.negative_retention_seconds = 86'400;
 
     auto first = composition::prepare(request);
     expect(first.functions.size() == 2 &&
                first.functions[0].build.cache_reason ==
                    cache::LoadReason::Missing &&
                first.functions[1].build.cache_reason ==
-                   cache::LoadReason::Missing,
+                   cache::LoadReason::Missing &&
+               first.functions[0].request.current_epoch_seconds == 10'000 &&
+               first.functions[0].request.negative_retention_seconds == 86'400,
            "each uncached leaf must have its own explicit missing receipt");
     expect(first.functions[0].build.schedule.benchmark_policies ==
                std::vector<std::string>({"mask-0", "mask-fc"}) &&

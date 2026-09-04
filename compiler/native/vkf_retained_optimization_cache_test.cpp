@@ -1,9 +1,12 @@
 #include "compiler/native/vkf_retained_optimization_cache.hpp"
 #include "compiler/native/vkf_retained_optimization_schedule.hpp"
 
+#include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <iterator>
 #include <string>
@@ -26,22 +29,11 @@ std::string read_bytes(const std::filesystem::path& path) {
     };
 }
 
-}  // namespace
-
-int main() {
-    using namespace vkf::proof_gated_execution;
-    using namespace vkf::retained_optimization_cache;
-    namespace schedule = vkf::retained_optimization_schedule;
-
-    const auto unique = std::to_string(
-        std::chrono::steady_clock::now().time_since_epoch().count()
-    );
-    const auto temporary_root = std::filesystem::temp_directory_path() /
-        ("vkf-qopt02-" + unique);
-    const auto cache_path = temporary_root / "flow.proof";
-    std::filesystem::create_directories(temporary_root);
-
-    const Key proof_key{
+vkf::retained_optimization_cache::Record fixture_record(
+    std::string program_fingerprint,
+    std::uint64_t measured_at_unix_seconds
+) {
+    const vkf::proof_gated_execution::Key proof_key{
         "adaptive-v4",
         "x64-emitter-5c0ffee",
         "windows-x64-avx2-7950x",
@@ -49,7 +41,7 @@ int main() {
         "f64:n=1048576",
         "exact-result-v1",
     };
-    const Evidence evidence{
+    const vkf::proof_gated_execution::Evidence evidence{
         proof_key,
         true,
         {
@@ -60,8 +52,8 @@ int main() {
             {98.0, 68.0},
         },
     };
-    const Identity identity{
-        "0123456789abcdef0123456789abcdef",
+    const vkf::retained_optimization_cache::Identity identity{
+        std::move(program_fingerprint),
         "11111111111111112222222222222222",
         "windows-x64-avx2-7950x",
         "clang-22.1.4-35990504507d79e0",
@@ -69,11 +61,112 @@ int main() {
         "mask-0",
         "mask-ff",
     };
-    const Record record{identity, true, evidence};
+    return {identity, true, evidence, measured_at_unix_seconds};
+}
+
+#ifndef _WIN32
+std::string shell_quote(const std::filesystem::path& path) {
+    const auto value = path.string();
+    std::string quoted = "'";
+    for (const char character : value) {
+        if (character == '\'') quoted += "'\\''";
+        else quoted.push_back(character);
+    }
+    quoted.push_back('\'');
+    return quoted;
+}
+#endif
+
+int run_cache_child(
+    const std::filesystem::path& executable,
+    std::string_view mode,
+    const std::filesystem::path& cache_path,
+    std::string_view value = {}
+) {
+#ifdef _WIN32
+    const std::wstring wide_mode(mode.begin(), mode.end());
+    const std::wstring wide_value(value.begin(), value.end());
+    std::wstring command = L"\"" + executable.wstring() + L"\" " +
+        wide_mode + L" \"" + cache_path.wstring() + L"\"";
+    if (!wide_value.empty()) command += L" " + wide_value;
+    std::vector<wchar_t> command_line(command.begin(), command.end());
+    command_line.push_back(L'\0');
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(
+            executable.c_str(),
+            command_line.data(),
+            nullptr,
+            nullptr,
+            FALSE,
+            CREATE_NO_WINDOW,
+            nullptr,
+            nullptr,
+            &startup,
+            &process
+        )) {
+        return -1;
+    }
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 1;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return static_cast<int>(exit_code);
+#else
+    std::string command = shell_quote(executable) + " " +
+        std::string(mode) + " " + shell_quote(cache_path);
+    if (!value.empty()) command += " " + std::string(value);
+    return std::system(command.c_str());
+#endif
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    using namespace vkf::proof_gated_execution;
+    using namespace vkf::retained_optimization_cache;
+    namespace schedule = vkf::retained_optimization_schedule;
+
+    if (argc == 4 && std::string(argv[1]) == "--cache-writer") {
+        auto record = fixture_record(
+            "process-writer-" + std::string(argv[3]),
+            static_cast<std::uint64_t>(std::stoull(argv[3]))
+        );
+        const auto stored = store_atomic(argv[2], record);
+        return stored.reason == StoreReason::Superseded ? 0 : 1;
+    }
+    if (argc == 3 && std::string(argv[1]) == "--cache-reader") {
+        const auto expected = fixture_record("process-newest", 20'000);
+        for (std::size_t read = 0; read < 100; ++read) {
+            const auto receipt = load(argv[2], expected.identity, true);
+            if ((receipt.reason != LoadReason::ProgramHit &&
+                 receipt.reason != LoadReason::FunctionHit) ||
+                !receipt.decision.has_value()) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    const auto unique = std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count()
+    );
+    const auto temporary_root = std::filesystem::temp_directory_path() /
+        ("vkf-qopt02-" + unique);
+    const auto cache_path = temporary_root / "flow.proof";
+    std::filesystem::create_directories(temporary_root);
+
+    const Record record = fixture_record(
+        "0123456789abcdef0123456789abcdef", 100
+    );
+    const auto& identity = record.identity;
 
     const auto stored = store_atomic(cache_path, record);
-    expect(stored.reason == StoreReason::Stored,
-           "a valid measured proof must be stored atomically");
+    expect(stored.reason == StoreReason::Stored &&
+               stored.durability_confirmed,
+           "a valid measured proof must be stored atomically and durably");
     const auto loaded = load(cache_path, identity, true);
     expect(loaded.reason == LoadReason::ProgramHit && loaded.decision.has_value(),
            "exact program/function/host/toolchain proof must be a program hit");
@@ -157,12 +250,142 @@ int main() {
     Record replacement = record;
     replacement.identity.program_fingerprint =
         "fedcba9876543210fedcba9876543210";
+    replacement.measured_at_unix_seconds = 101;
     const auto replaced = store_atomic(cache_path, replacement);
     const auto replacement_hit = load(cache_path, replacement.identity, true);
     expect(replaced.reason == StoreReason::Stored &&
                replacement_hit.reason == LoadReason::ProgramHit &&
                read_bytes(cache_path) != original_bytes,
            "atomic replacement must expose one complete new record");
+
+    const auto concurrent_path = temporary_root / "concurrent.proof";
+    Record newest = record;
+    newest.identity.program_fingerprint = "newest-program-fingerprint";
+    newest.measured_at_unix_seconds = 2'000;
+    expect(store_atomic(concurrent_path, newest).reason == StoreReason::Stored,
+           "the newest concurrent proof fixture must be stored");
+    std::atomic<bool> start{false};
+    std::atomic<std::size_t> invalid_reads{0};
+    std::vector<std::future<StoreReceipt>> writers;
+    for (std::uint64_t index = 0; index < 8; ++index) {
+        Record older = record;
+        older.identity.program_fingerprint =
+            "older-program-fingerprint-" + std::to_string(index);
+        older.measured_at_unix_seconds = 1'000 + index;
+        writers.push_back(std::async(
+            std::launch::async,
+            [&, older] {
+                while (!start.load(std::memory_order_acquire)) {}
+                return store_atomic(concurrent_path, older);
+            }
+        ));
+    }
+    std::vector<std::future<void>> readers;
+    for (std::size_t index = 0; index < 4; ++index) {
+        readers.push_back(std::async(
+            std::launch::async,
+            [&] {
+                while (!start.load(std::memory_order_acquire)) {}
+                for (std::size_t read = 0; read < 100; ++read) {
+                    const auto receipt = load(concurrent_path, newest.identity, true);
+                    if ((receipt.reason != LoadReason::ProgramHit &&
+                         receipt.reason != LoadReason::FunctionHit) ||
+                        !receipt.decision.has_value()) {
+                        invalid_reads.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+            }
+        ));
+    }
+    start.store(true, std::memory_order_release);
+    std::size_t superseded_writes = 0;
+    for (auto& writer : writers) {
+        if (writer.get().reason == StoreReason::Superseded) {
+            ++superseded_writes;
+        }
+    }
+    for (auto& reader : readers) reader.get();
+    const auto concurrent_final = load(concurrent_path, newest.identity, true);
+    expect(superseded_writes == writers.size() &&
+               invalid_reads.load(std::memory_order_relaxed) == 0 &&
+               concurrent_final.reason == LoadReason::ProgramHit &&
+               concurrent_final.decision.has_value(),
+           "concurrent readers must observe complete receipts and older writers must be superseded");
+
+    const auto process_path = temporary_root / "process-concurrent.proof";
+    const auto process_newest = fixture_record("process-newest", 20'000);
+    expect(store_atomic(process_path, process_newest).reason ==
+               StoreReason::Stored,
+           "the newest process-concurrency fixture must be stored");
+    const auto executable = std::filesystem::absolute(argv[0]);
+    std::vector<std::future<int>> child_processes;
+    for (std::uint64_t index = 0; index < 8; ++index) {
+        const std::string timestamp = std::to_string(10'000 + index);
+        child_processes.push_back(std::async(
+            std::launch::async,
+            [=] {
+                return run_cache_child(
+                    executable, "--cache-writer", process_path, timestamp
+                );
+            }
+        ));
+    }
+    for (std::size_t index = 0; index < 4; ++index) {
+        child_processes.push_back(std::async(
+            std::launch::async,
+            [=] {
+                return run_cache_child(
+                    executable, "--cache-reader", process_path
+                );
+            }
+        ));
+    }
+    bool process_concurrent = true;
+    for (auto& child : child_processes) {
+        process_concurrent = process_concurrent && child.get() == 0;
+    }
+    const auto process_final = load(
+        process_path, process_newest.identity, true
+    );
+    process_concurrent = process_concurrent &&
+        process_final.reason == LoadReason::ProgramHit &&
+        process_final.decision.has_value();
+    expect(process_concurrent,
+           "concurrent processes must observe complete receipts and preserve the newest writer");
+
+    const auto poisoned_path = temporary_root / "poisoned.proof";
+    Record poisoned = newest;
+    poisoned.measured_at_unix_seconds = 9'999;
+    poisoned.evidence.equivalent_output = false;
+    {
+        std::ofstream output(poisoned_path, std::ios::binary | std::ios::trunc);
+        write_record(output, poisoned);
+    }
+    Record recovery = newest;
+    recovery.measured_at_unix_seconds = 3'000;
+    const auto recovered = store_atomic(poisoned_path, recovery);
+    expect(recovered.reason == StoreReason::Stored &&
+               recovered.durability_confirmed &&
+               load(poisoned_path, recovery.identity, true).reason ==
+                   LoadReason::ProgramHit,
+           "a proof-invalid record must not supersede a valid durable writer");
+
+    Record tie_left = newest;
+    tie_left.identity.program_fingerprint = "tie-left-program";
+    tie_left.measured_at_unix_seconds = 4'000;
+    Record tie_right = newest;
+    tie_right.identity.program_fingerprint = "tie-right-program";
+    tie_right.measured_at_unix_seconds = 4'000;
+    const auto tie_forward_path = temporary_root / "tie-forward.proof";
+    const auto tie_reverse_path = temporary_root / "tie-reverse.proof";
+    store_atomic(tie_forward_path, tie_left);
+    store_atomic(tie_forward_path, tie_right);
+    store_atomic(tie_reverse_path, tie_right);
+    store_atomic(tie_reverse_path, tie_left);
+    const bool deterministic_tie =
+        read_bytes(tie_forward_path) == read_bytes(tie_reverse_path);
+    expect(deterministic_tie,
+           "equal-time writers must converge by a deterministic bytewise tie break");
 
     const auto blocked_path = temporary_root / "blocked.proof";
     std::filesystem::create_directory(blocked_path);
@@ -198,6 +421,10 @@ int main() {
               << (rejected_store.reason == StoreReason::ProofRejected)
               << " corrupt_reject="
               << (corrupt_load.reason == LoadReason::Corrupt)
+              << " concurrent=" << (invalid_reads.load() == 0)
+              << " superseded=" << superseded_writes
+              << " process_concurrent=" << process_concurrent
+              << " deterministic_tie=" << deterministic_tie
               << " selected=" << loaded.decision.has_value()
               << '\n';
     return failures == 0 ? 0 : 1;

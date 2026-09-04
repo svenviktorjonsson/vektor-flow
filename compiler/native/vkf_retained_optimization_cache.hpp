@@ -24,12 +24,14 @@
 #endif
 #include <windows.h>
 #else
+#include <fcntl.h>
+#include <sys/file.h>
 #include <unistd.h>
 #endif
 
 namespace vkf::retained_optimization_cache {
 
-inline constexpr std::uint32_t schema_version = 1;
+inline constexpr std::uint32_t schema_version = 2;
 inline constexpr std::uintmax_t maximum_receipt_bytes = 1u << 20u;
 inline constexpr std::size_t maximum_field_bytes = 4096;
 inline constexpr std::size_t maximum_timing_pairs = 4096;
@@ -48,13 +50,18 @@ struct Record {
     Identity identity;
     bool deterministic = false;
     proof_gated_execution::Evidence evidence;
+    std::uint64_t measured_at_unix_seconds = 0;
+    std::uint64_t negative_expires_at_unix_seconds = 0;
 };
 
 enum class StoreReason {
     Stored,
     InvalidIdentity,
     Nondeterministic,
+    InvalidRetention,
     ProofRejected,
+    Superseded,
+    DurabilityError,
     IoError,
 };
 
@@ -62,6 +69,7 @@ struct StoreReceipt {
     StoreReason reason = StoreReason::IoError;
     proof_gated_execution::Rejection proof_rejection =
         proof_gated_execution::Rejection::InsufficientSamples;
+    bool durability_confirmed = false;
 };
 
 inline std::string_view reason_name(StoreReason reason) {
@@ -69,7 +77,10 @@ inline std::string_view reason_name(StoreReason reason) {
         case StoreReason::Stored: return "stored";
         case StoreReason::InvalidIdentity: return "invalid-identity";
         case StoreReason::Nondeterministic: return "nondeterministic";
+        case StoreReason::InvalidRetention: return "invalid-retention";
         case StoreReason::ProofRejected: return "proof-rejected";
+        case StoreReason::Superseded: return "superseded";
+        case StoreReason::DurabilityError: return "durability-error";
         case StoreReason::IoError: return "io-error";
     }
     return "unknown";
@@ -78,6 +89,9 @@ inline std::string_view reason_name(StoreReason reason) {
 enum class LoadReason {
     ProgramHit,
     FunctionHit,
+    NegativeProgramHit,
+    NegativeFunctionHit,
+    NegativeExpired,
     Missing,
     InvalidRequest,
     Corrupt,
@@ -95,6 +109,9 @@ inline std::string_view reason_name(LoadReason reason) {
     switch (reason) {
         case LoadReason::ProgramHit: return "program-hit";
         case LoadReason::FunctionHit: return "function-hit";
+        case LoadReason::NegativeProgramHit: return "negative-program-hit";
+        case LoadReason::NegativeFunctionHit: return "negative-function-hit";
+        case LoadReason::NegativeExpired: return "negative-expired";
         case LoadReason::Missing: return "missing";
         case LoadReason::InvalidRequest: return "invalid-request";
         case LoadReason::Corrupt: return "corrupt";
@@ -199,6 +216,9 @@ inline void write_record(std::ostream& output, const Record& record) {
     write_field(output, "baseline", record.identity.baseline_policy);
     write_field(output, "candidate", record.identity.candidate_policy);
     output << "deterministic " << (record.deterministic ? 1 : 0) << '\n';
+    output << "measured_at " << record.measured_at_unix_seconds << '\n';
+    output << "negative_expires "
+           << record.negative_expires_at_unix_seconds << '\n';
     output << "equivalent " << (record.evidence.equivalent_output ? 1 : 0) << '\n';
     output << "timings " << record.evidence.timings.size() << '\n';
     output << std::setprecision(std::numeric_limits<double>::max_digits10);
@@ -248,6 +268,19 @@ inline Record read_record(std::istream& input) {
         throw std::runtime_error("missing retained proof deterministic bit");
     }
     record.deterministic = parse_boolean_line(line, "deterministic");
+    if (!std::getline(input, line) || line.rfind("measured_at ", 0) != 0) {
+        throw std::runtime_error("missing retained proof measurement time");
+    }
+    record.measured_at_unix_seconds = static_cast<std::uint64_t>(
+        parse_size(std::string_view(line).substr(12))
+    );
+    if (!std::getline(input, line) ||
+        line.rfind("negative_expires ", 0) != 0) {
+        throw std::runtime_error("missing retained proof negative expiry");
+    }
+    record.negative_expires_at_unix_seconds = static_cast<std::uint64_t>(
+        parse_size(std::string_view(line).substr(17))
+    );
     if (!std::getline(input, line)) {
         throw std::runtime_error("missing retained proof equivalence bit");
     }
@@ -307,6 +340,122 @@ inline std::filesystem::path temporary_path_for(
     return temporary;
 }
 
+inline std::filesystem::path lock_path_for(const std::filesystem::path& path) {
+    auto lock_path = path;
+    lock_path += ".lock";
+    return lock_path;
+}
+
+enum class LockMode { Shared, Exclusive };
+
+class FileLock {
+public:
+    FileLock(const std::filesystem::path& path, LockMode mode) {
+#ifdef _WIN32
+        handle_ = CreateFileW(
+            lock_path_for(path).c_str(),
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr
+        );
+        if (handle_ == INVALID_HANDLE_VALUE) return;
+        const DWORD flags = mode == LockMode::Exclusive
+            ? LOCKFILE_EXCLUSIVE_LOCK
+            : 0;
+        acquired_ = LockFileEx(
+            handle_, flags, 0, MAXDWORD, MAXDWORD, &overlapped_
+        ) != 0;
+#else
+        descriptor_ = open(
+            lock_path_for(path).c_str(), O_RDWR | O_CREAT, 0600
+        );
+        if (descriptor_ < 0) return;
+        acquired_ = flock(
+            descriptor_, mode == LockMode::Exclusive ? LOCK_EX : LOCK_SH
+        ) == 0;
+#endif
+    }
+
+    FileLock(const FileLock&) = delete;
+    FileLock& operator=(const FileLock&) = delete;
+
+    ~FileLock() {
+#ifdef _WIN32
+        if (handle_ != INVALID_HANDLE_VALUE) {
+            if (acquired_) {
+                UnlockFileEx(
+                    handle_, 0, MAXDWORD, MAXDWORD, &overlapped_
+                );
+            }
+            CloseHandle(handle_);
+        }
+#else
+        if (descriptor_ >= 0) {
+            if (acquired_) flock(descriptor_, LOCK_UN);
+            close(descriptor_);
+        }
+#endif
+    }
+
+    bool acquired() const { return acquired_; }
+
+private:
+    bool acquired_ = false;
+#ifdef _WIN32
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+    OVERLAPPED overlapped_{};
+#else
+    int descriptor_ = -1;
+#endif
+};
+
+inline std::string serialized_record(const Record& record) {
+    std::ostringstream output;
+    write_record(output, record);
+    return output.str();
+}
+
+inline bool existing_record_supersedes(
+    const std::filesystem::path& path,
+    const Record& candidate
+) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) return false;
+    Record existing;
+    try {
+        existing = read_record(input);
+    } catch (const std::exception&) {
+        return false;
+    }
+    if (!existing.deterministic) return false;
+    const auto existing_proof = proof_gated_execution::assess(
+        existing.identity.proof_key, existing.evidence
+    );
+    const bool existing_negative =
+        existing_proof.rejection ==
+            proof_gated_execution::Rejection::NotFaster ||
+        existing_proof.rejection ==
+            proof_gated_execution::Rejection::Unproven;
+    if (!existing_proof.use_candidate && !existing_negative) return false;
+    if ((existing_proof.use_candidate &&
+         existing.negative_expires_at_unix_seconds != 0) ||
+        (existing_negative &&
+         (existing.measured_at_unix_seconds == 0 ||
+          existing.negative_expires_at_unix_seconds <=
+              existing.measured_at_unix_seconds))) {
+        return false;
+    }
+    if (existing.measured_at_unix_seconds !=
+        candidate.measured_at_unix_seconds) {
+        return existing.measured_at_unix_seconds >
+            candidate.measured_at_unix_seconds;
+    }
+    return serialized_record(existing) <= serialized_record(candidate);
+}
+
 inline bool replace_atomically(
     const std::filesystem::path& temporary,
     const std::filesystem::path& destination
@@ -321,6 +470,48 @@ inline bool replace_atomically(
     std::error_code error;
     std::filesystem::rename(temporary, destination, error);
     return !error;
+#endif
+}
+
+inline bool flush_file_durably(const std::filesystem::path& path) {
+#ifdef _WIN32
+    const HANDLE handle = CreateFileW(
+        path.c_str(),
+        GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr
+    );
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    const bool flushed = FlushFileBuffers(handle) != 0;
+    CloseHandle(handle);
+    return flushed;
+#else
+    const int descriptor = open(path.c_str(), O_RDONLY);
+    if (descriptor < 0) return false;
+    const bool flushed = fsync(descriptor) == 0;
+    close(descriptor);
+    return flushed;
+#endif
+}
+
+inline bool flush_parent_directory_durably(
+    const std::filesystem::path& path
+) {
+#ifdef _WIN32
+    (void)path;
+    return true;
+#else
+    const auto parent = path.parent_path().empty()
+        ? std::filesystem::path(".")
+        : path.parent_path();
+    const int descriptor = open(parent.c_str(), O_RDONLY | O_DIRECTORY);
+    if (descriptor < 0) return false;
+    const bool flushed = fsync(descriptor) == 0;
+    close(descriptor);
+    return flushed;
 #endif
 }
 
@@ -341,13 +532,33 @@ inline StoreReceipt store_atomic(
         record.identity.proof_key,
         record.evidence
     );
-    if (!proof.use_candidate) {
+    const bool retain_negative =
+        proof.rejection == proof_gated_execution::Rejection::NotFaster ||
+        proof.rejection == proof_gated_execution::Rejection::Unproven;
+    if (!proof.use_candidate && !retain_negative) {
         return {StoreReason::ProofRejected, proof.rejection};
+    }
+    if ((proof.use_candidate &&
+         record.negative_expires_at_unix_seconds != 0) ||
+        (retain_negative &&
+         (record.measured_at_unix_seconds == 0 ||
+          record.negative_expires_at_unix_seconds <=
+              record.measured_at_unix_seconds))) {
+        return {StoreReason::InvalidRetention, proof.rejection};
     }
 
     std::error_code error;
     if (!path.parent_path().empty()) {
         std::filesystem::create_directories(path.parent_path(), error);
+    }
+    if (error) return {StoreReason::IoError, proof.rejection};
+    FileLock lock(path, LockMode::Exclusive);
+    if (!lock.acquired()) {
+        return {StoreReason::IoError, proof.rejection};
+    }
+    if (std::filesystem::exists(path, error) && !error &&
+        existing_record_supersedes(path, record)) {
+        return {StoreReason::Superseded, proof.rejection};
     }
     if (error) return {StoreReason::IoError, proof.rejection};
     const auto temporary = temporary_path_for(path);
@@ -362,17 +573,25 @@ inline StoreReceipt store_atomic(
             return {StoreReason::IoError, proof.rejection};
         }
     }
+    if (!flush_file_durably(temporary)) {
+        std::filesystem::remove(temporary, error);
+        return {StoreReason::DurabilityError, proof.rejection};
+    }
     if (!replace_atomically(temporary, path)) {
         std::filesystem::remove(temporary, error);
         return {StoreReason::IoError, proof.rejection};
     }
-    return {StoreReason::Stored, proof.rejection};
+    if (!flush_parent_directory_durably(path)) {
+        return {StoreReason::DurabilityError, proof.rejection};
+    }
+    return {StoreReason::Stored, proof.rejection, true};
 }
 
 inline LoadReceipt load(
     const std::filesystem::path& path,
     const Identity& expected,
-    bool deterministic
+    bool deterministic,
+    std::uint64_t current_epoch_seconds = 0
 ) {
     if (!valid_identity(expected)) {
         return {LoadReason::InvalidRequest, std::nullopt, {}};
@@ -381,6 +600,10 @@ inline LoadReceipt load(
     const bool exists = std::filesystem::exists(path, error);
     if (error) return {LoadReason::IoError, std::nullopt, {}};
     if (!exists) return {LoadReason::Missing, std::nullopt, {}};
+    FileLock lock(path, LockMode::Shared);
+    if (!lock.acquired()) {
+        return {LoadReason::IoError, std::nullopt, {}};
+    }
     const auto bytes = std::filesystem::file_size(path, error);
     if (error) return {LoadReason::IoError, std::nullopt, {}};
     if (bytes == 0 || bytes > maximum_receipt_bytes) {
@@ -420,6 +643,31 @@ inline LoadReceipt load(
         expected.proof_key,
         record.evidence
     );
+    const bool retain_negative =
+        proof.rejection == proof_gated_execution::Rejection::NotFaster ||
+        proof.rejection == proof_gated_execution::Rejection::Unproven;
+    if (retain_negative) {
+        if (current_epoch_seconds == 0 ||
+            current_epoch_seconds >=
+                record.negative_expires_at_unix_seconds) {
+            return {LoadReason::NegativeExpired, std::nullopt, proof};
+        }
+        retained_optimization_schedule::RetainedDecision decision{
+            record.identity.program_fingerprint,
+            record.identity.function_fingerprint,
+            record.identity.baseline_policy,
+            record.identity.candidate_policy,
+            record.evidence,
+            true,
+        };
+        return {
+            record.identity.program_fingerprint == expected.program_fingerprint
+                ? LoadReason::NegativeProgramHit
+                : LoadReason::NegativeFunctionHit,
+            std::move(decision),
+            proof,
+        };
+    }
     if (!proof.use_candidate) {
         return {LoadReason::ProofRejected, std::nullopt, proof};
     }

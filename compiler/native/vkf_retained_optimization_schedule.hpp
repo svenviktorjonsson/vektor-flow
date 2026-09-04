@@ -13,6 +13,7 @@ struct RetainedDecision {
     std::string baseline_policy;
     std::string candidate_policy;
     proof_gated_execution::Evidence evidence;
+    bool retain_baseline = false;
 };
 
 struct ScheduleRequest {
@@ -31,6 +32,7 @@ enum class Outcome {
     EnabledByMeasurement,
     ReusedProgramProof,
     ReusedFunctionProof,
+    ReusedNegativeProof,
     BaselineExplicitlyRetained,
     Blocked,
 };
@@ -79,6 +81,15 @@ inline Schedule plan(const ScheduleRequest& request) {
             schedule.reason = Reason::None;
             schedule.selected_policy = request.candidate_policy;
             schedule.optimization_enabled = true;
+            return schedule;
+        }
+        if (request.retained->retain_baseline &&
+            (schedule.proof.rejection ==
+                 proof_gated_execution::Rejection::NotFaster ||
+             schedule.proof.rejection ==
+                 proof_gated_execution::Rejection::Unproven)) {
+            schedule.outcome = Outcome::ReusedNegativeProof;
+            schedule.reason = Reason::MeasurementRejected;
             return schedule;
         }
         if (schedule.proof.rejection ==

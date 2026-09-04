@@ -153,6 +153,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|
 endif()
 find_package(Threads REQUIRED)
 target_link_libraries(vkf_adaptive_optimizer_contract_test PRIVATE Threads::Threads)
+target_link_libraries(vkf_retained_optimization_cache_test PRIVATE Threads::Threads)
 
 install(TARGETS
     vkf

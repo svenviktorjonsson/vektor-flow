@@ -14210,7 +14210,7 @@ std::string optimizer_toolchain_material() {
     material << "|msvc-full-" << _MSC_FULL_VER;
 #endif
     material << "|cplusplus-" << __cplusplus
-             << "|x64-emitter-qopt06|built-" << __DATE__ << '-' << __TIME__;
+             << "|x64-emitter-qopt07|built-" << __DATE__ << '-' << __TIME__;
     return material.str();
 }
 
@@ -14231,6 +14231,12 @@ std::string optimizer_function_material(
         vkf::machine_ir::function_json(function), -1
     );
     return std::to_string(function_json.size()) + ':' + function_json;
+}
+
+std::uint64_t optimizer_current_epoch_seconds() {
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<
+        std::chrono::seconds
+    >(std::chrono::system_clock::now().time_since_epoch()).count());
 }
 
 vkf::retained_optimization_driver::Request retained_driver_request(
@@ -14276,6 +14282,9 @@ vkf::retained_optimization_driver::Request retained_driver_request(
         vkf::adaptive_optimizer::policy_from_mask(
             vkf::adaptive_optimizer::policy_mask
         ).name,
+        optimizer_current_epoch_seconds(),
+        vkf::retained_optimization_driver::
+            default_negative_retention_seconds,
     };
     const auto identity =
         vkf::retained_optimization_driver::derive_identity(request);
@@ -14322,6 +14331,9 @@ vkf::retained_optimization_composition::Request retained_composition_request(
             )
         ).name,
         {},
+        optimizer_current_epoch_seconds(),
+        vkf::retained_optimization_driver::
+            default_negative_retention_seconds,
     };
     for (const auto* function : proof_leaf_functions(machine_ir)) {
         request.functions.push_back({
