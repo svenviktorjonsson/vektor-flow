@@ -38,7 +38,16 @@ function wrapKernel(kernel) {
       }
       assertBrowserCapabilities(source);
       try {
-        return kernel.invokeValue(RUN_ENTRY, [source]);
+        const initial = kernel.invokeValue(RUN_ENTRY, [source, -1]);
+        if (initial?.kind !== "visual_stream") return initial;
+        const packetRecords = [];
+        if (Array.isArray(initial.background) && initial.background.length === 4) {
+          packetRecords.push({ magic: 1447773767, version: 1, color: initial.background });
+        }
+        for (let index = 0; index < initial.packet_count; index += 1) {
+          packetRecords.push(kernel.invokeValue(RUN_ENTRY, [source, index]));
+        }
+        return Object.freeze({ kind: "visual", packet_records: packetRecords });
       } catch (cause) {
         throw new Error("browser compiler could not run the VKF source", { cause });
       }

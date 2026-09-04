@@ -1381,7 +1381,20 @@ run_tagged_dependency_source(source:str) -> num:
 
 BrowserLiftedParse: (value:any, next:int)
 BrowserAxisTerm: (values:any, axis:str, next:int)
-BrowserDisplayCall: (packet:any, next:int)
+BrowserDisplayOptions: (background:any, next:int)
+BrowserDisplayScan: (
+    packet_count:int,
+    selected_source:str,
+    options_source:str,
+    unsupported:bit
+)
+BrowserDisplayMeshSources: (
+    x_source:str,
+    y_source:str,
+    color_source:str,
+    saw_z:bit,
+    unsupported:bit
+)
 
 _browser_lifted_number(tape:any, index:int, factor:num) -> BrowserLiftedParse:
     row: index * 6
@@ -1542,56 +1555,27 @@ _browser_axis_lookup(
         @: values.(index)
     _browser_axis_lookup(names, values, name, index + 1)
 
-_browser_display_packet_values(
-    x:any, y:any, z:any, row:int, column:int, values:any
-) -> any:
-    (row = x.length())?
-        (row = y.length() /\ row = z.length())?! "display geometry row counts differ"
-        @: values
-    (row < y.length() /\ row < z.length() /\
-        x.(row).length() = y.(row).length() /\
-        x.(row).length() = z.(row).length())?! "display geometry row widths differ"
-    (column = x.(row).length())?
-        @: _browser_display_packet_values(x, y, z, row + 1, 0, values)
-    _browser_display_packet_values(
-        x, y, z, row, column + 1,
-        values & [x.(row).(column), y.(row).(column), z.(row).(column)]
-    )
-
-_browser_display_mesh_call(tape:any, start:int) -> BrowserDisplayCall:
+_browser_display_options_call(tape:any, start:int) -> BrowserDisplayOptions:
     index: start
     parens: 1
     brackets: 0
-    x: []
-    y: []
-    z: []
-    color: [0.2, 0.7, 1, 1]
-    saw_x: false
-    saw_y: false
-    saw_z: false
+    background: []
+    saw_background: false
     (parens > 0)?>
         kind: _browser_token_kind(tape, index)
         keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
             _browser_token_kind(tape, index + 1) = 15)
         keyword?
             key: _browser_token_text(tape, index)
-            retained: key = "x" \/ key = "y" \/ key = "z" \/ key = "color"
-            (retained \/ key = "id")?! "browser display does not support this frame.add option"
-            retained?
+            (key = "background" \/ key = "unified_renderer")?! "browser display does not support this frame option"
+            key = "background"?
                 parsed: _browser_lifted_value(tape, index + 2, 1)
-                key = "x"?
-                    .x: parsed.value
-                    .saw_x: true
-                key = "y"?
-                    .y: parsed.value
-                    .saw_y: true
-                key = "z"?
-                    .z: parsed.value
-                    .saw_z: true
-                key = "color"?
-                    .color: parsed.value
+                .background: parsed.value
+                .saw_background: true
                 .index: parsed.next
-            ~retained?
+            key = "unified_renderer"?
+                (_browser_token_kind(tape, index + 2) = 1 /\
+                    _browser_token_text(tape, index + 2) = "true")?! "browser display requires unified rendering"
                 .index+: 1
         ~keyword?
             kind = 13?
@@ -1603,49 +1587,279 @@ _browser_display_mesh_call(tape:any, start:int) -> BrowserDisplayCall:
             kind = 23?
                 .brackets-: 1
             .index+: 1
-    (saw_x /\ saw_y /\ saw_z)?! "frame.add requires x, y, and z geometry"
+    saw_background?! "browser display options require a background"
+    (background.length() = 4)?! "browser display background must be RGBA"
+    (background:background, next:index)
+
+_browser_source_starts_with(
+    source:str, offset:int, expected:str, expected_offset:int
+) -> bit:
+    vkf_string_eof(expected, expected_offset)?
+        @: true
+    vkf_string_eof(source, offset)?
+        @: false
+    (vkf_string_peek_scalar(source, offset) !=
+        vkf_string_peek_scalar(expected, expected_offset))?
+        @: false
+    _browser_source_starts_with(
+        source,
+        vkf_utf8_advance(source, offset),
+        expected,
+        vkf_utf8_advance(expected, expected_offset)
+    )
+
+_browser_display_raw_source_matches(source:str) -> bit:
+    ~_browser_source_starts_with(source, 0, ": .ui.display", 0)?
+        @: false
+    vkf_string_eof(source, 13)?
+        @: true
+    (vkf_string_peek_scalar(source, 13) = 10 \/
+        vkf_string_peek_scalar(source, 13) = 13)
+
+_browser_display_call_stop(
+    source:str, offset:int, depth:int, in_string:bit
+) -> int:
+    vkf_string_eof(source, offset)?
+        false?! "browser display call is unterminated"
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    in_string?
+        ch = 34?
+            @: _browser_display_call_stop(source, next, depth, false)
+        @: _browser_display_call_stop(source, next, depth, true)
+    ch = 34?
+        @: _browser_display_call_stop(source, next, depth, true)
+    ch = 40?
+        @: _browser_display_call_stop(source, next, depth + 1, false)
+    ch = 41?
+        depth = 1?
+            @: next
+        @: _browser_display_call_stop(source, next, depth - 1, false)
+    _browser_display_call_stop(source, next, depth, false)
+
+_browser_display_value_start(source:str, offset:int) -> int:
+    vkf_string_eof(source, offset)?
+        @: offset
+    ch: vkf_string_peek_scalar(source, offset)
+    (ch = 9 \/ ch = 10 \/ ch = 13 \/ ch = 32)?
+        @: _browser_display_value_start(
+            source, vkf_utf8_advance(source, offset)
+        )
+    offset
+
+_browser_display_bracket_stop(
+    source:str, offset:int, depth:int
+) -> int:
+    vkf_string_eof(source, offset)?
+        false?! "browser display vector is unterminated"
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    ch = 91?
+        @: _browser_display_bracket_stop(source, next, depth + 1)
+    ch = 93?
+        depth = 1?
+            @: next
+        @: _browser_display_bracket_stop(source, next, depth - 1)
+    _browser_display_bracket_stop(source, next, depth)
+
+_browser_ascii_identifier_start(ch:int) -> bit:
+    (ch >= 65 /\ ch <= 90) \/ (ch >= 97 /\ ch <= 122) \/ ch = 95
+
+_browser_display_identifier_stop(source:str, offset:int) -> int:
+    vkf_string_eof(source, offset)?
+        @: offset
+    ch: vkf_string_peek_scalar(source, offset)
+    (_browser_ascii_identifier_start(ch) \/ (ch >= 48 /\ ch <= 57))?
+        @: _browser_display_identifier_stop(
+            source, vkf_utf8_advance(source, offset)
+        )
+    offset
+
+_browser_scan_display_mesh_source(
+    source:str,
+    offset:int,
+    x_source:str,
+    y_source:str,
+    color_source:str,
+    saw_z:bit,
+    unsupported:bit,
+    in_string:bit
+) -> BrowserDisplayMeshSources:
+    vkf_string_eof(source, offset)?
+        @: (
+            x_source:x_source,
+            y_source:y_source,
+            color_source:color_source,
+            saw_z:saw_z,
+            unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    in_string?
+        @: _browser_scan_display_mesh_source(
+            source, next, x_source, y_source, color_source, saw_z,
+            unsupported, ch != 34
+        )
+    ch = 34?
+        @: _browser_scan_display_mesh_source(
+            source, next, x_source, y_source, color_source, saw_z,
+            unsupported, true
+        )
+    (_browser_source_starts_with(source, offset, "x:", 0) \/
+        _browser_source_starts_with(source, offset, "y:", 0) \/
+        _browser_source_starts_with(source, offset, "z:", 0) \/
+        _browser_source_starts_with(source, offset, "color:", 0))?
+        colon_width: 2
+        _browser_source_starts_with(source, offset, "color:", 0)?
+            .colon_width: 6
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser display geometry fields require vectors"
+        stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        value_source: vkf_utf8_slice(source, value_start, stop)
+        next_x: x_source
+        next_y: y_source
+        next_color: color_source
+        next_z: saw_z
+        _browser_source_starts_with(source, offset, "x:", 0)?
+            .next_x: value_source
+        _browser_source_starts_with(source, offset, "y:", 0)?
+            .next_y: value_source
+        _browser_source_starts_with(source, offset, "z:", 0)?
+            .next_z: true
+        _browser_source_starts_with(source, offset, "color:", 0)?
+            .next_color: value_source
+        @: _browser_scan_display_mesh_source(
+            source, stop, next_x, next_y, next_color, next_z,
+            unsupported, false
+        )
+    _browser_source_starts_with(source, offset, "id:", 0)?
+        @: _browser_scan_display_mesh_source(
+            source, offset + 3, x_source, y_source, color_source, saw_z,
+            unsupported, false
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_display_mesh_source(
+        source, next, x_source, y_source, color_source, saw_z,
+        unknown, false
+    )
+
+_browser_display_mesh_source(source:str) -> any:
+    fields: _browser_scan_display_mesh_source(
+        source, 10, "", "", "", false, false, false
+    )
+    ~fields.unsupported?! "browser display does not support this frame.add option"
+    (fields.x_source != "" /\ fields.y_source != "" /\ fields.saw_z)?! "frame.add requires x, y, and z geometry"
+    x_tape: lexer.tagged_numeric_function_token_tape(fields.x_source)
+    x: _browser_lifted_value(x_tape, 0, 1).value
+    y_tape: lexer.tagged_numeric_function_token_tape(fields.y_source)
+    y: _browser_lifted_value(y_tape, 0, 1).value
+    color: [0.2, 0.7, 1, 1]
+    fields.color_source != ""?
+        color_tape: lexer.tagged_numeric_function_token_tape(fields.color_source)
+        .color: _browser_lifted_value(color_tape, 0, 1).value
     (color.length() = 4)?! "frame.add color must be RGBA"
     rows: x.length()
     (rows > 0)?! "frame.add geometry must contain rows"
-    columns: x.0.length()
-    packet: ([1447773766, 1, rows, columns] & color &
-        _browser_display_packet_values(x, y, z, 0, 0, []))
-    (packet:packet, next:index)
+    (
+        magic:1447773766, version:3, rows:rows,
+        columns:x.0.length(), color:color, x:x, y:y
+    )
 
-_browser_display_source_matches(tape:any) -> bit:
-    tape.count > 10 /\ _browser_token_kind(tape, 0) = 15 /\
-    _browser_token_kind(tape, 1) = 16 /\
-    _browser_token_text(tape, 2) = "ui" /\
-    _browser_token_kind(tape, 3) = 16 /\
-    _browser_token_text(tape, 4) = "display"
+_browser_scan_display_source(
+    source:str,
+    offset:int,
+    packet_count:int,
+    packet_index:int,
+    selected_source:str,
+    options_source:str,
+    unsupported:bit,
+    in_string:bit,
+    in_comment:bit
+) -> BrowserDisplayScan:
+    vkf_string_eof(source, offset)?
+        @: (
+            packet_count:packet_count,
+            selected_source:selected_source,
+            options_source:options_source,
+            unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    in_comment?
+        ch = 10?
+            @: _browser_scan_display_source(
+                source, next, packet_count, packet_index,
+                selected_source, options_source, unsupported, false, false
+            )
+        @: _browser_scan_display_source(
+            source, next, packet_count, packet_index,
+            selected_source, options_source, unsupported, false, true
+        )
+    in_string?
+        @: _browser_scan_display_source(
+            source, next, packet_count, packet_index,
+            selected_source, options_source, unsupported,
+            ch != 34, false
+        )
+    ch = 35?
+        @: _browser_scan_display_source(
+            source, next, packet_count, packet_index,
+            selected_source, options_source, unsupported, false, true
+        )
+    ch = 34?
+        @: _browser_scan_display_source(
+            source, next, packet_count, packet_index,
+            selected_source, options_source, unsupported, true, false
+        )
+    _browser_source_starts_with(
+        source, offset, "frame.set_geom_options(", 0
+    )?
+        stop: _browser_display_call_stop(source, offset + 23, 1, false)
+        @: _browser_scan_display_source(
+            source, stop, packet_count, packet_index,
+            selected_source, vkf_utf8_slice(source, offset, stop),
+            unsupported, false, false
+        )
+    _browser_source_starts_with(source, offset, "frame.add(", 0)?
+        stop: _browser_display_call_stop(source, offset + 10, 1, false)
+        selected: selected_source
+        packet_count = packet_index?
+            .selected: vkf_utf8_slice(source, offset, stop)
+        @: _browser_scan_display_source(
+            source, stop, packet_count + 1, packet_index,
+            selected, options_source, unsupported, false, false
+        )
+    (_browser_source_starts_with(source, offset, "frame.add_camera(", 0) \/
+        _browser_source_starts_with(source, offset, "frame.add_light(", 0))?
+        @: _browser_scan_display_source(
+            source, next, packet_count, packet_index,
+            selected_source, options_source, true, false, false
+        )
+    _browser_scan_display_source(
+        source, next, packet_count, packet_index,
+        selected_source, options_source, unsupported, false, false
+    )
 
-_run_tagged_display_source(tape:any) -> any:
-    index: 0
-    packets: []
-    unsupported: false
-    (index < tape.count)?>
-        unsupported_call: (_browser_token_kind(tape, index) = 1 /\
-            _browser_token_text(tape, index) = "frame" /\
-            _browser_token_kind(tape, index + 1) = 16 /\
-            (_browser_token_text(tape, index + 2) = "set_geom_options" \/
-                _browser_token_text(tape, index + 2) = "add_camera" \/
-                _browser_token_text(tape, index + 2) = "add_light"))
-        unsupported_call?
-            .unsupported: true
-        mesh_call: (_browser_token_kind(tape, index) = 1 /\
-            _browser_token_text(tape, index) = "frame" /\
-            _browser_token_kind(tape, index + 1) = 16 /\
-            _browser_token_text(tape, index + 2) = "add" /\
-            _browser_token_kind(tape, index + 3) = 13)
-        mesh_call?
-            mesh: _browser_display_mesh_call(tape, index + 4)
-            .packets: packets & [mesh.packet]
-            .index: mesh.next
-        ~mesh_call?
-            .index+: 1
-    ~unsupported?! "browser display source requires unsupported scene features"
-    (packets.length() > 0)?! "display source did not retain geometry"
-    (kind:"visual", packet_values:packets)
+_run_tagged_display_source(source:str, packet_index:int) -> any:
+    scan: _browser_scan_display_source(
+        source, 0, 0, packet_index, "", "", false, false, false
+    )
+    ~scan.unsupported?! "browser display source requires unsupported scene features"
+    (scan.packet_count > 0)?! "display source did not retain geometry"
+    packet_index >= 0?
+        (scan.selected_source != "")?! "browser display packet index is out of range"
+        @: _browser_display_mesh_source(scan.selected_source)
+    background: []
+    scan.options_source != ""?
+        tape: lexer.tagged_numeric_function_token_tape(scan.options_source)
+        options: _browser_display_options_call(tape, 4)
+        .background: options.background
+    (kind:"visual_stream", packet_count:scan.packet_count, background:background)
 
 _browser_token_text(tape:any, index:int) -> str:
     row: index * 6
@@ -1724,14 +1938,14 @@ _run_tagged_lifted_vector_function(tape:any) -> any:
             .index+: 1
     (kind:"console", values:outputs)
 
-run_tagged_browser_source(source:str) -> any:
+run_tagged_browser_source(source:str, packet_index:int) -> any:
+    _browser_display_raw_source_matches(source)?
+        @: _run_tagged_display_source(source, packet_index)
     tokens: lexer.tagged_numeric_function_token_tape(source)
     _browser_lifted_vector_function_matches(tokens)?
         @: _run_tagged_lifted_vector_function(tokens)
     _browser_named_axis_source_matches(tokens)?
         @: _run_tagged_named_axis_source(tokens)
-    _browser_display_source_matches(tokens)?
-        @: _run_tagged_display_source(tokens)
     run_tagged_dependency_source(source)
 
 compile_tagged_numeric_function_call(source:str):

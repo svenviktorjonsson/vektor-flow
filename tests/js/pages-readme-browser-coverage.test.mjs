@@ -77,11 +77,12 @@ test("browser compiler emits retained geometry packets for the complete README d
   const output = { ...compiler.run(example.source) };
 
   assert.equal(output.kind, "visual");
-  assert.equal(output.packet_values.length, 1);
-  assert.deepEqual(rounded(output.packet_values[0].slice(0, 11)), [
-    1447773766, 1, 2, 7, 0.12, 0.72, 1, 1, -3, -0.12, 0,
-  ]);
-  assert.equal(output.packet_values[0].length, 50);
+  assert.equal(output.packet_records.length, 1);
+  const packet = { ...output.packet_records[0] };
+  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 3, 2, 7]);
+  assert.deepEqual(rounded(packet.color), [0.12, 0.72, 1, 1]);
+  assert.deepEqual(rounded(packet.x[0]), [-3, -2, -1, 0, 1, 2, 3]);
+  assert.deepEqual(rounded(packet.y[0]), [-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09]);
 
   const changed = { ...compiler.run([
     ": .ui.display",
@@ -89,10 +90,57 @@ test("browser compiler emits retained geometry packets for the complete README d
     "frame: display.add_frame(pos:[0, 0], size:[1, 1])",
     "frame.add(x:[[1, 2]], y:[[3, 4]], z:[[5, 6]], id:\"probe\", color:[0.1, 0.2, 0.3, 1])",
   ].join("\n")) };
-  assert.deepEqual(changed.packet_values.map(rounded), [[
-    1447773766, 1, 1, 2, 0.1, 0.2, 0.3, 1,
-    1, 3, 5, 2, 4, 6,
-  ]]);
+  assert.equal(changed.packet_records.length, 1);
+  assert.deepEqual(rounded(changed.packet_records[0].color), [0.1, 0.2, 0.3, 1]);
+  assert.deepEqual(changed.packet_records[0].x, [[1, 2]]);
+  assert.deepEqual(changed.packet_records[0].y, [[3, 4]]);
+});
+
+test("browser compiler retains background options and multiple meshes from README displays", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const bands = examples.find(({ id }) => id === "readme-16");
+  const ribbon = examples.find(({ id }) => id === "readme-20");
+  const bandOutput = { ...compiler.run(bands.source) };
+  const ribbonOutput = { ...compiler.run(ribbon.source) };
+
+  assert.equal(bandOutput.kind, "visual");
+  assert.equal(bandOutput.packet_records.length, 4);
+  assert.deepEqual(rounded(bandOutput.packet_records[0].color), [0.015, 0.022, 0.05, 1]);
+  assert.deepEqual(bandOutput.packet_records.slice(1).map((packet) => [
+    packet.magic, packet.version, packet.rows, packet.columns,
+  ]), [
+    [1447773766, 3, 2, 7],
+    [1447773766, 3, 2, 7],
+    [1447773766, 3, 2, 7],
+  ]);
+  assert.equal(ribbonOutput.packet_records.length, 2);
+  assert.deepEqual([
+    ribbonOutput.packet_records[1].magic,
+    ribbonOutput.packet_records[1].version,
+    ribbonOutput.packet_records[1].rows,
+    ribbonOutput.packet_records[1].columns,
+  ], [1447773766, 3, 2, 25]);
+
+  const changed = { ...compiler.run(bands.source
+    .replace("background:[0.015, 0.022, 0.05, 1]", "background:[0.2, 0.3, 0.4, 1]")
+    .replace("color:[0.1, 0.5, 0.98, 1]", "color:[0.9, 0.8, 0.7, 1]")) };
+  assert.deepEqual(rounded(changed.packet_records[0].color), [0.2, 0.3, 0.4, 1]);
+  assert.deepEqual(rounded(changed.packet_records[1].color), [0.9, 0.8, 0.7, 1]);
+
+  assert.throws(
+    () => compiler.run(bands.source.replace(
+      "unified_renderer:true",
+      "unified_renderer:true, combine_transparent:true",
+    )),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(bands.source.replace(
+      "id:\"lower_band\"",
+      "id:\"lower_band\", opacity:0.5",
+    )),
+    /browser compiler could not run the VKF source/u,
+  );
 });
 
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
@@ -112,6 +160,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 3);
+  assert.equal(runnable.length, 5);
   assert.equal(examples.length, 26);
 });

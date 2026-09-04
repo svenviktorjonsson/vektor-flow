@@ -64,18 +64,31 @@ test("inline runner terminates an unresponsive worker", async () => {
 test("worker materializes only validated WASM visual packets as typed buffers", () => {
   const output = materializeVisualOutput({
     kind: "visual",
-    packet_values: [[1447773766, 1, 1, 1, 0.1, 0.2, 0.3, 1, 2, 3, 4]],
+    packet_records: [
+      { magic: 1447773767, version: 1, color: [0.01, 0.02, 0.03, 1] },
+      {
+        magic: 1447773766, version: 3, rows: 1, columns: 1,
+        color: [0.1, 0.2, 0.3, 1], x: [[2]], y: [[3]],
+      },
+    ],
   });
 
   assert.equal(output.kind, "visual");
   assert.equal(output.packet_values, undefined);
-  assert.equal(output.packets.length, 1);
-  assert.ok(output.packets[0] instanceof Float64Array);
-  assert.deepEqual([...output.packets[0]], [
-    1447773766, 1, 1, 1, 0.1, 0.2, 0.3, 1, 2, 3, 4,
+  assert.equal(output.packets.length, 2);
+  assert.ok(output.packets[1] instanceof Float64Array);
+  assert.deepEqual([...output.packets[0]], [1447773767, 1, 0.01, 0.02, 0.03, 1]);
+  assert.deepEqual([...output.packets[1]], [
+    1447773766, 2, 1, 1, 0.1, 0.2, 0.3, 1, 2, 3,
   ]);
   assert.throws(
-    () => materializeVisualOutput({ kind: "visual", packet_values: [[1447773766, 1, 1, 1, 0, 0, 0, 1, NaN, 0, 0]] }),
+    () => materializeVisualOutput({
+      kind: "visual",
+      packet_records: [{
+        magic: 1447773766, version: 3, rows: 1, columns: 1,
+        color: [0, 0, 0, 1], x: [[NaN]], y: [[0]],
+      }],
+    }),
     /invalid visual packet/u,
   );
 });

@@ -1,16 +1,23 @@
 const MAGIC = 1447773766;
 
 function decode(packet) {
-  if (!(packet instanceof Float64Array) || packet[0] !== MAGIC || packet[1] !== 1) {
+  if (!(packet instanceof Float64Array)) {
+    throw new TypeError("inline renderer received an invalid retained geometry packet");
+  }
+  if (packet[0] === 1447773767 && packet[1] === 1 && packet.length === 6) {
+    return { kind: "background", color: packet.slice(2) };
+  }
+  if (packet[0] !== MAGIC || ![1, 2].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
   const rows = packet[2];
   const columns = packet[3];
+  const stride = packet[1] === 1 ? 3 : 2;
   if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(columns) || columns < 1
-      || packet.length !== 8 + (rows * columns * 3)) {
+      || packet.length !== 8 + (rows * columns * stride)) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
-  return { packet, rows, columns };
+  return { kind: "geometry", packet, rows, columns, stride };
 }
 
 function channel(value) {
@@ -18,12 +25,14 @@ function channel(value) {
 }
 
 function vertex(mesh, row, column) {
-  const offset = 8 + (((row * mesh.columns) + column) * 3);
+  const offset = 8 + (((row * mesh.columns) + column) * mesh.stride);
   return [mesh.packet[offset], mesh.packet[offset + 1]];
 }
 
 export function renderInlineResult(canvas, packets) {
-  const meshes = packets.map(decode);
+  const decoded = packets.map(decode);
+  const meshes = decoded.filter(({ kind }) => kind === "geometry");
+  const background = decoded.find(({ kind }) => kind === "background");
   const points = meshes.flatMap((mesh) => Array.from(
     { length: mesh.rows * mesh.columns },
     (_, index) => vertex(mesh, Math.floor(index / mesh.columns), index % mesh.columns),
@@ -43,7 +52,9 @@ export function renderInlineResult(canvas, packets) {
   ];
   const context = canvas.getContext("2d");
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#080d19";
+  context.fillStyle = background
+    ? `rgba(${channel(background.color[0])}, ${channel(background.color[1])}, ${channel(background.color[2])}, ${Math.max(0, Math.min(1, background.color[3]))})`
+    : "#080d19";
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.lineWidth = 2;
 
