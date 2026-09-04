@@ -33,6 +33,63 @@ Function function_with(std::initializer_list<Opcode> opcodes) {
     return function;
 }
 
+Instruction instruction(
+    Opcode opcode,
+    std::uint32_t index = 0,
+    double number = 0.0
+) {
+    Instruction result;
+    result.opcode = opcode;
+    result.index = index;
+    result.f64 = number;
+    return result;
+}
+
+Function heavy_calling_branch(const std::string& name) {
+    auto label = [](std::uint32_t value) {
+        Instruction result;
+        result.opcode = Opcode::Label;
+        result.label = value;
+        return result;
+    };
+    auto jump = [](Opcode opcode, std::uint32_t value) {
+        Instruction result;
+        result.opcode = opcode;
+        result.label = value;
+        return result;
+    };
+    Instruction call;
+    call.opcode = Opcode::Call;
+    call.symbol = "shared";
+    call.result_count = 1;
+    Function function;
+    function.name = name;
+    function.locals = {"counter"};
+    function.local_classes = {vkf::machine_ir::ValueClass::I64};
+    function.result_is_numeric_scalar = true;
+    function.max_stack = 2;
+    function.instructions = {
+        instruction(Opcode::PushF64, 0, 0.0),
+        instruction(Opcode::StoreLocal, 0),
+        label(1),
+        instruction(Opcode::LoadLocal, 0),
+        instruction(Opcode::PushF64, 0, 1048576.0),
+        instruction(Opcode::OrderedLessF64),
+        jump(Opcode::JumpIfFalse, 2),
+        call,
+        instruction(Opcode::Drop),
+        instruction(Opcode::LoadLocal, 0),
+        instruction(Opcode::PushF64, 0, 1.0),
+        instruction(Opcode::AddF64),
+        instruction(Opcode::StoreLocal, 0),
+        jump(Opcode::Jump, 1),
+        label(2),
+        instruction(Opcode::PushF64, 0, 1.0),
+        instruction(Opcode::ReturnF64),
+    };
+    return function;
+}
+
 }  // namespace
 
 int main() {
@@ -168,6 +225,38 @@ int main() {
         [&]() { serial_trace.push_back(4); return 44; });
     expect(serial_trace == std::vector<int>({3, 4}),
            "dependent CPU branches must execute in source order");
+
+    vkf::machine_ir::Instruction call_left;
+    call_left.opcode = Opcode::Call;
+    call_left.symbol = "left";
+    vkf::machine_ir::Instruction call_right = call_left;
+    call_right.symbol = "right";
+    auto store_left = instruction(Opcode::StoreLocal, 0);
+    auto store_right = instruction(Opcode::StoreLocal, 1);
+    auto return_pair = instruction(Opcode::ReturnValues);
+    return_pair.result_count = 2;
+    vkf::machine_ir::Module nested_call_pair;
+    nested_call_pair.output_kind = vkf::machine_ir::OutputKind::MultipleF64;
+    nested_call_pair.output_count = 2;
+    nested_call_pair.entry.locals = {"left", "right"};
+    nested_call_pair.entry.instructions = {
+        call_left,
+        store_left,
+        call_right,
+        store_right,
+        instruction(Opcode::LoadLocal, 0),
+        instruction(Opcode::LoadLocal, 1),
+        return_pair,
+    };
+    nested_call_pair.functions = {
+        heavy_calling_branch("left"),
+        heavy_calling_branch("right"),
+        function_with({Opcode::PushF64, Opcode::ReturnF64}),
+    };
+    nested_call_pair.functions.back().name = "shared";
+    expect(!vkf::adaptive_optimizer::select_automatic_cpu_pair(
+               nested_call_pair, automatic_limits, 8),
+           "nested calls without transitive dependency proof must not select parallel emission");
     const auto one_available_core_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
         automatic_limits, 1, left_branch, right_branch, true, fft_decision);
     expect(!one_available_core_pair.concurrent() && one_available_core_pair.lane_limit() == 1,

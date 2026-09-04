@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/native/vkf_machine_ir.hpp"
+#include "compiler/native/vkf_optimization_dependency_gate.hpp"
 #include "compiler/native/vkf_proof_gated_execution.hpp"
 
 #include <algorithm>
@@ -421,6 +422,11 @@ inline bool select_automatic_cpu_pair(
         entry[0].symbol == entry[2].symbol) {
         return false;
     }
+    const auto dependency_receipt =
+        optimization_dependency_gate::analyze_pair(
+            module, entry[0].symbol, entry[2].symbol
+        );
+    if (!dependency_receipt.parallelism_allowed) return false;
     const auto function_named = [&](const std::string& name) {
         return std::find_if(
             module.functions.begin(), module.functions.end(),

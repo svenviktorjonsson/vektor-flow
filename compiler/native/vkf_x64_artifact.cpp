@@ -8,6 +8,7 @@
 #include "compiler/native/vkf_target.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
 #include "compiler/native/vkf_adaptive_optimizer.hpp"
+#include "compiler/native/vkf_optimization_dependency_gate.hpp"
 #include "compiler/native/vkf_retained_optimization_driver.hpp"
 #include "compiler/native/vkf_retained_optimization_composition.hpp"
 #include "compiler/native/kernels/vkf_symmetric_eigen_x64_bytes.hpp"
@@ -13372,8 +13373,12 @@ bool is_independent_proof_leaf(const vkf::machine_ir::Function& function) {
     );
 }
 
-bool can_compose_function_proofs(const vkf::machine_ir::Module& module) {
-    return module.output_kind == vkf::machine_ir::OutputKind::F64 &&
+bool can_compose_function_proofs(
+    const vkf::machine_ir::Module& module,
+    const vkf::optimization_dependency_gate::Receipt& dependency_receipt
+) {
+    return dependency_receipt.composition_allowed &&
+        module.output_kind == vkf::machine_ir::OutputKind::F64 &&
         is_independent_proof_leaf(module.entry) &&
         std::all_of(
             module.functions.begin(),
@@ -13436,6 +13441,8 @@ struct TuningResult {
         proof_receipt;
     std::optional<vkf::retained_optimization_composition::Receipt>
         function_proof_receipt;
+    std::optional<vkf::optimization_dependency_gate::Receipt>
+        dependency_receipt;
 };
 
 class ExecutableCode {
@@ -14203,7 +14210,7 @@ std::string optimizer_toolchain_material() {
     material << "|msvc-full-" << _MSC_FULL_VER;
 #endif
     material << "|cplusplus-" << __cplusplus
-             << "|x64-emitter-qopt04|built-" << __DATE__ << '-' << __TIME__;
+             << "|x64-emitter-qopt05|built-" << __DATE__ << '-' << __TIME__;
     return material.str();
 }
 
@@ -14423,6 +14430,8 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         machine_ir = supplied_machine_ir
             ? *supplied_machine_ir
             : vkf::machine_ir::lower(typed_ir);
+        const auto dependency_receipt =
+            vkf::optimization_dependency_gate::analyze_module(machine_ir);
         const bool supports_simd = vkf::target::host_x64_supports_avx2();
         optimization_decisions = vkf::adaptive_optimizer::decide_module(
             machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
@@ -14448,7 +14457,7 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         std::optional<vkf::retained_optimization_composition::Receipt>
             function_proof_prepared;
         if (optimization_policy == "auto") {
-            if (can_compose_function_proofs(machine_ir)) {
+            if (can_compose_function_proofs(machine_ir, dependency_receipt)) {
                 function_proof_request = retained_composition_request(
                     typed_ir,
                     machine_ir,
@@ -14524,6 +14533,7 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             }
             selected_policy = tuning.policy;
             if (code.empty()) code = std::move(tuning.code);
+            tuning.dependency_receipt = dependency_receipt;
         } else if (optimization_policy == "tune") {
             tuning = tune_machine_code(
                 machine_ir, optimization_run_budget, optimization_time_budget_ms,

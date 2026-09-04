@@ -86,6 +86,52 @@ void append_integer_loop(
     function.instructions.push_back(instruction);
 }
 
+vkf::machine_ir::Module parameterized_call_module() {
+    vkf::machine_ir::Instruction instruction;
+    instruction.opcode = vkf::machine_ir::Opcode::PushF64;
+    instruction.f64 = 21.0;
+    vkf::machine_ir::Function entry;
+    entry.name = "entry";
+    entry.max_stack = 1;
+    entry.result_is_numeric_scalar = true;
+    entry.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::Call;
+    instruction.symbol = "twice";
+    instruction.argument_count = 1;
+    instruction.result_count = 1;
+    instruction.provided_parameter_mask = 1;
+    entry.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::ReturnF64;
+    entry.instructions.push_back(instruction);
+
+    vkf::machine_ir::Function twice;
+    twice.name = "twice";
+    twice.parameters = {"value"};
+    twice.parameter_is_numeric_scalar = {true};
+    twice.locals = {"value"};
+    twice.local_classes = {vkf::machine_ir::ValueClass::F64};
+    twice.max_stack = 2;
+    twice.result_is_numeric_scalar = true;
+    instruction = {};
+    instruction.opcode = vkf::machine_ir::Opcode::LoadLocal;
+    instruction.index = 0;
+    twice.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::PushF64;
+    instruction.f64 = 2.0;
+    twice.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::MultiplyF64;
+    twice.instructions.push_back(instruction);
+    instruction.opcode = vkf::machine_ir::Opcode::ReturnF64;
+    twice.instructions.push_back(instruction);
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.functions = {std::move(twice)};
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
 }  // namespace
 
 int main() {
@@ -201,11 +247,58 @@ int main() {
     expect(run_status == 0 && read_text(stdout_path) == expected_stdout,
            "the selected real artifact must execute with the exact expected result");
 
+    auto call_graph = parameterized_call_module();
+    const auto call_artifact = root /
+#ifdef _WIN32
+        "call.exe";
+#else
+        "call.native";
+#endif
+    const auto call_compiled = vkf_x64_backend::compile(
+        typed_ir,
+        source,
+        typed_ir_path,
+        {},
+        true,
+        call_artifact,
+        "parameterized-call-graph-v1",
+        "auto",
+        32,
+        2000.0,
+        0,
+        &call_graph
+    );
+    const auto call_manifest = vf::parse_json(
+        read_text(call_compiled.manifest_path)
+    );
+    const auto& call_candidates = member(
+        member(call_manifest, "empirical_tuning"), "candidates"
+    ).as_array();
+    expect(call_candidates.size() == 2 &&
+               member(call_candidates[0], "policy").as_string() == "mask-0" &&
+               member(call_candidates[1], "policy").as_string() == "mask-ff",
+           "a parameterized call graph must stay on the serial whole-entry two-candidate proof path");
+
+    const auto call_stdout_path = root / "call.stdout";
+    const std::string call_command =
+#ifdef _WIN32
+        "\"\"" + call_compiled.artifact_path.string() + "\" > \"" +
+            call_stdout_path.string() + "\"\"";
+#else
+        "\"" + call_compiled.artifact_path.string() + "\" > \"" +
+            call_stdout_path.string() + "\"";
+#endif
+    const int call_run_status = std::system(call_command.c_str());
+    expect(call_run_status == 0 &&
+               read_text(call_stdout_path) == expected_stdout,
+           "the serial call-graph artifact must retain exact output");
+
     std::filesystem::remove_all(root);
     std::cout << "retained optimization driver integration: candidates="
               << candidates.size() << " incremental_candidates="
               << incremental_candidates.size() << " exact_output="
-              << (run_status == 0)
+              << (run_status == 0) << " call_candidates="
+              << call_candidates.size()
               << '\n';
     return failures == 0 ? 0 : 1;
 }
