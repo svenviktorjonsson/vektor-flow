@@ -20,24 +20,34 @@ function decode(packet) {
       castsShadow: packet[14] === 1, sourceRadius: packet[15],
     };
   }
-  if (packet[0] !== MAGIC || ![1, 2, 3, 4].includes(packet[1])) {
+  if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
   const rows = packet[2];
   const columns = packet[3];
   const stride = packet[1] === 2 ? 2 : 3;
-  const dataOffset = packet[1] === 4 ? 13 : packet[1] === 3 ? 10 : 8;
+  const dataOffset = packet[1] === 5 ? 28 : packet[1] === 4 ? 13 : packet[1] === 3 ? 10 : 8;
   if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(columns) || columns < 1
       || packet.length !== dataOffset + (rows * columns * stride)) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
+  }
+  const texture = packet[1] === 5 ? {
+    kind: packet[13], scale: packet.slice(14, 16),
+    colorA: packet.slice(16, 20), colorB: packet.slice(20, 24),
+    roughness: packet[24], bladeLength: packet[25],
+    clumpDensity: packet[26], microShadow: packet[27],
+  } : null;
+  if (texture && ![1, 2].includes(texture.kind)) {
+    throw new TypeError("inline renderer received an invalid texture packet");
   }
   return {
     kind: "geometry", packet, rows, columns, stride, dataOffset,
     receivesLighting: packet[1] >= 3 && packet[8] === 1,
     castsShadow: packet[1] >= 3 && packet[9] === 1,
-    receivesShadow: packet[1] === 4 && packet[10] === 1,
-    roughness: packet[1] === 4 ? packet[11] : 1,
-    specularStrength: packet[1] === 4 ? packet[12] : 0,
+    receivesShadow: packet[1] >= 4 && packet[10] === 1,
+    roughness: packet[1] >= 4 ? packet[11] : 1,
+    specularStrength: packet[1] >= 4 ? packet[12] : 0,
+    texture,
   };
 }
 
@@ -89,6 +99,60 @@ function litColor(mesh, lights) {
   const highlight = mesh.specularStrength * (1 - mesh.roughness) * 0.3;
   const strength = Math.min(1, 0.2 + diffuse + highlight);
   return base.map((value, index) => value * light.color[index] * strength);
+}
+
+function mix(left, right, amount) {
+  return left.map((value, index) => value + ((right[index] - value) * amount));
+}
+
+function bilinear(mesh, u, v) {
+  const top = mix(vertex(mesh, 0, 0), vertex(mesh, 0, mesh.columns - 1), u);
+  const bottom = mix(
+    vertex(mesh, mesh.rows - 1, 0),
+    vertex(mesh, mesh.rows - 1, mesh.columns - 1),
+    u,
+  );
+  return mix(top, bottom, v);
+}
+
+function rgba(color) {
+  return `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${Math.max(0, Math.min(1, color[3]))})`;
+}
+
+function drawTexture(context, project, mesh) {
+  if (!mesh.texture || mesh.rows < 2 || mesh.columns < 2) return;
+  const cellsX = Math.max(1, Math.min(64, Math.round(mesh.texture.scale[0])));
+  const cellsY = Math.max(1, Math.min(64, Math.round(mesh.texture.scale[1])));
+  for (let row = 0; row < cellsY; row += 1) {
+    for (let column = 0; column < cellsX; column += 1) {
+      const u0 = column / cellsX;
+      const u1 = (column + 1) / cellsX;
+      const v0 = row / cellsY;
+      const v1 = (row + 1) / cellsY;
+      let color = ((row + column) % 2 === 0)
+        ? mesh.texture.colorA : mesh.texture.colorB;
+      if (mesh.texture.kind === 2) {
+        const phase = Math.sin(
+          ((column + 1) * 12.9898 * mesh.texture.clumpDensity)
+          + ((row + 1) * 78.233 * mesh.texture.bladeLength),
+        ) * 43758.5453;
+        const variation = Math.abs(phase) % 1;
+        const shade = 1 - (mesh.texture.microShadow * (0.1 + (0.35 * (1 - variation))));
+        color = mix(mesh.texture.colorA, mesh.texture.colorB, 0.12 + (variation * 0.82))
+          .map((value, index) => index === 3 ? value : value * shade);
+      }
+      context.fillStyle = rgba(color);
+      context.beginPath();
+      [bilinear(mesh, u0, v0), bilinear(mesh, u1, v0),
+        bilinear(mesh, u1, v1), bilinear(mesh, u0, v1)].forEach((point, index) => {
+        const [x, y] = project(point);
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.fill();
+    }
+  }
 }
 
 export function renderInlineResult(canvas, packets) {
@@ -151,6 +215,7 @@ export function renderInlineResult(canvas, packets) {
   }
 
   for (const mesh of meshes) {
+    drawTexture(context, project, mesh);
     const color = litColor(mesh, lights);
     context.strokeStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${Math.max(0, Math.min(1, mesh.packet[7]))})`;
     for (let row = 0; row < mesh.rows; row += 1) {

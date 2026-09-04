@@ -4,17 +4,13 @@ import test from "node:test";
 
 const web = new URL("../../web/", import.meta.url);
 
-test("Pages root links to each runnable browser example", async () => {
+test("Pages root delegates every example to the inline README runner", async () => {
   const html = await readFile(new URL("index.html", web), "utf8");
-  assert.match(html, /href="\.\/playground\/\?example=console"/u);
-  assert.match(html, /href="\.\/playground\/\?example=curve-static"/u);
-  assert.match(html, /href="\.\/playground\/\?example=curve-time"/u);
-  assert.match(html, /href="\.\/playground\/\?example=surface-static"/u);
-  assert.match(html, /href="\.\/playground\/\?example=surface-time"/u);
-  assert.match(html, /Console/u);
-  assert.match(html, /2D static/u);
-  assert.match(html, /2D with time/u);
-  assert.match(html, /3D static/u);
-  assert.match(html, /3D with time/u);
+  const client = await readFile(new URL("documentation.mjs", web), "utf8");
+  assert.match(html, /id="readme-documentation"/u);
+  assert.match(html, /src="\.\/documentation\.mjs"/u);
+  assert.match(client, /\.querySelectorAll\("\.readme-example"\)/u);
+  assert.match(client, /createInlineRunner/u);
+  assert.doesNotMatch(html, /href="\.\/playground\/\?example=/u);
   assert.doesNotMatch(html, /server required|backend required/iu);
 });

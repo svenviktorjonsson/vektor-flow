@@ -1401,6 +1401,29 @@ BrowserDisplayMeshSources: (
     specular_strength:num,
     unsupported:bit
 )
+BrowserDisplayTextureFields: (
+    kind:str,
+    scale_source:str,
+    color_a_source:str,
+    color_b_source:str,
+    roughness:num,
+    blade_length:num,
+    clump_density:num,
+    micro_shadow:num,
+    unsupported:bit
+)
+BrowserDisplayTexturePacket: (
+    magic:int,
+    version:int,
+    kind:str,
+    scale:any,
+    color_a:any,
+    color_b:any,
+    roughness:num,
+    blade_length:num,
+    clump_density:num,
+    micro_shadow:num
+)
 
 _browser_lifted_number(tape:any, index:int, factor:num) -> BrowserLiftedParse:
     row: index * 6
@@ -1681,6 +1704,157 @@ _browser_display_identifier_stop(source:str, offset:int) -> int:
         )
     offset
 
+_browser_display_string_stop(source:str, offset:int) -> int:
+    vkf_string_eof(source, offset)?
+        false?! "browser display string is unterminated"
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    ch = 34?
+        @: offset
+    _browser_display_string_stop(source, next)
+
+_browser_scan_display_texture_fields(
+    source:str, offset:int, stop:int, kind:str,
+    scale_source:str, color_a_source:str, color_b_source:str,
+    roughness:num, blade_length:num, clump_density:num,
+    micro_shadow:num, unsupported:bit
+) -> BrowserDisplayTextureFields:
+    offset >= stop?
+        @: (
+            kind:kind, scale_source:scale_source,
+            color_a_source:color_a_source, color_b_source:color_b_source,
+            roughness:roughness, blade_length:blade_length,
+            clump_density:clump_density, micro_shadow:micro_shadow,
+            unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    _browser_source_starts_with(source, offset, "kind:", 0)?
+        value_start: _browser_display_value_start(source, offset + 5)
+        (vkf_string_peek_scalar(source, value_start) = 34)?! "browser texture kind must be a string"
+        value_stop: _browser_display_string_stop(source, value_start + 1)
+        @: _browser_scan_display_texture_fields(
+            source, value_stop + 1, stop,
+            vkf_utf8_slice(source, value_start + 1, value_stop),
+            scale_source, color_a_source, color_b_source,
+            roughness, blade_length, clump_density, micro_shadow, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "scale:", 0) \/
+        _browser_source_starts_with(source, offset, "color_a:", 0) \/
+        _browser_source_starts_with(source, offset, "color_b:", 0))?
+        colon_width: 6
+        _browser_source_starts_with(source, offset, "color_a:", 0)?
+            .colon_width: 8
+        _browser_source_starts_with(source, offset, "color_b:", 0)?
+            .colon_width: 8
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser texture vector field requires a vector"
+        value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        value_source: vkf_utf8_slice(source, value_start, value_stop)
+        next_scale: scale_source
+        next_color_a: color_a_source
+        next_color_b: color_b_source
+        _browser_source_starts_with(source, offset, "scale:", 0)?
+            .next_scale: value_source
+        _browser_source_starts_with(source, offset, "color_a:", 0)?
+            .next_color_a: value_source
+        _browser_source_starts_with(source, offset, "color_b:", 0)?
+            .next_color_b: value_source
+        @: _browser_scan_display_texture_fields(
+            source, value_stop, stop, kind, next_scale, next_color_a, next_color_b,
+            roughness, blade_length, clump_density, micro_shadow, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "roughness:", 0) \/
+        _browser_source_starts_with(source, offset, "blade_length:", 0) \/
+        _browser_source_starts_with(source, offset, "clump_density:", 0) \/
+        _browser_source_starts_with(source, offset, "micro_shadow:", 0))?
+        colon_width: 10
+        _browser_source_starts_with(source, offset, "blade_length:", 0)?
+            .colon_width: 13
+        _browser_source_starts_with(source, offset, "clump_density:", 0)?
+            .colon_width: 14
+        _browser_source_starts_with(source, offset, "micro_shadow:", 0)?
+            .colon_width: 13
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        value: vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))
+        next_roughness: roughness
+        next_blade_length: blade_length
+        next_clump_density: clump_density
+        next_micro_shadow: micro_shadow
+        _browser_source_starts_with(source, offset, "roughness:", 0)?
+            .next_roughness: value
+        _browser_source_starts_with(source, offset, "blade_length:", 0)?
+            .next_blade_length: value
+        _browser_source_starts_with(source, offset, "clump_density:", 0)?
+            .next_clump_density: value
+        _browser_source_starts_with(source, offset, "micro_shadow:", 0)?
+            .next_micro_shadow: value
+        @: _browser_scan_display_texture_fields(
+            source, value_stop, stop, kind,
+            scale_source, color_a_source, color_b_source,
+            next_roughness, next_blade_length, next_clump_density,
+            next_micro_shadow, unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_display_texture_fields(
+        source, next, stop, kind, scale_source, color_a_source, color_b_source,
+        roughness, blade_length, clump_density, micro_shadow, unknown
+    )
+
+_browser_typed_texture_packet(
+    fields:BrowserDisplayTextureFields,
+    scale:any,
+    color_a:any,
+    color_b:any
+) -> BrowserDisplayTexturePacket:
+    (
+        magic:1447773770, version:1, kind:fields.kind,
+        scale:scale, color_a:color_a, color_b:color_b,
+        roughness:fields.roughness, blade_length:fields.blade_length,
+        clump_density:fields.clump_density, micro_shadow:fields.micro_shadow
+    )
+
+_browser_display_texture_packet(source:str, offset:int, in_string:bit) -> any:
+    vkf_string_eof(source, offset)?
+        @: []
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    in_string?
+        @: _browser_display_texture_packet(source, next, ch != 34)
+    ch = 34?
+        @: _browser_display_texture_packet(source, next, true)
+    _browser_source_starts_with(source, offset, "texture:", 0)?
+        value_start: _browser_display_value_start(source, offset + 8)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser texture must be a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        fields: _browser_scan_display_texture_fields(
+            source, value_start + 1, value_stop,
+            "", "", "", "", 1, 0, 0, 0, false
+        )
+        ~fields.unsupported?! "browser texture contains an unsupported field"
+        (fields.kind = "checker" \/ fields.kind = "grass")?! "browser texture kind is unsupported"
+        (fields.scale_source != "" /\ fields.color_a_source != "" /\
+            fields.color_b_source != "")?! "browser texture requires scale, color_a, and color_b"
+        scale_tape: lexer.tagged_numeric_function_token_tape(fields.scale_source)
+        scale: _browser_lifted_value(scale_tape, 0, 1).value
+        color_a_tape: lexer.tagged_numeric_function_token_tape(fields.color_a_source)
+        color_a: _browser_lifted_value(color_a_tape, 0, 1).value
+        color_b_tape: lexer.tagged_numeric_function_token_tape(fields.color_b_source)
+        color_b: _browser_lifted_value(color_b_tape, 0, 1).value
+        (scale.length() = 2 /\ color_a.length() = 4 /\ color_b.length() = 4)?! "browser texture dimensions are invalid"
+        fields.kind = "grass"?
+            (fields.roughness >= 0 /\ fields.roughness <= 1 /\
+                fields.blade_length > 0 /\ fields.clump_density > 0 /\
+                fields.micro_shadow >= 0 /\ fields.micro_shadow <= 1)?! "browser grass texture parameters are invalid"
+        @: _browser_typed_texture_packet(fields, scale, color_a, color_b)
+    _browser_display_texture_packet(source, next, false)
+
 _browser_scan_display_mesh_source(
     source:str,
     offset:int,
@@ -1803,6 +1977,15 @@ _browser_scan_display_mesh_source(
             receives_lighting, casts_shadow, receives_shadow,
             next_roughness, next_specular, unsupported, false
         )
+    _browser_source_starts_with(source, offset, "texture:", 0)?
+        value_start: _browser_display_value_start(source, offset + 8)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser texture must be a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        @: _browser_scan_display_mesh_source(
+            source, value_stop, x_source, y_source, z_source, color_source,
+            receives_lighting, casts_shadow, receives_shadow,
+            roughness, specular_strength, unsupported, false
+        )
     _browser_source_starts_with(source, offset, "id:", 0)?
         @: _browser_scan_display_mesh_source(
             source, offset + 3, x_source, y_source, z_source, color_source,
@@ -1839,6 +2022,7 @@ _browser_display_mesh_source(source:str) -> any:
         color_tape: lexer.tagged_numeric_function_token_tape(fields.color_source)
         .color: _browser_lifted_value(color_tape, 0, 1).value
     (color.length() = 4)?! "frame.add color must be RGBA"
+    texture: _browser_display_texture_packet(source, 0, false)
     rows: x.length()
     (rows > 0)?! "frame.add geometry must contain rows"
     (
@@ -1848,7 +2032,8 @@ _browser_display_mesh_source(source:str) -> any:
         casts_shadow:fields.casts_shadow,
         receives_shadow:fields.receives_shadow,
         roughness:fields.roughness,
-        specular_strength:fields.specular_strength
+        specular_strength:fields.specular_strength,
+        texture:texture
     )
 
 _browser_display_camera_source(source:str) -> any:

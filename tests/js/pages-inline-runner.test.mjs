@@ -80,6 +80,11 @@ test("worker materializes only validated WASM visual packets as typed buffers", 
         color: [0.1, 0.2, 0.3, 1], x: [[2]], y: [[3]], z: [[4]],
         receives_lighting: true, casts_shadow: true,
         receives_shadow: false, roughness: 0.4, specular_strength: 0.7,
+        texture: {
+          magic: 1447773770, version: 1, kind: "checker", scale: [7, 6],
+          color_a: [0.03, 0.05, 0.09, 1], color_b: [0.28, 0.55, 0.9, 1],
+          roughness: 1, blade_length: 0, clump_density: 0, micro_shadow: 0,
+        },
       },
     ],
   });
@@ -93,7 +98,9 @@ test("worker materializes only validated WASM visual packets as typed buffers", 
     1447773768, 1, 4, -5, 3, 0, 0, 0, 0, 0, 1, 42,
   ]);
   assert.deepEqual([...output.packets[3]], [
-    1447773766, 4, 1, 1, 0.1, 0.2, 0.3, 1, 1, 1, 0, 0.4, 0.7, 2, 3, 4,
+    1447773766, 5, 1, 1, 0.1, 0.2, 0.3, 1, 1, 1, 0, 0.4, 0.7,
+    1, 7, 6, 0.03, 0.05, 0.09, 1, 0.28, 0.55, 0.9, 1, 1, 0, 0, 0,
+    2, 3, 4,
   ]);
   assert.throws(
     () => materializeVisualOutput({
@@ -107,6 +114,23 @@ test("worker materializes only validated WASM visual packets as typed buffers", 
     }),
     /invalid visual packet/u,
   );
+});
+
+test("worker rejects texture packets with fields outside the versioned contract", () => {
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual",
+    packet_records: [{
+      magic: 1447773766, version: 5, rows: 1, columns: 1,
+      color: [1, 1, 1, 1], x: [[0]], y: [[0]], z: [[0]],
+      receives_lighting: false, casts_shadow: false, receives_shadow: false,
+      roughness: 1, specular_strength: 0,
+      texture: {
+        magic: 1447773770, version: 1, kind: "checker", scale: [7, 6],
+        color_a: [0, 0, 0, 1], color_b: [1, 1, 1, 1], roughness: 1,
+        blade_length: 0, clump_density: 0, micro_shadow: 0, seed: 4,
+      },
+    }],
+  }), /invalid texture packet/u);
 });
 
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
@@ -149,6 +173,57 @@ test("trusted inline renderer projects and lights validated retained 3D packets"
   assert.ok(operations.some(([kind, value] = []) => kind === "strokeStyle"
     && value.startsWith("rgba(0, 0, 0,")));
   assert.ok(operations.includes("stroke"));
+});
+
+test("trusted inline renderer draws source-scaled alternating checker cells", () => {
+  const render = (scaleX, scaleY) => {
+    const operations = [];
+    const context = {
+      beginPath: () => operations.push("begin"),
+      closePath: () => operations.push("close"),
+      clearRect: () => {}, fillRect: () => {},
+      lineTo: (...args) => operations.push(["line", ...args]),
+      moveTo: (...args) => operations.push(["move", ...args]),
+      fill: () => operations.push("fill"), stroke: () => {},
+      set fillStyle(value) { operations.push(["fillStyle", value]); },
+      set lineWidth(_value) {}, set strokeStyle(_value) {},
+    };
+    const packet = Float64Array.from([
+      1447773766, 5, 2, 2, 1, 1, 1, 1, 0, 0, 0, 1, 0,
+      1, scaleX, scaleY,
+      0.03, 0.05, 0.09, 1, 0.28, 0.55, 0.9, 1, 1, 0, 0, 0,
+      -4, -2, 0, 4, -2, 0, -4, 4, 0, 4, 4, 0,
+    ]);
+    renderInlineResult({ width: 320, height: 180, getContext: () => context }, [packet]);
+    return operations;
+  };
+  const large = render(7, 6);
+  const changed = render(3, 4);
+  assert.equal(large.filter((operation) => operation === "fill").length, 42);
+  assert.equal(changed.filter((operation) => operation === "fill").length, 12);
+  const colors = new Set(large.filter(([kind] = []) => kind === "fillStyle").map(([, value]) => value));
+  assert.ok(colors.has("rgba(8, 13, 23, 1)"));
+  assert.ok(colors.has("rgba(71, 140, 230, 1)"));
+});
+
+test("trusted inline renderer modulates grass from the validated material parameters", () => {
+  const fillColors = [];
+  const context = {
+    beginPath: () => {}, closePath: () => {}, clearRect: () => {}, fillRect: () => {},
+    lineTo: () => {}, moveTo: () => {}, fill: () => {}, stroke: () => {},
+    set fillStyle(value) { fillColors.push(value); },
+    set lineWidth(_value) {}, set strokeStyle(_value) {},
+  };
+  const packet = Float64Array.from([
+    1447773766, 5, 2, 2, 1, 1, 1, 1, 1, 1, 1, 0.99, 0,
+    2, 7, 7,
+    0.025, 0.13, 0.02, 1, 0.28, 0.54, 0.09, 1, 0.99, 1.1, 1.2, 0.52,
+    -9, -2, 0, 9, -2, 0, -9, 14, 0, 9, 14, 0,
+  ]);
+  renderInlineResult({ width: 320, height: 180, getContext: () => context }, [packet]);
+  const grassColors = new Set(fillColors.slice(1));
+  assert.equal(fillColors.slice(1).length, 49);
+  assert.ok(grassColors.size > 8, "grass must be spatially modulated, not a two-color checker");
 });
 
 test("terminal always appears below the editor and Result appears only for validated visual output", async () => {

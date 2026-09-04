@@ -42,7 +42,9 @@ jobs:
             tests/js/browser-playground-shell.test.mjs `
             tests/js/browser-symbolic-plotter.test.mjs `
             tests/js/pages-documentation-shell.test.mjs `
+            tests/js/pages-example-gallery.test.mjs `
             tests/js/pages-inline-runner.test.mjs `
+            tests/js/pages-readme-browser-coverage.test.mjs `
             tests/js/pages-readme-document.test.mjs
           node tools/build-pages-readme.mjs --output=web/generated
       - uses: actions/upload-pages-artifact@v4

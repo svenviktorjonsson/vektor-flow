@@ -239,6 +239,36 @@ test("browser compiler retains README lit materials and receiver-shadow ownershi
   );
 });
 
+test("browser compiler retains source-derived README procedural textures", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const checker = examples.find(({ id }) => id === "readme-07");
+  const grass = examples.find(({ id }) => id === "readme-10");
+  const checkerOutput = { ...compiler.run(checker.source) };
+  const grassOutput = { ...compiler.run(grass.source) };
+  assert.deepEqual({ ...checkerOutput.packet_records.at(-1).texture }, {
+    magic: 1447773770, version: 1,
+    kind: "checker", scale: [7, 6], color_a: [0.03, 0.05, 0.09, 1],
+    color_b: [0.28, 0.55, 0.9, 1], roughness: 1,
+    blade_length: 0, clump_density: 0, micro_shadow: 0,
+  });
+  assert.deepEqual([
+    grassOutput.packet_records.at(-1).texture.magic,
+    grassOutput.packet_records.at(-1).texture.version,
+  ], [1447773770, 1]);
+  assert.equal(grassOutput.packet_records.at(-1).texture.kind, "grass");
+  assert.deepEqual(rounded([
+    grassOutput.packet_records.at(-1).texture.blade_length,
+    grassOutput.packet_records.at(-1).texture.clump_density,
+    grassOutput.packet_records.at(-1).texture.micro_shadow,
+  ]), [1.1, 1.2, 0.52]);
+  const changed = { ...compiler.run(checker.source.replace("scale:[7, 6]", "scale:[3, 4]")) };
+  assert.deepEqual(changed.packet_records.at(-1).texture.scale, [3, 4]);
+  assert.throws(
+    () => compiler.run(checker.source.replace("scale:[7, 6]", "scale:[7, 6], seed:4")),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -256,6 +286,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 9);
+  assert.equal(runnable.length, 11);
   assert.equal(examples.length, 26);
 });

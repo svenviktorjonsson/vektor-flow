@@ -8,6 +8,31 @@ export function materializeVisualOutput(output) {
     && values.length === length
     && values.every((value) => typeof value === "number" && Number.isFinite(value));
   const finiteNumber = (value) => typeof value === "number" && Number.isFinite(value);
+  const materializeTexture = (texture) => {
+    if (texture == null || (Array.isArray(texture) && texture.length === 0)) return null;
+    const keys = [
+      "blade_length", "clump_density", "color_a", "color_b", "kind", "magic",
+      "micro_shadow", "roughness", "scale", "version",
+    ];
+    if (!texture || typeof texture !== "object" || Array.isArray(texture)
+        || Object.keys(texture).sort().join("\0") !== keys.join("\0")
+        || texture.magic !== 1447773770 || texture.version !== 1
+        || (texture.kind !== "checker" && texture.kind !== "grass")
+        || !finiteVector(texture.scale, 2) || texture.scale.some((value) => value <= 0)
+        || !finiteVector(texture.color_a, 4) || !finiteVector(texture.color_b, 4)
+        || !finiteNumber(texture.roughness) || texture.roughness < 0 || texture.roughness > 1
+        || !finiteNumber(texture.blade_length) || !finiteNumber(texture.clump_density)
+        || !finiteNumber(texture.micro_shadow) || texture.micro_shadow < 0 || texture.micro_shadow > 1
+        || (texture.kind === "grass"
+          && (texture.blade_length <= 0 || texture.clump_density <= 0))) {
+      throw new TypeError("browser compiler returned an invalid texture packet");
+    }
+    return [
+      texture.kind === "checker" ? 1 : 2,
+      ...texture.scale, ...texture.color_a, ...texture.color_b,
+      texture.roughness, texture.blade_length, texture.clump_density, texture.micro_shadow,
+    ];
+  };
   const packets = output.packet_records.map((record) => {
     if (record?.magic === 1447773767 && record.version === 1 && finiteVector(record.color, 4)) {
       return Float64Array.from([record.magic, record.version, ...record.color]);
@@ -46,11 +71,13 @@ export function materializeVisualOutput(output) {
         || record.specular_strength < 0 || record.specular_strength > 1) {
       throw new TypeError("browser compiler returned an invalid visual packet");
     }
+    const texture = materializeTexture(record.texture);
     const values = [
-      record.magic, 4, record.rows, record.columns, ...record.color,
+      record.magic, texture ? 5 : 4, record.rows, record.columns, ...record.color,
       record.receives_lighting ? 1 : 0, record.casts_shadow ? 1 : 0,
       record.receives_shadow ? 1 : 0, record.roughness, record.specular_strength,
     ];
+    if (texture) values.push(...texture);
     for (let row = 0; row < record.rows; row += 1) {
       if (!finiteVector(record.x[row], record.columns)
           || !finiteVector(record.y[row], record.columns)
