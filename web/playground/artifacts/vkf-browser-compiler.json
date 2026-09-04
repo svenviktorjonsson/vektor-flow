@@ -245,6 +245,36 @@
       "parameters": 2,
       "resultType": 1
     },
+    "_browser_basic_line_stop": {
+      "index": 128,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_basic_loop_factor": {
+      "index": 130,
+      "parameters": 2,
+      "resultType": 2
+    },
+    "_browser_basic_loop_sum": {
+      "index": 131,
+      "parameters": 4,
+      "resultType": 2
+    },
+    "_browser_basic_number_after": {
+      "index": 129,
+      "parameters": 2,
+      "resultType": 2
+    },
+    "_browser_basic_switch": {
+      "index": 132,
+      "parameters": 4,
+      "resultType": 2
+    },
+    "_browser_basic_syntax_source_matches": {
+      "index": 133,
+      "parameters": 1,
+      "resultType": 1
+    },
     "_browser_display_bracket_stop": {
       "index": 67,
       "parameters": 3,
@@ -318,6 +348,16 @@
     "_browser_find_source": {
       "index": 62,
       "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_inline_space_only": {
+      "index": 127,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_inline_space_start": {
+      "index": 126,
+      "parameters": 2,
       "resultType": 1
     },
     "_browser_lifted_nested_vector": {
@@ -595,6 +635,11 @@
       "parameters": 3,
       "resultType": 6
     },
+    "_run_tagged_basic_syntax_source": {
+      "index": 134,
+      "parameters": 1,
+      "resultType": 6
+    },
     "_run_tagged_browser_numeric_tape": {
       "index": 45,
       "parameters": 3,
@@ -606,7 +651,7 @@
       "resultType": 1
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 126,
+      "index": 135,
       "parameters": 1,
       "resultType": 1
     },
@@ -631,7 +676,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 127,
+      "index": 136,
       "parameters": 2,
       "resultType": 2
     },
@@ -643,11 +688,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 235888,
-    "bytecodeLength": 235882,
+    "argumentsPointer": 242808,
+    "bytecodeLength": 242802,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 236144
+    "resultsPointer": 243064
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

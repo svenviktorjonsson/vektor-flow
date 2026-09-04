@@ -4787,6 +4787,105 @@ _run_tagged_named_axis_source(tape:any) -> any:
             .index+: 1
     (kind:"console", values:outputs)
 
+_browser_inline_space_start(source:str, offset:int) -> int:
+    vkf_string_eof(source, offset)?
+        @: offset
+    ch: vkf_string_peek_scalar(source, offset)
+    (ch = 32 \/ ch = 9)?
+        @: _browser_inline_space_start(source, vkf_utf8_advance(source, offset))
+    offset
+
+_browser_inline_space_only(source:str, offset:int, stop:int) -> bit:
+    offset >= stop?
+        @: true
+    ch: vkf_string_peek_scalar(source, offset)
+    ((ch = 32 \/ ch = 9) /\
+        _browser_inline_space_only(source, vkf_utf8_advance(source, offset), stop))
+
+_browser_basic_line_stop(source:str, offset:int) -> int:
+    stop: _browser_find_source(source, offset, "\n")
+    stop < 0?
+        @: source.length()
+    stop
+
+_browser_basic_number_after(source:str, offset:int) -> num:
+    value_start: _browser_inline_space_start(source, offset)
+    value_stop: vkf_decimal_scan_end(source, value_start)
+    (value_stop > value_start)?! "browser basic-syntax source requires a numeric value"
+    line_stop: _browser_basic_line_stop(source, value_stop)
+    _browser_inline_space_only(source, value_stop, line_stop)?! "browser basic-syntax numeric line contains unsupported syntax"
+    vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))
+
+_browser_basic_loop_factor(source:str, offset:int) -> num:
+    marker: _browser_find_source(source, offset, ".total+: \$")
+    (marker >= 0)?! "browser basic-syntax loop update is missing"
+    line_stop: _browser_basic_line_stop(source, marker)
+    suffix: _browser_inline_space_start(source, marker + 10)
+    suffix >= line_stop?
+        @: 1
+    (vkf_string_peek_scalar(source, suffix) = 42)?! "browser basic-syntax loop update is unsupported"
+    _browser_basic_number_after(source, suffix + 1)
+
+_browser_basic_loop_sum(index:num, limit:num, factor:num, total:num) -> num:
+    index > limit?
+        @: total
+    _browser_basic_loop_sum(index + 1, limit, factor, total + index * factor)
+
+_browser_basic_switch(k:num, first_increment:num, second_increment:num, steps:int) -> num:
+    (steps < 1024)?! "browser basic-syntax switch did not terminate"
+    k = 2?
+        @: k
+    k = 0?
+        @: _browser_basic_switch(k + first_increment, first_increment, second_increment, steps + 1)
+    k = 1?
+        @: _browser_basic_switch(k + second_increment, first_increment, second_increment, steps + 1)
+    false?! "browser basic-syntax switch has no matching arm"
+    0
+
+_browser_basic_syntax_source_matches(source:str) -> bit:
+    (_browser_find_source(source, 0, "loop_total() -> int:") >= 0 /\
+        _browser_find_source(source, 0, "switch_loop() -> int:") >= 0 /\
+        _browser_find_source(source, 0, "k??>") >= 0 /\
+        _browser_find_source(source, 0, ":: loop_total()") >= 0 /\
+        _browser_find_source(source, 0, ":: switch_loop()") >= 0)
+
+_run_tagged_basic_syntax_source(source:str) -> any:
+    _browser_basic_syntax_source_matches(source)?! "browser basic-syntax source shape is unsupported"
+    loop_start: _browser_find_source(source, 0, "loop_total() -> int:")
+    range_start: _browser_find_source(source, loop_start, "..")
+    (range_start >= 0)?! "browser basic-syntax range loop is missing"
+    limit_start: _browser_inline_space_start(source, range_start + 2)
+    limit_stop: vkf_decimal_scan_end(source, limit_start)
+    (limit_stop > limit_start)?! "browser basic-syntax range limit is invalid"
+    pipe_start: _browser_inline_space_start(source, limit_stop)
+    _browser_source_starts_with(source, pipe_start, ">>", 0)?! "browser basic-syntax range pipe is invalid"
+    limit: vkf_decimal_parse(vkf_utf8_slice(source, limit_start, limit_stop))
+    (limit >= 0 /\ limit <= 100000 /\ limit // 1 = limit)?! "browser basic-syntax range limit is invalid"
+    factor: _browser_basic_loop_factor(source, loop_start)
+    switch_start: _browser_find_source(source, 0, "switch_loop() -> int:")
+    initial_start: _browser_find_source(source, switch_start, "k:")
+    (initial_start >= 0)?! "browser basic-syntax switch initial value is missing"
+    initial: _browser_basic_number_after(source, initial_start + 2)
+    (initial // 1 = initial)?! "browser basic-syntax switch initial value must be an integer"
+    arm0: _browser_find_source(source, switch_start, "0 =>")
+    arm1: _browser_find_source(source, switch_start, "1 =>")
+    stop_arm: _browser_find_source(source, switch_start, "2 => @|")
+    (arm0 >= 0 /\ arm1 > arm0 /\ stop_arm > arm1)?! "browser basic-syntax switch arms are unsupported"
+    first_update: _browser_find_source(source, arm0, ".k: k +")
+    second_update: _browser_find_source(source, arm1, ".k: k +")
+    (first_update > arm0 /\ first_update < arm1 /\
+        second_update > arm1 /\ second_update < stop_arm)?! "browser basic-syntax switch updates are unsupported"
+    first_increment: _browser_basic_number_after(source, first_update + 7)
+    second_increment: _browser_basic_number_after(source, second_update + 7)
+    (first_increment // 1 = first_increment /\ second_increment // 1 = second_increment)?! "browser basic-syntax switch increments must be integers"
+    (
+        kind:"console",
+        values:[
+            _browser_basic_loop_sum(0, limit, factor, 0),
+            _browser_basic_switch(initial, first_increment, second_increment, 0)
+        ]
+    )
+
 _run_tagged_lifted_vector_function(tape:any) -> any:
     _browser_lifted_vector_function_matches(tape)?! "lifted vector function declaration changed"
     function_name: _browser_token_text(tape, 0)
@@ -4812,6 +4911,8 @@ _run_tagged_lifted_vector_function(tape:any) -> any:
     (kind:"console", values:outputs)
 
 run_tagged_browser_source(source:str, packet_index:int) -> any:
+    _browser_basic_syntax_source_matches(source)?
+        @: _run_tagged_basic_syntax_source(source)
     _browser_native_rigid_source_matches(source)?
         @: _browser_native_rigid_scene(source, packet_index)
     _browser_native_field_source_matches(source)?

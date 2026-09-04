@@ -705,6 +705,24 @@ test("browser compiler retains the README rigid-body world", async () => {
   );
 });
 
+test("browser compiler runs the complete README basic-syntax fence", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-23");
+
+  assert.deepEqual({ ...compiler.run(example.source) }, {
+    kind: "console",
+    values: [10, 2],
+  });
+  assert.deepEqual({ ...compiler.run(example.source.replace(".total+: $", ".total+: $ * 2")) }, {
+    kind: "console",
+    values: [20, 2],
+  });
+  assert.throws(
+    () => compiler.run(example.source.replace("2 => @|", "2 => @>")),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -722,6 +740,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 21);
+  assert.equal(runnable.length, 22);
   assert.equal(examples.length, 26);
 });
