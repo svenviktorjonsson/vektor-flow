@@ -6,27 +6,29 @@ export { buildSiteDocument, pageHtml } from "./build-site.mjs";
 
 /**
  * Compatibility export for the original 26-example compiler regression suite.
- * Coverage now reads source files, not the changing public README. The corpus
- * is never rendered or shipped as a second README or a public gallery.
+ * Native samples and their historical browser inputs differ. Preserve those
+ * exact inputs separately from the changing public README. This corpus is
+ * never rendered or shipped as a second README or a public gallery.
  */
 export async function buildReadmeDocument(repoRoot) {
   const root = repoRoot instanceof URL ? fileURLToPath(repoRoot) : resolve(repoRoot);
   const manifest = JSON.parse(await readFile(resolve(root, "examples/scene_gallery/manifest.json"), "utf8"));
+  const browserScenes = JSON.parse(await readFile(resolve(root, "tests/fixtures/browser-scene-sources.json"), "utf8")).sources;
   const paths = [
     "examples/introduction/vector-functions.vkf",
     "examples/introduction/named-axes.vkf",
-    ...manifest.examples.map(({ source }) => `examples/scene_gallery/${source}`),
+    ...manifest.examples.map(({ source }, index) => index === 0 ? "examples/introduction/geometry.vkf" : `examples/scene_gallery/${source}`),
     "tests/fixtures/browser-control-flow.vkf",
     "benchmarks/core-comparison/published/spectral-norm-large/vkf.vkf",
     "benchmarks/core-comparison/published/fannkuch-redux-large/vkf.vkf",
     "benchmarks/core-comparison/published/n-body-large/vkf.vkf",
   ];
   if (paths.length !== 26) throw new Error("The browser regression corpus must contain 26 programs");
-  return Object.freeze({ examples: Object.freeze(await Promise.all(paths.map(async (path, index) => Object.freeze({
-    id: `readme-${String(index + 1).padStart(2, "0")}`,
-    title: path,
-    source: (await readFile(resolve(root, path), "utf8")).replaceAll("\r\n", "\n").trimEnd(),
-  })))) });
+  return Object.freeze({ examples: Object.freeze(await Promise.all(paths.map(async (path, index) => {
+    const id = `readme-${String(index + 1).padStart(2, "0")}`;
+    const source = browserScenes[id] ?? await readFile(resolve(root, path), "utf8");
+    return Object.freeze({ id, title: path, source: source.replaceAll("\r\n", "\n").trimEnd() });
+  }))) });
 }
 
 export async function writeReadmeDocument(repoRoot, outputRoot) {

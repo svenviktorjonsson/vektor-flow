@@ -48,7 +48,7 @@ data, rather than a new function for every picture.
 
 Here is a complete, editable example. Change the coordinates, then run it again.
 
-<!-- live-example: examples/scene_gallery/01-line-plot/app.vkf -->
+<!-- live-example: examples/introduction/geometry.vkf -->
 
 The graphics vocabulary centres on `set`, `add`, `push` and `show`, with
 convenience forms such as `append` and `plot`. The available surface depends on
