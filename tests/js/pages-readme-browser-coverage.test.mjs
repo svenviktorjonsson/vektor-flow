@@ -47,6 +47,29 @@ test("browser compiler runs the complete README recursive vector-lifting fence",
   });
 });
 
+test("browser compiler runs the complete README named-axis tensor fence", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-02");
+
+  assert.deepEqual({ ...compiler.run(example.source) }, {
+    kind: "console",
+    values: [
+      [[1, 2, 3], [2, 4, 6], [3, 6, 9]],
+      [4, 10, 18],
+      [[[15, 18], [20, 24]], [[30, 36], [40, 48]]],
+    ],
+  });
+  assert.deepEqual({ ...compiler.run([
+    "hadamard: [2, 3]->row * [5, 7]->row",
+    "outer: [2, 4]->x * [3, 5]->y",
+    ":: outer",
+    ":: hadamard",
+  ].join("\n")) }, {
+    kind: "console",
+    values: [[[6, 10], [12, 20]], [10, 21]],
+  });
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -64,6 +87,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 1);
+  assert.equal(runnable.length, 2);
   assert.equal(examples.length, 26);
 });

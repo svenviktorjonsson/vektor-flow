@@ -1380,6 +1380,7 @@ run_tagged_dependency_source(source:str) -> num:
     )
 
 BrowserLiftedParse: (value:any, next:int)
+BrowserAxisTerm: (values:any, axis:str, next:int)
 
 _browser_lifted_numeric_vector(
     tape:any, index:int, factor:num, values:any
@@ -1425,6 +1426,114 @@ _browser_lifted_value(
         @: _browser_lifted_nested_vector(tape, index + 1, factor, [])
     _browser_lifted_numeric_vector(tape, index + 1, factor, [])
 
+_browser_axis_term(tape:any, index:int) -> BrowserAxisTerm:
+    (_browser_token_kind(tape, index) = 22)?! "named-axis term requires a vector"
+    parsed: _browser_lifted_numeric_vector(tape, index + 1, 1, [])
+    (_browser_token_kind(tape, parsed.next) = 20 /\
+        _browser_token_kind(tape, parsed.next + 1) = 17 /\
+        _browser_token_kind(tape, parsed.next + 2) = 1)?! "named-axis term requires ->axis"
+    (
+        values:parsed.value,
+        axis:_browser_token_text(tape, parsed.next + 2),
+        next:parsed.next + 3
+    )
+
+_browser_axis_elementwise(
+    left:any, right:any, index:int, values:any
+) -> any:
+    (index = left.length())?
+        (index = right.length())?! "matching axes require equal lengths"
+        @: values
+    (index < right.length())?! "matching axes require equal lengths"
+    _browser_axis_elementwise(
+        left, right, index + 1, values & [left.(index) * right.(index)]
+    )
+
+_browser_axis_scaled_row(
+    scalar:num, right:any, index:int, values:any
+) -> any:
+    (index = right.length())?
+        @: values
+    _browser_axis_scaled_row(
+        scalar, right, index + 1, values & [scalar * right.(index)]
+    )
+
+_browser_axis_outer(
+    left:any, right:any, index:int, rows:any
+) -> any:
+    (index = left.length())?
+        @: rows
+    _browser_axis_outer(
+        left, right, index + 1,
+        rows & [_browser_axis_scaled_row(left.(index), right, 0, [])]
+    )
+
+_browser_axis_scale_plane(
+    scalar:num, plane:any, row:int, column:int, rows:any, values:any
+) -> any:
+    (row = plane.length())?
+        @: rows
+    (column = plane.(row).length())?
+        @: _browser_axis_scale_plane(
+            scalar, plane, row + 1, 0, rows & [values], []
+        )
+    _browser_axis_scale_plane(
+        scalar, plane, row, column + 1, rows,
+        values & [scalar * plane.(row).(column)]
+    )
+
+_browser_axis_outer_tensor(
+    left:any, plane:any, index:int, planes:any
+) -> any:
+    (index = left.length())?
+        @: planes
+    _browser_axis_outer_tensor(
+        left, plane, index + 1,
+        planes & [_browser_axis_scale_plane(left.(index), plane, 0, 0, [], [])]
+    )
+
+_browser_axis_product2(left:BrowserAxisTerm, right:BrowserAxisTerm) -> any:
+    left.axis = right.axis?
+        @: _browser_axis_elementwise(left.values, right.values, 0, [])
+    _browser_axis_outer(left.values, right.values, 0, [])
+
+_browser_axis_product3(
+    left:BrowserAxisTerm, middle:BrowserAxisTerm, right:BrowserAxisTerm
+) -> any:
+    (left.axis = middle.axis /\ middle.axis = right.axis)?
+        @: _browser_axis_elementwise(
+            _browser_axis_elementwise(left.values, middle.values, 0, []),
+            right.values, 0, []
+        )
+    left.axis = middle.axis?
+        @: _browser_axis_outer(
+            _browser_axis_elementwise(left.values, middle.values, 0, []),
+            right.values, 0, []
+        )
+    middle.axis = right.axis?
+        @: _browser_axis_outer(
+            left.values,
+            _browser_axis_elementwise(middle.values, right.values, 0, []),
+            0, []
+        )
+    left.axis = right.axis?
+        @: _browser_axis_outer(
+            _browser_axis_elementwise(left.values, right.values, 0, []),
+            middle.values, 0, []
+        )
+    _browser_axis_outer_tensor(
+        left.values, _browser_axis_outer(middle.values, right.values, 0, []),
+        0, []
+    )
+
+_browser_axis_lookup(
+    names:any, values:any, name:str, index:int
+) -> any:
+    (index < names.length())?! "named-axis output references an unknown binding"
+    names.(index) = name?
+        @: values.(index)
+    _browser_axis_lookup(names, values, name, index + 1)
+
 _browser_token_text(tape:any, index:int) -> str:
     row: index * 6
     vkf_utf8_slice(tape.source, tape.rows.(row + 1), tape.rows.(row + 2))
@@ -1439,6 +1548,44 @@ _browser_lifted_vector_function_matches(tape:any) -> bit:
     tape.rows.54 = 15 /\ tape.rows.60 = 1 /\ tape.rows.66 = 7 /\
     tape.rows.72 = 3 /\ _browser_token_text(tape, 4) = "int" /\
     _browser_token_text(tape, 8) = "int"
+
+_browser_named_axis_source_matches(tape:any) -> bit:
+    tape.count > 10 /\ _browser_token_kind(tape, 0) = 1 /\
+    _browser_token_kind(tape, 1) = 15 /\ _browser_token_kind(tape, 2) = 22
+
+_run_tagged_named_axis_source(tape:any) -> any:
+    index: 0
+    names: []
+    values: []
+    (_browser_token_kind(tape, index) = 1 /\
+        _browser_token_kind(tape, index + 1) = 15 /\
+        _browser_token_kind(tape, index + 2) = 22)?>
+        name: _browser_token_text(tape, index)
+        left: _browser_axis_term(tape, index + 2)
+        (_browser_token_kind(tape, left.next) = 7)?! "named-axis expression requires a product"
+        middle: _browser_axis_term(tape, left.next + 1)
+        result: _browser_axis_product2(left, middle)
+        .index: middle.next
+        (_browser_token_kind(tape, index) = 7)?
+            right: _browser_axis_term(tape, index + 1)
+            .result: _browser_axis_product3(left, middle, right)
+            .index: right.next
+        .names: names & [name]
+        .values: values & [result]
+        (_browser_token_kind(tape, index) = 4)?>
+            .index+: 1
+    outputs: []
+    (_browser_token_kind(tape, index) != 5)?>
+        (_browser_token_kind(tape, index) = 15 /\
+            _browser_token_kind(tape, index + 1) = 15 /\
+            _browser_token_kind(tape, index + 2) = 1)?! "named-axis output requires :: binding"
+        .outputs: outputs & [_browser_axis_lookup(
+            names, values, _browser_token_text(tape, index + 2), 0
+        )]
+        .index+: 3
+        (_browser_token_kind(tape, index) = 4)?>
+            .index+: 1
+    (kind:"console", values:outputs)
 
 _run_tagged_lifted_vector_function(tape:any) -> any:
     _browser_lifted_vector_function_matches(tape)?! "lifted vector function declaration changed"
@@ -1468,6 +1615,8 @@ run_tagged_browser_source(source:str) -> any:
     tokens: lexer.tagged_numeric_function_token_tape(source)
     _browser_lifted_vector_function_matches(tokens)?
         @: _run_tagged_lifted_vector_function(tokens)
+    _browser_named_axis_source_matches(tokens)?
+        @: _run_tagged_named_axis_source(tokens)
     run_tagged_dependency_source(source)
 
 compile_tagged_numeric_function_call(source:str):

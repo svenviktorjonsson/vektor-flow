@@ -190,6 +190,51 @@
       "parameters": 1,
       "resultType": 2
     },
+    "_browser_axis_elementwise": {
+      "index": 50,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_axis_lookup": {
+      "index": 57,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_axis_outer": {
+      "index": 52,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_axis_outer_tensor": {
+      "index": 54,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_axis_product2": {
+      "index": 55,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_axis_product3": {
+      "index": 56,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_axis_scale_plane": {
+      "index": 53,
+      "parameters": 6,
+      "resultType": 1
+    },
+    "_browser_axis_scaled_row": {
+      "index": 51,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_axis_term": {
+      "index": 49,
+      "parameters": 2,
+      "resultType": 1
+    },
     "_browser_lifted_nested_vector": {
       "index": 47,
       "parameters": 4,
@@ -206,12 +251,17 @@
       "resultType": 1
     },
     "_browser_lifted_vector_function_matches": {
-      "index": 51,
+      "index": 60,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_named_axis_source_matches": {
+      "index": 61,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_token_kind": {
-      "index": 50,
+      "index": 59,
       "parameters": 2,
       "resultType": 1
     },
@@ -231,7 +281,7 @@
       "resultType": 1
     },
     "_browser_token_text": {
-      "index": 49,
+      "index": 58,
       "parameters": 2,
       "resultType": 4
     },
@@ -246,7 +296,12 @@
       "resultType": 2
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 52,
+      "index": 63,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_run_tagged_named_axis_source": {
+      "index": 62,
       "parameters": 1,
       "resultType": 1
     },
@@ -261,7 +316,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 53,
+      "index": 64,
       "parameters": 1,
       "resultType": 2
     },
@@ -273,11 +328,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 54936,
-    "bytecodeLength": 54935,
+    "argumentsPointer": 62464,
+    "bytecodeLength": 62458,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 55192
+    "resultsPointer": 62720
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,
