@@ -35,6 +35,45 @@ function decode(packet) {
       castsShadow: packet[16] === 1, sourceRadius: packet[17],
     };
   }
+  if (packet[0] === 1447773780 && packet[1] === 1 && packet.length === 8
+      && Number.isInteger(packet[2]) && packet[2] >= 1 && packet[2] <= 240
+      && packet[3] > 0 && packet[4] === 1 && [0, 1].includes(packet[5])
+      && packet[6] > 0 && packet[7] === 1) {
+    return {
+      kind: "timing", fps: packet[2], durationSeconds: packet[3],
+      boundary: "repeat", showLightMarkers: packet[5] === 1,
+      lightMarkerSize: packet[6], aspect: "equal",
+    };
+  }
+  if (packet[0] === 1447773781 && packet[1] === 1 && packet.length === 21
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && Number.isInteger(packet[2]) && packet[2] >= 0 && packet[3] > 0
+      && Array.from(packet.slice(10, 14)).every((value) => value >= 0 && value <= 1)
+      && packet[14] > 0 && packet[15] > 0 && [0, 1].includes(packet[16])
+      && [0, 1].includes(packet[17]) && packet[18] >= 0 && packet[19] > 0
+      && packet[20] === 1) {
+    return {
+      kind: "orbitLight", idCode: packet[2], radius: packet[3], height: packet[4],
+      theta: packet[5], angularVelocity: packet[6], target: packet.slice(7, 10),
+      color: packet.slice(10, 14), intensity: packet[14], range: packet[15],
+      castsShadow: packet[16] === 1, showMarker: packet[17] === 1,
+      sourceRadius: packet[18], spread: packet[19], type: "point",
+    };
+  }
+  if (packet[0] === 1447773782 && packet[1] === 1 && packet.length === 17
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && Array.from(packet.slice(2, 6)).every((value) => Number.isInteger(value) && value >= 0)
+      && packet[4] === packet[5]
+      && Array.from(packet.slice(6, 10)).every((value) => value >= 0 && value <= 1)
+      && packet[10] > 0 && packet[11] > 0 && [0, 1].includes(packet[12])
+      && packet[13] === 0 && packet[14] >= 0 && packet[15] > 0 && packet[16] === 1) {
+    return {
+      kind: "projectedLight", idCode: packet[2], sourceCode: packet[3],
+      mirrorCode: packet[4], apertureCode: packet[5], color: packet.slice(6, 10),
+      intensity: packet[10], range: packet[11], castsShadow: packet[12] === 1,
+      showMarker: false, sourceRadius: packet[14], spread: packet[15], type: "projected",
+    };
+  }
   if (packet[0] === 1447773774 && packet[1] === 1 && packet.length === 10
       && Array.from(packet.slice(2)).every(Number.isFinite)
       && Array.from(packet.slice(4, 8)).every((value) => value >= 0 && value <= 1)
@@ -96,6 +135,56 @@ function decode(packet) {
         kind: "dice", colorA: packet.slice(20, 24), colorB: packet.slice(24, 28),
         graphWidthPx: packet[28],
       },
+    };
+  }
+  if (packet[0] === 1447773779 && packet[1] === 2 && packet.length === 58
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && Number.isInteger(packet[2]) && packet[2] >= 0
+      && packet[6] > 0 && packet[7] > 0
+      && Array.from(packet.slice(11, 15)).every((value) => value >= 0 && value <= 1)
+      && [0, 1].includes(packet[15]) && [0, 1].includes(packet[16])
+      && [0, 1].includes(packet[17]) && packet[18] >= 0 && packet[18] <= 1
+      && packet[19] >= 0 && packet[19] <= 1 && [0, 1].includes(packet[20])
+      && [0, 1].includes(packet[36]) && packet[41] === 1 && packet[42] === 1
+      && packet[43] >= 0 && packet[43] <= 1 && packet[44] === 1 && packet[45] === 1
+      && packet[46] === 1 && packet[47] === 1 && packet[48] > 0 && packet[48] < 180
+      && packet[49] === 0 && packet[50] === 0 && packet[51] === 1
+      && Number.isInteger(packet[52]) && Number.isInteger(packet[53])
+      && packet[54] === 1 && packet[55] === 1 && packet[56] === 0 && packet[57] === 1) {
+    const texture = packet[20] === 1 ? {
+      kind: packet[21], scale: packet.slice(22, 24),
+      colorA: packet.slice(24, 28), colorB: packet.slice(28, 32),
+      roughness: packet[32], bladeLength: packet[33],
+      clumpDensity: packet[34], microShadow: packet[35],
+    } : null;
+    const optical = packet[36] === 1 ? {
+      alpha: packet[37], transparent: packet[38] === 1,
+      depthWrite: packet[39] === 1, reflectivity: packet[40],
+    } : null;
+    const surfaceSystem = {
+      kind: packet[42], reflectivity: packet[43], reverseFacing: true, flipY: true,
+      scale: packet.slice(46, 48), cameraFov: packet[48], cameraUp: packet.slice(49, 52),
+      frameCode: packet[52], meshCode: packet[53], reflectEyeOnly: true,
+      lockApertureCamera: true, controlsEnabled: false,
+    };
+    if ((packet[20] === 0 && Array.from(packet.slice(21, 36)).some((value) => value !== 0))
+        || (texture && (![1, 2].includes(texture.kind)
+          || texture.scale.some((value) => value <= 0)))
+        || (packet[36] === 0 && Array.from(packet.slice(37, 41)).some((value) => value !== 0))
+        || (optical && (optical.alpha < 0 || optical.alpha > 1
+          || optical.reflectivity < 0 || optical.reflectivity > 1))) {
+      throw new TypeError("inline renderer received an invalid linked native surface packet");
+    }
+    const surface = {
+      center: packet.slice(3, 6), size: packet.slice(6, 8), rotation: packet.slice(8, 11),
+    };
+    return {
+      kind: "geometry", packet, rows: 2, columns: 2, stride: 3, dataOffset: 0,
+      points: rectangleCorners(surface), color: packet.slice(11, 15), nativeSurface: true,
+      receivesLighting: packet[15] === 1, castsShadow: packet[16] === 1,
+      receivesShadow: packet[17] === 1, roughness: packet[18],
+      specularStrength: packet[19], texture, optical, surfaceSystem,
+      idCode: packet[2], noBackfaceSpecular: true,
     };
   }
   if (packet[0] === 1447773779 && packet[1] === 1 && packet.length === 56
@@ -438,7 +527,7 @@ function drawTexture(context, project, mesh) {
   }
 }
 
-export function renderInlineResult(canvas, packets) {
+export function renderInlineResult(canvas, packets, timeMs = 0) {
   const decoded = packets.map(decode);
   const meshes = decoded.filter(({ kind }) => kind === "geometry");
   const particles = decoded.filter(({ kind }) => kind === "particle");
@@ -446,7 +535,37 @@ export function renderInlineResult(canvas, packets) {
   const cubes = decoded.filter(({ kind }) => kind === "cube");
   const background = decoded.find(({ kind }) => kind === "background");
   const camera = decoded.find(({ kind }) => kind === "camera");
-  const lights = decoded.filter(({ kind }) => kind === "light");
+  const timing = decoded.find(({ kind }) => kind === "timing") || null;
+  const elapsedMs = timing
+    ? ((Math.max(0, Number(timeMs) || 0) % (timing.durationSeconds * 1000)))
+    : Math.max(0, Number(timeMs) || 0);
+  const orbitLights = decoded.filter(({ kind }) => kind === "orbitLight").map((light) => {
+    const angle = light.theta + (light.angularVelocity * elapsedMs / 1000);
+    return {
+      ...light, kind: "light",
+      pos: Float64Array.from([
+        light.target[0] + (Math.cos(angle) * light.radius),
+        light.target[1] + (Math.sin(angle) * light.radius),
+        light.target[2] + light.height,
+      ]),
+    };
+  });
+  const lights = [...decoded.filter(({ kind }) => kind === "light"), ...orbitLights];
+  const projectedLights = decoded.filter(({ kind }) => kind === "projectedLight").map((light) => {
+    const source = orbitLights.find(({ idCode }) => idCode === light.sourceCode);
+    const mirror = meshes.find(({ idCode, surfaceSystem }) => (
+      idCode === light.mirrorCode && surfaceSystem?.meshCode === light.mirrorCode
+    ));
+    if (!source || !mirror) {
+      throw new TypeError("inline reflected light references unavailable source geometry");
+    }
+    const plane = mirrorPlane(mirror);
+    return {
+      ...light, source, mirror, plane,
+      pos: Float64Array.from(reflectAcrossPlane(source.pos, plane)),
+      target: Float64Array.from(reflectAcrossPlane(source.target, plane)),
+    };
+  });
   const points = meshes.flatMap((mesh) => Array.from(
     { length: mesh.rows * mesh.columns },
     (_, index) => vertex(mesh, Math.floor(index / mesh.columns), index % mesh.columns),
@@ -480,6 +599,57 @@ export function renderInlineResult(canvas, packets) {
       else context.lineTo(x, y);
     }
     context.stroke();
+  };
+
+  const drawProjectedApertures = (receiver) => {
+    if (projectedLights.length === 0) return;
+    const receiverPlane = mirrorPlane(receiver);
+    for (const light of projectedLights) {
+      const footprint = [
+        vertex(light.mirror, 0, 0),
+        vertex(light.mirror, 0, light.mirror.columns - 1),
+        vertex(light.mirror, light.mirror.rows - 1, light.mirror.columns - 1),
+        vertex(light.mirror, light.mirror.rows - 1, 0),
+      ].map((corner) => {
+        const ray = subtract(corner, light.pos);
+        const denominator = dot(ray, receiverPlane.normal);
+        if (Math.abs(denominator) < 1e-9) {
+          throw new TypeError("inline reflected aperture is parallel to its receiver");
+        }
+        const distance = dot(subtract(receiverPlane.origin, light.pos), receiverPlane.normal)
+          / denominator;
+        if (distance <= 0) {
+          throw new TypeError("inline reflected aperture points away from its receiver");
+        }
+        return light.pos.map((value, index) => value + (distance * ray[index]));
+      });
+      const screen = footprint.map(project);
+      const center = screen.reduce(
+        (sum, point) => [sum[0] + point[0] / screen.length, sum[1] + point[1] / screen.length],
+        [0, 0],
+      );
+      const radius = Math.max(2, ...screen.map((point) => Math.hypot(
+        point[0] - center[0], point[1] - center[1],
+      )));
+      context.save();
+      context.beginPath();
+      screen.forEach(([x, y], index) => {
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.clip();
+      const gradient = context.createRadialGradient(
+        center[0], center[1], 0, center[0], center[1], radius * light.spread,
+      );
+      const strength = Math.min(0.72, light.intensity / 120);
+      gradient.addColorStop(0, rgba([...light.color.slice(0, 3), strength]));
+      gradient.addColorStop(0.72, rgba([...light.color.slice(0, 3), strength * 0.55]));
+      gradient.addColorStop(1, rgba([...light.color.slice(0, 3), 0]));
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.restore();
+    }
   };
 
   const shadowLight = lights.find(({ castsShadow }) => castsShadow);
@@ -595,6 +765,7 @@ export function renderInlineResult(canvas, packets) {
       context.fill();
     }
     drawTexture(context, project, mesh);
+    if (mesh.receivesShadow) drawProjectedApertures(mesh);
     const color = litColor(mesh, lights);
     const alpha = mesh.optical?.transparent
       ? mesh.optical.alpha : (mesh.color?.[3] ?? mesh.packet[7]);
@@ -706,4 +877,18 @@ export function renderInlineResult(canvas, packets) {
       }
     }
   }
+  if (timing?.showLightMarkers) {
+    for (const light of lights.filter(({ showMarker }) => showMarker)) {
+      const [x, y] = project(light.pos);
+      context.fillStyle = rgba(light.color);
+      context.beginPath();
+      context.arc(
+        x, y,
+        Math.max(2, timing.lightMarkerSize * 12 * Math.max(0.5, light.sourceRadius * 5)),
+        0, Math.PI * 2,
+      );
+      context.fill();
+    }
+  }
+  return timing;
 }

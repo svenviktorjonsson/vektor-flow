@@ -28,7 +28,10 @@ function prepareExample(example, runner) {
   renderHighlight();
 
   const layout = example.querySelector(".readme-example-layout");
+  let stopResultAnimation = null;
   const hideResult = () => {
+    stopResultAnimation?.();
+    stopResultAnimation = null;
     example.querySelector(".readme-example-result")?.remove();
     layout.classList.remove("has-result");
   };
@@ -53,7 +56,24 @@ function prepareExample(example, runner) {
         canvas.height = 360;
         canvas.setAttribute("aria-label", "VKF visual output");
         result.append(canvas);
-        renderInlineResult(canvas, packets);
+        const started = globalThis.performance.now();
+        let request = 0;
+        let lastPaint = started;
+        const timing = renderInlineResult(canvas, packets, 0);
+        const paint = (now) => {
+          const interval = 1000 / timing.fps;
+          if (now - lastPaint >= interval) {
+            renderInlineResult(canvas, packets, now - started);
+            lastPaint = now;
+          }
+          request = globalThis.requestAnimationFrame(paint);
+        };
+        if (timing) {
+          request = globalThis.requestAnimationFrame(paint);
+          stopResultAnimation = () => {
+            if (request) globalThis.cancelAnimationFrame(request);
+          };
+        }
         layout.append(result);
         layout.classList.add("has-result");
       },

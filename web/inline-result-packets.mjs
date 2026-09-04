@@ -148,14 +148,95 @@ export function materializeVisualOutput(output) {
         record.casts_shadow ? 1 : 0, record.source_radius,
       ]);
     }
-    if (record?.magic === 1447773779) {
+    if (record?.magic === 1447773780) {
       const keys = [
+        "aspect", "boundary", "duration_seconds", "fps", "light_marker_size",
+        "magic", "show_light_markers", "version",
+      ];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.version !== 1 || !Number.isInteger(record.fps) || record.fps < 1
+          || record.fps > 240 || !finiteNumber(record.duration_seconds)
+          || record.duration_seconds <= 0 || record.boundary !== "repeat"
+          || record.aspect !== "equal" || typeof record.show_light_markers !== "boolean"
+          || !finiteNumber(record.light_marker_size) || record.light_marker_size <= 0) {
+        throw new TypeError("browser compiler returned an invalid native scene timing packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, record.fps, record.duration_seconds,
+        1, record.show_light_markers ? 1 : 0, record.light_marker_size, 1,
+      ]);
+    }
+    if (record?.magic === 1447773781) {
+      const keys = [
+        "angular_velocity", "casts_shadow", "color", "height", "id", "intensity",
+        "kind", "magic", "model", "motion", "radius", "range", "show_marker",
+        "source_radius", "spread", "target", "theta", "version",
+      ];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.version !== 1 || !identifier(record.id) || record.kind !== "point"
+          || record.motion !== "orbit" || record.model !== "blinn_phong"
+          || !finiteNumber(record.radius) || record.radius <= 0
+          || !finiteNumber(record.height) || !finiteNumber(record.theta)
+          || !finiteNumber(record.angular_velocity) || !finiteVector(record.target, 3)
+          || !finiteVector(record.color, 4)
+          || record.color.some((value) => value < 0 || value > 1)
+          || !finiteNumber(record.intensity) || record.intensity <= 0
+          || !finiteNumber(record.range) || record.range <= 0
+          || typeof record.casts_shadow !== "boolean"
+          || typeof record.show_marker !== "boolean"
+          || !finiteNumber(record.source_radius) || record.source_radius < 0
+          || !finiteNumber(record.spread) || record.spread <= 0) {
+        throw new TypeError("browser compiler returned an invalid orbit light packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, identifierCode(record.id), record.radius, record.height,
+        record.theta, record.angular_velocity, ...record.target, ...record.color,
+        record.intensity, record.range, record.casts_shadow ? 1 : 0,
+        record.show_marker ? 1 : 0, record.source_radius, record.spread, 1,
+      ]);
+    }
+    if (record?.magic === 1447773782) {
+      const keys = [
+        "aperture_face_id", "casts_shadow", "color", "id", "intensity", "kind",
+        "magic", "model", "range", "reflect_mirror_mesh_id", "reflect_of_light_id",
+        "show_marker", "source_radius", "spread", "version",
+      ];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.version !== 1 || !identifier(record.id) || record.kind !== "projected"
+          || !identifier(record.reflect_of_light_id)
+          || !identifier(record.reflect_mirror_mesh_id)
+          || record.aperture_face_id !== record.reflect_mirror_mesh_id
+          || record.model !== "blinn_phong" || !finiteVector(record.color, 4)
+          || record.color.some((value) => value < 0 || value > 1)
+          || !finiteNumber(record.intensity) || record.intensity <= 0
+          || !finiteNumber(record.range) || record.range <= 0
+          || typeof record.casts_shadow !== "boolean"
+          || typeof record.show_marker !== "boolean" || record.show_marker
+          || !finiteNumber(record.source_radius) || record.source_radius < 0
+          || !finiteNumber(record.spread) || record.spread <= 0) {
+        throw new TypeError("browser compiler returned an invalid reflected light packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, identifierCode(record.id),
+        identifierCode(record.reflect_of_light_id),
+        identifierCode(record.reflect_mirror_mesh_id), identifierCode(record.aperture_face_id),
+        ...record.color, record.intensity, record.range,
+        record.casts_shadow ? 1 : 0, record.show_marker ? 1 : 0,
+        record.source_radius, record.spread, 1,
+      ]);
+    }
+    if (record?.magic === 1447773779) {
+      const baseKeys = [
         "casts_shadow", "center", "color", "magic", "optical", "receives_lighting",
         "receives_shadow", "rotation", "roughness", "size", "specular_strength",
         "surface_system", "texture", "version",
       ];
+      const linked = record.version === 2;
+      const keys = linked ? [...baseKeys, "id", "no_backface_specular"].sort() : baseKeys;
       if (Object.keys(record).sort().join("\0") !== keys.join("\0")
-          || record.version !== 1 || !finiteVector(record.center, 3)
+          || (record.version !== 1 && record.version !== 2)
+          || (linked && (!identifier(record.id) || record.no_backface_specular !== true))
+          || !finiteVector(record.center, 3)
           || !finiteVector(record.size, 2) || record.size.some((value) => value <= 0)
           || !finiteVector(record.rotation, 3) || !finiteVector(record.color, 4)
           || record.color.some((value) => value < 0 || value > 1)
@@ -170,18 +251,22 @@ export function materializeVisualOutput(output) {
       const texture = materializeTexture(record.texture);
       const optical = materializeOptical(record.optical);
       const surfaceSystem = materializeSurfaceSystem(record.surface_system);
-      if (surfaceSystem && (!optical || surfaceSystem[1] !== optical[3])) {
+      if (surfaceSystem && ((!linked && !optical)
+          || (optical && surfaceSystem[1] !== optical[3]))) {
         throw new TypeError("browser compiler returned an invalid native surface material packet");
       }
-      return Float64Array.from([
-        record.magic, record.version, ...record.center, ...record.size, ...record.rotation,
+      const values = [
+        record.magic, record.version, ...(linked ? [identifierCode(record.id)] : []),
+        ...record.center, ...record.size, ...record.rotation,
         ...record.color, record.receives_lighting ? 1 : 0,
         record.casts_shadow ? 1 : 0, record.receives_shadow ? 1 : 0,
         record.roughness, record.specular_strength,
         texture ? 1 : 0, ...(texture || Array(15).fill(0)),
         optical ? 1 : 0, ...(optical || Array(4).fill(0)),
         surfaceSystem ? 1 : 0, ...(surfaceSystem || Array(15).fill(0)),
-      ]);
+      ];
+      if (linked) values.push(record.no_backface_specular ? 1 : 0);
+      return Float64Array.from(values);
     }
     if (record?.magic === 1447773774) {
       const keys = ["color", "magic", "mass", "position", "size", "version"];

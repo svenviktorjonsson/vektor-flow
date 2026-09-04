@@ -1525,6 +1525,7 @@ BrowserNativeCubeScene: (
     cubes_source:str,
     lights_source:str,
     shadow_source:str,
+    options:any,
     unsupported:bit
 )
 BrowserNativePlane: (
@@ -1533,6 +1534,8 @@ BrowserNativePlane: (
     z:num,
     color_source:str,
     texture_source:str,
+    roughness:num,
+    specular_strength:num,
     unsupported:bit
 )
 BrowserNativeCube: (
@@ -1555,6 +1558,7 @@ BrowserNativeDiceTexture: (
     unsupported:bit
 )
 BrowserNativeSurface: (
+    link:any,
     center_source:str,
     size_source:str,
     rotation_source:str,
@@ -1565,6 +1569,24 @@ BrowserNativeSurface: (
     specular_strength:num,
     casts_shadow:bit,
     receives_shadow:bit,
+    unsupported:bit
+)
+BrowserNativeSceneOptions: (
+    aspect:str,
+    timing_source:str,
+    show_light_markers:bit,
+    saw_show_light_markers:bit,
+    light_marker_size:num
+)
+BrowserNativeSurfaceLink: (
+    id:str,
+    no_backface_specular:bit,
+    saw_no_backface_specular:bit
+)
+BrowserNativeTiming: (
+    fps:int,
+    duration_seconds:num,
+    boundary:str,
     unsupported:bit
 )
 BrowserNativeShadow: (
@@ -2301,7 +2323,7 @@ _browser_display_surface_packet(source:str, offset:int, in_string:bit) -> any:
         value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
         fields: _browser_scan_display_surface_fields(
             source, value_start + 1, value_stop - 1,
-            "", 0, false, false, "", 0, "", "", "",
+            "", 1, false, false, "", 0, "", "", "",
             false, false, false, false
         )
         ~fields.unsupported?! "browser surface system contains an unsupported field"
@@ -2690,12 +2712,23 @@ _browser_display_camera_source(source:str) -> any:
     (pos.length() = 3 /\ target.length() = 3 /\ up.length() = 3 /\ fov > 0)?! "browser camera requires pos, target, up, and fov"
     (magic:1447773768, version:1, pos:pos, target:target, up:up, fov:fov)
 
+_browser_signed_lifted_value(tape:any, index:int) -> BrowserLiftedParse:
+    _browser_token_text(tape, index) = "-"?
+        @: _browser_lifted_value(tape, index + 1, -1)
+    _browser_lifted_value(tape, index, 1)
+
 _browser_display_light_source(source:str) -> any:
     tape: lexer.tagged_numeric_function_token_tape(source)
     index: 4
     parens: 1
     brackets: 0
     light_kind: "point"
+    id: ""
+    motion: ""
+    model: ""
+    reflect_of_light_id: ""
+    reflect_mirror_mesh_id: ""
+    aperture_face_id: ""
     pos: []
     target: []
     color: []
@@ -2705,31 +2738,61 @@ _browser_display_light_source(source:str) -> any:
     outer_cone_deg: 0
     casts_shadow: false
     source_radius: 0
+    radius: 0
+    height: 0
+    theta: 0
+    angular_velocity: 0
+    spread: 0
+    show_marker: false
+    saw_show_marker: false
     (parens > 0)?>
         kind: _browser_token_kind(tape, index)
         keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
             _browser_token_kind(tape, index + 1) = 15)
         keyword?
             key: _browser_token_text(tape, index)
-            supported: (key = "id" \/ key = "kind" \/ key = "pos" \/
+            supported: (key = "id" \/ key = "kind" \/ key = "motion" \/
+                key = "model" \/ key = "reflect_of_light_id" \/
+                key = "reflect_mirror_mesh_id" \/ key = "aperture_face_id" \/ key = "pos" \/
                 key = "target" \/ key = "color" \/ key = "intensity" \/
                 key = "range" \/ key = "inner_cone_deg" \/
                 key = "outer_cone_deg" \/ key = "casts_shadow" \/
-                key = "source_radius")
+                key = "source_radius" \/ key = "radius" \/ key = "height" \/
+                key = "theta" \/ key = "angular_velocity" \/ key = "spread" \/
+                key = "show_marker")
             supported?! "browser light does not support this option"
-            (key = "id" \/ key = "kind")?
+            (key = "id" \/ key = "kind" \/ key = "motion" \/ key = "model" \/
+                key = "reflect_of_light_id" \/ key = "reflect_mirror_mesh_id" \/
+                key = "aperture_face_id")?
                 (_browser_token_kind(tape, index + 2) = 25)?! "browser light id and kind require strings"
+                encoded_value: _browser_token_text(tape, index + 2)
                 key = "kind"?
-                    encoded_kind: _browser_token_text(tape, index + 2)
-                    (encoded_kind = "\"point\"" \/ encoded_kind = "\"spot\"")?! "browser light kind is unsupported"
-                    encoded_kind = "\"spot\""?
+                    (encoded_value = "\"point\"" \/ encoded_value = "\"spot\"" \/
+                        encoded_value = "\"projected\"")?! "browser light kind is unsupported"
+                    encoded_value = "\"spot\""?
                         .light_kind: "spot"
+                    encoded_value = "\"projected\""?
+                        .light_kind: "projected"
+                decoded_value: vkf_utf8_slice(encoded_value, 1, encoded_value.length() - 1)
+                key = "id"?
+                    .id: decoded_value
+                key = "motion"?
+                    .motion: decoded_value
+                key = "model"?
+                    .model: decoded_value
+                key = "reflect_of_light_id"?
+                    .reflect_of_light_id: decoded_value
+                key = "reflect_mirror_mesh_id"?
+                    .reflect_mirror_mesh_id: decoded_value
+                key = "aperture_face_id"?
+                    .aperture_face_id: decoded_value
                 .index: index + 3
             (key = "pos" \/ key = "target" \/ key = "color" \/
                 key = "intensity" \/ key = "range" \/
                 key = "inner_cone_deg" \/ key = "outer_cone_deg" \/
-                key = "source_radius")?
-                parsed: _browser_lifted_value(tape, index + 2, 1)
+                key = "source_radius" \/ key = "radius" \/ key = "height" \/
+                key = "theta" \/ key = "angular_velocity" \/ key = "spread")?
+                parsed: _browser_signed_lifted_value(tape, index + 2)
                 key = "pos"?
                     .pos: parsed.value
                 key = "target"?
@@ -2746,12 +2809,26 @@ _browser_display_light_source(source:str) -> any:
                     .outer_cone_deg: parsed.value
                 key = "source_radius"?
                     .source_radius: parsed.value
+                key = "radius"?
+                    .radius: parsed.value
+                key = "height"?
+                    .height: parsed.value
+                key = "theta"?
+                    .theta: parsed.value
+                key = "angular_velocity"?
+                    .angular_velocity: parsed.value
+                key = "spread"?
+                    .spread: parsed.value
                 .index: parsed.next
-            key = "casts_shadow"?
+            (key = "casts_shadow" \/ key = "show_marker")?
                 (_browser_token_kind(tape, index + 2) = 1)?! "browser light shadow flag requires a boolean"
                 flag: _browser_token_text(tape, index + 2)
                 (flag = "true" \/ flag = "false")?! "browser light shadow flag requires a boolean"
-                .casts_shadow: flag = "true"
+                key = "casts_shadow"?
+                    .casts_shadow: flag = "true"
+                key = "show_marker"?
+                    .show_marker: flag = "true"
+                    .saw_show_marker: true
                 .index: index + 3
         ~keyword?
             kind = 13?
@@ -2763,8 +2840,36 @@ _browser_display_light_source(source:str) -> any:
             kind = 23?
                 .brackets-: 1
             .index+: 1
+    light_kind = "projected"?
+        (id != "" /\ reflect_of_light_id != "" /\ reflect_mirror_mesh_id != "" /\
+            aperture_face_id = reflect_mirror_mesh_id /\ model = "blinn_phong" /\
+            color.length() = 4 /\ intensity > 0 /\ range > 0 /\
+            source_radius >= 0 /\ spread > 0 /\ saw_show_marker /\ ~show_marker)?! "browser projected light fields are invalid"
+        @: (
+            magic:1447773782, version:1, id:id, kind:"projected",
+            reflect_of_light_id:reflect_of_light_id,
+            reflect_mirror_mesh_id:reflect_mirror_mesh_id,
+            model:model, color:color, intensity:intensity, range:range,
+            casts_shadow:casts_shadow, show_marker:show_marker,
+            source_radius:source_radius, spread:spread,
+            aperture_face_id:aperture_face_id
+        )
+    (light_kind = "point" /\ motion = "orbit")?
+        (id != "" /\ pos.length() = 0 /\ radius > 0 /\ target.length() = 3 /\
+            model = "blinn_phong" /\ color.length() = 4 /\ intensity > 0 /\ range > 0 /\
+            source_radius >= 0 /\ spread > 0 /\ saw_show_marker)?! "browser orbit light fields are invalid"
+        @: (
+            magic:1447773781, version:1, id:id, kind:"point", motion:"orbit",
+            radius:radius, height:height, theta:theta, angular_velocity:angular_velocity,
+            target:target, model:model, color:color, intensity:intensity, range:range,
+            casts_shadow:casts_shadow, show_marker:show_marker,
+            source_radius:source_radius, spread:spread
+        )
     (pos.length() = 3 /\ target.length() = 3 /\ color.length() = 4 /\
-        intensity > 0 /\ range > 0 /\ source_radius >= 0)?! "browser light requires position, target, color, intensity, and range"
+        intensity > 0 /\ range > 0 /\ source_radius >= 0 /\ motion = "" /\
+        model = "" /\ reflect_of_light_id = "" /\ reflect_mirror_mesh_id = "" /\
+        aperture_face_id = "" /\ radius = 0 /\ height = 0 /\ theta = 0 /\
+        angular_velocity = 0 /\ spread = 0 /\ ~saw_show_marker)?! "browser light requires position, target, color, intensity, and range"
     light_kind = "spot"?
         (inner_cone_deg > 0 /\ outer_cone_deg > inner_cone_deg /\
             outer_cone_deg < 90)?! "browser spot light cone is invalid"
@@ -3070,7 +3175,7 @@ _browser_scan_native_cube_scene(
     source:str, offset:int, stop:int, kind:str,
     background_source:str, camera_source:str, plane_source:str,
     surfaces_source:str, cubes_source:str, lights_source:str,
-    shadow_source:str, unsupported:bit
+    shadow_source:str, options:BrowserNativeSceneOptions, unsupported:bit
 ) -> BrowserNativeCubeScene:
     offset >= stop?
         @: (
@@ -3078,28 +3183,41 @@ _browser_scan_native_cube_scene(
             camera_source:camera_source, plane_source:plane_source,
             surfaces_source:surfaces_source, cubes_source:cubes_source,
             lights_source:lights_source, shadow_source:shadow_source,
+            options:options,
             unsupported:unsupported
         )
     ch: vkf_string_peek_scalar(source, offset)
     next: vkf_utf8_advance(source, offset)
     (_browser_source_starts_with(source, offset, "kind:", 0) \/
         _browser_source_starts_with(source, offset, "frame_id:", 0) \/
-        _browser_source_starts_with(source, offset, "title:", 0))?
+        _browser_source_starts_with(source, offset, "title:", 0) \/
+        _browser_source_starts_with(source, offset, "aspect:", 0))?
         colon_width: 5
         _browser_source_starts_with(source, offset, "frame_id:", 0)?
             .colon_width: 9
         _browser_source_starts_with(source, offset, "title:", 0)?
             .colon_width: 6
+        _browser_source_starts_with(source, offset, "aspect:", 0)?
+            .colon_width: 7
         value_start: _browser_display_value_start(source, offset + colon_width)
         (vkf_string_peek_scalar(source, value_start) = 34)?! "browser native scene text fields require strings"
         value_stop: _browser_display_string_stop(source, value_start + 1)
         next_kind: kind
+        next_options: options
         _browser_source_starts_with(source, offset, "kind:", 0)?
             .next_kind: vkf_utf8_slice(source, value_start + 1, value_stop)
+        _browser_source_starts_with(source, offset, "aspect:", 0)?
+            .next_options: (
+                aspect:vkf_utf8_slice(source, value_start + 1, value_stop),
+                timing_source:options.timing_source,
+                show_light_markers:options.show_light_markers,
+                saw_show_light_markers:options.saw_show_light_markers,
+                light_marker_size:options.light_marker_size
+            )
         @: _browser_scan_native_cube_scene(
             source, value_stop + 1, stop, next_kind, background_source,
             camera_source, plane_source, surfaces_source, cubes_source,
-            lights_source, shadow_source, unsupported
+            lights_source, shadow_source, next_options, unsupported
         )
     (_browser_source_starts_with(source, offset, "rect:", 0) \/
         _browser_source_starts_with(source, offset, "background:", 0) \/
@@ -3134,11 +3252,12 @@ _browser_scan_native_cube_scene(
         @: _browser_scan_native_cube_scene(
             source, value_stop, stop, kind, next_background,
             camera_source, plane_source, next_surfaces, next_cubes,
-            next_lights, shadow_source, unsupported
+            next_lights, shadow_source, options, unsupported
         )
     (_browser_source_starts_with(source, offset, "camera:", 0) \/
         _browser_source_starts_with(source, offset, "plane:", 0) \/
-        _browser_source_starts_with(source, offset, "shadow:", 0))?
+        _browser_source_starts_with(source, offset, "shadow:", 0) \/
+        _browser_source_starts_with(source, offset, "timing:", 0))?
         colon_width: 7
         _browser_source_starts_with(source, offset, "plane:", 0)?
             .colon_width: 6
@@ -3151,16 +3270,60 @@ _browser_scan_native_cube_scene(
         next_camera: camera_source
         next_plane: plane_source
         next_shadow: shadow_source
+        next_timing: options.timing_source
         _browser_source_starts_with(source, offset, "camera:", 0)?
             .next_camera: value_source
         _browser_source_starts_with(source, offset, "plane:", 0)?
             .next_plane: value_source
         _browser_source_starts_with(source, offset, "shadow:", 0)?
             .next_shadow: value_source
+        _browser_source_starts_with(source, offset, "timing:", 0)?
+            .next_timing: value_source
+        next_options: options
+        _browser_source_starts_with(source, offset, "timing:", 0)?
+            .next_options: (
+                aspect:options.aspect, timing_source:next_timing,
+                show_light_markers:options.show_light_markers,
+                saw_show_light_markers:options.saw_show_light_markers,
+                light_marker_size:options.light_marker_size
+            )
         @: _browser_scan_native_cube_scene(
             source, value_stop, stop, kind, background_source,
             next_camera, next_plane, surfaces_source, cubes_source,
-            lights_source, next_shadow, unsupported
+            lights_source, next_shadow, next_options, unsupported
+        )
+    _browser_source_starts_with(source, offset, "show_light_markers:", 0)?
+        value_start: _browser_display_value_start(source, offset + 19)
+        value: false
+        value_stop: value_start
+        _browser_source_starts_with(source, value_start, "true", 0)?
+            .value: true
+            .value_stop: value_start + 4
+        ~value?
+            _browser_source_starts_with(source, value_start, "false", 0)?
+                .value_stop: value_start + 5
+            ~_browser_source_starts_with(source, value_start, "false", 0)?
+                false?! "browser native scene light marker flag requires a boolean"
+        @: _browser_scan_native_cube_scene(
+            source, value_stop, stop, kind, background_source,
+            camera_source, plane_source, surfaces_source, cubes_source,
+            lights_source, shadow_source,
+            (aspect:options.aspect, timing_source:options.timing_source,
+                show_light_markers:value, saw_show_light_markers:true,
+                light_marker_size:options.light_marker_size), unsupported
+        )
+    _browser_source_starts_with(source, offset, "light_marker_size:", 0)?
+        value_start: _browser_display_value_start(source, offset + 18)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        @: _browser_scan_native_cube_scene(
+            source, value_stop, stop, kind, background_source,
+            camera_source, plane_source, surfaces_source, cubes_source,
+            lights_source, shadow_source,
+            (aspect:options.aspect, timing_source:options.timing_source,
+                show_light_markers:options.show_light_markers,
+                saw_show_light_markers:options.saw_show_light_markers,
+                light_marker_size:vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))),
+            unsupported
         )
     unknown: unsupported
     _browser_ascii_identifier_start(ch)?
@@ -3171,16 +3334,18 @@ _browser_scan_native_cube_scene(
     _browser_scan_native_cube_scene(
         source, next, stop, kind, background_source, camera_source,
         plane_source, surfaces_source, cubes_source, lights_source,
-        shadow_source, unknown
+        shadow_source, options, unknown
     )
 
 _browser_scan_native_plane(
     source:str, offset:int, stop:int, center_source:str,
-    size:num, z:num, color_source:str, texture_source:str, unsupported:bit
+    size:num, z:num, color_source:str, texture_source:str,
+    roughness:num, specular_strength:num, unsupported:bit
 ) -> BrowserNativePlane:
     (offset >= stop \/ vkf_string_eof(source, offset))?
         @: (center_source:center_source, size:size, z:z,
             color_source:color_source, texture_source:texture_source,
+            roughness:roughness, specular_strength:specular_strength,
             unsupported:unsupported)
     ch: vkf_string_peek_scalar(source, offset)
     next: vkf_utf8_advance(source, offset)
@@ -3200,25 +3365,37 @@ _browser_scan_native_plane(
             .next_color: vkf_utf8_slice(source, value_start, value_stop)
         @: _browser_scan_native_plane(
             source, value_stop, stop, next_center, size, z, next_color,
-            texture_source, unsupported
+            texture_source, roughness, specular_strength, unsupported
         )
     (_browser_source_starts_with(source, offset, "size:", 0) \/
-        _browser_source_starts_with(source, offset, "z:", 0))?
+        _browser_source_starts_with(source, offset, "z:", 0) \/
+        _browser_source_starts_with(source, offset, "roughness:", 0) \/
+        _browser_source_starts_with(source, offset, "specular_strength:", 0))?
         colon_width: 5
         _browser_source_starts_with(source, offset, "z:", 0)?
             .colon_width: 2
+        _browser_source_starts_with(source, offset, "roughness:", 0)?
+            .colon_width: 10
+        _browser_source_starts_with(source, offset, "specular_strength:", 0)?
+            .colon_width: 18
         value_start: _browser_display_value_start(source, offset + colon_width)
         value_stop: vkf_decimal_scan_end(source, value_start)
         value: vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))
         next_size: size
         next_z: z
+        next_roughness: roughness
+        next_specular: specular_strength
         _browser_source_starts_with(source, offset, "size:", 0)?
             .next_size: value
         _browser_source_starts_with(source, offset, "z:", 0)?
             .next_z: value
+        _browser_source_starts_with(source, offset, "roughness:", 0)?
+            .next_roughness: value
+        _browser_source_starts_with(source, offset, "specular_strength:", 0)?
+            .next_specular: value
         @: _browser_scan_native_plane(
             source, value_stop, stop, center_source, next_size, next_z,
-            color_source, texture_source, unsupported
+            color_source, texture_source, next_roughness, next_specular, unsupported
         )
     _browser_source_starts_with(source, offset, "texture:", 0)?
         value_start: _browser_display_value_start(source, offset + 8)
@@ -3226,7 +3403,8 @@ _browser_scan_native_plane(
         value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
         @: _browser_scan_native_plane(
             source, value_stop, stop, center_source, size, z, color_source,
-            vkf_utf8_slice(source, value_start + 1, value_stop - 1), unsupported
+            vkf_utf8_slice(source, value_start + 1, value_stop - 1),
+            roughness, specular_strength, unsupported
         )
     _browser_source_starts_with(source, offset, "id:", 0)?
         value_start: _browser_display_value_start(source, offset + 3)
@@ -3234,7 +3412,7 @@ _browser_scan_native_plane(
         value_stop: _browser_display_string_stop(source, value_start + 1)
         @: _browser_scan_native_plane(
             source, value_stop + 1, stop, center_source, size, z,
-            color_source, texture_source, unsupported
+            color_source, texture_source, roughness, specular_strength, unsupported
         )
     unknown: unsupported
     _browser_ascii_identifier_start(ch)?
@@ -3244,7 +3422,7 @@ _browser_scan_native_plane(
             .unknown: true
     _browser_scan_native_plane(
         source, next, stop, center_source, size, z, color_source,
-        texture_source, unknown
+        texture_source, roughness, specular_strength, unknown
     )
 
 _browser_scan_native_cube(
@@ -3428,6 +3606,7 @@ _browser_scan_native_dice_texture(
 
 _browser_scan_native_surface(
     source:str, offset:int, stop:int,
+    link:BrowserNativeSurfaceLink,
     center_source:str, size_source:str, rotation_source:str, color_source:str,
     texture_source:str, surface_system_source:str,
     roughness:num, specular_strength:num,
@@ -3435,7 +3614,7 @@ _browser_scan_native_surface(
 ) -> BrowserNativeSurface:
     (offset >= stop \/ vkf_string_eof(source, offset))?
         @: (
-            center_source:center_source, size_source:size_source,
+            link:link, center_source:center_source, size_source:size_source,
             rotation_source:rotation_source, color_source:color_source,
             texture_source:texture_source,
             surface_system_source:surface_system_source,
@@ -3473,7 +3652,7 @@ _browser_scan_native_surface(
         _browser_source_starts_with(source, offset, "color:", 0)?
             .next_color: value_source
         @: _browser_scan_native_surface(
-            source, value_stop, stop, next_center, next_size, next_rotation,
+            source, value_stop, stop, link, next_center, next_size, next_rotation,
             next_color, texture_source, surface_system_source,
             roughness, specular_strength, casts_shadow, receives_shadow, unsupported
         )
@@ -3493,7 +3672,7 @@ _browser_scan_native_surface(
         _browser_source_starts_with(source, offset, "surface_system:", 0)?
             .next_surface_system: value_source
         @: _browser_scan_native_surface(
-            source, value_stop, stop, center_source, size_source, rotation_source,
+            source, value_stop, stop, link, center_source, size_source, rotation_source,
             color_source, next_texture, next_surface_system,
             roughness, specular_strength, casts_shadow, receives_shadow, unsupported
         )
@@ -3518,14 +3697,15 @@ _browser_scan_native_surface(
         _browser_source_starts_with(source, offset, "specular_strength:", 0)?
             .next_specular: value
         @: _browser_scan_native_surface(
-            source, value_stop, stop, center_source, size_source, rotation_source,
+            source, value_stop, stop, link, center_source, size_source, rotation_source,
             color_source, texture_source, surface_system_source,
             next_roughness, next_specular, casts_shadow, receives_shadow, unsupported
         )
     (_browser_source_starts_with(source, offset, "transparent:", 0) \/
         _browser_source_starts_with(source, offset, "depth_write:", 0) \/
         _browser_source_starts_with(source, offset, "casts_shadow:", 0) \/
-        _browser_source_starts_with(source, offset, "receives_shadow:", 0))?
+        _browser_source_starts_with(source, offset, "receives_shadow:", 0) \/
+        _browser_source_starts_with(source, offset, "no_backface_specular:", 0))?
         colon_width: 12
         _browser_source_starts_with(source, offset, "depth_write:", 0)?
             .colon_width: 12
@@ -3533,6 +3713,8 @@ _browser_scan_native_surface(
             .colon_width: 13
         _browser_source_starts_with(source, offset, "receives_shadow:", 0)?
             .colon_width: 16
+        _browser_source_starts_with(source, offset, "no_backface_specular:", 0)?
+            .colon_width: 21
         value_start: _browser_display_value_start(source, offset + colon_width)
         value: false
         value_stop: value_start
@@ -3546,12 +3728,18 @@ _browser_scan_native_surface(
                 false?! "browser native surface flags require booleans"
         next_casts: casts_shadow
         next_receives: receives_shadow
+        next_link: link
         _browser_source_starts_with(source, offset, "casts_shadow:", 0)?
             .next_casts: value
         _browser_source_starts_with(source, offset, "receives_shadow:", 0)?
             .next_receives: value
+        _browser_source_starts_with(source, offset, "no_backface_specular:", 0)?
+            .next_link: (
+                id:link.id, no_backface_specular:value,
+                saw_no_backface_specular:true
+            )
         @: _browser_scan_native_surface(
-            source, value_stop, stop, center_source, size_source, rotation_source,
+            source, value_stop, stop, next_link, center_source, size_source, rotation_source,
             color_source, texture_source, surface_system_source,
             roughness, specular_strength, next_casts, next_receives, unsupported
         )
@@ -3560,7 +3748,11 @@ _browser_scan_native_surface(
         (vkf_string_peek_scalar(source, value_start) = 34)?! "browser native surface id requires a string"
         value_stop: _browser_display_string_stop(source, value_start + 1)
         @: _browser_scan_native_surface(
-            source, value_stop + 1, stop, center_source, size_source,
+            source, value_stop + 1, stop,
+            (id:vkf_utf8_slice(source, value_start + 1, value_stop),
+                no_backface_specular:link.no_backface_specular,
+                saw_no_backface_specular:link.saw_no_backface_specular),
+            center_source, size_source,
             rotation_source, color_source, texture_source, surface_system_source,
             roughness, specular_strength, casts_shadow, receives_shadow, unsupported
         )
@@ -3571,7 +3763,7 @@ _browser_scan_native_surface(
             vkf_string_peek_scalar(source, identifier_stop) = 58)?
             .unknown: true
     _browser_scan_native_surface(
-        source, next, stop, center_source, size_source, rotation_source,
+        source, next, stop, link, center_source, size_source, rotation_source,
         color_source, texture_source, surface_system_source,
         roughness, specular_strength, casts_shadow, receives_shadow, unknown
     )
@@ -3628,6 +3820,105 @@ _browser_scan_native_shadow(
         saw_enabled, unknown
     )
 
+_browser_native_timing_packet(source:str, aspect:str, show_markers:bit, marker_size:num) -> any:
+    tape: lexer.tagged_numeric_function_token_tape("frame.add(" & source & ")")
+    index: 4
+    parens: 1
+    brackets: 0
+    fps: 0
+    duration_seconds: 0
+    boundary: ""
+    (parens > 0)?>
+        kind: _browser_token_kind(tape, index)
+        keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
+            _browser_token_kind(tape, index + 1) = 15)
+        keyword?
+            key: _browser_token_text(tape, index)
+            (key = "fps" \/ key = "duration_seconds" \/ key = "boundary")?! "browser native timing contains unsupported options"
+            key = "boundary"?
+                (_browser_token_kind(tape, index + 2) = 25)?! "browser native timing boundary requires a string"
+                encoded: _browser_token_text(tape, index + 2)
+                .boundary: vkf_utf8_slice(encoded, 1, encoded.length() - 1)
+                .index: index + 3
+            (key = "fps" \/ key = "duration_seconds")?
+                parsed: _browser_lifted_value(tape, index + 2, 1)
+                key = "fps"?
+                    .fps: parsed.value
+                key = "duration_seconds"?
+                    .duration_seconds: parsed.value
+                .index: parsed.next
+        ~keyword?
+            kind = 13?
+                .parens+: 1
+            kind = 14?
+                .parens-: 1
+            kind = 22?
+                .brackets+: 1
+            kind = 23?
+                .brackets-: 1
+            .index+: 1
+    (fps > 0 /\ fps <= 240 /\ duration_seconds > 0 /\ boundary = "repeat" /\
+        aspect = "equal" /\ marker_size > 0)?! "browser native timing fields are invalid"
+    (
+        magic:1447773780, version:1, fps:fps,
+        duration_seconds:duration_seconds, boundary:boundary, aspect:aspect,
+        show_light_markers:show_markers, light_marker_size:marker_size
+    )
+
+_browser_record_string_field(source:str, field:str) -> str:
+    tape: lexer.tagged_numeric_function_token_tape("frame.add(" & source & ")")
+    index: 4
+    parens: 1
+    brackets: 0
+    value: ""
+    (parens > 0)?>
+        kind: _browser_token_kind(tape, index)
+        keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
+            _browser_token_kind(tape, index + 1) = 15)
+        matched: (keyword /\ _browser_token_text(tape, index) = field)
+        matched?
+            (_browser_token_kind(tape, index + 2) = 25)?! "browser native reference field requires a string"
+            encoded: _browser_token_text(tape, index + 2)
+            .value: vkf_utf8_slice(encoded, 1, encoded.length() - 1)
+            .index: index + 3
+        ~matched?
+            kind = 13?
+                .parens+: 1
+            kind = 14?
+                .parens-: 1
+            kind = 22?
+                .brackets+: 1
+            kind = 23?
+                .brackets-: 1
+            .index+: 1
+    value
+
+_browser_record_list_has_id(source:str, target:str, offset:int) -> bit:
+    open: _browser_find_source(source, offset, "(")
+    open < 0?
+        @: false
+    stop: _browser_display_call_stop(source, open + 1, 1, false)
+    item: vkf_utf8_slice(source, open + 1, stop - 1)
+    _browser_record_string_field(item, "id") = target?
+        @: true
+    _browser_record_list_has_id(source, target, stop)
+
+_browser_native_light_references_valid(lights:str, surfaces:str, offset:int) -> bit:
+    open: _browser_find_source(lights, offset, "(")
+    open < 0?
+        @: true
+    stop: _browser_display_call_stop(lights, open + 1, 1, false)
+    item: vkf_utf8_slice(lights, open + 1, stop - 1)
+    kind: _browser_record_string_field(item, "kind")
+    kind = "projected"?
+        source_id: _browser_record_string_field(item, "reflect_of_light_id")
+        mirror_id: _browser_record_string_field(item, "reflect_mirror_mesh_id")
+        aperture_id: _browser_record_string_field(item, "aperture_face_id")
+        (source_id != "" /\ mirror_id != "" /\ aperture_id = mirror_id /\
+            _browser_record_list_has_id(lights, source_id, 0) /\
+            _browser_record_list_has_id(surfaces, mirror_id, 0))?! "browser projected light references are invalid"
+    _browser_native_light_references_valid(lights, surfaces, stop)
+
 _browser_record_list_count(source:str, offset:int, count:int) -> int:
     open: _browser_find_source(source, offset, "(")
     open < 0?
@@ -3663,8 +3954,9 @@ _browser_native_dice_texture_packet(source:str) -> any:
 
 _browser_native_surface_packet(source:str) -> any:
     surface: _browser_scan_native_surface(
-        source, 0, 2147483647, "", "", "", "", "", "",
-        1, 0, false, false, false
+        source, 0, 2147483647,
+        (id:"", no_backface_specular:false, saw_no_backface_specular:false),
+        "", "", "", "", "", "", 1, 0, false, false, false
     )
     (~surface.unsupported /\ surface.center_source != "" /\
         surface.size_source != "" /\ surface.rotation_source != "" /\
@@ -3688,11 +3980,24 @@ _browser_native_surface_packet(source:str) -> any:
         )
     optical: _browser_display_optical_packet(source)
     surface_system: _browser_display_surface_packet(source, 0, false)
-    (surface.surface_system_source = "" \/
+    (surface.surface_system_source = "" \/ surface.link.saw_no_backface_specular \/
         (_browser_find_source(source, 0, "alpha:") >= 0 /\
             _browser_find_source(source, 0, "transparent:") >= 0 /\
             _browser_find_source(source, 0, "depth_write:") >= 0 /\
             _browser_find_source(source, 0, "reflectivity:") >= 0))?! "browser native mirror requires optical material"
+    surface.link.saw_no_backface_specular?
+        (surface.link.id != "" /\ surface.link.no_backface_specular /\
+            surface.surface_system_source != "")?! "browser linked mirror surface fields are invalid"
+        @: (
+            magic:1447773779, version:2, id:surface.link.id,
+            center:center, size:size, rotation:rotation, color:color,
+            receives_lighting:true, casts_shadow:surface.casts_shadow,
+            receives_shadow:surface.receives_shadow,
+            roughness:surface.roughness,
+            specular_strength:surface.specular_strength,
+            texture:texture, optical:optical, surface_system:surface_system,
+            no_backface_specular:surface.link.no_backface_specular
+        )
     (
         magic:1447773779, version:1, center:center, size:size,
         rotation:rotation, color:color, receives_lighting:true,
@@ -3705,10 +4010,11 @@ _browser_native_surface_packet(source:str) -> any:
 
 _browser_native_plane_packet(source:str) -> any:
     plane: _browser_scan_native_plane(
-        source, 0, 2147483647, "", 0, 0, "", "", false
+        source, 0, 2147483647, "", 0, 0, "", "", 1, 0, false
     )
     (~plane.unsupported /\ plane.center_source != "" /\ plane.size > 0 /\
-        plane.color_source != "")?! "browser native plane contains unsupported options"
+        plane.color_source != "" /\ plane.roughness >= 0 /\ plane.roughness <= 1 /\
+        plane.specular_strength >= 0 /\ plane.specular_strength <= 1)?! "browser native plane contains unsupported options"
     center_tape: lexer.tagged_numeric_function_token_tape(plane.center_source)
     center: _browser_lifted_value(center_tape, 0, 1).value
     color_tape: lexer.tagged_numeric_function_token_tape(plane.color_source)
@@ -3726,7 +4032,7 @@ _browser_native_plane_packet(source:str) -> any:
         y:[[center.1 - half, center.1 - half], [center.1 + half, center.1 + half]],
         z:[[plane.z, plane.z], [plane.z, plane.z]],
         receives_lighting:true, casts_shadow:false, receives_shadow:true,
-        roughness:1, specular_strength:0, texture:texture,
+        roughness:plane.roughness, specular_strength:plane.specular_strength, texture:texture,
         optical:[], surface_system:[]
     )
 
@@ -3769,13 +4075,22 @@ _browser_native_cube_scene(source:str, packet_index:int) -> any:
     (scene_start >= 0)?! "browser native cube scene is missing"
     scene_stop: _browser_display_call_stop(source, scene_start + 14, 1, false)
     scene: _browser_scan_native_cube_scene(
-        source, scene_start + 14, scene_stop - 1, "", "", "", "", "", "", "", "", false
+        source, scene_start + 14, scene_stop - 1,
+        "", "", "", "", "", "", "", "",
+        (aspect:"", timing_source:"", show_light_markers:false,
+            saw_show_light_markers:false, light_marker_size:0), false
     )
     (~scene.unsupported /\ scene.kind = "scene_3d" /\
-        scene.background_source != "" /\ scene.camera_source != "" /\
+        scene.camera_source != "" /\
         scene.plane_source != "" /\ scene.surfaces_source != "" /\
         scene.cubes_source != "" /\ scene.lights_source != "" /\
         scene.shadow_source != "")?! "browser native cube scene contains unsupported options"
+    animated: scene.options.timing_source != ""
+    (animated \/ (scene.options.aspect = "" /\ ~scene.options.saw_show_light_markers /\
+        scene.options.light_marker_size = 0))?! "browser native scene timing options are incomplete"
+    animated?
+        (scene.options.aspect = "equal" /\ scene.options.saw_show_light_markers /\
+            scene.options.light_marker_size > 0)?! "browser animated native scene options are invalid"
     shadow: _browser_scan_native_shadow(
         scene.shadow_source, 0, 2147483647,
         false, "", 0, false, false
@@ -3785,40 +4100,53 @@ _browser_native_cube_scene(source:str, packet_index:int) -> any:
     shadow_color_tape: lexer.tagged_numeric_function_token_tape(shadow.color_source)
     shadow_color: _browser_lifted_value(shadow_color_tape, 0, 1).value
     (shadow_color.length() = 4)?! "browser native shadow color must be RGBA"
-    background_tape: lexer.tagged_numeric_function_token_tape(scene.background_source)
-    background: _browser_lifted_value(background_tape, 0, 1).value
+    background: [0, 0, 0, 0]
+    scene.background_source != ""?
+        background_tape: lexer.tagged_numeric_function_token_tape(scene.background_source)
+        .background: _browser_lifted_value(background_tape, 0, 1).value
     (background.length() = 4)?! "browser native cube scene background must be RGBA"
     cube_count: _browser_record_list_count(scene.cubes_source, 0, 0)
     surface_count: _browser_record_list_count(scene.surfaces_source, 0, 0)
     light_count: _browser_record_list_count(scene.lights_source, 0, 0)
     ((cube_count > 0 \/ surface_count > 0) /\ light_count > 0)?! "browser native scene requires geometry and lights"
+    _browser_find_source(scene.lights_source, 0, "kind:\"projected\"") >= 0?
+        _browser_native_light_references_valid(scene.lights_source, scene.surfaces_source, 0)?! "browser native scene light references are invalid"
+    timing_count: 0
+    animated?
+        .timing_count: 1
     packet_index < 0?
         @: (
             kind:"visual_stream",
-            packet_count:2 + surface_count + cube_count + light_count,
+            packet_count:2 + timing_count + surface_count + cube_count + light_count,
             background:background, combine_transparent:false
         )
     packet_index = 0?
         @: _browser_display_camera_source("frame.add_camera(" & scene.camera_source & ")")
-    packet_index = 1?
+    (animated /\ packet_index = 1)?
+        @: _browser_native_timing_packet(
+            scene.options.timing_source, scene.options.aspect,
+            scene.options.show_light_markers, scene.options.light_marker_size
+        )
+    packet_index = 1 + timing_count?
         @: _browser_native_plane_packet(scene.plane_source)
-    packet_index < 2 + surface_count?
+    packet_index < 2 + timing_count + surface_count?
         @: _browser_native_surface_packet(
             _browser_record_list_item(
-                scene.surfaces_source, 0, packet_index - 2, 0
+                scene.surfaces_source, 0, packet_index - 2 - timing_count, 0
             )
         )
-    packet_index < 2 + surface_count + cube_count?
+    packet_index < 2 + timing_count + surface_count + cube_count?
         @: _browser_native_cube_packet(
             _browser_record_list_item(
-                scene.cubes_source, 0, packet_index - 2 - surface_count, 0
+                scene.cubes_source, 0,
+                packet_index - 2 - timing_count - surface_count, 0
             )
         )
-    (packet_index < 2 + surface_count + cube_count + light_count)?! "browser native scene packet index is out of range"
+    (packet_index < 2 + timing_count + surface_count + cube_count + light_count)?! "browser native scene packet index is out of range"
     _browser_display_light_source(
         "frame.add_light(" & _browser_record_list_item(
             scene.lights_source, 0,
-            packet_index - 2 - surface_count - cube_count, 0
+            packet_index - 2 - timing_count - surface_count - cube_count, 0
         ) & ")"
     )
 

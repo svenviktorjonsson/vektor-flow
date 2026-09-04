@@ -20,7 +20,9 @@ test("Pages is only the repository README with inline execution", async () => {
   assert.match(client, /\.readme-example-play/u);
   assert.match(client, /\.readme-example-source/u);
   assert.match(client, /createElement\("canvas"\)/u);
-  assert.match(client, /renderInlineResult\(canvas, packets\)/u);
+  assert.match(client, /renderInlineResult\(canvas, packets, 0\)/u);
+  assert.match(client, /requestAnimationFrame\(paint\)/u);
+  assert.match(client, /cancelAnimationFrame\(request\)/u);
   assert.doesNotMatch(client, /location\.|window\.open|playground\//u);
   assert.match(runner, /new WorkerClass\(/u);
   assert.match(runner, /worker\.terminate\(\)/u);

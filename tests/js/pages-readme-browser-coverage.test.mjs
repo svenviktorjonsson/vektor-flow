@@ -436,6 +436,76 @@ test("browser compiler retains the README native roughness scene", async () => {
   );
 });
 
+test("browser compiler retains the animated README sun-reflection scene", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-12");
+  const output = { ...compiler.run(example.source) };
+
+  assert.deepEqual(output.packet_records.map(({ magic }) => magic), [
+    1447773767, 1447773768, 1447773780, 1447773766,
+    1447773779, 1447773781, 1447773782,
+  ]);
+  assert.deepEqual({
+    ...output.packet_records[2],
+    light_marker_size: rounded([output.packet_records[2].light_marker_size])[0],
+  }, {
+    magic: 1447773780, version: 1, fps: 30, duration_seconds: 14,
+    boundary: "repeat", aspect: "equal", show_light_markers: true,
+    light_marker_size: 0.24,
+  });
+  assert.deepEqual({ ...output.packet_records[4].surface_system }, {
+    magic: 1447773773, version: 1, kind: "screen", reflectivity: 1,
+    reverse_facing: true, flip_y: true, scale: [1, 1], camera_fov: 34,
+    camera_up: [0, 0, 1], mirror_frame_id: "solkatt_frame", mirror_mesh_id: "mirror",
+    reflect_eye_only: true, lock_aperture_camera: true, controls_enabled: false,
+  });
+  assert.equal(output.packet_records[4].id, "mirror");
+  assert.equal(output.packet_records[4].no_backface_specular, true);
+  assert.deepEqual({
+    ...output.packet_records[5], color: rounded(output.packet_records[5].color),
+  }, {
+    magic: 1447773781, version: 1, id: "sun", kind: "point", motion: "orbit",
+    radius: 4.35, height: 3.3, theta: -0.98, angular_velocity: 0.55,
+    target: [0, 0.4, 0.9], model: "blinn_phong", color: [1, 0.94, 0.8, 1],
+    intensity: 22, range: 18, casts_shadow: true, show_marker: true,
+    source_radius: 0.14, spread: 1,
+  });
+  assert.deepEqual({
+    ...output.packet_records[6], color: rounded(output.packet_records[6].color),
+  }, {
+    magic: 1447773782, version: 1, id: "solkatt", kind: "projected",
+    reflect_of_light_id: "sun", reflect_mirror_mesh_id: "mirror",
+    model: "blinn_phong", color: [1, 0.94, 0.8, 1], intensity: 80,
+    range: 18, casts_shadow: true, show_marker: false,
+    source_radius: 0.14, spread: 1, aperture_face_id: "mirror",
+  });
+  const typed = materializeVisualOutput(output).packets;
+  assert.equal(typed[2].length, 8);
+  assert.equal(typed[4][1], 2);
+  assert.equal(typed[5][0], 1447773781);
+  assert.equal(typed[6][0], 1447773782);
+
+  const changed = { ...compiler.run(example.source
+    .replace("light_marker_size:0.24", "light_marker_size:0.38")
+    .replace("radius:4.35", "radius:3.2")
+    .replace("angular_velocity:0.55", "angular_velocity:0.8")
+    .replace("intensity:80", "intensity:52")) };
+  assert.equal(rounded([changed.packet_records[2].light_marker_size])[0], 0.38);
+  assert.deepEqual(rounded([
+    changed.packet_records[5].radius,
+    changed.packet_records[5].angular_velocity,
+    changed.packet_records[6].intensity,
+  ]), [3.2, 0.8, 52]);
+  assert.throws(
+    () => compiler.run(example.source.replace("spread:1", "spread:1, falloff:2")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(example.source.replace('reflect_of_light_id:"sun"', 'reflect_of_light_id:"missing"')),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser compiler retains the README native spotlight cone", async () => {
   const { compiler, examples } = await compilerAndExamples();
   const spotlight = examples.find(({ id }) => id === "readme-17");
@@ -607,6 +677,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 19);
+  assert.equal(runnable.length, 20);
   assert.equal(examples.length, 26);
 });

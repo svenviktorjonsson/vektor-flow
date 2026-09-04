@@ -266,7 +266,7 @@
       "resultType": 1
     },
     "_browser_display_light_source": {
-      "index": 84,
+      "index": 85,
       "parameters": 1,
       "resultType": 1
     },
@@ -311,7 +311,7 @@
       "resultType": 1
     },
     "_browser_field_indices_valid": {
-      "index": 108,
+      "index": 113,
       "parameters": 3,
       "resultType": 1
     },
@@ -341,63 +341,83 @@
       "resultType": 1
     },
     "_browser_lifted_vector_function_matches": {
-      "index": 112,
+      "index": 117,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_named_axis_source_matches": {
-      "index": 113,
+      "index": 118,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_cube_packet": {
-      "index": 103,
+      "index": 108,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_cube_scene": {
-      "index": 104,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_native_cube_source_matches": {
-      "index": 91,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_native_dice_texture_packet": {
-      "index": 100,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_native_field_scene": {
       "index": 109,
       "parameters": 2,
       "resultType": 1
     },
-    "_browser_native_field_source_matches": {
+    "_browser_native_cube_source_matches": {
+      "index": 92,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_native_dice_texture_packet": {
       "index": 105,
       "parameters": 1,
       "resultType": 1
     },
-    "_browser_native_plane_packet": {
+    "_browser_native_field_scene": {
+      "index": 114,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_native_field_source_matches": {
+      "index": 110,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_native_light_references_valid": {
       "index": 102,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_native_plane_packet": {
+      "index": 107,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_surface_packet": {
-      "index": 101,
+      "index": 106,
       "parameters": 1,
       "resultType": 1
     },
+    "_browser_native_timing_packet": {
+      "index": 99,
+      "parameters": 4,
+      "resultType": 6
+    },
     "_browser_record_list_count": {
-      "index": 98,
+      "index": 103,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_record_list_has_id": {
+      "index": 101,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_record_list_item": {
-      "index": 99,
+      "index": 104,
       "parameters": 4,
+      "resultType": 4
+    },
+    "_browser_record_string_field": {
+      "index": 100,
+      "parameters": 2,
       "resultType": 4
     },
     "_browser_scan_display_mesh_source": {
@@ -416,7 +436,7 @@
       "resultType": 1
     },
     "_browser_scan_display_source": {
-      "index": 85,
+      "index": 86,
       "parameters": 10,
       "resultType": 1
     },
@@ -436,48 +456,53 @@
       "resultType": 1
     },
     "_browser_scan_native_cube": {
-      "index": 94,
+      "index": 95,
       "parameters": 13,
       "resultType": 1
     },
     "_browser_scan_native_cube_scene": {
-      "index": 92,
-      "parameters": 12,
+      "index": 93,
+      "parameters": 13,
       "resultType": 1
     },
     "_browser_scan_native_dice_texture": {
-      "index": 95,
+      "index": 96,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_native_field_mesh": {
-      "index": 107,
+      "index": 112,
       "parameters": 11,
       "resultType": 1
     },
     "_browser_scan_native_field_scene": {
-      "index": 106,
+      "index": 111,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_native_plane": {
-      "index": 93,
-      "parameters": 9,
+      "index": 94,
+      "parameters": 11,
       "resultType": 1
     },
     "_browser_scan_native_shadow": {
-      "index": 97,
+      "index": 98,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_native_surface": {
-      "index": 96,
-      "parameters": 14,
+      "index": 97,
+      "parameters": 15,
       "resultType": 1
     },
     "_browser_scan_world_options": {
-      "index": 87,
+      "index": 88,
       "parameters": 12,
+      "resultType": 1
+    },
+    "_browser_signed_lifted_value": {
+      "index": 84,
+      "parameters": 2,
       "resultType": 1
     },
     "_browser_source_starts_with": {
@@ -486,7 +511,7 @@
       "resultType": 1
     },
     "_browser_token_kind": {
-      "index": 111,
+      "index": 116,
       "parameters": 2,
       "resultType": 1
     },
@@ -506,7 +531,7 @@
       "resultType": 1
     },
     "_browser_token_text": {
-      "index": 110,
+      "index": 115,
       "parameters": 2,
       "resultType": 4
     },
@@ -526,12 +551,12 @@
       "resultType": 1
     },
     "_browser_world_particle_packet": {
-      "index": 89,
+      "index": 90,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_world_source_matches": {
-      "index": 88,
+      "index": 89,
       "parameters": 1,
       "resultType": 1
     },
@@ -546,22 +571,22 @@
       "resultType": 2
     },
     "_run_tagged_display_source": {
-      "index": 86,
+      "index": 87,
       "parameters": 2,
       "resultType": 1
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 115,
+      "index": 120,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_named_axis_source": {
-      "index": 114,
+      "index": 119,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_world_source": {
-      "index": 90,
+      "index": 91,
       "parameters": 2,
       "resultType": 1
     },
@@ -576,7 +601,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 116,
+      "index": 121,
       "parameters": 2,
       "resultType": 2
     },
@@ -588,11 +613,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 190136,
-    "bytecodeLength": 190136,
+    "argumentsPointer": 211800,
+    "bytecodeLength": 211796,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 190392
+    "resultsPointer": 212056
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

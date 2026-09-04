@@ -339,6 +339,74 @@ test("worker materializes a strict combined native glass surface buffer", () => 
   }), /invalid surface system packet/u);
 });
 
+test("worker materializes strict timing, orbit-light, and reflected-light packets", () => {
+  const output = materializeVisualOutput({ kind: "visual", packet_records: [
+    { magic: 1447773780, version: 1, fps: 30, duration_seconds: 14,
+      boundary: "repeat", aspect: "equal", show_light_markers: true, light_marker_size: 0.24 },
+    { magic: 1447773781, version: 1, id: "sun", kind: "point", motion: "orbit",
+      radius: 4.35, height: 3.3, theta: -0.98, angular_velocity: 0.55,
+      target: [0, 0.4, 0.9], model: "blinn_phong", color: [1, 0.94, 0.8, 1],
+      intensity: 22, range: 18, casts_shadow: true, show_marker: true,
+      source_radius: 0.14, spread: 1 },
+    { magic: 1447773782, version: 1, id: "solkatt", kind: "projected",
+      reflect_of_light_id: "sun", reflect_mirror_mesh_id: "mirror",
+      model: "blinn_phong", color: [1, 0.94, 0.8, 1], intensity: 80,
+      range: 18, casts_shadow: true, show_marker: false,
+      source_radius: 0.14, spread: 1, aperture_face_id: "mirror" },
+  ] });
+  assert.deepEqual([...output.packets[0]], [1447773780, 1, 30, 14, 1, 1, 0.24, 1]);
+  assert.equal(output.packets[1].length, 21);
+  assert.equal(output.packets[2].length, 17);
+  assert.throws(() => materializeVisualOutput({ kind: "visual", packet_records: [{
+    magic: 1447773781, version: 1, id: "sun", kind: "point", motion: "orbit",
+    radius: 4, height: 3, theta: 0, angular_velocity: 1, target: [0, 0, 0],
+    model: "blinn_phong", color: [1, 1, 1, 1], intensity: 1, range: 10,
+    casts_shadow: true, show_marker: true, source_radius: 0.1, spread: 1, falloff: 2,
+  }] }), /invalid orbit light packet/u);
+});
+
+test("trusted inline renderer animates the orbit marker and projects the reflected aperture", () => {
+  const render = (timeMs, radius = 4.35) => {
+    const operations = [];
+    const gradient = { addColorStop: (...args) => operations.push(["stop", ...args]) };
+    const context = {
+      beginPath: () => operations.push("begin"), closePath: () => operations.push("close"),
+      clearRect: () => {}, fillRect: () => {}, lineTo: (...args) => operations.push(["line", ...args]),
+      moveTo: (...args) => operations.push(["move", ...args]), arc: (...args) => operations.push(["arc", ...args]),
+      fill: () => operations.push("fill"), stroke: () => operations.push("stroke"),
+      save: () => operations.push("save"), clip: () => operations.push("clip"), restore: () => operations.push("restore"),
+      createRadialGradient: (...args) => { operations.push(["gradient", ...args]); return gradient; },
+      set fillStyle(value) { operations.push(["fillStyle", value]); },
+      set lineWidth(value) { operations.push(["lineWidth", value]); },
+      set strokeStyle(value) { operations.push(["strokeStyle", value]); },
+    };
+    const packets = [
+      Float64Array.from([1447773767, 1, 0.01, 0.02, 0.04, 1]),
+      Float64Array.from([1447773768, 1, 0, -4.8, 2.8, 0, 0.7, 1, 0, 0, 1, 34]),
+      Float64Array.from([1447773780, 1, 30, 14, 1, 1, 0.24, 1]),
+      Float64Array.from([1447773766, 5, 2, 2, 1, 1, 1, 1, 1, 0, 1, 0.02, 1,
+        1, 1, 1, 0.12, 0.14, 0.18, 1, 0.9, 0.92, 0.96, 1, 1, 0, 0, 0,
+        -3, -3, 0, 3, -3, 0, -3, 3, 0, 3, 3, 0]),
+      Float64Array.from([1447773779, 2, 801718722, 0.73, 2.17, 1.1, 2.6, 2.2, 90, 0, 0,
+        0.7, 0.76, 0.86, 1, 1, 1, 1, 1, 0,
+        0, ...Array(15).fill(0), 0, ...Array(4).fill(0), 1,
+        1, 1, 1, 1, 1, 1, 34, 0, 0, 1, 290612055, 801718722, 1, 1, 0, 1]),
+      Float64Array.from([1447773781, 1, 3763224417, radius, 3.3, -0.98, 0.55,
+        0, 0.4, 0.9, 1, 0.94, 0.8, 1, 22, 18, 1, 1, 0.14, 1, 1]),
+      Float64Array.from([1447773782, 1, 3786987229, 3763224417, 801718722, 801718722,
+        1, 0.94, 0.8, 1, 80, 18, 1, 0, 0.14, 1, 1]),
+    ];
+    renderInlineResult({ width: 640, height: 360, getContext: () => context }, packets, timeMs);
+    return operations;
+  };
+  const start = render(0);
+  const later = render(1000);
+  assert.notDeepEqual(start.filter(([kind] = []) => kind === "arc"), later.filter(([kind] = []) => kind === "arc"));
+  assert.ok(start.some(([kind] = []) => kind === "gradient"));
+  assert.ok(start.some(([kind] = []) => kind === "stop"));
+  assert.notDeepEqual(start.filter(([kind] = []) => kind === "move"), render(0, 3.2).filter(([kind] = []) => kind === "move"));
+});
+
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
