@@ -19,6 +19,8 @@ enum class Reason {
     TransitiveFallibility,
     TransitiveOwnedResource,
     TransitiveUnclassifiedOperation,
+    ValueDependency,
+    MutableAliasUnknown,
     MissingFunction,
     SameFunction,
 };
@@ -37,6 +39,8 @@ inline std::string_view reason_name(Reason reason) {
             return "transitive-owned-resource";
         case Reason::TransitiveUnclassifiedOperation:
             return "transitive-unclassified-operation";
+        case Reason::ValueDependency: return "value-dependency";
+        case Reason::MutableAliasUnknown: return "mutable-alias-unknown";
         case Reason::MissingFunction: return "missing-function";
         case Reason::SameFunction: return "same-function";
     }
@@ -58,6 +62,11 @@ struct Receipt {
     bool parallelism_allowed = false;
     bool effect_knowledge_complete = false;
     bool effects_proven_absent = false;
+    bool value_knowledge_complete = false;
+    bool values_proven_independent = false;
+    bool alias_knowledge_complete = false;
+    bool mutable_aliases_proven_disjoint = false;
+    bool resolved_call_graph = false;
 };
 
 inline FunctionReceipt analyze_function(
@@ -79,6 +88,10 @@ inline FunctionReceipt analyze_function(
 }
 
 inline bool proven_scalar_pure(machine_ir::Opcode opcode);
+inline Reason direct_value_reason(const machine_ir::Function& function);
+inline bool direct_mutable_alias_unknown(
+    const machine_ir::Function& function
+);
 
 inline int effect_reason_priority(Reason reason) {
     switch (reason) {
@@ -129,6 +142,35 @@ inline Reason direct_effect_reason(const machine_ir::Function& function) {
     return reason;
 }
 
+inline Reason direct_value_reason(const machine_ir::Function& function) {
+    Reason reason = function.parameters.empty()
+        ? Reason::Independent
+        : Reason::ParameterizedFunction;
+    for (const auto& instruction : function.instructions) {
+        if (instruction.opcode != machine_ir::Opcode::Call) continue;
+        if (instruction.argument_count != 0u ||
+            instruction.result_count != 1u ||
+            instruction.provided_parameter_mask != 0u) {
+            reason = Reason::ValueDependency;
+        }
+    }
+    return reason;
+}
+
+inline bool direct_mutable_alias_unknown(
+    const machine_ir::Function& function
+) {
+    return function.local_classes.size() != function.locals.size() ||
+        std::any_of(
+            function.local_classes.begin(),
+            function.local_classes.end(),
+            [](machine_ir::ValueClass value_class) {
+                return value_class == machine_ir::ValueClass::Address ||
+                    value_class == machine_ir::ValueClass::Aggregate;
+            }
+        );
+}
+
 inline Receipt analyze_module(const machine_ir::Module& module) {
     Receipt receipt;
     receipt.functions.reserve(module.functions.size() + 1u);
@@ -159,9 +201,40 @@ inline Receipt analyze_module(const machine_ir::Module& module) {
         receipt.reason = effect_reason;
         return receipt;
     }
+    Reason value_reason = direct_value_reason(module.entry);
+    bool mutable_alias_unknown =
+        direct_mutable_alias_unknown(module.entry);
+    for (const auto& function : module.functions) {
+        const auto function_value = direct_value_reason(function);
+        if (function_value == Reason::ValueDependency ||
+            (function_value == Reason::ParameterizedFunction &&
+             value_reason == Reason::Independent)) {
+            value_reason = function_value;
+        }
+        mutable_alias_unknown = mutable_alias_unknown ||
+            direct_mutable_alias_unknown(function);
+    }
+    receipt.value_knowledge_complete =
+        value_reason == Reason::Independent;
+    receipt.values_proven_independent = receipt.value_knowledge_complete;
+    receipt.alias_knowledge_complete = !mutable_alias_unknown;
+    receipt.mutable_aliases_proven_disjoint =
+        receipt.alias_knowledge_complete;
+    if (mutable_alias_unknown) {
+        receipt.reason = Reason::MutableAliasUnknown;
+        return receipt;
+    }
+    if (value_reason != Reason::Independent) {
+        receipt.reason = value_reason;
+        return receipt;
+    }
     receipt.independence_proven = true;
     receipt.composition_allowed = true;
     receipt.parallelism_allowed = true;
+    receipt.value_knowledge_complete = true;
+    receipt.values_proven_independent = true;
+    receipt.alias_knowledge_complete = true;
+    receipt.mutable_aliases_proven_disjoint = true;
     return receipt;
 }
 
@@ -226,13 +299,23 @@ inline Reason resolve_call_closure(
     const machine_ir::Module& module,
     const machine_ir::Function& function,
     std::vector<std::string>& visiting,
-    std::vector<std::string>& transitive_dependencies
+    std::vector<std::string>& transitive_dependencies,
+    Reason& value_reason,
+    bool& mutable_alias_unknown
 ) {
     if (std::find(visiting.begin(), visiting.end(), function.name) !=
         visiting.end()) {
         return Reason::RecursiveCallGraph;
     }
     visiting.push_back(function.name);
+    const auto direct_value = direct_value_reason(function);
+    if (direct_value == Reason::ValueDependency ||
+        (direct_value == Reason::ParameterizedFunction &&
+         value_reason == Reason::Independent)) {
+        value_reason = direct_value;
+    }
+    mutable_alias_unknown = mutable_alias_unknown ||
+        direct_mutable_alias_unknown(function);
     Reason reason = direct_effect_reason(function);
     for (const auto& instruction : function.instructions) {
         if (instruction.opcode != machine_ir::Opcode::Call) continue;
@@ -246,7 +329,12 @@ inline Reason resolve_call_closure(
         const auto* dependency = find_function(module, instruction.symbol);
         if (dependency == nullptr) return Reason::UnresolvedCall;
         const auto nested = resolve_call_closure(
-            module, *dependency, visiting, transitive_dependencies
+            module,
+            *dependency,
+            visiting,
+            transitive_dependencies,
+            value_reason,
+            mutable_alias_unknown
         );
         if (nested == Reason::UnresolvedCall ||
             nested == Reason::RecursiveCallGraph) {
@@ -277,13 +365,17 @@ inline Receipt analyze_pair(
     receipt.functions = {analyze_function(*left), analyze_function(*right)};
     std::vector<std::string> visiting;
     Reason closure_reason = Reason::Independent;
+    Reason value_reason = Reason::Independent;
+    bool mutable_alias_unknown = false;
     for (std::size_t index = 0; index < receipt.functions.size(); ++index) {
         const auto* function = index == 0u ? left : right;
         const auto closure = resolve_call_closure(
             module,
             *function,
             visiting,
-            receipt.functions[index].transitive_dependencies
+            receipt.functions[index].transitive_dependencies,
+            value_reason,
+            mutable_alias_unknown
         );
         if (closure == Reason::UnresolvedCall ||
             closure == Reason::RecursiveCallGraph ||
@@ -301,13 +393,39 @@ inline Receipt analyze_pair(
         receipt.reason = closure_reason;
         return receipt;
     }
+    receipt.value_knowledge_complete =
+        value_reason == Reason::Independent;
+    receipt.values_proven_independent = receipt.value_knowledge_complete;
+    receipt.alias_knowledge_complete = !mutable_alias_unknown;
+    receipt.mutable_aliases_proven_disjoint =
+        receipt.alias_knowledge_complete;
+    if (mutable_alias_unknown) {
+        receipt.reason = Reason::MutableAliasUnknown;
+        return receipt;
+    }
+    if (value_reason != Reason::Independent) {
+        receipt.reason = value_reason;
+        return receipt;
+    }
     for (const auto& function : receipt.functions) {
-        if (function.reason != Reason::Independent) {
+        if (function.reason != Reason::Independent &&
+            function.reason != Reason::CallGraphDependency) {
             receipt.reason = function.reason;
             return receipt;
         }
     }
+    for (auto& function : receipt.functions) {
+        if (function.reason == Reason::CallGraphDependency) {
+            function.reason = Reason::Independent;
+        }
+    }
+    receipt.resolved_call_graph = std::any_of(
+        receipt.functions.begin(),
+        receipt.functions.end(),
+        [](const auto& function) { return !function.dependencies.empty(); }
+    );
     receipt.independence_proven = true;
+    receipt.composition_allowed = true;
     receipt.parallelism_allowed = true;
     return receipt;
 }

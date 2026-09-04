@@ -14210,7 +14210,7 @@ std::string optimizer_toolchain_material() {
     material << "|msvc-full-" << _MSC_FULL_VER;
 #endif
     material << "|cplusplus-" << __cplusplus
-             << "|x64-emitter-qopt07|built-" << __DATE__ << '-' << __TIME__;
+             << "|x64-emitter-qopt08|built-" << __DATE__ << '-' << __TIME__;
     return material.str();
 }
 

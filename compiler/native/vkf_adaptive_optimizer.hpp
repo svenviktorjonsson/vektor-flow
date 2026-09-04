@@ -401,12 +401,14 @@ inline std::uint64_t automatic_static_loop_work(
     return 0;
 }
 
-// This is selection only: generated artifacts still execute the retained calls
-// serially until their private runtime gains a thread-launch/join bridge.
+// Resolved call graphs require the measured-proof overload. The production
+// adapter deliberately supplies no such proof yet, so newly admitted graph
+// shapes remain serial until the exact artifact pair is benchmarked.
 inline bool select_automatic_cpu_pair(
     const machine_ir::Module& module,
     const AutomaticFlowLimits& limits,
-    std::uint32_t available_cores
+    std::uint32_t available_cores,
+    const proof_gated_execution::Decision* measured_call_graph_proof
 ) {
     using machine_ir::Opcode;
     const auto& entry = module.entry.instructions;
@@ -441,10 +443,44 @@ inline bool select_automatic_cpu_pair(
     }
     const auto left_work = automatic_static_loop_work(*left);
     const auto right_work = automatic_static_loop_work(*right);
+    if (dependency_receipt.resolved_call_graph) {
+        if (measured_call_graph_proof == nullptr) return false;
+        const auto plan = automatic_cpu_pair_plan(
+            limits,
+            available_cores,
+            *left,
+            *right,
+            true,
+            *measured_call_graph_proof
+        );
+        return plan.concurrent();
+    }
     const auto plan = automatic_cpu_pair_plan(
         limits, available_cores,
-        *left, left_work, *right, right_work, true);
+        *left, left_work, *right, right_work, true
+    );
     return plan.concurrent();
+}
+
+inline bool select_automatic_cpu_pair(
+    const machine_ir::Module& module,
+    const AutomaticFlowLimits& limits,
+    std::uint32_t available_cores
+) {
+    return select_automatic_cpu_pair(
+        module, limits, available_cores, nullptr
+    );
+}
+
+inline bool select_automatic_cpu_pair(
+    const machine_ir::Module& module,
+    const AutomaticFlowLimits& limits,
+    std::uint32_t available_cores,
+    const proof_gated_execution::Decision& measured_call_graph_proof
+) {
+    return select_automatic_cpu_pair(
+        module, limits, available_cores, &measured_call_graph_proof
+    );
 }
 
 inline void append_unique(std::vector<std::string>& values, std::string value) {

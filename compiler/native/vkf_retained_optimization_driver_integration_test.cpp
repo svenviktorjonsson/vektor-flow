@@ -132,6 +132,32 @@ vkf::machine_ir::Module parameterized_call_module() {
     return module;
 }
 
+vkf::machine_ir::Module zero_argument_pure_call_module() {
+    vkf::machine_ir::Instruction instruction;
+    instruction.opcode = vkf::machine_ir::Opcode::Call;
+    instruction.symbol = "answer";
+    instruction.result_count = 1;
+    vkf::machine_ir::Function entry;
+    entry.name = "entry";
+    entry.max_stack = 1;
+    entry.result_is_numeric_scalar = true;
+    entry.instructions.push_back(instruction);
+    instruction = {};
+    instruction.opcode = vkf::machine_ir::Opcode::ReturnF64;
+    entry.instructions.push_back(instruction);
+
+    vkf::machine_ir::Function answer;
+    answer.name = "answer";
+    append_integer_loop(answer, 42.0);
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.functions = {std::move(answer)};
+    module.output_kind = vkf::machine_ir::OutputKind::F64;
+    module.output_count = 1;
+    return module;
+}
+
 }  // namespace
 
 int main() {
@@ -293,12 +319,62 @@ int main() {
                read_text(call_stdout_path) == expected_stdout,
            "the serial call-graph artifact must retain exact output");
 
+    auto pure_call_graph = zero_argument_pure_call_module();
+    const auto pure_call_artifact = root /
+#ifdef _WIN32
+        "pure-call.exe";
+#else
+        "pure-call.native";
+#endif
+    const auto pure_call_compiled = vkf_x64_backend::compile(
+        typed_ir,
+        source,
+        typed_ir_path,
+        {},
+        true,
+        pure_call_artifact,
+        "zero-argument-pure-call-graph-v1",
+        "auto",
+        32,
+        2000.0,
+        0,
+        &pure_call_graph
+    );
+    const auto pure_call_manifest = vf::parse_json(
+        read_text(pure_call_compiled.manifest_path)
+    );
+    const auto& pure_call_candidates = member(
+        member(pure_call_manifest, "empirical_tuning"), "candidates"
+    ).as_array();
+    expect(pure_call_candidates.size() == 2 &&
+               member(pure_call_candidates[0], "policy").as_string() ==
+                   "mask-0" &&
+               member(pure_call_candidates[1], "policy").as_string() ==
+                   "mask-ff" &&
+               member(pure_call_candidates[0], "correct").as_boolean() &&
+               member(pure_call_candidates[1], "correct").as_boolean(),
+           "a pure resolved call graph miss must measure only baseline plus one guided bit-exact candidate");
+    const auto pure_call_stdout_path = root / "pure-call.stdout";
+    const std::string pure_call_command =
+#ifdef _WIN32
+        "\"\"" + pure_call_compiled.artifact_path.string() + "\" > \"" +
+            pure_call_stdout_path.string() + "\"\"";
+#else
+        "\"" + pure_call_compiled.artifact_path.string() + "\" > \"" +
+            pure_call_stdout_path.string() + "\"";
+#endif
+    const int pure_call_run_status = std::system(pure_call_command.c_str());
+    expect(pure_call_run_status == 0 &&
+               read_text(pure_call_stdout_path) == expected_stdout,
+           "the selected pure call-graph artifact must preserve exact output");
+
     std::filesystem::remove_all(root);
     std::cout << "retained optimization driver integration: candidates="
               << candidates.size() << " incremental_candidates="
               << incremental_candidates.size() << " exact_output="
               << (run_status == 0) << " call_candidates="
-              << call_candidates.size()
+              << call_candidates.size() << " pure_call_candidates="
+              << pure_call_candidates.size()
               << '\n';
     return failures == 0 ? 0 : 1;
 }

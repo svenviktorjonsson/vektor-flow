@@ -267,6 +267,74 @@ int main() {
     expect(!vkf::adaptive_optimizer::select_automatic_cpu_pair(
                nested_call_pair, automatic_limits, 8),
            "nested calls without transitive dependency proof must not select parallel emission");
+
+    nested_call_pair.functions.back() = function_with(
+        {Opcode::PushF64, Opcode::ReturnF64}
+    );
+    nested_call_pair.functions.back().name = "shared";
+    nested_call_pair.functions.back().result_is_numeric_scalar = true;
+    const auto pure_nested_dependency =
+        vkf::optimization_dependency_gate::analyze_pair(
+            nested_call_pair, "left", "right"
+        );
+    expect(pure_nested_dependency.independence_proven &&
+               pure_nested_dependency.value_knowledge_complete &&
+               pure_nested_dependency.values_proven_independent &&
+               pure_nested_dependency.alias_knowledge_complete &&
+               pure_nested_dependency.mutable_aliases_proven_disjoint,
+           "resolved zero-argument scalar-pure closures must prove independent values and aliases");
+    expect(!vkf::adaptive_optimizer::select_automatic_cpu_pair(
+               nested_call_pair, automatic_limits, 8),
+           "a newly resolved call graph must stay serial without measured pair proof");
+    const Key pure_graph_key{
+        "adaptive-v4",
+        "private-cpu-pair-qopt08",
+        "windows-x64-avx2",
+        "resolved-scalar-call-pair",
+        "left+right:shared-pure-helper",
+        "bit-exact-two-f64-v1",
+    };
+    Evidence pure_graph_evidence{
+        pure_graph_key,
+        true,
+        {{100.0, 50.0}, {101.0, 51.0}, {99.0, 50.0},
+         {102.0, 52.0}, {98.0, 49.0}},
+    };
+    const auto pure_graph_decision =
+        vkf::proof_gated_execution::assess(
+            pure_graph_key, pure_graph_evidence
+        );
+    expect(vkf::adaptive_optimizer::select_automatic_cpu_pair(
+               nested_call_pair,
+               automatic_limits,
+               8,
+               pure_graph_decision),
+           "only a measured-faster value- and alias-independent pure call graph may select the CPU pair candidate");
+    Evidence pure_graph_unknown{pure_graph_key, true, {}};
+    expect(!vkf::adaptive_optimizer::select_automatic_cpu_pair(
+               nested_call_pair,
+               automatic_limits,
+               8,
+               vkf::proof_gated_execution::assess(
+                   pure_graph_key, pure_graph_unknown
+               )),
+           "an eligible pure call graph without sufficient measurements must remain serial");
+    nested_call_pair.functions.back().locals = {"borrowed"};
+    nested_call_pair.functions.back().local_classes = {
+        vkf::machine_ir::ValueClass::Address,
+    };
+    const auto aliasing_nested_dependency =
+        vkf::optimization_dependency_gate::analyze_pair(
+            nested_call_pair, "left", "right"
+        );
+    expect(aliasing_nested_dependency.reason ==
+               vkf::optimization_dependency_gate::Reason::
+                   MutableAliasUnknown &&
+               !aliasing_nested_dependency.alias_knowledge_complete &&
+               !aliasing_nested_dependency.parallelism_allowed &&
+               !vkf::adaptive_optimizer::select_automatic_cpu_pair(
+                   nested_call_pair, automatic_limits, 8),
+           "an address-bearing nested closure must keep production CPU-pair selection serial");
     const auto one_available_core_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
         automatic_limits, 1, left_branch, right_branch, true, fft_decision);
     expect(!one_available_core_pair.concurrent() && one_available_core_pair.lane_limit() == 1,

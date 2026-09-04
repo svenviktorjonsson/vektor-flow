@@ -144,18 +144,60 @@ int main() {
     vkf::machine_ir::Function leaf;
     leaf.name = "leaf";
     leaf.instructions = {number, finish};
+    left.instructions[0].argument_count = 0;
     call.symbol = "leaf";
+    call.argument_count = 0;
     shared.instructions = {call};
     module.functions = {left, right, shared, leaf};
     const auto complete_pure = gate::analyze_pair(module, "left", "right");
     expect(complete_pure.effect_knowledge_complete &&
                complete_pure.effects_proven_absent &&
-               complete_pure.reason == gate::Reason::CallGraphDependency &&
+               complete_pure.value_knowledge_complete &&
+               complete_pure.values_proven_independent &&
+               complete_pure.alias_knowledge_complete &&
+               complete_pure.mutable_aliases_proven_disjoint &&
+               complete_pure.resolved_call_graph &&
+               complete_pure.reason == gate::Reason::Independent &&
                complete_pure.functions[0].transitive_dependencies ==
                    std::vector<std::string>({"shared", "leaf"}) &&
-               !complete_pure.independence_proven &&
-               !complete_pure.parallelism_allowed,
-           "a complete pure call graph must remain serial without value-dependency proof");
+               complete_pure.independence_proven &&
+               complete_pure.parallelism_allowed,
+           "a complete zero-argument scalar-pure call graph must prove value and alias independence");
+
+    shared.locals = {"borrowed"};
+    shared.local_classes = {vkf::machine_ir::ValueClass::Address};
+    module.functions = {left, right, shared, leaf};
+    const auto alias_unknown = gate::analyze_pair(module, "left", "right");
+    expect(alias_unknown.effect_knowledge_complete &&
+               alias_unknown.effects_proven_absent &&
+               alias_unknown.value_knowledge_complete &&
+               alias_unknown.values_proven_independent &&
+               !alias_unknown.alias_knowledge_complete &&
+               !alias_unknown.mutable_aliases_proven_disjoint &&
+               alias_unknown.reason == gate::Reason::MutableAliasUnknown &&
+               gate::reason_name(alias_unknown.reason) ==
+                   "mutable-alias-unknown" &&
+               !alias_unknown.parallelism_allowed,
+           "an address-bearing closure must remain serial when mutable aliases are unknown");
+
+    shared.locals.clear();
+    shared.local_classes.clear();
+    shared.parameters = {"value"};
+    shared.parameter_is_numeric_scalar = {true};
+    left.instructions[0].argument_count = 1;
+    module.functions = {left, right, shared, leaf};
+    const auto value_dependent = gate::analyze_pair(module, "left", "right");
+    expect(value_dependent.effect_knowledge_complete &&
+               value_dependent.effects_proven_absent &&
+               !value_dependent.value_knowledge_complete &&
+               !value_dependent.values_proven_independent &&
+               value_dependent.alias_knowledge_complete &&
+               value_dependent.mutable_aliases_proven_disjoint &&
+               value_dependent.reason == gate::Reason::ValueDependency &&
+               gate::reason_name(value_dependent.reason) ==
+                   "value-dependency" &&
+               !value_dependent.parallelism_allowed,
+           "a parameter-fed closure must remain serial without a value-flow independence proof");
 
     module.entry.instructions.clear();
     module.functions = {right};
@@ -163,9 +205,31 @@ int main() {
     expect(independent.independence_proven &&
                independent.composition_allowed &&
                independent.parallelism_allowed &&
+               independent.value_knowledge_complete &&
+               independent.values_proven_independent &&
+               independent.alias_knowledge_complete &&
+               independent.mutable_aliases_proven_disjoint &&
                independent.reason == gate::Reason::Independent,
            "call-free zero-argument functions must retain the independent composition path");
 
+    module.entry.instructions = {number, finish};
+    module.entry.locals = {"borrowed"};
+    module.entry.local_classes = {vkf::machine_ir::ValueClass::Aggregate};
+    module.functions.clear();
+    const auto module_alias_unknown = gate::analyze_module(module);
+    expect(module_alias_unknown.effect_knowledge_complete &&
+               module_alias_unknown.effects_proven_absent &&
+               module_alias_unknown.value_knowledge_complete &&
+               module_alias_unknown.values_proven_independent &&
+               !module_alias_unknown.alias_knowledge_complete &&
+               !module_alias_unknown.mutable_aliases_proven_disjoint &&
+               module_alias_unknown.reason ==
+                   gate::Reason::MutableAliasUnknown &&
+               !module_alias_unknown.composition_allowed,
+           "module composition must remain serial when a mutable alias class is not proven disjoint");
+
+    module.entry.locals.clear();
+    module.entry.local_classes.clear();
     module.entry.instructions = {system_query};
     module.functions.clear();
     const auto unknown_module = gate::analyze_module(module);
