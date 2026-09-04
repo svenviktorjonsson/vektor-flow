@@ -82,30 +82,6 @@ tensor: [1, 2]->i * [3, 4]->j * [5, 6]->k
 Matching axes compute element-wise. Distinct axes form outer products, and
 additional distinct axes preserve tensor rank.
 
-## Native Material UI Gallery (0.4)
-
-The [gallery program](examples/material_ui_gallery/app.vkf) builds the lit,
-shadowed, reflective, textured, and tinted-glass scene with `Frame.add(...)`.
-Its controls are separate static [HTML](examples/material_ui_gallery/ui/main.html)
-and [CSS](examples/material_ui_gallery/ui/gallery.css); compiled VKF
-`ButtonClicked` and `SliderValueChanged` branches change the retained scene.
-There is no application JavaScript.
-
-Two smaller source examples make the same split easier to inspect:
-[UI plot card](examples/ui_plot_card/app.vkf) and
-[UI status board](examples/ui_status_board/app.vkf). Each uses ordinary
-`Frame.add(...)` geometry beside a separately loaded `ui/main.html` and
-`ui/theme.css`. The npm archive ships all three trees; the Windows portable
-archive places them under `samples/ui/`.
-
-The full-compositor capture below replays the four compiled view buttons and a
-live glass-alpha change. Both animations are regenerated in a fully headless
-Edge session and contain the static HTML/CSS, frame chrome, and WebGPU viewport.
-Each state is also captured independently through VKF's frame-texture API as a
-[renderer-only oracle](docs/public/images/readme-ui/material-ui-gallery-renderer.gif).
-
-![VKF material gallery view changes](docs/public/images/readme-ui/material-ui-gallery.gif)
-
 ## Install VKF 0.4.1
 
 When the release gates complete, downloads will be published on the

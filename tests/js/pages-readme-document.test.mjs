@@ -21,7 +21,7 @@ test("Pages renders the complete repository README with executable VKF examples"
   assert.ok(document.examples.every(({ source }) => source.length > 0));
   assert.match(document.html, /<h1[^>]*>Vektor Flow<\/h1>/u);
   assert.match(document.html, /Why VKF Is Different/u);
-  assert.match(document.html, /Native Material UI Gallery/u);
+  assert.doesNotMatch(document.html, /Native Material UI Gallery|material-ui-gallery|renderer-only oracle|full-compositor capture below/u);
   assert.match(document.html, /Performance Evidence/u);
   assert.match(document.html, /Development History/u);
   assert.match(document.html, /<button[^>]+class="readme-example-play"[^>]*>Play<\/button>/u);
