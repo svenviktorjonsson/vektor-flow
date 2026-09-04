@@ -1385,14 +1385,17 @@ BrowserDisplayOptions: (background:any, next:int)
 BrowserDisplayScan: (
     packet_count:int,
     selected_source:str,
+    selected_kind:str,
     options_source:str,
     unsupported:bit
 )
 BrowserDisplayMeshSources: (
     x_source:str,
     y_source:str,
+    z_source:str,
     color_source:str,
-    saw_z:bit,
+    receives_lighting:bit,
+    casts_shadow:bit,
     unsupported:bit
 )
 
@@ -1680,8 +1683,10 @@ _browser_scan_display_mesh_source(
     offset:int,
     x_source:str,
     y_source:str,
+    z_source:str,
     color_source:str,
-    saw_z:bit,
+    receives_lighting:bit,
+    casts_shadow:bit,
     unsupported:bit,
     in_string:bit
 ) -> BrowserDisplayMeshSources:
@@ -1689,21 +1694,23 @@ _browser_scan_display_mesh_source(
         @: (
             x_source:x_source,
             y_source:y_source,
+            z_source:z_source,
             color_source:color_source,
-            saw_z:saw_z,
+            receives_lighting:receives_lighting,
+            casts_shadow:casts_shadow,
             unsupported:unsupported
         )
     ch: vkf_string_peek_scalar(source, offset)
     next: vkf_utf8_advance(source, offset)
     in_string?
         @: _browser_scan_display_mesh_source(
-            source, next, x_source, y_source, color_source, saw_z,
-            unsupported, ch != 34
+            source, next, x_source, y_source, z_source, color_source,
+            receives_lighting, casts_shadow, unsupported, ch != 34
         )
     ch = 34?
         @: _browser_scan_display_mesh_source(
-            source, next, x_source, y_source, color_source, saw_z,
-            unsupported, true
+            source, next, x_source, y_source, z_source, color_source,
+            receives_lighting, casts_shadow, unsupported, true
         )
     (_browser_source_starts_with(source, offset, "x:", 0) \/
         _browser_source_starts_with(source, offset, "y:", 0) \/
@@ -1718,24 +1725,50 @@ _browser_scan_display_mesh_source(
         value_source: vkf_utf8_slice(source, value_start, stop)
         next_x: x_source
         next_y: y_source
+        next_z: z_source
         next_color: color_source
-        next_z: saw_z
         _browser_source_starts_with(source, offset, "x:", 0)?
             .next_x: value_source
         _browser_source_starts_with(source, offset, "y:", 0)?
             .next_y: value_source
         _browser_source_starts_with(source, offset, "z:", 0)?
-            .next_z: true
+            .next_z: value_source
         _browser_source_starts_with(source, offset, "color:", 0)?
             .next_color: value_source
         @: _browser_scan_display_mesh_source(
-            source, stop, next_x, next_y, next_color, next_z,
-            unsupported, false
+            source, stop, next_x, next_y, next_z, next_color,
+            receives_lighting, casts_shadow, unsupported, false
+        )
+    (_browser_source_starts_with(source, offset, "receives_lighting:", 0) \/
+        _browser_source_starts_with(source, offset, "casts_shadow:", 0))?
+        colon_width: 18
+        _browser_source_starts_with(source, offset, "casts_shadow:", 0)?
+            .colon_width: 13
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value: false
+        next_value: value_start
+        _browser_source_starts_with(source, value_start, "true", 0)?
+            .value: true
+            .next_value: value_start + 4
+        ~value?
+            _browser_source_starts_with(source, value_start, "false", 0)?
+                .next_value: value_start + 5
+            ~_browser_source_starts_with(source, value_start, "false", 0)?
+                false?! "browser display material flags require booleans"
+        next_receives: receives_lighting
+        next_casts: casts_shadow
+        _browser_source_starts_with(source, offset, "receives_lighting:", 0)?
+            .next_receives: value
+        _browser_source_starts_with(source, offset, "casts_shadow:", 0)?
+            .next_casts: value
+        @: _browser_scan_display_mesh_source(
+            source, next_value, x_source, y_source, z_source, color_source,
+            next_receives, next_casts, unsupported, false
         )
     _browser_source_starts_with(source, offset, "id:", 0)?
         @: _browser_scan_display_mesh_source(
-            source, offset + 3, x_source, y_source, color_source, saw_z,
-            unsupported, false
+            source, offset + 3, x_source, y_source, z_source, color_source,
+            receives_lighting, casts_shadow, unsupported, false
         )
     unknown: unsupported
     _browser_ascii_identifier_start(ch)?
@@ -1744,20 +1777,22 @@ _browser_scan_display_mesh_source(
             vkf_string_peek_scalar(source, identifier_stop) = 58)?
             .unknown: true
     _browser_scan_display_mesh_source(
-        source, next, x_source, y_source, color_source, saw_z,
-        unknown, false
+        source, next, x_source, y_source, z_source, color_source,
+        receives_lighting, casts_shadow, unknown, false
     )
 
 _browser_display_mesh_source(source:str) -> any:
     fields: _browser_scan_display_mesh_source(
-        source, 10, "", "", "", false, false, false
+        source, 10, "", "", "", "", false, false, false, false
     )
     ~fields.unsupported?! "browser display does not support this frame.add option"
-    (fields.x_source != "" /\ fields.y_source != "" /\ fields.saw_z)?! "frame.add requires x, y, and z geometry"
+    (fields.x_source != "" /\ fields.y_source != "" /\ fields.z_source != "")?! "frame.add requires x, y, and z geometry"
     x_tape: lexer.tagged_numeric_function_token_tape(fields.x_source)
     x: _browser_lifted_value(x_tape, 0, 1).value
     y_tape: lexer.tagged_numeric_function_token_tape(fields.y_source)
     y: _browser_lifted_value(y_tape, 0, 1).value
+    z_tape: lexer.tagged_numeric_function_token_tape(fields.z_source)
+    z: _browser_lifted_value(z_tape, 0, 1).value
     color: [0.2, 0.7, 1, 1]
     fields.color_source != ""?
         color_tape: lexer.tagged_numeric_function_token_tape(fields.color_source)
@@ -1766,8 +1801,116 @@ _browser_display_mesh_source(source:str) -> any:
     rows: x.length()
     (rows > 0)?! "frame.add geometry must contain rows"
     (
-        magic:1447773766, version:3, rows:rows,
-        columns:x.0.length(), color:color, x:x, y:y
+        magic:1447773766, version:4, rows:rows,
+        columns:x.0.length(), color:color, x:x, y:y, z:z,
+        receives_lighting:fields.receives_lighting,
+        casts_shadow:fields.casts_shadow
+    )
+
+_browser_display_camera_source(source:str) -> any:
+    tape: lexer.tagged_numeric_function_token_tape(source)
+    index: 4
+    parens: 1
+    brackets: 0
+    pos: []
+    target: []
+    up: []
+    fov: 0
+    (parens > 0)?>
+        kind: _browser_token_kind(tape, index)
+        keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
+            _browser_token_kind(tape, index + 1) = 15)
+        keyword?
+            key: _browser_token_text(tape, index)
+            (key = "pos" \/ key = "target" \/ key = "up" \/ key = "fov")?! "browser camera does not support this option"
+            parsed: _browser_lifted_value(tape, index + 2, 1)
+            key = "pos"?
+                .pos: parsed.value
+            key = "target"?
+                .target: parsed.value
+            key = "up"?
+                .up: parsed.value
+            key = "fov"?
+                .fov: parsed.value
+            .index: parsed.next
+        ~keyword?
+            kind = 13?
+                .parens+: 1
+            kind = 14?
+                .parens-: 1
+            kind = 22?
+                .brackets+: 1
+            kind = 23?
+                .brackets-: 1
+            .index+: 1
+    (pos.length() = 3 /\ target.length() = 3 /\ up.length() = 3 /\ fov > 0)?! "browser camera requires pos, target, up, and fov"
+    (magic:1447773768, version:1, pos:pos, target:target, up:up, fov:fov)
+
+_browser_display_light_source(source:str) -> any:
+    tape: lexer.tagged_numeric_function_token_tape(source)
+    index: 4
+    parens: 1
+    brackets: 0
+    pos: []
+    target: []
+    color: []
+    intensity: 0
+    range: 0
+    casts_shadow: false
+    source_radius: 0
+    (parens > 0)?>
+        kind: _browser_token_kind(tape, index)
+        keyword: (parens = 1 /\ brackets = 0 /\ kind = 1 /\
+            _browser_token_kind(tape, index + 1) = 15)
+        keyword?
+            key: _browser_token_text(tape, index)
+            supported: (key = "id" \/ key = "kind" \/ key = "pos" \/
+                key = "target" \/ key = "color" \/ key = "intensity" \/
+                key = "range" \/ key = "casts_shadow" \/ key = "source_radius")
+            supported?! "browser light does not support this option"
+            (key = "id" \/ key = "kind")?
+                (_browser_token_kind(tape, index + 2) = 25)?! "browser light id and kind require strings"
+                key = "kind"?
+                    (_browser_token_text(tape, index + 2) = "\"point\"")?! "browser light supports point lights only"
+                .index: index + 3
+            (key = "pos" \/ key = "target" \/ key = "color" \/
+                key = "intensity" \/ key = "range" \/ key = "source_radius")?
+                parsed: _browser_lifted_value(tape, index + 2, 1)
+                key = "pos"?
+                    .pos: parsed.value
+                key = "target"?
+                    .target: parsed.value
+                key = "color"?
+                    .color: parsed.value
+                key = "intensity"?
+                    .intensity: parsed.value
+                key = "range"?
+                    .range: parsed.value
+                key = "source_radius"?
+                    .source_radius: parsed.value
+                .index: parsed.next
+            key = "casts_shadow"?
+                (_browser_token_kind(tape, index + 2) = 1)?! "browser light shadow flag requires a boolean"
+                flag: _browser_token_text(tape, index + 2)
+                (flag = "true" \/ flag = "false")?! "browser light shadow flag requires a boolean"
+                .casts_shadow: flag = "true"
+                .index: index + 3
+        ~keyword?
+            kind = 13?
+                .parens+: 1
+            kind = 14?
+                .parens-: 1
+            kind = 22?
+                .brackets+: 1
+            kind = 23?
+                .brackets-: 1
+            .index+: 1
+    (pos.length() = 3 /\ target.length() = 3 /\ color.length() = 4 /\
+        intensity > 0 /\ range > 0)?! "browser light requires position, target, color, intensity, and range"
+    (
+        magic:1447773769, version:1, pos:pos, target:target, color:color,
+        intensity:intensity, range:range, casts_shadow:casts_shadow,
+        source_radius:source_radius
     )
 
 _browser_scan_display_source(
@@ -1776,6 +1919,7 @@ _browser_scan_display_source(
     packet_count:int,
     packet_index:int,
     selected_source:str,
+    selected_kind:str,
     options_source:str,
     unsupported:bit,
     in_string:bit,
@@ -1785,6 +1929,7 @@ _browser_scan_display_source(
         @: (
             packet_count:packet_count,
             selected_source:selected_source,
+            selected_kind:selected_kind,
             options_source:options_source,
             unsupported:unsupported
         )
@@ -1794,27 +1939,31 @@ _browser_scan_display_source(
         ch = 10?
             @: _browser_scan_display_source(
                 source, next, packet_count, packet_index,
-                selected_source, options_source, unsupported, false, false
+                selected_source, selected_kind, options_source,
+                unsupported, false, false
             )
         @: _browser_scan_display_source(
             source, next, packet_count, packet_index,
-            selected_source, options_source, unsupported, false, true
+            selected_source, selected_kind, options_source,
+            unsupported, false, true
         )
     in_string?
         @: _browser_scan_display_source(
             source, next, packet_count, packet_index,
-            selected_source, options_source, unsupported,
+            selected_source, selected_kind, options_source, unsupported,
             ch != 34, false
         )
     ch = 35?
         @: _browser_scan_display_source(
             source, next, packet_count, packet_index,
-            selected_source, options_source, unsupported, false, true
+            selected_source, selected_kind, options_source,
+            unsupported, false, true
         )
     ch = 34?
         @: _browser_scan_display_source(
             source, next, packet_count, packet_index,
-            selected_source, options_source, unsupported, true, false
+            selected_source, selected_kind, options_source,
+            unsupported, true, false
         )
     _browser_source_starts_with(
         source, offset, "frame.set_geom_options(", 0
@@ -1822,37 +1971,68 @@ _browser_scan_display_source(
         stop: _browser_display_call_stop(source, offset + 23, 1, false)
         @: _browser_scan_display_source(
             source, stop, packet_count, packet_index,
-            selected_source, vkf_utf8_slice(source, offset, stop),
+            selected_source, selected_kind,
+            vkf_utf8_slice(source, offset, stop),
             unsupported, false, false
+        )
+    _browser_source_starts_with(source, offset, "frame.add_camera(", 0)?
+        stop: _browser_display_call_stop(source, offset + 17, 1, false)
+        selected: selected_source
+        kind: selected_kind
+        packet_count = packet_index?
+            .selected: vkf_utf8_slice(source, offset, stop)
+            .kind: "camera"
+        @: _browser_scan_display_source(
+            source, stop, packet_count + 1, packet_index,
+            selected, kind, options_source, unsupported, false, false
+        )
+    _browser_source_starts_with(source, offset, "frame.add_light(", 0)?
+        stop: _browser_display_call_stop(source, offset + 16, 1, false)
+        selected: selected_source
+        kind: selected_kind
+        packet_count = packet_index?
+            .selected: vkf_utf8_slice(source, offset, stop)
+            .kind: "light"
+        @: _browser_scan_display_source(
+            source, stop, packet_count + 1, packet_index,
+            selected, kind, options_source, unsupported, false, false
         )
     _browser_source_starts_with(source, offset, "frame.add(", 0)?
         stop: _browser_display_call_stop(source, offset + 10, 1, false)
         selected: selected_source
+        kind: selected_kind
         packet_count = packet_index?
             .selected: vkf_utf8_slice(source, offset, stop)
+            .kind: "mesh"
         @: _browser_scan_display_source(
             source, stop, packet_count + 1, packet_index,
-            selected, options_source, unsupported, false, false
+            selected, kind, options_source, unsupported, false, false
         )
-    (_browser_source_starts_with(source, offset, "frame.add_camera(", 0) \/
-        _browser_source_starts_with(source, offset, "frame.add_light(", 0))?
+    _browser_source_starts_with(source, offset, "frame.", 0)?
         @: _browser_scan_display_source(
             source, next, packet_count, packet_index,
-            selected_source, options_source, true, false, false
+            selected_source, selected_kind, options_source,
+            true, false, false
         )
     _browser_scan_display_source(
         source, next, packet_count, packet_index,
-        selected_source, options_source, unsupported, false, false
+        selected_source, selected_kind, options_source,
+        unsupported, false, false
     )
 
 _run_tagged_display_source(source:str, packet_index:int) -> any:
     scan: _browser_scan_display_source(
-        source, 0, 0, packet_index, "", "", false, false, false
+        source, 0, 0, packet_index, "", "", "", false, false, false
     )
     ~scan.unsupported?! "browser display source requires unsupported scene features"
     (scan.packet_count > 0)?! "display source did not retain geometry"
     packet_index >= 0?
         (scan.selected_source != "")?! "browser display packet index is out of range"
+        scan.selected_kind = "camera"?
+            @: _browser_display_camera_source(scan.selected_source)
+        scan.selected_kind = "light"?
+            @: _browser_display_light_source(scan.selected_source)
+        (scan.selected_kind = "mesh")?! "browser display packet kind is unsupported"
         @: _browser_display_mesh_source(scan.selected_source)
     background: []
     scan.options_source != ""?

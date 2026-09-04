@@ -7,17 +7,35 @@ function decode(packet) {
   if (packet[0] === 1447773767 && packet[1] === 1 && packet.length === 6) {
     return { kind: "background", color: packet.slice(2) };
   }
-  if (packet[0] !== MAGIC || ![1, 2].includes(packet[1])) {
+  if (packet[0] === 1447773768 && packet[1] === 1 && packet.length === 12) {
+    return {
+      kind: "camera", pos: packet.slice(2, 5), target: packet.slice(5, 8),
+      up: packet.slice(8, 11), fov: packet[11],
+    };
+  }
+  if (packet[0] === 1447773769 && packet[1] === 1 && packet.length === 16) {
+    return {
+      kind: "light", pos: packet.slice(2, 5), target: packet.slice(5, 8),
+      color: packet.slice(8, 12), intensity: packet[12], range: packet[13],
+      castsShadow: packet[14] === 1, sourceRadius: packet[15],
+    };
+  }
+  if (packet[0] !== MAGIC || ![1, 2, 3].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
   const rows = packet[2];
   const columns = packet[3];
-  const stride = packet[1] === 1 ? 3 : 2;
+  const stride = packet[1] === 2 ? 2 : 3;
+  const dataOffset = packet[1] === 3 ? 10 : 8;
   if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(columns) || columns < 1
-      || packet.length !== 8 + (rows * columns * stride)) {
+      || packet.length !== dataOffset + (rows * columns * stride)) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
-  return { kind: "geometry", packet, rows, columns, stride };
+  return {
+    kind: "geometry", packet, rows, columns, stride, dataOffset,
+    receivesLighting: packet[1] === 3 && packet[8] === 1,
+    castsShadow: packet[1] === 3 && packet[9] === 1,
+  };
 }
 
 function channel(value) {
@@ -25,14 +43,55 @@ function channel(value) {
 }
 
 function vertex(mesh, row, column) {
-  const offset = 8 + (((row * mesh.columns) + column) * mesh.stride);
-  return [mesh.packet[offset], mesh.packet[offset + 1]];
+  const offset = mesh.dataOffset + (((row * mesh.columns) + column) * mesh.stride);
+  return [mesh.packet[offset], mesh.packet[offset + 1], mesh.stride === 3 ? mesh.packet[offset + 2] : 0];
+}
+
+const subtract = (left, right) => left.map((value, index) => value - right[index]);
+const dot = (left, right) => left.reduce((sum, value, index) => sum + (value * right[index]), 0);
+const cross = (left, right) => [
+  (left[1] * right[2]) - (left[2] * right[1]),
+  (left[2] * right[0]) - (left[0] * right[2]),
+  (left[0] * right[1]) - (left[1] * right[0]),
+];
+const normalize = (value) => {
+  const length = Math.hypot(...value);
+  return value.map((component) => component / Math.max(length, 1e-9));
+};
+
+function cameraProjector(camera, canvas) {
+  const forward = normalize(subtract(camera.target, camera.pos));
+  const right = normalize(cross(forward, camera.up));
+  const up = cross(right, forward);
+  const focal = 1 / Math.tan((camera.fov * Math.PI) / 360);
+  const aspect = canvas.width / canvas.height;
+  return (point) => {
+    const relative = subtract(point, camera.pos);
+    const depth = Math.max(dot(relative, forward), 1e-6);
+    return [
+      canvas.width * (0.5 + ((dot(relative, right) * focal) / (2 * aspect * depth))),
+      canvas.height * (0.5 - ((dot(relative, up) * focal) / (2 * depth))),
+    ];
+  };
+}
+
+function litColor(mesh, lights) {
+  const base = [mesh.packet[4], mesh.packet[5], mesh.packet[6]];
+  if (!mesh.receivesLighting || lights.length === 0) return base;
+  const point = vertex(mesh, 0, 0);
+  const light = lights[0];
+  const distance = Math.hypot(...subtract(light.pos, point));
+  const attenuation = distance > light.range ? 0 : light.intensity / Math.max(1, distance * distance);
+  const strength = Math.min(1, 0.2 + (attenuation * 0.12));
+  return base.map((value, index) => value * light.color[index] * strength);
 }
 
 export function renderInlineResult(canvas, packets) {
   const decoded = packets.map(decode);
   const meshes = decoded.filter(({ kind }) => kind === "geometry");
   const background = decoded.find(({ kind }) => kind === "background");
+  const camera = decoded.find(({ kind }) => kind === "camera");
+  const lights = decoded.filter(({ kind }) => kind === "light");
   const points = meshes.flatMap((mesh) => Array.from(
     { length: mesh.rows * mesh.columns },
     (_, index) => vertex(mesh, Math.floor(index / mesh.columns), index % mesh.columns),
@@ -46,10 +105,11 @@ export function renderInlineResult(canvas, packets) {
   const spanX = Math.max(maxX - minX, 1e-9);
   const spanY = Math.max(maxY - minY, 1e-9);
   const padding = 18;
-  const project = ([x, y]) => [
+  const fitProject = ([x, y]) => [
     padding + ((x - minX) / spanX) * (canvas.width - (2 * padding)),
     canvas.height - padding - ((y - minY) / spanY) * (canvas.height - (2 * padding)),
   ];
+  const project = camera ? cameraProjector(camera, canvas) : fitProject;
   const context = canvas.getContext("2d");
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = background
@@ -59,7 +119,8 @@ export function renderInlineResult(canvas, packets) {
   context.lineWidth = 2;
 
   for (const mesh of meshes) {
-    context.strokeStyle = `rgba(${channel(mesh.packet[4])}, ${channel(mesh.packet[5])}, ${channel(mesh.packet[6])}, ${Math.max(0, Math.min(1, mesh.packet[7]))})`;
+    const color = litColor(mesh, lights);
+    context.strokeStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${Math.max(0, Math.min(1, mesh.packet[7]))})`;
     const drawStrip = (count, pointAt) => {
       context.beginPath();
       for (let index = 0; index < count; index += 1) {

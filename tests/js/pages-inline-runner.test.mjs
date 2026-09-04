@@ -67,33 +67,47 @@ test("worker materializes only validated WASM visual packets as typed buffers", 
     packet_records: [
       { magic: 1447773767, version: 1, color: [0.01, 0.02, 0.03, 1] },
       {
-        magic: 1447773766, version: 3, rows: 1, columns: 1,
-        color: [0.1, 0.2, 0.3, 1], x: [[2]], y: [[3]],
+        magic: 1447773768, version: 1, pos: [4, -5, 3],
+        target: [0, 0, 0], up: [0, 0, 1], fov: 42,
+      },
+      {
+        magic: 1447773769, version: 1, pos: [2, -3, 5], target: [0, 0, 0],
+        color: [1, 0.8, 0.6, 1], intensity: 24, range: 18,
+        casts_shadow: true, source_radius: 0,
+      },
+      {
+        magic: 1447773766, version: 4, rows: 1, columns: 1,
+        color: [0.1, 0.2, 0.3, 1], x: [[2]], y: [[3]], z: [[4]],
+        receives_lighting: true, casts_shadow: true,
       },
     ],
   });
 
   assert.equal(output.kind, "visual");
   assert.equal(output.packet_values, undefined);
-  assert.equal(output.packets.length, 2);
-  assert.ok(output.packets[1] instanceof Float64Array);
+  assert.equal(output.packets.length, 4);
+  assert.ok(output.packets[3] instanceof Float64Array);
   assert.deepEqual([...output.packets[0]], [1447773767, 1, 0.01, 0.02, 0.03, 1]);
   assert.deepEqual([...output.packets[1]], [
-    1447773766, 2, 1, 1, 0.1, 0.2, 0.3, 1, 2, 3,
+    1447773768, 1, 4, -5, 3, 0, 0, 0, 0, 0, 1, 42,
+  ]);
+  assert.deepEqual([...output.packets[3]], [
+    1447773766, 3, 1, 1, 0.1, 0.2, 0.3, 1, 1, 1, 2, 3, 4,
   ]);
   assert.throws(
     () => materializeVisualOutput({
       kind: "visual",
       packet_records: [{
-        magic: 1447773766, version: 3, rows: 1, columns: 1,
-        color: [0, 0, 0, 1], x: [[NaN]], y: [[0]],
+        magic: 1447773766, version: 4, rows: 1, columns: 1,
+        color: [0, 0, 0, 1], x: [[NaN]], y: [[0]], z: [[0]],
+        receives_lighting: false, casts_shadow: false,
       }],
     }),
     /invalid visual packet/u,
   );
 });
 
-test("trusted inline renderer draws validated retained geometry packets", () => {
+test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
     beginPath: () => operations.push("begin"),
@@ -107,15 +121,25 @@ test("trusted inline renderer draws validated retained geometry packets", () => 
     set strokeStyle(value) { operations.push(["strokeStyle", value]); },
   };
   const canvas = { width: 320, height: 180, getContext: () => context };
+  const camera = Float64Array.from([
+    1447773768, 1, 4.2, -5.4, 3.5, 0, 0, 0.25, 0, 0, 1, 42,
+  ]);
+  const light = Float64Array.from([
+    1447773769, 1, 2.8, -2.6, 5.2, 0, 0, 0,
+    1, 0.88, 0.68, 1, 24, 18, 1, 0,
+  ]);
   const packet = Float64Array.from([
-    1447773766, 1, 1, 2, 0.1, 0.2, 0.3, 1,
+    1447773766, 3, 1, 2, 0.1, 0.2, 0.3, 1, 1, 1,
     1, 3, 5, 2, 4, 6,
   ]);
 
-  renderInlineResult(canvas, [packet]);
+  renderInlineResult(canvas, [camera, light, packet]);
   assert.ok(operations.some(([kind] = []) => kind === "fill"));
-  assert.ok(operations.some(([kind] = []) => kind === "move"));
+  assert.ok(operations.some(([kind, x, y] = []) => kind === "move"
+    && Number.isFinite(x) && Number.isFinite(y)));
   assert.ok(operations.some(([kind] = []) => kind === "line"));
+  assert.ok(operations.some(([kind, value] = []) => kind === "strokeStyle"
+    && value !== "rgba(26, 51, 77, 1)"));
   assert.ok(operations.includes("stroke"));
 });
 

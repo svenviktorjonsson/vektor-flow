@@ -79,7 +79,7 @@ test("browser compiler emits retained geometry packets for the complete README d
   assert.equal(output.kind, "visual");
   assert.equal(output.packet_records.length, 1);
   const packet = { ...output.packet_records[0] };
-  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 3, 2, 7]);
+  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 4, 2, 7]);
   assert.deepEqual(rounded(packet.color), [0.12, 0.72, 1, 1]);
   assert.deepEqual(rounded(packet.x[0]), [-3, -2, -1, 0, 1, 2, 3]);
   assert.deepEqual(rounded(packet.y[0]), [-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09]);
@@ -109,9 +109,9 @@ test("browser compiler retains background options and multiple meshes from READM
   assert.deepEqual(bandOutput.packet_records.slice(1).map((packet) => [
     packet.magic, packet.version, packet.rows, packet.columns,
   ]), [
-    [1447773766, 3, 2, 7],
-    [1447773766, 3, 2, 7],
-    [1447773766, 3, 2, 7],
+    [1447773766, 4, 2, 7],
+    [1447773766, 4, 2, 7],
+    [1447773766, 4, 2, 7],
   ]);
   assert.equal(ribbonOutput.packet_records.length, 2);
   assert.deepEqual([
@@ -119,7 +119,7 @@ test("browser compiler retains background options and multiple meshes from READM
     ribbonOutput.packet_records[1].version,
     ribbonOutput.packet_records[1].rows,
     ribbonOutput.packet_records[1].columns,
-  ], [1447773766, 3, 2, 25]);
+  ], [1447773766, 4, 2, 25]);
 
   const changed = { ...compiler.run(bands.source
     .replace("background:[0.015, 0.022, 0.05, 1]", "background:[0.2, 0.3, 0.4, 1]")
@@ -143,6 +143,60 @@ test("browser compiler retains background options and multiple meshes from READM
   );
 });
 
+test("browser compiler retains the README camera, light, and 3D surface scene", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-04");
+  const output = { ...compiler.run(example.source) };
+
+  assert.equal(output.kind, "visual");
+  assert.equal(output.packet_records.length, 4);
+  assert.deepEqual({ ...output.packet_records[1] }, {
+    magic: 1447773768,
+    version: 1,
+    pos: [4.2, -5.4, 3.5],
+    target: [0, 0, 0.25],
+    up: [0, 0, 1],
+    fov: 42,
+  });
+  assert.deepEqual({
+    ...output.packet_records[2],
+    color: rounded(output.packet_records[2].color),
+  }, {
+    magic: 1447773769,
+    version: 1,
+    pos: [2.8, -2.6, 5.2],
+    target: [0, 0, 0],
+    color: [1, 0.88, 0.68, 1],
+    intensity: 24,
+    range: 18,
+    casts_shadow: true,
+    source_radius: 0,
+  });
+  assert.deepEqual(rounded(output.packet_records[3].z[1]), [0.2, 1.15, 0.35]);
+  assert.equal(output.packet_records[3].receives_lighting, true);
+  assert.equal(output.packet_records[3].casts_shadow, true);
+
+  const changed = { ...compiler.run(example.source
+    .replace("fov:42", "fov:55")
+    .replace("intensity:24", "intensity:12")
+    .replace("[0.2, 1.15, 0.35]", "[0.4, 1.35, 0.55]")) };
+  assert.equal(changed.packet_records[1].fov, 55);
+  assert.equal(changed.packet_records[2].intensity, 12);
+  assert.deepEqual(rounded(changed.packet_records[3].z[1]), [0.4, 1.35, 0.55]);
+
+  assert.throws(
+    () => compiler.run(example.source.replace("fov:42", "fov:42, aperture:1")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(example.source.replace(
+      "id:\"sun\"",
+      "id:\"sun\", kind:\"directional\"",
+    )),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -160,6 +214,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 5);
+  assert.equal(runnable.length, 6);
   assert.equal(examples.length, 26);
 });

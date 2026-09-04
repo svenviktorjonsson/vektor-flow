@@ -2,7 +2,7 @@
   "schema": "vektor-flow/pages-readme-browser-coverage",
   "version": 1,
   "base_commit": "f91cb6d0",
-  "browser_runnable_after_slice": ["readme-01", "readme-02", "readme-03", "readme-16", "readme-20"],
+  "browser_runnable_after_slice": ["readme-01", "readme-02", "readme-03", "readme-04", "readme-16", "readme-20"],
   "clusters": [
     {
       "id": "vector-semantics",
