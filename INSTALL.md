@@ -1,214 +1,120 @@
-# Vektor Flow Installation Guide
+# Download, run and share
 
-This guide is the practical install path for community testers.
+## Start in the browser
 
-If you are trying Vektor Flow as a user, start here instead of the contributor
-bootstrap flow.
+[Open the runnable guide](docs/site/guide.md). The site downloads its WebAssembly
+compiler runtime automatically; you do not install a compiler yourself. Supported
+programs compile and run on your device, without a compilation backend.
 
-If you are preparing a bundle for someone else to test, verify its installed
-compiler directly:
+This is an experimental subset of VKF, not complete native/browser parity.
+Unsupported programs report an error; there is no server-side execution fallback.
+
+## Download the native compiler
+
+**Published preview: VKF 0.4.0.** The 0.4.1 work on the main branch remains a
+release candidate until it is tagged and its downloads are published.
+
+| Platform | Installer | Portable archive |
+| --- | --- | --- |
+| Windows x64 | [Setup](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.4.0/vektor-flow-windows-x64-setup.exe) | [ZIP](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.4.0/vektor-flow-windows-x64.zip) |
+| Linux x64 | [Debian/Ubuntu package](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.4.0/vektor-flow-linux-x64.deb) | [tar.gz](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.4.0/vektor-flow-linux-x64.tar.gz) |
+| macOS Apple Silicon | [Package](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.4.0/vektor-flow-macos-arm64.pkg) | [tar.gz](https://github.com/svenviktorjonsson/vektor-flow/releases/download/v0.4.0/vektor-flow-macos-arm64.tar.gz) |
+
+[Release files and SHA-256 checksums](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.4.0).
+VKF is unsupported experimental software: expect incomplete diagnostics and
+changing APIs. Do not use it for production or run untrusted native VKF programs.
+
+Run the Windows or macOS installer, then open a new terminal. On Debian/Ubuntu:
 
 ```bash
-vkf -e ':: "release ready"'
+sudo apt install ./vektor-flow-linux-x64.deb
 ```
 
-## Before You Start
+For a Linux or macOS portable archive, extract it and run `./install.sh` as your
+normal user, **not with sudo**. Make sure its command directory is on `PATH`.
+The installed compilation path does not require Python, a C++ compiler, an
+assembler or a separate linker. Building VKF itself from source is different.
 
-You need:
+## Your first local program
 
-- a packaged Vektor Flow release for your platform
-- VS Code only if you want the editor integration
+Check the installed version and evaluate an expression:
 
-You do **not** need:
-
-- Python
-- `pip`
-- a virtual environment
-
-## Windows
-
-### Installer
-
-1. Open the repository's latest GitHub release.
-2. Download `vektor-flow-windows-x64-setup.exe`.
-3. Run it and leave **Add VKF to my PATH** selected.
-4. Open a new PowerShell window.
-5. Verify:
-
-```powershell
+```bash
+vkf -v
 vkf -e ':: "hello, world"'
 ```
 
-The installer is per-user and needs no administrator access. It installs the
-compiler, integrated test command, stdlib, samples, and uninstaller. Uninstall removes only
-the exact PATH entry created by the installer.
+Save this as `hello.vkf`:
 
-Python, a C++ compiler, and an assembler are not runtime dependencies.
-
-This installer is the strict 0.1 native edition. It contains `math`, `stat`,
-`random`, `time`, `io`, `collections`, `errors`, `system`, `process`, and
-`regex`. The partial `physics`, `ui`, and `symbolic` modules are absent. There is
-no compatibility fallback.
-
-### Install
-
-1. Download the Windows release archive.
-2. Extract it somewhere stable, for example:
-
-```text
-C:\Tools\vektorflow
+```vkf
+:: "hello, world"
 ```
 
-3. Open PowerShell in that folder.
-4. Verify the compiler works:
+Then build and run it:
+
+```bash
+vkf hello.vkf
+```
+
+## CLI walkthrough
+
+| Command | What it does |
+| --- | --- |
+| `vkf program.vkf` | Build when changed, then run. |
+| `vkf program.vkf -o app` | Build or reuse the named executable, then run. |
+| `vkf -b program.vkf` | Build without running. |
+| `vkf -b program.vkf -o app` | Build only, with an explicit output name. |
+| `vkf -e ':: 2 + 2'` | Evaluate inline source. |
+| `vkf -t tests.vkf` | Run the native tests in a file. |
+| `vkf -t tests` | Run the native tests in a directory. |
+| `vkf -v` | Print the compiler version. |
+
+`-b` means build, `-e` evaluate, `-t` test, `-v` version and `-o` output.
+Passing a source file is the run command; there is no `-r`.
+Source, imports, target, compiler and output choice contribute to the build
+fingerprint, so unchanged programs can reuse their executable.
+
+The native compiler emits platform executables: PE on Windows, ELF on Linux and
+Mach-O on macOS. A build command is not a promise of cross-compilation to every
+other platform. [Testing guide](TESTING.md) and [VS Code integration](vscode/README.md).
+
+## Compile the browser runtime from source
+
+This is the contributor path used by the Pages build, **not a public
+`vkf --wasm` export command**. A general CLI flag for standalone WASM export has
+not been established by this walkthrough; no new flag is invented here.
+
+In a source checkout, with the Windows native-build prerequisites available:
 
 ```powershell
-.\bin\vkf.exe -e ':: "hello, world"'
+./scripts/build-native-compiler.ps1 `
+  -OutputDirectory build/pages-compiler/bin `
+  -OnlyTargets vkf-strict,vkf_symbolic_kernel_artifact
+$env:VKF_NATIVE_BIN = (Resolve-Path build/pages-compiler/bin)
+npm run build:browser-compiler
+node --test tests/bootstrap/browser-compiler-wasm.test.mjs
+node tools/build-pages-readme.mjs --output=web/generated
 ```
 
-Expected output:
+The build must pass before publishing. The
+[Pages workflow](.github/workflows/pages.yml) is the complete build recipe;
+[the browser architecture](docs/adr/0004-browser-symbolic-kernel.md) explains the
+VKF-to-WASM runtime path.
 
-```text
-hello, world
-```
+## Host it without an application backend
 
-### Run A Packaged Native Program
+Serve the generated `web/` directory on a static HTTPS host, preserving its
+subdirectories. Serve `.wasm` as `application/wasm` and `.mjs` as JavaScript.
+No VKF compilation service is needed: the browser loads the shipped runtime
+and executes supported source locally.
 
-If the release bundle includes a packaged native program folder, use the
-generated launcher inside that folder:
+For local testing, use an HTTP static-file server rather than opening
+`index.html` as a `file://` URL. The Web Worker and module paths must remain
+same-origin and accessible. The existing GitHub Pages workflow publishes this
+same directory to vektorflow.org.
 
-```powershell
-.\my-packaged-program\run.bat
-.\my-packaged-program\smoke-test.bat
-```
+Native HTML/CSS applications and the browser examples have different capability
+boundaries. Native code runs with your user permissions; browser execution
+intentionally excludes filesystem, process and network access from user programs.
 
-If the release bundle includes sample `.vkf` files, you can also run those
-directly. The inline snippet above is the safest first check because it depends
-only on the packaged `vkf.exe`.
-
-## macOS
-
-### Install
-
-1. Download `vektor-flow-macos-arm64.pkg` on Apple Silicon and run it, or
-   download and extract the macOS archive and run `./install.sh`. Do not run
-   the archive installer with `sudo`; it is per-user and refuses root access.
-2. Open a new Terminal.
-3. Verify the compiler works:
-
-```bash
-vkf -e ':: "hello, world"'
-```
-
-Expected output:
-
-```text
-hello, world
-```
-
-### Run A Packaged Native Program
-
-If the release bundle includes a packaged native program folder, use the
-generated launcher inside that folder:
-
-```bash
-./my-packaged-program/run.sh
-./my-packaged-program/smoke-test.sh
-```
-
-If the release bundle includes sample `.vkf` files, you can also run those
-directly. The inline snippet above is the safest first check because it depends
-only on the packaged `vkf`.
-
-## Linux
-
-On Debian/Ubuntu, install `vektor-flow-linux-x64.deb`. Other distributions can
-extract `vektor-flow-linux-x64.tar.gz`, then run:
-
-```bash
-./install.sh
-vkf -e ':: "hello, world"'
-```
-
-Do not run `install.sh` with `sudo`. The archive installer is deliberately
-per-user and refuses root access; use the `.deb` when a system package is
-preferred.
-
-This installs under `~/.local/opt/vektor-flow` and creates commands under
-`~/.local/bin`. It does not install or invoke Python, a C++ compiler, or an
-assembler.
-
-### Install
-
-1. Download the Linux release archive.
-2. Extract it.
-3. Open a shell in the extracted folder.
-4. Verify the compiler works:
-
-```bash
-./bin/vkf -e ':: "hello, world"'
-```
-
-Expected output:
-
-```text
-hello, world
-```
-
-### Run A Packaged Native Program
-
-If the release bundle includes a packaged native program folder, use the
-generated launcher inside that folder:
-
-```bash
-./my-packaged-program/run.sh
-./my-packaged-program/smoke-test.sh
-```
-
-If the release bundle includes sample `.vkf` files, you can also run those
-directly. The inline snippet above is the safest first check because it depends
-only on the packaged `vkf`.
-
-## VS Code
-
-If you want editor integration after the platform install succeeds, continue
-with:
-
-- [vscode/README.md](vscode/README.md)
-- [TESTING.md](TESTING.md)
-
-Recommended settings:
-
-### Windows
-
-```json
-{
-  "vektorflow.compilerPath": "C:\\path\\to\\vkf.exe"
-}
-```
-
-### macOS / Linux
-
-```json
-{
-  "vektorflow.compilerPath": "/path/to/vkf"
-}
-```
-
-If `vkf` is already on `PATH`, the simplest packaged setup is:
-
-```json
-{
-  "vektorflow.compilerPath": "vkf"
-}
-```
-
-## If You Are Building From Source Instead
-
-That is the contributor path, not the main tester path.
-
-See:
-
-- [README.md](README.md)
-- [RELEASES.md](RELEASES.md)
-- [TESTING.md](TESTING.md)
+[Return to the guide](docs/site/guide.md).

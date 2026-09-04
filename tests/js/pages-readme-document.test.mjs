@@ -1,97 +1,94 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { buildSiteDocument, benchmarkSummary, pageHtml, writeSite } from "../../tools/build-site.mjs";
+import { createBrowserCompiler } from "../../web/playground/vkf-browser-compiler.mjs";
+const root = new URL("../../", import.meta.url);
 
-import {
-  buildReadmeDocument,
-} from "../../tools/build-pages-readme.mjs";
+test("one short README supplies the complete static homepage", async () => {
+  const [document, readme] = await Promise.all([buildSiteDocument(root), readFile(new URL("README.md", root), "utf8")]);
+  assert.ok(readme.split(/\s+/u).length <= 160);
+  assert.equal(document.examples.length, 0);
+  assert.equal(document.headings.length, 1);
+  const html = pageHtml(document);
+  assert.match(html, /A few powerful principles/u);
+  assert.match(html, /Viktor Jonsson/u);
+  assert.match(html, /Flo/u);
+  assert.match(html, /href="\.\/guide\.html"/u);
+  assert.doesNotMatch(html, /<textarea|<script|Loading README|Material UI Gallery|material-ui-gallery|scene-gallery/u);
+});
 
-const repoRoot = new URL("../../", import.meta.url);
+test("the guide keeps exactly three runnable examples and links to deeper documentation", async () => {
+  const document = await buildSiteDocument(root, "docs/site/guide.md");
+  assert.equal(document.examples.length, 3);
+  assert.equal((document.html.match(/class="readme-example-play"/gu) ?? []).length, 3);
+  assert.match(document.html, /href="\.\/reference\.html/u);
+  assert.match(document.html, /href="\.\/performance\.html"/u);
+  assert.match(document.html, /href="\.\/install\.html"/u);
+  assert.match(document.html, /HTML and CSS/u);
+  assert.match(document.html, /subset/u);
+  assert.doesNotMatch(document.html, /Recorded stdout|material-ui-gallery|readme-evidence/u);
+});
 
-test("Pages renders the complete repository README with executable VKF examples", async () => {
-  const [document, readme] = await Promise.all([
-    buildReadmeDocument(repoRoot),
-    readFile(new URL("../../README.md", import.meta.url), "utf8"),
+test("every displayed browser example compiles and executes through the shipped WASM", async () => {
+  const base = new URL("web/playground/artifacts/", root);
+  const [document, wasm, manifest] = await Promise.all([
+    buildSiteDocument(root, "docs/site/guide.md"),
+    readFile(new URL("vkf-browser-compiler.wasm", base)),
+    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
   ]);
-  const headingCount = [...readme.matchAll(/^#{1,6} /gmu)].length;
-  const vkfFenceCount = [...readme.matchAll(/^```vkf\s*$/gmu)].length;
-
-  assert.equal(document.headings.length, headingCount);
-  assert.equal(document.examples.length, vkfFenceCount);
-  assert.ok(document.examples.every(({ source }) => source.length > 0));
-  assert.match(document.html, /<h1[^>]*>Vektor Flow<\/h1>/u);
-  assert.match(document.html, /Why VKF Is Different/u);
-  assert.doesNotMatch(document.html, /Native Material UI Gallery|material-ui-gallery|renderer-only oracle|full-compositor capture below/u);
-  assert.match(document.html, /Performance Evidence/u);
-  assert.match(document.html, /Development History/u);
-  assert.match(document.html, /<button[^>]+class="readme-example-play"[^>]*>Play<\/button>/u);
-  assert.match(document.html, /<textarea[^>]+class="readme-example-source"/u);
-  assert.match(document.html, /<strong><a href="https:\/\/vektorflow\.org\/">Try VKF live at vektorflow\.org<\/a><\/strong>/u);
-  assert.match(document.html, /<a href="[^"]+\/docs\/public\/images\/scene-gallery\/01-line-plot\.png"><img src="\.\/generated\/assets\/docs\/public\/images\/scene-gallery\/01-line-plot\.png"/u);
-  assert.match(document.html, /Every VKF block on this page is editable in place/iu);
-  assert.doesNotMatch(document.html, /hierarchical catalogue/iu);
-  assert.doesNotMatch(document.html, /\[Try VKF live|>!\[/u);
-  assert.doesNotMatch(document.html, /class="token|vf-token/u);
-});
-
-test("every README VKF block is an exact inline editable source", async () => {
-  const document = await buildReadmeDocument(repoRoot);
-  for (const example of document.examples) {
-    const escaped = example.source
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;");
-    assert.match(document.html, new RegExp(`<textarea[^>]+data-example-id="${example.id}"[^>]*>${escaped.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&")}<\\/textarea>`, "u"));
-  }
-  assert.doesNotMatch(document.html, /href="\.\/playground\/|browserRunnable|data-kind=/u);
-});
-
-test("Pages consumes recorded stdout into exactly one inline Console", async () => {
-  const [document, readme] = await Promise.all([
-    buildReadmeDocument(repoRoot),
-    readFile(new URL("../../README.md", import.meta.url), "utf8"),
+  assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(wasm)), []);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+  const results = document.examples.map(({ source }) => compiler.run(source));
+  assert.deepEqual(results[0].values, [[2, 4, 6], [[2, 4], [6, 8]]]);
+  assert.deepEqual(results[1].values, [
+    [[1, 2, 3], [2, 4, 6], [3, 6, 9]], [4, 10, 18],
+    [[[15, 18], [20, 24]], [[30, 36], [40, 48]]],
   ]);
-  const recorded = [...readme.replaceAll("\r\n", "\n").matchAll(
-    /\*\*(?:Recorded stdout[^\r\n]*|Exact output[^\r\n]*):\*\*\r?\n\r?\n```text\r?\n([\s\S]*?)\r?\n```/gu,
-  )].map((match) => match[1]);
-  const ids = ["readme-01", "readme-02", "readme-23", "readme-24", "readme-25"];
-
-  assert.equal(recorded.length, 6);
-  for (const [index, id] of ids.entries()) {
-    const escaped = recorded[index]
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-    assert.match(
-      document.html,
-      new RegExp(
-        `<section class="readme-example" data-vkf-example-id="${id}">[\\s\\S]*?<section class="readme-example-terminal"><span>Console<\\/span><pre class="readme-example-output" aria-live="polite">${escaped}<\\/pre><\\/section>`,
-        "u",
-      ),
-    );
-  }
-  assert.match(
-    document.html,
-    /data-vkf-example-id="readme-26">[\s\S]*?<section class="readme-example-terminal" hidden><span>Console<\/span><pre class="readme-example-output" aria-live="polite"><\/pre><\/section>/u,
-  );
-  assert.doesNotMatch(document.html, /Recorded stdout \(exit code/u);
-  assert.equal(
-    [...document.html.matchAll(/Exact output \(all implementations\)/gu)].length,
-    1,
-  );
+  assert.equal(results[2].kind, "visual");
+  assert.equal(results[2].packet_records.length, 1);
+  assert.deepEqual(compiler.run(document.examples[0].source.replace("* 2", "* 3")).values,
+    [[3, 6, 9], [[3, 6], [9, 12]]]);
+  const changed = compiler.run(document.examples[2].source.replaceAll("-3, -2, -1", "-4, -2, -1"));
+  assert.equal(changed.packet_records[0].x[0][0], -4);
 });
 
-test("README states the release scope of published benchmark measurements", async () => {
-  const document = await buildReadmeDocument(repoRoot);
+test("performance ratios are derived from the versioned native report", async () => {
+  const document = await buildSiteDocument(root, "docs/site/performance.md");
+  assert.match(document.html, /VKF 0\.3\.0/u);
+  assert.match(document.html, /0\.30×/u);
+  assert.match(document.html, /1\.49×/u);
+  assert.match(document.html, /1,000 measured runs/u);
+  assert.match(document.html, /do not predict browser/u);
+  assert.throws(() => benchmarkSummary("no measurements"), /Missing raw-kernel/u);
+});
 
-  assert.match(document.html, /The 0\.4\.1 release candidate adds the compiled Windows UI runtime/iu);
-  assert.match(document.html, /<h2 id="install-vkf-041">Install VKF 0\.4\.1<\/h2>/u);
-  assert.match(document.html, /releases\/tag\/v0\.4\.1/u);
-  assert.doesNotMatch(document.html, /0\.4\.0 release candidate/iu);
-  assert.match(document.html, /published timings[^.]*0\.3\.0/iu);
-  assert.match(document.html, /0\.4\.1[^.]*UI/iu);
-  assert.match(document.html, /0\.5\.0[^.]*complete benchmark matrix/iu);
+test("native reference and install snippets are not advertised as browser-runnable", async () => {
+  const document = await buildSiteDocument(root, "INSTALL.md");
+  assert.equal(document.examples.length, 0);
+  assert.match(document.html, /data-vkf-source/u);
+  assert.match(document.html, /Published preview: VKF 0\.4\.0/u);
+  assert.match(document.html, /release candidate/u);
+  assert.match(document.html, /not a public/u);
+  assert.match(document.html, /application\/wasm/u);
+});
+
+test("Markdown links remain on-site, scripts stay text, and traversal is rejected", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "vkf-docs-"));
+  try {
+    await mkdir(join(temp, "docs"));
+    await writeFile(join(temp, "README.md"), '# Home\n\n[Detail](docs/detail.md#topic)\n\n<script>alert(1)</script>\n');
+    await writeFile(join(temp, "docs/detail.md"), '# Detail\n\n## Topic\n\n[Home](../README.md)\n\n```vkf\n:: "native"\n```\n');
+    const document = await buildSiteDocument(temp);
+    assert.match(document.html, /reference\/docs\/detail\.html#topic/u);
+    assert.doesNotMatch(document.html, /<script>/u);
+    await writeSite(temp, join(temp, "public/generated"), { pages: ["README.md"] });
+    const deep = await readFile(join(temp, "public/reference/docs/detail.html"), "utf8");
+    assert.match(deep, /href="\.\.\/\.\.\/index\.html"/u);
+    await writeFile(join(temp, "README.md"), "# Home\n\n[Unsafe](../../outside.md)\n");
+    await assert.rejects(buildSiteDocument(temp), /Unsafe link/u);
+  } finally { await rm(temp, { recursive: true, force: true }); }
 });

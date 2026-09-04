@@ -60,3 +60,60 @@ a { color: #0969da; }
   .readme-example-layout.has-result { grid-template-columns: 1fr; }
   .readme-example-result { border-top: 1px solid #d0d7de; border-left: 0; }
 }
+
+/* Reading-first navigation. The homepage is generated from README.md. */
+:root { --accent: #6351b5; --muted: #626570; --rule: #e3e3eb; }
+a { color: var(--accent); text-underline-offset: .18em; }
+a:hover { text-decoration-thickness: 2px; }
+a:focus-visible, button:focus-visible, summary:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.site-nav, .site-footer { width: min(960px, calc(100% - 48px)); margin-inline: auto; }
+.site-nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 78px; border-bottom: 1px solid var(--rule); }
+.site-nav a { text-decoration: none; }
+.wordmark { color: inherit; font-weight: 750; font-size: 19px; white-space: nowrap; letter-spacing: -.03em; }
+.site-nav nav { display: flex; flex-wrap: wrap; gap: 10px 22px; font-size: 14px; }
+.site-nav nav a { color: var(--muted); }
+.site-nav a[aria-current] { color: var(--accent); font-weight: 650; }
+.readme { width: min(860px, calc(100% - 48px)); padding: 40px 0 64px; font-size: 16px; line-height: 1.7; }
+.readme h1 { font-size: 2.25rem; letter-spacing: -.035em; line-height: 1.2; border: 0; }
+.readme h2 { font-size: 1.45rem; letter-spacing: -.02em; margin-top: 2em; border: 0; line-height: 1.35; }
+.readme h3 { line-height: 1.35; }
+.readme p { margin: 1em 0; }
+.readme :is(h1,h2,h3,h4) { scroll-margin-top: 24px; }
+.landing .readme { max-width: 720px; padding: 66px 0 62px; font-size: 18px; }
+.landing .readme h1 { font-size: clamp(38px, 7vw, 58px); margin-bottom: 20px; }
+.landing .readme > p:first-of-type { font-size: 23px; line-height: 1.4; letter-spacing: -.025em; }
+.landing .readme > p:last-child { font-size: 14px; color: var(--muted); }
+.landing .readme strong > a { display: inline-block; margin: 8px 0; padding: 12px 20px; border-radius: 7px; background: var(--accent); color: #fff; text-decoration: none; font-size: 16px; }
+.site-footer { padding: 24px 0 32px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 13px; }
+.contents { width: min(860px, calc(100% - 48px)); margin: 28px auto -18px; color: var(--muted); font-size: 14px; }
+.contents summary { cursor: pointer; }
+.contents nav { display: grid; gap: 4px; margin: 12px 0; }
+.skip-link { position: absolute; top: -70px; left: 20px; padding: 10px; background: #fff; z-index: 5; }
+.skip-link:focus { top: 12px; }
+.readme table { font-size: 14px; }
+.readme th { white-space: nowrap; }
+.table-scroll { margin-block: 20px; }
+.readme code, .readme pre { font-size: 14px; }
+.readme pre code { font-size: inherit; }
+.readme textarea { font-size: 16px; line-height: 1.5; }
+.readme .readme-example-highlight, .readme .readme-example-highlight code { font: 16px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.readme-example-editor, .readme-example-highlight, .readme-example-source { min-height: 100px; }
+.readme-example-highlight { overflow: hidden; }
+.readme-example-source { max-height: 420px; }
+.readme-example-play { min-height: 34px; padding: 7px 17px; margin-block: 5px; background: var(--accent); border-color: var(--accent); }
+.readme > pre.vkf-static { color: #e6edf3; background: #0d1117; }
+@media (prefers-color-scheme: dark) {
+  :root { --accent: #b7a6fa; --muted: #a5a8b6; --rule: #2a2b36; }
+  .landing .readme strong > a, .readme-example-play { background: #7962c8; border-color: #7962c8; color: #fff; }
+  .skip-link { background: #0d1117; }
+}
+@media (max-width: 620px) {
+  .site-nav { align-items: flex-start; flex-direction: column; justify-content: center; gap: 12px; padding-block: 18px; }
+  .site-nav nav { gap: 10px 18px; }
+  .site-nav, .site-footer, .readme, .contents { width: calc(100% - 32px); }
+  .landing .readme { padding: 36px 0 40px; font-size: 17px; }
+  .landing .readme > p:first-of-type { font-size: 21px; }
+  .readme { padding-top: 30px; }
+  .readme h1 { font-size: 30px; }
+  .readme-example-layout.has-result { grid-template-columns: 1fr; }
+}
