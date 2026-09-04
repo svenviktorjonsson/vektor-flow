@@ -78,11 +78,16 @@ the exact error message bytes, length bits, and error mask as well as the ordere
 numeric results; any partial result rejects the candidate. A threaded artifact
 records each lane's result or error privately, waits for the worker, closes its
 handle, and only then propagates the left/source-first error when both lanes fail.
-It never publishes partial results or retries serially. The admitted roots are
-finite and side-effect-free, so the safe cancellation policy is cooperative:
-the other lane runs to completion before the join rather than using unsafe forced
-thread termination. Handled, dynamic, nested, resource-owning, or incompletely
-described fallibility remains serial.
+It never publishes partial results or retries serially. Cooperative cancellation
+is admitted only when both roots have an explicit fixed-bound, initialized,
+unit-increment loop backedge recorded by the dependency receipt. A source-left
+terminal error publishes the shared request; the right lane observes it only at
+its proven backedge, records that observation, returns without output, and is
+always joined and closed. A right-lane error never cancels the source-left lane,
+so later left errors still win exact source-order arbitration. Forced thread
+termination is never used. Missing or unsafe polling proof keeps the pair serial
+with `cancellation-polling-unknown`. Handled, dynamic, nested, resource-owning,
+or incompletely described fallibility remains serial.
 
 A pair root may also contain fixed-arity `SumF64Values` only when its private
 receipt records every reduction as `sum-f64-values:left-fold:<arity>` in exact

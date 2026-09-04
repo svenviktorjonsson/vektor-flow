@@ -378,6 +378,47 @@ int main() {
         root_right.instructions.begin(),
         {assertion_condition, assertion, drop_assertion}
     );
+    const auto add_cancellable_loop = [](
+        vkf::machine_ir::Function& function
+    ) {
+        vkf::machine_ir::Instruction label;
+        label.opcode = vkf::machine_ir::Opcode::Label;
+        label.label = 1;
+        vkf::machine_ir::Instruction exit;
+        exit.opcode = vkf::machine_ir::Opcode::JumpIfFalse;
+        exit.label = 2;
+        vkf::machine_ir::Instruction backedge;
+        backedge.opcode = vkf::machine_ir::Opcode::Jump;
+        backedge.label = 1;
+        auto loop_exit = label;
+        loop_exit.label = 2;
+        vkf::machine_ir::Instruction zero;
+        zero.opcode = vkf::machine_ir::Opcode::PushF64;
+        vkf::machine_ir::Instruction store;
+        store.opcode = vkf::machine_ir::Opcode::StoreLocal;
+        store.index = 1;
+        vkf::machine_ir::Instruction load = store;
+        load.opcode = vkf::machine_ir::Opcode::LoadLocal;
+        vkf::machine_ir::Instruction bound = zero;
+        bound.f64 = 1048576.0;
+        vkf::machine_ir::Instruction one = zero;
+        one.f64 = 1.0;
+        vkf::machine_ir::Instruction less;
+        less.opcode = vkf::machine_ir::Opcode::OrderedLessF64;
+        vkf::machine_ir::Instruction add;
+        add.opcode = vkf::machine_ir::Opcode::AddF64;
+        function.locals.push_back("counter");
+        function.local_classes.push_back(
+            vkf::machine_ir::ValueClass::I64
+        );
+        function.instructions.insert(
+            function.instructions.begin(),
+            {zero, store, label, load, bound, less, exit,
+             load, one, add, store, backedge, loop_exit}
+        );
+    };
+    add_cancellable_loop(root_left);
+    add_cancellable_loop(root_right);
     module.string_data.assign(
         {'l','e','f','t',' ','f','a','i','l','u','r','e',
          'r','i','g','h','t',' ','f','a','i','l','u','r','e'}
@@ -391,11 +432,33 @@ int main() {
     expect(deterministic_error_pair.error_knowledge_complete &&
                deterministic_error_pair.errors_source_ordered &&
                deterministic_error_pair.join_cleanup_required &&
+               deterministic_error_pair.cancellation_knowledge_complete &&
+               deterministic_error_pair.safe_backedges_proven &&
+               deterministic_error_pair.cancellation_poll_sites ==
+                   std::vector<std::string>({
+                       "root_left#11:loop-backedge:1",
+                       "root_right#11:loop-backedge:1",
+                   }) &&
                deterministic_error_pair.parallelism_allowed &&
                deterministic_error_pair.reason == gate::Reason::Independent,
-           "static terminal root errors must be eligible only with source-order and join-cleanup proof");
+           "static terminal root errors with fixed loops must require explicit safe-backedge cancellation proof");
 
-    root_left.instructions[1].has_error_handler = true;
+    auto unsafe_poll_left = root_left;
+    unsafe_poll_left.instructions[8].f64 = 2.0;
+    module.functions = {unsafe_poll_left, root_right};
+    const auto unsafe_poll_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(unsafe_poll_pair.cancellation_knowledge_complete &&
+               !unsafe_poll_pair.safe_backedges_proven &&
+               !unsafe_poll_pair.parallelism_allowed &&
+               unsafe_poll_pair.reason ==
+                   gate::Reason::CancellationPollingUnknown &&
+               gate::reason_name(unsafe_poll_pair.reason) ==
+                   "cancellation-polling-unknown",
+           "a fallible root without a proven unit-increment safe polling backedge must remain serial with an explicit reason");
+
+    root_left.instructions[14].has_error_handler = true;
     module.functions = {root_left, root_right};
     const auto handled_error_pair = gate::analyze_pair(
         module, "root_left", "root_right"
@@ -404,7 +467,7 @@ int main() {
                handled_error_pair.reason == gate::Reason::TransitiveFallibility &&
                !handled_error_pair.parallelism_allowed,
            "handled or non-terminal fallibility must remain serial");
-    root_left.instructions[1].has_error_handler = false;
+    root_left.instructions[14].has_error_handler = false;
     root_left.owned_f64_list_locals = {0};
     module.functions = {root_left, root_right};
     const auto owned_error_pair = gate::analyze_pair(
@@ -417,8 +480,8 @@ int main() {
     root_left.owned_f64_list_locals.clear();
     root_left.may_error = false;
     root_right.may_error = false;
-    root_left.instructions.erase(root_left.instructions.begin(), root_left.instructions.begin() + 3);
-    root_right.instructions.erase(root_right.instructions.begin(), root_right.instructions.begin() + 3);
+    root_left.instructions.erase(root_left.instructions.begin(), root_left.instructions.begin() + 16);
+    root_right.instructions.erase(root_right.instructions.begin(), root_right.instructions.begin() + 16);
     module.entry.instructions[1].may_error = false;
     module.entry.instructions[4].may_error = false;
     module.string_data.clear();

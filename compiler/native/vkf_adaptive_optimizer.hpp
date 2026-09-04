@@ -5,6 +5,7 @@
 #include "compiler/native/vkf_proof_gated_execution.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <future>
@@ -385,48 +386,92 @@ auto execute_automatic_cpu_pair(
         std::move(*left_value), std::move(*right_value));
 }
 
+class AutomaticCpuPairCancellation {
+public:
+    bool requested() const noexcept {
+        return requested_.load(std::memory_order_acquire);
+    }
+
+private:
+    template <typename LeftDemand, typename RightDemand>
+    friend auto execute_automatic_cpu_pair(
+        const AutomaticCpuPairPlan&,
+        const optimization_dependency_gate::Receipt&,
+        LeftDemand&&,
+        RightDemand&&
+    );
+
+    void request() noexcept {
+        requested_.store(true, std::memory_order_release);
+    }
+
+    std::atomic<bool> requested_{false};
+};
+
+template <typename LeftDemand, typename RightDemand>
+auto execute_automatic_cpu_pair(
+    const AutomaticCpuPairPlan& plan,
+    const optimization_dependency_gate::Receipt& cancellation_receipt,
+    LeftDemand&& left,
+    RightDemand&& right
+) {
+    using LeftResult = std::decay_t<std::invoke_result_t<
+        LeftDemand, const AutomaticCpuPairCancellation&>>;
+    using RightResult = std::decay_t<std::invoke_result_t<
+        RightDemand, const AutomaticCpuPairCancellation&>>;
+    static_assert(!std::is_void_v<LeftResult> && !std::is_void_v<RightResult>,
+                  "automatic CPU demands must return retained values");
+    AutomaticCpuPairCancellation cancellation;
+    if (!plan.concurrent()) {
+        auto left_value = std::forward<LeftDemand>(left)(cancellation);
+        auto right_value = std::forward<RightDemand>(right)(cancellation);
+        return std::tuple<LeftResult, RightResult>(
+            std::move(left_value), std::move(right_value));
+    }
+    if (!cancellation_receipt.cancellation_knowledge_complete ||
+        !cancellation_receipt.safe_backedges_proven) {
+        throw std::logic_error(
+            "concurrent automatic CPU cancellation proof is incomplete"
+        );
+    }
+    auto left_task = std::forward<LeftDemand>(left);
+    auto left_future = std::async(
+        std::launch::async,
+        [&cancellation, task = std::move(left_task)]() mutable {
+            try {
+                return task(cancellation);
+            } catch (...) {
+                cancellation.request();
+                throw;
+            }
+        }
+    );
+    std::optional<RightResult> right_value;
+    std::exception_ptr right_error;
+    try {
+        right_value.emplace(std::forward<RightDemand>(right)(cancellation));
+    } catch (...) {
+        right_error = std::current_exception();
+    }
+    std::optional<LeftResult> left_value;
+    std::exception_ptr left_error;
+    try {
+        left_value.emplace(left_future.get());
+    } catch (...) {
+        left_error = std::current_exception();
+    }
+    if (left_error) std::rethrow_exception(left_error);
+    if (right_error) std::rethrow_exception(right_error);
+    return std::tuple<LeftResult, RightResult>(
+        std::move(*left_value), std::move(*right_value));
+}
+
 inline std::uint64_t automatic_static_loop_work(
     const machine_ir::Function& function
 ) {
-    using machine_ir::Opcode;
-    const auto& code = function.instructions;
-    for (std::size_t label_index = 2; label_index + 5 < code.size(); ++label_index) {
-        const auto& label = code[label_index];
-        const auto& counter = code[label_index + 1];
-        const auto& bound = code[label_index + 2];
-        const auto comparison = code[label_index + 3].opcode;
-        const auto& exit = code[label_index + 4];
-        if (label.opcode != Opcode::Label || counter.opcode != Opcode::LoadLocal ||
-            bound.opcode != Opcode::PushF64 || comparison != Opcode::OrderedLessF64 ||
-            exit.opcode != Opcode::JumpIfFalse ||
-            bound.f64 < 1.0 || bound.f64 != std::floor(bound.f64) ||
-            bound.f64 > static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
-            continue;
-        }
-        bool initialized = false;
-        for (std::size_t index = 0; index + 1u < label_index; ++index) {
-            initialized = initialized ||
-                (code[index].opcode == Opcode::PushF64 && code[index].f64 == 0.0 &&
-                 code[index + 1u].opcode == Opcode::StoreLocal &&
-                 code[index + 1u].index == counter.index);
-        }
-        if (!initialized) continue;
-        for (std::size_t jump_index = label_index + 5; jump_index < code.size(); ++jump_index) {
-            if (code[jump_index].opcode != Opcode::Jump ||
-                code[jump_index].label != label.label || jump_index < 4u) {
-                continue;
-            }
-            const bool unit_increment = code[jump_index - 4u].opcode == Opcode::LoadLocal &&
-                code[jump_index - 4u].index == counter.index &&
-                code[jump_index - 3u].opcode == Opcode::PushF64 &&
-                code[jump_index - 3u].f64 == 1.0 &&
-                code[jump_index - 2u].opcode == Opcode::AddF64 &&
-                code[jump_index - 1u].opcode == Opcode::StoreLocal &&
-                code[jump_index - 1u].index == counter.index;
-            if (unit_increment) return static_cast<std::uint64_t>(bound.f64);
-        }
-    }
-    return 0;
+    const auto site = optimization_dependency_gate::
+        safe_static_loop_cancellation_site(function);
+    return site ? site->work : 0;
 }
 
 // Resolved call graphs require the measured-proof overload. Static dependency,

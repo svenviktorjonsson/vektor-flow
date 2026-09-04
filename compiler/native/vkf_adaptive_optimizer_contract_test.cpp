@@ -222,6 +222,57 @@ int main() {
     expect(completed_error_branches == 2 && concurrent_error == "left error",
            "concurrent branch errors must join both lanes and propagate the source-first error");
 
+    vkf::optimization_dependency_gate::Receipt cancellation_receipt;
+    cancellation_receipt.cancellation_knowledge_complete = true;
+    cancellation_receipt.safe_backedges_proven = true;
+    std::promise<void> long_sibling_started;
+    auto long_sibling_ready = long_sibling_started.get_future();
+    std::atomic<std::uint64_t> long_sibling_iterations{0};
+    std::atomic<int> cleaned_cancellation_lanes{0};
+    bool long_sibling_cancelled = false;
+    std::vector<int> published_cancellation_results;
+    std::string cancellation_error;
+    try {
+        const auto values =
+            vkf::adaptive_optimizer::execute_automatic_cpu_pair(
+                concurrent_pair,
+                cancellation_receipt,
+                [&](const auto&) -> int {
+                    struct Cleanup {
+                        std::atomic<int>& count;
+                        ~Cleanup() { ++count; }
+                    } cleanup{cleaned_cancellation_lanes};
+                    long_sibling_ready.wait();
+                    throw std::runtime_error("left cancellation error");
+                },
+                [&](const auto& cancellation) -> int {
+                    struct Cleanup {
+                        std::atomic<int>& count;
+                        ~Cleanup() { ++count; }
+                    } cleanup{cleaned_cancellation_lanes};
+                    long_sibling_started.set_value();
+                    constexpr std::uint64_t long_bound = 100000000ull;
+                    while (long_sibling_iterations < long_bound &&
+                           !cancellation.requested()) {
+                        ++long_sibling_iterations;
+                    }
+                    long_sibling_cancelled = cancellation.requested();
+                    return 22;
+                }
+            );
+        published_cancellation_results = {
+            std::get<0>(values), std::get<1>(values),
+        };
+    } catch (const std::runtime_error& error) {
+        cancellation_error = error.what();
+    }
+    expect(long_sibling_cancelled &&
+               long_sibling_iterations < 100000000ull &&
+               cleaned_cancellation_lanes == 2 &&
+               published_cancellation_results.empty() &&
+               cancellation_error == "left cancellation error",
+           "an exact root error must cooperatively cancel a long safe-loop sibling, join both lanes, publish no partial output, clean both lanes, and preserve the source-left error");
+
     automatic_limits.max_cores = 1;
     const auto one_core_pair = vkf::adaptive_optimizer::automatic_cpu_pair_plan(
         automatic_limits, 8, left_branch, right_branch, true, fft_decision);

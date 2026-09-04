@@ -3,7 +3,10 @@
 #include "compiler/native/vkf_machine_ir.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -21,6 +24,7 @@ enum class Reason {
     TransitiveFallibility,
     TransitiveOwnedResource,
     ReductionOrderUnknown,
+    CancellationPollingUnknown,
     TransitiveUnclassifiedOperation,
     ValueDependency,
     ParameterProvenanceUnknown,
@@ -43,6 +47,8 @@ inline std::string_view reason_name(Reason reason) {
         case Reason::TransitiveOwnedResource:
             return "transitive-owned-resource";
         case Reason::ReductionOrderUnknown: return "reduction-order-unknown";
+        case Reason::CancellationPollingUnknown:
+            return "cancellation-polling-unknown";
         case Reason::TransitiveUnclassifiedOperation:
             return "transitive-unclassified-operation";
         case Reason::ValueDependency: return "value-dependency";
@@ -84,8 +90,76 @@ struct Receipt {
     bool reduction_knowledge_complete = false;
     bool reduction_tree_source_ordered = false;
     std::vector<std::string> reduction_tree;
+    bool cancellation_knowledge_complete = false;
+    bool safe_backedges_proven = false;
+    std::vector<std::string> cancellation_poll_sites;
     bool resolved_call_graph = false;
 };
+
+struct StaticLoopCancellationSite {
+    std::size_t backedge_instruction = 0;
+    std::uint32_t loop_label = 0;
+    std::uint64_t work = 0;
+};
+
+inline std::optional<StaticLoopCancellationSite>
+safe_static_loop_cancellation_site(
+    const machine_ir::Function& function
+) {
+    using machine_ir::Opcode;
+    const auto& code = function.instructions;
+    for (std::size_t label_index = 2; label_index + 5 < code.size();
+         ++label_index) {
+        const auto& label = code[label_index];
+        const auto& counter = code[label_index + 1];
+        const auto& bound = code[label_index + 2];
+        const auto comparison = code[label_index + 3].opcode;
+        const auto& exit = code[label_index + 4];
+        if (label.opcode != Opcode::Label ||
+            counter.opcode != Opcode::LoadLocal ||
+            bound.opcode != Opcode::PushF64 ||
+            comparison != Opcode::OrderedLessF64 ||
+            exit.opcode != Opcode::JumpIfFalse || bound.f64 < 1.0 ||
+            bound.f64 != std::floor(bound.f64) ||
+            bound.f64 > static_cast<double>(
+                std::numeric_limits<std::uint32_t>::max()
+            )) {
+            continue;
+        }
+        bool initialized = false;
+        for (std::size_t index = 0; index + 1u < label_index; ++index) {
+            initialized = initialized ||
+                (code[index].opcode == Opcode::PushF64 &&
+                 code[index].f64 == 0.0 &&
+                 code[index + 1u].opcode == Opcode::StoreLocal &&
+                 code[index + 1u].index == counter.index);
+        }
+        if (!initialized) continue;
+        for (std::size_t jump_index = label_index + 5;
+             jump_index < code.size(); ++jump_index) {
+            if (code[jump_index].opcode != Opcode::Jump ||
+                code[jump_index].label != label.label || jump_index < 4u) {
+                continue;
+            }
+            const bool unit_increment =
+                code[jump_index - 4u].opcode == Opcode::LoadLocal &&
+                code[jump_index - 4u].index == counter.index &&
+                code[jump_index - 3u].opcode == Opcode::PushF64 &&
+                code[jump_index - 3u].f64 == 1.0 &&
+                code[jump_index - 2u].opcode == Opcode::AddF64 &&
+                code[jump_index - 1u].opcode == Opcode::StoreLocal &&
+                code[jump_index - 1u].index == counter.index;
+            if (unit_increment) {
+                return StaticLoopCancellationSite{
+                    jump_index,
+                    label.label,
+                    static_cast<std::uint64_t>(bound.f64),
+                };
+            }
+        }
+    }
+    return std::nullopt;
+}
 
 inline FunctionReceipt analyze_function(
     const machine_ir::Function& function
@@ -664,6 +738,26 @@ inline Receipt analyze_pair(
     receipt.error_knowledge_complete = deterministic_error_pair;
     receipt.errors_source_ordered = deterministic_error_pair;
     receipt.join_cleanup_required = deterministic_error_pair;
+    if (deterministic_error_pair) {
+        const auto left_poll = safe_static_loop_cancellation_site(*left);
+        const auto right_poll = safe_static_loop_cancellation_site(*right);
+        receipt.cancellation_knowledge_complete = true;
+        if (left_poll) {
+            receipt.cancellation_poll_sites.push_back(
+                left->name + "#" +
+                std::to_string(left_poll->backedge_instruction) +
+                ":loop-backedge:" + std::to_string(left_poll->loop_label)
+            );
+        }
+        if (right_poll) {
+            receipt.cancellation_poll_sites.push_back(
+                right->name + "#" +
+                std::to_string(right_poll->backedge_instruction) +
+                ":loop-backedge:" + std::to_string(right_poll->loop_label)
+            );
+        }
+        receipt.safe_backedges_proven = left_poll && right_poll;
+    }
     if (closure_reason == Reason::TransitiveFallibility &&
         deterministic_error_pair) {
         closure_reason = Reason::Independent;
@@ -672,6 +766,10 @@ inline Receipt analyze_pair(
     receipt.effects_proven_absent = closure_reason == Reason::Independent;
     if (closure_reason != Reason::Independent) {
         receipt.reason = closure_reason;
+        return receipt;
+    }
+    if (deterministic_error_pair && !receipt.safe_backedges_proven) {
+        receipt.reason = Reason::CancellationPollingUnknown;
         return receipt;
     }
     receipt.value_knowledge_complete = value_reason == Reason::Independent &&

@@ -278,9 +278,13 @@ vkf::machine_ir::Module independent_multi_result_graph() {
 
 vkf::machine_ir::Module fallible_multi_result_graph(
     bool left_succeeds,
-    bool right_succeeds
+    bool right_succeeds,
+    double left_bound = 1048576.0,
+    double right_bound = 1048576.0
 ) {
     auto module = independent_multi_result_graph();
+    module.functions[0].instructions[4].f64 = left_bound;
+    module.functions[1].instructions[4].f64 = right_bound;
     module.string_data.assign(
         {'l','e','f','t',' ','f','a','i','l','u','r','e',
          'r','i','g','h','t',' ','f','a','i','l','u','r','e'}
@@ -815,6 +819,45 @@ int main() {
     expect(right_error_status != 0 && read_text(right_error_stdout).empty(),
            "a fallible artifact must return no partial results and must not fall back to serial output");
 
+    auto cancellation_graph = fallible_multi_result_graph(
+        false, true, 1048576.0, 100000000.0
+    );
+    const auto cancellation_source = root / "cooperative-cancellation.vkf";
+    const auto cancellation_ir = root / "cooperative-cancellation.typed.json";
+    {
+        std::ofstream output(cancellation_source);
+        output << "cooperative cancellation proof\n";
+    }
+    const auto cancellation_artifact = root /
+#ifdef _WIN32
+        "cooperative-cancellation.exe";
+#else
+        "cooperative-cancellation.native";
+#endif
+    const auto cancellation_compiled = vkf_x64_backend::compile(
+        typed_ir, cancellation_source, cancellation_ir, {}, true,
+        cancellation_artifact, "cooperative-cancellation-pair-v1", "auto",
+        10, 20000.0, 0, &cancellation_graph
+    );
+    const auto cancellation_manifest = vf::parse_json(
+        read_text(cancellation_compiled.manifest_path)
+    );
+    const auto& cancellation_tuning = member(
+        cancellation_manifest, "empirical_tuning"
+    );
+    const auto& cancellation_candidates = member(
+        cancellation_tuning, "candidates"
+    ).as_array();
+    const auto cancellation_selected = member(
+        cancellation_tuning, "selected_policy"
+    ).as_string();
+    expect(cancellation_candidates.size() == 2 &&
+               member(cancellation_candidates[0], "correct").as_boolean() &&
+               member(cancellation_candidates[1], "correct").as_boolean() &&
+               cancellation_compiled.optimizer_cancellation_observed &&
+               cancellation_compiled.optimizer_thread_cleanup_complete,
+           "a source-left exact root error must cancel a long safe-loop sibling, preserve exact zero-output parity, and join and close its worker");
+
     auto concurrent_error_graph = fallible_multi_result_graph(false, false);
     const auto concurrent_error_source = root / "concurrent-error.vkf";
     const auto concurrent_error_ir = root / "concurrent-error.typed.json";
@@ -868,6 +911,17 @@ int main() {
               << changed_reduction_candidates.size()
               << " right_error_candidates=" << right_error_candidates.size()
               << " right_error_selected=" << right_error_selected
+              << " cancellation_candidates="
+              << cancellation_candidates.size()
+              << " cancellation_selected=" << cancellation_selected
+              << " cancellation_serial_median_ns="
+              << member(cancellation_candidates[0], "median_ns").as_number()
+              << " cancellation_threaded_median_ns="
+              << member(cancellation_candidates[1], "median_ns").as_number()
+              << " cancellation_observed="
+              << cancellation_compiled.optimizer_cancellation_observed
+              << " cancellation_cleanup="
+              << cancellation_compiled.optimizer_thread_cleanup_complete
               << " concurrent_error_candidates="
               << concurrent_error_candidates.size()
               << '\n';

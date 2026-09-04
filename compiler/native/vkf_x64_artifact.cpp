@@ -3025,34 +3025,56 @@ private:
             module_.output_count != 2u) {
             throw BackendFailure("invalid selected automatic CPU pair entry");
         }
+        const auto pair_context_base = frame.saved_gpr_slot +
+            frame.saved_gpr_slots + (function.may_error ? 3u : 0u);
         frame.frame_bytes += shape->error_capable
-            ? 80u
+            ? 112u
             : shape->literal_scalar_arguments ? 32u : 16u;
+        if (shape->error_capable) {
+            constexpr std::int32_t create_thread_call_bytes = 48;
+            const auto create_thread_stack_argument_end =
+                -static_cast<std::int32_t>(frame.frame_bytes) +
+                create_thread_call_bytes;
+            const auto private_context_begin =
+                frame.displacement(pair_context_base + 11u);
+            if (create_thread_stack_argument_end > private_context_begin) {
+                throw BackendFailure(
+                    "automatic CPU pair context overlaps caller stack arguments"
+                );
+            }
+        }
         prologue(frame);
         save_runtime_context(frame);
-        const auto context_runtime = frame.temp_base + (shape->error_capable
-            ? 9u
-            : shape->literal_scalar_arguments ? 3u : 1u);
-        const auto context_result = frame.temp_base + (shape->error_capable
-            ? 7u
-            : shape->literal_scalar_arguments ? 1u : 0u);
+        const auto context_runtime = frame.temp_base +
+            (shape->literal_scalar_arguments ? 3u : 1u);
+        const auto context_result = frame.temp_base +
+            (shape->literal_scalar_arguments ? 1u : 0u);
+        const auto error_context_runtime = pair_context_base + 11u;
+        const auto error_context_result = pair_context_base + 9u;
         code_.raw({0x4c, 0x89, 0xa5});
-        code_.i32(frame.displacement(context_runtime));
+        code_.i32(frame.displacement(
+            shape->error_capable ? error_context_runtime : context_runtime
+        ));
         if (shape->literal_scalar_arguments) {
             emit_number(function.instructions[0].f64);
             store_xmm(
                 0,
                 frame.displacement(
-                    frame.temp_base + (shape->error_capable ? 8u : 2u)
+                    shape->error_capable
+                        ? pair_context_base + 10u
+                        : frame.temp_base + 2u
                 )
             );
         }
         if (shape->error_capable) {
             code_.raw({0xc7, 0x85});
-            code_.i32(frame.displacement(frame.temp_base + 4u));
+            code_.i32(frame.displacement(pair_context_base + 6u));
             code_.i32(0);
             code_.raw({0xc7, 0x85});
-            code_.i32(frame.displacement(frame.temp_base));
+            code_.i32(frame.displacement(pair_context_base));
+            code_.i32(0);
+            code_.raw({0xc7, 0x85});
+            code_.i32(frame.displacement(pair_context_base + 5u));
             code_.i32(0);
         }
 
@@ -3063,7 +3085,9 @@ private:
         code_.raw({0x31, 0xc9, 0x31, 0xd2, 0x4c, 0x8d, 0x05});
         automatic_cpu_thread_references_.push_back(code_.rel32_placeholder());
         code_.raw({0x4c, 0x8d, 0x8d});
-        code_.i32(frame.displacement(context_runtime));
+        code_.i32(frame.displacement(
+            shape->error_capable ? error_context_runtime : context_runtime
+        ));
         call_private_pe_runtime_slot(37);
         code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
         const auto thread_created = code_.rel32_placeholder();
@@ -3071,6 +3095,11 @@ private:
         code_.patch_rel32(thread_created, code_.position());
         code_.raw({0x48, 0x89, 0x85});
         code_.i32(frame.displacement(0));
+
+        if (shape->error_capable) {
+            code_.raw({0x4c, 0x8d, 0xad});
+            code_.i32(frame.displacement(pair_context_base + 5u));
+        }
 
         const auto& right_call = function.instructions[shape->right_call];
         emit_automatic_cpu_call(
@@ -3081,15 +3110,15 @@ private:
                 ? std::optional<double>(function.instructions[3].f64)
                 : std::nullopt,
             shape->error_capable
-                ? std::optional<std::uint32_t>(frame.temp_base + 3u)
+                ? std::optional<std::uint32_t>(pair_context_base + 3u)
                 : std::nullopt
         );
         if (shape->error_capable) {
             code_.raw({0x4c, 0x89, 0x85});
-            code_.i32(frame.displacement(frame.temp_base + 2u));
-            store_xmm(2, frame.displacement(frame.temp_base + 1u));
+            code_.i32(frame.displacement(pair_context_base + 2u));
+            store_xmm(2, frame.displacement(pair_context_base + 1u));
             code_.raw({0x44, 0x89, 0x8d});
-            code_.i32(frame.displacement(frame.temp_base));
+            code_.i32(frame.displacement(pair_context_base));
         }
         code_.raw({0x48, 0x8b, 0x8d});
         code_.i32(frame.displacement(0));
@@ -3108,30 +3137,36 @@ private:
         call_private_pe_runtime_slot(39);
         if (shape->error_capable) {
             code_.raw({0x44, 0x8b, 0x8d});
-            code_.i32(frame.displacement(frame.temp_base + 4u));
+            code_.i32(frame.displacement(pair_context_base + 6u));
             code_.raw({0x45, 0x85, 0xc9, 0x0f, 0x84});
             const auto left_succeeded = code_.rel32_placeholder();
             code_.raw({0x4c, 0x8b, 0x85});
-            code_.i32(frame.displacement(frame.temp_base + 6u));
-            load_xmm(2, frame.displacement(frame.temp_base + 5u));
-            emit_exact_error_capture();
+            code_.i32(frame.displacement(pair_context_base + 8u));
+            load_xmm(2, frame.displacement(pair_context_base + 7u));
+            emit_exact_error_capture(
+                frame.displacement(pair_context_base + 5u)
+            );
             restore_runtime_context(frame);
             epilogue();
             code_.patch_rel32(left_succeeded, code_.position());
 
             code_.raw({0x44, 0x8b, 0x8d});
-            code_.i32(frame.displacement(frame.temp_base));
+            code_.i32(frame.displacement(pair_context_base));
             code_.raw({0x45, 0x85, 0xc9, 0x0f, 0x84});
             const auto right_succeeded = code_.rel32_placeholder();
             code_.raw({0x4c, 0x8b, 0x85});
-            code_.i32(frame.displacement(frame.temp_base + 2u));
-            load_xmm(2, frame.displacement(frame.temp_base + 1u));
-            emit_exact_error_capture();
+            code_.i32(frame.displacement(pair_context_base + 2u));
+            load_xmm(2, frame.displacement(pair_context_base + 1u));
+            emit_exact_error_capture(
+                frame.displacement(pair_context_base + 5u)
+            );
             restore_runtime_context(frame);
             epilogue();
             code_.patch_rel32(right_succeeded, code_.position());
         }
-        load_xmm(0, frame.displacement(context_result));
+        load_xmm(0, frame.displacement(
+            shape->error_capable ? error_context_result : context_result
+        ));
         store_xmm(0, frame.displacement(0));
 
         load_xmm(0, frame.displacement(0));
@@ -3159,11 +3194,13 @@ private:
         code_.raw({0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x30,
                    0x4c, 0x89, 0x65, 0xf8});
         if (shape->error_capable) {
-            code_.raw({0x48, 0x89, 0x4d, 0xf0});
+            code_.raw({0x48, 0x89, 0x4d, 0xf0,
+                       0x4c, 0x89, 0x6d, 0xe8});
         }
         code_.raw({
                    0x4c, 0x8b, 0x21,
-                   0x4c, 0x8d, 0x51, 0x08});
+                   0x4c, 0x8d, 0x51, 0x08,
+                   0x4c, 0x8d, 0x69, 0x30});
         code_.raw({0x4c, 0x8d, 0x59});
         code_.byte(shape->error_capable || shape->literal_scalar_arguments
             ? 0x10
@@ -3177,6 +3214,7 @@ private:
                        0x4c, 0x89, 0x41, 0x18,
                        0xf2, 0x0f, 0x11, 0x51, 0x20,
                        0x44, 0x89, 0x49, 0x28});
+            code_.raw({0x4c, 0x8b, 0x6d, 0xe8});
         }
         code_.raw({0x4c, 0x8b, 0x65, 0xf8, 0x31, 0xc0, 0xc9, 0xc3});
 #endif
@@ -3187,7 +3225,9 @@ private:
         code_.byte(0xcc);
     }
 
-    void emit_exact_error_capture() {
+    void emit_exact_error_capture(
+        std::optional<std::int32_t> cancellation_displacement = std::nullopt
+    ) {
 #ifdef _WIN32
         // Internal error ABI: r8 points at the message, xmm2 carries its f64
         // length, and r9d carries the exact error mask. Marshal those values
@@ -3196,6 +3236,12 @@ private:
         code_.raw({0x4c, 0x89, 0xc1,
                    0x66, 0x48, 0x0f, 0x7e, 0xd2,
                    0x45, 0x89, 0xc8});
+        if (cancellation_displacement) {
+            code_.raw({0x44, 0x8b, 0x8d});
+            code_.i32(*cancellation_displacement);
+        } else {
+            code_.raw({0x45, 0x31, 0xc9});
+        }
 #endif
         call_runtime_slot(10);
     }
@@ -6091,6 +6137,26 @@ private:
             is_integer_function_candidate(function)) {
             emit_integer_function(function, frame);
             return;
+        }
+        std::optional<
+            vkf::optimization_dependency_gate::StaticLoopCancellationSite
+        > cancellation_site;
+        bool cancellation_requests_sibling = false;
+        if (execute_automatic_cpu_pair_ && !entry && function.may_error) {
+            const auto shape =
+                vkf::adaptive_optimizer::automatic_cpu_pair_entry_shape(
+                    module_
+                );
+            if (shape && shape->error_capable) {
+                const auto& instructions = module_.entry.instructions;
+                const auto& left = instructions[shape->left_call].symbol;
+                const auto& right = instructions[shape->right_call].symbol;
+                if (function.name == left || function.name == right) {
+                    cancellation_site = vkf::optimization_dependency_gate::
+                        safe_static_loop_cancellation_site(function);
+                    cancellation_requests_sibling = function.name == left;
+                }
+            }
         }
         std::map<std::uint32_t, std::size_t> label_positions;
         for (std::size_t position = 0; position < function.instructions.size(); ++position) {
@@ -13006,6 +13072,20 @@ private:
                     throw BackendFailure("duplicate x64 machine IR label");
                 }
             } else if (opcode == Opcode::Jump) {
+                if (cancellation_site &&
+                    cancellation_site->backedge_instruction ==
+                        instruction_index) {
+                    code_.raw({0x41, 0xf7, 0x45, 0x00});
+                    code_.i32(1);
+                    const auto continue_loop = emit_jump(0x84);
+                    code_.raw({0xf0, 0x41, 0x83, 0x4d, 0x00, 0x02,
+                               0x66, 0x0f, 0xef, 0xc0});
+                    restore_result_context(frame);
+                    store_result_to_r11(0);
+                    code_.raw({0x45, 0x31, 0xc9});
+                    epilogue();
+                    code_.patch_rel32(continue_loop, code_.position());
+                }
                 code_.byte(0xe9);
                 branches.push_back({code_.rel32_placeholder(), instruction.label});
             } else if (opcode == Opcode::JumpIfFalse) {
@@ -13159,6 +13239,11 @@ private:
                     if (entry) {
                         emit_abort();
                     } else {
+                        if (cancellation_site &&
+                            cancellation_requests_sibling) {
+                            code_.raw({0xf0, 0x41, 0x83, 0x4d,
+                                       0x00, 0x01});
+                        }
                         emit_error_cleanup(function, frame);
                         emit_error_message_registers(instruction.index, instruction.byte_count);
                         code_.raw({0x41, 0xb9});
@@ -13564,6 +13649,8 @@ struct TuningResult {
     bool eligible = false;
     bool tuned = false;
     bool cache_hit = false;
+    bool cancellation_observed = false;
+    bool thread_cleanup_complete = false;
     std::string fingerprint;
     std::uint32_t landscape_runs = 0;
     std::optional<vkf::retained_optimization_driver::BuildReceipt>
@@ -13581,6 +13668,10 @@ struct ExactExecutionOutcome {
     std::uint32_t error_type = 0;
     bool error = false;
     bool partial_results = false;
+    bool cancellation_observed = false;
+    std::uint32_t threads_created = 0;
+    std::uint32_t threads_joined = 0;
+    std::uint32_t thread_handles_closed = 0;
 
     bool operator==(const ExactExecutionOutcome& other) const {
         return values == other.values && error_message == other.error_message &&
@@ -13643,9 +13734,9 @@ public:
         runtime_[9] = function_address(static_cast<void (*)(void*)>(std::free));
         runtime_[10] = function_address(&tuning_abort);
 #ifdef _WIN32
-        runtime_[37] = function_address(&CreateThread);
-        runtime_[38] = function_address(&WaitForSingleObject);
-        runtime_[39] = function_address(&CloseHandle);
+        runtime_[37] = function_address(&tuning_create_thread);
+        runtime_[38] = function_address(&tuning_wait_for_single_object);
+        runtime_[39] = function_address(&tuning_close_handle);
 #endif
     }
 
@@ -13751,10 +13842,47 @@ public:
     }
 
 private:
+#ifdef _WIN32
+    static HANDLE WINAPI tuning_create_thread(
+        LPSECURITY_ATTRIBUTES attributes,
+        SIZE_T stack_size,
+        LPTHREAD_START_ROUTINE start,
+        LPVOID parameter,
+        DWORD flags,
+        LPDWORD thread_id
+    ) {
+        const HANDLE handle = CreateThread(
+            attributes, stack_size, start, parameter, flags, thread_id
+        );
+        if (handle && active_outcome_) ++active_outcome_->threads_created;
+        return handle;
+    }
+
+    static DWORD WINAPI tuning_wait_for_single_object(
+        HANDLE handle,
+        DWORD milliseconds
+    ) {
+        const DWORD result = WaitForSingleObject(handle, milliseconds);
+        if (result == WAIT_OBJECT_0 && active_outcome_) {
+            ++active_outcome_->threads_joined;
+        }
+        return result;
+    }
+
+    static BOOL WINAPI tuning_close_handle(HANDLE handle) {
+        const BOOL result = CloseHandle(handle);
+        if (result && active_outcome_) {
+            ++active_outcome_->thread_handles_closed;
+        }
+        return result;
+    }
+#endif
+
     static void tuning_abort(
         const unsigned char* error_pointer,
         std::uint64_t error_length_bits,
-        std::uint32_t error_type
+        std::uint32_t error_type,
+        std::uint32_t cancellation_state
     ) {
         const auto pointer = reinterpret_cast<std::uintptr_t>(error_pointer);
         const auto strings = reinterpret_cast<std::uintptr_t>(
@@ -13778,6 +13906,8 @@ private:
             );
             active_outcome_->error_length_bits = error_length_bits;
             active_outcome_->error_type = error_type;
+            active_outcome_->cancellation_observed =
+                (cancellation_state & 2u) != 0u;
             return;
         }
         if (active_escape_) std::longjmp(*active_escape_, 1);
@@ -14175,6 +14305,19 @@ TuningResult tune_machine_code_guided(
         candidate_samples.push_back(candidate_ns);
         evidence.timings.push_back({baseline_ns, candidate_ns});
         result.total_runs += 2;
+        if (execute_candidate_cpu_pair) {
+            const bool cleaned =
+                candidate_sample.first.threads_created == 1u &&
+                candidate_sample.first.threads_joined == 1u &&
+                candidate_sample.first.thread_handles_closed == 1u;
+            result.thread_cleanup_complete =
+                (result.total_runs == 2u || result.thread_cleanup_complete) &&
+                cleaned;
+            result.cancellation_observed =
+                result.cancellation_observed ||
+                candidate_sample.first.cancellation_observed;
+            if (!cleaned) evidence.equivalent_output = false;
+        }
         if (baseline_sample.first != candidate_sample.first ||
             baseline_sample.first.partial_results ||
             candidate_sample.first.partial_results) {
@@ -14483,7 +14626,7 @@ std::string optimizer_toolchain_material() {
     material << "|msvc-full-" << _MSC_FULL_VER;
 #endif
     material << "|cplusplus-" << __cplusplus
-             << "|x64-emitter-qopt13|built-" << __DATE__ << '-' << __TIME__;
+             << "|x64-emitter-qopt14|built-" << __DATE__ << '-' << __TIME__;
     return material.str();
 }
 
@@ -14548,7 +14691,7 @@ vkf::retained_optimization_driver::Request retained_driver_request(
         {
             "adaptive-v4",
             automatic_cpu_pair_candidate
-                ? "x64-threaded-pair-qopt13"
+                ? "x64-threaded-pair-qopt14"
                 : "x64-machine-emitter-qopt03",
             automatic_cpu_pair_candidate
                 ? "independent-multi-result-graph"
@@ -14941,6 +15084,10 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     result.machine_code_fingerprint = machine_code_hash(code);
     result.optimizer_ms = tuning.elapsed_ms;
     result.optimizer_cache_hit = tuning.cache_hit;
+    result.optimizer_cancellation_observed =
+        tuning.cancellation_observed;
+    result.optimizer_thread_cleanup_complete =
+        tuning.thread_cleanup_complete;
     std::filesystem::create_directories(result.artifact_path.parent_path());
     if (optimization_policy == "tune") {
         write_tuning_profile(optimizer_profile_path, tuning);

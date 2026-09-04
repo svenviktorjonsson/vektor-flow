@@ -19,6 +19,8 @@ struct ArtifactResult {
     std::string machine_code_fingerprint;
     double optimizer_ms = 0.0;
     bool optimizer_cache_hit = false;
+    bool optimizer_cancellation_observed = false;
+    bool optimizer_thread_cleanup_complete = false;
 };
 
 struct SupportResult {
