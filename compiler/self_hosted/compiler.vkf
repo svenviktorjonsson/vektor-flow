@@ -1716,6 +1716,30 @@ _compile_tagged_numeric_literal_function_chain_bounded_section_x64(
     code_capacity:num,
     high_bytes:[str]
 ) -> str:
+    code_size: _compile_tagged_numeric_literal_function_chain_code_size(
+        first_source, second_source, third_source
+    )
+    artifact_tail: _compile_x64_bounded_section_tail(
+        code_size, code_capacity, artifact_suffix
+    )
+    _compile_tagged_numeric_literal_function_chain_symbols_x64(
+        first_source,
+        second_source,
+        third_source,
+        template_prefix,
+        function_prologue,
+        multiplication_code,
+        function_epilogue,
+        result_bridge,
+        artifact_tail,
+        high_bytes
+    )
+
+_compile_tagged_numeric_literal_function_chain_code_size(
+    first_source:str,
+    second_source:str,
+    third_source:str
+) -> num:
     first_tokens: lexer.tagged_numeric_function_token_tape(first_source)
     first: _compile_tagged_numeric_literal_function_tape(
         first_tokens.source, first_tokens.rows, first_tokens.count
@@ -1737,22 +1761,7 @@ _compile_tagged_numeric_literal_function_chain_bounded_section_x64(
         (2 + second_factor_size + 7 + 9) +
         (2 + third_factor_size + 7 + 9)
     )
-    code_size: 2 + helper_sizes + first_argument_size + 5 + 6 + 5 + 6 + 5 + 1
-    artifact_tail: _compile_x64_bounded_section_tail(
-        code_size, code_capacity, artifact_suffix
-    )
-    _compile_tagged_numeric_literal_function_chain_symbols_x64(
-        first_source,
-        second_source,
-        third_source,
-        template_prefix,
-        function_prologue,
-        multiplication_code,
-        function_epilogue,
-        result_bridge,
-        artifact_tail,
-        high_bytes
-    )
+    2 + helper_sizes + first_argument_size + 5 + 6 + 5 + 6 + 5 + 1
 
 _compile_tagged_numeric_literal_function_chain_section_x64(
     first_source:str,
@@ -1791,10 +1800,14 @@ _compile_tagged_numeric_literal_function_chain_template_x64(
     result_bridge:str,
     high_bytes:[str]
 ) -> str:
-    section: pe_x64.code_section(template, high_bytes)
+    code_size: _compile_tagged_numeric_literal_function_chain_code_size(
+        first_source, second_source, third_source
+    )
+    section: pe_x64.code_section(template, code_size, high_bytes)
     artifact_template: pe_x64.materialize_code_section(
         template,
         section.existing,
+        section.append,
         section.header_offset,
         section.virtual_size,
         section.virtual_address,
@@ -1809,7 +1822,7 @@ _compile_tagged_numeric_literal_function_chain_template_x64(
     artifact_suffix: pe_x64.slice_bytes(
         artifact_template,
         section.raw_offset + section.raw_size,
-        section.template_length
+        section.artifact_length
     )
     _compile_tagged_numeric_literal_function_chain_bounded_section_x64(
         first_source,
