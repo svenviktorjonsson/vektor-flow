@@ -187,6 +187,46 @@ export function materializeVisualOutput(output) {
       ]);
     }
     if (record?.magic === 1447773776) {
+      if (record.version === 2) {
+        const keys = [
+          "casts_shadow", "center", "color", "magic", "receives_shadow", "rotation",
+          "roughness", "size", "specular_strength", "texture", "version",
+        ];
+        if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+            || !finiteVector(record.center, 3) || !finiteNumber(record.size) || record.size <= 0
+            || !finiteVector(record.color, 4)
+            || record.color.some((value) => value < 0 || value > 1)
+            || !finiteNumber(record.roughness) || record.roughness < 0 || record.roughness > 1
+            || !finiteNumber(record.specular_strength)
+            || record.specular_strength < 0 || record.specular_strength > 1
+            || typeof record.casts_shadow !== "boolean"
+            || typeof record.receives_shadow !== "boolean"
+            || !finiteVector(record.rotation, 3)) {
+          throw new TypeError("browser compiler returned an invalid native cube packet");
+        }
+        const textureKeys = [
+          "color_a", "color_b", "graph_width_px", "kind", "magic", "version",
+        ];
+        const texture = record.texture;
+        if (!texture || typeof texture !== "object" || Array.isArray(texture)
+            || Object.keys(texture).sort().join("\0") !== textureKeys.join("\0")
+            || texture.magic !== 1447773778 || texture.version !== 1
+            || texture.kind !== "dice"
+            || !finiteVector(texture.color_a, 4) || !finiteVector(texture.color_b, 4)
+            || texture.color_a.some((value) => value < 0 || value > 1)
+            || texture.color_b.some((value) => value < 0 || value > 1)
+            || !finiteNumber(texture.graph_width_px) || texture.graph_width_px < 0
+            || texture.graph_width_px > 32) {
+          throw new TypeError("browser compiler returned an invalid native dice texture packet");
+        }
+        return Float64Array.from([
+          record.magic, record.version, ...record.center, record.size, ...record.color,
+          record.roughness, record.specular_strength,
+          record.casts_shadow ? 1 : 0, record.receives_shadow ? 1 : 0,
+          ...record.rotation, texture.magic, texture.version, 1,
+          ...texture.color_a, ...texture.color_b, texture.graph_width_px,
+        ]);
+      }
       const keys = [
         "casts_shadow", "center", "color", "magic", "receives_shadow",
         "roughness", "size", "specular_strength", "version",

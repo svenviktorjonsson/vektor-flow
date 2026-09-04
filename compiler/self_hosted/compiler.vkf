@@ -1532,16 +1532,26 @@ BrowserNativePlane: (
     size:num,
     z:num,
     color_source:str,
+    texture_source:str,
     unsupported:bit
 )
 BrowserNativeCube: (
     center_source:str,
     size:num,
     color_source:str,
+    rotation_source:str,
+    texture_source:str,
     roughness:num,
     specular_strength:num,
     casts_shadow:bit,
     receives_shadow:bit,
+    unsupported:bit
+)
+BrowserNativeDiceTexture: (
+    kind:str,
+    color_a_source:str,
+    color_b_source:str,
+    graph_width_px:num,
     unsupported:bit
 )
 BrowserNativeShadow: (
@@ -3153,11 +3163,12 @@ _browser_scan_native_cube_scene(
 
 _browser_scan_native_plane(
     source:str, offset:int, stop:int, center_source:str,
-    size:num, z:num, color_source:str, unsupported:bit
+    size:num, z:num, color_source:str, texture_source:str, unsupported:bit
 ) -> BrowserNativePlane:
     (offset >= stop \/ vkf_string_eof(source, offset))?
         @: (center_source:center_source, size:size, z:z,
-            color_source:color_source, unsupported:unsupported)
+            color_source:color_source, texture_source:texture_source,
+            unsupported:unsupported)
     ch: vkf_string_peek_scalar(source, offset)
     next: vkf_utf8_advance(source, offset)
     (_browser_source_starts_with(source, offset, "center:", 0) \/
@@ -3175,7 +3186,8 @@ _browser_scan_native_plane(
         _browser_source_starts_with(source, offset, "color:", 0)?
             .next_color: vkf_utf8_slice(source, value_start, value_stop)
         @: _browser_scan_native_plane(
-            source, value_stop, stop, next_center, size, z, next_color, unsupported
+            source, value_stop, stop, next_center, size, z, next_color,
+            texture_source, unsupported
         )
     (_browser_source_starts_with(source, offset, "size:", 0) \/
         _browser_source_starts_with(source, offset, "z:", 0))?
@@ -3193,7 +3205,15 @@ _browser_scan_native_plane(
             .next_z: value
         @: _browser_scan_native_plane(
             source, value_stop, stop, center_source, next_size, next_z,
-            color_source, unsupported
+            color_source, texture_source, unsupported
+        )
+    _browser_source_starts_with(source, offset, "texture:", 0)?
+        value_start: _browser_display_value_start(source, offset + 8)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser native plane texture requires a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        @: _browser_scan_native_plane(
+            source, value_stop, stop, center_source, size, z, color_source,
+            vkf_utf8_slice(source, value_start + 1, value_stop - 1), unsupported
         )
     _browser_source_starts_with(source, offset, "id:", 0)?
         value_start: _browser_display_value_start(source, offset + 3)
@@ -3201,7 +3221,7 @@ _browser_scan_native_plane(
         value_stop: _browser_display_string_stop(source, value_start + 1)
         @: _browser_scan_native_plane(
             source, value_stop + 1, stop, center_source, size, z,
-            color_source, unsupported
+            color_source, texture_source, unsupported
         )
     unknown: unsupported
     _browser_ascii_identifier_start(ch)?
@@ -3210,17 +3230,20 @@ _browser_scan_native_plane(
             vkf_string_peek_scalar(source, identifier_stop) = 58)?
             .unknown: true
     _browser_scan_native_plane(
-        source, next, stop, center_source, size, z, color_source, unknown
+        source, next, stop, center_source, size, z, color_source,
+        texture_source, unknown
     )
 
 _browser_scan_native_cube(
     source:str, offset:int, stop:int, center_source:str, size:num,
-    color_source:str, roughness:num, specular_strength:num,
+    color_source:str, rotation_source:str, texture_source:str,
+    roughness:num, specular_strength:num,
     casts_shadow:bit, receives_shadow:bit, unsupported:bit
 ) -> BrowserNativeCube:
     (offset >= stop \/ vkf_string_eof(source, offset))?
         @: (
             center_source:center_source, size:size, color_source:color_source,
+            rotation_source:rotation_source, texture_source:texture_source,
             roughness:roughness, specular_strength:specular_strength,
             casts_shadow:casts_shadow, receives_shadow:receives_shadow,
             unsupported:unsupported
@@ -3228,22 +3251,29 @@ _browser_scan_native_cube(
     ch: vkf_string_peek_scalar(source, offset)
     next: vkf_utf8_advance(source, offset)
     (_browser_source_starts_with(source, offset, "center:", 0) \/
-        _browser_source_starts_with(source, offset, "face_color:", 0))?
+        _browser_source_starts_with(source, offset, "face_color:", 0) \/
+        _browser_source_starts_with(source, offset, "rotation:", 0))?
         colon_width: 7
         _browser_source_starts_with(source, offset, "face_color:", 0)?
             .colon_width: 11
+        _browser_source_starts_with(source, offset, "rotation:", 0)?
+            .colon_width: 9
         value_start: _browser_display_value_start(source, offset + colon_width)
         (vkf_string_peek_scalar(source, value_start) = 91)?! "browser native cube vector field requires a vector"
         value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
         next_center: center_source
         next_color: color_source
+        next_rotation: rotation_source
         _browser_source_starts_with(source, offset, "center:", 0)?
             .next_center: vkf_utf8_slice(source, value_start, value_stop)
         _browser_source_starts_with(source, offset, "face_color:", 0)?
             .next_color: vkf_utf8_slice(source, value_start, value_stop)
+        _browser_source_starts_with(source, offset, "rotation:", 0)?
+            .next_rotation: vkf_utf8_slice(source, value_start, value_stop)
         @: _browser_scan_native_cube(
             source, value_stop, stop, next_center, size, next_color,
-            roughness, specular_strength, casts_shadow, receives_shadow, unsupported
+            next_rotation, texture_source, roughness, specular_strength,
+            casts_shadow, receives_shadow, unsupported
         )
     (_browser_source_starts_with(source, offset, "size:", 0) \/
         _browser_source_starts_with(source, offset, "roughness:", 0) \/
@@ -3267,7 +3297,17 @@ _browser_scan_native_cube(
             .next_specular: value
         @: _browser_scan_native_cube(
             source, value_stop, stop, center_source, next_size, color_source,
-            next_roughness, next_specular, casts_shadow, receives_shadow, unsupported
+            rotation_source, texture_source, next_roughness, next_specular,
+            casts_shadow, receives_shadow, unsupported
+        )
+    _browser_source_starts_with(source, offset, "texture:", 0)?
+        value_start: _browser_display_value_start(source, offset + 8)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser native cube texture requires a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        @: _browser_scan_native_cube(
+            source, value_stop, stop, center_source, size, color_source,
+            rotation_source, vkf_utf8_slice(source, value_start + 1, value_stop - 1),
+            roughness, specular_strength, casts_shadow, receives_shadow, unsupported
         )
     (_browser_source_starts_with(source, offset, "casts_shadow:", 0) \/
         _browser_source_starts_with(source, offset, "receives_shadow:", 0))?
@@ -3293,7 +3333,8 @@ _browser_scan_native_cube(
             .next_receives: value
         @: _browser_scan_native_cube(
             source, value_stop, stop, center_source, size, color_source,
-            roughness, specular_strength, next_casts, next_receives, unsupported
+            rotation_source, texture_source, roughness, specular_strength,
+            next_casts, next_receives, unsupported
         )
     _browser_source_starts_with(source, offset, "id:", 0)?
         value_start: _browser_display_value_start(source, offset + 3)
@@ -3301,7 +3342,8 @@ _browser_scan_native_cube(
         value_stop: _browser_display_string_stop(source, value_start + 1)
         @: _browser_scan_native_cube(
             source, value_stop + 1, stop, center_source, size, color_source,
-            roughness, specular_strength, casts_shadow, receives_shadow, unsupported
+            rotation_source, texture_source, roughness, specular_strength,
+            casts_shadow, receives_shadow, unsupported
         )
     unknown: unsupported
     _browser_ascii_identifier_start(ch)?
@@ -3311,7 +3353,64 @@ _browser_scan_native_cube(
             .unknown: true
     _browser_scan_native_cube(
         source, next, stop, center_source, size, color_source,
-        roughness, specular_strength, casts_shadow, receives_shadow, unknown
+        rotation_source, texture_source, roughness, specular_strength,
+        casts_shadow, receives_shadow, unknown
+    )
+
+_browser_scan_native_dice_texture(
+    source:str, offset:int, stop:int, kind:str,
+    color_a_source:str, color_b_source:str, graph_width_px:num,
+    unsupported:bit
+) -> BrowserNativeDiceTexture:
+    (offset >= stop \/ vkf_string_eof(source, offset))?
+        @: (
+            kind:kind, color_a_source:color_a_source,
+            color_b_source:color_b_source, graph_width_px:graph_width_px,
+            unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    _browser_source_starts_with(source, offset, "kind:", 0)?
+        value_start: _browser_display_value_start(source, offset + 5)
+        (vkf_string_peek_scalar(source, value_start) = 34)?! "browser native dice texture kind requires a string"
+        value_stop: _browser_display_string_stop(source, value_start + 1)
+        @: _browser_scan_native_dice_texture(
+            source, value_stop + 1, stop,
+            vkf_utf8_slice(source, value_start + 1, value_stop),
+            color_a_source, color_b_source, graph_width_px, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "color_a:", 0) \/
+        _browser_source_starts_with(source, offset, "color_b:", 0))?
+        value_start: _browser_display_value_start(source, offset + 8)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser native dice texture color requires a vector"
+        value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        next_a: color_a_source
+        next_b: color_b_source
+        _browser_source_starts_with(source, offset, "color_a:", 0)?
+            .next_a: vkf_utf8_slice(source, value_start, value_stop)
+        _browser_source_starts_with(source, offset, "color_b:", 0)?
+            .next_b: vkf_utf8_slice(source, value_start, value_stop)
+        @: _browser_scan_native_dice_texture(
+            source, value_stop, stop, kind, next_a, next_b,
+            graph_width_px, unsupported
+        )
+    _browser_source_starts_with(source, offset, "graph_width_px:", 0)?
+        value_start: _browser_display_value_start(source, offset + 15)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        @: _browser_scan_native_dice_texture(
+            source, value_stop, stop, kind, color_a_source, color_b_source,
+            vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop)),
+            unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_native_dice_texture(
+        source, next, stop, kind, color_a_source, color_b_source,
+        graph_width_px, unknown
     )
 
 _browser_scan_native_shadow(
@@ -3381,8 +3480,28 @@ _browser_record_list_item(source:str, offset:int, target:int, index:int) -> str:
         @: vkf_utf8_slice(source, open + 1, stop - 1)
     _browser_record_list_item(source, stop, target, index + 1)
 
+_browser_native_dice_texture_packet(source:str) -> any:
+    texture: _browser_scan_native_dice_texture(
+        source, 0, 2147483647, "", "", "", -1, false
+    )
+    (~texture.unsupported /\ texture.kind = "dice" /\
+        texture.color_a_source != "" /\ texture.color_b_source != "" /\
+        texture.graph_width_px >= 0 /\ texture.graph_width_px <= 32)?! "browser native dice texture contains unsupported options"
+    color_a_tape: lexer.tagged_numeric_function_token_tape(texture.color_a_source)
+    color_a: _browser_lifted_value(color_a_tape, 0, 1).value
+    color_b_tape: lexer.tagged_numeric_function_token_tape(texture.color_b_source)
+    color_b: _browser_lifted_value(color_b_tape, 0, 1).value
+    (color_a.length() = 4 /\ color_b.length() = 4)?! "browser native dice texture colors must be RGBA"
+    (
+        magic:1447773778, version:1, kind:"dice",
+        color_a:color_a, color_b:color_b,
+        graph_width_px:texture.graph_width_px
+    )
+
 _browser_native_plane_packet(source:str) -> any:
-    plane: _browser_scan_native_plane(source, 0, 2147483647, "", 0, 0, "", false)
+    plane: _browser_scan_native_plane(
+        source, 0, 2147483647, "", 0, 0, "", "", false
+    )
     (~plane.unsupported /\ plane.center_source != "" /\ plane.size > 0 /\
         plane.color_source != "")?! "browser native plane contains unsupported options"
     center_tape: lexer.tagged_numeric_function_token_tape(plane.center_source)
@@ -3390,6 +3509,11 @@ _browser_native_plane_packet(source:str) -> any:
     color_tape: lexer.tagged_numeric_function_token_tape(plane.color_source)
     color: _browser_lifted_value(color_tape, 0, 1).value
     (center.length() = 2 /\ color.length() = 4)?! "browser native plane fields are invalid"
+    texture: []
+    plane.texture_source != ""?
+        .texture: _browser_display_texture_packet(
+            "frame.add(texture:(" & plane.texture_source & "))", 0, false
+        )
     half: plane.size / 2
     (
         magic:1447773766, version:5, rows:2, columns:2, color:color,
@@ -3397,12 +3521,13 @@ _browser_native_plane_packet(source:str) -> any:
         y:[[center.1 - half, center.1 - half], [center.1 + half, center.1 + half]],
         z:[[plane.z, plane.z], [plane.z, plane.z]],
         receives_lighting:true, casts_shadow:false, receives_shadow:true,
-        roughness:1, specular_strength:0, texture:[], optical:[], surface_system:[]
+        roughness:1, specular_strength:0, texture:texture,
+        optical:[], surface_system:[]
     )
 
 _browser_native_cube_packet(source:str) -> any:
     cube: _browser_scan_native_cube(
-        source, 0, 2147483647, "", 0, "", 1, 0,
+        source, 0, 2147483647, "", 0, "", "", "", 1, 0,
         false, false, false
     )
     (~cube.unsupported /\ cube.center_source != "" /\ cube.size > 0 /\
@@ -3413,6 +3538,20 @@ _browser_native_cube_packet(source:str) -> any:
     color_tape: lexer.tagged_numeric_function_token_tape(cube.color_source)
     color: _browser_lifted_value(color_tape, 0, 1).value
     (center.length() = 3 /\ color.length() = 4)?! "browser native cube fields are invalid"
+    cube.texture_source != ""?
+        (cube.rotation_source != "")?! "browser native textured cube requires rotation"
+        rotation_tape: lexer.tagged_numeric_function_token_tape(cube.rotation_source)
+        rotation: _browser_lifted_value(rotation_tape, 0, 1).value
+        (rotation.length() = 3)?! "browser native cube rotation must have three values"
+        @: (
+            magic:1447773776, version:2, center:center, size:cube.size,
+            color:color, roughness:cube.roughness,
+            specular_strength:cube.specular_strength,
+            casts_shadow:cube.casts_shadow, receives_shadow:cube.receives_shadow,
+            rotation:rotation,
+            texture:_browser_native_dice_texture_packet(cube.texture_source)
+        )
+    (cube.rotation_source = "")?! "browser native cube rotation requires a texture"
     (
         magic:1447773776, version:1, center:center, size:cube.size,
         color:color, roughness:cube.roughness,

@@ -477,6 +477,57 @@ test("browser compiler retains the README native spotlight cone", async () => {
   );
 });
 
+test("browser compiler retains the README rotated procedural die", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const dice = examples.find(({ id }) => id === "readme-18");
+  const output = { ...compiler.run(dice.source) };
+
+  assert.deepEqual(output.packet_records.map(({ magic }) => magic), [
+    1447773767, 1447773768, 1447773766, 1447773776, 1447773769,
+  ]);
+  assert.deepEqual({
+    ...output.packet_records[2].texture,
+    color_a: rounded(output.packet_records[2].texture.color_a),
+    color_b: rounded(output.packet_records[2].texture.color_b),
+  }, {
+    magic: 1447773770, version: 1, kind: "checker", scale: [1, 1],
+    color_a: [0.09, 0.14, 0.13, 1], color_b: [0.32, 0.42, 0.36, 1],
+    roughness: 1, blade_length: 0, clump_density: 0, micro_shadow: 0,
+  });
+  const die = { ...output.packet_records[3] };
+  assert.deepEqual([die.magic, die.version], [1447773776, 2]);
+  assert.deepEqual(rounded(die.rotation), [24, -18, 32]);
+  assert.deepEqual({
+    ...die.texture,
+    color_a: rounded(die.texture.color_a),
+    color_b: rounded(die.texture.color_b),
+  }, {
+    magic: 1447773778, version: 1, kind: "dice",
+    color_a: [0.98, 0.98, 1, 1], color_b: [0.025, 0.025, 0.035, 1],
+    graph_width_px: 3,
+  });
+  assert.deepEqual(rounded([...materializeVisualOutput(output).packets[3]].slice(14)), [
+    24, -18, 32, 1447773778, 1, 1,
+    0.98, 0.98, 1, 1, 0.025, 0.025, 0.035, 1, 3,
+  ]);
+
+  const changed = { ...compiler.run(dice.source
+    .replace("rotation:[24, -18, 32]", "rotation:[10, 20, 30]")
+    .replace("color_a:[0.98, 0.98, 1, 1]", "color_a:[0.3, 0.8, 1, 1]")
+    .replace("graph_width_px:3", "graph_width_px:5")) };
+  assert.deepEqual(rounded(changed.packet_records[3].rotation), [10, 20, 30]);
+  assert.deepEqual(rounded(changed.packet_records[3].texture.color_a), [0.3, 0.8, 1, 1]);
+  assert.equal(changed.packet_records[3].texture.graph_width_px, 5);
+  assert.throws(
+    () => compiler.run(dice.source.replace("graph_width_px:3", "graph_width_px:3, seed:4")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(dice.source.replace("rotation:[24, -18, 32]", "rotation:[24, -18]")),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -494,6 +545,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 17);
+  assert.equal(runnable.length, 18);
   assert.equal(examples.length, 26);
 });

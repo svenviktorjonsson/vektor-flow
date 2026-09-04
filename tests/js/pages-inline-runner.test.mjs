@@ -275,6 +275,31 @@ test("worker materializes a strictly versioned native spotlight buffer", () => {
   }), /invalid native spotlight packet/u);
 });
 
+test("worker materializes a strictly versioned rotated dice cube buffer", () => {
+  const cube = {
+    magic: 1447773776, version: 2, center: [0, 0.5, 1.1], size: 1.8,
+    color: [0.98, 0.98, 1, 1], roughness: 0.22, specular_strength: 0.72,
+    casts_shadow: true, receives_shadow: true, rotation: [24, -18, 32],
+    texture: {
+      magic: 1447773778, version: 1, kind: "dice",
+      color_a: [0.98, 0.98, 1, 1], color_b: [0.025, 0.025, 0.035, 1],
+      graph_width_px: 3,
+    },
+  };
+  const output = materializeVisualOutput({ kind: "visual", packet_records: [cube] });
+  assert.deepEqual([...output.packets[0]], [
+    1447773776, 2, 0, 0.5, 1.1, 1.8, 0.98, 0.98, 1, 1, 0.22, 0.72, 1, 1,
+    24, -18, 32, 1447773778, 1, 1,
+    0.98, 0.98, 1, 1, 0.025, 0.025, 0.035, 1, 3,
+  ]);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...cube, texture: { ...cube.texture, seed: 4 } }],
+  }), /invalid native dice texture packet/u);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...cube, rotation: [24, -18] }],
+  }), /invalid native cube packet/u);
+});
+
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
@@ -597,6 +622,50 @@ test("trusted inline renderer applies the source-derived spotlight cone", () => 
   const widened = render(5, 70);
   assert.notDeepEqual(centered, aimedAway);
   assert.notDeepEqual(aimedAway, widened);
+});
+
+test("trusted inline renderer rotates the die and draws procedural face marks", () => {
+  const render = (rotation, graphWidth, faceTint = 0.98) => {
+    const operations = [];
+    const context = {
+      beginPath: () => operations.push("begin"), closePath: () => operations.push("close"),
+      clearRect: () => {}, fillRect: () => {},
+      arc: (...args) => operations.push(["arc", ...args]),
+      lineTo: (...args) => operations.push(["line", ...args]),
+      moveTo: (...args) => operations.push(["move", ...args]),
+      fill: () => operations.push("fill"), stroke: () => operations.push("stroke"),
+      set fillStyle(value) { operations.push(["fillStyle", value]); },
+      set lineWidth(value) { operations.push(["lineWidth", value]); },
+      set strokeStyle(value) { operations.push(["strokeStyle", value]); },
+    };
+    const camera = Float64Array.from([
+      1447773768, 1, 4.8, -6.8, 4.4, 0, 0.4, 0.8, 0, 0, 1, 40,
+    ]);
+    const cube = Float64Array.from([
+      1447773776, 2, 0, 0.5, 1.1, 1.8,
+      0.98, 0.98, 1, 1, 0.22, 0.72, 1, 1,
+      ...rotation, 1447773778, 1, 1,
+      faceTint, 0.98, 1, 1, 0.025, 0.025, 0.035, 1, graphWidth,
+    ]);
+    renderInlineResult({ width: 320, height: 180, getContext: () => context }, [camera, cube]);
+    return operations;
+  };
+  const rotated = render([24, -18, 32], 3);
+  const changed = render([10, 20, 30], 5);
+  assert.ok(rotated.filter(([kind] = []) => kind === "arc").length >= 21,
+    "all six faces must receive their procedural pip patterns");
+  assert.ok(rotated.some(([kind, value] = []) => kind === "fillStyle"
+    && value === "rgba(6, 6, 9, 1)"));
+  assert.ok(rotated.some(([kind, value] = []) => kind === "lineWidth" && value === 3));
+  assert.notDeepEqual(
+    rotated.find(([kind] = []) => kind === "move"),
+    changed.find(([kind] = []) => kind === "move"),
+  );
+  assert.ok(changed.some(([kind, value] = []) => kind === "lineWidth" && value === 5));
+  assert.notDeepEqual(
+    rotated.filter(([kind] = []) => kind === "fillStyle"),
+    render([24, -18, 32], 3, 0.3).filter(([kind] = []) => kind === "fillStyle"),
+  );
 });
 
 test("terminal always appears below the editor and Result appears only for validated visual output", async () => {

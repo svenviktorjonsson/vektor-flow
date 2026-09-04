@@ -74,6 +74,28 @@ function decode(packet) {
       color: packet.slice(6, 10), roughness: packet[10],
       specularStrength: packet[11], castsShadow: packet[12] === 1,
       receivesShadow: packet[13] === 1,
+      rotation: Float64Array.from([0, 0, 0]), texture: null,
+    };
+  }
+  if (packet[0] === 1447773776 && packet[1] === 2 && packet.length === 29
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && packet[5] > 0
+      && Array.from(packet.slice(6, 10)).every((value) => value >= 0 && value <= 1)
+      && packet[10] >= 0 && packet[10] <= 1
+      && packet[11] >= 0 && packet[11] <= 1
+      && [0, 1].includes(packet[12]) && [0, 1].includes(packet[13])
+      && packet[17] === 1447773778 && packet[18] === 1 && packet[19] === 1
+      && Array.from(packet.slice(20, 28)).every((value) => value >= 0 && value <= 1)
+      && packet[28] >= 0 && packet[28] <= 32) {
+    return {
+      kind: "cube", center: packet.slice(2, 5), size: packet[5],
+      color: packet.slice(6, 10), roughness: packet[10],
+      specularStrength: packet[11], castsShadow: packet[12] === 1,
+      receivesShadow: packet[13] === 1, rotation: packet.slice(14, 17),
+      texture: {
+        kind: "dice", colorA: packet.slice(20, 24), colorB: packet.slice(24, 28),
+        graphWidthPx: packet[28],
+      },
     };
   }
   if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5, 6, 7].includes(packet[1])) {
@@ -154,12 +176,49 @@ function fieldVertex(mesh, index) {
 
 function cubeCorners(cube) {
   const half = cube.size / 2;
+  const radians = Array.from(cube.rotation, (value) => value * Math.PI / 180);
+  const [sinX, sinY, sinZ] = radians.map(Math.sin);
+  const [cosX, cosY, cosZ] = radians.map(Math.cos);
+  const rotate = ([x, y, z]) => {
+    const afterX = [x, (y * cosX) - (z * sinX), (y * sinX) + (z * cosX)];
+    const afterY = [
+      (afterX[0] * cosY) + (afterX[2] * sinY),
+      afterX[1],
+      (-afterX[0] * sinY) + (afterX[2] * cosY),
+    ];
+    return [
+      (afterY[0] * cosZ) - (afterY[1] * sinZ),
+      (afterY[0] * sinZ) + (afterY[1] * cosZ),
+      afterY[2],
+    ];
+  };
   return [
     [-half, -half, -half], [half, -half, -half],
     [-half, half, -half], [half, half, -half],
     [-half, -half, half], [half, -half, half],
     [-half, half, half], [half, half, half],
-  ].map((corner) => corner.map((value, index) => value + cube.center[index]));
+  ].map((corner) => rotate(corner).map((value, index) => value + cube.center[index]));
+}
+
+const dicePips = (value) => {
+  const low = 0.26;
+  const mid = 0.5;
+  const high = 0.74;
+  const patterns = {
+    1: [[mid, mid]],
+    2: [[low, low], [high, high]],
+    3: [[low, low], [mid, mid], [high, high]],
+    4: [[low, low], [high, low], [low, high], [high, high]],
+    5: [[low, low], [high, low], [mid, mid], [low, high], [high, high]],
+    6: [[low, low], [low, mid], [low, high], [high, low], [high, mid], [high, high]],
+  };
+  return patterns[value];
+};
+
+function facePoint(points, u, v) {
+  const top = mix(points[0], points[1], u);
+  const bottom = mix(points[3], points[2], u);
+  return mix(top, bottom, v);
 }
 
 const subtract = (left, right) => left.map((value, index) => value - right[index]);
@@ -466,8 +525,10 @@ export function renderInlineResult(canvas, packets) {
     [0, 4, 5, 1], [2, 3, 7, 6],
     [0, 2, 6, 4], [1, 5, 7, 3],
   ];
+  const diceFaceValues = [6, 1, 5, 2, 4, 3];
   for (const cube of cubes) {
     const corners = cubeCorners(cube);
+    const baseColor = cube.texture?.kind === "dice" ? cube.texture.colorA : cube.color;
     const light = lights[0];
     const distance = light ? Math.hypot(...subtract(light.pos, cube.center)) : 1;
     const diffuse = light ? Math.min(
@@ -485,7 +546,7 @@ export function renderInlineResult(canvas, packets) {
     for (const { face, faceIndex } of orderedFaces) {
       const orientation = 0.58 + ((faceIndex % 3) * 0.11);
       const strength = Math.min(1, orientation + diffuse + gloss);
-      const color = cube.color.map((value, index) => index === 3 ? value : value * strength);
+      const color = baseColor.map((value, index) => index === 3 ? value : value * strength);
       context.fillStyle = rgba(color);
       context.strokeStyle = rgba(color.map((value, index) => index === 3 ? value : value * 0.75));
       context.beginPath();
@@ -497,6 +558,33 @@ export function renderInlineResult(canvas, packets) {
       context.closePath();
       context.fill();
       context.stroke();
+      if (cube.texture?.kind === "dice") {
+        const projected = face.map((cornerIndex) => project(corners[cornerIndex]));
+        const pips = dicePips(diceFaceValues[faceIndex]);
+        if (cube.texture.graphWidthPx > 0 && pips.length > 1) {
+          context.strokeStyle = rgba(cube.texture.colorB);
+          context.lineWidth = cube.texture.graphWidthPx;
+          context.beginPath();
+          pips.forEach(([u, v], index) => {
+            const [x, y] = facePoint(projected, u, v);
+            if (index === 0) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          });
+          context.stroke();
+        }
+        const edge = Math.min(
+          Math.hypot(projected[1][0] - projected[0][0], projected[1][1] - projected[0][1]),
+          Math.hypot(projected[3][0] - projected[0][0], projected[3][1] - projected[0][1]),
+        );
+        context.fillStyle = rgba(cube.texture.colorB);
+        for (const [u, v] of pips) {
+          const [x, y] = facePoint(projected, u, v);
+          context.beginPath();
+          context.arc(x, y, Math.max(1, edge * 0.065), 0, Math.PI * 2);
+          context.fill();
+        }
+        context.lineWidth = 2;
+      }
     }
   }
 }
