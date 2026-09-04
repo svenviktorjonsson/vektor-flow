@@ -15,7 +15,7 @@ structured data, mathematics, and eventually visual applications.
 > diagnostics, and unstable APIs and syntax. Do not use it for production or
 > run untrusted VKF programs.
 >
-> The 0.4.0 release candidate adds the compiled Windows UI runtime, static
+> The 0.4.1 release candidate adds the compiled Windows UI runtime, static
 > HTML/CSS composition, and retained WebGPU scenes to the verified `linalg`,
 > `physics`, units, and `symbolic` libraries. It has not yet been tagged or
 > published.
@@ -706,11 +706,11 @@ native_scene:(
 <!-- scene-example:20-rigid-body-snapshot:end -->
 <!-- scene-gallery:end -->
 
-## Install VKF 0.4.0
+## Install VKF 0.4.1
 
 When the release gates complete, downloads will be published on the
-[0.4.0 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.4.0).
-Until that tag exists, 0.4.0 remains a release candidate rather than a
+[0.4.1 GitHub release](https://github.com/svenviktorjonsson/vektor-flow/releases/tag/v0.4.1).
+Until that tag exists, 0.4.1 remains a release candidate rather than a
 published download.
 
 | Platform | Recommended download | Installation |

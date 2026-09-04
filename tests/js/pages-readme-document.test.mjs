@@ -87,6 +87,10 @@ test("Pages consumes recorded stdout into exactly one inline Console", async () 
 test("README states the release scope of published benchmark measurements", async () => {
   const document = await buildReadmeDocument(repoRoot);
 
+  assert.match(document.html, /The 0\.4\.1 release candidate adds the compiled Windows UI runtime/iu);
+  assert.match(document.html, /<h2 id="install-vkf-041">Install VKF 0\.4\.1<\/h2>/u);
+  assert.match(document.html, /releases\/tag\/v0\.4\.1/u);
+  assert.doesNotMatch(document.html, /0\.4\.0 release candidate/iu);
   assert.match(document.html, /published timings[^.]*0\.3\.0/iu);
   assert.match(document.html, /0\.4\.1[^.]*UI/iu);
   assert.match(document.html, /0\.5\.0[^.]*complete benchmark matrix/iu);
