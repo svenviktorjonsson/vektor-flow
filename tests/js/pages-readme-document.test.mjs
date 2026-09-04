@@ -47,6 +47,43 @@ test("every README VKF block is an exact inline editable source", async () => {
   assert.doesNotMatch(document.html, /href="\.\/playground\/|browserRunnable|data-kind=/u);
 });
 
+test("Pages consumes recorded stdout into exactly one inline Console", async () => {
+  const [document, readme] = await Promise.all([
+    buildReadmeDocument(repoRoot),
+    readFile(new URL("../../README.md", import.meta.url), "utf8"),
+  ]);
+  const recorded = [...readme.replaceAll("\r\n", "\n").matchAll(
+    /\*\*(?:Recorded stdout[^\r\n]*|Exact output[^\r\n]*):\*\*\r?\n\r?\n```text\r?\n([\s\S]*?)\r?\n```/gu,
+  )].map((match) => match[1]);
+  const ids = ["readme-01", "readme-02", "readme-23", "readme-24", "readme-25"];
+
+  assert.equal(recorded.length, 6);
+  for (const [index, id] of ids.entries()) {
+    const escaped = recorded[index]
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    assert.match(
+      document.html,
+      new RegExp(
+        `<section class="readme-example" data-vkf-example-id="${id}">[\\s\\S]*?<section class="readme-example-terminal"><span>Console<\\/span><pre class="readme-example-output" aria-live="polite">${escaped}<\\/pre><\\/section>`,
+        "u",
+      ),
+    );
+  }
+  assert.match(
+    document.html,
+    /data-vkf-example-id="readme-26">[\s\S]*?<section class="readme-example-terminal" hidden><span>Console<\/span><pre class="readme-example-output" aria-live="polite"><\/pre><\/section>/u,
+  );
+  assert.doesNotMatch(document.html, /Recorded stdout \(exit code/u);
+  assert.equal(
+    [...document.html.matchAll(/Exact output \(all implementations\)/gu)].length,
+    1,
+  );
+});
+
 test("README states the release scope of published benchmark measurements", async () => {
   const document = await buildReadmeDocument(repoRoot);
 

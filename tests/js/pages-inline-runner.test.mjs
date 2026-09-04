@@ -946,6 +946,31 @@ test("terminal renders VKF console values as one output line per emitted value",
   assert.deepEqual(terminal, ["[2,4,6]\n[[2,4],[6,8]]"]);
 });
 
+test("Play replaces prefilled Console text on success and exact diagnostic paths", async () => {
+  let terminal = "recorded stdout";
+  const view = {
+    start: () => { terminal = "Running…"; },
+    showTerminal: (value) => { terminal = value; },
+    hideResult: () => {},
+    showResult: () => {},
+    finish: () => {},
+  };
+  const success = createInlineExampleController({
+    runner: { run: async () => ({ output: 42, packets: null }) },
+    view,
+  });
+  await success.run(":: 40 + 2");
+  assert.equal(terminal, "42");
+
+  terminal = "recorded stdout";
+  const diagnostic = createInlineExampleController({
+    runner: { run: async () => { throw new Error("unsupported source"); } },
+    view,
+  });
+  await diagnostic.run("not supported");
+  assert.equal(terminal, "unsupported source. No fallback result was rendered.");
+});
+
 test("unsupported execution reports failure without a fallback Result", async () => {
   const events = [];
   const controller = createInlineExampleController({

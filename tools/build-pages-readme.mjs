@@ -92,10 +92,34 @@ function isTableDivider(line) {
   return /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/u.test(line);
 }
 
+function recordedStdoutAfter(lines, offset) {
+  let cursor = offset;
+  while (cursor < lines.length && lines[cursor].trim() === "") cursor += 1;
+  if (/^<!--\s*readme-evidence:start\b.*-->$/u.test(lines[cursor] ?? "")) {
+    cursor += 1;
+    while (cursor < lines.length && lines[cursor].trim() === "") cursor += 1;
+  }
+  if (!/^\*\*(?:Recorded stdout \(exit code `0`; stderr empty\), all platforms|Exact output \(all implementations\)):\*\*$/u.test(lines[cursor] ?? "")) {
+    return null;
+  }
+  cursor += 1;
+  while (cursor < lines.length && lines[cursor].trim() === "") cursor += 1;
+  if (lines[cursor] !== "```text") return null;
+  const start = cursor + 1;
+  cursor = start;
+  while (cursor < lines.length && lines[cursor] !== "```") cursor += 1;
+  if (cursor >= lines.length) return null;
+  return Object.freeze({ stdout: lines.slice(start, cursor).join("\n"), end: cursor });
+}
+
 export async function buildReadmeDocument(repoRoot) {
   const root = filesystemRoot(repoRoot);
-  const markdown = await readFile(resolve(root, "README.md"), "utf8");
+  const [markdown, coverage] = await Promise.all([
+    readFile(resolve(root, "README.md"), "utf8"),
+    readFile(resolve(root, "tests/fixtures/pages-readme-browser-coverage.json"), "utf8").then(JSON.parse),
+  ]);
   const lines = markdown.replaceAll("\r\n", "\n").split("\n");
+  const runnable = new Set(coverage.browser_runnable_after_slice);
   const headings = [];
   const examples = [];
   const html = [];
@@ -125,6 +149,7 @@ export async function buildReadmeDocument(repoRoot) {
       if (language === "vkf") {
         const id = `readme-${String(examples.length + 1).padStart(2, "0")}`;
         const title = currentHeading;
+        const evidence = runnable.has(id) ? recordedStdoutAfter(lines, index + 1) : null;
         const item = Object.freeze({
           id,
           source,
@@ -136,10 +161,11 @@ export async function buildReadmeDocument(repoRoot) {
           `<div class="readme-example-bar"><span>VKF</span><button type="button" class="readme-example-play">Play</button></div>`,
           `<div class="readme-example-layout"><div class="readme-example-workspace">`,
           `<div class="readme-example-editor"><pre class="readme-example-highlight" aria-hidden="true"><code></code></pre><textarea class="readme-example-source" data-example-id="${id}" aria-label="Editable VKF source for ${escapeHtml(title)}" spellcheck="false">${escapeHtml(source)}</textarea></div>`,
-          `<section class="readme-example-terminal" hidden><span>Console</span><pre class="readme-example-output" aria-live="polite"></pre></section>`,
+          `<section class="readme-example-terminal"${evidence ? "" : " hidden"}><span>Console</span><pre class="readme-example-output" aria-live="polite">${escapeHtml(evidence?.stdout ?? "")}</pre></section>`,
           `</div></div>`,
           `</section>`,
         );
+        if (evidence) index = evidence.end;
       } else {
         html.push(`<pre><code>${escapeHtml(source)}</code></pre>`);
       }
