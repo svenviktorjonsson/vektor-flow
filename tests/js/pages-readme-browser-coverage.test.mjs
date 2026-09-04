@@ -394,6 +394,48 @@ test("browser compiler retains the README native indexed field mesh", async () =
   );
 });
 
+test("browser compiler retains the README native roughness scene", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const roughness = examples.find(({ id }) => id === "readme-13");
+  const output = { ...compiler.run(roughness.source) };
+
+  assert.deepEqual(output.packet_records.map(({ magic }) => magic), [
+    1447773767, 1447773768, 1447773766,
+    1447773776, 1447773776, 1447773776,
+    1447773769, 1447773769,
+  ]);
+  assert.deepEqual(output.packet_records.slice(3, 6).map((cube) => ({
+    center: rounded(cube.center),
+    size: rounded([cube.size])[0],
+    color: rounded(cube.color),
+    roughness: rounded([cube.roughness])[0],
+    specular_strength: rounded([cube.specular_strength])[0],
+    casts_shadow: cube.casts_shadow,
+    receives_shadow: cube.receives_shadow,
+  })), [
+    { center: [-2, 1, 0.9], size: 1.6, color: [0.32, 0.4, 0.55, 1], roughness: 0.95, specular_strength: 1, casts_shadow: true, receives_shadow: true },
+    { center: [0, 1, 0.9], size: 1.6, color: [0.32, 0.4, 0.55, 1], roughness: 0.35, specular_strength: 1, casts_shadow: true, receives_shadow: true },
+    { center: [2, 1, 0.9], size: 1.6, color: [0.32, 0.4, 0.55, 1], roughness: 0.02, specular_strength: 1, casts_shadow: true, receives_shadow: true },
+  ]);
+  assert.deepEqual(rounded([...materializeVisualOutput(output).packets[3]]), [
+    1447773776, 1, -2, 1, 0.9, 1.6, 0.32, 0.4, 0.55, 1, 0.95, 1, 1, 1,
+  ]);
+
+  const changed = { ...compiler.run(roughness.source
+    .replace('center:[-2, 1, 0.9]', 'center:[-2.5, 1.4, 1.2]')
+    .replace('roughness:0.95', 'roughness:0.72')) };
+  assert.deepEqual(rounded(changed.packet_records[3].center), [-2.5, 1.4, 1.2]);
+  assert.equal(rounded([changed.packet_records[3].roughness])[0], 0.72);
+  assert.throws(
+    () => compiler.run(roughness.source.replace('roughness:0.95', 'roughness:0.95, rotation:[0, 0, 0]')),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(roughness.source.replace('title:"Roughness",', 'title:"Roughness", exposure:1,')),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -411,6 +453,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 15);
+  assert.equal(runnable.length, 16);
   assert.equal(examples.length, 26);
 });

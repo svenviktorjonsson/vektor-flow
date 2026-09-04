@@ -239,6 +239,21 @@ test("worker materializes a strictly versioned indexed field-mesh buffer", () =>
   }), /invalid field mesh packet/u);
 });
 
+test("worker materializes a strictly versioned native cube buffer", () => {
+  const cube = {
+    magic: 1447773776, version: 1, center: [-2, 1, 0.9], size: 1.6,
+    color: [0.32, 0.4, 0.55, 1], roughness: 0.95, specular_strength: 1,
+    casts_shadow: true, receives_shadow: true,
+  };
+  const output = materializeVisualOutput({ kind: "visual", packet_records: [cube] });
+  assert.deepEqual([...output.packets[0]], [
+    1447773776, 1, -2, 1, 0.9, 1.6, 0.32, 0.4, 0.55, 1, 0.95, 1, 1, 1,
+  ]);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...cube, rotation: [0, 0, 0] }],
+  }), /invalid native cube packet/u);
+});
+
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
@@ -483,6 +498,53 @@ test("trusted inline renderer draws native field-mesh line-list indices", () => 
   assert.notDeepEqual(
     initial.find(([kind] = []) => kind === "strokeStyle"),
     render(-1.4, [1, 0.3, 0.1, 1]).find(([kind] = []) => kind === "strokeStyle"),
+  );
+});
+
+test("trusted inline renderer projects source-derived native cubes and roughness", () => {
+  const render = (roughness) => {
+    const operations = [];
+    const context = {
+      beginPath: () => operations.push("begin"),
+      closePath: () => operations.push("close"),
+      clearRect: () => {}, fillRect: () => {},
+      lineTo: (...args) => operations.push(["line", ...args]),
+      moveTo: (...args) => operations.push(["move", ...args]),
+      fill: () => operations.push("fill"), stroke: () => operations.push("stroke"),
+      set fillStyle(value) { operations.push(["fillStyle", value]); },
+      set lineWidth(_value) {}, set strokeStyle(value) { operations.push(["strokeStyle", value]); },
+    };
+    const camera = Float64Array.from([
+      1447773768, 1, 5.6, -8, 4.6, 0, 1, 1.1, 0, 0, 1, 42,
+    ]);
+    const light = Float64Array.from([
+      1447773769, 1, -3.5, -3, 5.8, 0, 1, 1,
+      1, 0.88, 0.7, 1, 42, 20, 1, 0,
+    ]);
+    const cube = Float64Array.from([
+      1447773776, 1, -2, 1, 0.9, 1.6,
+      0.32, 0.4, 0.55, 1, roughness, 1, 1, 1,
+    ]);
+    const receiver = Float64Array.from([
+      1447773766, 4, 2, 2, 0.08, 0.11, 0.18, 1, 1, 0, 1, 1, 0,
+      -4.5, -4.5, 0, 4.5, -4.5, 0, -4.5, 4.5, 0, 4.5, 4.5, 0,
+    ]);
+    renderInlineResult(
+      { width: 320, height: 180, getContext: () => context },
+      [camera, light, receiver, cube],
+    );
+    return operations;
+  };
+  const rough = render(0.95);
+  const polished = render(0.02);
+  assert.equal(rough.filter((operation) => operation === "fill").length, 6);
+  assert.ok(rough.some(([kind, x, y] = []) => kind === "move"
+    && Number.isFinite(x) && Number.isFinite(y)));
+  assert.ok(rough.some(([kind, value] = []) => kind === "strokeStyle"
+    && value.startsWith("rgba(0, 0, 0,")));
+  assert.notDeepEqual(
+    rough.filter(([kind] = []) => kind === "fillStyle"),
+    polished.filter(([kind] = []) => kind === "fillStyle"),
   );
 });
 

@@ -47,6 +47,20 @@ function decode(packet) {
       dataOffset, indexOffset, color: packet.slice(4, 8),
     };
   }
+  if (packet[0] === 1447773776 && packet[1] === 1 && packet.length === 14
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && packet[5] > 0
+      && Array.from(packet.slice(6, 10)).every((value) => value >= 0 && value <= 1)
+      && packet[10] >= 0 && packet[10] <= 1
+      && packet[11] >= 0 && packet[11] <= 1
+      && [0, 1].includes(packet[12]) && [0, 1].includes(packet[13])) {
+    return {
+      kind: "cube", center: packet.slice(2, 5), size: packet[5],
+      color: packet.slice(6, 10), roughness: packet[10],
+      specularStrength: packet[11], castsShadow: packet[12] === 1,
+      receivesShadow: packet[13] === 1,
+    };
+  }
   if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5, 6, 7].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
@@ -121,6 +135,16 @@ function fieldVertex(mesh, index) {
     position: mesh.packet.slice(offset, offset + 3),
     color: mesh.packet.slice(offset + 6, offset + 10),
   };
+}
+
+function cubeCorners(cube) {
+  const half = cube.size / 2;
+  return [
+    [-half, -half, -half], [half, -half, -half],
+    [-half, half, -half], [half, half, -half],
+    [-half, -half, half], [half, -half, half],
+    [-half, half, half], [half, half, half],
+  ].map((corner) => corner.map((value, index) => value + cube.center[index]));
 }
 
 const subtract = (left, right) => left.map((value, index) => value - right[index]);
@@ -245,6 +269,7 @@ export function renderInlineResult(canvas, packets) {
   const meshes = decoded.filter(({ kind }) => kind === "geometry");
   const particles = decoded.filter(({ kind }) => kind === "particle");
   const fieldMeshes = decoded.filter(({ kind }) => kind === "fieldMesh");
+  const cubes = decoded.filter(({ kind }) => kind === "cube");
   const background = decoded.find(({ kind }) => kind === "background");
   const camera = decoded.find(({ kind }) => kind === "camera");
   const lights = decoded.filter(({ kind }) => kind === "light");
@@ -298,6 +323,10 @@ export function renderInlineResult(canvas, packets) {
       for (let row = 0; row < caster.rows; row += 1) {
         drawStrip(caster.columns, (column) => shadowPoint(vertex(caster, row, column)));
       }
+    }
+    for (const cube of cubes.filter(({ castsShadow }) => castsShadow)) {
+      const corners = cubeCorners(cube);
+      drawStrip(4, (index) => shadowPoint(corners[[4, 5, 7, 6][index]]));
     }
   }
 
@@ -398,6 +427,44 @@ export function renderInlineResult(canvas, packets) {
       const [secondX, secondY] = project(second.position);
       context.moveTo(firstX, firstY);
       context.lineTo(secondX, secondY);
+      context.stroke();
+    }
+  }
+  if (cubes.length > 0 && !camera) {
+    throw new TypeError("inline native cube renderer requires a retained camera packet");
+  }
+  const cubeFaces = [
+    [0, 1, 3, 2], [4, 6, 7, 5],
+    [0, 4, 5, 1], [2, 3, 7, 6],
+    [0, 2, 6, 4], [1, 5, 7, 3],
+  ];
+  for (const cube of cubes) {
+    const corners = cubeCorners(cube);
+    const light = lights[0];
+    const distance = light ? Math.hypot(...subtract(light.pos, cube.center)) : 1;
+    const diffuse = light ? Math.min(0.72, light.intensity / Math.max(1, distance * distance) * 0.1) : 0.25;
+    const gloss = cube.specularStrength * (1 - cube.roughness) * 0.4;
+    const orderedFaces = cubeFaces.map((face, faceIndex) => ({
+      face,
+      faceIndex,
+      distance: face.reduce((sum, cornerIndex) => (
+        sum + Math.hypot(...subtract(corners[cornerIndex], camera.pos))
+      ), 0) / face.length,
+    })).sort((left, right) => right.distance - left.distance);
+    for (const { face, faceIndex } of orderedFaces) {
+      const orientation = 0.58 + ((faceIndex % 3) * 0.11);
+      const strength = Math.min(1, orientation + diffuse + gloss);
+      const color = cube.color.map((value, index) => index === 3 ? value : value * strength);
+      context.fillStyle = rgba(color);
+      context.strokeStyle = rgba(color.map((value, index) => index === 3 ? value : value * 0.75));
+      context.beginPath();
+      face.forEach((cornerIndex, index) => {
+        const [x, y] = project(corners[cornerIndex]);
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.fill();
       context.stroke();
     }
   }
