@@ -57,7 +57,7 @@ test("Stage 2 materializes the complete locked source graph at fixed point", {
       join(root, "compiler", "self_hosted", "vf-compiler-bootstrap.json"),
       "utf8",
     ));
-    assert.equal(manifest.sources.length, 10);
+    assert.equal(manifest.sources.length, 11);
 
     const stage2Input = join(work, "stage2-input");
     const stage3Graph = join(work, "stage3-graph");
@@ -110,7 +110,7 @@ test("Stage 2 materializes the complete locked source graph at fixed point", {
     ], work);
     assert.equal(stage2.status, 0, stage2.error?.message ?? stage2.stderr);
     assert.equal(stage2.stdout, "");
-    assert.equal(readFileSync(join(stage3Graph, "source-count.txt"), "utf8"), "10");
+    assert.equal(readFileSync(join(stage3Graph, "source-count.txt"), "utf8"), "11");
 
     const stage4Compiler = join(work, `stage4-graph-compiler${suffix}`);
     const stage3 = runCompiler(stage3Compiler, [
@@ -121,7 +121,7 @@ test("Stage 2 materializes the complete locked source graph at fixed point", {
     ], work);
     assert.equal(stage3.status, 0, stage3.error?.message ?? stage3.stderr);
     assert.equal(stage3.stdout, "");
-    assert.equal(readFileSync(join(stage4Graph, "source-count.txt"), "utf8"), "10");
+    assert.equal(readFileSync(join(stage4Graph, "source-count.txt"), "utf8"), "11");
 
     assert.deepEqual(readFileSync(stage3Compiler), readFileSync(stage2Compiler));
     assert.deepEqual(readFileSync(stage4Compiler), readFileSync(stage3Compiler));

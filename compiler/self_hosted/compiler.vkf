@@ -9,6 +9,7 @@ parser: .parser
 typed: .typed_ir
 mir: .machine_ir
 validation: .machine_ir_validation
+regex: .regex
 
 compile_tagged_empty_module(source:str):
     bit comment_only: lexer.tagged_comment_only_source(source)
@@ -1749,6 +1750,34 @@ _compile_tagged_numeric_literal_function_chain_section_x64(
         function_epilogue,
         result_bridge,
         artifact_tail,
+        high_bytes
+    )
+
+_compile_tagged_numeric_literal_function_chain_template_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    template:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    high_bytes:[str]
+) -> str:
+    sections: regex.match(
+        template,
+        '^(?P<prefix>[\s\S]*)VKFX64AOTCODE001[\s\S]{32752}(?P<suffix>[\s\S]*)$'
+    )
+    _compile_tagged_numeric_literal_function_chain_section_x64(
+        first_source,
+        second_source,
+        third_source,
+        sections.prefix,
+        function_prologue,
+        multiplication_code,
+        function_epilogue,
+        result_bridge,
+        sections.suffix,
         high_bytes
     )
 

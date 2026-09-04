@@ -34,7 +34,7 @@ test("locked Stage 1 graph emits the smallest runnable Stage 2 artifact", () => 
       join(root, "compiler", "self_hosted", "vf-compiler-bootstrap.json"),
       "utf8",
     ));
-    assert.equal(manifest.source_count, 10);
+    assert.equal(manifest.source_count, 11);
     assert.deepEqual(
       manifest.sources.map((source) => source.path),
       manifest.source_order,
