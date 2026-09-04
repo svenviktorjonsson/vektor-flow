@@ -479,6 +479,32 @@ _compile_x64_arena_byte(value:num, high_bytes:[str]) -> str:
     (value <= 255 /\ high_bytes.length() = 128)?! "x64 tracer high-byte arena does not cover one byte"
     high_bytes.(value - 128)
 
+_compile_x64_locked_code_section_offset(template:str) -> num:
+    position: 0
+    found: -1
+    (found < 0 /\ vkf_string_eof(template, position + 15) = false)?>
+        vkf_string_peek_scalar(template, position) = "V"?
+            (
+                vkf_string_peek_scalar(template, position + 1) = "K" /\
+                vkf_string_peek_scalar(template, position + 2) = "F" /\
+                vkf_string_peek_scalar(template, position + 3) = "X" /\
+                vkf_string_peek_scalar(template, position + 4) = "6" /\
+                vkf_string_peek_scalar(template, position + 5) = "4" /\
+                vkf_string_peek_scalar(template, position + 6) = "A" /\
+                vkf_string_peek_scalar(template, position + 7) = "O" /\
+                vkf_string_peek_scalar(template, position + 8) = "T" /\
+                vkf_string_peek_scalar(template, position + 9) = "C" /\
+                vkf_string_peek_scalar(template, position + 10) = "O" /\
+                vkf_string_peek_scalar(template, position + 11) = "D" /\
+                vkf_string_peek_scalar(template, position + 12) = "E" /\
+                vkf_string_peek_scalar(template, position + 13) = "0" /\
+                vkf_string_peek_scalar(template, position + 14) = "0" /\
+                vkf_string_peek_scalar(template, position + 15) = "1"
+            )?
+                .found: position
+        .position+: 1
+    found
+
 _compile_x64_forward_rel32(displacement:num, high_bytes:[str]) -> str:
     (displacement >= 0 /\ displacement <= 2147483647)?! "x64 forward relocation is outside rel32"
     (
