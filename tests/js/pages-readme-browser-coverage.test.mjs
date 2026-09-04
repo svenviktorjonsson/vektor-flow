@@ -436,6 +436,47 @@ test("browser compiler retains the README native roughness scene", async () => {
   );
 });
 
+test("browser compiler retains the README native spotlight cone", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const spotlight = examples.find(({ id }) => id === "readme-17");
+  const output = { ...compiler.run(spotlight.source) };
+
+  assert.deepEqual(output.packet_records.map(({ magic }) => magic), [
+    1447773767, 1447773768, 1447773766,
+    1447773776, 1447773776, 1447773777,
+  ]);
+  assert.deepEqual({
+    ...output.packet_records.at(-1),
+    pos: rounded(output.packet_records.at(-1).pos),
+    target: rounded(output.packet_records.at(-1).target),
+    color: rounded(output.packet_records.at(-1).color),
+  }, {
+    magic: 1447773777, version: 1, kind: "spot",
+    pos: [-2.8, -2.4, 5.8], target: [0, 1, 0.4],
+    color: [1, 0.84, 0.56, 1], intensity: 65, range: 18,
+    inner_cone_deg: 12, outer_cone_deg: 24,
+    casts_shadow: true, source_radius: 0.08,
+  });
+  assert.deepEqual(rounded([...materializeVisualOutput(output).packets.at(-1)]), [
+    1447773777, 1, -2.8, -2.4, 5.8, 0, 1, 0.4,
+    1, 0.84, 0.56, 1, 65, 18, 12, 24, 1, 0.08,
+  ]);
+
+  const changed = { ...compiler.run(spotlight.source
+    .replace("target:[0, 1, 0.4]", "target:[1.2, 0.4, 0.8]")
+    .replace("outer_cone_deg:24", "outer_cone_deg:36")) };
+  assert.deepEqual(rounded(changed.packet_records.at(-1).target), [1.2, 0.4, 0.8]);
+  assert.equal(changed.packet_records.at(-1).outer_cone_deg, 36);
+  assert.throws(
+    () => compiler.run(spotlight.source.replace("outer_cone_deg:24", "outer_cone_deg:24, falloff:2")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(spotlight.source.replace("inner_cone_deg:12", "inner_cone_deg:28")),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -453,6 +494,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 16);
+  assert.equal(runnable.length, 17);
   assert.equal(examples.length, 26);
 });

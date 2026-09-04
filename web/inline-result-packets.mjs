@@ -119,6 +119,33 @@ export function materializeVisualOutput(output) {
         record.intensity, record.range, record.casts_shadow ? 1 : 0, record.source_radius,
       ]);
     }
+    if (record?.magic === 1447773777) {
+      const keys = [
+        "casts_shadow", "color", "inner_cone_deg", "intensity", "kind", "magic",
+        "outer_cone_deg", "pos", "range", "source_radius", "target", "version",
+      ];
+      if (Object.keys(record).sort().join("\0") !== keys.join("\0")
+          || record.version !== 1 || record.kind !== "spot"
+          || !finiteVector(record.pos, 3) || !finiteVector(record.target, 3)
+          || record.pos.every((value, index) => value === record.target[index])
+          || !finiteVector(record.color, 4)
+          || record.color.some((value) => value < 0 || value > 1)
+          || !finiteNumber(record.intensity) || record.intensity <= 0
+          || !finiteNumber(record.range) || record.range <= 0
+          || !finiteNumber(record.inner_cone_deg) || record.inner_cone_deg <= 0
+          || !finiteNumber(record.outer_cone_deg)
+          || record.outer_cone_deg <= record.inner_cone_deg
+          || record.outer_cone_deg >= 90
+          || typeof record.casts_shadow !== "boolean"
+          || !finiteNumber(record.source_radius) || record.source_radius < 0) {
+        throw new TypeError("browser compiler returned an invalid native spotlight packet");
+      }
+      return Float64Array.from([
+        record.magic, record.version, ...record.pos, ...record.target, ...record.color,
+        record.intensity, record.range, record.inner_cone_deg, record.outer_cone_deg,
+        record.casts_shadow ? 1 : 0, record.source_radius,
+      ]);
+    }
     if (record?.magic === 1447773774) {
       const keys = ["color", "magic", "mass", "position", "size", "version"];
       if (Object.keys(record).sort().join("\0") !== keys.join("\0")

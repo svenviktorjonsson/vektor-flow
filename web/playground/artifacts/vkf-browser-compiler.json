@@ -568,11 +568,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 170296,
-    "bytecodeLength": 170289,
+    "argumentsPointer": 172024,
+    "bytecodeLength": 172020,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 170552
+    "resultsPointer": 172280
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

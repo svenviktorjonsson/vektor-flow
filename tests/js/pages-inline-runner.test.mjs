@@ -254,6 +254,27 @@ test("worker materializes a strictly versioned native cube buffer", () => {
   }), /invalid native cube packet/u);
 });
 
+test("worker materializes a strictly versioned native spotlight buffer", () => {
+  const spot = {
+    magic: 1447773777, version: 1, kind: "spot",
+    pos: [-2.8, -2.4, 5.8], target: [0, 1, 0.4],
+    color: [1, 0.84, 0.56, 1], intensity: 65, range: 18,
+    inner_cone_deg: 12, outer_cone_deg: 24,
+    casts_shadow: true, source_radius: 0.08,
+  };
+  const output = materializeVisualOutput({ kind: "visual", packet_records: [spot] });
+  assert.deepEqual([...output.packets[0]], [
+    1447773777, 1, -2.8, -2.4, 5.8, 0, 1, 0.4,
+    1, 0.84, 0.56, 1, 65, 18, 12, 24, 1, 0.08,
+  ]);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...spot, falloff: 2 }],
+  }), /invalid native spotlight packet/u);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...spot, inner_cone_deg: 28 }],
+  }), /invalid native spotlight packet/u);
+});
+
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
@@ -546,6 +567,36 @@ test("trusted inline renderer projects source-derived native cubes and roughness
     rough.filter(([kind] = []) => kind === "fillStyle"),
     polished.filter(([kind] = []) => kind === "fillStyle"),
   );
+});
+
+test("trusted inline renderer applies the source-derived spotlight cone", () => {
+  const render = (targetX, outerCone) => {
+    const fillStyles = [];
+    const context = {
+      beginPath: () => {}, closePath: () => {}, clearRect: () => {}, fillRect: () => {},
+      lineTo: () => {}, moveTo: () => {}, fill: () => {}, stroke: () => {},
+      set fillStyle(value) { fillStyles.push(value); },
+      set lineWidth(_value) {}, set strokeStyle(_value) {},
+    };
+    const camera = Float64Array.from([
+      1447773768, 1, 5.4, -7.2, 4.8, 0, 0.7, 0.7, 0, 0, 1, 42,
+    ]);
+    const spot = Float64Array.from([
+      1447773777, 1, -2.8, -2.4, 5.8, targetX, 1, 0.4,
+      1, 0.84, 0.56, 1, 65, 18, 12, outerCone, 1, 0.08,
+    ]);
+    const cube = Float64Array.from([
+      1447773776, 1, 0, 1, 1, 1.8,
+      0.8, 0.14, 0.06, 1, 0.28, 0.72, 1, 1,
+    ]);
+    renderInlineResult({ width: 320, height: 180, getContext: () => context }, [camera, spot, cube]);
+    return fillStyles;
+  };
+  const centered = render(0, 24);
+  const aimedAway = render(5, 24);
+  const widened = render(5, 70);
+  assert.notDeepEqual(centered, aimedAway);
+  assert.notDeepEqual(aimedAway, widened);
 });
 
 test("terminal always appears below the editor and Result appears only for validated visual output", async () => {

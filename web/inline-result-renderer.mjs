@@ -17,7 +17,22 @@ function decode(packet) {
     return {
       kind: "light", pos: packet.slice(2, 5), target: packet.slice(5, 8),
       color: packet.slice(8, 12), intensity: packet[12], range: packet[13],
-      castsShadow: packet[14] === 1, sourceRadius: packet[15],
+      castsShadow: packet[14] === 1, sourceRadius: packet[15], type: "point",
+    };
+  }
+  if (packet[0] === 1447773777 && packet[1] === 1 && packet.length === 18
+      && Array.from(packet.slice(2)).every(Number.isFinite)
+      && !Array.from(packet.slice(2, 5)).every((value, index) => value === packet[5 + index])
+      && Array.from(packet.slice(8, 12)).every((value) => value >= 0 && value <= 1)
+      && packet[12] > 0 && packet[13] > 0
+      && packet[14] > 0 && packet[15] > packet[14] && packet[15] < 90
+      && [0, 1].includes(packet[16]) && packet[17] >= 0) {
+    return {
+      kind: "light", type: "spot",
+      pos: packet.slice(2, 5), target: packet.slice(5, 8),
+      color: packet.slice(8, 12), intensity: packet[12], range: packet[13],
+      innerConeDeg: packet[14], outerConeDeg: packet[15],
+      castsShadow: packet[16] === 1, sourceRadius: packet[17],
     };
   }
   if (packet[0] === 1447773774 && packet[1] === 1 && packet.length === 10
@@ -203,11 +218,24 @@ function litColor(mesh, lights) {
   const point = vertex(mesh, 0, 0);
   const light = lights[0];
   const distance = Math.hypot(...subtract(light.pos, point));
-  const attenuation = distance > light.range ? 0 : light.intensity / Math.max(1, distance * distance);
+  const attenuation = distance > light.range
+    ? 0 : (light.intensity / Math.max(1, distance * distance)) * lightConeFactor(light, point);
   const diffuse = attenuation * 0.12 * (1 - (mesh.roughness * 0.25));
   const highlight = mesh.specularStrength * (1 - mesh.roughness) * 0.3;
   const strength = Math.min(1, 0.2 + diffuse + highlight);
   return reflected.map((value, index) => value * light.color[index] * strength);
+}
+
+function lightConeFactor(light, point) {
+  if (light.type !== "spot") return 1;
+  const direction = normalize(subtract(light.target, light.pos));
+  const toPoint = normalize(subtract(point, light.pos));
+  const cosine = Math.max(-1, Math.min(1, dot(direction, toPoint)));
+  const angle = Math.acos(cosine) * 180 / Math.PI;
+  if (angle <= light.innerConeDeg) return 1;
+  if (angle >= light.outerConeDeg) return 0;
+  const t = (light.outerConeDeg - angle) / (light.outerConeDeg - light.innerConeDeg);
+  return t * t * (3 - (2 * t));
 }
 
 function mix(left, right, amount) {
@@ -442,7 +470,10 @@ export function renderInlineResult(canvas, packets) {
     const corners = cubeCorners(cube);
     const light = lights[0];
     const distance = light ? Math.hypot(...subtract(light.pos, cube.center)) : 1;
-    const diffuse = light ? Math.min(0.72, light.intensity / Math.max(1, distance * distance) * 0.1) : 0.25;
+    const diffuse = light ? Math.min(
+      0.72,
+      light.intensity / Math.max(1, distance * distance) * 0.1 * lightConeFactor(light, cube.center),
+    ) : 0.25;
     const gloss = cube.specularStrength * (1 - cube.roughness) * 0.4;
     const orderedFaces = cubeFaces.map((face, faceIndex) => ({
       face,

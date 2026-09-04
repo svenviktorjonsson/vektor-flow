@@ -2672,11 +2672,14 @@ _browser_display_light_source(source:str) -> any:
     index: 4
     parens: 1
     brackets: 0
+    light_kind: "point"
     pos: []
     target: []
     color: []
     intensity: 0
     range: 0
+    inner_cone_deg: 0
+    outer_cone_deg: 0
     casts_shadow: false
     source_radius: 0
     (parens > 0)?>
@@ -2687,15 +2690,22 @@ _browser_display_light_source(source:str) -> any:
             key: _browser_token_text(tape, index)
             supported: (key = "id" \/ key = "kind" \/ key = "pos" \/
                 key = "target" \/ key = "color" \/ key = "intensity" \/
-                key = "range" \/ key = "casts_shadow" \/ key = "source_radius")
+                key = "range" \/ key = "inner_cone_deg" \/
+                key = "outer_cone_deg" \/ key = "casts_shadow" \/
+                key = "source_radius")
             supported?! "browser light does not support this option"
             (key = "id" \/ key = "kind")?
                 (_browser_token_kind(tape, index + 2) = 25)?! "browser light id and kind require strings"
                 key = "kind"?
-                    (_browser_token_text(tape, index + 2) = "\"point\"")?! "browser light supports point lights only"
+                    encoded_kind: _browser_token_text(tape, index + 2)
+                    (encoded_kind = "\"point\"" \/ encoded_kind = "\"spot\"")?! "browser light kind is unsupported"
+                    encoded_kind = "\"spot\""?
+                        .light_kind: "spot"
                 .index: index + 3
             (key = "pos" \/ key = "target" \/ key = "color" \/
-                key = "intensity" \/ key = "range" \/ key = "source_radius")?
+                key = "intensity" \/ key = "range" \/
+                key = "inner_cone_deg" \/ key = "outer_cone_deg" \/
+                key = "source_radius")?
                 parsed: _browser_lifted_value(tape, index + 2, 1)
                 key = "pos"?
                     .pos: parsed.value
@@ -2707,6 +2717,10 @@ _browser_display_light_source(source:str) -> any:
                     .intensity: parsed.value
                 key = "range"?
                     .range: parsed.value
+                key = "inner_cone_deg"?
+                    .inner_cone_deg: parsed.value
+                key = "outer_cone_deg"?
+                    .outer_cone_deg: parsed.value
                 key = "source_radius"?
                     .source_radius: parsed.value
                 .index: parsed.next
@@ -2727,7 +2741,18 @@ _browser_display_light_source(source:str) -> any:
                 .brackets-: 1
             .index+: 1
     (pos.length() = 3 /\ target.length() = 3 /\ color.length() = 4 /\
-        intensity > 0 /\ range > 0)?! "browser light requires position, target, color, intensity, and range"
+        intensity > 0 /\ range > 0 /\ source_radius >= 0)?! "browser light requires position, target, color, intensity, and range"
+    light_kind = "spot"?
+        (inner_cone_deg > 0 /\ outer_cone_deg > inner_cone_deg /\
+            outer_cone_deg < 90)?! "browser spot light cone is invalid"
+        @: (
+            magic:1447773777, version:1, kind:"spot",
+            pos:pos, target:target, color:color,
+            intensity:intensity, range:range,
+            inner_cone_deg:inner_cone_deg, outer_cone_deg:outer_cone_deg,
+            casts_shadow:casts_shadow, source_radius:source_radius
+        )
+    (inner_cone_deg = 0 /\ outer_cone_deg = 0)?! "browser point light does not accept cone options"
     (
         magic:1447773769, version:1, pos:pos, target:target, color:color,
         intensity:intensity, range:range, casts_shadow:casts_shadow,
