@@ -1396,6 +1396,9 @@ BrowserDisplayMeshSources: (
     color_source:str,
     receives_lighting:bit,
     casts_shadow:bit,
+    receives_shadow:bit,
+    roughness:num,
+    specular_strength:num,
     unsupported:bit
 )
 
@@ -1687,6 +1690,9 @@ _browser_scan_display_mesh_source(
     color_source:str,
     receives_lighting:bit,
     casts_shadow:bit,
+    receives_shadow:bit,
+    roughness:num,
+    specular_strength:num,
     unsupported:bit,
     in_string:bit
 ) -> BrowserDisplayMeshSources:
@@ -1698,6 +1704,9 @@ _browser_scan_display_mesh_source(
             color_source:color_source,
             receives_lighting:receives_lighting,
             casts_shadow:casts_shadow,
+            receives_shadow:receives_shadow,
+            roughness:roughness,
+            specular_strength:specular_strength,
             unsupported:unsupported
         )
     ch: vkf_string_peek_scalar(source, offset)
@@ -1705,12 +1714,14 @@ _browser_scan_display_mesh_source(
     in_string?
         @: _browser_scan_display_mesh_source(
             source, next, x_source, y_source, z_source, color_source,
-            receives_lighting, casts_shadow, unsupported, ch != 34
+            receives_lighting, casts_shadow, receives_shadow,
+            roughness, specular_strength, unsupported, ch != 34
         )
     ch = 34?
         @: _browser_scan_display_mesh_source(
             source, next, x_source, y_source, z_source, color_source,
-            receives_lighting, casts_shadow, unsupported, true
+            receives_lighting, casts_shadow, receives_shadow,
+            roughness, specular_strength, unsupported, true
         )
     (_browser_source_starts_with(source, offset, "x:", 0) \/
         _browser_source_starts_with(source, offset, "y:", 0) \/
@@ -1737,13 +1748,17 @@ _browser_scan_display_mesh_source(
             .next_color: value_source
         @: _browser_scan_display_mesh_source(
             source, stop, next_x, next_y, next_z, next_color,
-            receives_lighting, casts_shadow, unsupported, false
+            receives_lighting, casts_shadow, receives_shadow,
+            roughness, specular_strength, unsupported, false
         )
     (_browser_source_starts_with(source, offset, "receives_lighting:", 0) \/
-        _browser_source_starts_with(source, offset, "casts_shadow:", 0))?
+        _browser_source_starts_with(source, offset, "casts_shadow:", 0) \/
+        _browser_source_starts_with(source, offset, "receives_shadow:", 0))?
         colon_width: 18
         _browser_source_starts_with(source, offset, "casts_shadow:", 0)?
             .colon_width: 13
+        _browser_source_starts_with(source, offset, "receives_shadow:", 0)?
+            .colon_width: 16
         value_start: _browser_display_value_start(source, offset + colon_width)
         value: false
         next_value: value_start
@@ -1757,18 +1772,42 @@ _browser_scan_display_mesh_source(
                 false?! "browser display material flags require booleans"
         next_receives: receives_lighting
         next_casts: casts_shadow
+        next_receives_shadow: receives_shadow
         _browser_source_starts_with(source, offset, "receives_lighting:", 0)?
             .next_receives: value
         _browser_source_starts_with(source, offset, "casts_shadow:", 0)?
             .next_casts: value
+        _browser_source_starts_with(source, offset, "receives_shadow:", 0)?
+            .next_receives_shadow: value
         @: _browser_scan_display_mesh_source(
             source, next_value, x_source, y_source, z_source, color_source,
-            next_receives, next_casts, unsupported, false
+            next_receives, next_casts, next_receives_shadow,
+            roughness, specular_strength, unsupported, false
+        )
+    (_browser_source_starts_with(source, offset, "roughness:", 0) \/
+        _browser_source_starts_with(source, offset, "specular_strength:", 0))?
+        colon_width: 10
+        _browser_source_starts_with(source, offset, "specular_strength:", 0)?
+            .colon_width: 18
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        value: vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))
+        next_roughness: roughness
+        next_specular: specular_strength
+        _browser_source_starts_with(source, offset, "roughness:", 0)?
+            .next_roughness: value
+        _browser_source_starts_with(source, offset, "specular_strength:", 0)?
+            .next_specular: value
+        @: _browser_scan_display_mesh_source(
+            source, value_stop, x_source, y_source, z_source, color_source,
+            receives_lighting, casts_shadow, receives_shadow,
+            next_roughness, next_specular, unsupported, false
         )
     _browser_source_starts_with(source, offset, "id:", 0)?
         @: _browser_scan_display_mesh_source(
             source, offset + 3, x_source, y_source, z_source, color_source,
-            receives_lighting, casts_shadow, unsupported, false
+            receives_lighting, casts_shadow, receives_shadow,
+            roughness, specular_strength, unsupported, false
         )
     unknown: unsupported
     _browser_ascii_identifier_start(ch)?
@@ -1778,12 +1817,14 @@ _browser_scan_display_mesh_source(
             .unknown: true
     _browser_scan_display_mesh_source(
         source, next, x_source, y_source, z_source, color_source,
-        receives_lighting, casts_shadow, unknown, false
+        receives_lighting, casts_shadow, receives_shadow,
+        roughness, specular_strength, unknown, false
     )
 
 _browser_display_mesh_source(source:str) -> any:
     fields: _browser_scan_display_mesh_source(
-        source, 10, "", "", "", "", false, false, false, false
+        source, 10, "", "", "", "", false, false, false,
+        1, 0, false, false
     )
     ~fields.unsupported?! "browser display does not support this frame.add option"
     (fields.x_source != "" /\ fields.y_source != "" /\ fields.z_source != "")?! "frame.add requires x, y, and z geometry"
@@ -1801,10 +1842,13 @@ _browser_display_mesh_source(source:str) -> any:
     rows: x.length()
     (rows > 0)?! "frame.add geometry must contain rows"
     (
-        magic:1447773766, version:4, rows:rows,
+        magic:1447773766, version:5, rows:rows,
         columns:x.0.length(), color:color, x:x, y:y, z:z,
         receives_lighting:fields.receives_lighting,
-        casts_shadow:fields.casts_shadow
+        casts_shadow:fields.casts_shadow,
+        receives_shadow:fields.receives_shadow,
+        roughness:fields.roughness,
+        specular_strength:fields.specular_strength
     )
 
 _browser_display_camera_source(source:str) -> any:

@@ -76,9 +76,10 @@ test("worker materializes only validated WASM visual packets as typed buffers", 
         casts_shadow: true, source_radius: 0,
       },
       {
-        magic: 1447773766, version: 4, rows: 1, columns: 1,
+        magic: 1447773766, version: 5, rows: 1, columns: 1,
         color: [0.1, 0.2, 0.3, 1], x: [[2]], y: [[3]], z: [[4]],
         receives_lighting: true, casts_shadow: true,
+        receives_shadow: false, roughness: 0.4, specular_strength: 0.7,
       },
     ],
   });
@@ -92,15 +93,16 @@ test("worker materializes only validated WASM visual packets as typed buffers", 
     1447773768, 1, 4, -5, 3, 0, 0, 0, 0, 0, 1, 42,
   ]);
   assert.deepEqual([...output.packets[3]], [
-    1447773766, 3, 1, 1, 0.1, 0.2, 0.3, 1, 1, 1, 2, 3, 4,
+    1447773766, 4, 1, 1, 0.1, 0.2, 0.3, 1, 1, 1, 0, 0.4, 0.7, 2, 3, 4,
   ]);
   assert.throws(
     () => materializeVisualOutput({
       kind: "visual",
       packet_records: [{
-        magic: 1447773766, version: 4, rows: 1, columns: 1,
+        magic: 1447773766, version: 5, rows: 1, columns: 1,
         color: [0, 0, 0, 1], x: [[NaN]], y: [[0]], z: [[0]],
         receives_lighting: false, casts_shadow: false,
+        receives_shadow: false, roughness: 1, specular_strength: 0,
       }],
     }),
     /invalid visual packet/u,
@@ -129,17 +131,23 @@ test("trusted inline renderer projects and lights validated retained 3D packets"
     1, 0.88, 0.68, 1, 24, 18, 1, 0,
   ]);
   const packet = Float64Array.from([
-    1447773766, 3, 1, 2, 0.1, 0.2, 0.3, 1, 1, 1,
+    1447773766, 4, 1, 2, 0.1, 0.2, 0.3, 1, 1, 1, 0, 0.4, 0.7,
     1, 3, 5, 2, 4, 6,
   ]);
+  const receiver = Float64Array.from([
+    1447773766, 4, 1, 2, 0.3, 0.4, 0.5, 1, 1, 0, 1, 0.7, 0.2,
+    -4, -2, 0, 4, 4, 0,
+  ]);
 
-  renderInlineResult(canvas, [camera, light, packet]);
+  renderInlineResult(canvas, [camera, light, receiver, packet]);
   assert.ok(operations.some(([kind] = []) => kind === "fill"));
   assert.ok(operations.some(([kind, x, y] = []) => kind === "move"
     && Number.isFinite(x) && Number.isFinite(y)));
   assert.ok(operations.some(([kind] = []) => kind === "line"));
   assert.ok(operations.some(([kind, value] = []) => kind === "strokeStyle"
     && value !== "rgba(26, 51, 77, 1)"));
+  assert.ok(operations.some(([kind, value] = []) => kind === "strokeStyle"
+    && value.startsWith("rgba(0, 0, 0,")));
   assert.ok(operations.includes("stroke"));
 });
 

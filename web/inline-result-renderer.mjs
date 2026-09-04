@@ -20,21 +20,24 @@ function decode(packet) {
       castsShadow: packet[14] === 1, sourceRadius: packet[15],
     };
   }
-  if (packet[0] !== MAGIC || ![1, 2, 3].includes(packet[1])) {
+  if (packet[0] !== MAGIC || ![1, 2, 3, 4].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
   const rows = packet[2];
   const columns = packet[3];
   const stride = packet[1] === 2 ? 2 : 3;
-  const dataOffset = packet[1] === 3 ? 10 : 8;
+  const dataOffset = packet[1] === 4 ? 13 : packet[1] === 3 ? 10 : 8;
   if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(columns) || columns < 1
       || packet.length !== dataOffset + (rows * columns * stride)) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
   return {
     kind: "geometry", packet, rows, columns, stride, dataOffset,
-    receivesLighting: packet[1] === 3 && packet[8] === 1,
-    castsShadow: packet[1] === 3 && packet[9] === 1,
+    receivesLighting: packet[1] >= 3 && packet[8] === 1,
+    castsShadow: packet[1] >= 3 && packet[9] === 1,
+    receivesShadow: packet[1] === 4 && packet[10] === 1,
+    roughness: packet[1] === 4 ? packet[11] : 1,
+    specularStrength: packet[1] === 4 ? packet[12] : 0,
   };
 }
 
@@ -82,7 +85,9 @@ function litColor(mesh, lights) {
   const light = lights[0];
   const distance = Math.hypot(...subtract(light.pos, point));
   const attenuation = distance > light.range ? 0 : light.intensity / Math.max(1, distance * distance);
-  const strength = Math.min(1, 0.2 + (attenuation * 0.12));
+  const diffuse = attenuation * 0.12 * (1 - (mesh.roughness * 0.25));
+  const highlight = mesh.specularStrength * (1 - mesh.roughness) * 0.3;
+  const strength = Math.min(1, 0.2 + diffuse + highlight);
   return base.map((value, index) => value * light.color[index] * strength);
 }
 
@@ -117,19 +122,37 @@ export function renderInlineResult(canvas, packets) {
     : "#080d19";
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.lineWidth = 2;
+  const drawStrip = (count, pointAt) => {
+    context.beginPath();
+    for (let index = 0; index < count; index += 1) {
+      const [x, y] = project(pointAt(index));
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    }
+    context.stroke();
+  };
+
+  const shadowLight = lights.find(({ castsShadow }) => castsShadow);
+  const receiver = meshes.find(({ receivesShadow }) => receivesShadow);
+  if (shadowLight && receiver) {
+    const receiverZ = vertex(receiver, 0, 0)[2];
+    const shadowPoint = (point) => {
+      const denominator = point[2] - shadowLight.pos[2];
+      const scale = Math.abs(denominator) < 1e-9
+        ? 0 : (receiverZ - shadowLight.pos[2]) / denominator;
+      return shadowLight.pos.map((value, index) => value + (scale * (point[index] - value)));
+    };
+    context.strokeStyle = `rgba(0, 0, 0, ${Math.max(0.18, 0.48 - shadowLight.sourceRadius)})`;
+    for (const caster of meshes.filter(({ castsShadow }) => castsShadow)) {
+      for (let row = 0; row < caster.rows; row += 1) {
+        drawStrip(caster.columns, (column) => shadowPoint(vertex(caster, row, column)));
+      }
+    }
+  }
 
   for (const mesh of meshes) {
     const color = litColor(mesh, lights);
     context.strokeStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${Math.max(0, Math.min(1, mesh.packet[7]))})`;
-    const drawStrip = (count, pointAt) => {
-      context.beginPath();
-      for (let index = 0; index < count; index += 1) {
-        const [x, y] = project(pointAt(index));
-        if (index === 0) context.moveTo(x, y);
-        else context.lineTo(x, y);
-      }
-      context.stroke();
-    };
     for (let row = 0; row < mesh.rows; row += 1) {
       drawStrip(mesh.columns, (column) => vertex(mesh, row, column));
     }

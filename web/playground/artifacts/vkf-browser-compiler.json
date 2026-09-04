@@ -322,7 +322,7 @@
     },
     "_browser_scan_display_mesh_source": {
       "index": 68,
-      "parameters": 10,
+      "parameters": 13,
       "resultType": 1
     },
     "_browser_scan_display_source": {
@@ -408,11 +408,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 89240,
-    "bytecodeLength": 89234,
+    "argumentsPointer": 90976,
+    "bytecodeLength": 90976,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 89496
+    "resultsPointer": 91232
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

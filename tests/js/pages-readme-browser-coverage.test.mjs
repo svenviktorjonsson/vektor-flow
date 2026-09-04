@@ -79,7 +79,7 @@ test("browser compiler emits retained geometry packets for the complete README d
   assert.equal(output.kind, "visual");
   assert.equal(output.packet_records.length, 1);
   const packet = { ...output.packet_records[0] };
-  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 4, 2, 7]);
+  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 5, 2, 7]);
   assert.deepEqual(rounded(packet.color), [0.12, 0.72, 1, 1]);
   assert.deepEqual(rounded(packet.x[0]), [-3, -2, -1, 0, 1, 2, 3]);
   assert.deepEqual(rounded(packet.y[0]), [-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09]);
@@ -109,9 +109,9 @@ test("browser compiler retains background options and multiple meshes from READM
   assert.deepEqual(bandOutput.packet_records.slice(1).map((packet) => [
     packet.magic, packet.version, packet.rows, packet.columns,
   ]), [
-    [1447773766, 4, 2, 7],
-    [1447773766, 4, 2, 7],
-    [1447773766, 4, 2, 7],
+    [1447773766, 5, 2, 7],
+    [1447773766, 5, 2, 7],
+    [1447773766, 5, 2, 7],
   ]);
   assert.equal(ribbonOutput.packet_records.length, 2);
   assert.deepEqual([
@@ -119,7 +119,7 @@ test("browser compiler retains background options and multiple meshes from READM
     ribbonOutput.packet_records[1].version,
     ribbonOutput.packet_records[1].rows,
     ribbonOutput.packet_records[1].columns,
-  ], [1447773766, 4, 2, 25]);
+  ], [1447773766, 5, 2, 25]);
 
   const changed = { ...compiler.run(bands.source
     .replace("background:[0.015, 0.022, 0.05, 1]", "background:[0.2, 0.3, 0.4, 1]")
@@ -197,6 +197,48 @@ test("browser compiler retains the README camera, light, and 3D surface scene", 
   );
 });
 
+test("browser compiler retains README lit materials and receiver-shadow ownership", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const shadows = examples.find(({ id }) => id === "readme-08");
+  const lights = examples.find(({ id }) => id === "readme-09");
+  const material = examples.find(({ id }) => id === "readme-15");
+  const shadowOutput = { ...compiler.run(shadows.source) };
+  const lightOutput = { ...compiler.run(lights.source) };
+  const materialOutput = { ...compiler.run(material.source) };
+
+  assert.equal(shadowOutput.packet_records.length, 6);
+  assert.equal(rounded([shadowOutput.packet_records[2].source_radius])[0], 0.12);
+  assert.equal(shadowOutput.packet_records[3].receives_shadow, true);
+  assert.deepEqual(
+    shadowOutput.packet_records.slice(4).map(({ casts_shadow }) => casts_shadow),
+    [true, true],
+  );
+  assert.equal(lightOutput.packet_records.length, 5);
+  assert.deepEqual(
+    lightOutput.packet_records.slice(2, 4).map(({ casts_shadow }) => casts_shadow),
+    [true, false],
+  );
+  assert.deepEqual(rounded([
+    materialOutput.packet_records[3].roughness,
+    materialOutput.packet_records[3].specular_strength,
+  ]), [0.24, 0.78]);
+
+  const changed = { ...compiler.run(material.source
+    .replace("roughness:0.24", "roughness:0.41")
+    .replace("specular_strength:0.78", "specular_strength:0.33")) };
+  assert.deepEqual(rounded([
+    changed.packet_records[3].roughness,
+    changed.packet_records[3].specular_strength,
+  ]), [0.41, 0.33]);
+  assert.throws(
+    () => compiler.run(material.source.replace(
+      "roughness:0.24",
+      "roughness:0.24, metalness:0.5",
+    )),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
@@ -214,6 +256,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 6);
+  assert.equal(runnable.length, 9);
   assert.equal(examples.length, 26);
 });
