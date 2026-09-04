@@ -6,6 +6,13 @@ import { createBrowserCompiler } from "../../web/playground/vkf-browser-compiler
 
 const artifacts = new URL("../../web/playground/artifacts/", import.meta.url);
 
+test("packaged browser compiler has no host imports", async () => {
+  const wasm = await readFile(new URL("vkf-browser-compiler.wasm", artifacts));
+  const module = new WebAssembly.Module(wasm);
+
+  assert.deepEqual(WebAssembly.Module.imports(module), []);
+});
+
 test("packaged browser compiler compiles source without a server", async () => {
   const [wasm, manifest] = await Promise.all([
     readFile(new URL("vkf-browser-compiler.wasm", artifacts)),
@@ -64,5 +71,23 @@ test("browser compiler fails clearly on unsupported source", async () => {
   assert.throws(
     () => compiler.compile("not yet part of the tracer"),
     /browser compiler rejected the VKF source/u,
+  );
+});
+
+test("browser compiler rejects unavailable host capabilities before execution", async () => {
+  const [wasm, manifest] = await Promise.all([
+    readFile(new URL("vkf-browser-compiler.wasm", artifacts)),
+    readFile(new URL("vkf-browser-compiler.json", artifacts), "utf8").then(JSON.parse),
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+
+  assert.throws(
+    () => compiler.run(':: fetch("https://example.com")'),
+    /browser runtime does not expose network capability/u,
+  );
+  assert.throws(
+    () => compiler.run(':: filesystem.read("secret")'),
+    /browser runtime does not expose filesystem capability/u,
   );
 });

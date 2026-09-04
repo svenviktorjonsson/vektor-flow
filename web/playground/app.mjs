@@ -1,4 +1,4 @@
-import { registerVektorFlowPrism } from "../editor/prism-vektorflow.mjs";
+import { highlightVkf } from "../editor/vkf-highlighter.mjs";
 import { loadPackagedBrowserCompiler } from "./vkf-browser-compiler.mjs";
 import { loadPackagedBrowserSymbolicPlotter } from "./vkf-browser-symbolic-plotter.mjs";
 import { LIVE_EXAMPLE_GROUPS, LIVE_EXAMPLES_BY_ID } from "./examples.mjs";
@@ -9,12 +9,9 @@ const compileButton = document.querySelector("#compile");
 const playButton = document.querySelector("#play");
 const example = document.querySelector("#example");
 const output = document.querySelector("#output");
+const outputHeading = document.querySelector("#output-heading");
 const visualization = document.querySelector("#visualization");
-const reference = document.querySelector("#reference");
-const referenceImage = document.querySelector("#reference-image");
-const referenceVideo = document.querySelector("#reference-video");
 const status = document.querySelector("#status");
-const Prism = globalThis.Prism;
 
 const EXAMPLES = Object.freeze({
   console: Object.freeze({
@@ -44,14 +41,8 @@ for (const group of LIVE_EXAMPLE_GROUPS) {
   example.append(options);
 }
 
-registerVektorFlowPrism(Prism);
-
 function renderHighlight() {
-  highlight.innerHTML = Prism.highlight(
-    `${source.value}\n`,
-    Prism.languages.vektorflow,
-    "vektorflow",
-  );
+  highlight.innerHTML = highlightVkf(`${source.value}\n`);
 }
 
 function synchronizeScroll() {
@@ -96,25 +87,13 @@ function stopAnimation() {
 function showConsole() {
   output.hidden = false;
   visualization.hidden = true;
-  reference.hidden = true;
+  outputHeading.textContent = selectedExample().kind === "console" ? "Console" : "Result";
 }
 
 function showVisualization() {
   output.hidden = true;
   visualization.hidden = false;
-  reference.hidden = true;
-}
-
-function showReference(media, title) {
-  output.hidden = true;
-  visualization.hidden = true;
-  referenceImage.hidden = true;
-  referenceVideo.hidden = true;
-  const element = media.type === "video" ? referenceVideo : referenceImage;
-  element.src = catalogueMediaUrl(media.path);
-  element.setAttribute("aria-label", `Verified native render of ${title}`);
-  element.hidden = false;
-  reference.hidden = false;
+  outputHeading.textContent = "Result";
 }
 
 function drawPlot(plot, view) {
@@ -231,11 +210,14 @@ async function compileSource() {
   stopAnimation();
   const started = performance.now();
   try {
-    if (selectedExample().kind === "source") {
-      status.value = "Source example";
+    const chosen = selectedExample();
+    if (chosen === catalogExample && !chosen.browserRunnable) {
+      showConsole();
+      output.textContent = "Not supported by the packaged browser compiler. No fallback result was rendered.";
+      status.value = "Unsupported compiler path";
       return;
     }
-    if (selectedExample().kind !== "console") {
+    if (chosen !== catalogExample && chosen.kind !== "console") {
       await compilePlot(0);
       return;
     }
@@ -285,7 +267,7 @@ example.addEventListener("change", () => {
   stopAnimation();
   const chosen = selectedExample();
   source.value = chosen.source;
-  compileButton.disabled = chosen.kind === "source";
+  compileButton.disabled = false;
   playButton.hidden = !selectedExampleIsTimed();
   history.replaceState(null, "", `?example=${encodeURIComponent(example.value)}`);
   renderHighlight();
@@ -301,37 +283,34 @@ source.addEventListener("keydown", (event) => {
 });
 
 function catalogueSourceUrl(path) {
-  if (!/^examples\/[a-zA-Z0-9_./-]+\.vkf$/u.test(path) || path.split("/").includes("..")) {
+  if (!/^(?:examples|benchmarks)\/[a-zA-Z0-9_./-]+\.vkf$/u.test(path) || path.split("/").includes("..")) {
     throw new TypeError("Invalid catalogue source path");
   }
   return `./generated/sources/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
-function catalogueMediaUrl(path) {
-  if (!/^media\/docs\/public\/[a-zA-Z0-9_./-]+\.(?:png|webp|gif|mp4)$/u.test(path)
-      || path.split("/").includes("..")) {
-    throw new TypeError("Invalid catalogue media path");
+function readmeSourceUrl(path) {
+  if (!/^snippets\/readme-\d+\.vkf$/u.test(path) || path.split("/").includes("..")) {
+    throw new TypeError("Invalid README source path");
   }
-  return `./generated/${path.split("/").map(encodeURIComponent).join("/")}`;
+  return `../generated/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 async function loadInitialExample() {
   const parameters = new URLSearchParams(location.search);
   const requestedSource = parameters.get("source");
-  if (requestedSource) {
-    const response = await fetch(catalogueSourceUrl(requestedSource));
+  const requestedReadme = parameters.get("readme");
+  if (requestedSource || requestedReadme) {
+    const response = await fetch(requestedReadme
+      ? readmeSourceUrl(requestedReadme)
+      : catalogueSourceUrl(requestedSource));
     if (!response.ok) throw new Error(`Source request failed (${response.status})`);
-    const title = parameters.get("title") || requestedSource.split("/").at(-1);
-    const mediaPath = parameters.get("media");
-    const media = mediaPath ? Object.freeze({
-      path: mediaPath,
-      type: parameters.get("mediaType") === "video" ? "video" : "image",
-    }) : null;
+    const title = parameters.get("title") || (requestedSource || requestedReadme).split("/").at(-1);
     const browserRunnable = parameters.get("browserRunnable") === "true";
     catalogExample = Object.freeze({
       source: await response.text(),
-      kind: browserRunnable ? "console" : "source",
-      media,
+      kind: parameters.get("kind") || "console",
+      browserRunnable,
     });
     const option = document.createElement("option");
     option.value = "catalog";
@@ -340,16 +319,15 @@ async function loadInitialExample() {
     example.value = "catalog";
     source.value = catalogExample.source;
     playButton.hidden = true;
-    compileButton.disabled = !browserRunnable;
+    compileButton.disabled = false;
     renderHighlight();
     if (browserRunnable) {
       await compileSource();
       return;
     }
-    if (media) showReference(media, title);
-    else showConsole();
-    output.textContent = "Browser execution is not yet available for this full program. The source is editable; runnable coverage is added only after the VKF/WASM compiler passes it.";
-    status.value = media ? "Verified native render" : "Source example";
+    showConsole();
+    output.textContent = "Not supported by the packaged browser compiler. No fallback result was rendered.";
+    status.value = "Unsupported compiler path";
     return;
   }
 

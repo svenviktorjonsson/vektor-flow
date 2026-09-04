@@ -3,22 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>Try Vektor Flow</title>
+  <meta name="color-scheme" content="light dark">
+  <title>Vektor Flow · Run example</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <main>
-    <header>
-      <p class="eyebrow">Vektor Flow · runs entirely in this page</p>
-      <h1>Edit VKF. Compile and run with VKF.</h1>
-      <p class="lede">Compile console programs and symbolic plots locally with VKF-authored WebAssembly. No compiler server is contacted.</p>
-    </header>
-
+  <main class="runner">
     <section class="workbench" aria-label="Vektor Flow playground">
       <div class="pane source-pane">
         <div class="pane-bar">
-          <label class="example-label" for="example">Example</label>
+          <label class="example-label" for="example">Editor</label>
           <select id="example" aria-label="Example">
             <option value="console">Console · dependency chain</option>
             <option value="console-arithmetic">Console · grouped arithmetic</option>
@@ -39,32 +33,17 @@ second + 1</textarea>
 
       <div class="pane output-pane">
         <div class="pane-bar">
-          <span>Program output</span>
+          <span id="output-heading">Console</span>
           <output id="status">Loading compiler…</output>
         </div>
         <div class="result-shell">
           <pre id="output" aria-live="polite">The compiler is loading locally.</pre>
           <canvas id="visualization" aria-label="VKF visualization" hidden></canvas>
-          <figure id="reference" class="reference" hidden>
-            <img id="reference-image" alt="" hidden>
-            <video id="reference-video" controls loop muted playsinline hidden></video>
-            <figcaption>Verified native render · source shown beside it</figcaption>
-          </figure>
         </div>
       </div>
     </section>
-
-    <nav class="example-links" aria-label="Try live examples">
-      <a href="?example=console">Console</a>
-      <a href="?example=console-arithmetic">Arithmetic</a>
-      <a href="?example=curve-static">2D static</a>
-      <a href="?example=curve-time">2D with time</a>
-      <a href="?example=surface-static">3D static</a>
-      <a href="?example=surface-time">3D with time</a>
-    </nav>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/prism.min.js"></script>
   <script type="module" src="./app.mjs"></script>
 </body>
 </html>

@@ -34,17 +34,17 @@ jobs:
       - name: Verify committed browser artifact
         shell: pwsh
         run: git diff --exit-code -- web/playground/artifacts
-      - name: Build hierarchical README example catalogue
+      - name: Build executable README
         shell: pwsh
         run: |
           node --test `
             tests/js/browser-compiler-runtime.test.mjs `
             tests/js/browser-playground-shell.test.mjs `
             tests/js/browser-symbolic-plotter.test.mjs `
-            tests/js/pages-example-catalog.test.mjs `
-            tests/js/pages-example-tree.test.mjs `
-            tests/js/pages-live-examples.test.mjs
-          node tools/build-pages-example-catalog.mjs --output=web/playground/generated
+            tests/js/pages-documentation-shell.test.mjs `
+            tests/js/pages-inline-runner.test.mjs `
+            tests/js/pages-readme-document.test.mjs
+          node tools/build-pages-readme.mjs --output=web/generated
       - uses: actions/upload-pages-artifact@v4
         with:
           path: web
@@ -52,7 +52,7 @@ jobs:
   deploy:
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}playground/
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
     steps:

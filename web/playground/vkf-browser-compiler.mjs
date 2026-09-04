@@ -5,6 +5,19 @@ import {
 
 const ENTRY = "compile_tagged_dependency_tape";
 const RUN_ENTRY = "run_tagged_dependency_source";
+const FORBIDDEN_CAPABILITIES = Object.freeze([
+  [/(?:^|[^\p{L}\p{N}_])(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\s*\(/iu, "network"],
+  [/(?:^|[^\p{L}\p{N}_])(?:network|http|server|socket)\s*\./iu, "network"],
+  [/(?:^|[^\p{L}\p{N}_])(?:filesystem|file|io)\s*\./iu, "filesystem"],
+  [/(?:^|[^\p{L}\p{N}_])process\s*\./iu, "process"],
+]);
+
+function assertBrowserCapabilities(source) {
+  const match = FORBIDDEN_CAPABILITIES.find(([pattern]) => pattern.test(source));
+  if (match) {
+    throw new Error(`browser runtime does not expose ${match[1]} capability`);
+  }
+}
 
 function wrapKernel(kernel) {
   return Object.freeze({
@@ -17,11 +30,13 @@ function wrapKernel(kernel) {
       } catch (cause) {
         throw new Error("browser compiler rejected the VKF source", { cause });
       }
+      assertBrowserCapabilities(source);
     },
     run(source) {
       if (typeof source !== "string") {
         throw new TypeError("browser compiler source must be a string");
       }
+      assertBrowserCapabilities(source);
       try {
         return kernel.invokeValue(RUN_ENTRY, [source]);
       } catch (cause) {
