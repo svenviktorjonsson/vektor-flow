@@ -528,6 +528,20 @@ _compile_x64_apply_resolved_rel32_table(
         .index+: 1
     body
 
+_compile_x64_bounded_section_tail(
+    code_size:num, code_capacity:num, artifact_suffix:str
+) -> str:
+    (code_size >= 0 /\ code_size <= code_capacity)?! "x64 code exceeds bounded section capacity"
+    remaining: code_capacity - code_size
+    padding: ""
+    block: _compile_x64_byte(0)
+    (remaining > 0)?>
+        remaining % 2 = 1?
+            .padding: padding & block
+        .remaining: remaining // 2
+        .block: block & block
+    padding & artifact_suffix
+
 _compile_x64_positive_immediate_size(value:num) -> num:
     (value >= 0 /\ value <= 9007199254740991)?! "x64 immediate size requires an exact positive integer"
     value <= 127? @: 2
@@ -1659,6 +1673,56 @@ _compile_tagged_numeric_literal_function_chain_symbols_x64(
         ],
         [first_call_origin, second_call_origin, third_call_origin],
         [first_helper_position, second_helper_position, third_helper_position],
+        high_bytes
+    )
+
+_compile_tagged_numeric_literal_function_chain_section_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    template_prefix:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    artifact_suffix:str,
+    high_bytes:[str]
+) -> str:
+    first_tokens: lexer.tagged_numeric_function_token_tape(first_source)
+    first: _compile_tagged_numeric_literal_function_tape(
+        first_tokens.source, first_tokens.rows, first_tokens.count
+    )
+    second_tokens: lexer.tagged_numeric_function_token_tape(second_source)
+    second: _compile_tagged_numeric_literal_function_tape(
+        second_tokens.source, second_tokens.rows, second_tokens.count
+    )
+    third_tokens: lexer.tagged_numeric_function_token_tape(third_source)
+    third: _compile_tagged_numeric_literal_function_tape(
+        third_tokens.source, third_tokens.rows, third_tokens.count
+    )
+    first_argument_size: _compile_x64_positive_immediate_size(first.values.0)
+    first_factor_size: _compile_x64_positive_immediate_size(first.values.1)
+    second_factor_size: _compile_x64_positive_immediate_size(second.values.1)
+    third_factor_size: _compile_x64_positive_immediate_size(third.values.1)
+    helper_sizes: (
+        (2 + first_factor_size + 7 + 9) +
+        (2 + second_factor_size + 7 + 9) +
+        (2 + third_factor_size + 7 + 9)
+    )
+    code_size: 2 + helper_sizes + first_argument_size + 5 + 6 + 5 + 6 + 5 + 1
+    artifact_tail: _compile_x64_bounded_section_tail(
+        code_size, 32768, artifact_suffix
+    )
+    _compile_tagged_numeric_literal_function_chain_symbols_x64(
+        first_source,
+        second_source,
+        third_source,
+        template_prefix,
+        function_prologue,
+        multiplication_code,
+        function_epilogue,
+        result_bridge,
+        artifact_tail,
         high_bytes
     )
 
