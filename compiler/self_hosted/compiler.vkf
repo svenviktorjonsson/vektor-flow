@@ -500,6 +500,19 @@ _compile_x64_signed_rel32(displacement:num, high_bytes:[str]) -> str:
         _compile_x64_arena_byte((encoded // 16777216) % 256, high_bytes)
     )
 
+_compile_x64_resolved_rel32(
+    origin_position:num, target_position:num, high_bytes:[str]
+) -> str:
+    _compile_x64_signed_rel32(
+        target_position - origin_position, high_bytes
+    )
+
+_compile_x64_positive_immediate_size(value:num) -> num:
+    (value >= 0 /\ value <= 9007199254740991)?! "x64 immediate size requires an exact positive integer"
+    value <= 127? @: 2
+    value <= 2147483647? @: 5
+    11
+
 _compile_x64_positive_immediate_from_arena(
     value:num, high_bytes:[str]
 ) -> str:
@@ -1449,6 +1462,45 @@ _compile_tagged_numeric_literal_function_backward_x64(
         _compile_x64_arena_byte(232, high_bytes) &
         _compile_x64_signed_rel32(backward_displacement, high_bytes) &
         _compile_x64_arena_byte(195, high_bytes) & artifact_tail
+    )
+
+_compile_tagged_numeric_literal_function_symbols_x64(
+    source:str,
+    template_prefix:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    artifact_tail:str,
+    high_bytes:[str]
+) -> str:
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    statement: _compile_tagged_numeric_literal_function_tape(
+        tokens.source, tokens.rows, tokens.count
+    )
+    (
+        statement.max_stack = 2 /\ statement.opcodes.length() = 4 /\
+        statement.opcodes.0 = 1 /\ statement.opcodes.1 = 1 /\
+        statement.opcodes.2 = 5 /\ statement.opcodes.3 = 3
+    )?! "numeric literal function x64 tape changed"
+    argument_size: _compile_x64_positive_immediate_size(statement.values.0)
+    factor_size: _compile_x64_positive_immediate_size(statement.values.1)
+    entry_relocation_origin: 2
+    helper_position: 2
+    helper_size: 2 + factor_size + 7 + 9
+    entry_position: helper_position + helper_size
+    call_relocation_origin: entry_position + argument_size + 5
+    entry_displacement: entry_position - entry_relocation_origin
+    (entry_displacement >= 0 /\ entry_displacement <= 127)?! "x64 discovered entry relocation is outside positive rel8"
+    (
+        template_prefix & _compile_x64_arena_byte(235, high_bytes) &
+        _compile_x64_byte(entry_displacement) & function_prologue &
+        _compile_x64_positive_immediate_from_arena(statement.values.1, high_bytes) &
+        multiplication_code & function_epilogue &
+        _compile_x64_positive_immediate_from_arena(statement.values.0, high_bytes) &
+        _compile_x64_arena_byte(232, high_bytes) &
+        _compile_x64_resolved_rel32(
+            call_relocation_origin, helper_position, high_bytes
+        ) & _compile_x64_arena_byte(195, high_bytes) & artifact_tail
     )
 
 _run_tagged_browser_numeric_tape(
