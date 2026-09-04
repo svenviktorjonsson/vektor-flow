@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { buildReadmeDocument } from "../../tools/build-pages-readme.mjs";
+import { materializeVisualOutput } from "../../web/inline-result-packets.mjs";
 import { createBrowserCompiler } from "../../web/playground/vkf-browser-compiler.mjs";
 
 const root = new URL("../../", import.meta.url);
@@ -277,7 +278,6 @@ test("browser compiler retains source-derived README procedural textures", async
 test("browser compiler retains source-derived transparent optical material", async () => {
   const { compiler, examples } = await compilerAndExamples();
   const glass = examples.find(({ id }) => id === "readme-06");
-  const mirror = examples.find(({ id }) => id === "readme-05");
   const output = { ...compiler.run(glass.source) };
   assert.deepEqual({ ...output.packet_records.at(-1).optical }, {
     magic: 1447773771, version: 1, alpha: 0.52,
@@ -296,7 +296,32 @@ test("browser compiler retains source-derived transparent optical material", asy
     () => compiler.run(glass.source.replace("reflectivity:0.28", "reflectivity:0.28, ior:1.5")),
     /browser compiler could not run the VKF source/u,
   );
-  assert.throws(() => compiler.run(mirror.source), /browser compiler could not run the VKF source/u);
+});
+
+test("browser compiler retains the README mirror surface and virtual camera", async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const mirror = examples.find(({ id }) => id === "readme-05");
+  const output = { ...compiler.run(mirror.source) };
+  assert.deepEqual({ ...output.packet_records.at(-1).surface_system }, {
+    magic: 1447773773, version: 1, kind: "screen", reflectivity: 0.9,
+    reverse_facing: true, flip_y: true, scale: [1, 1], camera_fov: 43,
+    camera_up: [0, 0, 1], mirror_frame_id: "frame_0", mirror_mesh_id: "mirror",
+    reflect_eye_only: true, lock_aperture_camera: true, controls_enabled: false,
+  });
+  assert.equal(materializeVisualOutput(output).packets.at(-1)[1], 7);
+  const changed = { ...compiler.run(mirror.source
+    .replace('surface_system:(kind:"screen", reflectivity:0.9', 'surface_system:(kind:"screen", reflectivity:0.6')
+    .replace("camera:(fov:43", "camera:(fov:50")) };
+  assert.deepEqual(rounded([
+    changed.packet_records.at(-1).surface_system.reflectivity,
+    changed.packet_records.at(-1).surface_system.camera_fov,
+  ]), [0.6, 50]);
+  const changedPacket = materializeVisualOutput(changed).packets.at(-1);
+  assert.deepEqual(rounded([changedPacket[18], changedPacket[23]]), [0.6, 50]);
+  assert.throws(
+    () => compiler.run(mirror.source.replace("camera:(fov:43", "camera:(fov:43, lens_shift:0.2")),
+    /browser compiler could not run the VKF source/u,
+  );
 });
 
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
@@ -316,6 +341,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 12);
+  assert.equal(runnable.length, 13);
   assert.equal(examples.length, 26);
 });

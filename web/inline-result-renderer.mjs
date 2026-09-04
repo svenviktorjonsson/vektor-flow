@@ -20,13 +20,13 @@ function decode(packet) {
       castsShadow: packet[14] === 1, sourceRadius: packet[15],
     };
   }
-  if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5, 6].includes(packet[1])) {
+  if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5, 6, 7].includes(packet[1])) {
     throw new TypeError("inline renderer received an invalid retained geometry packet");
   }
   const rows = packet[2];
   const columns = packet[3];
   const stride = packet[1] === 2 ? 2 : 3;
-  const dataOffset = packet[1] === 6 ? 17
+  const dataOffset = packet[1] === 7 ? 32 : packet[1] === 6 ? 17
     : packet[1] === 5 ? 28 : packet[1] === 4 ? 13 : packet[1] === 3 ? 10 : 8;
   if (!Number.isInteger(rows) || rows < 1 || !Number.isInteger(columns) || columns < 1
       || packet.length !== dataOffset + (rows * columns * stride)) {
@@ -41,10 +41,33 @@ function decode(packet) {
   if (texture && ![1, 2].includes(texture.kind)) {
     throw new TypeError("inline renderer received an invalid texture packet");
   }
-  const optical = packet[1] === 6 ? {
+  const optical = packet[1] === 6 || packet[1] === 7 ? {
     alpha: packet[13], transparent: packet[14] === 1,
     depthWrite: packet[15] === 1, reflectivity: packet[16],
   } : null;
+  const surfaceSystem = packet[1] === 7 ? {
+    kind: packet[17], reflectivity: packet[18],
+    reverseFacing: packet[19] === 1, flipY: packet[20] === 1,
+    scale: packet.slice(21, 23), cameraFov: packet[23],
+    cameraUp: packet.slice(24, 27), frameCode: packet[27], meshCode: packet[28],
+    reflectEyeOnly: packet[29] === 1,
+    lockApertureCamera: packet[30] === 1,
+    controlsEnabled: packet[31] === 1,
+  } : null;
+  if (surfaceSystem && (surfaceSystem.kind !== 1
+      || !Number.isFinite(surfaceSystem.reflectivity)
+      || surfaceSystem.reflectivity < 0 || surfaceSystem.reflectivity > 1
+      || !surfaceSystem.reverseFacing || !surfaceSystem.flipY
+      || surfaceSystem.scale[0] !== 1 || surfaceSystem.scale[1] !== 1
+      || !Number.isFinite(surfaceSystem.cameraFov)
+      || surfaceSystem.cameraFov <= 0 || surfaceSystem.cameraFov >= 180
+      || surfaceSystem.cameraUp[0] !== 0 || surfaceSystem.cameraUp[1] !== 0
+      || surfaceSystem.cameraUp[2] !== 1
+      || surfaceSystem.frameCode !== 3398114705 || surfaceSystem.meshCode !== 801718722
+      || !surfaceSystem.reflectEyeOnly || !surfaceSystem.lockApertureCamera
+      || surfaceSystem.controlsEnabled)) {
+    throw new TypeError("inline renderer received an invalid surface system packet");
+  }
   return {
     kind: "geometry", packet, rows, columns, stride, dataOffset,
     receivesLighting: packet[1] >= 3 && packet[8] === 1,
@@ -52,7 +75,7 @@ function decode(packet) {
     receivesShadow: packet[1] >= 4 && packet[10] === 1,
     roughness: packet[1] >= 4 ? packet[11] : 1,
     specularStrength: packet[1] >= 4 ? packet[12] : 0,
-    texture, optical,
+    texture, optical, surfaceSystem,
   };
 }
 
@@ -76,6 +99,25 @@ const normalize = (value) => {
   const length = Math.hypot(...value);
   return value.map((component) => component / Math.max(length, 1e-9));
 };
+
+function mirrorPlane(mesh) {
+  if (mesh.rows < 2 || mesh.columns < 2) {
+    throw new TypeError("inline renderer received a collapsed mirror surface");
+  }
+  const origin = vertex(mesh, 0, 0);
+  const across = subtract(vertex(mesh, 0, mesh.columns - 1), origin);
+  const upward = subtract(vertex(mesh, mesh.rows - 1, 0), origin);
+  const crossed = cross(across, upward);
+  if (Math.hypot(...crossed) < 1e-9) {
+    throw new TypeError("inline renderer received a collapsed mirror surface");
+  }
+  return { origin, normal: normalize(crossed) };
+}
+
+function reflectAcrossPlane(point, plane) {
+  const distance = dot(subtract(point, plane.origin), plane.normal);
+  return point.map((value, index) => value - (2 * distance * plane.normal[index]));
+}
 
 function cameraProjector(camera, canvas) {
   const forward = normalize(subtract(camera.target, camera.pos));
@@ -194,10 +236,10 @@ export function renderInlineResult(canvas, packets) {
     : "#080d19";
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.lineWidth = 2;
-  const drawStrip = (count, pointAt) => {
+  const drawStrip = (count, pointAt, projector = project) => {
     context.beginPath();
     for (let index = 0; index < count; index += 1) {
-      const [x, y] = project(pointAt(index));
+      const [x, y] = projector(pointAt(index));
       if (index === 0) context.moveTo(x, y);
       else context.lineTo(x, y);
     }
@@ -222,7 +264,65 @@ export function renderInlineResult(canvas, packets) {
     }
   }
 
-  for (const mesh of meshes) {
+  for (let meshIndex = 0; meshIndex < meshes.length; meshIndex += 1) {
+    const mesh = meshes[meshIndex];
+    if (mesh.surfaceSystem) {
+      if (!camera) {
+        throw new TypeError("inline mirror renderer requires a retained camera packet");
+      }
+      const plane = mirrorPlane(mesh);
+      const mirrorCamera = {
+        pos: reflectAcrossPlane(camera.pos, plane),
+        target: reflectAcrossPlane(camera.target, plane),
+        up: mesh.surfaceSystem.cameraUp,
+        fov: mesh.surfaceSystem.cameraFov,
+      };
+      const mirrorProject = cameraProjector(mirrorCamera, canvas);
+      context.save();
+      context.beginPath();
+      [
+        vertex(mesh, 0, 0),
+        vertex(mesh, 0, mesh.columns - 1),
+        vertex(mesh, mesh.rows - 1, mesh.columns - 1),
+        vertex(mesh, mesh.rows - 1, 0),
+      ].forEach((point, index) => {
+        const [x, y] = project(point);
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.clip();
+      context.fillStyle = background
+        ? rgba(background.color)
+        : "#080d19";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      for (const reflected of meshes.slice(0, meshIndex)) {
+        const color = litColor(reflected, lights);
+        const sourceAlpha = reflected.optical?.transparent
+          ? reflected.optical.alpha : reflected.packet[7];
+        const alpha = Math.max(0, Math.min(
+          1, sourceAlpha * mesh.surfaceSystem.reflectivity,
+        ));
+        context.strokeStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${alpha})`;
+        for (let row = 0; row < reflected.rows; row += 1) {
+          drawStrip(
+            reflected.columns,
+            (column) => vertex(reflected, row, column),
+            mirrorProject,
+          );
+        }
+        if (reflected.rows > 1) {
+          for (let column = 0; column < reflected.columns; column += 1) {
+            drawStrip(
+              reflected.rows,
+              (row) => vertex(reflected, row, column),
+              mirrorProject,
+            );
+          }
+        }
+      }
+      context.restore();
+    }
     drawTexture(context, project, mesh);
     const color = litColor(mesh, lights);
     const alpha = mesh.optical?.transparent ? mesh.optical.alpha : mesh.packet[7];

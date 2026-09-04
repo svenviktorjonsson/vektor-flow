@@ -166,6 +166,41 @@ test("worker materializes a strictly versioned transparent optical buffer", () =
   }), /invalid optical packet/u);
 });
 
+test("worker materializes a strictly versioned mirror surface buffer", () => {
+  const record = {
+    magic: 1447773766, version: 5, rows: 2, columns: 2,
+    color: [0.72, 0.84, 1, 1],
+    x: [[-3.2, 3.2], [-3.2, 3.2]],
+    y: [[4.1, 4.1], [4.1, 4.1]], z: [[0.1, 0.1], [3.8, 3.8]],
+    receives_lighting: true, casts_shadow: true, receives_shadow: true,
+    roughness: 0.04, specular_strength: 0, texture: [],
+    optical: {
+      magic: 1447773771, version: 1, alpha: 1,
+      transparent: true, depth_write: true, reflectivity: 0.9,
+    },
+    surface_system: {
+      magic: 1447773773, version: 1, kind: "screen", reflectivity: 0.9,
+      reverse_facing: true, flip_y: true, scale: [1, 1], camera_fov: 43,
+      camera_up: [0, 0, 1], mirror_frame_id: "frame_0", mirror_mesh_id: "mirror",
+      reflect_eye_only: true, lock_aperture_camera: true, controls_enabled: false,
+    },
+  };
+  const output = materializeVisualOutput({ kind: "visual", packet_records: [record] });
+  assert.deepEqual([...output.packets[0]], [
+    1447773766, 7, 2, 2, 0.72, 0.84, 1, 1, 1, 1, 1, 0.04, 0,
+    1, 1, 1, 0.9,
+    1, 0.9, 1, 1, 1, 1, 43, 0, 0, 1, 3398114705, 801718722, 1, 1, 0,
+    -3.2, 4.1, 0.1, 3.2, 4.1, 0.1, -3.2, 4.1, 3.8, 3.2, 4.1, 3.8,
+  ]);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual",
+    packet_records: [{
+      ...record,
+      surface_system: { ...record.surface_system, camera_mode: "legacy" },
+    }],
+  }), /invalid surface system packet/u);
+});
+
 test("trusted inline renderer projects and lights validated retained 3D packets", () => {
   const operations = [];
   const context = {
@@ -279,6 +314,69 @@ test("trusted inline renderer applies source alpha and reflectivity", () => {
   assert.match(render(0.52, 0.28), /, 0\.52\)$/u);
   assert.match(render(0.22, 0.28), /, 0\.22\)$/u);
   assert.notEqual(render(0.52, 0.28), render(0.52, 0.48));
+});
+
+test("trusted inline renderer clips source-derived geometry into the mirror camera", () => {
+  const render = (reflectivity, fov) => {
+    const operations = [];
+    const context = {
+      beginPath: () => operations.push("begin"),
+      closePath: () => operations.push("close"),
+      clearRect: () => operations.push("clear"),
+      fillRect: (...args) => operations.push(["fill", ...args]),
+      lineTo: (...args) => operations.push(["line", ...args]),
+      moveTo: (...args) => operations.push(["move", ...args]),
+      stroke: () => operations.push("stroke"),
+      save: () => operations.push("save"),
+      clip: () => operations.push("clip"),
+      restore: () => operations.push("restore"),
+      set fillStyle(value) { operations.push(["fillStyle", value]); },
+      set lineWidth(value) { operations.push(["lineWidth", value]); },
+      set strokeStyle(value) { operations.push(["strokeStyle", value]); },
+    };
+    const background = Float64Array.from([1447773767, 1, 0.01, 0.015, 0.03, 1]);
+    const camera = Float64Array.from([
+      1447773768, 1, 5.2, -7.4, 4.2, 0, 1.2, 1.1, 0, 0, 1, 43,
+    ]);
+    const sculpture = Float64Array.from([
+      1447773766, 4, 2, 2, 0.96, 0.22, 0.08, 1, 1, 1, 0, 0.24, 0.78,
+      -1.5, 0.3, 0.2, 0.4, 1, 0.5, -1.1, 0.3, 2.7, 0.8, 1, 3,
+    ]);
+    const mirror = Float64Array.from([
+      1447773766, 7, 2, 2, 0.72, 0.84, 1, 1, 1, 1, 1, 0.04, 0,
+      1, 1, 1, 0.9,
+      1, reflectivity, 1, 1, 1, 1, fov, 0, 0, 1,
+      3398114705, 801718722, 1, 1, 0,
+      -3.2, 4.1, 0.1, 3.2, 4.1, 0.1, -3.2, 4.1, 3.8, 3.2, 4.1, 3.8,
+    ]);
+    renderInlineResult(
+      { width: 640, height: 360, getContext: () => context },
+      [background, camera, sculpture, mirror],
+    );
+    return operations;
+  };
+  const initial = render(0.9, 43);
+  const clip = initial.indexOf("clip");
+  const restore = initial.indexOf("restore");
+  assert.ok(clip > 0 && restore > clip);
+  const clipped = initial.slice(clip, restore);
+  const mirrorBackground = clipped.findIndex(([kind] = []) => kind === "fill");
+  const reflectedStroke = clipped.indexOf("stroke");
+  assert.ok(mirrorBackground >= 0 && reflectedStroke > mirrorBackground,
+    "mirror background must be composited before reflected geometry");
+  assert.ok(initial.slice(restore + 1).includes("stroke"), "mirror surface must draw after its reflection");
+  const reflectedMove = (operations) => {
+    const start = operations.indexOf("clip");
+    const end = operations.indexOf("restore");
+    return operations.slice(start, end).find(([kind] = []) => kind === "move");
+  };
+  const reflectedStyle = (operations) => {
+    const start = operations.indexOf("clip");
+    const end = operations.indexOf("restore");
+    return operations.slice(start, end).find(([kind] = []) => kind === "strokeStyle");
+  };
+  assert.notDeepEqual(reflectedMove(initial), reflectedMove(render(0.9, 50)));
+  assert.notDeepEqual(reflectedStyle(initial), reflectedStyle(render(0.6, 43)));
 });
 
 test("terminal always appears below the editor and Result appears only for validated visual output", async () => {

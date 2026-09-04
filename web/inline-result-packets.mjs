@@ -8,6 +8,13 @@ export function materializeVisualOutput(output) {
     && values.length === length
     && values.every((value) => typeof value === "number" && Number.isFinite(value));
   const finiteNumber = (value) => typeof value === "number" && Number.isFinite(value);
+  const identifierCode = (value) => {
+    let code = 2166136261;
+    for (const character of value) {
+      code = Math.imul(code ^ character.codePointAt(0), 16777619);
+    }
+    return code >>> 0;
+  };
   const materializeTexture = (texture) => {
     if (texture == null || (Array.isArray(texture) && texture.length === 0)) return null;
     const keys = [
@@ -52,6 +59,44 @@ export function materializeVisualOutput(output) {
       optical.depth_write ? 1 : 0, optical.reflectivity,
     ];
   };
+  const materializeSurfaceSystem = (surface) => {
+    if (surface == null || (Array.isArray(surface) && surface.length === 0)) return null;
+    const keys = [
+      "camera_fov", "camera_up", "controls_enabled", "flip_y", "kind",
+      "lock_aperture_camera", "magic", "mirror_frame_id", "mirror_mesh_id",
+      "reflect_eye_only", "reflectivity", "reverse_facing", "scale", "version",
+    ];
+    if (!surface || typeof surface !== "object" || Array.isArray(surface)
+        || Object.keys(surface).sort().join("\0") !== keys.join("\0")
+        || surface.magic !== 1447773773 || surface.version !== 1
+        || surface.kind !== "screen"
+        || !finiteNumber(surface.reflectivity)
+        || surface.reflectivity < 0 || surface.reflectivity > 1
+        || surface.reverse_facing !== true || surface.flip_y !== true
+        || !finiteVector(surface.scale, 2)
+        || surface.scale[0] !== 1 || surface.scale[1] !== 1
+        || !finiteNumber(surface.camera_fov)
+        || surface.camera_fov <= 0 || surface.camera_fov >= 180
+        || !finiteVector(surface.camera_up, 3)
+        || surface.camera_up[0] !== 0 || surface.camera_up[1] !== 0
+        || surface.camera_up[2] !== 1
+        || surface.mirror_frame_id !== "frame_0"
+        || surface.mirror_mesh_id !== "mirror"
+        || surface.reflect_eye_only !== true
+        || surface.lock_aperture_camera !== true
+        || surface.controls_enabled !== false) {
+      throw new TypeError("browser compiler returned an invalid surface system packet");
+    }
+    return [
+      1, surface.reflectivity,
+      surface.reverse_facing ? 1 : 0, surface.flip_y ? 1 : 0,
+      ...surface.scale, surface.camera_fov, ...surface.camera_up,
+      identifierCode(surface.mirror_frame_id), identifierCode(surface.mirror_mesh_id),
+      surface.reflect_eye_only ? 1 : 0,
+      surface.lock_aperture_camera ? 1 : 0,
+      surface.controls_enabled ? 1 : 0,
+    ];
+  };
   const packets = output.packet_records.map((record) => {
     if (record?.magic === 1447773767 && record.version === 1 && finiteVector(record.color, 4)) {
       return Float64Array.from([record.magic, record.version, ...record.color]);
@@ -92,17 +137,22 @@ export function materializeVisualOutput(output) {
     }
     const texture = materializeTexture(record.texture);
     const optical = materializeOptical(record.optical);
+    const surfaceSystem = materializeSurfaceSystem(record.surface_system);
     if (texture && optical) {
       throw new TypeError("browser compiler returned unsupported combined material packets");
     }
+    if (surfaceSystem && (!optical || texture)) {
+      throw new TypeError("browser compiler returned an invalid mirror material packet");
+    }
     const values = [
-      record.magic, optical ? 6 : texture ? 5 : 4,
+      record.magic, surfaceSystem ? 7 : optical ? 6 : texture ? 5 : 4,
       record.rows, record.columns, ...record.color,
       record.receives_lighting ? 1 : 0, record.casts_shadow ? 1 : 0,
       record.receives_shadow ? 1 : 0, record.roughness, record.specular_strength,
     ];
     if (texture) values.push(...texture);
     if (optical) values.push(...optical);
+    if (surfaceSystem) values.push(...surfaceSystem);
     for (let row = 0; row < record.rows; row += 1) {
       if (!finiteVector(record.x[row], record.columns)
           || !finiteVector(record.y[row], record.columns)

@@ -1439,6 +1439,55 @@ BrowserDisplayOpticalPacket: (
     depth_write:bit,
     reflectivity:num
 )
+BrowserDisplayMirrorFields: (
+    frame_id:str,
+    mesh_id:str,
+    reflect_eye_only:bit,
+    lock_aperture_camera:bit,
+    controls_enabled:bit,
+    unsupported:bit
+)
+BrowserDisplaySurfaceCameraFields: (
+    fov:num,
+    up_source:str,
+    mirror_frame_id:str,
+    mirror_mesh_id:str,
+    reflect_eye_only:bit,
+    lock_aperture_camera:bit,
+    controls_enabled:bit,
+    unsupported:bit
+)
+BrowserDisplaySurfaceFields: (
+    kind:str,
+    reflectivity:num,
+    reverse_facing:bit,
+    flip_y:bit,
+    scale_source:str,
+    camera_fov:num,
+    camera_up_source:str,
+    mirror_frame_id:str,
+    mirror_mesh_id:str,
+    reflect_eye_only:bit,
+    lock_aperture_camera:bit,
+    controls_enabled:bit,
+    unsupported:bit
+)
+BrowserDisplaySurfacePacket: (
+    magic:int,
+    version:int,
+    kind:str,
+    reflectivity:num,
+    reverse_facing:bit,
+    flip_y:bit,
+    scale:any,
+    camera_fov:num,
+    camera_up:any,
+    mirror_frame_id:str,
+    mirror_mesh_id:str,
+    reflect_eye_only:bit,
+    lock_aperture_camera:bit,
+    controls_enabled:bit
+)
 
 _browser_lifted_number(tape:any, index:int, factor:num) -> BrowserLiftedParse:
     row: index * 6
@@ -1877,6 +1926,308 @@ _browser_display_texture_packet(source:str, offset:int, in_string:bit) -> any:
         @: _browser_typed_texture_packet(fields, scale, color_a, color_b)
     _browser_display_texture_packet(source, next, false)
 
+_browser_scan_display_mirror_fields(
+    source:str, offset:int, stop:int, frame_id:str, mesh_id:str,
+    reflect_eye_only:bit, lock_aperture_camera:bit,
+    controls_enabled:bit, unsupported:bit
+) -> BrowserDisplayMirrorFields:
+    offset >= stop?
+        @: (
+            frame_id:frame_id, mesh_id:mesh_id,
+            reflect_eye_only:reflect_eye_only,
+            lock_aperture_camera:lock_aperture_camera,
+            controls_enabled:controls_enabled, unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    (_browser_source_starts_with(source, offset, "frame_id:", 0) \/
+        _browser_source_starts_with(source, offset, "mesh_id:", 0))?
+        colon_width: 8
+        _browser_source_starts_with(source, offset, "frame_id:", 0)?
+            .colon_width: 9
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 34)?! "browser mirror identifiers must be strings"
+        value_stop: _browser_display_string_stop(source, value_start + 1)
+        value: vkf_utf8_slice(source, value_start + 1, value_stop)
+        next_frame_id: frame_id
+        next_mesh_id: mesh_id
+        _browser_source_starts_with(source, offset, "frame_id:", 0)?
+            .next_frame_id: value
+        _browser_source_starts_with(source, offset, "mesh_id:", 0)?
+            .next_mesh_id: value
+        @: _browser_scan_display_mirror_fields(
+            source, value_stop + 1, stop, next_frame_id, next_mesh_id,
+            reflect_eye_only, lock_aperture_camera,
+            controls_enabled, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "reflect_eye_only:", 0) \/
+        _browser_source_starts_with(source, offset, "lock_aperture_camera:", 0) \/
+        _browser_source_starts_with(source, offset, "controls_enabled:", 0))?
+        colon_width: 17
+        _browser_source_starts_with(source, offset, "lock_aperture_camera:", 0)?
+            .colon_width: 21
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value: false
+        value_stop: value_start
+        _browser_source_starts_with(source, value_start, "true", 0)?
+            .value: true
+            .value_stop: value_start + 4
+        ~value?
+            _browser_source_starts_with(source, value_start, "false", 0)?
+                .value_stop: value_start + 5
+            ~_browser_source_starts_with(source, value_start, "false", 0)?
+                false?! "browser mirror flags require booleans"
+        next_reflect_eye_only: reflect_eye_only
+        next_lock_aperture_camera: lock_aperture_camera
+        next_controls_enabled: controls_enabled
+        _browser_source_starts_with(source, offset, "reflect_eye_only:", 0)?
+            .next_reflect_eye_only: value
+        _browser_source_starts_with(source, offset, "lock_aperture_camera:", 0)?
+            .next_lock_aperture_camera: value
+        _browser_source_starts_with(source, offset, "controls_enabled:", 0)?
+            .next_controls_enabled: value
+        @: _browser_scan_display_mirror_fields(
+            source, value_stop, stop, frame_id, mesh_id,
+            next_reflect_eye_only, next_lock_aperture_camera,
+            next_controls_enabled, unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_display_mirror_fields(
+        source, next, stop, frame_id, mesh_id, reflect_eye_only,
+        lock_aperture_camera, controls_enabled, unknown
+    )
+
+_browser_scan_display_surface_camera_fields(
+    source:str, offset:int, stop:int, fov:num, up_source:str,
+    mirror_frame_id:str, mirror_mesh_id:str,
+    reflect_eye_only:bit, lock_aperture_camera:bit,
+    controls_enabled:bit, unsupported:bit
+) -> BrowserDisplaySurfaceCameraFields:
+    offset >= stop?
+        @: (
+            fov:fov, up_source:up_source,
+            mirror_frame_id:mirror_frame_id, mirror_mesh_id:mirror_mesh_id,
+            reflect_eye_only:reflect_eye_only,
+            lock_aperture_camera:lock_aperture_camera,
+            controls_enabled:controls_enabled, unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    _browser_source_starts_with(source, offset, "fov:", 0)?
+        value_start: _browser_display_value_start(source, offset + 4)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        value: vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))
+        @: _browser_scan_display_surface_camera_fields(
+            source, value_stop, stop, value, up_source,
+            mirror_frame_id, mirror_mesh_id, reflect_eye_only,
+            lock_aperture_camera, controls_enabled, unsupported
+        )
+    _browser_source_starts_with(source, offset, "up:", 0)?
+        value_start: _browser_display_value_start(source, offset + 3)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser mirror camera up must be a vector"
+        value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        @: _browser_scan_display_surface_camera_fields(
+            source, value_stop, stop, fov,
+            vkf_utf8_slice(source, value_start, value_stop),
+            mirror_frame_id, mirror_mesh_id, reflect_eye_only,
+            lock_aperture_camera, controls_enabled, unsupported
+        )
+    _browser_source_starts_with(source, offset, "mirror_of:", 0)?
+        value_start: _browser_display_value_start(source, offset + 10)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser mirror camera mirror_of must be a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        mirror_fields: _browser_scan_display_mirror_fields(
+            source, value_start + 1, value_stop - 1, "", "",
+            false, false, false, false
+        )
+        next_unsupported: unsupported
+        mirror_fields.unsupported?
+            .next_unsupported: true
+        @: _browser_scan_display_surface_camera_fields(
+            source, value_stop, stop, fov, up_source,
+            mirror_fields.frame_id, mirror_fields.mesh_id,
+            mirror_fields.reflect_eye_only,
+            mirror_fields.lock_aperture_camera,
+            mirror_fields.controls_enabled, next_unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_display_surface_camera_fields(
+        source, next, stop, fov, up_source,
+        mirror_frame_id, mirror_mesh_id, reflect_eye_only,
+        lock_aperture_camera, controls_enabled, unknown
+    )
+
+_browser_scan_display_surface_fields(
+    source:str, offset:int, stop:int, kind:str, reflectivity:num,
+    reverse_facing:bit, flip_y:bit, scale_source:str,
+    camera_fov:num, camera_up_source:str,
+    mirror_frame_id:str, mirror_mesh_id:str,
+    reflect_eye_only:bit, lock_aperture_camera:bit,
+    controls_enabled:bit, unsupported:bit
+) -> BrowserDisplaySurfaceFields:
+    offset >= stop?
+        @: (
+            kind:kind, reflectivity:reflectivity,
+            reverse_facing:reverse_facing, flip_y:flip_y,
+            scale_source:scale_source, camera_fov:camera_fov,
+            camera_up_source:camera_up_source,
+            mirror_frame_id:mirror_frame_id, mirror_mesh_id:mirror_mesh_id,
+            reflect_eye_only:reflect_eye_only,
+            lock_aperture_camera:lock_aperture_camera,
+            controls_enabled:controls_enabled,
+            unsupported:unsupported
+        )
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    _browser_source_starts_with(source, offset, "kind:", 0)?
+        value_start: _browser_display_value_start(source, offset + 5)
+        (vkf_string_peek_scalar(source, value_start) = 34)?! "browser surface kind must be a string"
+        value_stop: _browser_display_string_stop(source, value_start + 1)
+        @: _browser_scan_display_surface_fields(
+            source, value_stop + 1, stop,
+            vkf_utf8_slice(source, value_start + 1, value_stop),
+            reflectivity, reverse_facing, flip_y,
+            scale_source, camera_fov, camera_up_source,
+            mirror_frame_id, mirror_mesh_id, reflect_eye_only,
+            lock_aperture_camera, controls_enabled, unsupported
+        )
+    _browser_source_starts_with(source, offset, "reflectivity:", 0)?
+        value_start: _browser_display_value_start(source, offset + 13)
+        value_stop: vkf_decimal_scan_end(source, value_start)
+        value: vkf_decimal_parse(vkf_utf8_slice(source, value_start, value_stop))
+        @: _browser_scan_display_surface_fields(
+            source, value_stop, stop, kind, value, reverse_facing,
+            flip_y, scale_source, camera_fov, camera_up_source,
+            mirror_frame_id, mirror_mesh_id, reflect_eye_only,
+            lock_aperture_camera, controls_enabled, unsupported
+        )
+    (_browser_source_starts_with(source, offset, "reverse_facing:", 0) \/
+        _browser_source_starts_with(source, offset, "flip_y:", 0))?
+        colon_width: 7
+        _browser_source_starts_with(source, offset, "reverse_facing:", 0)?
+            .colon_width: 15
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        value: false
+        value_stop: value_start
+        _browser_source_starts_with(source, value_start, "true", 0)?
+            .value: true
+            .value_stop: value_start + 4
+        ~value?
+            _browser_source_starts_with(source, value_start, "false", 0)?
+                .value_stop: value_start + 5
+            ~_browser_source_starts_with(source, value_start, "false", 0)?
+                false?! "browser surface flags require booleans"
+        next_reverse_facing: reverse_facing
+        next_flip_y: flip_y
+        _browser_source_starts_with(source, offset, "reverse_facing:", 0)?
+            .next_reverse_facing: value
+        _browser_source_starts_with(source, offset, "flip_y:", 0)?
+            .next_flip_y: value
+        @: _browser_scan_display_surface_fields(
+            source, value_stop, stop, kind, reflectivity,
+            next_reverse_facing, next_flip_y, scale_source,
+            camera_fov, camera_up_source, mirror_frame_id,
+            mirror_mesh_id, reflect_eye_only, lock_aperture_camera,
+            controls_enabled, unsupported
+        )
+    _browser_source_starts_with(source, offset, "scale:", 0)?
+        value_start: _browser_display_value_start(source, offset + 6)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser surface scale must be a vector"
+        value_stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        @: _browser_scan_display_surface_fields(
+            source, value_stop, stop, kind, reflectivity,
+            reverse_facing, flip_y,
+            vkf_utf8_slice(source, value_start, value_stop),
+            camera_fov, camera_up_source, mirror_frame_id,
+            mirror_mesh_id, reflect_eye_only, lock_aperture_camera,
+            controls_enabled, unsupported
+        )
+    _browser_source_starts_with(source, offset, "camera:", 0)?
+        value_start: _browser_display_value_start(source, offset + 7)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser surface camera must be a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        camera_fields: _browser_scan_display_surface_camera_fields(
+            source, value_start + 1, value_stop - 1,
+            0, "", "", "", false, false, false, false
+        )
+        next_unsupported: unsupported
+        camera_fields.unsupported?
+            .next_unsupported: true
+        @: _browser_scan_display_surface_fields(
+            source, value_stop, stop, kind, reflectivity,
+            reverse_facing, flip_y, scale_source,
+            camera_fields.fov, camera_fields.up_source,
+            camera_fields.mirror_frame_id, camera_fields.mirror_mesh_id,
+            camera_fields.reflect_eye_only,
+            camera_fields.lock_aperture_camera,
+            camera_fields.controls_enabled, next_unsupported
+        )
+    unknown: unsupported
+    _browser_ascii_identifier_start(ch)?
+        identifier_stop: _browser_display_identifier_stop(source, offset)
+        (~vkf_string_eof(source, identifier_stop) /\
+            vkf_string_peek_scalar(source, identifier_stop) = 58)?
+            .unknown: true
+    _browser_scan_display_surface_fields(
+        source, next, stop, kind, reflectivity, reverse_facing,
+        flip_y, scale_source, camera_fov, camera_up_source,
+        mirror_frame_id, mirror_mesh_id, reflect_eye_only,
+        lock_aperture_camera, controls_enabled, unknown
+    )
+
+_browser_display_surface_packet(source:str, offset:int, in_string:bit) -> any:
+    vkf_string_eof(source, offset)?
+        @: []
+    ch: vkf_string_peek_scalar(source, offset)
+    next: vkf_utf8_advance(source, offset)
+    in_string?
+        @: _browser_display_surface_packet(source, next, ch != 34)
+    ch = 34?
+        @: _browser_display_surface_packet(source, next, true)
+    _browser_source_starts_with(source, offset, "surface_system:", 0)?
+        value_start: _browser_display_value_start(source, offset + 15)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser surface system must be a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        fields: _browser_scan_display_surface_fields(
+            source, value_start + 1, value_stop - 1,
+            "", 0, false, false, "", 0, "", "", "",
+            false, false, false, false
+        )
+        ~fields.unsupported?! "browser surface system contains an unsupported field"
+        (fields.kind = "screen")?! "browser surface kind is unsupported"
+        (fields.reflectivity >= 0 /\ fields.reflectivity <= 1)?! "browser surface reflectivity is invalid"
+        (fields.scale_source != "" /\ fields.camera_fov > 0 /\
+            fields.camera_fov < 180 /\ fields.camera_up_source != "" /\
+            fields.mirror_frame_id != "" /\
+            fields.mirror_mesh_id != "")?! "browser surface camera is incomplete"
+        scale_tape: lexer.tagged_numeric_function_token_tape(fields.scale_source)
+        scale: _browser_lifted_value(scale_tape, 0, 1).value
+        up_tape: lexer.tagged_numeric_function_token_tape(fields.camera_up_source)
+        up: _browser_lifted_value(up_tape, 0, 1).value
+        (scale.length() = 2 /\ up.length() = 3)?! "browser surface camera dimensions are invalid"
+        @: (
+            magic:1447773773, version:1, kind:fields.kind,
+            reflectivity:fields.reflectivity,
+            reverse_facing:fields.reverse_facing, flip_y:fields.flip_y,
+            scale:scale, camera_fov:fields.camera_fov, camera_up:up,
+            mirror_frame_id:fields.mirror_frame_id,
+            mirror_mesh_id:fields.mirror_mesh_id,
+            reflect_eye_only:fields.reflect_eye_only,
+            lock_aperture_camera:fields.lock_aperture_camera,
+            controls_enabled:fields.controls_enabled
+        )
+    _browser_display_surface_packet(source, next, false)
+
 _browser_scan_display_optical_fields(
     source:str, offset:int, alpha:num, transparent:bit,
     depth_write:bit, reflectivity:num, present:bit, in_string:bit
@@ -1897,6 +2248,18 @@ _browser_scan_display_optical_fields(
         @: _browser_scan_display_optical_fields(
             source, next, alpha, transparent, depth_write,
             reflectivity, present, true
+        )
+    (_browser_source_starts_with(source, offset, "texture:", 0) \/
+        _browser_source_starts_with(source, offset, "surface_system:", 0))?
+        colon_width: 8
+        _browser_source_starts_with(source, offset, "surface_system:", 0)?
+            .colon_width: 15
+        value_start: _browser_display_value_start(source, offset + colon_width)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser material extension must be a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        @: _browser_scan_display_optical_fields(
+            source, value_stop, alpha, transparent, depth_write,
+            reflectivity, present, false
         )
     (_browser_source_starts_with(source, offset, "alpha:", 0) \/
         _browser_source_starts_with(source, offset, "reflectivity:", 0))?
@@ -2124,6 +2487,15 @@ _browser_scan_display_mesh_source(
             receives_lighting, casts_shadow, receives_shadow,
             roughness, specular_strength, unsupported, false
         )
+    _browser_source_starts_with(source, offset, "surface_system:", 0)?
+        value_start: _browser_display_value_start(source, offset + 15)
+        (vkf_string_peek_scalar(source, value_start) = 40)?! "browser surface system must be a record"
+        value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
+        @: _browser_scan_display_mesh_source(
+            source, value_stop, x_source, y_source, z_source, color_source,
+            receives_lighting, casts_shadow, receives_shadow,
+            roughness, specular_strength, unsupported, false
+        )
     _browser_source_starts_with(source, offset, "id:", 0)?
         @: _browser_scan_display_mesh_source(
             source, offset + 3, x_source, y_source, z_source, color_source,
@@ -2162,6 +2534,7 @@ _browser_display_mesh_source(source:str) -> any:
     (color.length() = 4)?! "frame.add color must be RGBA"
     texture: _browser_display_texture_packet(source, 0, false)
     optical: _browser_display_optical_packet(source)
+    surface_system: _browser_display_surface_packet(source, 0, false)
     rows: x.length()
     (rows > 0)?! "frame.add geometry must contain rows"
     (
@@ -2173,7 +2546,8 @@ _browser_display_mesh_source(source:str) -> any:
         roughness:fields.roughness,
         specular_strength:fields.specular_strength,
         texture:texture,
-        optical:optical
+        optical:optical,
+        surface_system:surface_system
     )
 
 _browser_display_camera_source(source:str) -> any:

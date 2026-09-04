@@ -256,7 +256,7 @@
       "resultType": 1
     },
     "_browser_display_camera_source": {
-      "index": 77,
+      "index": 81,
       "parameters": 1,
       "resultType": 1
     },
@@ -266,17 +266,17 @@
       "resultType": 1
     },
     "_browser_display_light_source": {
-      "index": 78,
+      "index": 82,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_display_mesh_source": {
-      "index": 76,
+      "index": 80,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_display_optical_packet": {
-      "index": 74,
+      "index": 78,
       "parameters": 1,
       "resultType": 1
     },
@@ -293,6 +293,11 @@
     "_browser_display_string_stop": {
       "index": 68,
       "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_display_surface_packet": {
+      "index": 75,
+      "parameters": 3,
       "resultType": 1
     },
     "_browser_display_texture_packet": {
@@ -326,28 +331,43 @@
       "resultType": 1
     },
     "_browser_lifted_vector_function_matches": {
-      "index": 83,
+      "index": 87,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_named_axis_source_matches": {
-      "index": 84,
+      "index": 88,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_scan_display_mesh_source": {
-      "index": 75,
+      "index": 79,
       "parameters": 13,
       "resultType": 1
     },
-    "_browser_scan_display_optical_fields": {
+    "_browser_scan_display_mirror_fields": {
       "index": 72,
+      "parameters": 9,
+      "resultType": 1
+    },
+    "_browser_scan_display_optical_fields": {
+      "index": 76,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_display_source": {
-      "index": 79,
+      "index": 83,
       "parameters": 10,
+      "resultType": 1
+    },
+    "_browser_scan_display_surface_camera_fields": {
+      "index": 73,
+      "parameters": 11,
+      "resultType": 1
+    },
+    "_browser_scan_display_surface_fields": {
+      "index": 74,
+      "parameters": 16,
       "resultType": 1
     },
     "_browser_scan_display_texture_fields": {
@@ -361,7 +381,7 @@
       "resultType": 1
     },
     "_browser_token_kind": {
-      "index": 82,
+      "index": 86,
       "parameters": 2,
       "resultType": 1
     },
@@ -381,12 +401,12 @@
       "resultType": 1
     },
     "_browser_token_text": {
-      "index": 81,
+      "index": 85,
       "parameters": 2,
       "resultType": 4
     },
     "_browser_typed_optical_packet": {
-      "index": 73,
+      "index": 77,
       "parameters": 1,
       "resultType": 1
     },
@@ -406,17 +426,17 @@
       "resultType": 2
     },
     "_run_tagged_display_source": {
-      "index": 80,
+      "index": 84,
       "parameters": 2,
       "resultType": 1
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 86,
+      "index": 90,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_named_axis_source": {
-      "index": 85,
+      "index": 89,
       "parameters": 1,
       "resultType": 1
     },
@@ -431,7 +451,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 87,
+      "index": 91,
       "parameters": 2,
       "resultType": 2
     },
@@ -443,11 +463,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 106656,
-    "bytecodeLength": 106652,
+    "argumentsPointer": 122296,
+    "bytecodeLength": 122295,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 106912
+    "resultsPointer": 122552
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,
