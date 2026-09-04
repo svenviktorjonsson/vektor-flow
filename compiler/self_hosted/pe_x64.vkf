@@ -115,8 +115,8 @@ _section_header(
 _data_directory(address:num, size:num, high_bytes:[str]) -> str:
     _u32_bytes(address, high_bytes) & _u32_bytes(size, high_bytes)
 
-runner_seed(runtime_body:str, high_bytes:[str]) -> str:
-    _byte_length(runtime_body) = 3584 ?! "x64 runner seed body has an unexpected size"
+runner_seed(runtime_without_relocation:str, high_bytes:[str]) -> str:
+    _byte_length(runtime_without_relocation) = 3072 ?! "x64 runner seed body has an unexpected size"
     zero: _byte(0, high_bytes)
     dos_header: "MZ" & _zero_bytes(58, high_bytes) & _u32_bytes(64, high_bytes)
     coff_header: (
@@ -193,10 +193,17 @@ runner_seed(runtime_body:str, high_bytes:[str]) -> str:
             12, 28672, 512, 4096, 1107296320, high_bytes
         )
     )
+    relocation: (
+        _u32_bytes(20480, high_bytes) &
+        _u32_bytes(12, high_bytes) &
+        _u16_bytes(40960, high_bytes) &
+        _u16_bytes(0, high_bytes) &
+        _zero_bytes(500, high_bytes)
+    )
     headers: dos_header & coff_header & optional_header & sections
     (
         headers & _zero_bytes(1024 - _byte_length(headers), high_bytes) &
-        runtime_body
+        runtime_without_relocation & relocation
     )
 
 _relocate_resource_directory(

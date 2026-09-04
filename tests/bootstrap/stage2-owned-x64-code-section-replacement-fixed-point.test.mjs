@@ -437,7 +437,8 @@ function verifyCodeSectionFixture(mode) {
     assert.equal(lockedSection.rawOffset, lockedTemplate.indexOf(marker));
     assert.equal(lockedSection.rawSize, 32768, "locked runner capacity changed");
     const packed = mode === "packed";
-    const sourceOwned = mode === "seed";
+    const relocationOwned = mode === "seed";
+    const sourceOwned = relocationOwned;
     const resourceMiddle = mode === "resource" || sourceOwned;
     const middle = mode === "middle" || resourceMiddle;
     const growing = packed || middle;
@@ -452,9 +453,12 @@ function verifyCodeSectionFixture(mode) {
     const template = sourceOwned
       ? makeOwnedRunnerSeed(selectedTemplate.subarray(1024))
       : selectedTemplate;
+    const runtimeInput = sourceOwned
+      ? template.subarray(1024, relocationOwned ? 4096 : template.length)
+      : template;
     if (sourceOwned) {
       assert.throws(
-        () => new TextDecoder("utf-8", { fatal: true }).decode(template.subarray(1024)),
+        () => new TextDecoder("utf-8", { fatal: true }).decode(runtimeInput),
         "source-owned seed must preserve an opaque invalid-UTF8 runtime body",
       );
     }
@@ -471,7 +475,10 @@ function verifyCodeSectionFixture(mode) {
     }
     assert.equal(template.indexOf(marker), -1, "fixture must not expose the locked marker");
     const templatePath = join(work, sourceOwned ? "opaque-runtime-body.bin" : `marker-free-template${suffix}`);
-    writeFileSync(templatePath, sourceOwned ? template.subarray(1024) : template);
+    writeFileSync(
+      templatePath,
+      runtimeInput,
+    );
     const section = findPeSection(template, ".vkfcod");
     if (mode === "missing" || growing) {
       assert.equal(section, undefined, "fixture must require section creation");
@@ -845,7 +852,7 @@ test("Stage 2 relocates nested PE resource data during code insertion", {
   verifyCodeSectionFixture("resource");
 });
 
-test("Stage 2 owns the x64 PE runner seed at fixed point", {
+test("Stage 2 owns the x64 PE runner seed and base relocations at fixed point", {
   skip: process.platform !== "win32",
 }, () => {
   verifyCodeSectionFixture("seed");
