@@ -816,6 +816,16 @@ test("browser compiler runs the complete README fannkuch fence", { timeout: 10_0
   );
 });
 
+test("browser compiler runs the complete README N-body fence exactly", { timeout: 10_000 }, async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-26");
+
+  assert.deepEqual({ ...compiler.run(example.source) }, {
+    kind: "console",
+    values: [-0.16907807065935543],
+  });
+});
+
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
