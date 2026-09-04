@@ -42,6 +42,12 @@ vkf_native_target(vkf_arm64_artifact vkf_arm64_artifact.cpp TRUE)
 set(VKF_AOT_TARGETS)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|x86_64)")
     vkf_native_target(vkf_x64_artifact vkf_x64_artifact.cpp TRUE)
+    target_sources(vkf_bootstrap_bundle_artifact_smoke PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/vkf_x64_artifact.cpp"
+    )
+    target_compile_definitions(vkf_bootstrap_bundle_artifact_smoke PRIVATE
+        VKF_X64_BACKEND_LIBRARY
+    )
     vkf_native_target(vkf_x64_runner_template vkf_x64_runner_template.cpp FALSE)
     target_sources(vkf PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vkf_x64_artifact.cpp")
     target_compile_definitions(vkf PRIVATE VKF_X64_BACKEND_LIBRARY)
