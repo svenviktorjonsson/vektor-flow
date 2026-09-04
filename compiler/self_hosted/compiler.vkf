@@ -1839,6 +1839,29 @@ _compile_tagged_numeric_literal_function_chain_template_x64(
         high_bytes
     )
 
+_compile_tagged_numeric_literal_function_chain_runner_seed_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    runtime_body:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    high_bytes:[str]
+) -> str:
+    _compile_tagged_numeric_literal_function_chain_template_x64(
+        first_source,
+        second_source,
+        third_source,
+        pe_x64.runner_seed(runtime_body, high_bytes),
+        function_prologue,
+        multiplication_code,
+        function_epilogue,
+        result_bridge,
+        high_bytes
+    )
+
 _run_tagged_browser_numeric_tape(
     opcodes:[num], values:[num], max_stack:num
 ) -> num:

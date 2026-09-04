@@ -86,6 +86,119 @@ _replace_u16(source:str, offset:num, value:num, high_bytes:[str]) -> str:
 _replace_u32(source:str, offset:num, value:num, high_bytes:[str]) -> str:
     _replace_bytes(source, offset, offset + 4, _u32_bytes(value, high_bytes))
 
+_u64_bytes(value:num, high_bytes:[str]) -> str:
+    (
+        _u32_bytes(value % 4294967296, high_bytes) &
+        _u32_bytes((value // 4294967296) % 4294967296, high_bytes)
+    )
+
+_section_header(
+    name:str,
+    virtual_size:num,
+    virtual_address:num,
+    raw_size:num,
+    raw_offset:num,
+    characteristics:num,
+    high_bytes:[str]
+) -> str:
+    _byte_length(name) = 8 ?! "x64 PE section name is not eight bytes"
+    (
+        name &
+        _u32_bytes(virtual_size, high_bytes) &
+        _u32_bytes(virtual_address, high_bytes) &
+        _u32_bytes(raw_size, high_bytes) &
+        _u32_bytes(raw_offset, high_bytes) &
+        _zero_bytes(12, high_bytes) &
+        _u32_bytes(characteristics, high_bytes)
+    )
+
+_data_directory(address:num, size:num, high_bytes:[str]) -> str:
+    _u32_bytes(address, high_bytes) & _u32_bytes(size, high_bytes)
+
+runner_seed(runtime_body:str, high_bytes:[str]) -> str:
+    _byte_length(runtime_body) = 3584 ?! "x64 runner seed body has an unexpected size"
+    zero: _byte(0, high_bytes)
+    dos_header: "MZ" & _zero_bytes(58, high_bytes) & _u32_bytes(64, high_bytes)
+    coff_header: (
+        "PE" & zero & zero &
+        _u16_bytes(34404, high_bytes) &
+        _u16_bytes(7, high_bytes) &
+        _zero_bytes(12, high_bytes) &
+        _u16_bytes(240, high_bytes) &
+        _u16_bytes(34, high_bytes)
+    )
+    optional_header: (
+        _u16_bytes(523, high_bytes) & zero & zero &
+        _u32_bytes(512, high_bytes) &
+        _u32_bytes(3584, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u32_bytes(4152, high_bytes) &
+        _u32_bytes(4096, high_bytes) &
+        _u64_bytes(5368709120, high_bytes) &
+        _u32_bytes(4096, high_bytes) &
+        _u32_bytes(512, high_bytes) &
+        _u16_bytes(6, high_bytes) & _u16_bytes(0, high_bytes) &
+        _u16_bytes(0, high_bytes) & _u16_bytes(0, high_bytes) &
+        _u16_bytes(6, high_bytes) & _u16_bytes(0, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u32_bytes(32768, high_bytes) &
+        _u32_bytes(1024, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u16_bytes(3, high_bytes) &
+        _u16_bytes(33120, high_bytes) &
+        _u64_bytes(67108864, high_bytes) &
+        _u64_bytes(4096, high_bytes) &
+        _u64_bytes(1048576, high_bytes) &
+        _u64_bytes(4096, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u32_bytes(16, high_bytes) &
+        _data_directory(0, 0, high_bytes) &
+        _data_directory(8704, 80, high_bytes) &
+        _data_directory(24576, 480, high_bytes) &
+        _data_directory(16384, 36, high_bytes) &
+        _data_directory(0, 0, high_bytes) &
+        _data_directory(28672, 12, high_bytes) &
+        _data_directory(8304, 28, high_bytes) &
+        _zero_bytes(40, high_bytes) &
+        _data_directory(8192, 104, high_bytes) &
+        _zero_bytes(24, high_bytes)
+    )
+    sections: (
+        _section_header(
+            ".text" & zero & zero & zero,
+            363, 4096, 512, 1024, 1610612768, high_bytes
+        ) &
+        _section_header(
+            ".rdata" & zero & zero,
+            878, 8192, 1024, 1536, 1073741888, high_bytes
+        ) &
+        _section_header(
+            ".data" & zero & zero & zero,
+            24, 12288, 0, 0, 3221225536, high_bytes
+        ) &
+        _section_header(
+            ".pdata" & zero & zero,
+            36, 16384, 512, 2560, 1073741888, high_bytes
+        ) &
+        _section_header(
+            ".CRT" & zero & zero & zero & zero,
+            8, 20480, 512, 3072, 1073741888, high_bytes
+        ) &
+        _section_header(
+            ".rsrc" & zero & zero & zero,
+            480, 24576, 512, 3584, 1073741888, high_bytes
+        ) &
+        _section_header(
+            ".reloc" & zero & zero,
+            12, 28672, 512, 4096, 1107296320, high_bytes
+        )
+    )
+    headers: dos_header & coff_header & optional_header & sections
+    (
+        headers & _zero_bytes(1024 - _byte_length(headers), high_bytes) &
+        runtime_body
+    )
+
 _relocate_resource_directory(
     image:str,
     resource_raw_offset:num,
