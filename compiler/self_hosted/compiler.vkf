@@ -1792,11 +1792,22 @@ _compile_tagged_numeric_literal_function_chain_template_x64(
     high_bytes:[str]
 ) -> str:
     section: pe_x64.code_section(template, high_bytes)
+    artifact_template: pe_x64.materialize_code_section(
+        template,
+        section.existing,
+        section.header_offset,
+        section.virtual_size,
+        section.virtual_address,
+        section.raw_size,
+        section.raw_offset,
+        section.template_length,
+        high_bytes
+    )
     template_prefix: pe_x64.slice_bytes(
-        template, 0, section.raw_offset
+        artifact_template, 0, section.raw_offset
     )
     artifact_suffix: pe_x64.slice_bytes(
-        template,
+        artifact_template,
         section.raw_offset + section.raw_size,
         section.template_length
     )

@@ -39,6 +39,20 @@ _u32(source:str, offset:num, high_bytes:[str]) -> num:
         16777216 * _byte_value(slice_bytes(source, offset + 3, offset + 4), high_bytes)
     )
 
+_u16_bytes(value:num, high_bytes:[str]) -> str:
+    (
+        _byte(value % 256, high_bytes) &
+        _byte((value // 256) % 256, high_bytes)
+    )
+
+_u32_bytes(value:num, high_bytes:[str]) -> str:
+    (
+        _byte(value % 256, high_bytes) &
+        _byte((value // 256) % 256, high_bytes) &
+        _byte((value // 65536) % 256, high_bytes) &
+        _byte((value // 16777216) % 256, high_bytes)
+    )
+
 code_section(template:str, high_bytes:[str]):
     template_length: _byte_length(template)
     template_length >= 64 ?! "x64 compiler template has no complete DOS header"
@@ -52,16 +66,106 @@ code_section(template:str, high_bytes:[str]):
     section_table_offset: pe_offset + 24 + optional_header_size
     section_table_offset + section_count * 40 <= template_length ?! "x64 compiler template has no complete section table"
     code_section_name: ".vkfcod" & _byte(0, high_bytes)
+    empty_section_name: (
+        _u32_bytes(0, high_bytes) & _u32_bytes(0, high_bytes)
+    )
     section_index: 0
     section_header_offset: -1
+    empty_header_offset: -1
     candidate_offset: 0
-    (section_index < section_count /\ section_header_offset < 0)?>
+    str candidate_name: ""
+    (section_index < section_count)?>
         .candidate_offset: section_table_offset + section_index * 40
-        slice_bytes(template, candidate_offset, candidate_offset + 8) = code_section_name?
+        .candidate_name: slice_bytes(
+            template, candidate_offset, candidate_offset + 8
+        )
+        candidate_name = code_section_name?
             .section_header_offset: candidate_offset
+        (candidate_name = empty_section_name /\ empty_header_offset < 0)?
+            .empty_header_offset: candidate_offset
         .section_index+: 1
-    section_header_offset >= 0 ?! "x64 compiler template has no .vkfcod section"
-    raw_size: _u32(template, section_header_offset + 16, high_bytes)
-    raw_offset: _u32(template, section_header_offset + 20, high_bytes)
+    existing: section_header_offset >= 0
+    ~existing?
+        (empty_header_offset > section_table_offset /\ empty_header_offset + 40 < section_table_offset + section_count * 40) ?! "x64 compiler template has no creatable .vkfcod slot"
+        .section_header_offset: empty_header_offset
+    virtual_size: 0
+    virtual_address: 0
+    raw_size: 0
+    raw_offset: 0
+    previous_header: 0
+    next_header: 0
+    previous_virtual_size: 0
+    previous_virtual_address: 0
+    previous_raw_size: 0
+    previous_raw_offset: 0
+    next_virtual_address: 0
+    next_raw_offset: 0
+    section_alignment: 0
+    previous_span: 0
+    existing?
+        .virtual_size: _u32(template, section_header_offset + 8, high_bytes)
+        .virtual_address: _u32(template, section_header_offset + 12, high_bytes)
+        .raw_size: _u32(template, section_header_offset + 16, high_bytes)
+        .raw_offset: _u32(template, section_header_offset + 20, high_bytes)
+    ~existing?
+        .previous_header: section_header_offset - 40
+        .next_header: section_header_offset + 40
+        .previous_virtual_size: _u32(template, previous_header + 8, high_bytes)
+        .previous_virtual_address: _u32(template, previous_header + 12, high_bytes)
+        .previous_raw_size: _u32(template, previous_header + 16, high_bytes)
+        .previous_raw_offset: _u32(template, previous_header + 20, high_bytes)
+        .next_virtual_address: _u32(template, next_header + 12, high_bytes)
+        .next_raw_offset: _u32(template, next_header + 20, high_bytes)
+        .section_alignment: _u32(template, pe_offset + 24 + 32, high_bytes)
+        section_alignment > 0 ?! "x64 compiler template has invalid section alignment"
+        .previous_span: previous_virtual_size
+        previous_raw_size > previous_span?
+            .previous_span: previous_raw_size
+        .virtual_address: (
+            previous_virtual_address +
+            ((previous_span + section_alignment - 1) // section_alignment) * section_alignment
+        )
+        .virtual_size: next_virtual_address - virtual_address
+        .raw_offset: previous_raw_offset + previous_raw_size
+        .raw_size: next_raw_offset - raw_offset
     (raw_size > 0 /\ raw_offset + raw_size <= template_length) ?! "x64 compiler template has an invalid .vkfcod range"
-    (raw_offset: raw_offset, raw_size: raw_size, template_length: template_length)
+    (virtual_size > 0 /\ (existing \/ virtual_address + virtual_size <= next_virtual_address)) ?! "x64 compiler template has an invalid .vkfcod virtual range"
+    (
+        existing: existing,
+        header_offset: section_header_offset,
+        virtual_size: virtual_size,
+        virtual_address: virtual_address,
+        raw_offset: raw_offset,
+        raw_size: raw_size,
+        template_length: template_length
+    )
+
+materialize_code_section(
+    template:str,
+    existing:bit,
+    header_offset:num,
+    virtual_size:num,
+    virtual_address:num,
+    raw_size:num,
+    raw_offset:num,
+    template_length:num,
+    high_bytes:[str]
+) -> str:
+    existing?
+        @: slice_bytes(template, 0, template_length)
+    section_header: (
+        ".vkfcod" & _byte(0, high_bytes) &
+        _u32_bytes(virtual_size, high_bytes) &
+        _u32_bytes(virtual_address, high_bytes) &
+        _u32_bytes(raw_size, high_bytes) &
+        _u32_bytes(raw_offset, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u16_bytes(0, high_bytes) &
+        _u16_bytes(0, high_bytes) &
+        _u32_bytes(1610612800, high_bytes)
+    )
+    (
+        slice_bytes(template, 0, header_offset) & section_header &
+        slice_bytes(template, header_offset + 40, template_length)
+    )

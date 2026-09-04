@@ -42,7 +42,7 @@ function findPeSection(bytes, name) {
       };
     }
   }
-  assert.fail(`PE section ${name} is missing`);
+  return undefined;
 }
 
 function sha256(bytes) {
@@ -68,14 +68,12 @@ function runCompiler(artifact, lines, cwd) {
   });
 }
 
-test("Stage 2 discovers and replaces a marker-free x64 PE code section", {
-  skip: process.platform !== "win32",
-}, () => {
+function verifyCodeSectionFixture(mode) {
   const rootWork = process.env.VKF_TEST_WORK_ROOT
     ? resolve(process.env.VKF_TEST_WORK_ROOT)
     : join(root, ".work");
   mkdirSync(rootWork, { recursive: true });
-  const work = mkdtempSync(join(rootWork, "i232-"));
+  const work = mkdtempSync(join(rootWork, `i234-${mode}-`));
   try {
     const manifest = JSON.parse(readFileSync(
       join(root, "compiler", "self_hosted", "vf-compiler-bootstrap.json"),
@@ -94,18 +92,36 @@ test("Stage 2 discovers and replaces a marker-free x64 PE code section", {
       "fixture must exercise opaque bytes that a text slice cannot preserve",
     );
     const lockedSection = findPeSection(lockedTemplate, ".vkfcod");
+    assert.ok(lockedSection, "locked runner code section is missing");
     assert.equal(lockedSection.rawOffset, lockedTemplate.indexOf(marker));
     assert.equal(lockedSection.rawSize, 32768, "locked runner capacity changed");
-    const codeCapacity = 16384;
+    const codeCapacity = mode === "missing" ? lockedSection.rawSize : 16384;
     const template = Buffer.from(lockedTemplate);
-    template.writeUInt32LE(codeCapacity, lockedSection.headerOffset + 16);
+    if (mode === "missing") {
+      template.fill(0, lockedSection.headerOffset, lockedSection.headerOffset + 40);
+    } else {
+      template.writeUInt32LE(codeCapacity, lockedSection.headerOffset + 16);
+    }
     template.fill(0, lockedSection.rawOffset, lockedSection.rawOffset + marker.length);
     assert.equal(template.indexOf(marker), -1, "fixture must not expose the locked marker");
     const templatePath = join(work, `marker-free-template${suffix}`);
     writeFileSync(templatePath, template);
     const section = findPeSection(template, ".vkfcod");
-    assert.equal(section.rawSize, codeCapacity);
-    assert.equal(section.rawOffset, lockedSection.rawOffset);
+    if (mode === "missing") {
+      assert.equal(section, undefined, "fixture must require section creation");
+    } else {
+      assert.equal(section.rawSize, codeCapacity);
+      assert.equal(section.rawOffset, lockedSection.rawOffset);
+    }
+    const expectedTemplate = Buffer.from(template);
+    if (mode === "missing") {
+      lockedTemplate.copy(
+        expectedTemplate,
+        lockedSection.headerOffset,
+        lockedSection.headerOffset,
+        lockedSection.headerOffset + 40,
+      );
+    }
 
     const functionProloguePath = join(work, "function-prologue.bin");
     const multiplicationPath = join(work, "multiplication.bin");
@@ -235,8 +251,8 @@ test("Stage 2 discovers and replaces a marker-free x64 PE code section", {
     );
     assert.doesNotMatch(
       generatedCompilerSource,
-      /artifact_tail|code_capacity|template_prefix|artifact_suffix|marker_offset|3072|32768/,
-      "caller must not prebuild or supply the code-section layout",
+      /artifact_tail|code_capacity|template_prefix|artifact_suffix|marker_offset|header_offset|raw_offset|raw_size|virtual_address|3072|32768/,
+      "caller must not prebuild or supply the PE code-section layout",
     );
     compile(stage2CompilerSource, stage2Compiler);
 
@@ -291,23 +307,23 @@ test("Stage 2 discovers and replaces a marker-free x64 PE code section", {
     const stage2Bytes = readFileSync(stage2Program);
     assert.equal(stage2Bytes.length, template.length, "executable container size changed");
     assert.deepEqual(
-      stage2Bytes.subarray(0, section.rawOffset),
-      template.subarray(0, section.rawOffset),
+      stage2Bytes.subarray(0, lockedSection.rawOffset),
+      expectedTemplate.subarray(0, lockedSection.rawOffset),
       "opaque executable prefix was reinterpreted as text",
     );
     assert.deepEqual(
-      stage2Bytes.subarray(section.rawOffset, section.rawOffset + generated.length),
+      stage2Bytes.subarray(lockedSection.rawOffset, lockedSection.rawOffset + generated.length),
       generated,
       "compiler-owned code-section bytes differ from the selected artifact",
     );
     assert.deepEqual(
-      stage2Bytes.subarray(section.rawOffset + generated.length, section.rawOffset + codeCapacity),
+      stage2Bytes.subarray(lockedSection.rawOffset + generated.length, lockedSection.rawOffset + codeCapacity),
       Buffer.alloc(codeCapacity - generated.length),
       "compiler-owned code-section padding is not zero-filled",
     );
     assert.deepEqual(
-      stage2Bytes.subarray(section.rawOffset + codeCapacity),
-      template.subarray(section.rawOffset + codeCapacity),
+      stage2Bytes.subarray(lockedSection.rawOffset + codeCapacity),
+      template.subarray(lockedSection.rawOffset + codeCapacity),
       "opaque executable suffix was reinterpreted as text",
     );
     assert.deepEqual(readFileSync(stage3Compiler), readFileSync(stage2Compiler));
@@ -316,4 +332,16 @@ test("Stage 2 discovers and replaces a marker-free x64 PE code section", {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+test("Stage 2 discovers and replaces a marker-free x64 PE code section", {
+  skip: process.platform !== "win32",
+}, () => {
+  verifyCodeSectionFixture("existing");
+});
+
+test("Stage 2 creates a missing x64 PE code section at fixed point", {
+  skip: process.platform !== "win32",
+}, () => {
+  verifyCodeSectionFixture("missing");
 });
