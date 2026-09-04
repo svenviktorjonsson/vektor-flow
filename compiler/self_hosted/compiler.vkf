@@ -1808,6 +1808,7 @@ _compile_tagged_numeric_literal_function_chain_template_x64(
         template,
         section.existing,
         section.append,
+        section.middle,
         section.header_offset,
         section.virtual_size,
         section.virtual_address,

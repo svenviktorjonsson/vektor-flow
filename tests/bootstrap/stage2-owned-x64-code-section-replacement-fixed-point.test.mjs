@@ -139,6 +139,85 @@ function makePackedRunnerTemplate(lockedTemplate, lockedSection) {
   return packed;
 }
 
+function makeMiddleRunnerTemplate(lockedTemplate, lockedSection) {
+  const peOffset = lockedTemplate.readUInt32LE(0x3c);
+  const optionalHeaderSize = lockedTemplate.readUInt16LE(peOffset + 20);
+  const optionalHeaderOffset = peOffset + 24;
+  const sectionTableOffset = optionalHeaderOffset + optionalHeaderSize;
+  const sectionAlignment = lockedTemplate.readUInt32LE(optionalHeaderOffset + 32);
+  const sizeOfHeaders = lockedTemplate.readUInt32LE(optionalHeaderOffset + 60);
+  const crt = findPeSection(lockedTemplate, ".CRT");
+  const resources = findPeSection(lockedTemplate, ".rsrc");
+  const relocations = findPeSection(lockedTemplate, ".reloc");
+  assert.ok(crt && resources && relocations, "locked runner suffix sections changed");
+  const compact = Buffer.concat([
+    lockedTemplate.subarray(0, lockedSection.rawOffset),
+    lockedTemplate.subarray(crt.rawOffset, crt.rawOffset + crt.rawSize),
+    lockedTemplate.subarray(
+      relocations.rawOffset,
+      relocations.rawOffset + relocations.rawSize,
+    ),
+  ]);
+  const retainedCount = 6;
+  compact.writeUInt16LE(retainedCount, peOffset + 6);
+  compact.fill(0, lockedSection.headerOffset, sizeOfHeaders);
+  lockedTemplate.copy(compact, lockedSection.headerOffset, crt.headerOffset, crt.headerOffset + 40);
+  lockedTemplate.copy(
+    compact,
+    lockedSection.headerOffset + 40,
+    relocations.headerOffset,
+    relocations.headerOffset + 40,
+  );
+  const compactCrt = lockedSection.headerOffset;
+  const compactRelocations = compactCrt + 40;
+  compact.writeUInt32LE(0x5000, compactCrt + 12);
+  compact.writeUInt32LE(lockedSection.rawOffset, compactCrt + 20);
+  compact.writeUInt32LE(0x6000, compactRelocations + 12);
+  compact.writeUInt32LE(lockedSection.rawOffset + crt.rawSize, compactRelocations + 20);
+  compact.writeUInt32LE(
+    compact.readUInt32LE(optionalHeaderOffset + 8) - lockedSection.rawSize - resources.rawSize,
+    optionalHeaderOffset + 8,
+  );
+  compact.writeUInt32LE(0x7000, optionalHeaderOffset + 56);
+  compact.fill(
+    0,
+    optionalHeaderOffset + 112 + 2 * 8,
+    optionalHeaderOffset + 120 + 2 * 8,
+  );
+  compact.writeUInt32LE(0x6000, optionalHeaderOffset + 112 + 5 * 8);
+  compact.writeUInt32LE(0x5000, lockedSection.rawOffset + crt.rawSize);
+  const checksumOffset = optionalHeaderOffset + 64;
+  compact.writeUInt32LE(0, checksumOffset);
+  compact.writeUInt32LE(peChecksum(compact, checksumOffset), checksumOffset);
+  assert.notEqual(compact.readUInt32LE(checksumOffset), 0);
+  assert.equal(compact.length, lockedSection.rawOffset + crt.rawSize + relocations.rawSize);
+  for (let index = 0; index + 1 < retainedCount; index += 1) {
+    const current = sectionTableOffset + index * 40;
+    const next = current + 40;
+    assert.equal(
+      compact.readUInt32LE(current + 12) + align(Math.max(
+        compact.readUInt32LE(current + 8),
+        compact.readUInt32LE(current + 16),
+      ), sectionAlignment),
+      compact.readUInt32LE(next + 12),
+      "middle fixture must have no virtual gap",
+    );
+  }
+  const rawSections = Array.from({ length: retainedCount }, (_, index) => (
+    sectionTableOffset + index * 40
+  )).filter((headerOffset) => compact.readUInt32LE(headerOffset + 16) > 0);
+  for (let index = 0; index + 1 < rawSections.length; index += 1) {
+    const current = rawSections[index];
+    const next = rawSections[index + 1];
+    assert.equal(
+      compact.readUInt32LE(current + 20) + compact.readUInt32LE(current + 16),
+      compact.readUInt32LE(next + 20),
+      "middle fixture must have no raw gap",
+    );
+  }
+  return compact;
+}
+
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -190,23 +269,27 @@ function verifyCodeSectionFixture(mode) {
     assert.equal(lockedSection.rawOffset, lockedTemplate.indexOf(marker));
     assert.equal(lockedSection.rawSize, 32768, "locked runner capacity changed");
     const packed = mode === "packed";
-    const codeCapacity = mode === "missing" ? lockedSection.rawSize : packed ? 512 : 16384;
+    const middle = mode === "middle";
+    const growing = packed || middle;
+    const codeCapacity = mode === "missing" ? lockedSection.rawSize : growing ? 512 : 16384;
     const template = packed
       ? makePackedRunnerTemplate(lockedTemplate, lockedSection)
-      : Buffer.from(lockedTemplate);
+      : middle
+        ? makeMiddleRunnerTemplate(lockedTemplate, lockedSection)
+        : Buffer.from(lockedTemplate);
     if (mode === "missing") {
       template.fill(0, lockedSection.headerOffset, lockedSection.headerOffset + 40);
     } else if (!packed) {
       template.writeUInt32LE(codeCapacity, lockedSection.headerOffset + 16);
     }
-    if (!packed) {
+    if (!growing) {
       template.fill(0, lockedSection.rawOffset, lockedSection.rawOffset + marker.length);
     }
     assert.equal(template.indexOf(marker), -1, "fixture must not expose the locked marker");
     const templatePath = join(work, `marker-free-template${suffix}`);
     writeFileSync(templatePath, template);
     const section = findPeSection(template, ".vkfcod");
-    if (mode === "missing" || packed) {
+    if (mode === "missing" || growing) {
       assert.equal(section, undefined, "fixture must require section creation");
     } else {
       assert.equal(section.rawSize, codeCapacity);
@@ -294,6 +377,51 @@ function verifyCodeSectionFixture(mode) {
       header.writeUInt32LE(lockedSection.rawOffset, 20);
       header.writeUInt32LE(0x60000040, 36);
       header.copy(expectedTemplate, lockedSection.headerOffset);
+    }
+    if (middle) {
+      const peOffset = expectedTemplate.readUInt32LE(0x3c);
+      const optionalHeaderSize = expectedTemplate.readUInt16LE(peOffset + 20);
+      const optionalHeaderOffset = peOffset + 24;
+      const sectionTableOffset = optionalHeaderOffset + optionalHeaderSize;
+      const oldSectionCount = expectedTemplate.readUInt16LE(peOffset + 6);
+      const oldSectionTableEnd = sectionTableOffset + oldSectionCount * 40;
+      const laterHeaders = Buffer.from(expectedTemplate.subarray(
+        lockedSection.headerOffset,
+        oldSectionTableEnd,
+      ));
+      laterHeaders.copy(expectedTemplate, lockedSection.headerOffset + 40);
+      expectedTemplate.writeUInt16LE(oldSectionCount + 1, peOffset + 6);
+      expectedTemplate.writeUInt32LE(
+        expectedTemplate.readUInt32LE(optionalHeaderOffset + 4) + codeCapacity,
+        optionalHeaderOffset + 4,
+      );
+      expectedTemplate.writeUInt32LE(
+        expectedTemplate.readUInt32LE(optionalHeaderOffset + 8) + codeCapacity,
+        optionalHeaderOffset + 8,
+      );
+      expectedTemplate.writeUInt32LE(0x8000, optionalHeaderOffset + 56);
+      expectedTemplate.writeUInt32LE(0, optionalHeaderOffset + 64);
+      expectedTemplate.writeUInt32LE(0x7000, optionalHeaderOffset + 112 + 5 * 8);
+      const header = Buffer.alloc(40);
+      header.write(".vkfcod", 0, "ascii");
+      header.writeUInt32LE(generated.length, 8);
+      header.writeUInt32LE(0x5000, 12);
+      header.writeUInt32LE(codeCapacity, 16);
+      header.writeUInt32LE(lockedSection.rawOffset, 20);
+      header.writeUInt32LE(0x60000040, 36);
+      header.copy(expectedTemplate, lockedSection.headerOffset);
+      for (let index = 1; index <= 2; index += 1) {
+        const headerOffset = lockedSection.headerOffset + index * 40;
+        expectedTemplate.writeUInt32LE(
+          expectedTemplate.readUInt32LE(headerOffset + 12) + 0x1000,
+          headerOffset + 12,
+        );
+        expectedTemplate.writeUInt32LE(
+          expectedTemplate.readUInt32LE(headerOffset + 20) + codeCapacity,
+          headerOffset + 20,
+        );
+      }
+      expectedTemplate.writeUInt32LE(0x6000, lockedSection.rawOffset + 512);
     }
     writeFileSync(functionProloguePath, functionPrologue);
     writeFileSync(multiplicationPath, multiplication);
@@ -429,14 +557,15 @@ function verifyCodeSectionFixture(mode) {
     const stage2Bytes = readFileSync(stage2Program);
     assert.equal(
       stage2Bytes.length,
-      packed ? template.length + codeCapacity : template.length,
-      packed ? "executable container did not grow by one aligned section" : "executable container size changed",
+      growing ? template.length + codeCapacity : template.length,
+      growing ? "executable container did not grow by one aligned section" : "executable container size changed",
     );
-    if (packed) {
+    if (growing) {
       const expectedArtifact = Buffer.concat([
-        expectedTemplate,
+        expectedTemplate.subarray(0, lockedSection.rawOffset),
         generated,
         Buffer.alloc(codeCapacity - generated.length),
+        expectedTemplate.subarray(lockedSection.rawOffset),
       ]);
       assert.deepEqual(stage2Bytes, expectedArtifact, "grown PE container bytes differ");
     }
@@ -457,7 +586,9 @@ function verifyCodeSectionFixture(mode) {
     );
     assert.deepEqual(
       stage2Bytes.subarray(lockedSection.rawOffset + codeCapacity),
-      template.subarray(lockedSection.rawOffset + codeCapacity),
+      middle
+        ? expectedTemplate.subarray(lockedSection.rawOffset)
+        : template.subarray(lockedSection.rawOffset + codeCapacity),
       "opaque executable suffix was reinterpreted as text",
     );
     assert.deepEqual(readFileSync(stage3Compiler), readFileSync(stage2Compiler));
@@ -484,4 +615,10 @@ test("Stage 2 grows a packed x64 PE with a new aligned code section", {
   skip: process.platform !== "win32",
 }, () => {
   verifyCodeSectionFixture("packed");
+});
+
+test("Stage 2 inserts x64 code before later PE sections", {
+  skip: process.platform !== "win32",
+}, () => {
+  verifyCodeSectionFixture("middle");
 });
