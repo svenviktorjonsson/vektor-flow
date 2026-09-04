@@ -507,17 +507,26 @@ _compile_x64_resolved_rel32(
         target_position - origin_position, high_bytes
     )
 
-_compile_x64_resolved_rel32_collection(
-    origin_positions:[num:2], target_positions:[num:2], high_bytes:[str]
-) -> [str:2]:
-    [
-        _compile_x64_resolved_rel32(
-            origin_positions.0, target_positions.0, high_bytes
-        ),
-        _compile_x64_resolved_rel32(
-            origin_positions.1, target_positions.1, high_bytes
+_compile_x64_apply_resolved_rel32_table(
+    fragments:[str],
+    origin_positions:[num],
+    target_positions:[num],
+    high_bytes:[str]
+) -> str:
+    (
+        origin_positions.length() = target_positions.length() /\
+        fragments.length() = origin_positions.length() + 1
+    )?! "x64 relocation table cardinality does not match artifact fragments"
+    index: 0
+    body: fragments.0
+    (index < origin_positions.length())?>
+        .body: (
+            body & _compile_x64_resolved_rel32(
+                origin_positions.(index), target_positions.(index), high_bytes
+            ) & fragments.(index + 1)
         )
-    ]
+        .index+: 1
+    body
 
 _compile_x64_positive_immediate_size(value:num) -> num:
     (value >= 0 /\ value <= 9007199254740991)?! "x64 immediate size requires an exact positive integer"
@@ -1556,22 +1565,101 @@ _compile_tagged_numeric_literal_function_pair_symbols_x64(
     second_call_origin: first_call_origin + 6 + 5
     entry_displacement: entry_position - entry_relocation_origin
     (entry_displacement >= 0 /\ entry_displacement <= 127)?! "x64 discovered pair entry relocation is outside positive rel8"
-    relocations: _compile_x64_resolved_rel32_collection(
+    _compile_x64_apply_resolved_rel32_table(
+        [
+            (
+                template_prefix & _compile_x64_arena_byte(235, high_bytes) &
+                _compile_x64_byte(entry_displacement) & function_prologue &
+                _compile_x64_positive_immediate_from_arena(first.values.1, high_bytes) &
+                multiplication_code & function_epilogue & function_prologue &
+                _compile_x64_positive_immediate_from_arena(second.values.1, high_bytes) &
+                multiplication_code & function_epilogue &
+                _compile_x64_positive_immediate_from_arena(first.values.0, high_bytes) &
+                _compile_x64_arena_byte(232, high_bytes)
+            ),
+            result_bridge & _compile_x64_arena_byte(232, high_bytes),
+            _compile_x64_arena_byte(195, high_bytes) & artifact_tail
+        ],
         [first_call_origin, second_call_origin],
         [first_helper_position, second_helper_position],
         high_bytes
     )
+
+_compile_tagged_numeric_literal_function_chain_symbols_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    template_prefix:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    artifact_tail:str,
+    high_bytes:[str]
+) -> str:
+    first_tokens: lexer.tagged_numeric_function_token_tape(first_source)
+    first: _compile_tagged_numeric_literal_function_tape(
+        first_tokens.source, first_tokens.rows, first_tokens.count
+    )
+    second_tokens: lexer.tagged_numeric_function_token_tape(second_source)
+    second: _compile_tagged_numeric_literal_function_tape(
+        second_tokens.source, second_tokens.rows, second_tokens.count
+    )
+    third_tokens: lexer.tagged_numeric_function_token_tape(third_source)
+    third: _compile_tagged_numeric_literal_function_tape(
+        third_tokens.source, third_tokens.rows, third_tokens.count
+    )
     (
-        template_prefix & _compile_x64_arena_byte(235, high_bytes) &
-        _compile_x64_byte(entry_displacement) & function_prologue &
-        _compile_x64_positive_immediate_from_arena(first.values.1, high_bytes) &
-        multiplication_code & function_epilogue & function_prologue &
-        _compile_x64_positive_immediate_from_arena(second.values.1, high_bytes) &
-        multiplication_code & function_epilogue &
-        _compile_x64_positive_immediate_from_arena(first.values.0, high_bytes) &
-        _compile_x64_arena_byte(232, high_bytes) & relocations.0 &
-        result_bridge & _compile_x64_arena_byte(232, high_bytes) &
-        relocations.1 & _compile_x64_arena_byte(195, high_bytes) & artifact_tail
+        first.max_stack = 2 /\ first.opcodes.length() = 4 /\
+        first.opcodes.0 = 1 /\ first.opcodes.1 = 1 /\
+        first.opcodes.2 = 5 /\ first.opcodes.3 = 3 /\
+        second.max_stack = 2 /\ second.opcodes.length() = 4 /\
+        second.opcodes.0 = 1 /\ second.opcodes.1 = 1 /\
+        second.opcodes.2 = 5 /\ second.opcodes.3 = 3 /\
+        third.max_stack = 2 /\ third.opcodes.length() = 4 /\
+        third.opcodes.0 = 1 /\ third.opcodes.1 = 1 /\
+        third.opcodes.2 = 5 /\ third.opcodes.3 = 3
+    )?! "numeric literal function chain x64 tape changed"
+    (first.values.0 * first.values.1 = second.values.0)?! "first numeric function result bridge does not match second argument"
+    (second.values.0 * second.values.1 = third.values.0)?! "second numeric function result bridge does not match third argument"
+    first_argument_size: _compile_x64_positive_immediate_size(first.values.0)
+    first_factor_size: _compile_x64_positive_immediate_size(first.values.1)
+    second_factor_size: _compile_x64_positive_immediate_size(second.values.1)
+    third_factor_size: _compile_x64_positive_immediate_size(third.values.1)
+    entry_relocation_origin: 2
+    first_helper_position: 2
+    first_helper_size: 2 + first_factor_size + 7 + 9
+    second_helper_position: first_helper_position + first_helper_size
+    second_helper_size: 2 + second_factor_size + 7 + 9
+    third_helper_position: second_helper_position + second_helper_size
+    third_helper_size: 2 + third_factor_size + 7 + 9
+    entry_position: third_helper_position + third_helper_size
+    first_call_origin: entry_position + first_argument_size + 5
+    second_call_origin: first_call_origin + 6 + 5
+    third_call_origin: second_call_origin + 6 + 5
+    entry_displacement: entry_position - entry_relocation_origin
+    (entry_displacement >= 0 /\ entry_displacement <= 127)?! "x64 discovered chain entry relocation is outside positive rel8"
+    _compile_x64_apply_resolved_rel32_table(
+        [
+            (
+                template_prefix & _compile_x64_arena_byte(235, high_bytes) &
+                _compile_x64_byte(entry_displacement) & function_prologue &
+                _compile_x64_positive_immediate_from_arena(first.values.1, high_bytes) &
+                multiplication_code & function_epilogue & function_prologue &
+                _compile_x64_positive_immediate_from_arena(second.values.1, high_bytes) &
+                multiplication_code & function_epilogue & function_prologue &
+                _compile_x64_positive_immediate_from_arena(third.values.1, high_bytes) &
+                multiplication_code & function_epilogue &
+                _compile_x64_positive_immediate_from_arena(first.values.0, high_bytes) &
+                _compile_x64_arena_byte(232, high_bytes)
+            ),
+            result_bridge & _compile_x64_arena_byte(232, high_bytes),
+            result_bridge & _compile_x64_arena_byte(232, high_bytes),
+            _compile_x64_arena_byte(195, high_bytes) & artifact_tail
+        ],
+        [first_call_origin, second_call_origin, third_call_origin],
+        [first_helper_position, second_helper_position, third_helper_position],
+        high_bytes
     )
 
 _run_tagged_browser_numeric_tape(
