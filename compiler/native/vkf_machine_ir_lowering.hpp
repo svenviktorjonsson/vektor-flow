@@ -2728,6 +2728,30 @@ inline ValueLayout layout_from_environment_expression_shape(
         if (expanded_count != expression.end() && expanded_count->second.is_number()) {
             expanded_index_count = static_cast<std::size_t>(expanded_count->second.as_number());
         }
+        if (expanded_index_count > 1 && expanded_index_count == indices.size()) {
+            auto projected = source;
+            bool complete_projection = true;
+            for (const auto& value : indices) {
+                const auto& index = object_of(value, "environment nested index value");
+                const auto raw_value = index.find("value");
+                if (raw_value == index.end() || !raw_value->second.is_number() ||
+                    raw_value->second.as_number() < 0 ||
+                    raw_value->second.as_number() != static_cast<double>(
+                        static_cast<std::uint32_t>(raw_value->second.as_number()))) {
+                    complete_projection = false;
+                    break;
+                }
+                const std::string name = std::to_string(
+                    static_cast<std::uint32_t>(raw_value->second.as_number()));
+                const auto found = projected.selectors.find(name);
+                if (found == projected.selectors.end()) {
+                    complete_projection = false;
+                    break;
+                }
+                projected = record_field_layout(projected, name, found->second);
+            }
+            if (complete_projection) return projected;
+        }
         std::size_t source_rank = 0;
         ValueLayout rank_leaf = source;
         while (rank_leaf.kind == ValueKind::Aggregate && !is_record_layout(rank_leaf)) {
@@ -4896,7 +4920,10 @@ inline std::optional<ValueLayout> lower_literal_projection_argument(
     }
     std::vector<std::pair<std::string, ValueSlice>> required;
     for (const auto& [name, slice] : target.selectors) {
-        if (name.find('.') == std::string::npos) required.push_back({name, slice});
+        if (name.find('.') == std::string::npos &&
+            !(slice.kind == ValueKind::Any && slice.width == 0u)) {
+            required.push_back({name, slice});
+        }
     }
     std::stable_sort(required.begin(), required.end(), [](const auto& left, const auto& right) {
         return left.second.offset < right.second.offset;
@@ -8312,6 +8339,25 @@ inline ValueLayout lower_expression(
             }
             const bool full_rank_index = expanded_index_count > 1 &&
                 (explicitly_nested || inferred_rank == expanded_index_count);
+            const bool constant_full_rank_index = full_rank_index &&
+                std::all_of(indices.begin(), indices.end(), [](const auto& raw_index) {
+                    if (!raw_index.is_object()) return false;
+                    const auto& index = raw_index.as_object();
+                    const auto value = index.find("value");
+                    return value != index.end() && value->second.is_number() &&
+                        value->second.as_number() >= 0 &&
+                        value->second.as_number() == static_cast<double>(
+                            static_cast<std::uint32_t>(value->second.as_number()));
+                });
+            if (constant_full_rank_index && fixed_vector_binding.has_value()) {
+                const auto projection = projection_of(expression);
+                const auto& layout = builder.layout(projection.binding);
+                const auto selected = layout.selectors.find(projection.path);
+                if (selected != layout.selectors.end()) {
+                    emit_load_binding(builder, projection.binding, selected->second);
+                    return projected_layout(layout, projection.path, selected->second);
+                }
+            }
             if (full_rank_index &&
                 base_layout.kind == ValueKind::Aggregate && !is_record_layout(base_layout) &&
                 fixed_vector_binding.has_value()) {
@@ -14199,11 +14245,12 @@ inline void rewrite_heterogeneous_variadic_calls(
         rest_items.push_back(std::move(args[candidate->second.index]));
         args.erase(args.begin() + static_cast<std::ptrdiff_t>(candidate->second.index));
     }
+    const bool empty_rest = rest_items.empty();
     vf::JsonValue::Object packed;
     packed["kind"] = vf::JsonValue("list");
     packed["items"] = vf::JsonValue(std::move(rest_items));
     packed["element_type"] = vf::JsonValue("any");
-    packed["type"] = vf::JsonValue("list<any>");
+    if (empty_rest) packed["type"] = vf::JsonValue("list<any>");
     args.emplace_back(std::move(packed));
     auto arg_types = object.find("arg_types");
     if (arg_types != object.end() && arg_types->second.is_array()) {
