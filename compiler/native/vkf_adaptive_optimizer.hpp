@@ -444,7 +444,11 @@ inline bool select_automatic_cpu_pair(
     const auto left_work = automatic_static_loop_work(*left);
     const auto right_work = automatic_static_loop_work(*right);
     if (dependency_receipt.resolved_call_graph) {
-        if (measured_call_graph_proof == nullptr) return false;
+        if (measured_call_graph_proof == nullptr ||
+            left_work < automatic_cpu_minimum_branch_work ||
+            right_work < automatic_cpu_minimum_branch_work) {
+            return false;
+        }
         const auto plan = automatic_cpu_pair_plan(
             limits,
             available_cores,
@@ -460,6 +464,19 @@ inline bool select_automatic_cpu_pair(
         *left, left_work, *right, right_work, true
     );
     return plan.concurrent();
+}
+
+inline bool automatic_cpu_pair_candidate_eligible(
+    const machine_ir::Module& module,
+    const AutomaticFlowLimits& limits,
+    std::uint32_t available_cores
+) {
+    proof_gated_execution::Decision eligibility;
+    eligibility.use_candidate = true;
+    eligibility.rejection = proof_gated_execution::Rejection::None;
+    return select_automatic_cpu_pair(
+        module, limits, available_cores, &eligibility
+    );
 }
 
 inline bool select_automatic_cpu_pair(

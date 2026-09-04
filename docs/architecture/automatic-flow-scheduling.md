@@ -51,12 +51,16 @@ dependencies, effects, fallibility, owned resources, reductions without a
 stable merge tree, or small work all retain serial execution. The native
 artifact compiler now identifies the exact source-derived pair of retained
 no-argument scalar calls and records `automatic-cpu-pair-selected` only when
-that same safety plan admits it. A selected Windows native artifact with the
-exact two-numeric-result shape runs one demand on a private operating-system
-thread while the caller runs the other, joins before observation, and then
-commits both results in source order. Thread creation failure falls back to the
-same serial order. Other target and result shapes remain selection-only and
-serial. This is execution evidence, not a wall-clock performance claim.
+that same safety plan admits it and a retained bit-exact paired benchmark proves
+the threaded candidate faster than the serial baseline. A selected Windows
+native artifact with the exact two-numeric-result shape runs one demand on a
+private operating-system thread while the caller runs the other, joins before
+observation, and then commits both results in source order. Thread creation or
+join failure aborts the artifact; a selected threaded policy never silently
+falls back to serial execution. An unchanged function/dependency graph may
+reuse the retained proof only under the same host and toolchain fingerprints.
+Other target and result shapes remain serial. This host-specific proof is not a
+general wall-clock performance claim.
 
 The only approved public scheduling settings are process-wide ceilings:
 

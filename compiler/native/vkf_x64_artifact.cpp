@@ -3033,8 +3033,10 @@ private:
         code_.raw({0x4c, 0x8d, 0x8d});
         code_.i32(frame.displacement(context_runtime));
         call_private_pe_runtime_slot(37);
-        code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x84});
-        const auto serial_fallback = code_.rel32_placeholder();
+        code_.raw({0x48, 0x85, 0xc0, 0x0f, 0x85});
+        const auto thread_created = code_.rel32_placeholder();
+        emit_abort();
+        code_.patch_rel32(thread_created, code_.position());
         code_.raw({0x48, 0x89, 0x85});
         code_.i32(frame.displacement(0));
 
@@ -3053,13 +3055,6 @@ private:
         call_private_pe_runtime_slot(39);
         load_xmm(0, frame.displacement(context_result));
         store_xmm(0, frame.displacement(0));
-        code_.byte(0xe9);
-        const auto output = code_.rel32_placeholder();
-
-        code_.patch_rel32(serial_fallback, code_.position());
-        emit_automatic_cpu_call(frame, function.instructions[0].symbol, 0);
-        emit_automatic_cpu_call(frame, function.instructions[2].symbol, 1);
-        code_.patch_rel32(output, code_.position());
 
         load_xmm(0, frame.displacement(0));
         code_.raw({0xf2, 0x41, 0x0f, 0x11, 0x84, 0x24});
@@ -13317,6 +13312,29 @@ bool can_tune_machine_code(const vkf::machine_ir::Module& module) {
         module.functions.begin(), module.functions.end(), safe_function);
 }
 
+bool can_benchmark_automatic_cpu_pair(
+    const vkf::machine_ir::Module& module,
+    bool candidate_eligible
+) {
+#ifndef _WIN32
+    (void)module;
+    (void)candidate_eligible;
+    return false;
+#else
+    if (!candidate_eligible ||
+        module.output_kind != vkf::machine_ir::OutputKind::MultipleF64 ||
+        module.output_count != 2u) {
+        return false;
+    }
+    const auto safe_function = [](const vkf::machine_ir::Function& function) {
+        return vkf::adaptive_optimizer::automatic_flow_safety(function).replay_safe;
+    };
+    return safe_function(module.entry) && std::all_of(
+        module.functions.begin(), module.functions.end(), safe_function
+    );
+#endif
+}
+
 bool is_independent_proof_leaf(const vkf::machine_ir::Function& function) {
     if (!function.parameters.empty() || !function.result_is_numeric_scalar) {
         return false;
@@ -13489,6 +13507,11 @@ public:
         runtime_[8] = function_address(static_cast<void* (*)(std::size_t)>(std::malloc));
         runtime_[9] = function_address(static_cast<void (*)(void*)>(std::free));
         runtime_[10] = function_address(&tuning_abort);
+#ifdef _WIN32
+        runtime_[37] = function_address(&CreateThread);
+        runtime_[38] = function_address(&WaitForSingleObject);
+        runtime_[39] = function_address(&CloseHandle);
+#endif
     }
 
     ~ExecutableCode() {
@@ -13516,6 +13539,44 @@ public:
         return result;
     }
 
+    std::vector<std::uint64_t> run_exact(
+        vkf::machine_ir::OutputKind output_kind,
+        std::uint32_t output_count
+    ) const {
+        if (output_kind == vkf::machine_ir::OutputKind::F64) {
+            const double value = run();
+            std::uint64_t bits = 0;
+            std::memcpy(&bits, &value, sizeof(bits));
+            return {bits};
+        }
+        if (output_kind != vkf::machine_ir::OutputKind::MultipleF64 ||
+            output_count == 0u || output_count > 2u) {
+            throw BackendFailure("optimizer exact output shape is unsupported");
+        }
+        auto* bytes = reinterpret_cast<unsigned char*>(runtime_.data());
+        std::memset(
+            bytes + vkf::machine_ir::runtime_output_base,
+            0,
+            static_cast<std::size_t>(output_count) * sizeof(std::uint64_t)
+        );
+        using Entry = void (*)(const std::uintptr_t*);
+        std::jmp_buf escape;
+        active_escape_ = &escape;
+        if (setjmp(escape) != 0) {
+            active_escape_ = nullptr;
+            throw BackendFailure("optimizer candidate raised a runtime error");
+        }
+        reinterpret_cast<Entry>(memory_)(runtime_.data());
+        active_escape_ = nullptr;
+        std::vector<std::uint64_t> result(output_count);
+        std::memcpy(
+            result.data(),
+            bytes + vkf::machine_ir::runtime_output_base,
+            result.size() * sizeof(std::uint64_t)
+        );
+        return result;
+    }
+
 private:
     [[noreturn]] static void tuning_abort() {
         if (active_escape_) std::longjmp(*active_escape_, 1);
@@ -13529,7 +13590,7 @@ private:
 
     void* memory_ = nullptr;
     std::size_t size_ = 0;
-    std::array<std::uintptr_t, 37> runtime_{};
+    mutable std::array<std::uintptr_t, 42> runtime_{};
     inline static thread_local std::jmp_buf* active_escape_ = nullptr;
 };
 
@@ -13564,15 +13625,6 @@ bool equivalent_result(double expected, double actual) {
     if (std::isinf(expected) || std::isinf(actual)) return expected == actual;
     const double scale = std::max({1.0, std::abs(expected), std::abs(actual)});
     return std::abs(expected - actual) <= scale * 1e-12;
-}
-
-bool exact_result(double expected, double actual) {
-    std::uint64_t expected_bits = 0;
-    std::uint64_t actual_bits = 0;
-    static_assert(sizeof(expected_bits) == sizeof(expected));
-    std::memcpy(&expected_bits, &expected, sizeof(expected_bits));
-    std::memcpy(&actual_bits, &actual, sizeof(actual_bits));
-    return expected_bits == actual_bits;
 }
 
 TuningResult tune_machine_code(
@@ -13841,7 +13893,8 @@ TuningResult tune_machine_code_guided(
     std::uint32_t run_budget,
     double time_budget_ms,
     const vkf::retained_optimization_driver::Request& request,
-    vkf::retained_optimization_driver::BuildReceipt prepared
+    vkf::retained_optimization_driver::BuildReceipt prepared,
+    bool execute_candidate_cpu_pair = false
 ) {
     using Clock = std::chrono::steady_clock;
     const auto started = Clock::now();
@@ -13856,7 +13909,9 @@ TuningResult tune_machine_code_guided(
         request.candidate_policy
     );
     auto baseline_code = MachineX64Emitter(module, baseline_policy).emit();
-    auto candidate_code = MachineX64Emitter(module, candidate_policy).emit();
+    auto candidate_code = MachineX64Emitter(
+        module, candidate_policy, execute_candidate_cpu_pair
+    ).emit();
     const auto baseline_hash = machine_code_hash(baseline_code);
     const auto candidate_hash = machine_code_hash(candidate_code);
     const auto baseline_bytes = baseline_code.size();
@@ -13880,19 +13935,21 @@ TuningResult tune_machine_code_guided(
             std::chrono::duration<double, std::milli>(time_budget_ms))
         : started;
     while (evidence.timings.size() < pair_limit && Clock::now() < deadline) {
-        const auto timed_run = [](const ExecutableCode& executable) {
+        const auto timed_run = [&](const ExecutableCode& executable) {
             const auto run_started = Clock::now();
-            const double value = executable.run();
+            const auto value = executable.run_exact(
+                module.output_kind, module.output_count
+            );
             const auto run_finished = Clock::now();
-            return std::pair<double, double>{
-                value,
+            return std::pair<std::vector<std::uint64_t>, double>{
+                std::move(value),
                 std::chrono::duration<double, std::nano>(
                     run_finished - run_started
                 ).count(),
             };
         };
-        std::pair<double, double> baseline_sample;
-        std::pair<double, double> candidate_sample;
+        std::pair<std::vector<std::uint64_t>, double> baseline_sample;
+        std::pair<std::vector<std::uint64_t>, double> candidate_sample;
         if ((evidence.timings.size() & 1u) == 0) {
             baseline_sample = timed_run(baseline);
             candidate_sample = timed_run(candidate);
@@ -13900,15 +13957,13 @@ TuningResult tune_machine_code_guided(
             candidate_sample = timed_run(candidate);
             baseline_sample = timed_run(baseline);
         }
-        const double expected = baseline_sample.first;
-        const double actual = candidate_sample.first;
         const double baseline_ns = baseline_sample.second;
         const double candidate_ns = candidate_sample.second;
         baseline_samples.push_back(baseline_ns);
         candidate_samples.push_back(candidate_ns);
         evidence.timings.push_back({baseline_ns, candidate_ns});
         result.total_runs += 2;
-        if (!exact_result(expected, actual)) {
+        if (baseline_sample.first != candidate_sample.first) {
             evidence.equivalent_output = false;
             break;
         }
@@ -13932,7 +13987,9 @@ TuningResult tune_machine_code_guided(
         : std::move(baseline_code);
     result.tuned = !evidence.timings.empty();
     result.candidates.push_back({
-        baseline_policy.name,
+        execute_candidate_cpu_pair
+            ? "serial-" + baseline_policy.name
+            : baseline_policy.name,
         baseline_hash,
         baseline_bytes,
         static_cast<std::uint32_t>(baseline_samples.size()),
@@ -13943,7 +14000,9 @@ TuningResult tune_machine_code_guided(
         true,
     });
     result.candidates.push_back({
-        candidate_policy.name,
+        execute_candidate_cpu_pair
+            ? "threaded-" + candidate_policy.name
+            : candidate_policy.name,
         candidate_hash,
         candidate_bytes,
         static_cast<std::uint32_t>(candidate_samples.size()),
@@ -14210,7 +14269,7 @@ std::string optimizer_toolchain_material() {
     material << "|msvc-full-" << _MSC_FULL_VER;
 #endif
     material << "|cplusplus-" << __cplusplus
-             << "|x64-emitter-qopt08|built-" << __DATE__ << '-' << __TIME__;
+             << "|x64-emitter-qopt09|built-" << __DATE__ << '-' << __TIME__;
     return material.str();
 }
 
@@ -14245,7 +14304,8 @@ vkf::retained_optimization_driver::Request retained_driver_request(
     const std::string& source_graph_fingerprint,
     const std::filesystem::path& legacy_profile_path,
     bool emit_debug_files,
-    bool deterministic
+    bool deterministic,
+    bool automatic_cpu_pair_candidate
 ) {
     const std::string program_material = optimizer_program_material(
         typed_ir, source_graph_fingerprint
@@ -14273,15 +14333,23 @@ vkf::retained_optimization_driver::Request retained_driver_request(
         deterministic,
         {
             "adaptive-v4",
-            "x64-machine-emitter-qopt03",
-            "numeric-entry-closure",
+            automatic_cpu_pair_candidate
+                ? "x64-threaded-pair-qopt09"
+                : "x64-machine-emitter-qopt03",
+            automatic_cpu_pair_candidate
+                ? "independent-multi-result-graph"
+                : "numeric-entry-closure",
             "machine-ir-v" + std::to_string(vkf::machine_ir::schema_version),
-            "bit-exact-f64-v1",
+            automatic_cpu_pair_candidate
+                ? "bit-exact-multiple-f64-v1"
+                : "bit-exact-f64-v1",
         },
         vkf::adaptive_optimizer::policy_from_mask(0u).name,
-        vkf::adaptive_optimizer::policy_from_mask(
-            vkf::adaptive_optimizer::policy_mask
-        ).name,
+        automatic_cpu_pair_candidate
+            ? vkf::adaptive_optimizer::policy("scalar").name
+            : vkf::adaptive_optimizer::policy_from_mask(
+                  vkf::adaptive_optimizer::policy_mask
+              ).name,
         optimizer_current_epoch_seconds(),
         vkf::retained_optimization_driver::
             default_negative_retention_seconds,
@@ -14435,7 +14503,7 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
     vkf::adaptive_optimizer::Policy selected_policy;
     vkf::adaptive_optimizer::AutomaticFlowLimits flow_limits;
     TuningResult tuning;
-    bool automatic_cpu_pair = false;
+    bool automatic_cpu_pair_candidate = false;
     bool execute_automatic_cpu_pair = false;
     try {
         flow_limits = automatic_flow_limits(typed_ir);
@@ -14447,20 +14515,13 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
         const bool supports_simd = vkf::target::host_x64_supports_avx2();
         optimization_decisions = vkf::adaptive_optimizer::decide_module(
             machine_ir, std::string(vkf::target::host_x64_feature_key()), supports_simd);
-        automatic_cpu_pair = vkf::adaptive_optimizer::select_automatic_cpu_pair(
+        automatic_cpu_pair_candidate =
+            vkf::adaptive_optimizer::automatic_cpu_pair_candidate_eligible(
             machine_ir, flow_limits, std::max(1u, std::thread::hardware_concurrency()));
-#ifdef _WIN32
-        execute_automatic_cpu_pair = automatic_cpu_pair &&
-            machine_ir.output_kind == vkf::machine_ir::OutputKind::MultipleF64 &&
-            machine_ir.output_count == 2u;
-#endif
-        if (automatic_cpu_pair && !optimization_decisions.empty()) {
-            auto& entry_decision = optimization_decisions.front();
-            vkf::adaptive_optimizer::append_unique(
-                entry_decision.strategies, "automatic-cpu-pair-selected");
-            entry_decision.fingerprint =
-                vkf::adaptive_optimizer::decision_fingerprint(entry_decision);
-        }
+        const bool benchmark_automatic_cpu_pair =
+            can_benchmark_automatic_cpu_pair(
+                machine_ir, automatic_cpu_pair_candidate
+            );
         std::optional<vkf::retained_optimization_driver::Request> proof_request;
         std::optional<vkf::retained_optimization_driver::BuildReceipt>
             proof_prepared;
@@ -14488,7 +14549,9 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
                     cache_fingerprint,
                     optimizer_profile_path,
                     emit_debug_files,
-                    can_tune_machine_code(machine_ir)
+                    can_tune_machine_code(machine_ir) ||
+                        benchmark_automatic_cpu_pair,
+                    benchmark_automatic_cpu_pair
                 );
                 proof_prepared = vkf::retained_optimization_driver::prepare(
                     *proof_request
@@ -14511,7 +14574,8 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
                 );
             } else {
                 tuning.proof_receipt = *proof_prepared;
-                tuning.eligible = can_tune_machine_code(machine_ir);
+                tuning.eligible = can_tune_machine_code(machine_ir) ||
+                    benchmark_automatic_cpu_pair;
                 const auto outcome = proof_prepared->schedule.outcome;
                 if (outcome ==
                         vkf::retained_optimization_schedule::Outcome::
@@ -14521,7 +14585,8 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
                         optimization_run_budget,
                         optimization_time_budget_ms,
                         *proof_request,
-                        std::move(*proof_prepared)
+                        std::move(*proof_prepared),
+                        benchmark_automatic_cpu_pair
                     );
                 } else if (outcome ==
                            vkf::retained_optimization_schedule::Outcome::
@@ -14545,6 +14610,32 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             }
             selected_policy = tuning.policy;
             if (code.empty()) code = std::move(tuning.code);
+            if (benchmark_automatic_cpu_pair) {
+                if (!tuning.proof_receipt) {
+                    throw BackendFailure(
+                        "automatic CPU pair produced no proof receipt"
+                    );
+                }
+                execute_automatic_cpu_pair =
+                    tuning.proof_receipt->schedule.optimization_enabled;
+                code = MachineX64Emitter(
+                    machine_ir,
+                    selected_policy,
+                    execute_automatic_cpu_pair
+                ).emit();
+                if (execute_automatic_cpu_pair &&
+                    !optimization_decisions.empty()) {
+                    auto& entry_decision = optimization_decisions.front();
+                    vkf::adaptive_optimizer::append_unique(
+                        entry_decision.strategies,
+                        "automatic-cpu-pair-selected"
+                    );
+                    entry_decision.fingerprint =
+                        vkf::adaptive_optimizer::decision_fingerprint(
+                            entry_decision
+                        );
+                }
+            }
             tuning.dependency_receipt = dependency_receipt;
         } else if (optimization_policy == "tune") {
             tuning = tune_machine_code(
@@ -14558,11 +14649,6 @@ vkf_x64_backend::ArtifactResult vkf_x64_backend::compile(
             tuning.eligible = can_tune_machine_code(machine_ir);
             code = MachineX64Emitter(machine_ir, selected_policy).emit();
         }
-#ifdef _WIN32
-        if (execute_automatic_cpu_pair) {
-            code = MachineX64Emitter(machine_ir, selected_policy, true).emit();
-        }
-#endif
         tuning.fingerprint = optimizer_fingerprint;
     } catch (const vkf::machine_ir::LoweringFailure& error) {
         throw vkf_x64_backend::Unsupported(error.what());

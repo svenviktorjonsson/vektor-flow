@@ -158,6 +158,89 @@ vkf::machine_ir::Module zero_argument_pure_call_module() {
     return module;
 }
 
+void append_calling_loop(
+    vkf::machine_ir::Function& function,
+    double result
+) {
+    append_integer_loop(function, result);
+    function.instructions[4].f64 = 1048576.0;
+    vkf::machine_ir::Instruction call;
+    call.opcode = vkf::machine_ir::Opcode::Call;
+    call.symbol = "shared";
+    call.result_count = 1;
+    vkf::machine_ir::Instruction drop;
+    drop.opcode = vkf::machine_ir::Opcode::Drop;
+    function.instructions.insert(function.instructions.begin() + 7, call);
+    function.instructions.insert(function.instructions.begin() + 8, drop);
+}
+
+vkf::machine_ir::Module independent_multi_result_graph() {
+    vkf::machine_ir::Function left;
+    left.name = "left";
+    append_calling_loop(left, 42.0);
+    vkf::machine_ir::Function right;
+    right.name = "right";
+    append_calling_loop(right, 43.0);
+    vkf::machine_ir::Function shared;
+    shared.name = "shared";
+    shared.max_stack = 1;
+    shared.result_is_numeric_scalar = true;
+    vkf::machine_ir::Instruction instruction;
+    instruction.opcode = vkf::machine_ir::Opcode::PushF64;
+    instruction.f64 = 1.0;
+    shared.instructions.push_back(instruction);
+    instruction = {};
+    instruction.opcode = vkf::machine_ir::Opcode::ReturnF64;
+    shared.instructions.push_back(instruction);
+
+    vkf::machine_ir::Function entry;
+    entry.name = "entry";
+    entry.max_stack = 2;
+    entry.locals = {"left", "right"};
+    entry.local_classes = {
+        vkf::machine_ir::ValueClass::F64,
+        vkf::machine_ir::ValueClass::F64,
+    };
+    auto call = [&](const std::string& symbol) {
+        vkf::machine_ir::Instruction value;
+        value.opcode = vkf::machine_ir::Opcode::Call;
+        value.symbol = symbol;
+        value.result_count = 1;
+        return value;
+    };
+    auto local = [](vkf::machine_ir::Opcode opcode, std::uint32_t index) {
+        vkf::machine_ir::Instruction value;
+        value.opcode = opcode;
+        value.index = index;
+        return value;
+    };
+    vkf::machine_ir::Instruction finish;
+    finish.opcode = vkf::machine_ir::Opcode::ReturnValues;
+    finish.result_count = 2;
+    entry.instructions = {
+        call("left"),
+        local(vkf::machine_ir::Opcode::StoreLocal, 0),
+        call("right"),
+        local(vkf::machine_ir::Opcode::StoreLocal, 1),
+        local(vkf::machine_ir::Opcode::LoadLocal, 0),
+        local(vkf::machine_ir::Opcode::LoadLocal, 1),
+        finish,
+    };
+
+    vkf::machine_ir::Module module;
+    module.entry = std::move(entry);
+    module.functions = {
+        std::move(left), std::move(right), std::move(shared),
+    };
+    module.output_kind = vkf::machine_ir::OutputKind::MultipleF64;
+    module.output_count = 2;
+    module.outputs = {
+        vkf::machine_ir::OutputKind::F64,
+        vkf::machine_ir::OutputKind::F64,
+    };
+    return module;
+}
+
 }  // namespace
 
 int main() {
@@ -368,13 +451,118 @@ int main() {
                read_text(pure_call_stdout_path) == expected_stdout,
            "the selected pure call-graph artifact must preserve exact output");
 
+    auto pair_graph = independent_multi_result_graph();
+    const auto pair_source = root / "pair.vkf";
+    const auto pair_typed_ir_path = root / "pair.typed.json";
+    {
+        std::ofstream output(pair_source);
+        output << "42 ::\n43 ::\n";
+    }
+    const auto pair_artifact = root /
+#ifdef _WIN32
+        "pair.exe";
+#else
+        "pair.native";
+#endif
+    const auto pair_compiled = vkf_x64_backend::compile(
+        typed_ir, pair_source, pair_typed_ir_path, {}, true, pair_artifact,
+        "independent-multi-result-graph-v1", "auto", 10, 20000.0, 0,
+        &pair_graph
+    );
+    const auto pair_manifest = vf::parse_json(
+        read_text(pair_compiled.manifest_path)
+    );
+    const auto& pair_tuning = member(pair_manifest, "empirical_tuning");
+    const auto& pair_candidates = member(pair_tuning, "candidates").as_array();
+    expect(pair_candidates.size() == 2 &&
+               member(pair_candidates[0], "policy").as_string() ==
+                   "serial-mask-0" &&
+               member(pair_candidates[1], "policy").as_string() ==
+                   "threaded-scalar" &&
+               member(pair_candidates[0], "tested").as_boolean() &&
+               member(pair_candidates[1], "tested").as_boolean() &&
+               member(pair_candidates[0], "correct").as_boolean() &&
+               member(pair_candidates[1], "correct").as_boolean() &&
+               member(pair_tuning, "total_runs").as_number() <= 10.0,
+           "an independent multi-result graph must benchmark one threaded candidate against the serial baseline");
+    const auto pair_selected_policy =
+        member(pair_tuning, "selected_policy").as_string();
+
+    const auto reused_pair = vkf_x64_backend::compile(
+        typed_ir, pair_source, pair_typed_ir_path, {}, true, pair_artifact,
+        "independent-multi-result-graph-v2", "auto", 10, 20000.0, 0,
+        &pair_graph
+    );
+    const auto reused_pair_manifest = vf::parse_json(
+        read_text(reused_pair.manifest_path)
+    );
+    const auto& reused_pair_tuning = member(
+        reused_pair_manifest, "empirical_tuning"
+    );
+    expect(member(reused_pair_tuning, "candidates").as_array().empty() &&
+               member(reused_pair_tuning, "selected_policy").as_string() ==
+                   pair_selected_policy &&
+               reused_pair.machine_code_fingerprint ==
+                   pair_compiled.machine_code_fingerprint,
+           "a surrounding program change must reuse the exact unchanged graph proof without remeasurement: candidates=" +
+               std::to_string(member(
+                   reused_pair_tuning, "candidates"
+               ).as_array().size()) + " cache_hit=" +
+               std::to_string(member(
+                   reused_pair_tuning, "cache_hit"
+               ).as_boolean()) + " first_runs=" +
+               std::to_string(member(
+                   pair_candidates[0], "runs"
+               ).as_number()) + " selected=" + pair_selected_policy);
+
+    pair_graph.functions[2].instructions[0].f64 = 2.0;
+    const auto changed_pair = vkf_x64_backend::compile(
+        typed_ir, pair_source, pair_typed_ir_path, {}, true, pair_artifact,
+        "independent-multi-result-graph-v3", "auto", 10, 20000.0, 0,
+        &pair_graph
+    );
+    const auto changed_pair_manifest = vf::parse_json(
+        read_text(changed_pair.manifest_path)
+    );
+    const auto& changed_pair_candidates = member(
+        member(changed_pair_manifest, "empirical_tuning"), "candidates"
+    ).as_array();
+    expect(changed_pair_candidates.size() == 2,
+           "a changed transitive dependency fingerprint must invalidate the pair proof and remeasure exactly two candidates");
+    const auto pair_stdout_path = root / "pair.stdout";
+    const std::string pair_command =
+#ifdef _WIN32
+        "\"\"" + pair_compiled.artifact_path.string() + "\" > \"" +
+            pair_stdout_path.string() + "\"\"";
+#else
+        "\"" + pair_compiled.artifact_path.string() + "\" > \"" +
+            pair_stdout_path.string() + "\"";
+#endif
+    const int pair_run_status = std::system(pair_command.c_str());
+    const std::string expected_pair_stdout =
+#ifdef _WIN32
+        "42\r\n43\r\n";
+#else
+        "42\n43\n";
+#endif
+    expect(pair_run_status == 0 &&
+               read_text(pair_stdout_path) == expected_pair_stdout,
+           "the measured multi-result artifact must preserve both exact results in source order");
+
     std::filesystem::remove_all(root);
     std::cout << "retained optimization driver integration: candidates="
               << candidates.size() << " incremental_candidates="
               << incremental_candidates.size() << " exact_output="
               << (run_status == 0) << " call_candidates="
               << call_candidates.size() << " pure_call_candidates="
-              << pure_call_candidates.size()
+              << pure_call_candidates.size() << " pair_candidates="
+              << pair_candidates.size() << " pair_selected="
+              << pair_selected_policy << " serial_median_ns="
+              << member(pair_candidates[0], "median_ns").as_number()
+              << " threaded_median_ns="
+              << member(pair_candidates[1], "median_ns").as_number()
+              << " changed_pair_candidates="
+              << changed_pair_candidates.size()
               << '\n';
     return failures == 0 ? 0 : 1;
 }
