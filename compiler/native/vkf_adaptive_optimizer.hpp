@@ -404,29 +404,76 @@ inline std::uint64_t automatic_static_loop_work(
 // Resolved call graphs require the measured-proof overload. Static dependency,
 // value, and borrow facts admit a benchmark candidate; only the retained exact
 // artifact-pair measurement can select concurrent execution.
+struct AutomaticCpuPairEntryShape {
+    std::size_t left_call = 0;
+    std::size_t left_store = 0;
+    std::size_t right_call = 0;
+    std::size_t right_store = 0;
+    std::size_t left_load = 0;
+    std::size_t right_load = 0;
+    std::size_t result = 0;
+    bool literal_scalar_arguments = false;
+};
+
+inline std::optional<AutomaticCpuPairEntryShape>
+automatic_cpu_pair_entry_shape(const machine_ir::Module& module) {
+    using machine_ir::Opcode;
+    const auto& entry = module.entry.instructions;
+    AutomaticCpuPairEntryShape shape;
+    if (entry.size() == 7u) {
+        shape = {0u, 1u, 2u, 3u, 4u, 5u, 6u, false};
+    } else if (entry.size() == 9u &&
+               entry[0].opcode == Opcode::PushF64 &&
+               entry[3].opcode == Opcode::PushF64) {
+        shape = {1u, 2u, 4u, 5u, 6u, 7u, 8u, true};
+    } else {
+        return std::nullopt;
+    }
+    const auto& left_call = entry[shape.left_call];
+    const auto& right_call = entry[shape.right_call];
+    const auto& left_store = entry[shape.left_store];
+    const auto& right_store = entry[shape.right_store];
+    const auto& left_load = entry[shape.left_load];
+    const auto& right_load = entry[shape.right_load];
+    const auto& result = entry[shape.result];
+    const auto expected_arguments = shape.literal_scalar_arguments ? 1u : 0u;
+    const auto expected_mask = shape.literal_scalar_arguments ? 1u : 0u;
+    if (left_call.opcode != Opcode::Call ||
+        right_call.opcode != Opcode::Call ||
+        left_store.opcode != Opcode::StoreLocal ||
+        right_store.opcode != Opcode::StoreLocal ||
+        left_load.opcode != Opcode::LoadLocal ||
+        right_load.opcode != Opcode::LoadLocal ||
+        result.opcode != Opcode::ReturnValues ||
+        left_call.argument_count != expected_arguments ||
+        right_call.argument_count != expected_arguments ||
+        left_call.provided_parameter_mask != expected_mask ||
+        right_call.provided_parameter_mask != expected_mask ||
+        left_call.result_count != 1u || right_call.result_count != 1u ||
+        left_call.may_error || right_call.may_error ||
+        left_store.index == right_store.index ||
+        left_load.index != left_store.index ||
+        right_load.index != right_store.index || result.result_count != 2u ||
+        left_call.symbol == right_call.symbol) {
+        return std::nullopt;
+    }
+    return shape;
+}
+
 inline bool select_automatic_cpu_pair(
     const machine_ir::Module& module,
     const AutomaticFlowLimits& limits,
     std::uint32_t available_cores,
     const proof_gated_execution::Decision* measured_call_graph_proof
 ) {
-    using machine_ir::Opcode;
     const auto& entry = module.entry.instructions;
-    if (entry.size() != 7u || entry[0].opcode != Opcode::Call ||
-        entry[1].opcode != Opcode::StoreLocal || entry[2].opcode != Opcode::Call ||
-        entry[3].opcode != Opcode::StoreLocal || entry[4].opcode != Opcode::LoadLocal ||
-        entry[5].opcode != Opcode::LoadLocal || entry[6].opcode != Opcode::ReturnValues ||
-        entry[0].argument_count != 0u || entry[2].argument_count != 0u ||
-        entry[0].result_count != 1u || entry[2].result_count != 1u ||
-        entry[0].may_error || entry[2].may_error ||
-        entry[1].index == entry[3].index || entry[4].index != entry[1].index ||
-        entry[5].index != entry[3].index || entry[6].result_count != 2u ||
-        entry[0].symbol == entry[2].symbol) {
-        return false;
-    }
+    const auto shape = automatic_cpu_pair_entry_shape(module);
+    if (!shape) return false;
+    const auto& left_call = entry[shape->left_call];
+    const auto& right_call = entry[shape->right_call];
     const auto dependency_receipt =
         optimization_dependency_gate::analyze_pair(
-            module, entry[0].symbol, entry[2].symbol
+            module, left_call.symbol, right_call.symbol
         );
     if (!dependency_receipt.parallelism_allowed) return false;
     const auto function_named = [&](const std::string& name) {
@@ -434,10 +481,12 @@ inline bool select_automatic_cpu_pair(
             module.functions.begin(), module.functions.end(),
             [&](const auto& function) { return function.name == name; });
     };
-    const auto left = function_named(entry[0].symbol);
-    const auto right = function_named(entry[2].symbol);
+    const auto left = function_named(left_call.symbol);
+    const auto right = function_named(right_call.symbol);
     if (left == module.functions.end() || right == module.functions.end() ||
-        !left->parameters.empty() || !right->parameters.empty() ||
+        left->parameters.size() != right->parameters.size() ||
+        left->parameters.size() !=
+            static_cast<std::size_t>(shape->literal_scalar_arguments) ||
         !left->result_is_numeric_scalar || !right->result_is_numeric_scalar) {
         return false;
     }

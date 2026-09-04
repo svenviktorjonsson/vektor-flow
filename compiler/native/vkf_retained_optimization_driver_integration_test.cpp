@@ -163,6 +163,21 @@ void append_calling_loop(
     double result
 ) {
     append_integer_loop(function, result);
+    function.parameters = {"root_value"};
+    function.parameter_is_numeric_scalar = {true};
+    function.locals.insert(function.locals.begin(), "root_value");
+    function.local_classes.insert(
+        function.local_classes.begin(), vkf::machine_ir::ValueClass::F64
+    );
+    for (auto& instruction : function.instructions) {
+        if (instruction.opcode == vkf::machine_ir::Opcode::LoadLocal ||
+            instruction.opcode == vkf::machine_ir::Opcode::StoreLocal) {
+            ++instruction.index;
+        }
+    }
+    function.instructions[function.instructions.size() - 2].opcode =
+        vkf::machine_ir::Opcode::LoadLocal;
+    function.instructions[function.instructions.size() - 2].index = 0;
     function.instructions[4].f64 = 1048576.0;
     vkf::machine_ir::Instruction argument;
     argument.opcode = vkf::machine_ir::Opcode::PushF64;
@@ -205,7 +220,7 @@ vkf::machine_ir::Module independent_multi_result_graph() {
 
     vkf::machine_ir::Function entry;
     entry.name = "entry";
-    entry.max_stack = 2;
+    entry.max_stack = 4;
     entry.locals = {"left", "right"};
     entry.local_classes = {
         vkf::machine_ir::ValueClass::F64,
@@ -215,7 +230,15 @@ vkf::machine_ir::Module independent_multi_result_graph() {
         vkf::machine_ir::Instruction value;
         value.opcode = vkf::machine_ir::Opcode::Call;
         value.symbol = symbol;
+        value.argument_count = 1;
         value.result_count = 1;
+        value.provided_parameter_mask = 1;
+        return value;
+    };
+    auto literal = [](double number) {
+        vkf::machine_ir::Instruction value;
+        value.opcode = vkf::machine_ir::Opcode::PushF64;
+        value.f64 = number;
         return value;
     };
     auto local = [](vkf::machine_ir::Opcode opcode, std::uint32_t index) {
@@ -228,8 +251,10 @@ vkf::machine_ir::Module independent_multi_result_graph() {
     finish.opcode = vkf::machine_ir::Opcode::ReturnValues;
     finish.result_count = 2;
     entry.instructions = {
+        literal(42.0),
         call("left"),
         local(vkf::machine_ir::Opcode::StoreLocal, 0),
+        literal(43.0),
         call("right"),
         local(vkf::machine_ir::Opcode::StoreLocal, 1),
         local(vkf::machine_ir::Opcode::LoadLocal, 0),
@@ -494,7 +519,11 @@ int main() {
                member(pair_candidates[0], "correct").as_boolean() &&
                member(pair_candidates[1], "correct").as_boolean() &&
                member(pair_tuning, "total_runs").as_number() <= 10.0,
-           "an independent multi-result graph must benchmark one threaded candidate against the serial baseline");
+           "literal scalar arguments to independent read-only roots must benchmark one threaded candidate against the serial baseline");
+    if (pair_candidates.size() != 2u) {
+        std::filesystem::remove_all(root);
+        return 1;
+    }
     const auto pair_selected_policy =
         member(pair_tuning, "selected_policy").as_string();
 

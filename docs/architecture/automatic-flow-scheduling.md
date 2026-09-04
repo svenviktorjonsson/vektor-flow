@@ -50,22 +50,25 @@ return in source order so commits remain deterministic. A one-core limit,
 dependencies, effects, fallibility, owned resources, reductions without a
 stable merge tree, or small work all retain serial execution. The native
 artifact compiler now identifies the exact source-derived pair of retained
-no-argument scalar calls and records `automatic-cpu-pair-selected` only when
-that same safety plan admits it and a retained bit-exact paired benchmark proves
-the threaded candidate faster than the serial baseline. A selected Windows
+scalar calls. Each root is either argument-free or receives exactly one
+immediate numeric literal through a fully described read-only scalar parameter
+slot. It records `automatic-cpu-pair-selected` only when that same safety plan
+admits the roots and a retained bit-exact paired benchmark proves the threaded
+candidate faster than the serial baseline. A selected Windows
 native artifact with the exact two-numeric-result shape runs one demand on a
 private operating-system thread while the caller runs the other, joins before
 observation, and then commits both results in source order. Thread creation or
 join failure aborts the artifact; a selected threaded policy never silently
 falls back to serial execution. An unchanged function/dependency graph may
 reuse the retained proof only under the same host and toolchain fingerprints.
-Inside either otherwise-proven root closure, a parameterized call is admitted
-only when each argument is an immediate numeric literal passed by value into a
-fully described, read-only scalar parameter slot. Computed argument provenance,
-defaults, parameter writes, ownership transfer, address/aggregate parameters,
-or incomplete borrow metadata keep the pair serial with an explicit private
-reason. Other target and result shapes remain serial. This host-specific proof
-is not a general wall-clock performance claim.
+At the entry/root boundary and inside either otherwise-proven root closure, a
+parameterized call is admitted only when each argument is an immediate numeric
+literal passed by value into a fully described, read-only scalar parameter
+slot. Computed or forwarded argument provenance, defaults, parameter writes,
+ownership transfer, address/aggregate parameters, or incomplete borrow
+metadata keep the pair serial with an explicit private reason. Multiple root
+parameters and other target or result shapes remain serial. This host-specific
+proof is not a general wall-clock performance claim.
 
 The only approved public scheduling settings are process-wide ceilings:
 

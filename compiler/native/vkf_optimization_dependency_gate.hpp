@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -245,6 +246,27 @@ inline Reason parameter_call_reason(
     return Reason::Independent;
 }
 
+inline Reason entry_root_parameter_reason(
+    const machine_ir::Module& module,
+    const machine_ir::Function& root
+) {
+    if (root.parameters.empty()) return Reason::Independent;
+    std::optional<std::size_t> call_index;
+    for (std::size_t index = 0;
+         index < module.entry.instructions.size(); ++index) {
+        const auto& instruction = module.entry.instructions[index];
+        if (instruction.opcode != machine_ir::Opcode::Call ||
+            instruction.symbol != root.name) {
+            continue;
+        }
+        if (call_index) return Reason::ParameterProvenanceUnknown;
+        call_index = index;
+    }
+    return call_index
+        ? parameter_call_reason(module.entry, *call_index, root)
+        : Reason::ParameterProvenanceUnknown;
+}
+
 inline Receipt analyze_module(const machine_ir::Module& module) {
     Receipt receipt;
     receipt.functions.reserve(module.functions.size() + 1u);
@@ -459,10 +481,17 @@ inline Receipt analyze_pair(
     bool mutable_alias_unknown = false;
     for (std::size_t index = 0; index < receipt.functions.size(); ++index) {
         const auto* function = index == 0u ? left : right;
+        const auto root_parameter_reason = entry_root_parameter_reason(
+            module, *function
+        );
+        if (root_parameter_reason != Reason::Independent &&
+            parameter_reason == Reason::Independent) {
+            parameter_reason = root_parameter_reason;
+        }
         const auto closure = resolve_call_closure(
             module,
             *function,
-            false,
+            root_parameter_reason == Reason::Independent,
             visiting,
             receipt.functions[index].transitive_dependencies,
             value_reason,
@@ -513,13 +542,17 @@ inline Receipt analyze_pair(
     }
     for (const auto& function : receipt.functions) {
         if (function.reason != Reason::Independent &&
-            function.reason != Reason::CallGraphDependency) {
+            function.reason != Reason::CallGraphDependency &&
+            !(function.reason == Reason::ParameterizedFunction &&
+              receipt.parameter_provenance_complete &&
+              receipt.borrow_regions_complete)) {
             receipt.reason = function.reason;
             return receipt;
         }
     }
     for (auto& function : receipt.functions) {
-        if (function.reason == Reason::CallGraphDependency) {
+        if (function.reason == Reason::CallGraphDependency ||
+            function.reason == Reason::ParameterizedFunction) {
             function.reason = Reason::Independent;
         }
     }

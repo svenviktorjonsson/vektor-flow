@@ -266,6 +266,102 @@ int main() {
                !mutable_parameter_pair.parallelism_allowed,
            "an address parameter must remain serial when mutable borrow regions are unknown");
 
+    auto root_left = parameter_shared;
+    root_left.name = "root_left";
+    root_left.parameter_is_numeric_scalar = {true};
+    root_left.local_classes = {vkf::machine_ir::ValueClass::F64};
+    auto root_right = root_left;
+    root_right.name = "root_right";
+    auto root_call = [](const std::string& symbol) {
+        vkf::machine_ir::Instruction value;
+        value.opcode = vkf::machine_ir::Opcode::Call;
+        value.symbol = symbol;
+        value.argument_count = 1;
+        value.result_count = 1;
+        value.provided_parameter_mask = 1;
+        return value;
+    };
+    auto root_local = [](vkf::machine_ir::Opcode opcode, std::uint32_t index) {
+        vkf::machine_ir::Instruction value;
+        value.opcode = opcode;
+        value.index = index;
+        return value;
+    };
+    auto root_finish = finish;
+    root_finish.opcode = vkf::machine_ir::Opcode::ReturnValues;
+    root_finish.result_count = 2;
+    literal.f64 = 7.0;
+    module.entry.instructions = {
+        literal,
+        root_call("root_left"),
+        root_local(vkf::machine_ir::Opcode::StoreLocal, 0),
+        literal,
+        root_call("root_right"),
+        root_local(vkf::machine_ir::Opcode::StoreLocal, 1),
+        root_local(vkf::machine_ir::Opcode::LoadLocal, 0),
+        root_local(vkf::machine_ir::Opcode::LoadLocal, 1),
+        root_finish,
+    };
+    module.functions = {root_left, root_right};
+    const auto literal_root_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(literal_root_pair.parameter_provenance_complete &&
+               literal_root_pair.borrow_regions_complete &&
+               literal_root_pair.independence_proven &&
+               literal_root_pair.parallelism_allowed &&
+               literal_root_pair.reason == gate::Reason::Independent,
+           "entry-supplied literal scalar roots must prove read-only parameter provenance");
+
+    module.entry.instructions[0].opcode = vkf::machine_ir::Opcode::AddF64;
+    const auto computed_root_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(computed_root_pair.reason == gate::Reason::ParameterProvenanceUnknown &&
+               !computed_root_pair.parallelism_allowed,
+           "a computed entry argument must remain serial without exact provenance");
+    module.entry.instructions[0].opcode = vkf::machine_ir::Opcode::LoadLocal;
+    const auto forwarded_root_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(forwarded_root_pair.reason == gate::Reason::ParameterProvenanceUnknown &&
+               !forwarded_root_pair.parallelism_allowed,
+           "a forwarded entry argument must remain serial without exact provenance");
+    module.entry.instructions[0] = literal;
+    module.entry.instructions[1].provided_parameter_mask = 0;
+    const auto defaulted_root_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(defaulted_root_pair.reason == gate::Reason::ParameterProvenanceUnknown &&
+               !defaulted_root_pair.parallelism_allowed,
+           "a defaulted entry parameter must remain serial");
+    module.entry.instructions[1].provided_parameter_mask = 1;
+    module.entry.instructions[1].owns_input = true;
+    const auto owned_root_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(owned_root_pair.reason == gate::Reason::MutableBorrowUnknown &&
+               !owned_root_pair.parallelism_allowed,
+           "an owned entry argument must remain serial without a disjoint borrow proof");
+    module.entry.instructions[1].owns_input = false;
+    root_left.parameter_is_numeric_scalar = {false};
+    root_left.local_classes = {vkf::machine_ir::ValueClass::Address};
+    module.functions = {root_left, root_right};
+    const auto address_root_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(address_root_pair.reason == gate::Reason::MutableBorrowUnknown &&
+               !address_root_pair.parallelism_allowed,
+           "an address entry parameter must remain serial");
+    root_left.local_classes = {vkf::machine_ir::ValueClass::Aggregate};
+    module.functions = {root_left, root_right};
+    const auto aggregate_root_pair = gate::analyze_pair(
+        module, "root_left", "root_right"
+    );
+    expect(aggregate_root_pair.reason == gate::Reason::MutableBorrowUnknown &&
+               !aggregate_root_pair.parallelism_allowed,
+           "an aggregate entry parameter must remain serial");
+
     module.entry.instructions.clear();
     module.functions = {right};
     const auto independent = gate::analyze_module(module);

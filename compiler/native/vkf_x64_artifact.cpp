@@ -2988,8 +2988,13 @@ private:
     void emit_automatic_cpu_call(
         const Frame& frame,
         const std::string& symbol,
-        std::uint32_t result_local
+        std::uint32_t result_local,
+        std::optional<double> literal_argument = std::nullopt
     ) {
+        if (literal_argument) {
+            emit_number(*literal_argument);
+            store_xmm(0, frame.displacement(frame.temp_base));
+        }
         code_.raw({0x4c, 0x8d, 0x95});
         code_.i32(frame.displacement(frame.temp_base));
         code_.raw({0x4c, 0x8d, 0x9d});
@@ -3007,22 +3012,27 @@ private:
         (void)frame;
         throw BackendFailure("automatic CPU pair execution requires the private PE runtime");
 #else
-        using vkf::machine_ir::Opcode;
-        if (function.instructions.size() != 7u || function.locals.size() < 2u ||
-            function.max_stack < 2u ||
+        const auto shape =
+            vkf::adaptive_optimizer::automatic_cpu_pair_entry_shape(module_);
+        if (!shape || function.locals.size() < 2u ||
+            function.max_stack < (shape->literal_scalar_arguments ? 4u : 2u) ||
             module_.output_kind != vkf::machine_ir::OutputKind::MultipleF64 ||
-            module_.output_count != 2u ||
-            function.instructions[0].opcode != Opcode::Call ||
-            function.instructions[2].opcode != Opcode::Call) {
+            module_.output_count != 2u) {
             throw BackendFailure("invalid selected automatic CPU pair entry");
         }
-        frame.frame_bytes += 16u;
+        frame.frame_bytes += shape->literal_scalar_arguments ? 32u : 16u;
         prologue(frame);
         save_runtime_context(frame);
-        const auto context_runtime = frame.temp_base + 1u;
-        const auto context_result = frame.temp_base;
+        const auto context_runtime = frame.temp_base +
+            (shape->literal_scalar_arguments ? 3u : 1u);
+        const auto context_result = frame.temp_base +
+            (shape->literal_scalar_arguments ? 1u : 0u);
         code_.raw({0x4c, 0x89, 0xa5});
         code_.i32(frame.displacement(context_runtime));
+        if (shape->literal_scalar_arguments) {
+            emit_number(function.instructions[0].f64);
+            store_xmm(0, frame.displacement(frame.temp_base + 2u));
+        }
 
         code_.raw({0x48, 0xc7, 0x44, 0x24, 0x20});
         code_.i32(0);
@@ -3040,7 +3050,15 @@ private:
         code_.raw({0x48, 0x89, 0x85});
         code_.i32(frame.displacement(0));
 
-        emit_automatic_cpu_call(frame, function.instructions[2].symbol, 1);
+        const auto& right_call = function.instructions[shape->right_call];
+        emit_automatic_cpu_call(
+            frame,
+            right_call.symbol,
+            1,
+            shape->literal_scalar_arguments
+                ? std::optional<double>(function.instructions[3].f64)
+                : std::nullopt
+        );
         code_.raw({0x48, 0x8b, 0x8d});
         code_.i32(frame.displacement(0));
         code_.byte(0xba);
@@ -3069,6 +3087,11 @@ private:
 
     void emit_automatic_cpu_thread_thunk() {
 #ifdef _WIN32
+        const auto shape =
+            vkf::adaptive_optimizer::automatic_cpu_pair_entry_shape(module_);
+        if (!shape) {
+            throw BackendFailure("invalid selected automatic CPU pair entry");
+        }
         const auto thunk = code_.position();
         for (const auto reference : automatic_cpu_thread_references_) {
             code_.patch_rel32(reference, thunk);
@@ -3076,11 +3099,13 @@ private:
         code_.raw({0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x30,
                    0x4c, 0x89, 0x65, 0xf8,
                    0x4c, 0x8b, 0x21,
-                   0x4c, 0x8d, 0x51, 0x08,
-                   0x4c, 0x8d, 0x59, 0x08,
-                   0xe8});
+                   0x4c, 0x8d, 0x51, 0x08});
+        code_.raw({0x4c, 0x8d, 0x59});
+        code_.byte(shape->literal_scalar_arguments ? 0x10 : 0x08);
+        code_.byte(0xe8);
         calls_.push_back({
-            code_.rel32_placeholder(), module_.entry.instructions[0].symbol});
+            code_.rel32_placeholder(),
+            module_.entry.instructions[shape->left_call].symbol});
         code_.raw({0x4c, 0x8b, 0x65, 0xf8, 0x31, 0xc0, 0xc9, 0xc3});
 #endif
     }
@@ -14269,7 +14294,7 @@ std::string optimizer_toolchain_material() {
     material << "|msvc-full-" << _MSC_FULL_VER;
 #endif
     material << "|cplusplus-" << __cplusplus
-             << "|x64-emitter-qopt10|built-" << __DATE__ << '-' << __TIME__;
+             << "|x64-emitter-qopt11|built-" << __DATE__ << '-' << __TIME__;
     return material.str();
 }
 
@@ -14334,7 +14359,7 @@ vkf::retained_optimization_driver::Request retained_driver_request(
         {
             "adaptive-v4",
             automatic_cpu_pair_candidate
-                ? "x64-threaded-pair-qopt10"
+                ? "x64-threaded-pair-qopt11"
                 : "x64-machine-emitter-qopt03",
             automatic_cpu_pair_candidate
                 ? "independent-multi-result-graph"
