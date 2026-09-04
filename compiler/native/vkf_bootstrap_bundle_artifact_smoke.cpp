@@ -1,5 +1,9 @@
 #include "native/VfOverlay/vf/json.hpp"
 
+#ifdef VKF_X64_BACKEND_LIBRARY
+#include "compiler/native/vkf_x64_backend.hpp"
+#endif
+
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -385,9 +389,11 @@ int main(int argc, char** argv) {
         if (!std::filesystem::is_regular_file(args.ir)) {
             throw BundleArtifactFailure("missing native sibling tool ir at " + args.ir.string());
         }
+#ifndef VKF_X64_BACKEND_LIBRARY
         if (!std::filesystem::is_regular_file(args.compiler)) {
             throw BundleArtifactFailure("missing strict compiler at " + args.compiler.string());
         }
+#endif
 
         std::vector<BundleUnit> units = read_manifest_units(args.manifest);
         vf::JsonValue::Array emitted_units;
@@ -410,6 +416,23 @@ int main(int argc, char** argv) {
             }
             write_file(unit.typed_ir_path, lowered.stdout_text);
             const vf::JsonValue typed_ir = vf::parse_json(lowered.stdout_text);
+#ifdef VKF_X64_BACKEND_LIBRARY
+            try {
+                (void)vkf_x64_backend::compile(
+                    typed_ir,
+                    unit.absolute_path,
+                    unit.typed_ir_path,
+                    {},
+                    false,
+                    unit.artifact_path,
+                    {},
+                    "mask-0"
+                );
+            } catch (const vkf_x64_backend::Unsupported& unsupported) {
+                throw BundleArtifactFailure(
+                    "compiler failed for " + unit.path + ": " + unsupported.what());
+            }
+#else
             const ProcessResult compiled = run_process({
                 args.compiler.string(),
                 "-b",
@@ -422,6 +445,7 @@ int main(int argc, char** argv) {
             if (compiled.exit_code != 0) {
                 throw BundleArtifactFailure("compiler failed for " + unit.path + ": " + compiled.stderr_text);
             }
+#endif
             write_file(unit.manifest_path, vf::json_stringify(unit_manifest_json(unit, typed_ir), 2) + "\n");
 
             vf::JsonValue::Object out_unit;
