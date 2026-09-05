@@ -80,7 +80,7 @@ test("browser compiler emits retained geometry packets for the complete README d
   assert.equal(output.kind, "visual");
   assert.equal(output.packet_records.length, 1);
   const packet = { ...output.packet_records[0] };
-  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 5, 2, 7]);
+  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 6, 1, 7]);
   assert.deepEqual(rounded(packet.color), [0.12, 0.72, 1, 1]);
   assert.deepEqual(rounded(packet.x[0]), [-3, -2, -1, 0, 1, 2, 3]);
   assert.deepEqual(rounded(packet.y[0]), [-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09]);
@@ -833,6 +833,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 24);
+  assert.equal(runnable.length, 25);
   assert.equal(examples.length, 26);
 });
