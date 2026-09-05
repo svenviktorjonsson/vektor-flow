@@ -3,6 +3,7 @@
 #include "compiler/native/vkf_symbolic_lowering.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
 #include "compiler/native/vkf_csv_demand_source_scanner.hpp"
+#include "compiler/native/vkf_complex_expression.hpp"
 #include "compiler/native/vkf_physical_dimensions.hpp"
 #include "compiler/native/vkf_html_component_catalog.generated.hpp"
 
@@ -4213,7 +4214,7 @@ private:
                             }},
                             {"add", {
                                 "x", "y", "z", "id", "color", "representation", "render_mode",
-                                "p_uc", "faces_uvw",
+                                "p_u", "p_uc", "faces_uvw",
                                 "p_t", "c_tc", "s_t", "t", "t_min", "t_max", "t_mode", "s_mode",
                                 "texture", "specular_strength", "roughness", "reflectivity", "alpha",
                                 "emission",
@@ -4238,6 +4239,73 @@ private:
                             }
                             properties[name] = field(
                                 named, "value", "Frame." + method + " argument");
+                        }
+                        if (method == "add" && properties.find("p_u") != properties.end() &&
+                            properties.find("x") == properties.end() &&
+                            properties.find("y") == properties.end() &&
+                            properties.find("z") == properties.end() &&
+                            properties.find("p_uc") == properties.end() &&
+                            properties.find("faces_uvw") == properties.end()) {
+                            const auto& positions = properties.at("p_u");
+                            if (positions.is_object()) {
+                                const auto& position_object = positions.as_object();
+                                const auto position_kind = position_object.find("kind");
+                                const auto position_items = position_object.find("items");
+                                if (position_kind != position_object.end() &&
+                                    position_kind->second.is_string() &&
+                                    position_kind->second.as_string() == "list" &&
+                                    position_items != position_object.end() &&
+                                    position_items->second.is_array() &&
+                                    !position_items->second.as_array().empty()) {
+                                    vf::JsonValue::Array x_items;
+                                    vf::JsonValue::Array y_items;
+                                    std::string x_type;
+                                    std::string y_type;
+                                    bool complex_leaves = true;
+                                    for (const auto& position : position_items->second.as_array()) {
+                                        if (!position.is_object()) {
+                                            complex_leaves = false;
+                                            break;
+                                        }
+                                        vf::JsonValue real;
+                                        vf::JsonValue imaginary;
+                                        if (!vkf::complex_expression::try_components(
+                                                position.as_object(), real, imaginary)) {
+                                            complex_leaves = false;
+                                            break;
+                                        }
+                                        const std::string real_type = string_field(
+                                            real.as_object(), "type", "complex position real component");
+                                        const std::string imaginary_type = string_field(
+                                            imaginary.as_object(), "type", "complex position imaginary component");
+                                        x_type = x_type.empty()
+                                            ? real_type : merge_nullable_type(x_type, real_type);
+                                        y_type = y_type.empty()
+                                            ? imaginary_type : merge_nullable_type(y_type, imaginary_type);
+                                        x_items.push_back(std::move(real));
+                                        y_items.push_back(std::move(imaginary));
+                                    }
+                                    if (complex_leaves) {
+                                        const std::size_t count = x_items.size();
+                                        auto x = node("list");
+                                        x["items"] = vf::JsonValue(std::move(x_items));
+                                        x["element_type"] = vf::JsonValue(x_type);
+                                        x["type"] = vf::JsonValue(
+                                            "[" + x_type + ":" + std::to_string(count) + "]");
+                                        auto y = node("list");
+                                        y["items"] = vf::JsonValue(std::move(y_items));
+                                        y["element_type"] = vf::JsonValue(y_type);
+                                        y["type"] = vf::JsonValue(
+                                            "[" + y_type + ":" + std::to_string(count) + "]");
+                                        properties.erase("p_u");
+                                        properties["x"] = vf::JsonValue(std::move(x));
+                                        properties["y"] = vf::JsonValue(std::move(y));
+                                    }
+                                }
+                            }
+                        }
+                        if (method == "add" && properties.find("p_u") != properties.end()) {
+                            throw IRFailure("Frame.add does not support `p_u`");
                         }
                         const bool temporal_camera = method == "add_camera" &&
                             (properties.find("p_t") != properties.end() ||

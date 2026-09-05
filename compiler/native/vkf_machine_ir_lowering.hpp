@@ -1,5 +1,7 @@
 #pragma once
 
+#include "compiler/native/vkf_complex_expression.hpp"
+
 #include "compiler/native/vkf_machine_ir.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
 #include "compiler/native/vkf_symbolic_value_encoding.hpp"
@@ -205,28 +207,11 @@ using DisplayEnvironment = std::map<std::string, DisplayShape>;
 using FunctionDisplayShapes = std::map<std::string, DisplayShape>;
 
 inline DisplayShape shallow_display_shape(const vf::JsonValue::Object& expression) {
+    if (vkf::complex_expression::is_complex(expression)) {
+        return {DisplayKind::Complex, {}};
+    }
     const auto kind = expression.find("kind");
     if (kind != expression.end() && kind->second.is_string()) {
-        if (kind->second.as_string() == "complex_const") {
-            return {DisplayKind::Complex, {}};
-        }
-        if (kind->second.as_string() == "call") {
-            const auto callee = expression.find("callee");
-            const auto args = expression.find("args");
-            if (callee != expression.end() && callee->second.is_object() &&
-                args != expression.end() && args->second.is_array() &&
-                args->second.as_array().size() == 2) {
-                const auto& callee_object = callee->second.as_object();
-                const auto callee_kind = callee_object.find("kind");
-                const auto callee_name = callee_object.find("name");
-                if (callee_kind != callee_object.end() && callee_kind->second.is_string() &&
-                    callee_kind->second.as_string() == "load" &&
-                    callee_name != callee_object.end() && callee_name->second.is_string() &&
-                    callee_name->second.as_string() == "num") {
-                    return {DisplayKind::Complex, {}};
-                }
-            }
-        }
         if (kind->second.as_string() == "const") {
             const auto value = expression.find("value");
             if (value != expression.end()) {

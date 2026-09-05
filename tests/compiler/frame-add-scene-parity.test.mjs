@@ -70,6 +70,13 @@ const linePlotSource = [
   "line: frame.add(x:x, y:sin(x * pi), id:\"sine\", color:[0.12, 0.72, 1.0, 1.0])",
 ].join("\n");
 
+const complexPositionLineSource = [
+  ": .ui.display",
+  "display: Display(dim:2)",
+  "frame: display.add_frame(pos:[0, 0], size:[1, 1])",
+  "line: frame.add(p_u:[num(-3, -0.12), num(-2, -0.92), num(-1, -0.86), num(0, -0.03), num(1, 0.82), num(2, 0.88), num(3, 0.09)], id:\"complex-line\", color:[0.12, 0.72, 1, 1])",
+].join("\n");
+
 const rangeSurfaceSource = [
   ": .ui.display",
   ":.math",
@@ -317,6 +324,54 @@ test("Frame add stages flat x/y vectors as one constant-width 2D polyline", asyn
   assert.deepEqual(
     mesh.vertices.filter((_, index) => index % 10 === 2),
     new Array(513).fill(0),
+  );
+});
+
+test("Frame add maps complex p_u leaves to one continuous 2D u topology", async () => {
+  const typedIr = compile(complexPositionLineSource);
+  const add = typedIr.ui_program.operations.at(-1);
+  assert.equal("p_u" in add.properties, false);
+  assert.deepEqual(add.properties.x.items.map(({ value }) => value), [-3, -2, -1, 0, 1, 2, 3]);
+  assert.deepEqual(add.properties.y.items.map(({ value }) => value), [-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09]);
+  assert.equal("z" in add.properties, false);
+
+  const root = path.join(workRoot, "complex-position-line");
+  const source = path.join(root, "complex-position-line.vkf");
+  const typedIrPath = path.join(root, "complex-position-line.typed-ir.json");
+  await mkdir(root, { recursive: true });
+  await Promise.all([
+    writeFile(source, `${complexPositionLineSource}\n`, "utf8"),
+    writeFile(typedIrPath, `${JSON.stringify(typedIr)}\n`, "utf8"),
+  ]);
+
+  const wasmSummary = JSON.parse(stage("vkf_wasm_artifact_smoke", undefined, [
+    "--source", source,
+    "--typed-ir", typedIrPath,
+  ]));
+  const [bytes, manifest] = await Promise.all([
+    readFile(wasmSummary.artifact_path),
+    readFile(wasmSummary.manifest_path, "utf8").then(JSON.parse),
+  ]);
+  const packets = JSON.parse(
+    runtimeBridge.instantiateWasmRuntime({ bytes, manifest })
+      .readBinding("$ui$compiled$packets"),
+  );
+  const mesh = packets[2].payload.display.geom.frame_0.meshes[0];
+  assert.equal(mesh.topology, "line-list");
+  assert.equal(mesh.render_mode, "line");
+  assert.equal(mesh.mode3d, false);
+  assert.deepEqual(mesh.indices, [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6]);
+  assert.deepEqual(
+    mesh.vertices.filter((_, index) => index % 10 === 0),
+    [-3, -2, -1, 0, 1, 2, 3],
+  );
+  assert.deepEqual(
+    mesh.vertices.filter((_, index) => index % 10 === 1),
+    [-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09],
+  );
+  assert.deepEqual(
+    mesh.vertices.filter((_, index) => index % 10 === 2),
+    new Array(7).fill(0),
   );
 });
 
