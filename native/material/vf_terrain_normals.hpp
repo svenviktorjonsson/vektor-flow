@@ -46,6 +46,9 @@ struct TerrainSurfacePacket {
     std::shared_ptr<const TerrainTileWorkingSet> source;
     std::vector<std::array<double, 6>> vertices;
     std::vector<std::uint32_t> material_ids;
+    double water_level;
+    std::uint32_t exposed_material;
+    std::uint32_t submerged_material;
 };
 
 inline TerrainSurfacePacket AssembleTerrainSurfacePacketReference(
@@ -60,7 +63,8 @@ inline TerrainSurfacePacket AssembleTerrainSurfacePacketReference(
     for (const auto& normal : normals->normals)
         for (const auto value : normal)
             if (!std::isfinite(value)) throw std::invalid_argument("terrain surface normals must be finite");
-    TerrainSurfacePacket result{normals->source, {}, {}};
+    TerrainSurfacePacket result{normals->source, {}, {}, material.water_level,
+        material.exposed_material, material.submerged_material};
     result.vertices.reserve(normals->normals.size());
     for (std::size_t index = 0; index < normals->normals.size(); ++index) {
         const auto& position = normals->source->positions[index];

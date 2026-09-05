@@ -87,6 +87,9 @@ inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainTileReference(
 struct TerrainWaterLevelMaterials {
     std::shared_ptr<const TerrainTileWorkingSet> source;
     std::vector<std::uint32_t> material_ids;
+    double water_level;
+    std::uint32_t exposed_material;
+    std::uint32_t submerged_material;
 };
 
 inline TerrainWaterLevelMaterials BindTerrainWaterLevelMaterialsReference(
@@ -95,7 +98,7 @@ inline TerrainWaterLevelMaterials BindTerrainWaterLevelMaterialsReference(
 ) {
     RequireTerrainPositions(terrain);
     if (!std::isfinite(water_level)) throw std::range_error("terrain water level must be finite");
-    TerrainWaterLevelMaterials result{std::move(terrain), {}};
+    TerrainWaterLevelMaterials result{std::move(terrain), {}, water_level, exposed_material, submerged_material};
     result.material_ids.reserve(result.source->positions.size());
     for (const auto& position : result.source->positions)
         result.material_ids.push_back(position[1] <= water_level ? submerged_material : exposed_material);

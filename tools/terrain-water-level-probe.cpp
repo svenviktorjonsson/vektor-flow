@@ -1,4 +1,4 @@
-#include "native/material/vf_terrain_triangulation.hpp"
+#include "native/material/vf_terrain_waterline.hpp"
 #include <bit>
 #include <iostream>
 #include <optional>
@@ -20,7 +20,8 @@ int main(int argc, char** argv) try {
     _setmode(_fileno(stderr), _O_BINARY);
 #endif
     using namespace vf::material;
-    const bool with_triangles = argc == 2 && std::string_view(argv[1]) == "--triangles";
+    const bool with_waterline = argc == 2 && std::string_view(argv[1]) == "--waterline";
+    const bool with_triangles = with_waterline || (argc == 2 && std::string_view(argv[1]) == "--triangles");
     const bool with_normals = with_triangles || (argc == 2 && std::string_view(argv[1]) == "--normals");
     if (argc != 1 && !with_normals) throw std::invalid_argument("terrain probe mode is invalid");
     TerrainHeightCondition condition{};
@@ -34,13 +35,14 @@ int main(int argc, char** argv) try {
     std::cin >> exposed >> submerged;
     std::uint64_t distance_bits{};
     if (with_normals) std::cin >> distance_bits;
-    std::size_t cell_budget{}, triangle_budget{}, demand_count{};
+    std::size_t cell_budget{}, triangle_budget{}, demand_count{}, segment_budget{};
     std::vector<std::uint64_t> demands;
     if (with_triangles) {
         std::cin >> cell_budget >> triangle_budget >> demand_count;
         if (demand_count > 65536) throw std::range_error("terrain cell demand must contain at most 65536 entries");
         demands.resize(demand_count);
         for (auto& cell : demands) std::cin >> cell;
+        if (with_waterline) std::cin >> segment_budget;
     }
     if (!std::cin) throw std::invalid_argument("terrain probe input is invalid");
     condition.correlation_length = std::bit_cast<double>(scalar_bits[0]);
@@ -52,8 +54,11 @@ int main(int argc, char** argv) try {
     std::shared_ptr<const TerrainSurfacePacket> surface;
     if (with_normals) surface = std::make_shared<const TerrainSurfacePacket>(AssembleTerrainSurfacePacketReference(
         DeriveTerrainNormalsReference(terrain, std::bit_cast<double>(distance_bits)), binding));
-    std::optional<TerrainTriangulation> triangles;
-    if (with_triangles) triangles = TriangulateTerrainCellsReference(surface, demands, cell_budget, triangle_budget);
+    std::shared_ptr<const TerrainTriangulation> triangles;
+    if (with_triangles) triangles = std::make_shared<const TerrainTriangulation>(
+        TriangulateTerrainCellsReference(surface, demands, cell_budget, triangle_budget));
+    std::optional<TerrainWaterline> waterline;
+    if (with_waterline) waterline = ExtractTerrainWaterlineReference(triangles, segment_budget);
     write_word(terrain->positions.size(), 8);
     write_word(terrain->potential_count, 8);
     write_word(terrain->truncated ? 1 : 0, 4);
@@ -77,6 +82,13 @@ int main(int argc, char** argv) try {
         }
         for (const auto& triangle : triangles->triangles)
             for (const auto index : triangle) write_word(index, 4);
+    }
+    if (waterline) {
+        write_word(waterline->segments.size(), 8);
+        write_word(waterline->truncated ? 1 : 0, 4);
+        for (const auto& segment : waterline->segments)
+            for (const auto& point : segment)
+                for (const auto value : point) write_word(std::bit_cast<std::uint64_t>(value), 8);
     }
 } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

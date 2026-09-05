@@ -24,15 +24,17 @@ const bits = value => {
 };
 function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
   correlationLength = 4, mean = 0, amplitude = 2, waterLevel = 0.25,
-  exposed = 101, submerged = 202, samplingDistance, cells, cellBudget, triangleBudget } = {}, error) {
+  exposed = 101, submerged = 202, samplingDistance, cells, cellBudget, triangleBudget, segmentBudget } = {}, error) {
   const node = createConditionedRoot({ ...identity, seed });
   const stream = conditionedNodeStreamReference(node);
   const input = [...tile, level, budget, ...stream.key, ...stream.counterPrefix,
     ...[correlationLength, mean, amplitude, waterLevel].map(bits), exposed, submerged,
     ...(samplingDistance === undefined ? [] : [bits(samplingDistance)]),
-    ...(cells === undefined ? [] : [cellBudget ?? cells.length, triangleBudget ?? cells.length * 2, cells.length, ...cells])].join(' ');
+    ...(cells === undefined ? [] : [cellBudget ?? cells.length, triangleBudget ?? cells.length * 2, cells.length, ...cells]),
+    ...(segmentBudget === undefined ? [] : [segmentBudget])].join(' ');
   if (cells !== undefined) assert.notEqual(samplingDistance, undefined, 'mesh test requires explicit normal sampling distance');
-  const native = spawnSync(executable, cells !== undefined ? ['--triangles'] : samplingDistance === undefined ? [] : ['--normals'],
+  if (segmentBudget !== undefined) assert.notEqual(cells, undefined, 'waterline test requires explicit cells');
+  const native = spawnSync(executable, segmentBudget !== undefined ? ['--waterline'] : cells !== undefined ? ['--triangles'] : samplingDistance === undefined ? [] : ['--normals'],
     { input, timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
   if (error) {
     assert.equal(native.status, 1, `${native.error ?? ''}${native.stderr}`);
@@ -89,6 +91,46 @@ function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
     if (selected) [...minimum, ...maximum].forEach((value, i) => tail.writeDoubleLE(value, 24 + i * 8));
     topology.forEach((value, i) => tail.writeUInt32LE(value, 24 + (selected ? 48 : 0) + i * 4));
     expected = Buffer.concat([expected, tail]);
+    if (segmentBudget !== undefined) {
+      const segments = [], seen = new Set();
+      let truncated = false;
+      const position = index => [0, 1, 2].map(axis => expected.readDoubleLE(20 + index * stride + axis * 8));
+      const comparePoint = (a, b) => {
+        for (let axis = 0; axis < 3; ++axis) {
+          if (a[axis] < b[axis]) return -1;
+          if (a[axis] > b[axis]) return 1;
+        }
+        return 0;
+      };
+      const intersection = (first, second) => {
+        let a = position(first), b = position(second);
+        if (a[0] > b[0] || (a[0] === b[0] && a[2] > b[2])) [a, b] = [b, a];
+        if (a[1] === waterLevel) return [a[0], waterLevel, a[2]];
+        if (b[1] === waterLevel) return [b[0], waterLevel, b[2]];
+        const t = (waterLevel - a[1]) / (b[1] - a[1]);
+        return [a[0] + t * (b[0] - a[0]), waterLevel, a[2] + t * (b[2] - a[2])];
+      };
+      for (let i = 0; i < topology.length; i += 3) {
+        const triangle = topology.slice(i, i + 3), points = [];
+        for (let edge = 0; edge < 3; ++edge) {
+          const first = triangle[edge], second = triangle[(edge + 1) % 3];
+          if ((position(first)[1] <= waterLevel) !== (position(second)[1] <= waterLevel))
+            points.push(intersection(first, second));
+        }
+        if (points.length !== 2 || comparePoint(points[0], points[1]) === 0) continue;
+        if (comparePoint(points[1], points[0]) < 0) points.reverse();
+        const key = points.flat().map(bits).join(',');
+        if (seen.has(key)) continue;
+        if (segments.length === segmentBudget) { truncated = true; break; }
+        seen.add(key);
+        segments.push(points);
+      }
+      const line = Buffer.alloc(12 + segments.length * 48);
+      line.writeBigUInt64LE(BigInt(segments.length));
+      line.writeUInt32LE(Number(truncated), 8);
+      segments.forEach((segment, i) => segment.flat().forEach((value, j) => line.writeDoubleLE(value, 12 + i * 48 + j * 8)));
+      expected = Buffer.concat([expected, line]);
+    }
   }
   assert.deepEqual(native.stdout, expected, 'native terrain/material bytes differ from existing spatial truth');
   return native.stdout;
@@ -230,4 +272,46 @@ test('mixed signed-zero mesh bounds are byte-identical under cell permutations',
   assert.equal(bounds.readBigUInt64LE(32), 0n, 'maximum Y must retain positive zero');
   for (const output of outputs.slice(1))
     assert.deepEqual(output.subarray(boundsOffset, boundsOffset + 48), bounds);
+});
+
+test('waterlines consume complete emitted surface bytes and their retained level exactly', () => {
+  const cells = Array.from({ length: 64 }, (_, i) => i);
+  for (const seed of [[1, 2], [67, 89]])
+    for (const waterLevel of [-0.5, 0, 0.5])
+      for (const segmentBudget of [0, 1, 8, 128])
+        run({ level: 3, budget: 81, correlationLength: 0.125, samplingDistance: 0.015625,
+          seed, waterLevel, cells, segmentBudget });
+});
+test('waterline replay and changed level preserve geometry and canonical interpolation', () => {
+  const options = { level: 3, budget: 81, correlationLength: 0.125, samplingDistance: 0.015625,
+    cells: Array.from({ length: 64 }, (_, i) => i), segmentBudget: 128 };
+  const first = run({ ...options, waterLevel: 0 });
+  run({ ...options, cells: options.cells.toReversed(), waterLevel: 0 });
+  const moved = run({ ...options, waterLevel: 0.5 });
+  assert.deepEqual(run({ ...options, waterLevel: 0 }), first);
+  for (let i = 0; i < 81; ++i)
+    assert.deepEqual(first.subarray(20 + i * 52, 20 + i * 52 + 48), moved.subarray(20 + i * 52, 20 + i * 52 + 48));
+  assert.notDeepEqual(first, moved);
+});
+test('waterline full demand preserves the unchanged capture and segment limits', () => {
+  const result = run({ level: 8, budget: 65536, correlationLength: 1 / 256, samplingDistance: 1 / 1024,
+    waterLevel: 0, cells: Array.from({ length: 65024 }, (_, i) => i),
+    cellBudget: 65536, triangleBudget: 131072, segmentBudget: 65536 });
+  assert.equal(result.length, 8114280);
+  assert.equal(result.readBigUInt64LE(4968540), 65536n);
+  assert.equal(result.readUInt32LE(4968548), 1);
+});
+test('waterline coplanar and point-only contacts emit no separator', () => {
+  const cells = Array.from({ length: 64 }, (_, i) => i);
+  const options = { level: 3, budget: 81, correlationLength: 0.125, samplingDistance: 0.015625, cells, segmentBudget: 128 };
+  const flat = run({ ...options, mean: -0, amplitude: 0, waterLevel: -0 });
+  assert.equal(flat.readBigUInt64LE(flat.length - 12), 0n);
+  const node = createConditionedRoot(identity);
+  const heights = Array.from({ length: 81 }, (_, i) => sampleSpatialCorrelation2Reference(node,
+    [-1 + (i % 9) / 8, 2 + Math.floor(i / 9) / 8], { correlationLength: 0.125, mean: 0, amplitude: 2 }));
+  const minimum = Math.min(...heights);
+  assert.equal(heights.filter(h => h === minimum).length, 1, 'fixture must have one point-only minimum');
+  const touch = run({ ...options, waterLevel: minimum });
+  assert.equal(touch.readBigUInt64LE(touch.length - 12), 0n);
+  run({ ...options, segmentBudget: 65537 }, 'terrain waterline segment budget must be from 0 to 65536');
 });

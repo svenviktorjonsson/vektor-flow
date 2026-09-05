@@ -21,11 +21,8 @@ struct TerrainTriangulation {
     bool truncated;
 };
 
-// Demands are externally ordered cell IDs, not a camera/error policy.
-// Bounds enclose emitted linear triangles only, not unsampled terrain relief.
-inline TerrainTriangulation TriangulateTerrainCellsReference(
-    std::shared_ptr<const TerrainSurfacePacket> surface, std::span<const std::uint64_t> demands,
-    std::size_t cell_budget, std::size_t triangle_budget
+inline std::uint64_t RequireTerrainSurfaceForTopology(
+    const std::shared_ptr<const TerrainSurfacePacket>& surface
 ) {
     if (!surface || !surface->source)
         throw std::invalid_argument("terrain surface working set is required");
@@ -48,6 +45,17 @@ inline TerrainTriangulation TriangulateTerrainCellsReference(
     if (surface->source->potential_count != width * width ||
         surface->vertices.size() > surface->source->potential_count)
         throw std::invalid_argument("terrain grid identity is invalid");
+    return divisions;
+}
+
+// Demands are externally ordered cell IDs, not a camera/error policy.
+// Bounds enclose emitted linear triangles only, not unsampled terrain relief.
+inline TerrainTriangulation TriangulateTerrainCellsReference(
+    std::shared_ptr<const TerrainSurfacePacket> surface, std::span<const std::uint64_t> demands,
+    std::size_t cell_budget, std::size_t triangle_budget
+) {
+    const auto divisions = RequireTerrainSurfaceForTopology(surface);
+    const auto width = divisions + 1;
     if (cell_budget > 65536) throw std::range_error("terrain cell budget must be from 0 to 65536");
     if (triangle_budget > 131072) throw std::range_error("terrain triangle budget must be from 0 to 131072");
     if (demands.size() > 65536) throw std::range_error("terrain cell demand must contain at most 65536 entries");
