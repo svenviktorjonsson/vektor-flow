@@ -1,0 +1,265 @@
+{
+  "harness": "build/wasm-math-test-teKZpM",
+  "wasmSha256": "fad0e62c5dd4e1e3f387397a7eb5c944313aa3991992bf85efae204bd578d91b",
+  "kernelSha256": "3a60e7eef2c93e6392f6d705298cef629cf7ca752944755f15550ade2db24e48",
+  "nativePlatform": "ldd (Debian GLIBC 2.36-9+deb12u14) 2.36",
+  "mpmathVersion": "1.3.0",
+  "referenceDecimalDigits": [
+    400,
+    600
+  ],
+  "referenceRoundingDisagreements": 0,
+  "groups": {
+    "readme101/sin": {
+      "samples": 101,
+      "nativeWasmBitDifferences": 30,
+      "nativeCorrectRounded": 101,
+      "wasmCorrectRounded": 71,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 15,
+      "nativeMaxAbsoluteError": 5.521403334082375e-17,
+      "wasmMaxAbsoluteError": 1.6683057158420757e-16,
+      "wasmWorstULP": {
+        "input": "4022cccccccccccd",
+        "x": 9.4,
+        "actual": 0.024775425453357817,
+        "reference": 0.024775425453357765
+      }
+    },
+    "all/sin": {
+      "samples": 12790,
+      "nativeWasmBitDifferences": 2280,
+      "nativeCorrectRounded": 12780,
+      "wasmCorrectRounded": 10502,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 2397119475363567,
+      "nativeMaxAbsoluteError": 5.561166050221656e-17,
+      "wasmMaxAbsoluteError": 1.6683057158420757e-16,
+      "wasmWorstULP": {
+        "input": "c01921fb54442d18",
+        "x": -6.283185307179586,
+        "actual": 1.743934249004316e-16,
+        "reference": 2.4492935982947064e-16
+      },
+      "nativeWorstULP": {
+        "input": "4180000000000000",
+        "x": 33554432.0,
+        "actual": -0.9765172909509285,
+        "reference": -0.9765172909509284
+      }
+    },
+    "readme101/cos": {
+      "samples": 101,
+      "nativeWasmBitDifferences": 33,
+      "nativeCorrectRounded": 101,
+      "wasmCorrectRounded": 68,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 35,
+      "nativeMaxAbsoluteError": 5.50210156918377e-17,
+      "wasmMaxAbsoluteError": 1.0909472062752956e-16,
+      "wasmWorstULP": {
+        "input": "4012cccccccccccd",
+        "x": 4.7,
+        "actual": -0.0123886634628905,
+        "reference": -0.01238866346289056
+      }
+    },
+    "all/cos": {
+      "samples": 12790,
+      "nativeWasmBitDifferences": 2237,
+      "nativeCorrectRounded": 12782,
+      "wasmCorrectRounded": 10551,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 4364452196894661640,
+      "nativeMaxAbsoluteError": 5.550563774826753e-17,
+      "wasmMaxAbsoluteError": 1.6263372600636387e-16,
+      "wasmWorstULP": {
+        "input": "bff921fb54442d18",
+        "x": -1.5707963267948966,
+        "actual": -0.0,
+        "reference": 6.123233995736766e-17
+      },
+      "nativeWorstULP": {
+        "input": "bff921fb54442d19",
+        "x": -1.5707963267948968,
+        "actual": -1.6081226496766364e-16,
+        "reference": -1.6081226496766366e-16
+      }
+    },
+    "decimal-grid/sin": {
+      "samples": 201,
+      "nativeWasmBitDifferences": 58,
+      "nativeCorrectRounded": 201,
+      "wasmCorrectRounded": 143,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 15,
+      "nativeMaxAbsoluteError": 5.521403334082375e-17,
+      "wasmMaxAbsoluteError": 1.6683057158420757e-16,
+      "wasmWorstULP": {
+        "input": "c022cccccccccccd",
+        "x": -9.4,
+        "actual": -0.024775425453357817,
+        "reference": -0.024775425453357765
+      }
+    },
+    "decimal-grid/cos": {
+      "samples": 201,
+      "nativeWasmBitDifferences": 60,
+      "nativeCorrectRounded": 201,
+      "wasmCorrectRounded": 141,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 35,
+      "nativeMaxAbsoluteError": 5.50210156918377e-17,
+      "wasmMaxAbsoluteError": 1.0909472062752956e-16,
+      "wasmWorstULP": {
+        "input": "c012cccccccccccd",
+        "x": -4.7,
+        "actual": -0.0123886634628905,
+        "reference": -0.01238866346289056
+      }
+    },
+    "quadrant-neighbors/sin": {
+      "samples": 193,
+      "nativeWasmBitDifferences": 96,
+      "nativeCorrectRounded": 193,
+      "wasmCorrectRounded": 97,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 2397119475363567,
+      "nativeMaxAbsoluteError": 5.810405701071459e-29,
+      "wasmMaxAbsoluteError": 8.704822932088719e-17,
+      "wasmWorstULP": {
+        "input": "c01921fb54442d18",
+        "x": -6.283185307179586,
+        "actual": 1.743934249004316e-16,
+        "reference": 2.4492935982947064e-16
+      }
+    },
+    "quadrant-neighbors/cos": {
+      "samples": 193,
+      "nativeWasmBitDifferences": 96,
+      "nativeCorrectRounded": 191,
+      "wasmCorrectRounded": 97,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 4364452196894661640,
+      "nativeMaxAbsoluteError": 7.806390238904267e-29,
+      "wasmMaxAbsoluteError": 7.983952990071043e-17,
+      "wasmWorstULP": {
+        "input": "bff921fb54442d18",
+        "x": -1.5707963267948966,
+        "actual": -0.0,
+        "reference": 6.123233995736766e-17
+      },
+      "nativeWorstULP": {
+        "input": "bff921fb54442d19",
+        "x": -1.5707963267948968,
+        "actual": -1.6081226496766364e-16,
+        "reference": -1.6081226496766366e-16
+      }
+    },
+    "edges/sin": {
+      "samples": 13,
+      "nativeWasmBitDifferences": 6,
+      "nativeCorrectRounded": 13,
+      "wasmCorrectRounded": 7,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 25,
+      "nativeMaxAbsoluteError": 5.0185382399526676e-17,
+      "wasmMaxAbsoluteError": 9.823964409653731e-17,
+      "wasmWorstULP": {
+        "input": "7fefffffffffffff",
+        "x": 1.7976931348623157e+308,
+        "actual": 0.004961954789184084,
+        "reference": 0.004961954789184062
+      }
+    },
+    "edges/cos": {
+      "samples": 13,
+      "nativeWasmBitDifferences": 2,
+      "nativeCorrectRounded": 13,
+      "wasmCorrectRounded": 11,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 5.1611423543848204e-17,
+      "wasmMaxAbsoluteError": 1.6263372600636387e-16,
+      "wasmWorstULP": {
+        "input": "408f400000000000",
+        "x": 1000.0,
+        "actual": 0.5623790762907028,
+        "reference": 0.5623790762907029
+      }
+    },
+    "exponent-bands/sin": {
+      "samples": 12282,
+      "nativeWasmBitDifferences": 2090,
+      "nativeCorrectRounded": 12272,
+      "wasmCorrectRounded": 10184,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 4083,
+      "nativeMaxAbsoluteError": 5.561166050221656e-17,
+      "wasmMaxAbsoluteError": 1.6334393924888904e-16,
+      "wasmWorstULP": {
+        "input": "5788b01a15dfcd63",
+        "x": 4.749769097878295e+113,
+        "actual": -7.979699150370057e-05,
+        "reference": -7.979699150375591e-05
+      },
+      "nativeWorstULP": {
+        "input": "4180000000000000",
+        "x": 33554432.0,
+        "actual": -0.9765172909509285,
+        "reference": -0.9765172909509284
+      }
+    },
+    "exponent-bands/cos": {
+      "samples": 12282,
+      "nativeWasmBitDifferences": 2046,
+      "nativeCorrectRounded": 12276,
+      "wasmCorrectRounded": 10234,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 3405,
+      "nativeMaxAbsoluteError": 5.550563774826753e-17,
+      "wasmMaxAbsoluteError": 1.6100354235039116e-16,
+      "wasmWorstULP": {
+        "input": "6d40000000000000",
+        "x": 1.765008724192636e+218,
+        "actual": -0.0001018004430900742,
+        "reference": -0.00010180044309012035
+      },
+      "nativeWorstULP": {
+        "input": "5530000000000000",
+        "x": 2.2397447421778042e+102,
+        "actual": -0.10639519554040774,
+        "reference": -0.10639519554040773
+      }
+    }
+  },
+  "nonFinite": [
+    {
+      "group": "edges",
+      "input": "7ff0000000000000",
+      "nativeSin": "fff8000000000000",
+      "nativeCos": "fff8000000000000",
+      "wasmSin": "fff8000000000000",
+      "wasmCos": "fff8000000000000",
+      "allNaN": true
+    },
+    {
+      "group": "edges",
+      "input": "fff0000000000000",
+      "nativeSin": "fff8000000000000",
+      "nativeCos": "fff8000000000000",
+      "wasmSin": "fff8000000000000",
+      "wasmCos": "fff8000000000000",
+      "allNaN": true
+    },
+    {
+      "group": "edges",
+      "input": "7ff8000000000000",
+      "nativeSin": "7ff8000000000000",
+      "nativeCos": "7ff8000000000000",
+      "wasmSin": "7ff8000000000000",
+      "wasmCos": "7ff8000000000000",
+      "allNaN": true
+    }
+  ]
+}
