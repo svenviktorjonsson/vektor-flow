@@ -201,248 +201,273 @@
       "resultType": 2
     },
     "_browser_ascii_identifier_start": {
-      "index": 69,
+      "index": 73,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_axis_elementwise": {
-      "index": 53,
-      "parameters": 4,
-      "resultType": 1
-    },
-    "_browser_axis_lookup": {
-      "index": 60,
-      "parameters": 4,
-      "resultType": 1
-    },
-    "_browser_axis_outer": {
-      "index": 55,
-      "parameters": 4,
-      "resultType": 1
-    },
-    "_browser_axis_outer_tensor": {
       "index": 57,
       "parameters": 4,
       "resultType": 1
     },
+    "_browser_axis_lookup": {
+      "index": 64,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_axis_outer": {
+      "index": 59,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_axis_outer_tensor": {
+      "index": 61,
+      "parameters": 4,
+      "resultType": 1
+    },
     "_browser_axis_product2": {
-      "index": 58,
+      "index": 62,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_axis_product3": {
-      "index": 59,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_axis_scale_plane": {
-      "index": 56,
-      "parameters": 6,
-      "resultType": 1
-    },
-    "_browser_axis_scaled_row": {
-      "index": 54,
-      "parameters": 4,
-      "resultType": 1
-    },
-    "_browser_axis_term": {
-      "index": 52,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_basic_line_stop": {
-      "index": 137,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_basic_loop_factor": {
-      "index": 139,
-      "parameters": 2,
-      "resultType": 2
-    },
-    "_browser_basic_loop_sum": {
-      "index": 140,
-      "parameters": 4,
-      "resultType": 2
-    },
-    "_browser_basic_number_after": {
-      "index": 138,
-      "parameters": 2,
-      "resultType": 2
-    },
-    "_browser_basic_switch": {
-      "index": 141,
-      "parameters": 4,
-      "resultType": 2
-    },
-    "_browser_basic_syntax_source_matches": {
-      "index": 142,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_decimal_at": {
-      "index": 146,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_dense_composition": {
-      "index": 154,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_dense_term": {
-      "index": 152,
-      "parameters": 5,
-      "resultType": 6
-    },
-    "_browser_dense_transform": {
-      "index": 153,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_display_axes_by_kind": {
-      "index": 75,
-      "parameters": 4,
-      "resultType": 1
-    },
-    "_browser_display_axes_equal": {
-      "index": 74,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_display_axis_contains": {
-      "index": 71,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_display_bracket_stop": {
-      "index": 68,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_display_call_stop": {
-      "index": 66,
-      "parameters": 4,
-      "resultType": 1
-    },
-    "_browser_display_camera_source": {
-      "index": 92,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_display_coordinate_axes": {
-      "index": 72,
-      "parameters": 4,
-      "resultType": 1
-    },
-    "_browser_display_coordinate_key": {
-      "index": 73,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_display_coordinate_rank": {
-      "index": 89,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_display_grid_shape_matches": {
-      "index": 88,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_display_identifier_stop": {
-      "index": 70,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_display_light_source": {
-      "index": 94,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_display_mesh_source": {
-      "index": 91,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_display_optical_packet": {
-      "index": 86,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_display_options_call": {
-      "index": 61,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_display_raw_source_matches": {
-      "index": 65,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_display_string_stop": {
-      "index": 76,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_display_surface_packet": {
-      "index": 83,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_display_texture_packet": {
-      "index": 79,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_display_v6_packet": {
-      "index": 90,
-      "parameters": 9,
-      "resultType": 1
-    },
-    "_browser_display_value_start": {
-      "index": 67,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_expect_statement": {
-      "index": 172,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_field_indices_valid": {
-      "index": 128,
-      "parameters": 3,
-      "resultType": 1
-    },
-    "_browser_find_source": {
       "index": 63,
       "parameters": 3,
       "resultType": 1
     },
+    "_browser_axis_scale_plane": {
+      "index": 60,
+      "parameters": 6,
+      "resultType": 1
+    },
+    "_browser_axis_scaled_row": {
+      "index": 58,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_axis_term": {
+      "index": 56,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_basic_line_stop": {
+      "index": 142,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_basic_loop_factor": {
+      "index": 144,
+      "parameters": 2,
+      "resultType": 2
+    },
+    "_browser_basic_loop_sum": {
+      "index": 145,
+      "parameters": 4,
+      "resultType": 2
+    },
+    "_browser_basic_number_after": {
+      "index": 143,
+      "parameters": 2,
+      "resultType": 2
+    },
+    "_browser_basic_switch": {
+      "index": 146,
+      "parameters": 4,
+      "resultType": 2
+    },
+    "_browser_basic_syntax_source_matches": {
+      "index": 147,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_decimal_at": {
+      "index": 151,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_dense_composition": {
+      "index": 159,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_dense_term": {
+      "index": 157,
+      "parameters": 5,
+      "resultType": 6
+    },
+    "_browser_dense_transform": {
+      "index": 158,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_display_axes_by_kind": {
+      "index": 79,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_display_axes_equal": {
+      "index": 78,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_display_axis_contains": {
+      "index": 75,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_display_bracket_stop": {
+      "index": 72,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_display_call_stop": {
+      "index": 70,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_display_camera_source": {
+      "index": 97,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_display_complex_p_packet": {
+      "index": 95,
+      "parameters": 6,
+      "resultType": 1
+    },
+    "_browser_display_coordinate_axes": {
+      "index": 76,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_display_coordinate_key": {
+      "index": 77,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_display_coordinate_rank": {
+      "index": 93,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_display_grid_shape_matches": {
+      "index": 92,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_display_identifier_stop": {
+      "index": 74,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_display_light_source": {
+      "index": 99,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_display_mesh_source": {
+      "index": 96,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_display_optical_packet": {
+      "index": 90,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_display_options_call": {
+      "index": 65,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_display_raw_source_matches": {
+      "index": 69,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_display_string_stop": {
+      "index": 80,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_display_surface_packet": {
+      "index": 87,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_display_texture_packet": {
+      "index": 83,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_display_v6_packet": {
+      "index": 94,
+      "parameters": 9,
+      "resultType": 1
+    },
+    "_browser_display_value_start": {
+      "index": 71,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_expect_statement": {
+      "index": 177,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_field_indices_valid": {
+      "index": 133,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_find_source": {
+      "index": 67,
+      "parameters": 3,
+      "resultType": 1
+    },
     "_browser_function_name": {
-      "index": 148,
+      "index": 153,
       "parameters": 2,
       "resultType": 4
     },
     "_browser_function_parameter": {
-      "index": 149,
+      "index": 154,
       "parameters": 2,
       "resultType": 4
     },
     "_browser_inline_space_only": {
-      "index": 136,
+      "index": 141,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_inline_space_start": {
-      "index": 135,
+      "index": 140,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_layout_only": {
-      "index": 171,
+      "index": 176,
       "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_lifted_complex": {
+      "index": 52,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_lifted_complex_coordinates": {
+      "index": 55,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_lifted_complex_vector": {
+      "index": 53,
+      "parameters": 4,
+      "resultType": 1
+    },
+    "_browser_lifted_nested_complex_vector": {
+      "index": 54,
+      "parameters": 4,
       "resultType": 1
     },
     "_browser_lifted_nested_vector": {
@@ -466,312 +491,312 @@
       "resultType": 1
     },
     "_browser_lifted_vector_function_matches": {
-      "index": 132,
+      "index": 137,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_line_start_before": {
-      "index": 145,
+      "index": 150,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_line_start_before_walk": {
-      "index": 144,
+      "index": 149,
       "parameters": 4,
       "resultType": 1
     },
     "_browser_named_axis_source_matches": {
-      "index": 133,
+      "index": 138,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_cube_packet": {
-      "index": 123,
+      "index": 128,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_cube_scene": {
-      "index": 124,
-      "parameters": 2,
-      "resultType": 1
-    },
-    "_browser_native_cube_source_matches": {
-      "index": 107,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_native_dice_texture_packet": {
-      "index": 120,
-      "parameters": 1,
-      "resultType": 1
-    },
-    "_browser_native_field_scene": {
       "index": 129,
       "parameters": 2,
       "resultType": 1
     },
-    "_browser_native_field_source_matches": {
+    "_browser_native_cube_source_matches": {
+      "index": 112,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_native_dice_texture_packet": {
       "index": 125,
       "parameters": 1,
       "resultType": 1
     },
+    "_browser_native_field_scene": {
+      "index": 134,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_native_field_source_matches": {
+      "index": 130,
+      "parameters": 1,
+      "resultType": 1
+    },
     "_browser_native_light_references_valid": {
-      "index": 117,
+      "index": 122,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_native_plane_packet": {
-      "index": 122,
+      "index": 127,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_rigid_body_packet": {
-      "index": 105,
+      "index": 110,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_rigid_scene": {
-      "index": 106,
+      "index": 111,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_native_rigid_source_matches": {
-      "index": 101,
+      "index": 106,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_rigid_world_packet": {
-      "index": 103,
+      "index": 108,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_surface_packet": {
-      "index": 121,
+      "index": 126,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_native_timing_packet": {
-      "index": 114,
+      "index": 119,
       "parameters": 4,
       "resultType": 6
     },
     "_browser_nbody_compact": {
-      "index": 159,
+      "index": 164,
       "parameters": 4,
       "resultType": 4
     },
     "_browser_nbody_flatten": {
-      "index": 167,
+      "index": 172,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_nbody_mass_terms": {
-      "index": 165,
+      "index": 170,
       "parameters": 4,
       "resultType": 1
     },
     "_browser_nbody_masses": {
-      "index": 166,
+      "index": 171,
       "parameters": 5,
       "resultType": 1
     },
     "_browser_nbody_nested_value": {
-      "index": 162,
+      "index": 167,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_nbody_scale_row": {
-      "index": 163,
+      "index": 168,
       "parameters": 4,
       "resultType": 1
     },
     "_browser_nbody_scaled_rows": {
-      "index": 164,
+      "index": 169,
       "parameters": 7,
       "resultType": 1
     },
     "_browser_nbody_shape": {
-      "index": 161,
+      "index": 166,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_nbody_shape_field": {
-      "index": 160,
+      "index": 165,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_numeric_literal_array": {
-      "index": 174,
+      "index": 179,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_numeric_range": {
-      "index": 147,
+      "index": 152,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_pairwise_system_plan": {
-      "index": 169,
+      "index": 174,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_pairwise_system_source_matches": {
-      "index": 168,
+      "index": 173,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_parity_clause": {
-      "index": 175,
+      "index": 180,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_permutation_reduction_source_matches": {
-      "index": 176,
+      "index": 181,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_power_final_multiplier": {
-      "index": 156,
+      "index": 161,
       "parameters": 2,
       "resultType": 2
     },
     "_browser_power_method_source_matches": {
-      "index": 157,
+      "index": 162,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_power_state": {
-      "index": 155,
+      "index": 160,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_record_list_count": {
-      "index": 118,
+      "index": 123,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_record_list_has_id": {
-      "index": 116,
+      "index": 121,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_record_list_item": {
-      "index": 119,
+      "index": 124,
       "parameters": 4,
       "resultType": 4
     },
     "_browser_record_string_field": {
-      "index": 115,
+      "index": 120,
       "parameters": 2,
       "resultType": 4
     },
     "_browser_rigid_contour_valid": {
-      "index": 104,
+      "index": 109,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_scan_display_mesh_source": {
-      "index": 87,
+      "index": 91,
       "parameters": 16,
       "resultType": 1
     },
     "_browser_scan_display_mirror_fields": {
-      "index": 80,
+      "index": 84,
       "parameters": 9,
       "resultType": 1
     },
     "_browser_scan_display_optical_fields": {
-      "index": 84,
+      "index": 88,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_display_source": {
-      "index": 95,
+      "index": 100,
       "parameters": 10,
       "resultType": 1
     },
     "_browser_scan_display_surface_camera_fields": {
-      "index": 81,
+      "index": 85,
       "parameters": 11,
       "resultType": 1
     },
     "_browser_scan_display_surface_fields": {
-      "index": 82,
+      "index": 86,
       "parameters": 16,
       "resultType": 1
     },
     "_browser_scan_display_texture_fields": {
-      "index": 77,
+      "index": 81,
       "parameters": 12,
       "resultType": 1
     },
     "_browser_scan_native_cube": {
-      "index": 110,
+      "index": 115,
       "parameters": 13,
       "resultType": 1
     },
     "_browser_scan_native_cube_scene": {
-      "index": 108,
+      "index": 113,
       "parameters": 13,
       "resultType": 1
     },
     "_browser_scan_native_dice_texture": {
-      "index": 111,
+      "index": 116,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_native_field_mesh": {
-      "index": 127,
+      "index": 132,
       "parameters": 11,
       "resultType": 1
     },
     "_browser_scan_native_field_scene": {
-      "index": 126,
+      "index": 131,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_native_plane": {
-      "index": 109,
+      "index": 114,
       "parameters": 11,
       "resultType": 1
     },
     "_browser_scan_native_rigid_scene": {
-      "index": 102,
+      "index": 107,
       "parameters": 11,
       "resultType": 1
     },
     "_browser_scan_native_shadow": {
-      "index": 113,
+      "index": 118,
       "parameters": 8,
       "resultType": 1
     },
     "_browser_scan_native_surface": {
-      "index": 112,
+      "index": 117,
       "parameters": 15,
       "resultType": 1
     },
     "_browser_scan_world_options": {
-      "index": 97,
+      "index": 102,
       "parameters": 12,
       "resultType": 1
     },
     "_browser_signed_lifted_value": {
-      "index": 93,
+      "index": 98,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_source_starts_with": {
-      "index": 62,
+      "index": 66,
       "parameters": 4,
       "resultType": 1
     },
     "_browser_token_is": {
-      "index": 151,
+      "index": 156,
       "parameters": 4,
       "resultType": 1
     },
     "_browser_token_kind": {
-      "index": 131,
+      "index": 136,
       "parameters": 2,
       "resultType": 1
     },
@@ -791,42 +816,42 @@
       "resultType": 1
     },
     "_browser_token_text": {
-      "index": 130,
+      "index": 135,
       "parameters": 2,
       "resultType": 4
     },
     "_browser_typed_optical_packet": {
-      "index": 85,
+      "index": 89,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_typed_texture_packet": {
-      "index": 78,
+      "index": 82,
       "parameters": 4,
       "resultType": 1
     },
     "_browser_vector_return_size": {
-      "index": 150,
+      "index": 155,
       "parameters": 2,
       "resultType": 2
     },
     "_browser_world_argument_start": {
-      "index": 64,
+      "index": 68,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_world_particle_packet": {
-      "index": 99,
+      "index": 104,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_world_source_matches": {
-      "index": 98,
+      "index": 103,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_zero_vector_statement": {
-      "index": 173,
+      "index": 178,
       "parameters": 3,
       "resultType": 1
     },
@@ -836,7 +861,7 @@
       "resultType": 6
     },
     "_run_tagged_basic_syntax_source": {
-      "index": 143,
+      "index": 148,
       "parameters": 1,
       "resultType": 6
     },
@@ -846,37 +871,37 @@
       "resultType": 2
     },
     "_run_tagged_display_source": {
-      "index": 96,
+      "index": 101,
       "parameters": 2,
       "resultType": 1
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 178,
+      "index": 183,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_named_axis_source": {
-      "index": 134,
+      "index": 139,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_pairwise_system_source": {
-      "index": 170,
+      "index": 175,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_permutation_reduction_source": {
-      "index": 177,
+      "index": 182,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_power_method_source": {
-      "index": 158,
+      "index": 163,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_world_source": {
-      "index": 100,
+      "index": 105,
       "parameters": 2,
       "resultType": 1
     },
@@ -891,7 +916,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 179,
+      "index": 184,
       "parameters": 2,
       "resultType": 2
     },
@@ -903,11 +928,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 317512,
-    "bytecodeLength": 317512,
+    "argumentsPointer": 324360,
+    "bytecodeLength": 324354,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 317768
+    "resultsPointer": 324616
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,

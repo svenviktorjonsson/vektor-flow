@@ -1953,6 +1953,8 @@ run_tagged_dependency_source(source:str) -> num:
     )
 
 BrowserLiftedParse: (value:any, next:int)
+BrowserLiftedComplex: (real:num, imaginary:num, next:int)
+BrowserLiftedComplexCoordinates: (x:any, y:any, next:int)
 BrowserAxisTerm: (values:any, axis:str, next:int)
 BrowserDisplayOptions: (background:any, combine_transparent:bit, next:int)
 BrowserDisplayScan: (
@@ -1963,9 +1965,11 @@ BrowserDisplayScan: (
     unsupported:bit
 )
 BrowserDisplayMeshSources: (
+    p_source:str,
     x_source:str,
     y_source:str,
     z_source:str,
+    p_axes:[str],
     x_axes:[str],
     y_axes:[str],
     z_axes:[str],
@@ -2239,6 +2243,61 @@ _browser_lifted_value(
     _browser_token_kind(tape, index + 1) = 22?
         @: _browser_lifted_nested_vector(tape, index + 1, factor, [])
     _browser_lifted_numeric_vector(tape, index + 1, factor, [])
+
+_browser_lifted_complex(
+    tape:any, index:int
+) -> BrowserLiftedComplex:
+    (_browser_token_kind(tape, index) = 1 /\
+        _browser_token_text(tape, index) = "num" /\
+        _browser_token_kind(tape, index + 1) = 13)?! "browser display complex p leaves require num(real, imaginary)"
+    real: _browser_lifted_number(tape, index + 2, 1)
+    (_browser_token_kind(tape, real.next) = 24)?! "browser display complex p requires real and imaginary components"
+    imaginary: _browser_lifted_number(tape, real.next + 1, 1)
+    (_browser_token_kind(tape, imaginary.next) = 14)?! "browser display complex p requires a closing parenthesis"
+    (real:real.value, imaginary:imaginary.value, next:imaginary.next + 1)
+
+_browser_lifted_complex_vector(
+    tape:any, index:int, x:any, y:any
+) -> BrowserLiftedComplexCoordinates:
+    (_browser_token_kind(tape, index) != 23)?! "browser display complex p cannot be empty"
+    value: _browser_lifted_complex(tape, index)
+    next_kind: _browser_token_kind(tape, value.next)
+    next_kind = 24?
+        @: _browser_lifted_complex_vector(
+            tape, value.next + 1,
+            x & [value.real], y & [value.imaginary]
+        )
+    (next_kind = 23)?! "browser display complex p requires comma or closing bracket"
+    (
+        x:x & [value.real],
+        y:y & [value.imaginary],
+        next:value.next + 1
+    )
+
+_browser_lifted_nested_complex_vector(
+    tape:any, index:int, x:any, y:any
+) -> BrowserLiftedComplexCoordinates:
+    (_browser_token_kind(tape, index) != 23)?! "browser display complex p cannot be empty"
+    (_browser_token_kind(tape, index) = 22)?! "browser display complex p nesting must match its axes"
+    row: _browser_lifted_complex_vector(tape, index + 1, [], [])
+    next_kind: _browser_token_kind(tape, row.next)
+    next_kind = 24?
+        @: _browser_lifted_nested_complex_vector(
+            tape, row.next + 1, x & [row.x], y & [row.y]
+        )
+    (next_kind = 23)?! "browser display complex p requires comma or closing bracket"
+    (x:x & [row.x], y:y & [row.y], next:row.next + 1)
+
+_browser_lifted_complex_coordinates(
+    tape:any, rank:int
+) -> BrowserLiftedComplexCoordinates:
+    (_browser_token_kind(tape, 0) = 22)?! "browser display complex p requires an indexed vector"
+    rank = 1?
+        @: _browser_lifted_complex_vector(tape, 1, [], [])
+    rank = 2?
+        @: _browser_lifted_nested_complex_vector(tape, 1, [], [])
+    false?! "browser display complex p supports one or two semantic axes"
+    (x:[], y:[], next:0)
 
 _browser_axis_term(tape:any, index:int) -> BrowserAxisTerm:
     (_browser_token_kind(tape, index) = 22)?! "named-axis term requires a vector"
@@ -2525,7 +2584,7 @@ _browser_display_coordinate_key(
         @: (matched:false, coordinate:"", axes:[], value_offset:offset)
     coordinate_stop: vkf_utf8_advance(source, offset)
     coordinate: vkf_utf8_slice(source, offset, coordinate_stop)
-    ~(coordinate = "x" \/ coordinate = "y" \/ coordinate = "z")?
+    ~(coordinate = "p" \/ coordinate = "x" \/ coordinate = "y" \/ coordinate = "z")?
         @: (matched:false, coordinate:"", axes:[], value_offset:offset)
     vkf_string_eof(source, coordinate_stop)?
         @: (matched:false, coordinate:"", axes:[], value_offset:offset)
@@ -3151,12 +3210,28 @@ _browser_scan_display_mesh_source(
     in_string:bit
 ) -> BrowserDisplayMeshSources:
     vkf_string_eof(source, offset)?
+        complex_p: y_source = "__browser_complex_p__"
+        final_p_source: ""
+        final_x_source: x_source
+        final_y_source: y_source
+        final_p_axes: []
+        final_x_axes: x_axes
+        final_y_axes: y_axes
+        complex_p?
+            .final_p_source: x_source
+            .final_x_source: ""
+            .final_y_source: ""
+            .final_p_axes: x_axes
+            .final_x_axes: []
+            .final_y_axes: []
         @: (
-            x_source:x_source,
-            y_source:y_source,
+            p_source:final_p_source,
+            x_source:final_x_source,
+            y_source:final_y_source,
             z_source:z_source,
-            x_axes:x_axes,
-            y_axes:y_axes,
+            p_axes:final_p_axes,
+            x_axes:final_x_axes,
+            y_axes:final_y_axes,
             z_axes:z_axes,
             color_source:color_source,
             receives_lighting:receives_lighting,
@@ -3190,6 +3265,7 @@ _browser_scan_display_mesh_source(
         vector: vkf_string_peek_scalar(source, value_start) = 91
         (vector \/ (coordinate.coordinate = "z" /\
             coordinate.axes.length() = 0))?! "browser display indexed coordinates require vectors"
+        (coordinate.coordinate != "p" \/ coordinate.axes.length() > 0)?! "browser display complex p requires semantic axes"
         stop: vkf_decimal_scan_end(source, value_start)
         vector?
             .stop: _browser_display_bracket_stop(
@@ -3203,6 +3279,11 @@ _browser_scan_display_mesh_source(
         next_x_axes: x_axes
         next_y_axes: y_axes
         next_z_axes: z_axes
+        coordinate.coordinate = "p"?
+            (x_source = "" /\ y_source = "" /\ z_source = "")?! "browser display coordinates must appear once in source order"
+            .next_x: value_source
+            .next_y: "__browser_complex_p__"
+            .next_x_axes: coordinate.axes
         coordinate.coordinate = "x"?
             (x_source = "" /\ y_source = "" /\ z_source = "")?! "browser display coordinates must appear once in x, y, z order"
             .next_x: value_source
@@ -3475,13 +3556,72 @@ _browser_display_v6_packet(
         surface_system:surface_system
     )
 
+_browser_display_complex_p_packet(
+    fields:BrowserDisplayMeshSources,
+    coordinates:BrowserLiftedComplexCoordinates,
+    color:any,
+    texture:any,
+    optical:any,
+    surface_system:any
+) -> any:
+    (fields.p_axes.length() >= 1 /\ fields.p_axes.length() <= 2)?! "browser display complex p supports one or two semantic axes"
+    x_grid: coordinates.x
+    y_grid: coordinates.y
+    fields.p_axes.length() = 1?
+        .x_grid: [coordinates.x]
+        .y_grid: [coordinates.y]
+    (x_grid.length() > 0 /\ x_grid.0.length() > 0 /\
+        _browser_display_grid_shape_matches(x_grid, y_grid))?! "browser display complex p coordinate shapes disagree"
+    topology_axes: _browser_display_axes_by_kind(
+        fields.p_axes, "topology", 0, []
+    )
+    group_axes: _browser_display_axes_by_kind(
+        fields.p_axes, "group", 0, []
+    )
+    time_axis: ""
+    _browser_display_axis_contains(fields.p_axes, "t", 0)?
+        .time_axis: "t"
+    (
+        magic:1447773766, version:6, dimension:2,
+        rows:x_grid.length(), columns:x_grid.0.length(),
+        color:color, x:x_grid, y:y_grid,
+        x_axes:fields.p_axes, y_axes:fields.p_axes, z_axes:[],
+        topology_axes:topology_axes,
+        group_axes:group_axes,
+        time_axis:time_axis,
+        receives_lighting:fields.receives_lighting,
+        casts_shadow:fields.casts_shadow,
+        receives_shadow:fields.receives_shadow,
+        roughness:fields.roughness,
+        specular_strength:fields.specular_strength,
+        texture:texture, optical:optical,
+        surface_system:surface_system
+    )
+
 _browser_display_mesh_source(source:str) -> any:
     fields: _browser_scan_display_mesh_source(
         source, 10, "", "", "", [], [], [], "", false, false, false,
         1, 0, false, false
     )
     ~fields.unsupported?! "browser display does not support this frame.add option"
-    (fields.x_source != "" /\ fields.y_source != "")?! "frame.add requires x and y geometry"
+    color: [0.2, 0.7, 1, 1]
+    fields.color_source != ""?
+        color_tape: lexer.tagged_numeric_function_token_tape(fields.color_source)
+        .color: _browser_lifted_value(color_tape, 0, 1).value
+    (color.length() = 4)?! "frame.add color must be RGBA"
+    texture: _browser_display_texture_packet(source, 0, false)
+    optical: _browser_display_optical_packet(source)
+    surface_system: _browser_display_surface_packet(source, 0, false)
+    fields.p_source != ""?
+        p_tape: lexer.tagged_numeric_function_token_tape(fields.p_source)
+        coordinates: _browser_lifted_complex_coordinates(
+            p_tape, fields.p_axes.length()
+        )
+        (_browser_token_kind(p_tape, coordinates.next) = 5)?! "browser display complex p has trailing tokens"
+        @: _browser_display_complex_p_packet(
+            fields, coordinates, color, texture, optical, surface_system
+        )
+    (fields.x_source != "" /\ fields.y_source != "")?! "frame.add requires p or x and y geometry"
     x_tape: lexer.tagged_numeric_function_token_tape(fields.x_source)
     x: _browser_lifted_value(x_tape, 0, 1).value
     y_tape: lexer.tagged_numeric_function_token_tape(fields.y_source)
@@ -3494,14 +3634,6 @@ _browser_display_mesh_source(source:str) -> any:
         .z_kind: "scalar"
         vkf_string_peek_scalar(fields.z_source, 0) = 91?
             .z_kind: "vector"
-    color: [0.2, 0.7, 1, 1]
-    fields.color_source != ""?
-        color_tape: lexer.tagged_numeric_function_token_tape(fields.color_source)
-        .color: _browser_lifted_value(color_tape, 0, 1).value
-    (color.length() = 4)?! "frame.add color must be RGBA"
-    texture: _browser_display_texture_packet(source, 0, false)
-    optical: _browser_display_optical_packet(source)
-    surface_system: _browser_display_surface_packet(source, 0, false)
     indexed: (
         fields.x_axes.length() > 0 \/ fields.y_axes.length() > 0 \/
         fields.z_axes.length() > 0 \/ z_kind = "scalar"

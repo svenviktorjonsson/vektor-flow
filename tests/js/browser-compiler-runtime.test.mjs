@@ -61,6 +61,34 @@ test("packaged browser compiler runs the README native function example", async 
   assert.equal(compiler.run(source), 42);
 });
 
+test("complex p coordinates become inferred 2D x and y channels", async () => {
+  const [wasm, manifest] = await Promise.all([
+    readFile(new URL("vkf-browser-compiler.wasm", artifacts)),
+    readFile(new URL("vkf-browser-compiler.json", artifacts), "utf8").then(JSON.parse),
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+  const output = compiler.run([
+    ": .ui.display",
+    "display: Display()",
+    "frame: display.add_frame(pos:[0, 0], size:[1, 1])",
+    "frame.add(p_u:[num(-3, -0.12), num(-2, -0.92), num(-1, -0.86), num(0, -0.03), num(1, 0.82), num(2, 0.88), num(3, 0.09)], id:\"complex-line\", color:[0.12, 0.72, 1, 1])",
+  ].join("\n"));
+
+  assert.equal(output.kind, "visual");
+  assert.equal(output.packet_records.length, 1);
+  const packet = output.packet_records[0];
+  assert.equal(packet.version, 6);
+  assert.equal(packet.dimension, 2);
+  assert.equal(packet.rows, 1);
+  assert.equal(packet.columns, 7);
+  assert.deepEqual(packet.x, [[-3, -2, -1, 0, 1, 2, 3]]);
+  assert.deepEqual(packet.y, [[-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09]]);
+  assert.deepEqual(packet.x_axes, ["u"]);
+  assert.deepEqual(packet.y_axes, ["u"]);
+  assert.equal("z" in packet, false);
+});
+
 test("browser compiler fails clearly on unsupported source", async () => {
   const [wasm, manifest] = await Promise.all([
     readFile(new URL("vkf-browser-compiler.wasm", artifacts)),

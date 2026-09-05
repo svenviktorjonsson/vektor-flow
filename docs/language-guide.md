@@ -1637,8 +1637,11 @@ Axis names carry semantics; they are not interchangeable labels:
 
 Suffixes list axes from outermost to innermost, and the rightmost axis varies
 fastest. Thus `p_tc` is a time sequence of position-component vectors and
-`x_u` is scalar data over an ordered topology axis. These are values, not
-calls: `p_t` is an array over `t`; `p(t:num)` is a function.
+`x_u` is scalar data over an ordered topology axis. Complex scalar positions do
+not need a component axis: in `p_u:[num(0, 1), num(2, 3)]`, real parts become
+`x_u` and imaginary parts become `y_u`. This infers 2D and never introduces
+`z`. These are values, not calls: `p_t` is an array over `t`; `p(t:num)` is a
+function.
 
 Unindexed channels are constants over all indexed axes. Display dimensionality
 is inferred from the coordinate channels that are present: `x_u` and `y_u`

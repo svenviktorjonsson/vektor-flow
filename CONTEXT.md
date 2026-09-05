@@ -75,8 +75,9 @@
   and `push`; an explicit Embedding is needed only to remap the data, such as
   presenting a World in momentum space. Embedding is separate from both World
   and its objects.
-- **Time position**: Position varying over time is the axis-tagged array `p_t`,
-  directly analogous to a coordinate array such as `x_u`. It may be supplied as
+- **Time position**: A 2D position varying over time is the complex scalar array
+  `p_t`; its real and imaginary parts are `x` and `y`. Position-component
+  vectors use an explicit final `c` axis, as in `p_tc`. Either may be supplied as
   precomputed Layer data or produced and evolved by World laws; the compiled
   runtime materializes only the currently demanded `t` slice. It is not a
   function or callable.
@@ -86,8 +87,11 @@
   implicit adjacency; their order is significant. `i/j/k` group independent
   items and never create adjacency between groups. `t` orders temporal samples
   or states and never creates spatial adjacency. Thus `x_u` is an x-coordinate
-  array over topology axis `u`, `p_t` is a position array over time, and `p_iu`
-  is a group of independent `u`-topologies. An unindexed channel is constant
+  array over topology axis `u`, complex `p_t` is a 2D position array over time,
+  and complex `p_iu` is a group of independent `u`-topologies. For complex
+  `p_<axes>`, real maps to `x` and imaginary maps to `y`; it infers 2D and does
+  not introduce `z`. A final `c` denotes explicit position components. An
+  unindexed channel is constant
   across every indexed axis. Coordinate presence determines inferred display
   dimensionality: `x_u` and `y_u` with `z` omitted are 2D, while an explicit
   scalar `z:0` is a constant third coordinate and therefore 3D. A constant
