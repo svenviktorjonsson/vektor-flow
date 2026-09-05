@@ -22,6 +22,8 @@ struct TerrainTileWorkingSet {
     std::uint64_t potential_count;
     bool truncated;
     TerrainHeightCondition condition;
+    std::array<std::int32_t, 2> tile;
+    std::uint32_t refinement;
 };
 
 inline double SampleTerrainHeightReference(const TerrainHeightCondition& condition, double x, double z) {
@@ -61,6 +63,8 @@ inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainTileReference(
     const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(potential_count, sample_budget));
     auto result = std::make_shared<TerrainTileWorkingSet>();
     result->condition = condition;
+    result->tile = tile;
+    result->refinement = refinement;
     result->potential_count = potential_count;
     result->truncated = count < potential_count;
     result->positions.reserve(count);

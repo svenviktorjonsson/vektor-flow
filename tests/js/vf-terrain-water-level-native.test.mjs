@@ -24,13 +24,15 @@ const bits = value => {
 };
 function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
   correlationLength = 4, mean = 0, amplitude = 2, waterLevel = 0.25,
-  exposed = 101, submerged = 202, samplingDistance } = {}, error) {
+  exposed = 101, submerged = 202, samplingDistance, cells, cellBudget, triangleBudget } = {}, error) {
   const node = createConditionedRoot({ ...identity, seed });
   const stream = conditionedNodeStreamReference(node);
   const input = [...tile, level, budget, ...stream.key, ...stream.counterPrefix,
     ...[correlationLength, mean, amplitude, waterLevel].map(bits), exposed, submerged,
-    ...(samplingDistance === undefined ? [] : [bits(samplingDistance)])].join(' ');
-  const native = spawnSync(executable, samplingDistance === undefined ? [] : ['--normals'],
+    ...(samplingDistance === undefined ? [] : [bits(samplingDistance)]),
+    ...(cells === undefined ? [] : [cellBudget ?? cells.length, triangleBudget ?? cells.length * 2, cells.length, ...cells])].join(' ');
+  if (cells !== undefined) assert.notEqual(samplingDistance, undefined, 'mesh test requires explicit normal sampling distance');
+  const native = spawnSync(executable, cells !== undefined ? ['--triangles'] : samplingDistance === undefined ? [] : ['--normals'],
     { input, timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
   if (error) {
     assert.equal(native.status, 1, `${native.error ?? ''}${native.stderr}`);
@@ -42,7 +44,7 @@ function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
   const divisions = 2 ** level, width = divisions + 1;
   const count = Math.min(width * width, budget);
   const stride = samplingDistance === undefined ? 28 : 52;
-  const expected = Buffer.alloc(20 + count * stride);
+  let expected = Buffer.alloc(20 + count * stride);
   expected.writeBigUInt64LE(BigInt(count));
   expected.writeBigUInt64LE(BigInt(width * width), 8);
   expected.writeUInt32LE(Number(count < width * width), 16);
@@ -64,6 +66,29 @@ function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
       expected.writeDoubleLE(-slopeZ / length, offset + 40);
     }
     expected.writeUInt32LE(height <= waterLevel ? submerged : exposed, offset + stride - 4);
+  }
+  if (cells !== undefined) {
+    const selected = Math.min(cells.length, cellBudget ?? cells.length, Math.floor((triangleBudget ?? cells.length * 2) / 2));
+    const topology = [], minimum = [], maximum = [];
+    for (const cell of cells.slice(0, selected)) {
+      const a = Math.floor(cell / divisions) * width + cell % divisions;
+      const b = a + 1, c = a + width, d = c + 1;
+      topology.push(a, c, b, b, c, d);
+      for (const vertex of [a, b, c, d])
+        for (let axis = 0; axis < 3; ++axis) {
+          const value = expected.readDoubleLE(20 + vertex * stride + axis * 8);
+          minimum[axis] = minimum[axis] === undefined ? value : Math.min(minimum[axis], value);
+          maximum[axis] = maximum[axis] === undefined ? value : Math.max(maximum[axis], value);
+        }
+    }
+    const tail = Buffer.alloc(24 + (selected ? 48 : 0) + topology.length * 4);
+    tail.writeBigUInt64LE(BigInt(selected));
+    tail.writeBigUInt64LE(BigInt(selected * 2), 8);
+    tail.writeUInt32LE(Number(selected < cells.length), 16);
+    tail.writeUInt32LE(Number(selected > 0), 20);
+    if (selected) [...minimum, ...maximum].forEach((value, i) => tail.writeDoubleLE(value, 24 + i * 8));
+    topology.forEach((value, i) => tail.writeUInt32LE(value, 24 + (selected ? 48 : 0) + i * 4));
+    expected = Buffer.concat([expected, tail]);
   }
   assert.deepEqual(native.stdout, expected, 'native terrain/material bytes differ from existing spatial truth');
   return native.stdout;
@@ -154,4 +179,55 @@ test('original terrain/material hashes remain equal to the d66ef996 committed ba
     assert.equal(native.status, 0, `${native.error ?? ''}${native.stderr}`);
     assert.equal(createHash('sha256').update(native.stdout).digest('hex'), hash);
   }
+});
+
+test('bounded terrain triangulation and emitted bounds match every surface and index byte', () => {
+  for (const tile of [[-1, 2], [0, 2], [-1, 3], [123, -57]]) {
+    run({ tile, level: 0, budget: 4, samplingDistance: 0.015625, cells: [0] });
+    for (const cells of [[7, 0, 8, 56], [56, 8, 0, 7]])
+      for (const triangleBudget of [0, 1, 2, 5, 8])
+        run({ tile, level: 3, budget: 81, samplingDistance: 0.015625, cells, triangleBudget });
+  }
+  run({ level: 4, samplingDistance: 0.015625, cells: [0, 1, 16, 17] });
+});
+test('mesh replay, changed seeds, and cell budget preserve exact surface truth', () => {
+  const options = { level: 3, budget: 81, samplingDistance: 0.015625, cells: [0, 1, 2, 3] };
+  const original = run(options);
+  for (const seed of [[67, 89], [0xffffffff, 0xffffffff]])
+    for (const cellBudget of [0, 1, 4]) run({ ...options, seed, cellBudget });
+  assert.deepEqual(run(options), original);
+  run({ level: 16, budget: 0, samplingDistance: 0.015625, cells: [0], cellBudget: 0 });
+});
+test('fully resident maximum mesh demand does not expand potential terrain', () => {
+  const result = run({ level: 8, budget: 65536, samplingDistance: 0.015625,
+    cells: Array.from({ length: 65024 }, (_, i) => i), cellBudget: 65536, triangleBudget: 131072 });
+  assert.equal(result.length, 20 + 65536 * 52 + 24 + 48 + 130048 * 12);
+});
+test('mesh demand rejects missing corners, duplicates, and invalid limits in exact order', () => {
+  const options = { level: 3, budget: 81, samplingDistance: 0.015625, cells: [0] };
+  run({ ...options, budget: 10 }, 'terrain demanded cell is not fully resident');
+  run({ ...options, level: 16, budget: 65536 }, 'terrain demanded cell is not fully resident');
+  run({ ...options, cells: [64] }, 'terrain cell demand exceeds tile domain');
+  run({ ...options, cells: [0, 0, 64] }, 'terrain cell demand is duplicated');
+  run({ ...options, cells: [64, 0, 0] }, 'terrain cell demand exceeds tile domain');
+  run({ ...options, cellBudget: 65537, triangleBudget: 131073 }, 'terrain cell budget must be from 0 to 65536');
+  run({ ...options, triangleBudget: 131073 }, 'terrain triangle budget must be from 0 to 131072');
+  run({ ...options, cells: Array(65537).fill(0), cellBudget: 0, triangleBudget: 0 },
+    'terrain cell demand must contain at most 65536 entries');
+  run({ ...options, cells: [0, 0, 64], cellBudget: 1 });
+  run({ ...options, cells: [64], cellBudget: 0 });
+});
+
+test('mixed signed-zero mesh bounds are byte-identical under cell permutations', () => {
+  const order = Array.from({ length: 64 }, (_, i) => i);
+  const options = { level: 3, budget: 81, correlationLength: 0.125, mean: -0,
+    amplitude: 0, samplingDistance: 0.015625 };
+  const boundsOffset = 20 + 81 * 52 + 24;
+  const outputs = [order, order.toReversed(), [...order.slice(17), ...order.slice(0, 17)]]
+    .map(cells => run({ ...options, cells }));
+  const bounds = outputs[0].subarray(boundsOffset, boundsOffset + 48);
+  assert.equal(bounds.readBigUInt64LE(8), 0x8000000000000000n, 'minimum Y must retain negative zero');
+  assert.equal(bounds.readBigUInt64LE(32), 0n, 'maximum Y must retain positive zero');
+  for (const output of outputs.slice(1))
+    assert.deepEqual(output.subarray(boundsOffset, boundsOffset + 48), bounds);
 });
