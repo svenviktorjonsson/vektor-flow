@@ -6063,6 +6063,50 @@ _browser_token_is(tape:any, index:int, kind:int, text:str) -> bit:
     (index < tape.count /\ _browser_token_kind(tape, index) = kind /\
         (text = "" \/ _browser_token_text(tape, index) = text))
 
+_browser_bind_update_source_matches(tape:any) -> bit:
+    (tape.count = 27 /\
+        _browser_token_is(tape, 0, 1, "") /\
+        _browser_token_is(tape, 1, 15, ":") /\
+        _browser_token_is(tape, 2, 3, "") /\
+        _browser_token_is(tape, 3, 4, "") /\
+        _browser_token_is(tape, 4, 1, "num") /\
+        _browser_token_is(tape, 5, 1, "") /\
+        _browser_token_is(tape, 6, 15, ":") /\
+        _browser_token_is(tape, 7, 1, "") /\
+        _browser_token_is(tape, 8, 7, "*") /\
+        _browser_token_is(tape, 9, 3, "") /\
+        _browser_token_is(tape, 10, 4, "") /\
+        _browser_token_is(tape, 11, 16, ".") /\
+        _browser_token_is(tape, 12, 1, "") /\
+        _browser_token_is(tape, 13, 15, ":") /\
+        _browser_token_is(tape, 14, 1, "") /\
+        _browser_token_is(tape, 15, 2, "+") /\
+        _browser_token_is(tape, 16, 3, "") /\
+        _browser_token_is(tape, 17, 4, "") /\
+        _browser_token_is(tape, 18, 15, ":") /\
+        _browser_token_is(tape, 19, 15, ":") /\
+        _browser_token_is(tape, 20, 1, "") /\
+        _browser_token_is(tape, 21, 4, "") /\
+        _browser_token_is(tape, 22, 15, ":") /\
+        _browser_token_is(tape, 23, 15, ":") /\
+        _browser_token_is(tape, 24, 1, "") /\
+        _browser_token_is(tape, 25, 4, "") /\
+        _browser_token_is(tape, 26, 5, ""))
+
+_run_tagged_bind_update_source(tape:any) -> any:
+    _browser_bind_update_source_matches(tape)?! "browser binding/update program shape is unsupported"
+    first_name: _browser_token_text(tape, 0)
+    second_name: _browser_token_text(tape, 5)
+    (_browser_token_text(tape, 7) = first_name /\
+        _browser_token_text(tape, 12) = first_name /\
+        _browser_token_text(tape, 14) = first_name /\
+        _browser_token_text(tape, 20) = first_name /\
+        _browser_token_text(tape, 24) = second_name)?! "browser binding/update names do not resolve"
+    initial: tape.rows.(2 * 6 + 3)
+    factor: tape.rows.(9 * 6 + 3)
+    delta: tape.rows.(16 * 6 + 3)
+    (kind:"console", values:[initial + delta, initial * factor])
+
 _browser_dense_term(
     source:str,
     diagonal:str,
@@ -7017,6 +7061,8 @@ run_tagged_browser_source(source:str, packet_index:int) -> any:
     _browser_display_raw_source_matches(source)?
         @: _run_tagged_display_source(source, packet_index)
     tokens: lexer.tagged_numeric_function_token_tape(source)
+    _browser_bind_update_source_matches(tokens)?
+        @: _run_tagged_bind_update_source(tokens)
     _browser_lifted_vector_function_matches(tokens)?
         @: _run_tagged_lifted_vector_function(tokens)
     _browser_named_axis_source_matches(tokens)?

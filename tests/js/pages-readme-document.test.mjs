@@ -70,6 +70,24 @@ test("the geometry example infers a continuous 2D topology from indexed channels
   assert.doesNotMatch(source, /\bz(?:_[A-Za-z]+)?\s*:/u);
 });
 
+test("the loops feature is an editable reference example with one prefilled console", async () => {
+  const base = new URL("web/playground/artifacts/", root);
+  const [document, canonical, wasm, manifest] = await Promise.all([
+    buildSiteDocument(root, "docs/language-guide.md"),
+    readFile(new URL("examples/generated/readme/core/33-loops.vkf", root), "utf8"),
+    readFile(new URL("vkf-browser-compiler.wasm", base)),
+    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+  const example = document.examples.find(({ source }) => source === canonical.trimEnd());
+
+  assert.ok(example, "the canonical loops source must be editable");
+  assert.deepEqual(compiler.run(example.source).values, [10, 2]);
+  assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>10\n2<\/pre>/u);
+  assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 64);
+});
+
 test("every displayed browser example compiles and executes through the shipped WASM", async () => {
   const base = new URL("web/playground/artifacts/", root);
   const [document, wasm, manifest] = await Promise.all([

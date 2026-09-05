@@ -1252,7 +1252,7 @@ Union and intersection patterns use `|` and `&`. Record, tuple, and fixed-vector
 `condition?>` repeats while its condition is true. `value??>` repeatedly matches a changing value.
 
 <!-- readme-example: core/33-loops.vkf -->
-```vkf
+```vkf live
 loop_total() -> int:
     total: 0
     ..4 >>
