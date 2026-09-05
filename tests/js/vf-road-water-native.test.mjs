@@ -7,6 +7,8 @@ import { conditionChild, conditionedNodeStreamReference, createConditionedRoot }
 import { createRoadCoordinateFieldReference, realizeRoadCoordinateCellsReference } from '../../web/vf-ui/vf-road-coordinate-field.mjs';
 import { createRoadWearFieldReference, realizeRoadWearCellsReference } from '../../web/vf-ui/vf-road-wear-field.mjs';
 import { createRoadWaterFieldReference, realizeRoadWaterCellsReference } from '../../web/vf-ui/vf-road-water-field.mjs';
+import { createRoadConstructionFieldReference, realizeRoadConstructionCellsReference } from '../../web/vf-ui/vf-road-construction-field.mjs';
+import { evaluateRoadMaterialWhiteFurnaceReference } from '../../web/vf-ui/vf-road-material-energy.mjs';
 
 const identity = { generator: 'vkf.conditioned', version: 1,
   seed: [0x6a09e667, 0xbb67ae85], domain: 'material',
@@ -28,7 +30,11 @@ function wearFor(cells) {
 }
 const bits = array => [...new Uint32Array(array.buffer, array.byteOffset, array.length)];
 function compare(wear, sampleBudget, waterIdentity = identity, nativeWear = false,
-  wearIdentity = { ...identity, channel: 'road-wear' }) {
+  wearIdentity = { ...identity, channel: 'road-wear' }, options = {}) {
+  const nativeMaterial = nativeWear === 'material';
+  const nativeConstruction = nativeMaterial || nativeWear === 'construction';
+  const constructionIdentity = options.constructionIdentity ?? { ...identity, channel: 'road-construction' };
+  const energyBudget = options.energyBudget ?? sampleBudget;
   const stream = conditionedNodeStreamReference(conditionChild(createConditionedRoot(waterIdentity),
     { segment: 'road-field:water-pooling', channel: 'standing-water' }));
   const wearStreams = ['traffic', 'exposure'].flatMap(kind => {
@@ -38,32 +44,55 @@ function compare(wear, sampleBudget, waterIdentity = identity, nativeWear = fals
   });
   const input = [wear.sampleCount, sampleBudget, wear.potentialCellCount, ...stream.key, ...stream.counterPrefix,
     ...(nativeWear ? wearStreams : []),
+    ...(nativeConstruction ? ['aggregate', 'binder'].flatMap(kind => {
+      const child = conditionedNodeStreamReference(conditionChild(createConditionedRoot(constructionIdentity),
+        { segment: `road-construction:${kind}`, channel: `${kind}-mixture` }));
+      return [...child.key, ...child.counterPrefix];
+    }) : []),
+    ...(nativeMaterial ? [energyBudget] : []),
     ...bits(wear.geometry.coordinates), ...bits(wear.geometry.positions), ...wear.geometry.layerIndices,
     ...(nativeWear ? [] : [...bits(wear.drivers), ...bits(wear.material.albedo), ...bits(wear.material.roughness), ...bits(wear.material.wetness)])].join(' ');
-  const native = spawnSync(executable, nativeWear ? ['--native-wear'] : [], { input, encoding: 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
+  const native = spawnSync(executable, nativeMaterial ? ['--native-material'] : nativeConstruction ? ['--native-construction'] : nativeWear ? ['--native-wear'] : [], { input, encoding: nativeMaterial ? undefined : 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
   let result;
   let producedWear;
+  let construction;
+  let energy;
   try {
     if (nativeWear) {
       const geometry = { coordinates: wear.geometry.coordinates, positions: wear.geometry.positions, layerIndices: wear.geometry.layerIndices };
+      const coordinates = { kind: 'road-coordinate-working-set:v1', cellCount: wear.sampleCount, potentialCellCount: wear.potentialCellCount, geometry, material: geometry };
+      if (nativeConstruction) construction = realizeRoadConstructionCellsReference(
+        createRoadConstructionFieldReference(constructionIdentity), coordinates, { sampleBudget });
       producedWear = realizeRoadWearCellsReference(createRoadWearFieldReference(wearIdentity),
-        { kind: 'road-coordinate-working-set:v1', cellCount: wear.sampleCount, potentialCellCount: wear.potentialCellCount, geometry, material: geometry }, { sampleBudget });
+        coordinates, { sampleBudget });
       wear = producedWear;
     }
     result = realizeRoadWaterCellsReference(createRoadWaterFieldReference(waterIdentity), wear, { sampleBudget });
+    if (nativeMaterial) energy = evaluateRoadMaterialWhiteFurnaceReference(construction, result, { sampleBudget: energyBudget });
   } catch (error) {
     assert.equal(native.status, 1, `${native.error ?? ''}${native.stdout}${native.stderr}`);
-    assert.equal(native.stderr, `${error.message}\n`);
+    assert.equal(native.stderr.toString(), `${error.message}\n`);
+    assert.equal(native.stdout.length, 0, 'a rejected request must not publish a partial packet');
     return;
   }
   assert.equal(native.status, 0, `${native.error ?? ''}${native.stderr}`);
-  const expected = [...(producedWear ? [producedWear.sampleCount, producedWear.vectorBytes, Number(producedWear.truncated),
+  const expected = [...(construction ? [construction.sampleCount, construction.vectorBytes, Number(construction.truncated),
+    ...bits(construction.drivers), ...bits(construction.geometry.displacement),
+    ...bits(construction.material.aggregateFraction), ...bits(construction.material.binderFraction),
+    ...bits(construction.material.voidFraction), ...bits(construction.material.albedo), ...bits(construction.material.roughness)] : []),
+    ...(producedWear ? [producedWear.sampleCount, producedWear.vectorBytes, Number(producedWear.truncated),
     ...bits(producedWear.drivers), ...bits(producedWear.geometry.displacement), ...bits(producedWear.material.albedo),
     ...bits(producedWear.material.roughness), ...bits(producedWear.material.wetness)] : []),
     result.sampleCount, result.vectorBytes, Number(result.truncated),
     ...bits(result.poolingDriver), ...bits(result.geometry.waterCoverage), ...bits(result.geometry.waterDepth),
-    ...bits(result.material.albedo), ...bits(result.material.roughness), ...bits(result.material.wetness)];
-  assert.deepEqual(native.stdout.trim().split(/\s+/).map(Number), expected);
+    ...bits(result.material.albedo), ...bits(result.material.roughness), ...bits(result.material.wetness),
+    ...(energy ? [energy.sampleCount, energy.vectorBytes, Number(energy.truncated), energy.violations,
+      ...new Uint32Array(new Float64Array([energy.minimumEnergy, energy.maximumEnergy]).buffer),
+      ...bits(energy.fresnelF0), ...bits(energy.energyRgb)] : [])];
+  if (nativeMaterial) {
+    assert.equal(native.stdout.length, expected.length * 4);
+    for (let i = 0; i < expected.length; ++i) assert.equal(native.stdout.readUInt32LE(i * 4), expected[i], `material word ${i}`);
+  } else assert.deepEqual(native.stdout.trim().split(/\s+/).map(Number), expected);
   return result;
 }
 test('native standing water consumes the existing bounded wet/dry road fixture bit-for-bit', () => {
@@ -145,4 +174,34 @@ test('native wear rejects malformed coordinates and budgets in the reference ord
 });
 test('full native wear-to-water chain stays exact at maximum demand', () => {
   compare(wearFor(Array.from({ length: 65536 }, (_, i) => [i * 13, i % 100, i % 3])), 65536, identity, true);
+});
+test('native construction and wear-water share exact layered coordinate truth', () => {
+  compare(wearFor([[0, 49, 0], [0, 49, 1], [0, 49, 2], [19, 5, 0]]), 3, identity, 'construction');
+});
+test('native material energy consumes exact construction and water values', () => {
+  compare(wearFor([[0, 49, 0], [0, 49, 1], [0, 49, 2], [19, 5, 0]]), 3, identity, 'material');
+});
+test('native construction and energy preserve identity changes, demand order and bounds', () => {
+  const cells = Array.from({ length: 1024 }, (_, i) => [i * 13, i % 100, i % 3]);
+  for (const order of [cells, cells.toReversed()]) {
+    const wear = wearFor(order);
+    for (const budget of [0, 1, 101, 1024]) compare(wear, budget, identity, 'material');
+    compare(wear, 1024, identity, 'material', undefined, { energyBudget: 101,
+      constructionIdentity: { ...identity, seed: [33, 44], hierarchy: ['world:new', 'road:layered'], channel: 'road-construction' } });
+  }
+});
+test('native material chain rejects invalid demanded coordinates before energy and preserves budget diagnostics', () => {
+  const wear = wearFor([[0, 49, 0]]);
+  compare(wear, 65537, identity, 'material');
+  compare(wear, 1, identity, 'material', undefined, { energyBudget: 65537 });
+  wear.geometry.coordinates[0] = NaN;
+  compare(wear, 65537, identity, 'material');
+  compare(wear, 0, identity, 'material');
+  compare(wear, 1, identity, 'material', undefined, { energyBudget: 65537 });
+  wear.geometry.coordinates[0] = 2 ** 40;
+  compare(wear, 1, identity, 'material');
+});
+test('full native construction, wear, water and energy stay bit-exact at maximum demand', () => {
+  const result = compare(wearFor(Array.from({ length: 65536 }, (_, i) => [i * 7, i % 100, i % 3])), 65536, identity, 'material');
+  assert.equal(result.sampleCount, 65536);
 });

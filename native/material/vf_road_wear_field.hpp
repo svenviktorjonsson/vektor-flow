@@ -1,14 +1,9 @@
 #pragma once
 
 #include "native/material/vf_road_water_field.hpp"
+#include "native/material/vf_road_coordinate_buffers.hpp"
 
 namespace vf::material {
-
-struct RoadCoordinateBuffers {
-    std::span<const float> coordinates, positions;
-    std::span<const std::uint16_t> layer_indices;
-    std::uint64_t potential_cell_count;
-};
 
 struct RoadWearWorkingSet {
     // Borrowed input coordinates; generated geometry and material share them.
@@ -29,9 +24,7 @@ inline RoadWearWorkingSet RealizeRoadWearCellsReference(
     const RoadCoordinateBuffers& road, std::size_t sample_budget
 ) {
     const auto count = road.layer_indices.size();
-    if (road.coordinates.size() / 3 != count || road.coordinates.size() % 3 != 0 ||
-        road.positions.size() != road.coordinates.size() || road.potential_cell_count > 9007199254740991ull)
-        throw std::invalid_argument("road coordinate working set is required");
+    RequireRoadCoordinateBuffers(road);
     if (sample_budget > 65536)
         throw std::range_error("road wear sampleBudget must be an integer from 0 to 65536");
     const auto size = std::min(count, sample_budget);

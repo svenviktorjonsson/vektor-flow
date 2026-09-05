@@ -16,73 +16,75 @@ struct RoadMaterialSample {
     std::array<float, 3> albedo{};
 };
 
-struct RoadMaterialEnergy {
+template<class Arithmetic>
+struct RoadMaterialEnergyAtPrecision {
     std::size_t sample_count = 0;
     std::array<float, 5> cosine_probes{1.0f, 0.75f, 0.5f, 0.25f, 0.0f};
     std::vector<float> fresnel_f0;
     std::vector<float> energy_rgb;
-    float minimum_energy = 0.0f;
-    float maximum_energy = 0.0f;
+    Arithmetic minimum_energy = 0;
+    Arithmetic maximum_energy = 0;
     std::size_t violations = 0;
     bool truncated = false;
 };
+using RoadMaterialEnergy = RoadMaterialEnergyAtPrecision<float>;
 
-inline float DielectricF0(float ior) {
-    const float ratio = (ior - 1.0f) / (ior + 1.0f);
+template<class Arithmetic>
+inline Arithmetic DielectricF0AtPrecision(Arithmetic ior) {
+    const Arithmetic ratio = (ior - Arithmetic(1)) / (ior + Arithmetic(1));
     return ratio * ratio;
 }
+inline float DielectricF0(float ior) { return DielectricF0AtPrecision(ior); }
 
-inline RoadMaterialEnergy EvaluateRoadMaterialWhiteFurnace(
-    const std::vector<RoadMaterialSample>& samples,
-    std::size_t sample_budget
+// Private shared arithmetic kernel. Entry adapters own their existing distinct
+// validation contracts; no target-specific copy of the energy equations exists.
+template<class Arithmetic, class SampleAt>
+inline RoadMaterialEnergyAtPrecision<Arithmetic> EvaluateRoadMaterialEnergyKernel(
+    std::size_t available, std::size_t sample_budget, const SampleAt& sample_at
 ) {
-    constexpr std::size_t max_sample_budget = 65536;
-    if (sample_budget > max_sample_budget) {
-        throw std::range_error("road material sample budget exceeds 65536");
-    }
-    const float aggregate_f0 = DielectricF0(1.56f);
-    const float binder_f0 = DielectricF0(1.52f);
-    const float water_f0 = DielectricF0(4.0f / 3.0f);
-    RoadMaterialEnergy result;
-    result.sample_count = std::min(samples.size(), sample_budget);
-    result.truncated = result.sample_count < samples.size();
+    const Arithmetic aggregate_f0 = DielectricF0AtPrecision(Arithmetic(1.56));
+    const Arithmetic binder_f0 = DielectricF0AtPrecision(Arithmetic(1.52));
+    const Arithmetic water_f0 = DielectricF0AtPrecision(Arithmetic(4) / Arithmetic(3));
+    RoadMaterialEnergyAtPrecision<Arithmetic> result;
+    result.sample_count = std::min(available, sample_budget);
+    result.truncated = result.sample_count < available;
     result.fresnel_f0.resize(result.sample_count);
     result.energy_rgb.resize(
         result.sample_count * result.cosine_probes.size() * 3);
-    float minimum_energy = std::numeric_limits<float>::infinity();
-    float maximum_energy = -std::numeric_limits<float>::infinity();
+    Arithmetic minimum_energy = std::numeric_limits<Arithmetic>::infinity();
+    Arithmetic maximum_energy = -std::numeric_limits<Arithmetic>::infinity();
 
     for (std::size_t sample = 0; sample < result.sample_count; ++sample) {
-        const auto& material = samples[sample];
-        const float aggregate_term =
+        const auto material = sample_at(sample);
+        const Arithmetic aggregate_term =
             material.aggregate_fraction * aggregate_f0;
-        const float binder_term = material.binder_fraction * binder_f0;
-        const float dry_f0 = aggregate_term + binder_term;
-        const float coverage = material.water_coverage;
-        const float water_term = coverage * (water_f0 - dry_f0);
-        const float surface_f0 = dry_f0 + water_term;
-        result.fresnel_f0[sample] = surface_f0;
+        const Arithmetic binder_term = material.binder_fraction * binder_f0;
+        const Arithmetic dry_f0 = aggregate_term + binder_term;
+        const Arithmetic coverage = material.water_coverage;
+        const Arithmetic water_term = coverage * (water_f0 - dry_f0);
+        const Arithmetic surface_f0 = dry_f0 + water_term;
+        result.fresnel_f0[sample] = static_cast<float>(surface_f0);
 
         for (std::size_t probe = 0;
              probe < result.cosine_probes.size(); ++probe) {
-            const float one_minus_cosine =
-                1.0f - result.cosine_probes[probe];
-            const float square = one_minus_cosine * one_minus_cosine;
-            const float fourth = square * square;
-            const float fifth_power = fourth * one_minus_cosine;
-            const float fresnel_term =
-                (1.0f - surface_f0) * fifth_power;
-            const float fresnel = surface_f0 + fresnel_term;
+            const Arithmetic one_minus_cosine =
+                Arithmetic(1) - result.cosine_probes[probe];
+            const Arithmetic square = one_minus_cosine * one_minus_cosine;
+            const Arithmetic fourth = square * square;
+            const Arithmetic fifth_power = fourth * one_minus_cosine;
+            const Arithmetic fresnel_term =
+                (Arithmetic(1) - surface_f0) * fifth_power;
+            const Arithmetic fresnel = surface_f0 + fresnel_term;
             const std::size_t output =
                 (sample * result.cosine_probes.size() + probe) * 3;
             for (std::size_t channel = 0; channel < 3; ++channel) {
-                const float albedo = material.albedo[channel];
-                const float diffuse_term = (1.0f - fresnel) * albedo;
-                const float energy = fresnel + diffuse_term;
-                result.energy_rgb[output + channel] = energy;
+                const Arithmetic albedo = material.albedo[channel];
+                const Arithmetic diffuse_term = (Arithmetic(1) - fresnel) * albedo;
+                const Arithmetic energy = fresnel + diffuse_term;
+                result.energy_rgb[output + channel] = static_cast<float>(energy);
                 minimum_energy = std::min(minimum_energy, energy);
                 maximum_energy = std::max(maximum_energy, energy);
-                if (energy < -1.0e-7f || energy > 1.0f + 1.0e-7f) {
+                if (energy < -Arithmetic(1.0e-7) || energy > Arithmetic(1) + Arithmetic(1.0e-7)) {
                     ++result.violations;
                 }
             }
@@ -93,6 +95,14 @@ inline RoadMaterialEnergy EvaluateRoadMaterialWhiteFurnace(
         result.maximum_energy = maximum_energy;
     }
     return result;
+}
+
+inline RoadMaterialEnergy EvaluateRoadMaterialWhiteFurnace(
+    const std::vector<RoadMaterialSample>& samples, std::size_t sample_budget
+) {
+    if (sample_budget > 65536) throw std::range_error("road material sample budget exceeds 65536");
+    return EvaluateRoadMaterialEnergyKernel<float>(samples.size(), sample_budget,
+        [&](std::size_t sample) { return samples[sample]; });
 }
 
 }  // namespace vkf::material
