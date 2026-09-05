@@ -3,10 +3,13 @@ import { materializeVisualOutput } from "./inline-result-packets.mjs";
 
 const NO_HOST_IMPORTS = Object.freeze({});
 
-globalThis.onmessage = async ({ data }) => {
+globalThis.onmessage = ({ data }) => {
   if (data?.type !== "run" || typeof data.source !== "string") return;
   try {
-    const module = new WebAssembly.Module(data.wasm);
+    const module = data.module;
+    if (!(module instanceof WebAssembly.Module)) {
+      throw new Error("browser compiler module is unavailable");
+    }
     if (WebAssembly.Module.imports(module).length !== 0) {
       throw new Error("browser compiler requested forbidden host imports");
     }

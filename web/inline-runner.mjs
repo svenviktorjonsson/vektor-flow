@@ -11,18 +11,21 @@ function resultPackets(output) {
 }
 
 export function createInlineRunner({
+  compileModule = globalThis.WebAssembly?.compile,
   fetchImpl = globalThis.fetch,
   WorkerClass = globalThis.Worker,
   timeoutMs = 2_000,
 } = {}) {
-  if (typeof fetchImpl !== "function" || typeof WorkerClass !== "function") {
+  if (typeof compileModule !== "function"
+      || typeof fetchImpl !== "function"
+      || typeof WorkerClass !== "function") {
     throw new Error("inline browser execution is unavailable in this environment");
   }
   const assets = Promise.all([
     fetchImpl(WASM_URL).then((response) => {
       if (!response.ok) throw new Error("browser compiler WASM is unavailable");
       return response.arrayBuffer();
-    }),
+    }).then(compileModule),
     fetchImpl(MANIFEST_URL).then((response) => {
       if (!response.ok) throw new Error("browser compiler manifest is unavailable");
       return response.json();
@@ -33,7 +36,7 @@ export function createInlineRunner({
   return Object.freeze({
     async run(source) {
       if (typeof source !== "string") throw new TypeError("inline VKF source must be a string");
-      const [wasm, manifest] = await assets;
+      const [module, manifest] = await assets;
       const worker = new WorkerClass(WORKER_URL, { type: "module", name: "vkf-inline-runner" });
       const id = ++sequence;
       return new Promise((resolve, reject) => {
@@ -63,8 +66,7 @@ export function createInlineRunner({
             }
           });
         };
-        const bytes = wasm.slice(0);
-        worker.postMessage({ type: "run", id, source, wasm: bytes, manifest }, [bytes]);
+        worker.postMessage({ type: "run", id, source, module, manifest });
       });
     },
   });

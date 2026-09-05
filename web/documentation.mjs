@@ -1,20 +1,23 @@
 import { highlightVkf } from "./editor/vkf-highlighter.mjs";
 import { createInlineExampleController } from "./inline-example-controller.mjs";
-// No compiler download until a reader runs an example.
 let renderInlineResult;
 let runtime;
 let runtimePromise;
 function createLazyRunner() {
+  const load = () => {
+    runtimePromise ??= Promise.all([
+      import("./inline-runner.mjs"),
+      import("./inline-result-renderer.mjs"),
+    ]).then(([runner, renderer]) => {
+      renderInlineResult = renderer.renderInlineResult;
+      runtime = runner.createInlineRunner();
+    }).catch((error) => { runtimePromise = null; throw error; });
+    return runtimePromise;
+  };
   return {
+    prewarm: load,
     async run(source) {
-      runtimePromise ??= Promise.all([
-        import("./inline-runner.mjs"),
-        import("./inline-result-renderer.mjs"),
-      ]).then(([runner, renderer]) => {
-        renderInlineResult = renderer.renderInlineResult;
-        runtime = runner.createInlineRunner();
-      }).catch((error) => { runtimePromise = null; throw error; });
-      await runtimePromise;
+      await load();
       return runtime.run(source);
     },
   };
@@ -57,11 +60,11 @@ function prepareExample(example, runner) {
     view: {
       start() {
         play.disabled = true;
-        terminal.hidden = false;
-        output.textContent = "Running…";
-        hideResult();
       },
-      showTerminal(value) { output.textContent = value; },
+      showTerminal(value) {
+        terminal.hidden = false;
+        output.textContent = value;
+      },
       hideResult,
       showResult(packets) {
         const result = globalThis.document.createElement("section");
@@ -120,6 +123,7 @@ export function renderDocumentation(document, readmeElement, runner) {
 // Text and links are already present in the built HTML. JavaScript only adds
 // syntax highlighting and the explicitly labelled browser execution controls.
 const runner = createLazyRunner();
+runner.prewarm().catch(() => {});
 for (const example of readme.querySelectorAll(".readme-example")) {
   prepareExample(example, runner);
 }

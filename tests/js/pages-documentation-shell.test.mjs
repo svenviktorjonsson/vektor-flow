@@ -17,6 +17,7 @@ test("the static documentation has lightweight navigation and progressively enha
   assert.match(html, /<textarea/u);
   assert.doesNotMatch(html, /Loading README|example-catalog/u);
   assert.match(client, /import\("\.\/inline-runner\.mjs"\)/u);
+  assert.match(client, /runner\.prewarm\(\)/u);
   assert.match(client, /\.innerHTML\s*=\s*document\.html/u);
   assert.match(client, /renderInlineResult\(canvas, packets, 0\)/u);
   assert.match(client, /cancelAnimationFrame\(request\)/u);

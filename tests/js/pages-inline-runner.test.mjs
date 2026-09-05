@@ -7,9 +7,11 @@ import { createInlineExampleController } from "../../web/inline-example-controll
 import { materializeVisualOutput } from "../../web/inline-result-packets.mjs";
 import { renderInlineResult } from "../../web/inline-result-renderer.mjs";
 
-test("inline runner fetches only fixed static artifacts and sends bytes to a worker", async () => {
+test("inline runner precompiles once and starts a fresh isolated worker per Play click", async () => {
   const requests = [];
   const messages = [];
+  const compiledModule = Object.freeze({ kind: "compiled-wasm" });
+  let compilationCount = 0;
   class WorkerStub {
     constructor(url, options) {
       this.url = url;
@@ -18,12 +20,23 @@ test("inline runner fetches only fixed static artifacts and sends bytes to a wor
     }
     postMessage(message) {
       messages.push(message);
-      queueMicrotask(() => this.onmessage({ data: { id: message.id, status: "ok", output: 42 } }));
+      queueMicrotask(() => {
+        this.onmessage({ data: {
+          id: message.id,
+          status: "ok",
+          output: message.source === ":: 40 + 2" ? 42 : 43,
+        } });
+      });
     }
     terminate() { this.terminated = true; }
   }
   WorkerStub.instances = [];
   const runner = createInlineRunner({
+    compileModule: async (bytes) => {
+      compilationCount += 1;
+      assert.ok(bytes instanceof ArrayBuffer);
+      return compiledModule;
+    },
     fetchImpl: async (url) => {
       requests.push(String(url));
       return String(url).endsWith(".wasm")
@@ -35,12 +48,20 @@ test("inline runner fetches only fixed static artifacts and sends bytes to a wor
   });
 
   assert.deepEqual(await runner.run(":: 40 + 2"), { output: 42, packets: null });
+  assert.deepEqual(await runner.run(":: 40 + 3"), { output: 43, packets: null });
   assert.equal(requests.length, 2);
   assert.ok(requests.every((url) => /vkf-browser-compiler\.(?:wasm|json)$/u.test(url)));
-  assert.equal(messages[0].source, ":: 40 + 2");
-  assert.ok(messages[0].wasm instanceof ArrayBuffer);
+  assert.equal(compilationCount, 1);
+  assert.equal(WorkerStub.instances.length, 2);
+  assert.deepEqual(messages.map(({ type }) => type), ["run", "run"]);
+  assert.equal(messages[0].module, compiledModule);
+  assert.equal(messages[0].wasm, undefined);
   assert.equal(messages[0].imports, undefined);
-  assert.equal(WorkerStub.instances[0].terminated, true);
+  assert.equal(messages[0].source, ":: 40 + 2");
+  assert.equal(messages[1].module, compiledModule);
+  assert.equal(messages[1].wasm, undefined);
+  assert.equal(messages[1].source, ":: 40 + 3");
+  assert.ok(WorkerStub.instances.every(({ terminated }) => terminated === true));
 });
 
 test("inline runner terminates an unresponsive worker", async () => {
@@ -50,6 +71,7 @@ test("inline runner terminates an unresponsive worker", async () => {
     terminate() { this.terminated = true; }
   }
   const runner = createInlineRunner({
+    compileModule: async () => Object.freeze({ kind: "compiled-wasm" }),
     fetchImpl: async (url) => String(url).endsWith(".wasm")
       ? { ok: true, arrayBuffer: async () => new ArrayBuffer(8) }
       : { ok: true, json: async () => ({ schema: "test" }) },
@@ -969,6 +991,19 @@ test("Play replaces prefilled Console text on success and exact diagnostic paths
   });
   await diagnostic.run("not supported");
   assert.equal(terminal, "unsupported source. No fallback result was rendered.");
+});
+
+test("Play preserves the current Console text until VKF execution finishes", async () => {
+  const client = await readFile(
+    new URL("../../web/documentation.mjs", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(client, /output\.textContent\s*=\s*["']Running…["']/u);
+  assert.match(
+    client,
+    /showTerminal\(value\)\s*\{\s*terminal\.hidden\s*=\s*false;\s*output\.textContent\s*=\s*value;/u,
+  );
 });
 
 test("unsupported execution reports failure without a fallback Result", async () => {
