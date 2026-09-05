@@ -4,6 +4,117 @@
 # Stage 0 currently executes this contract in native C++; Stage 1 will execute
 # the same construction and lowering rules from VKF source.
 
+# Private scalar expression fragment over validated parser/type facts.
+# Private opcodes: 1 push_f64, 2 load_local, 3 count_f64_list (borrowed),
+# 4 divide_f64, 5 add_f64. Public opcode/schema bytes are fixed.
+_bootstrap_vector_stride(source:str, rows:[num], start:num, stop:num) -> num:
+    token: 0
+    (token < rows.length() / 6 /\ rows.(token * 6 + 1) < start)?>
+        .token+: 1
+    (token + 2 >= rows.length() / 6 \/ rows.(token * 6) != 22 \/
+        rows.(token * 6 + 1) != start \/ rows.((token + 1) * 6) != 1 \/
+        rows.((token + 2) * 6) != 23 \/ rows.((token + 2) * 6 + 2) != stop)?
+        @: 0
+    str name: vkf_utf8_slice(source, rows.((token + 1) * 6 + 1), rows.((token + 1) * 6 + 2))
+    name = "str"?
+        @: 2
+    (name = "num" \/ name = "int" \/ name = "bit")?
+        @: 1
+    0
+
+_bootstrap_lower_expression(
+    source:str, rows:[num], nodes:[num], types:[num], parameters:[num],
+    type_starts:[num], type_stops:[num]
+):
+    [num] opcodes: []
+    [num] operands: []
+    [num] strides: []
+    [num] constants: []
+    fragment: (valid:false, error_index:0, opcodes:opcodes, operands:operands, max_stack:0)
+    (nodes.length() = 0 \/ nodes.length() % 5 != 0 \/
+        types.length() != nodes.length() / 5 \/ parameters.length() != types.length() \/
+        type_starts.length() != type_stops.length())?
+        @: fragment
+    (types.(types.length() - 1) != 1 /\ types.(types.length() - 1) != 2)?
+        @: fragment
+    index: 0
+    depth: 0
+    kind: 0
+    left: 0
+    right: 0
+    parameter: 0
+    stride: 0
+    constant: 0
+    (index < types.length())?>
+        fragment.error_index: nodes.(index * 5 + 1)
+        .kind: nodes.(index * 5)
+        .stride: 0
+        .constant: 0
+        (kind < 1 \/ kind > 6 \/ kind % 1 != 0)?
+            @: fragment
+        kind = 1?
+            .parameter: parameters.(index)
+            (types.(index) != 3 \/ parameter < 0 \/ parameter % 1 != 0 \/ parameter >= type_starts.length())?
+                @: fragment
+            .stride: _bootstrap_vector_stride(source, rows, type_starts.(parameter), type_stops.(parameter))
+            stride = 0?
+                @: fragment
+            fragment.opcodes: fragment.opcodes & [2]
+            fragment.operands: fragment.operands & [parameter]
+            .depth+: 1
+        kind = 2?
+            (types.(index) != 1 /\ types.(index) != 2)?
+                @: fragment
+            fragment.opcodes: fragment.opcodes & [1]
+            fragment.operands: fragment.operands & [nodes.(index * 5 + 4)]
+            .depth+: 1
+            .constant: 1
+        (kind = 3 \/ kind = 4 \/ kind = 5 \/ kind = 6)?
+            .left: nodes.(index * 5 + 2)
+            (left < 0 \/ left >= index \/ left % 1 != 0)?
+                @: fragment
+        kind = 3?
+            (types.(index) != 4 \/ types.(left) != 3)?
+                @: fragment
+            .stride: strides.(left)
+        kind = 4?
+            (types.(index) != 1 \/ types.(left) != 4 \/ nodes.(index * 5 + 4) != 0 \/ depth < 1)?
+                @: fragment
+            fragment.opcodes: fragment.opcodes & [3]
+            fragment.operands: fragment.operands & [0]
+            strides.(left) > 1?
+                fragment.opcodes: fragment.opcodes & [1, 4]
+                fragment.operands: fragment.operands & [strides.(left), 0]
+                depth + 1 > fragment.max_stack?
+                    fragment.max_stack: depth + 1
+        kind = 6?
+            types.(index) != types.(left)?
+                @: fragment
+            .stride: strides.(left)
+            .constant: constants.(left)
+        kind = 5?
+            .right: nodes.(index * 5 + 3)
+            (right < 0 \/ right >= index \/ right % 1 != 0 \/ depth < 2)?
+                @: fragment
+            ((types.(left) != 1 /\ types.(left) != 2) \/
+                (types.(right) != 1 /\ types.(right) != 2) \/
+                (types.(index) != 1 /\ types.(index) != 2))?
+                @: fragment
+            # Native folds constant-only addition even under mask-0. Until the
+            # general folding stage exists, do not emit a contradictory stream.
+            (constants.(left) = 1 /\ constants.(right) = 1)?
+                @: fragment
+            fragment.opcodes: fragment.opcodes & [5]
+            fragment.operands: fragment.operands & [0]
+            .depth-: 1
+        depth > fragment.max_stack?
+            fragment.max_stack: depth
+        .strides: strides & [stride]
+        .constants: constants & [constant]
+        .index+: 1
+    fragment.valid: depth = 1
+    fragment
+
 MachineInstruction: (
     kind:str,
     value:any,
