@@ -2,6 +2,13 @@
 
 ## Domain Language
 
+- **Browser host output boundary**: Viktor's accepted 2026-09-05 decision A
+  keeps every VKF value inside WASM. JavaScript consumes compiler-formatted
+  UTF-8 console output and versioned graphics/UI packets, never arbitrary
+  scalars, vectors, tuples, records or value handles. VKF owns value semantics
+  and formatting; byte transport is not language interpretation. See
+  `docs/plans/browser-tuple-transport-decision.md`.
+
 - **VKF source bundle**: A `.vkf` source file plus any generated runtime payloads
   needed to run it as a compiled executable.
 - **Native scene staging**: The native step that turns VKF scene/UI source into

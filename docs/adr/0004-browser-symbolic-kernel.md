@@ -6,6 +6,16 @@ Date: 2026-07-29
 
 Accepted.
 
+2026-09-05 clarification accepted by Viktor: the browser execution output
+boundary is compiler-formatted UTF-8 console output plus versioned graphics/UI
+packets. Arbitrary VKF scalars, vectors, tuples and records remain inside WASM;
+JavaScript must not decode them or receive arbitrary value handles. This
+supersedes any reading of “decode structured results” below as permission to
+materialize language values in JavaScript. Structured presentation packets
+remain transport, not an alternate implementation of value semantics. See
+`../plans/browser-tuple-transport-decision.md` for the accepted decision and
+the distinction from the superseded proposal.
+
 ## Context
 
 Interactive products need to compile expressions entered at runtime, generate
