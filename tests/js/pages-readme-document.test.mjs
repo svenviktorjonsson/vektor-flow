@@ -13,9 +13,13 @@ test("one short README supplies the complete static homepage", async () => {
   assert.equal(document.examples.length, 0);
   assert.equal(document.headings.length, 1);
   const html = pageHtml(document);
-  assert.match(html, /A few powerful principles/u);
+  assert.match(html, /no keywords/u);
   assert.match(html, /Viktor Jonsson/u);
-  assert.match(html, /Flo/u);
+  assert.match(html, /immutable values and rebinding/u);
+  assert.match(html, /<code>\.<\/code> reaches in, <code>:<\/code> spills/u);
+  assert.match(html, /<code>::<\/code>/u);
+  assert.match(html, /shorthand built on top/u);
+  assert.match(html, /Explore the guide and run examples at vektorflow\.org/u);
   assert.match(html, /href="\.\/guide\.html"/u);
   assert.doesNotMatch(html, /<textarea|<script|Loading README|Material UI Gallery|material-ui-gallery|scene-gallery/u);
 });
