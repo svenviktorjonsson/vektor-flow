@@ -61,17 +61,29 @@ inline void RequireTerrainSurfaceMaterialTruth(
     }
 }
 
+inline std::size_t SelectTerrainCellDemandCountReference(
+    std::span<const std::uint64_t> demands, std::size_t cell_budget, std::size_t triangle_budget
+) {
+    if (cell_budget > 65536) throw std::range_error("terrain cell budget must be from 0 to 65536");
+    if (triangle_budget > 131072) throw std::range_error("terrain triangle budget must be from 0 to 131072");
+    if (demands.size() > 65536) throw std::range_error("terrain cell demand must contain at most 65536 entries");
+    return std::min({demands.size(), cell_budget, triangle_budget / 2});
+}
+
+inline std::array<std::uint64_t, 4> TerrainCellCornerIdsKernel(std::uint64_t divisions, std::uint64_t cell) {
+    if (cell >= divisions * divisions) throw std::range_error("terrain cell demand exceeds tile domain");
+    const auto width = divisions + 1;
+    const auto a = (cell / divisions) * width + cell % divisions;
+    return {a, a + 1, a + width, a + width + 1};
+}
+
 // Demands are externally ordered cell IDs, not a camera/error policy.
 // Bounds enclose emitted linear triangles only, not unsampled terrain relief.
 inline TerrainTriangulation TriangulateTerrainCellsKernel(
     std::shared_ptr<const TerrainSurfacePacket> surface, std::span<const std::uint64_t> demands,
     std::size_t cell_budget, std::size_t triangle_budget, std::uint64_t divisions
 ) {
-    const auto width = divisions + 1;
-    if (cell_budget > 65536) throw std::range_error("terrain cell budget must be from 0 to 65536");
-    if (triangle_budget > 131072) throw std::range_error("terrain triangle budget must be from 0 to 131072");
-    if (demands.size() > 65536) throw std::range_error("terrain cell demand must contain at most 65536 entries");
-    const auto count = std::min({demands.size(), cell_budget, triangle_budget / 2});
+    const auto count = SelectTerrainCellDemandCountReference(demands, cell_budget, triangle_budget);
     TerrainTriangulation result{std::move(surface), {}, {}, count, count < demands.size()};
     std::unordered_map<std::uint64_t, std::uint32_t> resident;
     if (count != 0 && result.source->source->layout == TerrainSampleLayout::indexed) {
@@ -81,12 +93,10 @@ inline TerrainTriangulation TriangulateTerrainCellsKernel(
             resident.emplace(ids[index], static_cast<std::uint32_t>(index));
     }
     const auto corners = [&](std::uint64_t cell) {
-        if (cell >= divisions * divisions) throw std::range_error("terrain cell demand exceeds tile domain");
-        const auto a = (cell / divisions) * width + cell % divisions;
-        const auto b = a + 1, c = a + width, d = c + 1;
+        const auto ids = TerrainCellCornerIdsKernel(divisions, cell);
+        const auto [a, b, c, d] = ids;
         if (result.source->source->layout == TerrainSampleLayout::indexed) {
             std::array<std::uint32_t, 4> indices{};
-            const std::array<std::uint64_t, 4> ids{a, b, c, d};
             for (std::size_t corner = 0; corner < ids.size(); ++corner) {
                 const auto found = resident.find(ids[corner]);
                 if (found == resident.end()) throw std::range_error("terrain demanded cell is not fully resident");
