@@ -80,3 +80,49 @@ The proposed fixture is preserved as
 release acceptance test and is not counted as a pass. Restore its executable
 test name only after approval. No source implementation or manifest change
 exists to roll back. Compiler-source tokenization is not compiler self-hosting.
+
+## Audited addendum: existing STRING25 boundaries
+
+At bootstrap `7a468deda494ad546c0e4c6a5791663d8828cb6f`, whole locked-source
+inventory identified another observable helper change covered by the A/B
+decision. No triple-string RED or implementation has been run or claimed.
+
+`native_scene_compiler.vkf:41` contains the actual triple-quoted docstring
+`"""Return the stable session slug used by the native launcher."""`.
+Native `vkf_lexer_cursor_smoke.cpp::scan_double_string` recognizes all three
+delimiters, decodes escapes, dedents multiline values, and emits one `STRING`.
+Private `lexer.vkf:634` scans to a single closing quote; its caller at line 679
+advances over one opening quote. Inspection therefore predicts three STRING25
+tokens for this literal. Correcting that changes manifest-callable tape results
+even though code 25 and the six-cell row shape need not change.
+
+Raw-span consumers must move together with any eventual decoding repair:
+
+| Consumer in `compiler.vkf` | Existing interpretation |
+| --- | --- |
+| Camera projection, lines 3550–3552 | Requires code 25, strips one quote at each end |
+| Light fields, lines 3639–3648 | Requires code 25, compares raw quoted light kinds, strips one quote |
+| Rigid-body id, lines 4243–4245 | Requires code 25, strips one quote |
+| Native timing boundary, lines 5026–5028 | Requires code 25, strips one quote |
+| Native reference field, lines 5074–5076 | Requires code 25, strips one quote |
+
+`_browser_token_text` returns the raw source span. Merely expanding the span to
+three delimiters leaves extra quotes in these consumer values; it does not
+establish decoded-string parity. The comment-token fixture also uses
+`JSON.parse` on raw single-quoted-delimiter spans and cannot serve unchanged as
+a triple-string decoder oracle. Named native `STRING`/`STRING_RAW` parser
+consumption and unrelated symbolic opcode 25 are distinct representations.
+
+After A/B approval, the bounded RED must use the actual docstring as runtime
+input and compare one complete span, decoded native value, and the following
+token's location. Follow with multiline indentation, escapes, Unicode,
+comment markers, and first-error malformed-string cases; then verify all
+affected consumer values and existing single-string regression gates. Reuse
+native behavior rather than adding a second decoder contract. Existing private
+`unterminated string literal` differs from native wording: changing diagnostics
+is not authorized by this helper decision and requires its own ready-for-human
+packet. Source-order failures must not be skipped to make a test pass.
+
+Under A, prepare a separately reviewed coherent token-and-consumer packet.
+Under B, preserve existing callable results pending a versioned replacement.
+This addendum changes documentation only; there is no implementation to revert.
