@@ -50,6 +50,7 @@ vkf_native_target(vkf_private_machine_operands ../../tests/bootstrap/private-mac
 vkf_native_target(vkf_private_f64_bytes ../../tests/bootstrap/private-f64-bytes.cpp FALSE)
 set(VKF_AOT_TARGETS)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|x86_64)")
+    vkf_native_target(vkf_private_x64_prefix ../../tests/bootstrap/private-x64-prefix.cpp TRUE)
     vkf_native_target(vkf_x64_artifact vkf_x64_artifact.cpp TRUE)
     target_sources(vkf_bootstrap_bundle_artifact_smoke PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/vkf_x64_artifact.cpp"

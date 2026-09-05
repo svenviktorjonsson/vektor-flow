@@ -41,6 +41,61 @@ _bootstrap_f64_bytes(value:num):
     result.valid: true
     result
 
+# Private byte words for already range-checked x64 immediates/displacements.
+_bootstrap_x64_word(value:num) -> [num]:
+    word: value
+    word < 0? .word+: 4294967296
+    [word % 256, (word // 256) % 256, (word // 65536) % 256, (word // 16777216) % 256]
+
+# Partial, non-executable entry prefix: no scratch, errors, parameters or owners.
+_bootstrap_x64_entry_prefix(local_count:num, maximum:num, value:num, windows:bit):
+    [num] bytes: []
+    result: (valid:false, bytes:bytes)
+    (local_count < 0 \/ local_count % 1 != 0 \/ maximum < 1 \/ maximum % 1 != 0)?
+        @: result
+    saved_xmm: 0
+    shadow: 0
+    windows?
+        .saved_xmm: 4
+        .shadow: 32
+    context: local_count + maximum
+    xmm_slot: context + 1
+    gpr_slot: xmm_slot + saved_xmm
+    frame_bytes: (((gpr_slot + 6) * 8 + shadow + 15) // 16) * 16
+    frame_bytes > 2147483647?
+        @: result
+    literal: _bootstrap_f64_bytes(value)
+    ~literal.valid?
+        @: result
+    result.bytes: result.bytes & [85, 72, 137, 229]
+    frame_bytes <= 4096?
+        result.bytes: result.bytes & [72, 129, 236] & _bootstrap_x64_word(frame_bytes)
+    frame_bytes > 4096?
+        result.bytes: result.bytes & [184] & _bootstrap_x64_word(frame_bytes // 4096)
+        result.bytes: result.bytes & [72, 129, 236] & _bootstrap_x64_word(4096)
+        # Native page loop is 19 bytes from stack decrement through rel32.
+        result.bytes: result.bytes & [246, 4, 36, 0, 255, 200, 15, 133] & _bootstrap_x64_word(-19)
+        frame_bytes % 4096 != 0?
+            result.bytes: result.bytes & [72, 129, 236] & _bootstrap_x64_word(frame_bytes % 4096)
+    windows?
+        result.bytes: result.bytes & [243, 15, 127, 181] & _bootstrap_x64_word(-(xmm_slot + 1) * 8)
+        result.bytes: result.bytes & [243, 15, 127, 189] & _bootstrap_x64_word(-(xmm_slot + 3) * 8)
+    saves: [72, 137, 157, 72, 137, 181, 72, 137, 189, 76, 137, 173, 76, 137, 181, 76, 137, 189]
+    index: 0
+    (index < 6)?>
+        result.bytes: result.bytes & [saves.(index * 3), saves.(index * 3 + 1), saves.(index * 3 + 2)]
+        result.bytes: result.bytes & _bootstrap_x64_word(-(gpr_slot + index + 1) * 8)
+        .index+: 1
+    result.bytes: result.bytes & [76, 137, 165] & _bootstrap_x64_word(-(context + 1) * 8)
+    windows?
+        result.bytes: result.bytes & [73, 137, 204]
+    ~windows?
+        result.bytes: result.bytes & [73, 137, 252]
+    result.bytes: result.bytes & [72, 184] & literal.bytes & [102, 72, 15, 110, 192, 242, 15, 17, 133]
+    result.bytes: result.bytes & _bootstrap_x64_word(-(local_count + 1) * 8)
+    result.valid: true
+    result
+
 # Private scalar expression fragment over validated parser/type facts.
 # Private opcodes: 1 push_f64, 2 load_local, 3 count_f64_list (borrowed),
 # 4 divide_f64, 5 add_f64. Public opcode/schema bytes are fixed.
