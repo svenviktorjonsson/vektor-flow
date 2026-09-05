@@ -113,6 +113,8 @@ enum class Opcode : std::uint16_t {
     StatStdDev = 79,
     StatRange = 80,
     StatCount = 81,
+    // Private emitted-program construction; requires bytecode version 3.
+    MakeTuple = 82,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -204,6 +206,7 @@ inline constexpr std::array<std::uint8_t, 8> magic = {
     'V', 'K', 'F', 'B', 'C', 0x0d, 0x0a, 0x00,
 };
 inline constexpr std::uint16_t format_version = 2;
+inline constexpr std::uint16_t private_tuple_format_version = 3;
 inline constexpr std::uint32_t maximum_collection_size = 16U * 1024U * 1024U;
 
 inline bool is_value_type(ValueType type) {
@@ -213,7 +216,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::StatCount);
+        <= static_cast<std::uint16_t>(Opcode::MakeTuple);
 }
 
 inline bool is_valid_utf8(const std::string& value) {
@@ -505,11 +508,19 @@ inline void validate(const Module& module) {
     }
 }
 
+inline bool uses_private_tuple_operations(const Module& module) {
+    bool private_tuple = false;
+    for (const auto& function : module.functions)
+        for (const auto& instruction : function.instructions)
+            private_tuple = private_tuple || instruction.opcode == Opcode::MakeTuple;
+    return private_tuple;
+}
+
 inline std::vector<std::uint8_t> serialize(const Module& module) {
     validate(module);
     detail::Writer writer;
     writer.raw(detail::magic.data(), detail::magic.size());
-    writer.u16(detail::format_version);
+    writer.u16(uses_private_tuple_operations(module) ? detail::private_tuple_format_version : detail::format_version);
     writer.u16(0);
     writer.u32(detail::checked_size(module.constants.size(), "constants"));
     writer.u32(detail::checked_size(module.functions.size(), "functions"));
@@ -563,7 +574,8 @@ inline Module deserialize(const std::vector<std::uint8_t>& bytes) {
             throw BytecodeError("invalid bytecode magic");
         }
     }
-    if (reader.u16() != detail::format_version) {
+    const auto version = reader.u16();
+    if (version != detail::format_version && version != detail::private_tuple_format_version) {
         throw BytecodeError("unsupported bytecode version");
     }
     if (reader.u16() != 0) {
@@ -628,6 +640,10 @@ inline Module deserialize(const std::vector<std::uint8_t>& bytes) {
                 reader.u32(),
                 reader.u32(),
             });
+            if (version == detail::format_version &&
+                function.instructions.back().opcode == Opcode::MakeTuple) {
+                throw BytecodeError("private tuple opcode requires bytecode version 3");
+            }
         }
         module.functions.push_back(std::move(function));
     }

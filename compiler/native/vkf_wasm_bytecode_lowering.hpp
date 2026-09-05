@@ -140,6 +140,9 @@ inline ValueType lower_type(
     if (type.rfind("record{", 0) == 0) {
         return ValueType::Object;
     }
+    if (type.rfind("tuple<", 0) == 0 && type.back() == '>') {
+        return ValueType::Dynamic;
+    }
     // Named aliases are represented by tagged dynamic values at this layer.
     if (type.find_first_of("<>{}(),") == std::string::npos) {
         return ValueType::Dynamic;
@@ -792,6 +795,24 @@ private:
             patch_jump(state, jump_index, target);
             return;
         }
+        if (kind == "update_attr") {
+            const std::string name = string_field(object, "base_name", context);
+            const auto local = state.locals.find(name);
+            if (local == state.locals.end()) {
+                throw BytecodeLoweringError("update requires existing local " + name + " in " + context);
+            }
+            // Native projection updates evaluate the RHS before storing the
+            // selected field. RecordSet preserves fields and returns a new value.
+            const auto value_type = lower_expression(field(object, "value", context), state, context + ".value");
+            const auto value = add_temporary_local(state, value_type);
+            emit(state, Opcode::StoreLocal, value_type, value);
+            emit(state, Opcode::LoadLocal, ValueType::Object, local->second);
+            emit(state, Opcode::LoadLocal, value_type, value);
+            emit(state, Opcode::ObjectSet, ValueType::Object,
+                intern_constant(Constant::utf8_string(string_field(object, "field", context))));
+            emit(state, Opcode::StoreLocal, ValueType::Object, local->second);
+            return;
+        }
         if (kind == "update_index") {
             const std::string base_name = string_field(
                 object,
@@ -1023,7 +1044,7 @@ private:
             emit(state, Opcode::StoreLocal, value_type, local_index);
             return value_type;
         }
-        if (kind == "list") {
+        if (kind == "list" || kind == "tuple") {
             const auto& items = array_of(
                 field(object, "items", context),
                 context + ".items"
@@ -1037,11 +1058,11 @@ private:
             }
             emit(
                 state,
-                Opcode::MakeArray,
-                ValueType::Array,
+                kind == "tuple" ? Opcode::MakeTuple : Opcode::MakeArray,
+                kind == "tuple" ? ValueType::Dynamic : ValueType::Array,
                 checked_index(items.size(), "array item count")
             );
-            return ValueType::Array;
+            return kind == "tuple" ? ValueType::Dynamic : ValueType::Array;
         }
         if (kind == "scope_identity") {
             using Validation = vkf::stat_semantics::Validation<BytecodeLoweringError>;

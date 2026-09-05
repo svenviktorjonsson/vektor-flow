@@ -60,6 +60,7 @@ public:
             unsigned precision;
             bool opened = false;
             bool record = false;
+            bool tuple = false;
             std::uint32_t length = 0;
             std::uint32_t payload = 0;
             std::uint32_t next = 0;
@@ -72,7 +73,7 @@ public:
             auto& frame = frames.back();
             if (frame.opened) {
                 if (frame.next == frame.length) {
-                    output += frame.record ? ')' : ']';
+                    output += frame.record || frame.tuple ? ')' : ']';
                     active.erase(frame.pointer);
                     frames.pop_back();
                     continue;
@@ -115,6 +116,7 @@ public:
                     if (length) output.append(reinterpret_cast<const char*>(memory_ + payload), length);
                     break;
                 case 4:
+                case 6: // Compiler-private tuple; never decoded by JavaScript.
                     if (!active.insert(frame.pointer).second) {
                         throw std::runtime_error("cyclic VKF values cannot cross the stdout ABI");
                     }
@@ -123,9 +125,10 @@ public:
                     }
                     range(payload, static_cast<std::size_t>(length) * 4);
                     frame.opened = true;
+                    frame.tuple = tag == 6;
                     frame.length = length;
                     frame.payload = payload;
-                    output += '[';
+                    output += frame.tuple ? '(' : '[';
                     continue;
                 case 5:
                     if (!active.insert(frame.pointer).second) {

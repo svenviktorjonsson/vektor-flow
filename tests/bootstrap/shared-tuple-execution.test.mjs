@@ -5,6 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import {createSharedCompiler} from '../../web/playground/vkf-shared-compiler.mjs';
+import {compareNativeOutput} from './shared-native-output.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const nativeCompiler = process.env.VKF_NATIVE_COMPILER
@@ -38,4 +39,19 @@ point.z: 5
   assert.deepEqual(Object.keys(shared).sort(), ['kind', 'stderr', 'stdout']);
   assert.equal(shared.stdout, native.stdout);
   assert.equal(shared.stderr, native.stderr);
+});
+
+test('tuple binding copies keep independent indexed updates and native singleton display',()=>{
+  compareNativeOutput(compiler,':: (7.5,)\na:(1,2)\nb:a\nb.0:9\n::a\n::b\n',
+    '(7.5)\n(1, 2)\n(9, 2)\n');
+});
+
+test('tuple construction and projection update retain authored effect order',()=>{
+  compareNativeOutput(compiler,`mark(x:int)->int:
+    ::x
+    x
+pair:(mark(1),mark(2))
+pair.0:mark(3)
+::pair
+`, '1\n2\n3\n(3, 2)\n');
 });

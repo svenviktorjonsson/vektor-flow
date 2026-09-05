@@ -28,9 +28,10 @@ test('shared execution never decodes tagged WASM values in JavaScript', () => {
   }
 });
 
-test('unsupported tuples fail in compiler lowering instead of escaping as JavaScript values', () => {
-  assert.throws(() => compiler.run(':: (3,4)\n'), error =>
-    error.phase === 'lowering' && error.message ===
-      'unsupported expression kind tuple in function $vkf_main.body.body[1].expr.args[0]');
+test('tuples remain inside WASM and expose only compiler-formatted output', () => {
+  const result = compiler.run(':: (3,4)\n');
+  assert.deepEqual(Object.keys(result).sort(), ['kind', 'stderr', 'stdout']);
+  assert.equal(result.stdout, '(3, 4)\n');
+  assert.equal(result.stderr, '');
   assert.deepEqual(Object.keys(compiler.run(':: 7\n')).sort(), ['kind', 'stderr', 'stdout']);
 });

@@ -231,6 +231,7 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::Call:
             return {instruction.second, 1};
         case Opcode::MakeArray:
+        case Opcode::MakeTuple:
             return {instruction.first, 1};
         case Opcode::ArraySet:
             return {3, 1};
@@ -755,9 +756,10 @@ inline std::vector<std::uint8_t> emit_tagged_function(
     const RuntimeIndexes& runtime
 ) {
     const auto& function = module.functions[function_index];
+    const bool private_tuples = bytecode::uses_private_tuple_operations(module);
     Writer body;
     body.u32_leb(1);
-    body.u32_leb(6);
+    body.u32_leb(private_tuples ? 7 : 6);
     body.u8(wasm_i32);
     const std::uint32_t frame_local = function.parameter_count;
     const std::uint32_t sp_local = frame_local + 1;
@@ -765,6 +767,7 @@ inline std::vector<std::uint8_t> emit_tagged_function(
     const std::uint32_t temp0 = frame_local + 3;
     const std::uint32_t temp1 = frame_local + 4;
     const std::uint32_t temp2 = frame_local + 5;
+    const std::uint32_t tuple_copy = frame_local + 6;
     const std::uint32_t local_count =
         static_cast<std::uint32_t>(function.local_types.size());
     i32_const(body, (local_count + maximum_stack) * 4U);
@@ -1116,7 +1119,8 @@ inline std::vector<std::uint8_t> emit_tagged_function(
             case Opcode::Trap:
                 body.u8(0x00);
                 break;
-            case Opcode::MakeArray: {
+            case Opcode::MakeArray:
+            case Opcode::MakeTuple: {
                 i32_const(
                     body,
                     values::slot_size + instruction.first * values::pointer_size
@@ -1125,7 +1129,8 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 body.u32_leb(runtime.allocate);
                 local_set(body, temp0);
                 local_get(body, temp0);
-                i32_const(body, static_cast<std::uint32_t>(values::Tag::Array));
+                i32_const(body, static_cast<std::uint32_t>(
+                    instruction.opcode == Opcode::MakeTuple ? values::Tag::Tuple : values::Tag::Array));
                 i32_store(body, values::tag_offset);
                 local_get(body, temp0);
                 i32_const(body, instruction.first);
@@ -1218,6 +1223,28 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 emit_pop_to(
                     body, frame_local, sp_local, local_count, temp0
                 );
+                if (private_tuples) {
+                    // Tuple updates are value updates, not mutations of aliases.
+                    // Legacy array behavior and tuple-free emitted bytes stay unchanged.
+                    local_get(body, temp0); i32_load(body, values::tag_offset);
+                    i32_const(body, static_cast<std::uint32_t>(values::Tag::Tuple));
+                    body.u8(0x46); body.u8(0x04); body.u8(wasm_i32);
+                    i32_const(body, values::slot_size);
+                    local_get(body, temp0); i32_load(body, values::length_offset);
+                    i32_const(body, values::pointer_size); body.u8(0x6c); body.u8(0x6a);
+                    body.u8(0x10); body.u32_leb(runtime.allocate); local_set(body, tuple_copy);
+                    local_get(body, tuple_copy); local_get(body, temp0); i32_const(body, values::slot_size);
+                    body.u8(0xfc); body.u32_leb(10); body.u32_leb(0); body.u32_leb(0);
+                    local_get(body, tuple_copy); i32_const(body, values::slot_size); body.u8(0x6a);
+                    local_get(body, temp0); i32_load(body, values::payload_offset);
+                    local_get(body, temp0); i32_load(body, values::length_offset);
+                    i32_const(body, values::pointer_size); body.u8(0x6c);
+                    body.u8(0xfc); body.u32_leb(10); body.u32_leb(0); body.u32_leb(0);
+                    local_get(body, tuple_copy); local_get(body, tuple_copy);
+                    i32_const(body, values::slot_size); body.u8(0x6a); i32_store(body, values::payload_offset);
+                    local_get(body, tuple_copy);
+                    body.u8(0x05); local_get(body, temp0); body.u8(0x0b); local_set(body, temp0);
+                }
                 local_get(body, temp0);
                 i32_load(body, values::payload_offset);
                 local_get(body, temp1);

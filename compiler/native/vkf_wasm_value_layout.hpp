@@ -6,7 +6,8 @@
 
 namespace vkf::wasm::values {
 
-// Browser transport ABI:
+// Compiler-owned value layout. Legacy browser transport accepts tags 0–5;
+// private emitted-program tuples never cross the output-only host boundary.
 //   slot +0  u32 tag
 //   slot +4  u32 byte length / element count / field count
 //   slot +8  f64 Number, u32 Boolean, or u32 payload pointer
@@ -24,6 +25,7 @@ enum class Tag : std::uint32_t {
     Utf8String = 3,
     Array = 4,
     Record = 5,
+    Tuple = 6,
 };
 
 inline constexpr std::uint32_t slot_alignment = 8;
