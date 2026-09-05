@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { buildSiteDocument, benchmarkSummary, pageHtml, writeSite } from "../../tools/build-site.mjs";
+import { SITE_PAGES, buildSiteDocument, benchmarkSummary, pageHtml, writeSite } from "../../tools/build-site.mjs";
 import { createBrowserCompiler } from "../../web/playground/vkf-browser-compiler.mjs";
 const root = new URL("../../", import.meta.url);
 
@@ -93,6 +93,43 @@ test("every displayed browser example compiles and executes through the shipped 
   ));
   assert.equal(changed.packet_records[0].x[0][0], -4);
   assert.equal(changed.packet_records[0].y[0][0], -0.12);
+});
+
+test("every editor published anywhere on the site executes through the shipped WASM", async () => {
+  const queue = Object.keys(SITE_PAGES);
+  const visited = new Set();
+  const documents = [];
+  while (queue.length > 0) {
+    const source = queue.shift();
+    if (visited.has(source)) continue;
+    visited.add(source);
+    const document = await buildSiteDocument(root, source);
+    documents.push(document);
+    queue.push(...document.dependencies);
+  }
+
+  const base = new URL("web/playground/artifacts/", root);
+  const [wasm, manifest] = await Promise.all([
+    readFile(new URL("vkf-browser-compiler.wasm", base)),
+    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+  ]);
+  const module = new WebAssembly.Module(wasm);
+  assert.deepEqual(WebAssembly.Module.imports(module), []);
+  const instance = await WebAssembly.instantiate(module);
+  const compiler = createBrowserCompiler({ instance, manifest });
+  const editors = documents.flatMap((document) => document.examples.map((example) => ({
+    page: document.source,
+    ...example,
+  })));
+
+  assert.equal(editors.length, 8);
+  assert.equal(new Set(editors.map(({ source }) => source)).size, 3);
+  for (const editor of editors) {
+    assert.doesNotThrow(
+      () => compiler.run(editor.source),
+      `${editor.page}: ${editor.title}`,
+    );
+  }
 });
 
 test("each guide branch links back and drills into the existing reference", async () => {
