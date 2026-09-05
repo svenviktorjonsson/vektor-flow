@@ -1,0 +1,705 @@
+# Compiler-private, byte-preserving PE section discovery for x64 artifacts.
+
+_byte(value:num, high_bytes:[str]) -> str:
+    value <= 127?
+        @: str(chr(value))
+    (value <= 255 /\ high_bytes.length() = 128)?! "x64 PE byte arena does not cover one byte"
+    high_bytes.(value - 128)
+
+slice_bytes(source:str, start:num, stop:num) -> str:
+    _compile_raw_byte_slice(source, start, stop)
+
+_byte_length(source:str) -> num:
+    position: 0
+    (vkf_string_eof(source, position) = false)?>
+        .position+: 1
+    position
+
+_byte_value(value:str, high_bytes:[str]) -> num:
+    index: 0
+    found: -1
+    (index < 256 /\ found < 0)?>
+        value = _byte(index, high_bytes)?
+            .found: index
+        .index+: 1
+    found >= 0 ?! "compiler byte value is not exactly one raw byte"
+    found
+
+_u16(source:str, offset:num, high_bytes:[str]) -> num:
+    (
+        _byte_value(slice_bytes(source, offset, offset + 1), high_bytes) +
+        256 * _byte_value(slice_bytes(source, offset + 1, offset + 2), high_bytes)
+    )
+
+_u32(source:str, offset:num, high_bytes:[str]) -> num:
+    (
+        _byte_value(slice_bytes(source, offset, offset + 1), high_bytes) +
+        256 * _byte_value(slice_bytes(source, offset + 1, offset + 2), high_bytes) +
+        65536 * _byte_value(slice_bytes(source, offset + 2, offset + 3), high_bytes) +
+        16777216 * _byte_value(slice_bytes(source, offset + 3, offset + 4), high_bytes)
+    )
+
+_u16_bytes(value:num, high_bytes:[str]) -> str:
+    (
+        _byte(value % 256, high_bytes) &
+        _byte((value // 256) % 256, high_bytes)
+    )
+
+_u32_bytes(value:num, high_bytes:[str]) -> str:
+    (
+        _byte(value % 256, high_bytes) &
+        _byte((value // 256) % 256, high_bytes) &
+        _byte((value // 65536) % 256, high_bytes) &
+        _byte((value // 16777216) % 256, high_bytes)
+    )
+
+_align(value:num, alignment:num) -> num:
+    alignment > 0 ?! "x64 PE alignment is zero"
+    ((value + alignment - 1) // alignment) * alignment
+
+_zero_bytes(count:num, high_bytes:[str]) -> str:
+    count >= 0 ?! "x64 PE byte count is negative"
+    remaining: count
+    result: ""
+    block: _byte(0, high_bytes)
+    (remaining > 0)?>
+        remaining % 2 = 1?
+            .result: result & block
+        .remaining: remaining // 2
+        .block: block & block
+    result
+
+_replace_bytes(source:str, start:num, stop:num, replacement:str) -> str:
+    source_length: _byte_length(source)
+    (
+        start >= 0 /\ start <= stop /\ stop <= source_length /\
+        _byte_length(replacement) = stop - start
+    )?! "x64 PE byte replacement is outside the image"
+    (
+        slice_bytes(source, 0, start) & replacement &
+        slice_bytes(source, stop, source_length)
+    )
+
+_replace_u16(source:str, offset:num, value:num, high_bytes:[str]) -> str:
+    _replace_bytes(source, offset, offset + 2, _u16_bytes(value, high_bytes))
+
+_replace_u32(source:str, offset:num, value:num, high_bytes:[str]) -> str:
+    _replace_bytes(source, offset, offset + 4, _u32_bytes(value, high_bytes))
+
+_u64_bytes(value:num, high_bytes:[str]) -> str:
+    (
+        _u32_bytes(value % 4294967296, high_bytes) &
+        _u32_bytes((value // 4294967296) % 4294967296, high_bytes)
+    )
+
+_section_header(
+    name:str,
+    virtual_size:num,
+    virtual_address:num,
+    raw_size:num,
+    raw_offset:num,
+    characteristics:num,
+    high_bytes:[str]
+) -> str:
+    _byte_length(name) = 8 ?! "x64 PE section name is not eight bytes"
+    (
+        name &
+        _u32_bytes(virtual_size, high_bytes) &
+        _u32_bytes(virtual_address, high_bytes) &
+        _u32_bytes(raw_size, high_bytes) &
+        _u32_bytes(raw_offset, high_bytes) &
+        _zero_bytes(12, high_bytes) &
+        _u32_bytes(characteristics, high_bytes)
+    )
+
+_data_directory(address:num, size:num, high_bytes:[str]) -> str:
+    _u32_bytes(address, high_bytes) & _u32_bytes(size, high_bytes)
+
+runner_seed(runtime_without_relocation:str, high_bytes:[str]) -> str:
+    _byte_length(runtime_without_relocation) = 3072 ?! "x64 runner seed body has an unexpected size"
+    zero: _byte(0, high_bytes)
+    dos_header: "MZ" & _zero_bytes(58, high_bytes) & _u32_bytes(64, high_bytes)
+    coff_header: (
+        "PE" & zero & zero &
+        _u16_bytes(34404, high_bytes) &
+        _u16_bytes(7, high_bytes) &
+        _zero_bytes(12, high_bytes) &
+        _u16_bytes(240, high_bytes) &
+        _u16_bytes(34, high_bytes)
+    )
+    optional_header: (
+        _u16_bytes(523, high_bytes) & zero & zero &
+        _u32_bytes(512, high_bytes) &
+        _u32_bytes(3584, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u32_bytes(4152, high_bytes) &
+        _u32_bytes(4096, high_bytes) &
+        _u64_bytes(5368709120, high_bytes) &
+        _u32_bytes(4096, high_bytes) &
+        _u32_bytes(512, high_bytes) &
+        _u16_bytes(6, high_bytes) & _u16_bytes(0, high_bytes) &
+        _u16_bytes(0, high_bytes) & _u16_bytes(0, high_bytes) &
+        _u16_bytes(6, high_bytes) & _u16_bytes(0, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u32_bytes(32768, high_bytes) &
+        _u32_bytes(1024, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u16_bytes(3, high_bytes) &
+        _u16_bytes(33120, high_bytes) &
+        _u64_bytes(67108864, high_bytes) &
+        _u64_bytes(4096, high_bytes) &
+        _u64_bytes(1048576, high_bytes) &
+        _u64_bytes(4096, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u32_bytes(16, high_bytes) &
+        _data_directory(0, 0, high_bytes) &
+        _data_directory(8704, 80, high_bytes) &
+        _data_directory(24576, 480, high_bytes) &
+        _data_directory(16384, 36, high_bytes) &
+        _data_directory(0, 0, high_bytes) &
+        _data_directory(28672, 12, high_bytes) &
+        _data_directory(8304, 28, high_bytes) &
+        _zero_bytes(40, high_bytes) &
+        _data_directory(8192, 104, high_bytes) &
+        _zero_bytes(24, high_bytes)
+    )
+    sections: (
+        _section_header(
+            ".text" & zero & zero & zero,
+            363, 4096, 512, 1024, 1610612768, high_bytes
+        ) &
+        _section_header(
+            ".rdata" & zero & zero,
+            878, 8192, 1024, 1536, 1073741888, high_bytes
+        ) &
+        _section_header(
+            ".data" & zero & zero & zero,
+            24, 12288, 0, 0, 3221225536, high_bytes
+        ) &
+        _section_header(
+            ".pdata" & zero & zero,
+            36, 16384, 512, 2560, 1073741888, high_bytes
+        ) &
+        _section_header(
+            ".CRT" & zero & zero & zero & zero,
+            8, 20480, 512, 3072, 1073741888, high_bytes
+        ) &
+        _section_header(
+            ".rsrc" & zero & zero & zero,
+            480, 24576, 512, 3584, 1073741888, high_bytes
+        ) &
+        _section_header(
+            ".reloc" & zero & zero,
+            12, 28672, 512, 4096, 1107296320, high_bytes
+        )
+    )
+    relocation: (
+        _u32_bytes(20480, high_bytes) &
+        _u32_bytes(12, high_bytes) &
+        _u16_bytes(40960, high_bytes) &
+        _u16_bytes(0, high_bytes) &
+        _zero_bytes(500, high_bytes)
+    )
+    headers: dos_header & coff_header & optional_header & sections
+    (
+        headers & _zero_bytes(1024 - _byte_length(headers), high_bytes) &
+        runtime_without_relocation & relocation
+    )
+
+_relocate_resource_directory(
+    image:str,
+    resource_raw_offset:num,
+    resource_size:num,
+    directory_offset:num,
+    insertion_virtual_address:num,
+    virtual_growth:num,
+    high_bytes:[str]
+) -> str:
+    directory_offset + 16 <= resource_size ?! "x64 compiler template has a truncated resource directory"
+    directory_raw_offset: resource_raw_offset + directory_offset
+    entry_count: (
+        _u16(image, directory_raw_offset + 12, high_bytes) +
+        _u16(image, directory_raw_offset + 14, high_bytes)
+    )
+    directory_offset + 16 + entry_count * 8 <= resource_size ?! "x64 compiler template has truncated resource entries"
+    updated: image
+    entry_index: 0
+    entry_raw_offset: 0
+    target: 0
+    target_offset: 0
+    data_raw_offset: 0
+    data_virtual_address: 0
+    (entry_index < entry_count)?>
+        .entry_raw_offset: directory_raw_offset + 16 + entry_index * 8
+        .target: _u32(image, entry_raw_offset + 4, high_bytes)
+        .target_offset: target % 2147483648
+        target >= 2147483648?
+            .updated: _relocate_resource_directory(
+                updated,
+                resource_raw_offset,
+                resource_size,
+                target_offset,
+                insertion_virtual_address,
+                virtual_growth,
+                high_bytes
+            )
+        target < 2147483648?
+            target_offset + 16 <= resource_size ?! "x64 compiler template has a truncated resource data entry"
+            .data_raw_offset: resource_raw_offset + target_offset
+            .data_virtual_address: _u32(
+                updated, data_raw_offset, high_bytes
+            )
+            data_virtual_address >= insertion_virtual_address?
+                .updated: _replace_u32(
+                    updated,
+                    data_raw_offset,
+                    data_virtual_address + virtual_growth,
+                    high_bytes
+                )
+        .entry_index+: 1
+    updated
+
+code_section(template:str, required_code_size:num, high_bytes:[str]):
+    template_length: _byte_length(template)
+    template_length >= 64 ?! "x64 compiler template has no complete DOS header"
+    slice_bytes(template, 0, 2) = "MZ" ?! "x64 compiler template has no DOS signature"
+    pe_offset: _u32(template, 60, high_bytes)
+    pe_offset + 24 <= template_length ?! "x64 compiler template has no complete PE header"
+    pe_signature: "PE" & _byte(0, high_bytes) & _byte(0, high_bytes)
+    slice_bytes(template, pe_offset, pe_offset + 4) = pe_signature ?! "x64 compiler template has no PE signature"
+    section_count: _u16(template, pe_offset + 6, high_bytes)
+    optional_header_size: _u16(template, pe_offset + 20, high_bytes)
+    optional_header_offset: pe_offset + 24
+    section_table_offset: optional_header_offset + optional_header_size
+    section_table_offset + section_count * 40 <= template_length ?! "x64 compiler template has no complete section table"
+    section_alignment: _u32(template, optional_header_offset + 32, high_bytes)
+    file_alignment: _u32(template, optional_header_offset + 36, high_bytes)
+    size_of_headers: _u32(template, optional_header_offset + 60, high_bytes)
+    (section_alignment > 0 /\ file_alignment > 0) ?! "x64 compiler template has invalid PE alignment"
+    exception_directory_address: _u32(
+        template, optional_header_offset + 112 + 3 * 8, high_bytes
+    )
+    exception_directory_size: _u32(
+        template, optional_header_offset + 116 + 3 * 8, high_bytes
+    )
+    code_section_name: ".vkfcod" & _byte(0, high_bytes)
+    empty_section_name: (
+        _u32_bytes(0, high_bytes) & _u32_bytes(0, high_bytes)
+    )
+    section_index: 0
+    section_header_offset: -1
+    empty_header_offset: -1
+    candidate_offset: 0
+    str candidate_name: ""
+    candidate_virtual_size: 0
+    candidate_virtual_address: 0
+    candidate_raw_size: 0
+    candidate_raw_offset: 0
+    candidate_span: 0
+    candidate_virtual_end: 0
+    candidate_raw_end: 0
+    maximum_virtual_end: 0
+    maximum_raw_end: 0
+    middle_header_offset: -1
+    middle_virtual_address: 0
+    middle_raw_offset: 0
+    (section_index < section_count)?>
+        .candidate_offset: section_table_offset + section_index * 40
+        .candidate_name: slice_bytes(
+            template, candidate_offset, candidate_offset + 8
+        )
+        candidate_name = code_section_name?
+            .section_header_offset: candidate_offset
+        (candidate_name = empty_section_name /\ empty_header_offset < 0)?
+            .empty_header_offset: candidate_offset
+        .candidate_virtual_size: _u32(template, candidate_offset + 8, high_bytes)
+        .candidate_virtual_address: _u32(template, candidate_offset + 12, high_bytes)
+        .candidate_raw_size: _u32(template, candidate_offset + 16, high_bytes)
+        .candidate_raw_offset: _u32(template, candidate_offset + 20, high_bytes)
+        .candidate_span: candidate_virtual_size
+        candidate_raw_size > candidate_span?
+            .candidate_span: candidate_raw_size
+        .candidate_virtual_end: candidate_virtual_address + _align(candidate_span, section_alignment)
+        candidate_virtual_end > maximum_virtual_end?
+            .maximum_virtual_end: candidate_virtual_end
+        .candidate_raw_end: candidate_raw_offset + candidate_raw_size
+        candidate_raw_end > maximum_raw_end?
+            .maximum_raw_end: candidate_raw_end
+        (
+            exception_directory_size > 0 /\
+            exception_directory_address >= candidate_virtual_address /\
+            exception_directory_address + exception_directory_size <= candidate_virtual_address + candidate_span /\
+            candidate_raw_size > 0
+        )?
+            .middle_header_offset: candidate_offset + 40
+            .middle_virtual_address: candidate_virtual_end
+            .middle_raw_offset: candidate_raw_end
+        .section_index+: 1
+    existing: section_header_offset >= 0
+    middle: false
+    (
+        ~existing /\ empty_header_offset < 0 /\
+        middle_header_offset >= section_table_offset /\
+        middle_header_offset < section_table_offset + section_count * 40
+    )?
+        .middle: (
+            _u32(template, middle_header_offset + 12, high_bytes) = middle_virtual_address /\
+            _u32(template, middle_header_offset + 20, high_bytes) = middle_raw_offset
+        )
+    append: ~existing /\ empty_header_offset < 0 /\ ~middle
+    (~existing /\ ~append /\ ~middle)?
+        (empty_header_offset > section_table_offset /\ empty_header_offset + 40 < section_table_offset + section_count * 40) ?! "x64 compiler template has no creatable .vkfcod slot"
+        .section_header_offset: empty_header_offset
+    middle?
+        .section_header_offset: middle_header_offset
+        (section_table_offset + (section_count + 1) * 40 <= size_of_headers /\ section_table_offset + (section_count + 1) * 40 <= template_length) ?! "x64 compiler template has no room for an inserted .vkfcod header"
+        slice_bytes(
+            template,
+            section_table_offset + section_count * 40,
+            section_table_offset + section_count * 40 + 8
+        ) = empty_section_name ?! "x64 compiler template has no blank header-table storage"
+        required_code_size > 0 ?! "x64 compiler generated an empty code section"
+    append?
+        .section_header_offset: section_table_offset + section_count * 40
+        (section_header_offset + 40 <= size_of_headers /\ section_header_offset + 40 <= template_length) ?! "x64 compiler template has no room for a .vkfcod header"
+        slice_bytes(
+            template, section_header_offset, section_header_offset + 8
+        ) = empty_section_name ?! "x64 compiler template has no blank header-table storage"
+        required_code_size > 0 ?! "x64 compiler generated an empty code section"
+    virtual_size: 0
+    virtual_address: 0
+    raw_size: 0
+    raw_offset: 0
+    previous_header: 0
+    next_header: 0
+    previous_virtual_size: 0
+    previous_virtual_address: 0
+    previous_raw_size: 0
+    previous_raw_offset: 0
+    next_virtual_address: 0
+    next_raw_offset: 0
+    previous_span: 0
+    existing?
+        .virtual_size: _u32(template, section_header_offset + 8, high_bytes)
+        .virtual_address: _u32(template, section_header_offset + 12, high_bytes)
+        .raw_size: _u32(template, section_header_offset + 16, high_bytes)
+        .raw_offset: _u32(template, section_header_offset + 20, high_bytes)
+    (~existing /\ ~append /\ ~middle)?
+        .previous_header: section_header_offset - 40
+        .next_header: section_header_offset + 40
+        .previous_virtual_size: _u32(template, previous_header + 8, high_bytes)
+        .previous_virtual_address: _u32(template, previous_header + 12, high_bytes)
+        .previous_raw_size: _u32(template, previous_header + 16, high_bytes)
+        .previous_raw_offset: _u32(template, previous_header + 20, high_bytes)
+        .next_virtual_address: _u32(template, next_header + 12, high_bytes)
+        .next_raw_offset: _u32(template, next_header + 20, high_bytes)
+        .previous_span: previous_virtual_size
+        previous_raw_size > previous_span?
+            .previous_span: previous_raw_size
+        .virtual_address: (
+            previous_virtual_address +
+            ((previous_span + section_alignment - 1) // section_alignment) * section_alignment
+        )
+        .virtual_size: next_virtual_address - virtual_address
+        .raw_offset: previous_raw_offset + previous_raw_size
+        .raw_size: next_raw_offset - raw_offset
+    middle?
+        .virtual_size: required_code_size
+        .virtual_address: middle_virtual_address
+        .raw_size: _align(required_code_size, file_alignment)
+        .raw_offset: middle_raw_offset
+    append?
+        maximum_raw_end <= template_length ?! "x64 compiler template has a truncated raw section"
+        .virtual_size: required_code_size
+        .virtual_address: _align(maximum_virtual_end, section_alignment)
+        .raw_size: _align(required_code_size, file_alignment)
+        .raw_offset: _align(template_length, file_alignment)
+    (raw_size > 0 /\ (append \/ middle \/ raw_offset + raw_size <= template_length)) ?! "x64 compiler template has an invalid .vkfcod range"
+    append?
+        (raw_size > 0 /\ raw_offset >= template_length) ?! "x64 compiler template cannot append .vkfcod"
+    (virtual_size > 0 /\ (existing \/ append \/ middle \/ virtual_address + virtual_size <= next_virtual_address)) ?! "x64 compiler template has an invalid .vkfcod virtual range"
+    artifact_length: template_length
+    append?
+        .artifact_length: raw_offset + raw_size
+    middle?
+        .artifact_length: template_length + raw_size
+    (
+        existing: existing,
+        append: append,
+        middle: middle,
+        header_offset: section_header_offset,
+        virtual_size: virtual_size,
+        virtual_address: virtual_address,
+        raw_offset: raw_offset,
+        raw_size: raw_size,
+        template_length: template_length,
+        artifact_length: artifact_length
+    )
+
+materialize_code_section(
+    template:str,
+    existing:bit,
+    append:bit,
+    middle:bit,
+    header_offset:num,
+    virtual_size:num,
+    virtual_address:num,
+    raw_size:num,
+    raw_offset:num,
+    template_length:num,
+    high_bytes:[str]
+) -> str:
+    existing?
+        @: slice_bytes(template, 0, template_length)
+    pe_offset: _u32(template, 60, high_bytes)
+    optional_header_offset: pe_offset + 24
+    optional_header_size: _u16(template, pe_offset + 20, high_bytes)
+    section_table_offset: optional_header_offset + optional_header_size
+    section_count: _u16(template, pe_offset + 6, high_bytes)
+    section_header: (
+        ".vkfcod" & _byte(0, high_bytes) &
+        _u32_bytes(virtual_size, high_bytes) &
+        _u32_bytes(virtual_address, high_bytes) &
+        _u32_bytes(raw_size, high_bytes) &
+        _u32_bytes(raw_offset, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u32_bytes(0, high_bytes) &
+        _u16_bytes(0, high_bytes) &
+        _u16_bytes(0, high_bytes) &
+        _u32_bytes(1610612800, high_bytes)
+    )
+    updated: ""
+    section_table_end: 0
+    later_header_offset: 0
+    new_section_table_end: 0
+    later_virtual_address: 0
+    later_raw_size: 0
+    later_raw_offset: 0
+    directory_count: 0
+    directory_index: 0
+    directory_offset: 0
+    directory_address: 0
+    symbol_table_offset: 0
+    resource_directory_address: 0
+    resource_directory_size: 0
+    resource_section_index: 0
+    resource_raw_offset: -1
+    resource_candidate_header: 0
+    resource_candidate_virtual_size: 0
+    resource_candidate_virtual_address: 0
+    resource_candidate_raw_size: 0
+    resource_candidate_raw_offset: 0
+    resource_candidate_span: 0
+    relocation_directory_address: 0
+    relocation_directory_size: 0
+    relocation_section_index: 0
+    relocation_raw_offset: -1
+    relocation_candidate_header: 0
+    relocation_candidate_virtual_size: 0
+    relocation_candidate_virtual_address: 0
+    relocation_candidate_raw_size: 0
+    relocation_candidate_raw_offset: 0
+    relocation_candidate_span: 0
+    relocation_position: 0
+    relocation_stop: 0
+    relocation_page: 0
+    relocation_block_size: 0
+    middle?
+        .section_table_end: section_table_offset + section_count * 40
+        .updated: _replace_bytes(
+            template,
+            header_offset,
+            section_table_end + 40,
+            section_header & slice_bytes(template, header_offset, section_table_end)
+        )
+    ~middle?
+        .updated: (
+            slice_bytes(template, 0, header_offset) & section_header &
+            slice_bytes(template, header_offset + 40, template_length)
+        )
+    (~append /\ ~middle)?
+        @: updated
+    section_alignment: _u32(template, optional_header_offset + 32, high_bytes)
+    size_of_code: _u32(template, optional_header_offset + 4, high_bytes)
+    initialized_size: _u32(template, optional_header_offset + 8, high_bytes)
+    virtual_growth: _align(virtual_size, section_alignment)
+    .updated: _replace_u16(
+        updated, pe_offset + 6, section_count + 1, high_bytes
+    )
+    .updated: _replace_u32(
+        updated, optional_header_offset + 4, size_of_code + raw_size,
+        high_bytes
+    )
+    .updated: _replace_u32(
+        updated, optional_header_offset + 8, initialized_size + raw_size,
+        high_bytes
+    )
+    .updated: _replace_u32(
+        updated, optional_header_offset + 56,
+        _align(virtual_address + virtual_size, section_alignment), high_bytes
+    )
+    middle?
+        .updated: _replace_u32(
+            updated, optional_header_offset + 56,
+            _u32(template, optional_header_offset + 56, high_bytes) + virtual_growth,
+            high_bytes
+        )
+    .updated: _replace_u32(
+        updated, optional_header_offset + 64, 0, high_bytes
+    )
+    middle?
+        .later_header_offset: header_offset + 40
+        .new_section_table_end: section_table_offset + (section_count + 1) * 40
+        (later_header_offset < new_section_table_end)?>
+            .later_virtual_address: _u32(
+                updated, later_header_offset + 12, high_bytes
+            )
+            .later_raw_size: _u32(
+                updated, later_header_offset + 16, high_bytes
+            )
+            .later_raw_offset: _u32(
+                updated, later_header_offset + 20, high_bytes
+            )
+            later_virtual_address >= virtual_address?
+                .updated: _replace_u32(
+                    updated, later_header_offset + 12,
+                    later_virtual_address + virtual_growth, high_bytes
+                )
+            (later_raw_size > 0 /\ later_raw_offset >= raw_offset)?
+                .updated: _replace_u32(
+                    updated, later_header_offset + 20,
+                    later_raw_offset + raw_size, high_bytes
+                )
+            .later_header_offset+: 40
+        .directory_count: _u32(
+            template, optional_header_offset + 108, high_bytes
+        )
+        optional_header_size >= 112 + directory_count * 8 ?! "x64 compiler template has a truncated data-directory table"
+        (directory_index < directory_count)?>
+            .directory_offset: optional_header_offset + 112 + directory_index * 8
+            .directory_address: _u32(template, directory_offset, high_bytes)
+            (directory_index = 4 /\ directory_address >= raw_offset)?
+                .updated: _replace_u32(
+                    updated, directory_offset,
+                    directory_address + raw_size, high_bytes
+                )
+            (directory_index != 4 /\ directory_address >= virtual_address)?
+                .updated: _replace_u32(
+                    updated, directory_offset,
+                    directory_address + virtual_growth, high_bytes
+                )
+            .directory_index+: 1
+        .symbol_table_offset: _u32(template, pe_offset + 12, high_bytes)
+        (symbol_table_offset > 0 /\ symbol_table_offset >= raw_offset)?
+            .updated: _replace_u32(
+                updated, pe_offset + 12,
+                symbol_table_offset + raw_size, high_bytes
+            )
+        .resource_directory_address: _u32(
+            template, optional_header_offset + 112 + 2 * 8, high_bytes
+        )
+        .resource_directory_size: _u32(
+            template, optional_header_offset + 116 + 2 * 8, high_bytes
+        )
+        (resource_section_index < section_count)?>
+            .resource_candidate_header: (
+                section_table_offset + resource_section_index * 40
+            )
+            .resource_candidate_virtual_size: _u32(
+                template, resource_candidate_header + 8, high_bytes
+            )
+            .resource_candidate_virtual_address: _u32(
+                template, resource_candidate_header + 12, high_bytes
+            )
+            .resource_candidate_raw_size: _u32(
+                template, resource_candidate_header + 16, high_bytes
+            )
+            .resource_candidate_raw_offset: _u32(
+                template, resource_candidate_header + 20, high_bytes
+            )
+            .resource_candidate_span: resource_candidate_virtual_size
+            resource_candidate_raw_size > resource_candidate_span?
+                .resource_candidate_span: resource_candidate_raw_size
+            (
+                resource_directory_size > 0 /\
+                resource_directory_address >= resource_candidate_virtual_address /\
+                resource_directory_address + resource_directory_size <= resource_candidate_virtual_address + resource_candidate_span
+            )?
+                .resource_raw_offset: (
+                    resource_candidate_raw_offset +
+                    resource_directory_address - resource_candidate_virtual_address
+                )
+            .resource_section_index+: 1
+        resource_directory_size > 0?
+            resource_raw_offset >= 0 ?! "x64 compiler template has an unmapped resource directory"
+            .updated: _relocate_resource_directory(
+                updated,
+                resource_raw_offset,
+                resource_directory_size,
+                0,
+                virtual_address,
+                virtual_growth,
+                high_bytes
+            )
+        .relocation_directory_address: _u32(
+            template, optional_header_offset + 112 + 5 * 8, high_bytes
+        )
+        .relocation_directory_size: _u32(
+            template, optional_header_offset + 116 + 5 * 8, high_bytes
+        )
+        (relocation_section_index < section_count)?>
+            .relocation_candidate_header: (
+                section_table_offset + relocation_section_index * 40
+            )
+            .relocation_candidate_virtual_size: _u32(
+                template, relocation_candidate_header + 8, high_bytes
+            )
+            .relocation_candidate_virtual_address: _u32(
+                template, relocation_candidate_header + 12, high_bytes
+            )
+            .relocation_candidate_raw_size: _u32(
+                template, relocation_candidate_header + 16, high_bytes
+            )
+            .relocation_candidate_raw_offset: _u32(
+                template, relocation_candidate_header + 20, high_bytes
+            )
+            .relocation_candidate_span: relocation_candidate_virtual_size
+            relocation_candidate_raw_size > relocation_candidate_span?
+                .relocation_candidate_span: relocation_candidate_raw_size
+            (
+                relocation_directory_size > 0 /\
+                relocation_directory_address >= relocation_candidate_virtual_address /\
+                relocation_directory_address + relocation_directory_size <= relocation_candidate_virtual_address + relocation_candidate_span
+            )?
+                .relocation_raw_offset: (
+                    relocation_candidate_raw_offset +
+                    relocation_directory_address - relocation_candidate_virtual_address
+                )
+            .relocation_section_index+: 1
+        relocation_directory_size > 0?
+            relocation_raw_offset >= 0 ?! "x64 compiler template has an unmapped base-relocation directory"
+            .relocation_position: relocation_raw_offset
+            .relocation_stop: relocation_raw_offset + relocation_directory_size
+            (relocation_position < relocation_stop)?>
+                .relocation_page: _u32(
+                    updated, relocation_position, high_bytes
+                )
+                .relocation_block_size: _u32(
+                    updated, relocation_position + 4, high_bytes
+                )
+                (relocation_block_size >= 8 /\ relocation_position + relocation_block_size <= relocation_stop) ?! "x64 compiler template has an invalid base-relocation block"
+                relocation_page >= virtual_address?
+                    .updated: _replace_u32(
+                        updated, relocation_position,
+                        relocation_page + virtual_growth, high_bytes
+                    )
+                .relocation_position+: relocation_block_size
+        @: (
+            slice_bytes(updated, 0, raw_offset) &
+            _zero_bytes(raw_size, high_bytes) &
+            slice_bytes(updated, raw_offset, template_length)
+        )
+    (
+        updated & _zero_bytes(raw_offset - template_length, high_bytes) &
+        _zero_bytes(raw_size, high_bytes)
+    )
