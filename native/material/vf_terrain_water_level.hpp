@@ -135,7 +135,7 @@ inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainTileReference(
         TerrainSampleLayout::row_prefix, [](std::size_t index) { return index; });
 }
 
-inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainSampleDemandReference(
+inline std::uint64_t ValidateTerrainSampleDemandReference(
     const TerrainHeightCondition& condition, std::array<std::int32_t, 2> tile,
     std::uint32_t refinement, std::span<const std::uint64_t> demands, std::size_t sample_budget
 ) {
@@ -148,6 +148,15 @@ inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainSampleDemandRe
         if (demands[index] >= potential) throw std::range_error("terrain sample demand exceeds tile domain");
         if (!seen.insert(demands[index]).second) throw std::invalid_argument("terrain sample demand is duplicated");
     }
+    return potential;
+}
+
+inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainSampleDemandReference(
+    const TerrainHeightCondition& condition, std::array<std::int32_t, 2> tile,
+    std::uint32_t refinement, std::span<const std::uint64_t> demands, std::size_t sample_budget
+) {
+    const auto potential = ValidateTerrainSampleDemandReference(condition, tile, refinement, demands, sample_budget);
+    const auto count = std::min(demands.size(), sample_budget);
     return RealizeTerrainSamplesKernel(condition, tile, refinement, potential, count,
         TerrainSampleLayout::indexed, [&](std::size_t index) { return demands[index]; });
 }
