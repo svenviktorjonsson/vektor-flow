@@ -91,3 +91,34 @@ This is an evidence plan, not a new public API or frozen gate replacement.
 No source code, schema, diagnostic, ABI, or test assertion changed in this map.
 The missing I240 seed remains separate; no rebuilt seed was substituted.
 No ADR-0005 percentage is promoted by this audit.
+
+## Read-only addendum: named-token parser stub
+
+Inspected at bootstrap `dedada4e30cdae5f6e462d5feda00b23f58eb0cb`.
+`compiler/self_hosted/parser.vkf::parse_module_from_cursor` (line 1170) peeks
+the first token and unconditionally returns
+`module_node([], span(first.location, first.location))`.
+`parse_token_stream_json` calls this function after decoding the envelope and
+calling its shape/EOF helpers. Thus the named-token entrypoint also has no
+module-body production; solving private tape tokenization alone cannot fix it.
+
+Adjacent helpers are not a hidden complete parser: `parse_block` returns an
+empty block; `parse_call` supplies an empty argument list;
+`parse_function_definition` supplies empty parameters and a null return type;
+`parse_statement` dispatches only IDENT to `parse_bind`. Capability prose about
+`vkf_parser_token_stream_smoke` describes the native smoke path, not proof that
+these VKF bodies parse the same inputs. This is source inspection, not an
+executed runtime RED or a claim about whether the JSON binding is executable.
+
+After the helper-compatibility decision, the smallest future nonempty-AST RED
+is runtime input of the canonical envelope for `answer: 42`, through the
+existing named-token entrypoint, compared with the native parser's actual bind
+node, identifier, literal, and source locations. First establish that the
+entrypoint executes without a substituted decoder; if compilation or decoding
+fails, preserve that earlier failure rather than claiming the empty-AST RED.
+Then vary the binding/value and prove two statements remain in source order.
+Malformed input must retain the approved exact first diagnostic. Passing this
+slice would prove only that parser behavior, not full parser or bootstrap
+completion. No replacement pattern frontend, schema, diagnostic, or source
+change is authorized by this addendum; the A/B decision remains in
+`docs/plans/bootstrap-token-helper-boundary.md`.
