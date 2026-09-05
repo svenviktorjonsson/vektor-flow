@@ -9,7 +9,7 @@
   "sources": [
     {
       "path": "compiler/self_hosted/lexer.vkf",
-      "source_sha256": "936e8ff64885a2f917ca9ff408c3dbe5d7d4ccb712ba2f7d7147466654fd6336",
+      "source_sha256": "19be57aa68467221cd8ddd46c7a839585fb881b02415b375596726516c977a93",
       "parsed_with_native_parser": true
     },
     {
@@ -77,5 +77,5 @@
     "compiler/self_hosted/stdlib/io.vkf"
   ],
   "source_count": 11,
-  "bundle_sha256": "24c4455a06a47418f344e254123a62152dfaa0279c0f605ec8544e345508141b"
+  "bundle_sha256": "af555c9aa8268be3084e7f4e37c636749b22be80149fe494bd3ac2a9fe66c873"
 }

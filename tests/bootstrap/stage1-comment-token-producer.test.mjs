@@ -83,6 +83,52 @@ test("comment markers inside strings remain string contents", () => {
   checkTokenProducers('"#"+"##" # EOF', 0, ["tagged_numeric_function_token_tape"]);
 });
 
+test("escaped quotes and backslashes stay inside the existing string token", () => {
+  checkTokenProducers(String.raw`"\"" + "\\" + "a\"b" + "\\\""`, 0,
+    ["tagged_numeric_function_token_tape"]);
+});
+
+test("escaped string boundaries preserve Unicode locations and following comments", () => {
+  const strings = Array.from({ length: 17 }, (_, count) => JSON.stringify(`λ${"\\".repeat(count)}"#`));
+  checkTokenProducers(`${strings.join("+")} # outside`, 0,
+    ["tagged_numeric_function_token_tape"]);
+});
+
+test("incomplete escaped strings retain the existing exact diagnostic", () => {
+  const workRoot = resolve(process.env.VKF_TEST_WORK_ROOT ?? join(root, "build/bootstrap-tests"));
+  mkdirSync(workRoot, { recursive: true });
+  const work = mkdtempSync(join(workRoot, "string-error-"));
+  try {
+    copyFileSync(lexerSource, join(work, "lexer.vkf"));
+    copyFileSync(join(root, "compiler/self_hosted/stdlib/io.vkf"), join(work, "io.vkf"));
+    const harness = join(work, "producer.vkf"), artifact = join(work, `producer${suffix}`);
+    writeFileSync(harness, [
+      "lexer: .lexer", "io: .io", "errors: .errors", "path: io.read_line()",
+      "source: io.read_text(path)", 'message: ""',
+      "lexer.tagged_numeric_function_token_tape(source)!?",
+      "    errors.AssertionError => .message: $.message", ":: message", "",
+    ].join("\n"));
+    const compiled = spawnSync(compiler, ["-b", harness, "-o", artifact, "--optimizer-policy", "mask-0"], {
+      cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true,
+    });
+    assert.equal(compiled.status, 0, compiled.error?.message ?? compiled.stderr);
+    for (const source of ['"', '"abc\\', '"abc\\"', '"abc\\" ## later unclosed comment']) {
+      const inputPath = join(work, "input.vkf");
+      writeFileSync(inputPath, source);
+      const executed = spawnSync(artifact, [], {
+        cwd: work, encoding: "utf8", input: `${inputPath}\n`, timeout: 3_000, windowsHide: true,
+      });
+      assert.equal(executed.status, 0, executed.error?.message ?? executed.stderr);
+      assert.equal(executed.stderr, "");
+      // Preserve the existing tape diagnostic, not the native lexer's differently
+      // capitalized spelling. Full diagnostic parity remains a separate boundary.
+      assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "unterminated string literal\n");
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
 test("compiled VKF comment errors preserve the canonical message through error propagation", () => {
   const workRoot = resolve(process.env.VKF_TEST_WORK_ROOT ?? join(root, "build/bootstrap-tests"));
   mkdirSync(workRoot, { recursive: true });

@@ -633,6 +633,10 @@ _tagged_function_punctuation_kind(ch:str) -> int:
 
 _scan_tagged_function_string(cursor:StringCursor) -> StringCursor:
     ~cursor.eof?! "unterminated string literal"
+    cursor.peek() = "\\"?
+        escaped: cursor.advance()
+        ~escaped.eof?! "unterminated string literal"
+        @: _scan_tagged_function_string(escaped.advance())
     cursor.peek() = "\""?
         @: cursor.advance()
     _scan_tagged_function_string(cursor.advance())
