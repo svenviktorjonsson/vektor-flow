@@ -1,0 +1,69 @@
+// Proposed RED fixture only: numeric tape code 26 awaits Language Design Authority.
+// Restore the .test.mjs name only after the decision is recorded. Not an acceptance exclusion.
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const suffix = process.platform === "win32" ? ".exe" : "";
+const nativeBin = resolve(process.env.VKF_NATIVE_BIN ?? join(root, "build/native-windows/bin"));
+const lexerSource = resolve(process.env.VKF_LEXER_SOURCE ?? join(root, "compiler/self_hosted/lexer.vkf"));
+
+test("runtime token producer preserves native equality token locations in compiler source", () => {
+  const workRoot = resolve(process.env.VKF_TEST_WORK_ROOT ?? join(root, "build/bootstrap-tests"));
+  mkdirSync(workRoot, { recursive: true });
+  const work = mkdtempSync(join(workRoot, "equality-producer-"));
+  try {
+    copyFileSync(lexerSource, join(work, "lexer.vkf"));
+    copyFileSync(join(root, "compiler/self_hosted/stdlib/io.vkf"), join(work, "io.vkf"));
+    const harness = join(work, "producer.vkf"), artifact = join(work, `producer${suffix}`);
+    writeFileSync(harness, [
+      "lexer: .lexer", "io: .io", "path: io.read_line()", "source: io.read_text(path)",
+      "tape: lexer.tagged_numeric_function_token_tape(source)", ":: tape.rows", "",
+    ].join("\n"));
+    const compiled = spawnSync(join(nativeBin, `vkf-strict${suffix}`), [
+      "-b", harness, "-o", artifact, "--optimizer-policy", "mask-0",
+    ], { cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true });
+    assert.equal(compiled.status, 0, compiled.error?.message ?? compiled.stderr);
+    const compilerLines = readFileSync(join(root, "compiler/self_hosted/lexer.vkf"), "utf8")
+      .replace(/\r\n/g, "\n").split("\n");
+    const comparisonLine = compilerLines.findIndex((line) => line === '    cursor.peek() = "\\n"?');
+    assert.ok(comparisonLine >= 0, "canonical compiler comparison is missing");
+    const sources = [
+      compilerLines.slice(0, comparisonLine + 1).join("\n"),
+      "left=right\nleft = 2\nleft=## comment λ ##right",
+      '"=" = "=="',
+    ];
+    for (const source of sources) {
+      const inputPath = join(work, "input.vkf");
+      writeFileSync(inputPath, source);
+      const canonical = spawnSync(join(nativeBin, `vkf_lexer_cursor_smoke${suffix}`), [
+        "--file", inputPath, "<equality>",
+      ], { cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true });
+      assert.equal(canonical.status, 0, canonical.stderr);
+      const executed = spawnSync(artifact, [], {
+        cwd: work, encoding: "utf8", input: `${inputPath}\n`, timeout: 3_000, windowsHide: true,
+      });
+      assert.equal(executed.status, 0, executed.error?.message ?? executed.stderr);
+      assert.equal(executed.stderr, "");
+      const flat = JSON.parse(executed.stdout);
+      const rows = Array.from({ length: flat.length / 6 }, (_, index) => flat.slice(index * 6, index * 6 + 6));
+      // Code 26 is an additive compiler-private tape kind; native token JSON
+      // remains named EQ. This checks only EQ, not unimplemented full-stream parity.
+      const equalities = rows.filter(([kind]) => kind === 26);
+      const expected = JSON.parse(canonical.stdout).tokens.filter(({ kind }) => kind === "EQ");
+      assert.deepEqual(equalities.map(([, start, stop, value, line, column]) => {
+        assert.equal(stop, start + 1);
+        assert.equal(Buffer.from(source).subarray(start, stop).toString(), "=");
+        assert.equal(value, 0);
+        return [line, column];
+      }), expected.map(({ location }) => [location.line, location.column]));
+      assert.equal(rows.at(-1)[0], 5);
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
