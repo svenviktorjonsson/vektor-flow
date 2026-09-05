@@ -34,25 +34,36 @@ int main(int argc, char** argv) {
         return 0;
     }
     using namespace vkf::wasm::vm::detail;
+    namespace trig = vkf::wasm::trig_package;
     const unsigned prefix = argc == 3 ? 130 : 0;
+    const unsigned trig_base = 6 + prefix;
+    const unsigned trig_memory = 1024;
     Writer module;
     for (auto byte : {0x00,0x61,0x73,0x6d,0x01,0x00,0x00,0x00}) module.u8(byte);
     Writer types;
-    types.u32_leb(3);
+    types.u32_leb(3 + trig::function_count);
     for (auto input : {wasm_f64, wasm_i32}) {
         types.u8(0x60); types.u32_leb(1); types.u8(input); types.u32_leb(1); types.u8(wasm_i32);
     }
     types.u8(0x60); types.u32_leb(2); types.u8(wasm_i32); types.u8(wasm_i32);
     types.u32_leb(1); types.u8(wasm_i32);
+    trig::append_types(types);
     append_section(module, 1, types.take());
     Writer functions;
-    functions.u32_leb(6 + prefix);
+    functions.u32_leb(6 + prefix + trig::function_count);
     for (unsigned i=0; i<prefix; ++i) functions.u32_leb(0);
     for (auto type : {0,1,1,1,1,2}) functions.u32_leb(type);
+    for (unsigned i=0; i<trig::function_count; ++i) functions.u32_leb(3+i);
     append_section(module, 3, functions.take());
     Writer memory;
-    memory.u32_leb(1); memory.u8(0); memory.u32_leb(1);
+    memory.u32_leb(1); memory.u8(0); memory.u32_leb(2);
     append_section(module, 5, memory.take());
+    Writer globals; globals.u32_leb(2);
+    globals.u8(wasm_i32); globals.u8(1);
+    i32_const(globals,trig_memory+trig::data_bytes+trig::stack_bytes); globals.u8(0x0b);
+    globals.u8(wasm_i32); globals.u8(0);
+    i32_const(globals,trig_memory); globals.u8(0x0b);
+    append_section(module,6,globals.take());
     Writer exports;
     exports.u32_leb(6);
     exports.name("memory"); exports.u8(2); exports.u32_leb(0);
@@ -62,7 +73,7 @@ int main(int argc, char** argv) {
     }
     append_section(module, 7, exports.take());
     Writer code;
-    code.u32_leb(6 + prefix);
+    code.u32_leb(6 + prefix + trig::function_count);
     for (unsigned i=0; i<prefix; ++i) {
         Writer dummy; dummy.u32_leb(0); i32_const(dummy,0); dummy.u8(0x0b);
         code.raw(encoded_body(std::move(dummy)));
@@ -72,12 +83,17 @@ int main(int argc, char** argv) {
     i32_const(make_number,16); local_get(make_number,0); f64_store(make_number);
     i32_const(make_number,16); make_number.u8(0x0b);
     code.raw(encoded_body(std::move(make_number)));
-    code.raw(emit_sine_function(prefix,0.0));
-    code.raw(emit_sine_function(prefix,1.5707963267948966192));
+    code.raw(emit_sine_function(prefix,trig_base+trig::generated::sine_index));
+    code.raw(emit_sine_function(prefix,trig_base+trig::generated::cosine_index));
     code.raw(emit_natural_log_function(prefix));
     code.raw(emit_exponential_function(prefix));
     code.raw(emit_power_function(prefix));
+    trig::append_code(code,trig_base,0,1);
     append_section(module,10,code.take());
+    Writer data; data.u32_leb(1); data.u32_leb(0);
+    i32_const(data,trig_memory); data.u8(0x0b);
+    data.u32_leb(trig::data_bytes); data.raw(trig::generated::static_data,trig::data_bytes);
+    append_section(module,11,data.take());
     const auto bytes=module.take();
     std::ofstream output(argv[1],std::ios::binary);
     output.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());

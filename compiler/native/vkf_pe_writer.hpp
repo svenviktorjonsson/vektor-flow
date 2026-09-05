@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/vkf_trig_native.generated.hpp"
+
 #include "compiler/native/vkf_machine_ir.hpp"
 
 #include <algorithm>
@@ -150,12 +152,16 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
         ? numeric_output_count : static_cast<std::uint32_t>(sequence_outputs.size());
     const std::uint32_t wrapper_size = 768u + sequence_count * 96u;
     const auto generated_offset = detail::align_up(wrapper_size, 16);
+    const auto& trig = vkf::trig::native_package::x64_windows;
+    const bool needs_trig = math_imports.sin || math_imports.cos;
+    const auto trig_offset = detail::align_up(
+        generated_offset + static_cast<std::uint32_t>(generated_code.size()), trig.alignment);
     const std::string numeric_format = "%.17g\n";
     const std::string string_format = "%.*s\n";
     const std::string token_numeric_format = "%.17g";
     const std::string token_string_format = "%.*s";
     const auto numeric_format_offset = detail::align_up(
-        generated_offset + static_cast<std::uint32_t>(generated_code.size()), 8);
+        trig_offset + (needs_trig ? static_cast<std::uint32_t>(trig.size) : 0u), 8);
     const auto string_format_offset = numeric_format_offset +
         static_cast<std::uint32_t>(numeric_format.size() + 1);
     const auto token_numeric_format_offset = string_format_offset +
@@ -180,8 +186,6 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     if (math_imports.power) msvcrt_imports.push_back({"pow", 0});
     if (math_imports.remainder) msvcrt_imports.push_back({"fmod", 0});
     if (math_imports.floor) msvcrt_imports.push_back({"floor", 0});
-    if (math_imports.sin) msvcrt_imports.push_back({"sin", 0});
-    if (math_imports.cos) msvcrt_imports.push_back({"cos", 0});
     if (math_imports.exp) msvcrt_imports.push_back({"exp", 0});
     if (math_imports.ln) msvcrt_imports.push_back({"log", 0});
     if (math_imports.write || math_imports.files) msvcrt_imports.push_back({"_write", 0});
@@ -335,8 +339,8 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto pow_iat = imported_iat("pow");
     const auto fmod_iat = imported_iat("fmod");
     const auto floor_iat = imported_iat("floor");
-    const auto sin_iat = imported_iat("sin");
-    const auto cos_iat = imported_iat("cos");
+    const auto sin_entry = math_imports.sin ? image_base + text_rva + trig_offset + trig.sine_offset : 0;
+    const auto cos_entry = math_imports.cos ? image_base + text_rva + trig_offset + trig.cosine_offset : 0;
     const auto exp_iat = imported_iat("exp");
     const auto ln_iat = imported_iat("log");
     const auto write_iat = imported_iat("_write");
@@ -451,10 +455,10 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     } else {
         out.raw({0x48, 0x81, 0xec}); out.u32(math_imports.csv ? 0x148 : 0x138);
     }
-    const auto emit_runtime_import = [&](std::uint64_t iat, std::uint32_t offset) {
+    const auto emit_runtime_import = [&](std::uint64_t iat, std::uint32_t offset, bool indirect = true) {
         if (iat != 0) {
             out.raw({0x48, 0xb8}); out.u64(iat);
-            out.raw({0x48, 0x8b, 0x00});
+            if (indirect) out.raw({0x48, 0x8b, 0x00});
         } else {
             out.raw({0x31, 0xc0});
         }
@@ -467,8 +471,8 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     emit_runtime_import(fmod_iat, 0x28);
     emit_runtime_import(floor_iat, 0x30);
     emit_runtime_import(ln_iat, 0x38);
-    emit_runtime_import(sin_iat, 0x40);
-    emit_runtime_import(cos_iat, 0x48);
+    emit_runtime_import(sin_entry, 0x40, false);
+    emit_runtime_import(cos_entry, 0x48, false);
     emit_runtime_import(exp_iat, 0x50);
     out.raw({0x48, 0xb8}); out.u64(image_base + rdata_rva + string_offset);
     out.raw({0x48, 0x89, 0x44, 0x24, 0x58});
@@ -575,6 +579,10 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto call_return = call_patch + 4 - text_raw_offset;
     out.set_u32(call_patch, generated_offset - call_return);
     out.pad_to(text_raw_offset + generated_offset); out.append(generated_code);
+    if (needs_trig) {
+        out.pad_to(text_raw_offset + trig_offset);
+        out.values.insert(out.values.end(), trig.bytes, trig.bytes + trig.size);
+    }
     out.pad_to(text_raw_offset + numeric_format_offset); out.text(numeric_format); out.u8(0);
     out.pad_to(text_raw_offset + string_format_offset); out.text(string_format); out.u8(0);
     out.pad_to(text_raw_offset + token_numeric_format_offset); out.text(token_numeric_format); out.u8(0);

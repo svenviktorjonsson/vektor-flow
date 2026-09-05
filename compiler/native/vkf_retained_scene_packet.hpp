@@ -1,6 +1,7 @@
 #pragma once
 
 #include "native/VfOverlay/vf/json.hpp"
+#include "runtime/vkf_trig.h"
 
 #include <algorithm>
 #include <array>
@@ -254,8 +255,8 @@ inline vf::JsonValue elementwise_math(
     if (!value.is_number()) throw Error("retained scene math requires numeric values");
     const double input = value.as_number();
     double output = 0.0;
-    if (function == "sin") output = std::sin(input);
-    else if (function == "cos") output = std::cos(input);
+    if (function == "sin") output = vkf_trig_v1_sin(input);
+    else if (function == "cos") output = vkf_trig_v1_cos(input);
     else if (function == "tan") output = std::tan(input);
     else if (function == "exp") output = std::exp(input);
     else if (function == "sqrt") output = std::sqrt(input);

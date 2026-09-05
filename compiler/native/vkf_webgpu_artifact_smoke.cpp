@@ -1,4 +1,5 @@
 #include "native/VfOverlay/vf/json.hpp"
+#include "runtime/vkf_trig.h"
 #include "vkf_native_scene_lowering.hpp"
 #include "vkf_retained_scene_packet.hpp"
 
@@ -948,10 +949,10 @@ EvaluatedBindingValue evaluate_binding_value(const vf::JsonValue& value, const s
         const EvaluatedBindingValue arg = evaluate_binding_value(args[0], bindings);
         auto apply_intrinsic = [&field_name](double value) -> double {
             if (field_name == "sin") {
-                return std::sin(value);
+                return vkf_trig_v1_sin(value);
             }
             if (field_name == "cos") {
-                return std::cos(value);
+                return vkf_trig_v1_cos(value);
             }
             if (field_name == "sqrt") {
                 return std::sqrt(value);

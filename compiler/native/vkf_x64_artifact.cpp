@@ -1,4 +1,5 @@
 #include "native/VfOverlay/vf/json.hpp"
+#include "runtime/vkf_trig.h"
 #include "compiler/native/vkf_x64_backend.hpp"
 #include "compiler/native/vkf_x64_dce.hpp"
 #include "compiler/native/vkf_elf_writer.hpp"
@@ -13748,8 +13749,8 @@ public:
         runtime_[1] = function_address(static_cast<double (*)(double, double)>(std::fmod));
         runtime_[2] = function_address(static_cast<double (*)(double)>(std::floor));
         runtime_[3] = function_address(static_cast<double (*)(double)>(std::log));
-        runtime_[4] = function_address(static_cast<double (*)(double)>(std::sin));
-        runtime_[5] = function_address(static_cast<double (*)(double)>(std::cos));
+        runtime_[4] = function_address(&vkf_trig_v1_sin);
+        runtime_[5] = function_address(&vkf_trig_v1_cos);
         runtime_[6] = function_address(static_cast<double (*)(double)>(std::exp));
         runtime_[7] = reinterpret_cast<std::uintptr_t>(string_data);
         runtime_[8] = function_address(static_cast<void* (*)(std::size_t)>(std::malloc));

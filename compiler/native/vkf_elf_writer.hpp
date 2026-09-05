@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/vkf_trig_native.generated.hpp"
+
 #include "compiler/native/vkf_machine_ir.hpp"
 
 #include <algorithm>
@@ -224,11 +226,14 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
         ? numeric_output_count : static_cast<std::uint32_t>(sequence_outputs.size());
     const std::uint32_t wrapper_size = 768u + sequence_count * 128u;
     const auto generated_offset = detail::align_up(wrapper_offset + wrapper_size, 16);
+    const auto& trig = vkf::trig::native_package::x64_sysv;
+    const auto trig_offset = detail::align_up(
+        generated_offset + static_cast<std::uint32_t>(generated_code.size()), trig.alignment);
     const std::string numeric_format = "%.17g\n";
     const std::string token_numeric_format = "%.17g";
     const std::string newline = "\n";
     const auto numeric_format_offset = detail::align_up(
-        generated_offset + static_cast<std::uint32_t>(generated_code.size()), 8);
+        trig_offset + static_cast<std::uint32_t>(trig.size), 8);
     const auto newline_offset = numeric_format_offset +
         static_cast<std::uint32_t>(numeric_format.size() + 1);
     const auto token_numeric_format_offset = newline_offset +
@@ -263,8 +268,6 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     constexpr std::uint32_t fmod_name = 34;
     constexpr std::uint32_t floor_name = 39;
     constexpr std::uint32_t log_name = 45;
-    constexpr std::uint32_t sin_name = 50;
-    constexpr std::uint32_t cos_name = 54;
     constexpr std::uint32_t exp_name = 58;
     constexpr std::uint32_t malloc_name = 62;
     constexpr std::uint32_t free_name = 69;
@@ -301,8 +304,6 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto fmod_got = address(got_offset + 16);
     const auto floor_got = address(got_offset + 24);
     const auto log_got = address(got_offset + 32);
-    const auto sin_got = address(got_offset + 40);
-    const auto cos_got = address(got_offset + 48);
     const auto exp_got = address(got_offset + 56);
     const auto malloc_got = address(got_offset + 64);
     const auto free_got = address(got_offset + 72);
@@ -362,9 +363,9 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     out.raw({0x48, 0x89, 0x44, 0x24, 0x10});
     out.raw({0x48, 0xb8}); out.u64(log_got); out.raw({0x48, 0x8b, 0x00});
     out.raw({0x48, 0x89, 0x44, 0x24, 0x18});
-    out.raw({0x48, 0xb8}); out.u64(sin_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0xb8}); out.u64(address(trig_offset + trig.sine_offset));
     out.raw({0x48, 0x89, 0x44, 0x24, 0x20});
-    out.raw({0x48, 0xb8}); out.u64(cos_got); out.raw({0x48, 0x8b, 0x00});
+    out.raw({0x48, 0xb8}); out.u64(address(trig_offset + trig.cosine_offset));
     out.raw({0x48, 0x89, 0x44, 0x24, 0x28});
     out.raw({0x48, 0xb8}); out.u64(exp_got); out.raw({0x48, 0x8b, 0x00});
     out.raw({0x48, 0x89, 0x44, 0x24, 0x30});
@@ -540,6 +541,7 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     const auto return_address = call_patch + 4;
     out.set_u32(call_patch, static_cast<std::uint32_t>(generated_offset - return_address));
     out.pad_to(generated_offset); out.append(generated_code);
+    out.pad_to(trig_offset); out.values.insert(out.values.end(), trig.bytes, trig.bytes + trig.size);
     out.pad_to(numeric_format_offset); out.text(numeric_format); out.u8(0);
     out.pad_to(newline_offset); out.text(newline); out.u8(0);
     out.pad_to(token_numeric_format_offset); out.text(token_numeric_format); out.u8(0);
@@ -549,8 +551,11 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     out.pad_to(dynstr_offset); out.text(strings);
     out.pad_to(dynsym_offset); out.values.resize(out.values.size() + 24, 0);
     detail::symbol(out, snprintf_name); detail::symbol(out, pow_name); detail::symbol(out, fmod_name);
-    detail::symbol(out, floor_name); detail::symbol(out, log_name); detail::symbol(out, sin_name);
-    detail::symbol(out, cos_name); detail::symbol(out, exp_name); detail::symbol(out, malloc_name);
+    detail::symbol(out, floor_name); detail::symbol(out, log_name);
+    // Keep the other dynamic-symbol/GOT indices stable; these two slots no
+    // longer name or bind host trigonometry functions.
+    out.values.resize(out.values.size() + 48, 0);
+    detail::symbol(out, exp_name); detail::symbol(out, malloc_name);
     detail::symbol(out, free_name); detail::symbol(out, abort_name); detail::symbol(out, exit_name);
     detail::symbol(out, clock_gettime_name); detail::symbol(out, nanosleep_name);
     detail::symbol(out, localtime_name);
@@ -572,8 +577,9 @@ inline Result executable_x64(const std::vector<std::uint8_t>& generated_code,
     detail::relocation(out, snprintf_got, 1); detail::relocation(out, pow_got, 2);
     detail::relocation(out, fmod_got, 3);
     detail::relocation(out, floor_got, 4);
-    detail::relocation(out, log_got, 5); detail::relocation(out, sin_got, 6);
-    detail::relocation(out, cos_got, 7); detail::relocation(out, exp_got, 8);
+    detail::relocation(out, log_got, 5);
+    out.values.resize(out.values.size() + 48, 0); // Two reserved R_X86_64_NONE entries.
+    detail::relocation(out, exp_got, 8);
     detail::relocation(out, malloc_got, 9); detail::relocation(out, free_got, 10);
     detail::relocation(out, abort_got, 11); detail::relocation(out, exit_got, 12);
     detail::relocation(out, clock_gettime_got, 13); detail::relocation(out, nanosleep_got, 14);

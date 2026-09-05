@@ -1,4 +1,5 @@
 #include "native/VfOverlay/vf/json.hpp"
+#include "runtime/vkf_trig.h"
 #include "compiler/native/vkf_symbolic.hpp"
 
 #include <cstdint>
@@ -1627,10 +1628,10 @@ std::string eval_call(
                 return format_number(std::sqrt(input));
             }
             if (full_name == "math.sin") {
-                return format_number(std::sin(input));
+                return format_number(vkf_trig_v1_sin(input));
             }
             if (full_name == "math.cos") {
-                return format_number(std::cos(input));
+                return format_number(vkf_trig_v1_cos(input));
             }
             if (full_name == "math.ln") {
                 return format_number(std::log(input));

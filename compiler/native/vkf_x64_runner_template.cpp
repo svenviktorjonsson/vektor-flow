@@ -1,3 +1,5 @@
+#include "runtime/vkf_trig.h"
+
 #ifdef _WIN32
 #pragma section(".vkfcod", read, execute)
 #pragma comment(linker, "/SECTION:.vkfcod,ER")
@@ -35,8 +37,6 @@ extern "C" double __cdecl pow(double, double);
 extern "C" double __cdecl fmod(double, double);
 extern "C" double __cdecl floor(double);
 extern "C" double __cdecl log(double);
-extern "C" double __cdecl sin(double);
-extern "C" double __cdecl cos(double);
 extern "C" double __cdecl exp(double);
 #endif
 
@@ -75,19 +75,11 @@ static double vkf_ln_f64(double value) {
 }
 
 static double vkf_sin_f64(double value) {
-#ifdef _WIN32
-    return sin(value);
-#else
-    return std::sin(value);
-#endif
+    return vkf_trig_v1_sin(value);
 }
 
 static double vkf_cos_f64(double value) {
-#ifdef _WIN32
-    return cos(value);
-#else
-    return std::cos(value);
-#endif
+    return vkf_trig_v1_cos(value);
 }
 
 static double vkf_exp_f64(double value) {

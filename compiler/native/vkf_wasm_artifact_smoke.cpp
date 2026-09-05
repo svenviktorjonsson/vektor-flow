@@ -1,4 +1,5 @@
 #include "native/VfOverlay/vf/json.hpp"
+#include "runtime/vkf_trig.h"
 #include "vkf_native_scene_lowering.hpp"
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
 #include "vkf_retained_scene_packet.hpp"
@@ -886,7 +887,7 @@ EvaluatedBindingValue evaluate_binding_value(
         }
         const EvaluatedBindingValue arg = evaluate_binding_value(args[0], bindings);
         auto apply_intrinsic = [&field_name](double value) -> double {
-            return field_name == "sin" ? std::sin(value) : std::cos(value);
+            return field_name == "sin" ? vkf_trig_v1_sin(value) : vkf_trig_v1_cos(value);
         };
         if (!arg.is_array) {
             EvaluatedBindingValue out;

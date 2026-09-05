@@ -1,0 +1,426 @@
+{
+  "scope": "Exact test order, source hashes, native result objects, WASM result/error objects and pass/fail reasons. No diagnostic or numeric normalization.",
+  "before": "docs/evidence/shared-trig-pre-switch-full-suite-2026-09-05.json",
+  "after": "docs/evidence/shared-trig-production-full-suite-2026-09-05.json",
+  "beforeCompilerWasmSha256": "ef5a91b822ebb5ccfbbf751331bec00beb73f45de874c880303447b84a5d2548",
+  "afterCompilerWasmSha256": "63b0f126f2c606dec39240845e660a63aaeb95abe1e6daeb69cf54340acfafc0",
+  "beforeNativeCompilerSha256": "89d2703171b680000d3e839cbacad5be06d159f2b4f97a4f09a48c70f94070aa",
+  "afterNativeCompilerSha256": "b7c6632499e2793f6a5f7b2f16ee74912f5e01df0b24cde81e3de0356b739816",
+  "entries": 451,
+  "failedCases": 332,
+  "exact": false,
+  "differences": [
+    {
+      "index": 256,
+      "file": "tests/vkf/invalid/bare_named_tuple.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/bare_named_tuple.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/bare_named_tuple.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 257,
+      "file": "tests/vkf/invalid/compound_update_unknown_name.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/compound_update_unknown_name.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/compound_update_unknown_name.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 258,
+      "file": "tests/vkf/invalid/function_broadcast_record.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/function_broadcast_record.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/function_broadcast_record.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 259,
+      "file": "tests/vkf/invalid/function_broadcast_tuple.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/function_broadcast_tuple.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/function_broadcast_tuple.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 260,
+      "file": "tests/vkf/invalid/generic_type_binding_mismatch.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/generic_type_binding_mismatch.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/generic_type_binding_mismatch.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 261,
+      "file": "tests/vkf/invalid/implicit_vector_name_index.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/implicit_vector_name_index.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/implicit_vector_name_index.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 262,
+      "file": "tests/vkf/invalid/implicit_vector_name_update.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/implicit_vector_name_update.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/implicit_vector_name_update.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 263,
+      "file": "tests/vkf/invalid/math_broadcast_record.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/math_broadcast_record.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/math_broadcast_record.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 264,
+      "file": "tests/vkf/invalid/multiset_mixed_value_types.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/multiset_mixed_value_types.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/multiset_mixed_value_types.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 265,
+      "file": "tests/vkf/invalid/nested_redeclare_during_update.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/nested_redeclare_during_update.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/nested_redeclare_during_update.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 266,
+      "file": "tests/vkf/invalid/raise_non_error_value.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/raise_non_error_value.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/raise_non_error_value.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 267,
+      "file": "tests/vkf/invalid/record_scalar_arithmetic.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/record_scalar_arithmetic.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/record_scalar_arithmetic.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 268,
+      "file": "tests/vkf/invalid/redeclare_in_expression.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/redeclare_in_expression.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/redeclare_in_expression.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 269,
+      "file": "tests/vkf/invalid/redeclare_parameter.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/redeclare_parameter.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/redeclare_parameter.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 270,
+      "file": "tests/vkf/invalid/redeclare_statement.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/redeclare_statement.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/redeclare_statement.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 271,
+      "file": "tests/vkf/invalid/sum_axis_duplicate.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/sum_axis_duplicate.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/sum_axis_duplicate.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 272,
+      "file": "tests/vkf/invalid/sum_axis_out_of_range.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/sum_axis_out_of_range.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/sum_axis_out_of_range.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 273,
+      "file": "tests/vkf/invalid/sum_tuple_argument.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/sum_tuple_argument.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/sum_tuple_argument.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 274,
+      "file": "tests/vkf/invalid/undotted_compound_update.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/undotted_compound_update.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/undotted_compound_update.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 275,
+      "file": "tests/vkf/invalid/update_unknown_name.vkf",
+      "name": "<expected compile error>",
+      "field": "native",
+      "before": {
+        "status": 0,
+        "stdout": "PASS /repo/build/trig-pre-switch-789211d7/tests/vkf/invalid/update_unknown_name.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "PASS /src/tests/vkf/invalid/update_unknown_name.vkf::compile_error\n1 passed, 0 failed\n",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 276,
+      "file": "tests/vkf/io_direct.vkf",
+      "name": "text_file_round_trip",
+      "field": "native",
+      "before": {
+        "status": 134,
+        "stdout": "",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 276,
+      "file": "tests/vkf/io_direct.vkf",
+      "name": "text_file_round_trip",
+      "field": "reason",
+      "before": "native test failed",
+      "after": "WASM lowering: WASM math intrinsic requires one argument in function text_file_round_trip.body.body[1].expr"
+    },
+    {
+      "index": 277,
+      "file": "tests/vkf/io_direct.vkf",
+      "name": "byte_file_round_trip_uses_string_backed_bytes",
+      "field": "native",
+      "before": {
+        "status": 134,
+        "stdout": "",
+        "stderr": "",
+        "signal": null
+      },
+      "after": {
+        "status": 0,
+        "stdout": "",
+        "stderr": "",
+        "signal": null
+      }
+    },
+    {
+      "index": 277,
+      "file": "tests/vkf/io_direct.vkf",
+      "name": "byte_file_round_trip_uses_string_backed_bytes",
+      "field": "reason",
+      "before": "native test failed",
+      "after": "WASM lowering: WASM math intrinsic requires one argument in function text_file_round_trip.body.body[1].expr"
+    }
+  ]
+}

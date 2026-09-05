@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(vektor_flow_native_compiler LANGUAGES CXX)
+project(vektor_flow_native_compiler LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,8 +10,22 @@ get_filename_component(VKF_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUT
 set(VKF_JSON_SOURCE "${VKF_REPO_ROOT}/native/VfOverlay/vf/json.cpp")
 set(VKF_CSV_DEMAND_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/vkf_csv_demand_source_scanner.cpp")
 
+add_library(vkf_trig STATIC
+    runtime/trig/sin.c runtime/trig/cos.c runtime/trig/__sin.c runtime/trig/__cos.c
+    runtime/trig/__rem_pio2.c runtime/trig/__rem_pio2_large.c
+    runtime/trig/scalbn.c runtime/trig/floor.c
+)
+set_target_properties(vkf_trig PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+if(MSVC)
+    target_compile_options(vkf_trig PRIVATE /fp:strict)
+else()
+    target_compile_options(vkf_trig PRIVATE -ffp-contract=off -fno-fast-math
+        -fno-builtin -fexcess-precision=standard)
+endif()
+
 function(vkf_native_target target source uses_json)
     add_executable(${target} "${CMAKE_CURRENT_SOURCE_DIR}/${source}")
+    target_link_libraries(${target} PRIVATE vkf_trig)
     if(uses_json)
         target_sources(${target} PRIVATE "${VKF_JSON_SOURCE}")
     endif()

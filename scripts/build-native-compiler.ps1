@@ -37,6 +37,13 @@ $targetDefinitions = @(
 )
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
+$trigObjects = @()
+foreach ($kernel in @("sin", "cos", "__sin", "__cos", "__rem_pio2", "__rem_pio2_large", "scalbn", "floor")) {
+    $trigObject = Join-Path $outputRoot ("vkf_trig_" + $kernel + ".obj")
+    & $clang -x c -std=c11 -O2 -ffp-contract=off -fno-fast-math -fno-builtin -fexcess-precision=standard -c (Join-Path $repoRoot ("compiler/native/runtime/trig/" + $kernel + ".c")) -o $trigObject
+    if ($LASTEXITCODE -ne 0) { throw "clang failed building the compiler-owned trig kernel $kernel" }
+    $trigObjects += $trigObject
+}
 foreach ($target in $targetDefinitions) {
     if ($OnlyTargets.Count -gt 0 -and $OnlyTargets -notcontains $target.Name) {
         continue
@@ -58,6 +65,7 @@ foreach ($target in $targetDefinitions) {
     if ($target.Json) {
         $arguments += $jsonSource
     }
+    $arguments += $trigObjects
     if ($target.Name -eq "vkf_x64_runner_template") {
         $arguments += @(
             "-Xlinker", "/nodefaultlib",

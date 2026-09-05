@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/vkf_trig_native.generated.hpp"
+
 #include "compiler/native/vkf_machine_ir.hpp"
 
 #include "compiler/native/vkf_sha256.hpp"
@@ -177,8 +179,11 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
     const std::string string_format = "%.*s\n";
     const std::string token_numeric_format = "%.17g";
     const std::string token_string_format = "%.*s";
+    const auto& trig = vkf::trig::native_package::arm64;
+    const auto trig_offset = detail::align_up(
+        generated_offset + static_cast<std::uint32_t>(generated_code.size()), trig.alignment);
     const auto numeric_format_offset = detail::align_up(
-        generated_offset + static_cast<std::uint32_t>(generated_code.size()), 4);
+        trig_offset + static_cast<std::uint32_t>(trig.size), 4);
     const auto string_format_offset = numeric_format_offset +
         static_cast<std::uint32_t>(numeric_format.size() + 1);
     const auto token_numeric_format_offset = string_format_offset +
@@ -212,8 +217,7 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
         0x40, '_', 'f', 'm', 'o', 'd', 0x00, 0x90,
         0x40, '_', 'f', 'l', 'o', 'o', 'r', 0x00, 0x90,
         0x40, '_', 'l', 'o', 'g', 0x00, 0x90,
-        0x40, '_', 's', 'i', 'n', 0x00, 0x90,
-        0x40, '_', 'c', 'o', 's', 0x00, 0x90,
+        0x80, 0x10, // Skip the two internal trig slots without dyld bindings.
         0x40, '_', 'e', 'x', 'p', 0x00, 0x90,
         0x40, '_', 'm', 'a', 'l', 'l', 'o', 'c', 0x00, 0x90,
         0x40, '_', 'f', 'r', 'e', 'e', 0x00, 0x90,
@@ -255,7 +259,8 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
     detail::segment(out, "__PAGEZERO", 0, image_base, 0, 0, 0, 0, 0);
     detail::segment(out, "__TEXT", image_base, data_offset, 0, data_offset, 5, 5, 2);
     out.fixed("__text", 16); out.fixed("__TEXT", 16);
-    out.le64(image_base + entry_offset); out.le64(wrapper_size + generated_code.size());
+    out.le64(image_base + entry_offset);
+    out.le64(trig_offset + trig.size - entry_offset);
     out.le32(entry_offset); out.le32(2); out.le32(0); out.le32(0);
     out.le32(0x80000400u); out.le32(0); out.le32(0); out.le32(0);
     out.fixed("__cstring", 16); out.fixed("__TEXT", 16);
@@ -301,8 +306,10 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
     out.le32(0xf940092au); out.le32(0xf90007eau);
     out.le32(0xf9400d2au); out.le32(0xf9000beau);
     out.le32(0xf940112au); out.le32(0xf9000feau);
-    out.le32(0xf940152au); out.le32(0xf90013eau);
-    out.le32(0xf940192au); out.le32(0xf90017eau);
+    out.le32(detail::arm64_adrp(10, static_cast<std::uint32_t>(out.values.size()), trig_offset + trig.sine_offset));
+    out.le32(detail::arm64_add_imm(10, trig_offset + trig.sine_offset)); out.le32(0xf90013eau);
+    out.le32(detail::arm64_adrp(10, static_cast<std::uint32_t>(out.values.size()), trig_offset + trig.cosine_offset));
+    out.le32(detail::arm64_add_imm(10, trig_offset + trig.cosine_offset)); out.le32(0xf90017eau);
     out.le32(0xf9401d2au); out.le32(0xf9001beau);
     out.le32(detail::arm64_adrp(10, static_cast<std::uint32_t>(out.values.size()), string_offset));
     out.le32(detail::arm64_add_imm(10, string_offset)); out.le32(0xf9001feau);
@@ -474,6 +481,8 @@ inline Result executable_arm64(const std::vector<std::uint8_t>& generated_code,
         (static_cast<std::uint32_t>(branch_delta / 4) & 0x03ffffffu);
     out.set_le32(branch_offset, branch);
     out.values.insert(out.values.end(), generated_code.begin(), generated_code.end());
+    out.values.resize(trig_offset, 0);
+    out.values.insert(out.values.end(), trig.bytes, trig.bytes + trig.size);
     out.values.resize(numeric_format_offset, 0);
     out.values.insert(out.values.end(), numeric_format.begin(), numeric_format.end());
     out.values.push_back(0);

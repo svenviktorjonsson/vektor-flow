@@ -2,12 +2,12 @@
 
 Accepted Math A: use the audited, versioned compiler-owned sin/cos source on
 every binary64 VKF evaluation path. Candidate evidence is committed at
-`905394a8`; production selection is still RED. No accuracy threshold, diagnostic,
+`905394a8`; production selection was RED at this plan's initial checkpoint. No accuracy threshold, diagnostic,
 runtime slot, public schema or acceptance identity is changed by this plan.
 
 ## Production migration matrix
 
-| Consumer | Current divergent selection | Required proof |
+| Consumer | Original divergent selection | Required proof |
 | --- | --- | --- |
 | Direct ELF x64 (`vkf_elf_writer.hpp`) | libm `sin`/`cos` imports | Emitted executable uses packaged code, no trig imports, exact candidate results |
 | Direct PE x64 (`vkf_pe_writer.hpp`) | MSVCRT `sin`/`cos` imports | Same source packaged with Windows x64 ABI; executable parity and import inspection |
@@ -51,4 +51,9 @@ counted as evidence of a math defect.
    suite. Preserve unrelated REDs and explicitly review downstream identity
    changes. No performance claim follows from these correctness gates.
 
-No production consumer has been switched at this checkpoint.
+The coordinated source switch and current evidence are recorded in
+[`shared-trig-production-2026-09-05.md`](../evidence/shared-trig-production-2026-09-05.md).
+The exact sine gate is GREEN; the full shared suite remains 119/451 with all
+332 failure results unchanged from the exact pre-switch baseline. Missing
+spectral evaluator source and unavailable final macOS execution remain explicit
+unfinished target gates, not inferred successes.

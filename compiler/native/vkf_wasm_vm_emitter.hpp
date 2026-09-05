@@ -3,6 +3,7 @@
 #include "vkf_wasm_bytecode.hpp"
 #include "vkf_wasm_value_layout.hpp"
 #include "vkf_wasm_math_kernels.hpp"
+#include "vkf_wasm_trig_package.hpp"
 #include "vkf_wasm_stat_kernels.hpp"
 
 #include <algorithm>
@@ -3049,10 +3050,15 @@ inline std::vector<std::uint8_t> emit_identifier_continue_function(
 
 inline std::vector<std::uint8_t> emit_sine_function(
     std::uint32_t make_number_index,
-    double phase
+    std::uint32_t numeric_kernel_index
 ) {
-    return vkf::wasm::math_kernels::emit_trigonometric_function<Writer>(
-        make_number_index, phase != 0.0);
+    Writer body;
+    body.u32_leb(0);
+    local_get(body, 0); f64_load(body);
+    body.u8(0x10); body.u32_leb(numeric_kernel_index);
+    body.u8(0x10); body.u32_leb(make_number_index);
+    body.u8(0x0b);
+    return encoded_body(std::move(body));
 }
 
 inline std::vector<std::uint8_t> emit_tangent_function(
@@ -5383,6 +5389,15 @@ inline EmittedModule emit(
         bytecode_bytes,
         emitted.layout
     );
+    const auto trig_memory_base = emitted.layout.heap_base;
+    const auto trig_storage = static_cast<std::uint64_t>(trig_memory_base)
+        + trig_package::data_bytes + trig_package::stack_bytes;
+    if (trig_storage > std::numeric_limits<std::uint32_t>::max() - 15u) {
+        throw VmEmitterError("WASM VM arena exceeds 32-bit linear memory");
+    }
+    image.bytes.insert(image.bytes.end(), trig_package::generated::static_data,
+        trig_package::generated::static_data + trig_package::data_bytes);
+    emitted.layout.heap_base = detail::align_up(static_cast<std::uint32_t>(trig_storage), 16);
     const std::uint64_t heap_limit =
         static_cast<std::uint64_t>(emitted.layout.heap_base)
         + options.arena_capacity;
@@ -5453,7 +5468,8 @@ inline EmittedModule emit(
     const std::uint32_t rewind_index = reset_index + 1;
     const std::uint32_t invoke_index = rewind_index + 1;
     const std::uint32_t evaluate_index = invoke_index + 1;
-    const std::uint32_t emitted_function_count = evaluate_index + 1;
+    const std::uint32_t trig_function_base = evaluate_index + 1;
+    const std::uint32_t emitted_function_count = trig_function_base + trig_package::function_count;
 
     detail::Writer wasm;
     const std::uint8_t preamble[] = {
@@ -5576,6 +5592,7 @@ inline EmittedModule emit(
         {detail::wasm_i32}
     );
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
+    trig_package::append_types(types);
     detail::append_section(wasm, 1, types.take());
 
     detail::Writer functions;
@@ -5600,7 +5617,9 @@ inline EmittedModule emit(
                 || instruction.opcode == bytecode::Opcode::ResetOutput) has_program_output = true;
         }
     }
-    globals.u32_leb(has_program_output ? 3 : 1);
+    const std::uint32_t trig_stack_global = has_program_output ? 3 : 1;
+    const std::uint32_t trig_base_global = trig_stack_global + 1;
+    globals.u32_leb(trig_stack_global + 2);
     globals.u8(detail::wasm_i32);
     globals.u8(0x01);
     globals.u8(0x41);
@@ -5612,6 +5631,10 @@ inline EmittedModule emit(
             globals.u8(0x41); globals.i32_leb(0); globals.u8(0x0b);
         }
     }
+    globals.u8(detail::wasm_i32); globals.u8(0x01);
+    detail::i32_const(globals, emitted.layout.heap_base); globals.u8(0x0b);
+    globals.u8(detail::wasm_i32); globals.u8(0x00);
+    detail::i32_const(globals, trig_memory_base); globals.u8(0x0b);
     detail::append_section(wasm, 6, globals.take());
 
     detail::Writer exports;
@@ -5708,10 +5731,11 @@ inline EmittedModule emit(
     code.raw(detail::emit_record_set_function(runtime.allocate));
     code.raw(detail::emit_identifier_start_function(runtime.make_boolean));
     code.raw(detail::emit_identifier_continue_function(runtime.make_boolean));
-    code.raw(detail::emit_sine_function(runtime.make_number, 0.0));
+    code.raw(detail::emit_sine_function(runtime.make_number,
+        trig_function_base + trig_package::generated::sine_index));
     code.raw(detail::emit_sine_function(
         runtime.make_number,
-        1.5707963267948966192
+        trig_function_base + trig_package::generated::cosine_index
     ));
     code.raw(detail::emit_tangent_function(
         runtime.sine,
@@ -5793,6 +5817,7 @@ inline EmittedModule emit(
         module.entry_function,
         invoke_index
     ));
+    trig_package::append_code(code, trig_function_base, trig_stack_global, trig_base_global);
     detail::append_section(wasm, 10, code.take());
 
     detail::Writer data;
