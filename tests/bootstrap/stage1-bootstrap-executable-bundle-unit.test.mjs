@@ -29,7 +29,7 @@ test("bootstrap bundle emits an executable compiler-source unit", () => {
     const sourceFile = join(work, "compiler.vkf");
     copyFileSync(join(root, "compiler", "self_hosted", "compiler.vkf"), sourceFile);
     for (const dependency of [
-      "lexer", "parser", "typed_ir", "machine_ir", "machine_ir_validation",
+      "lexer", "parser", "typed_ir", "machine_ir", "machine_ir_validation", "pe_x64",
     ]) {
       copyFileSync(
         join(root, "compiler", "self_hosted", `${dependency}.vkf`),
