@@ -1,8 +1,12 @@
-# Shared trigonometry: decision required
+# Shared trigonometry: A accepted, implementation pending
 
-2026-09-05. Audit only; **not approved or implemented**. The exact sine-output
-test remains RED. The accepted output-only browser boundary does not authorize
-changing native math results.
+2026-09-05. Viktor explicitly chose **math A**: one versioned deterministic
+compiler-owned sin/cos policy for native and WASM. First establish a more accurate
+portable candidate against high-precision and edge references; do not adopt the
+weaker current Taylor emitter. Cover runner/JIT/PE/ARM64 and constant evaluators
+without ABI or diagnostic changes; never replace acceptance hashes silently.
+Implementation is pending and the exact sine-output test remains RED. This is
+a separate approval from the earlier output-only browser boundary decision.
 
 ## Evidence
 
@@ -67,7 +71,7 @@ output: it measurably loses accuracy relative to the tested native baseline.
   The pre-gen lane's float forest identity discrepancy is separately unresolved.
 - Audit covers `sin`/`cos`, not proof for exp/log/pow/atan2 or every platform.
 
-## Proposed decision for Viktor
+## Accepted direction (implementation gates unchanged)
 
 Approve a **versioned deterministic binary64 sin/cos policy**, implemented from
 one portable compiler-owned kernel source for native and WASM, with explicit
@@ -78,17 +82,17 @@ Pin source/license hash, kernel version and strict evaluation flags in build
 evidence. Version is a build/runtime identity, not a new public manifest field
 unless separately approved. No host fallback or mixed platform selection.
 
-After approval, RED packets must prove: same binary results native/WASM for the
+The approved RED packets must prove: same binary results native/WASM for the
 chosen source and evaluation rules; current exact stdout test GREEN without
 normalization; signed-zero/nonfinite behavior; existing accuracy gates unchanged;
 native 451/451 and full unchanged WASM suite; direct PE and ARM64/runtime coverage;
 unchanged ABI/diagnostics; reviewed downstream deterministic identities. A new
 accuracy requirement must be explicitly approved, not invented by this audit.
 
-Alternative: retain native system math and keep exact cross-platform math parity
+Rejected alternative: retain native system math and keep exact cross-platform math parity
 blocked. Bundling one platform libm algorithm into WASM alone cannot guarantee
 matching every other native OS. No runtime switch or tolerance relaxation has
-been made while this decision is pending.
+been made yet; candidate evidence precedes the production switch.
 
 ## Reproduce
 
