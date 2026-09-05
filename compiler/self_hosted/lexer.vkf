@@ -71,6 +71,24 @@ is_newline(ch:str):
 is_comment_start(ch:str):
     ch = "#"
 
+_lexer_skip_line_comment(cursor:StringCursor) -> StringCursor:
+    (cursor.eof \/ is_newline(cursor.peek()))?
+        @: cursor
+    _lexer_skip_line_comment(cursor.advance())
+
+_lexer_skip_multiline_comment(cursor:StringCursor) -> StringCursor:
+    ~cursor.eof?! "Unterminated multiline comment"
+    next: cursor.advance()
+    (cursor.peek() = "#" /\ next.peek() = "#")?
+        @: next.advance()
+    _lexer_skip_multiline_comment(next)
+
+_lexer_skip_comment(cursor:StringCursor) -> StringCursor:
+    next: cursor.advance()
+    next.peek() = "#"?
+        @: _lexer_skip_multiline_comment(next.advance())
+    _lexer_skip_line_comment(next)
+
 is_identifier_start(ch:str):
     is_alpha(ch)
 
@@ -481,6 +499,10 @@ _scan_tagged_statement_tokens(
         )
     is_whitespace(cursor.peek())?
         @: _scan_tagged_statement_tokens(cursor.advance(), tape, expected)
+    is_comment_start(cursor.peek())?
+        @: _scan_tagged_statement_tokens(
+            _lexer_skip_comment(cursor), tape, expected
+        )
     is_newline(cursor.peek())?
         newline_tape: tape
         (expected = 3)?
@@ -625,6 +647,8 @@ _scan_tagged_function_tokens(
         )
     is_whitespace(cursor.peek())?
         @: _scan_tagged_function_tokens(cursor.advance(), tape)
+    is_comment_start(cursor.peek())?
+        @: _scan_tagged_function_tokens(_lexer_skip_comment(cursor), tape)
     is_newline(cursor.peek())?
         next: cursor.advance()
         newline_tape: _append_tagged_token(
