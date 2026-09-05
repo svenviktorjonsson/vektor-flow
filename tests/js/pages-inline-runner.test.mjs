@@ -574,6 +574,123 @@ test("trusted inline renderer draws source-scaled alternating checker cells", ()
   assert.ok(colors.has("rgba(71, 140, 230, 1)"));
 });
 
+test("worker preserves indexed topology and explicit coordinate dimensionality", () => {
+  const common = {
+    magic: 1447773766, version: 6, rows: 1, columns: 3,
+    color: [0.12, 0.72, 1, 1], x: [[-1, 0, 1]], y: [[0, 1, 0]],
+    x_axes: ["u"], y_axes: ["u"], z_axes: [],
+    topology_axes: ["u"], group_axes: [], time_axis: "",
+    receives_lighting: false, casts_shadow: false, receives_shadow: false,
+    roughness: 1, specular_strength: 0,
+  };
+  const line2d = materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...common, dimension: 2 }],
+  }).packets[0];
+  const plane3d = materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...common, dimension: 3, z: 0 }],
+  }).packets[0];
+
+  assert.deepEqual([...line2d.slice(0, 16)], [
+    1447773766, 8, 2, 1, 3, 0, 1,
+    0.12, 0.72, 1, 1, 0, 0, 0, 1, 0,
+  ]);
+  assert.deepEqual([...plane3d.slice(0, 16)], [
+    1447773766, 8, 3, 1, 3, 0, 1,
+    0.12, 0.72, 1, 1, 0, 0, 0, 1, 0,
+  ]);
+  assert.deepEqual([...line2d.slice(16)], [-1, 0, 0, 0, 1, 0, 1, 0, 0]);
+  assert.deepEqual([...plane3d.slice(16)], [-1, 0, 0, 0, 1, 0, 1, 0, 0]);
+  const grouped = materializeVisualOutput({
+    kind: "visual",
+    packet_records: [{
+      ...common,
+      dimension: 2,
+      rows: 2,
+      x: [[-1, 0, 1], [-1, 0, 1]],
+      y: [[0, 1, 0], [2, 3, 2]],
+      x_axes: ["i", "u"],
+      y_axes: ["i", "u"],
+      topology_axes: ["u"],
+      group_axes: ["i"],
+    }],
+  }).packets[0];
+  assert.deepEqual([...grouped.slice(2, 7)], [2, 2, 3, 0, 1]);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...common, dimension: 2, z: 0 }],
+  }), /invalid visual packet/u);
+  assert.throws(() => materializeVisualOutput({
+    kind: "visual", packet_records: [{ ...common, dimension: 3 }],
+  }), /invalid visual packet/u);
+});
+
+test("trusted inline renderer gives an inferred 2D line continuous topology and labelled axes", () => {
+  const strokes = [];
+  const labels = [];
+  let path = [];
+  let strokeStyle = "";
+  const context = {
+    beginPath: () => { path = []; },
+    clearRect: () => {},
+    fillRect: () => {},
+    moveTo: (...point) => path.push(["move", ...point]),
+    lineTo: (...point) => path.push(["line", ...point]),
+    stroke: () => strokes.push({ style: strokeStyle, path: [...path] }),
+    fillText: (text, ...point) => labels.push([text, ...point]),
+    measureText: (text) => ({ width: String(text).length * 7 }),
+    set fillStyle(_value) {},
+    set font(_value) {},
+    set lineWidth(_value) {},
+    set strokeStyle(value) { strokeStyle = value; },
+    set textAlign(_value) {},
+    set textBaseline(_value) {},
+  };
+  const packet = Float64Array.from([
+    1447773766, 8, 2, 1, 7, 0, 1, 0.12, 0.72, 1, 1, 0, 0, 0, 1, 0,
+    -3, -0.12, 0, -2, -0.92, 0, -1, -0.86, 0, 0, -0.03, 0,
+    1, 0.82, 0, 2, 0.88, 0, 3, 0.09, 0,
+  ]);
+
+  renderInlineResult({ width: 640, height: 360, getContext: () => context }, [packet]);
+
+  assert.ok(strokes.some(({ path: commands }) => (
+    commands.filter(([kind]) => kind === "move").length === 1
+      && commands.filter(([kind]) => kind === "line").length === 6
+  )), "one u topology must draw as one uninterrupted seven-point line");
+  assert.ok(strokes.length >= 3, "default x/y axes and the line must be drawn");
+  assert.ok(labels.length >= 4, "default tick labels must be visible");
+  assert.ok(labels.every(([, x, y]) => Number.isFinite(x) && Number.isFinite(y)));
+});
+
+test("trusted inline renderer never connects independent i groups", () => {
+  const strokes = [];
+  let path = [];
+  let strokeStyle = "";
+  const context = {
+    beginPath: () => { path = []; }, clearRect: () => {}, fillRect: () => {},
+    moveTo: (...point) => path.push(["move", ...point]),
+    lineTo: (...point) => path.push(["line", ...point]),
+    stroke: () => strokes.push({ style: strokeStyle, path: [...path] }),
+    fillText: () => {}, measureText: () => ({ width: 7 }),
+    set fillStyle(_value) {}, set font(_value) {}, set lineWidth(_value) {},
+    set strokeStyle(value) { strokeStyle = value; },
+    set textAlign(_value) {}, set textBaseline(_value) {},
+  };
+  const packet = Float64Array.from([
+    1447773766, 8, 2, 2, 3, 0, 1, 0.12, 0.72, 1, 1, 0, 0, 0, 1, 0,
+    -1, 0, 0, 0, 1, 0, 1, 0, 0,
+    -1, 2, 0, 0, 3, 0, 1, 2, 0,
+  ]);
+
+  renderInlineResult({ width: 640, height: 360, getContext: () => context }, [packet]);
+
+  const geometry = strokes.filter(({ style }) => style === "rgba(31, 184, 255, 1)");
+  assert.equal(geometry.length, 2);
+  assert.ok(geometry.every(({ path: commands }) => (
+    commands.filter(([kind]) => kind === "move").length === 1
+      && commands.filter(([kind]) => kind === "line").length === 2
+  )));
+});
+
 test("trusted inline renderer modulates grass from the validated material parameters", () => {
   const fillColors = [];
   const context = {

@@ -87,7 +87,11 @@
   items and never create adjacency between groups. `t` orders temporal samples
   or states and never creates spatial adjacency. Thus `x_u` is an x-coordinate
   array over topology axis `u`, `p_t` is a position array over time, and `p_iu`
-  is a group of independent `u`-topologies.
+  is a group of independent `u`-topologies. An unindexed channel is constant
+  across every indexed axis. Coordinate presence determines inferred display
+  dimensionality: `x_u` and `y_u` with `z` omitted are 2D, while an explicit
+  scalar `z:0` is a constant third coordinate and therefore 3D. A constant
+  coordinate is written once, never expanded into a repeated vector.
 - **Layer time domain**: Every Layer owns its own `t` axis. Layers in one View
   may have different temporal lengths and different `t_min` and `t_max` bounds.
   Supplying `t` gives the Layer's temporal coordinates directly; otherwise its

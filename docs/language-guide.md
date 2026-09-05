@@ -1640,6 +1640,11 @@ fastest. Thus `p_tc` is a time sequence of position-component vectors and
 `x_u` is scalar data over an ordered topology axis. These are values, not
 calls: `p_t` is an array over `t`; `p(t:num)` is a function.
 
+Unindexed channels are constants over all indexed axes. Display dimensionality
+is inferred from the coordinate channels that are present: `x_u` and `y_u`
+with no `z` are 2D; adding scalar `z:0` makes the same topology 3D. Write a
+constant coordinate once rather than repeating it along an index.
+
 Each `Layer` owns its time coordinates or bounds and its playback mode. The
 four modes are `"repeat"` (wrap and continue), `"mirror"` (reverse at each
 end), `"stop"` (stay at the last sample), and `"reset"` (jump to the first

@@ -460,6 +460,77 @@ export function materializeVisualOutput(output) {
         record.casts_shadow ? 1 : 0, record.receives_shadow ? 1 : 0,
       ]);
     }
+    if (record?.magic === 1447773766 && record.version === 6) {
+      const allowedKeys = new Set([
+        "casts_shadow", "color", "columns", "dimension", "group_axes", "id", "magic",
+        "optical", "receives_lighting", "receives_shadow", "roughness", "rows",
+        "specular_strength", "surface_system", "texture", "time_axis", "topology_axes",
+        "version", "x", "x_axes", "y", "y_axes", "z", "z_axes",
+      ]);
+      const axisList = (value, allowed) => Array.isArray(value)
+        && new Set(value).size === value.length
+        && value.every((axis) => typeof axis === "string" && allowed.includes(axis));
+      const topologyNames = ["u", "v", "w"];
+      const groupNames = ["i", "j", "k"];
+      const hasZ = Object.hasOwn(record, "z");
+      const coordinateAxes = [...new Set([
+        ...(record.x_axes || []), ...(record.y_axes || []), ...(record.z_axes || []),
+      ])];
+      const declaredAxes = [
+        ...(record.topology_axes || []), ...(record.group_axes || []),
+        ...(record.time_axis ? [record.time_axis] : []),
+      ];
+      const finiteGrid = (grid) => Array.isArray(grid) && grid.length === record.rows
+        && grid.every((row) => finiteVector(row, record.columns));
+      const zIsValid = record.dimension === 2
+        ? !hasZ && record.z_axes?.length === 0
+        : hasZ && (finiteNumber(record.z) || finiteGrid(record.z));
+      if (Object.keys(record).some((key) => !allowedKeys.has(key))
+          || (record.dimension !== 2 && record.dimension !== 3)
+          || !Number.isInteger(record.rows) || record.rows < 1
+          || !Number.isInteger(record.columns) || record.columns < 1
+          || record.rows * record.columns > 500_000
+          || !finiteVector(record.color, 4)
+          || !finiteGrid(record.x) || !finiteGrid(record.y) || !zIsValid
+          || !axisList(record.x_axes, [...topologyNames, ...groupNames, "t"])
+          || !axisList(record.y_axes, [...topologyNames, ...groupNames, "t"])
+          || !axisList(record.z_axes, [...topologyNames, ...groupNames, "t"])
+          || !axisList(record.topology_axes, topologyNames)
+          || !axisList(record.group_axes, groupNames)
+          || (record.time_axis !== "" && record.time_axis !== "t")
+          || coordinateAxes.length !== declaredAxes.length
+          || coordinateAxes.some((axis) => !declaredAxes.includes(axis))
+          || declaredAxes.some((axis) => !coordinateAxes.includes(axis))
+          || (Object.hasOwn(record, "id") && !identifier(record.id))
+          || typeof record.receives_lighting !== "boolean"
+          || typeof record.casts_shadow !== "boolean"
+          || typeof record.receives_shadow !== "boolean"
+          || !finiteNumber(record.roughness) || record.roughness < 0 || record.roughness > 1
+          || !finiteNumber(record.specular_strength)
+          || record.specular_strength < 0 || record.specular_strength > 1
+          || materializeTexture(record.texture) || materializeOptical(record.optical)
+          || materializeSurfaceSystem(record.surface_system)) {
+        throw new TypeError("browser compiler returned an invalid visual packet");
+      }
+      const varyingAxes = coordinateAxes.filter((axis) => axis !== "t");
+      const rowAxis = record.rows > 1 ? varyingAxes[0] : null;
+      const columnAxis = record.columns > 1 ? varyingAxes.at(-1) : null;
+      const values = [
+        record.magic, 8, record.dimension, record.rows, record.columns,
+        rowAxis && record.topology_axes.includes(rowAxis) ? 1 : 0,
+        columnAxis && record.topology_axes.includes(columnAxis) ? 1 : 0,
+        ...record.color,
+        record.receives_lighting ? 1 : 0, record.casts_shadow ? 1 : 0,
+        record.receives_shadow ? 1 : 0, record.roughness, record.specular_strength,
+      ];
+      for (let row = 0; row < record.rows; row += 1) {
+        for (let column = 0; column < record.columns; column += 1) {
+          const z = finiteNumber(record.z) ? record.z : record.dimension === 2 ? 0 : record.z[row][column];
+          values.push(record.x[row][column], record.y[row][column], z);
+        }
+      }
+      return Float64Array.from(values);
+    }
     if (record?.magic !== 1447773766 || record.version !== 5
         || !Number.isInteger(record.rows) || record.rows < 1
         || !Number.isInteger(record.columns) || record.columns < 1

@@ -54,6 +54,19 @@ test("the guide introduces Why, How and What before descending through links", a
   assert.doesNotMatch(document.html, /Recorded stdout|material-ui-gallery|readme-evidence/u);
 });
 
+test("the geometry example infers a continuous 2D topology from indexed channels", async () => {
+  const document = await buildSiteDocument(root, "docs/site/guide.md");
+  const source = document.examples.find(({ title }) => title === "What")?.source ?? "";
+
+  assert.match(source, /display:\s*Display\(\)/u);
+  assert.doesNotMatch(source, /Display\([^)]*dim\s*:/u);
+  assert.match(source, /\bx_u\s*:/u);
+  assert.match(source, /\by_u\s*:/u);
+  assert.doesNotMatch(source, /\bz(?:_[A-Za-z]+)?\s*:/u);
+  assert.doesNotMatch(source, /\bx_u\s*:\s*\[\s*\[/u);
+  assert.doesNotMatch(source, /\by_u\s*:\s*\[\s*\[/u);
+});
+
 test("every displayed browser example compiles and executes through the shipped WASM", async () => {
   const base = new URL("web/playground/artifacts/", root);
   const [document, wasm, manifest] = await Promise.all([

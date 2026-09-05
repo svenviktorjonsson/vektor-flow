@@ -1,4 +1,5 @@
 import { stepRigidPolygonWorld2D } from "./vf-ui/vf-physics-engine.mjs";
+import axis2dTicks from "./vf-ui/vf-axis2d-ticks.mjs";
 
 const MAGIC = 1447773766;
 
@@ -311,6 +312,30 @@ function decode(packet) {
       receivesLighting: packet[14] === 1, castsShadow: packet[15] === 1,
       receivesShadow: packet[16] === 1, roughness: packet[17],
       specularStrength: packet[18], texture, optical, surfaceSystem,
+    };
+  }
+  if (packet[0] === MAGIC && packet[1] === 8) {
+    const dimension = packet[2];
+    const rows = packet[3];
+    const columns = packet[4];
+    const rowTopology = packet[5];
+    const columnTopology = packet[6];
+    const dataOffset = 16;
+    if (![2, 3].includes(dimension)
+        || !Number.isInteger(rows) || rows < 1
+        || !Number.isInteger(columns) || columns < 1
+        || ![0, 1].includes(rowTopology) || ![0, 1].includes(columnTopology)
+        || packet.length !== dataOffset + (rows * columns * 3)
+        || !Array.from(packet.slice(7)).every(Number.isFinite)) {
+      throw new TypeError("inline renderer received an invalid retained geometry packet");
+    }
+    return {
+      kind: "geometry", packet, dimension, rows, columns, stride: 3, dataOffset,
+      rowTopology: rowTopology === 1, columnTopology: columnTopology === 1,
+      color: packet.slice(7, 11), receivesLighting: packet[11] === 1,
+      castsShadow: packet[12] === 1, receivesShadow: packet[13] === 1,
+      roughness: packet[14], specularStrength: packet[15],
+      texture: null, optical: null, surfaceSystem: null,
     };
   }
   if (packet[0] !== MAGIC || ![1, 2, 3, 4, 5, 6, 7].includes(packet[1])) {
@@ -634,6 +659,71 @@ function rigidWorldVertices(body) {
   ]);
 }
 
+function drawDefaultAxes2D(context, project, canvas, bounds) {
+  const { minX, maxX, minY, maxY } = bounds;
+  const ticks = axis2dTicks.buildAxisCrosshairTickState({
+    width: canvas.width,
+    height: canvas.height,
+    x_visible_min: minX,
+    x_visible_max: maxX,
+    y_visible_min: minY,
+    y_visible_max: maxY,
+    dist: 72,
+    min_dist: 48,
+    max_dist: 96,
+    tick_label_font_size: 11,
+  });
+  const xAxisValue = Math.max(minY, Math.min(maxY, 0));
+  const yAxisValue = Math.max(minX, Math.min(maxX, 0));
+  const [, xAxisY] = project([0, xAxisValue, 0]);
+  const [yAxisX] = project([yAxisValue, 0, 0]);
+  context.lineWidth = 1;
+  context.strokeStyle = "rgba(150, 163, 184, 0.72)";
+  context.beginPath();
+  context.moveTo(project([minX, xAxisValue, 0])[0], xAxisY);
+  context.lineTo(project([maxX, xAxisValue, 0])[0], xAxisY);
+  context.stroke();
+  context.beginPath();
+  context.moveTo(yAxisX, project([yAxisValue, minY, 0])[1]);
+  context.lineTo(yAxisX, project([yAxisValue, maxY, 0])[1]);
+  context.stroke();
+  context.fillStyle = "rgba(203, 213, 225, 0.92)";
+  context.font = "11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  context.textAlign = "center";
+  context.textBaseline = "top";
+  for (const value of ticks.x?.values || []) {
+    const [x] = project([value, xAxisValue, 0]);
+    context.beginPath();
+    context.moveTo(x, xAxisY - 4);
+    context.lineTo(x, xAxisY + 4);
+    context.stroke();
+    context.fillText(
+      axis2dTicks.axisTickLabelWithOffset(
+        value, "linear", minX, maxX, ticks.x.offset, ticks.x.step,
+      ),
+      x,
+      xAxisY + 6,
+    );
+  }
+  context.textAlign = "right";
+  context.textBaseline = "middle";
+  for (const value of ticks.y?.values || []) {
+    const [, y] = project([yAxisValue, value, 0]);
+    context.beginPath();
+    context.moveTo(yAxisX - 4, y);
+    context.lineTo(yAxisX + 4, y);
+    context.stroke();
+    context.fillText(
+      axis2dTicks.axisTickLabelWithOffset(
+        value, "linear", minY, maxY, ticks.y.offset, ticks.y.step,
+      ),
+      yAxisX - 7,
+      y,
+    );
+  }
+  context.lineWidth = 2;
+}
+
 export function renderInlineResult(canvas, packets, timeMs = 0) {
   const decoded = packets.map(decode);
   const meshes = decoded.filter(({ kind }) => kind === "geometry");
@@ -739,6 +829,10 @@ export function renderInlineResult(canvas, packets, timeMs = 0) {
     }
     context.stroke();
   };
+
+  if (!camera && meshes.some(({ dimension }) => dimension === 2)) {
+    drawDefaultAxes2D(context, project, canvas, { minX, maxX, minY, maxY });
+  }
 
   const drawProjectedApertures = (receiver) => {
     if (projectedLights.length === 0) return;
@@ -868,14 +962,16 @@ export function renderInlineResult(canvas, packets, timeMs = 0) {
           context.closePath();
           context.fill();
         }
-        for (let row = 0; row < reflected.rows; row += 1) {
-          drawStrip(
-            reflected.columns,
-            (column) => vertex(reflected, row, column),
-            mirrorProject,
-          );
+        if (reflected.columnTopology !== false) {
+          for (let row = 0; row < reflected.rows; row += 1) {
+            drawStrip(
+              reflected.columns,
+              (column) => vertex(reflected, row, column),
+              mirrorProject,
+            );
+          }
         }
-        if (reflected.rows > 1) {
+        if (reflected.rows > 1 && reflected.rowTopology !== false) {
           for (let column = 0; column < reflected.columns; column += 1) {
             drawStrip(
               reflected.rows,
@@ -909,10 +1005,12 @@ export function renderInlineResult(canvas, packets, timeMs = 0) {
     const alpha = mesh.optical?.transparent
       ? mesh.optical.alpha : (mesh.color?.[3] ?? mesh.packet[7]);
     context.strokeStyle = `rgba(${channel(color[0])}, ${channel(color[1])}, ${channel(color[2])}, ${Math.max(0, Math.min(1, alpha))})`;
-    for (let row = 0; row < mesh.rows; row += 1) {
-      drawStrip(mesh.columns, (column) => vertex(mesh, row, column));
+    if (mesh.columnTopology !== false) {
+      for (let row = 0; row < mesh.rows; row += 1) {
+        drawStrip(mesh.columns, (column) => vertex(mesh, row, column));
+      }
     }
-    if (mesh.rows > 1) {
+    if (mesh.rows > 1 && mesh.rowTopology !== false) {
       for (let column = 0; column < mesh.columns; column += 1) {
         drawStrip(mesh.rows, (row) => vertex(mesh, row, column));
       }
