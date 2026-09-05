@@ -135,6 +135,33 @@ test("output and assertions are editable and run from current source", async () 
   assert.doesNotMatch(outputSection, /Recorded stdout/u);
 });
 
+test("semicolon pipelines are editable and run from current source", async () => {
+  const base = new URL("web/playground/artifacts/", root);
+  const [document, canonical, wasm, manifest] = await Promise.all([
+    buildSiteDocument(root, "docs/language-guide.md"),
+    readFile(new URL("examples/generated/readme/core/49-semicolon-pipes.vkf", root), "utf8"),
+    readFile(new URL("vkf-browser-compiler.wasm", base)),
+    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+  const canonicalSource = canonical.replace(/\r\n/gu, "\n").trimEnd();
+  const example = document.examples.find(({ source }) => source === canonicalSource);
+
+  assert.ok(example, "the canonical semicolon/pipeline source must be editable");
+  assert.deepEqual(compiler.run(example.source).values, [5, [9, 25, 49]]);
+  const edited = example.source.replace("c: 5", "c: 6").replace("$ * 2", "$ * 3");
+  assert.deepEqual(compiler.run(edited).values, [6, [16, 49, 100]]);
+  assert.throws(
+    () => compiler.run(example.source.replace("; c:", " c:")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>5\n\[9, 25, 49\]<\/pre>/u);
+  const semicolonSection = document.html.split('data-vkf-example-id="example-4"')[1]
+    .split('<h3 id="15-tagged-tests">')[0];
+  assert.doesNotMatch(semicolonSection, /Recorded stdout/u);
+});
+
 test("the loops feature is an editable reference example with one prefilled console", async () => {
   const base = new URL("web/playground/artifacts/", root);
   const [document, canonical, wasm, manifest] = await Promise.all([
@@ -151,10 +178,10 @@ test("the loops feature is an editable reference example with one prefilled cons
   assert.ok(example, "the canonical loops source must be editable");
   assert.deepEqual(compiler.run(example.source).values, [10, 2]);
   assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>10\n2<\/pre>/u);
-  const loopsSection = document.html.split('data-vkf-example-id="example-4"')[1]
+  const loopsSection = document.html.split('data-vkf-example-id="example-5"')[1]
     .split('<h3 id="54-return-continue-and-break">')[0];
   assert.doesNotMatch(loopsSection, /Recorded stdout/u);
-  assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 61);
+  assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 60);
 });
 
 test("every displayed browser example compiles and executes through the shipped WASM", async () => {
@@ -208,8 +235,8 @@ test("every editor published anywhere on the site executes through the shipped W
     ...example,
   })));
 
-  assert.equal(editors.length, 12);
-  assert.equal(new Set(editors.map(({ source }) => source)).size, 7);
+  assert.equal(editors.length, 13);
+  assert.equal(new Set(editors.map(({ source }) => source)).size, 8);
   for (const editor of editors) {
     let result;
     assert.doesNotThrow(

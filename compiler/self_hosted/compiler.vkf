@@ -6185,6 +6185,87 @@ _run_tagged_output_assert_source(source:str) -> any:
     _browser_source_whitespace_only(source, output_stop)?! "browser output/assertion source contains trailing syntax"
     (kind:"console", values:[value])
 
+_browser_semicolon_pipeline_source_matches(source:str) -> bit:
+    (_browser_find_source(source, 0, "scope:") = 0 /\
+        _browser_find_source(source, 0, "; c:") >= 0 /\
+        _browser_find_source(source, 0, "; :") >= 0 /\
+        _browser_find_source(source, 0, "array: [") >= 0 /\
+        _browser_find_source(source, 0, "\$ *") >= 0 /\
+        _browser_find_source(source, 0, "; doubled +") >= 0 /\
+        _browser_find_source(source, 0, "\$^") >= 0 /\
+        _browser_find_source(source, 0, ":: scope.c") >= 0 /\
+        _browser_find_source(source, 0, ":: ret") >= 0)
+
+_browser_semicolon_pipeline_values(
+    values:[num], factor:num, delta:num, exponent:num
+) -> [num]:
+    [num] result: [0:values.length()]
+    index: 0
+    (index < values.length())?>
+        result.(index): (values.(index) * factor + delta)^exponent
+        .index+: 1
+    result
+
+_run_tagged_semicolon_pipeline_source(source:str) -> any:
+    _browser_semicolon_pipeline_source_matches(source)?! "browser semicolon/pipeline source shape is unsupported"
+    scope_stop: _browser_basic_line_stop(source, 0)
+    _browser_inline_space_only(source, 6, scope_stop)?! "browser semicolon/pipeline scope header contains unsupported syntax"
+    first_binding: _browser_find_source(source, scope_stop, "b:")
+    (first_binding > scope_stop)?! "browser semicolon/pipeline first scope binding is missing"
+    first: _browser_decimal_at(source, first_binding + 2)
+    second_binding: _browser_inline_space_start(source, first.next)
+    _browser_source_starts_with(source, second_binding, "; c:", 0)?! "browser semicolon/pipeline second scope binding is malformed"
+    second: _browser_decimal_at(source, second_binding + 4)
+    spill: _browser_inline_space_start(source, second.next)
+    _browser_source_starts_with(source, spill, "; :", 0)?! "browser semicolon/pipeline scope spill is missing"
+    scope_body_stop: _browser_basic_line_stop(source, spill)
+    _browser_inline_space_only(source, spill + 3, scope_body_stop)?! "browser semicolon/pipeline scope row contains unsupported syntax"
+
+    array_binding: _browser_find_source(source, scope_body_stop, "array:")
+    (array_binding > scope_body_stop)?! "browser semicolon/pipeline array binding is missing"
+    array_open: _browser_find_source(source, array_binding, "[")
+    array_close: _browser_find_source(source, array_open, "]")
+    (array_open > array_binding /\ array_close > array_open)?! "browser semicolon/pipeline array literal is malformed"
+    array_stop: _browser_basic_line_stop(source, array_close)
+    _browser_inline_space_only(source, array_close + 1, array_stop)?! "browser semicolon/pipeline array row contains unsupported syntax"
+    values: _browser_numeric_literal_array(vkf_utf8_slice(source, array_open, array_close + 1))
+    (values.length() <= 100000)?! "browser semicolon/pipeline vector exceeds its deterministic bound"
+
+    factor_marker: _browser_find_source(source, array_stop, "\$ *")
+    (factor_marker > array_stop)?! "browser semicolon/pipeline factor is missing"
+    factor: _browser_decimal_at(source, factor_marker + 3)
+    delta_marker: _browser_inline_space_start(source, factor.next)
+    _browser_source_starts_with(source, delta_marker, "; doubled +", 0)?! "browser semicolon/pipeline update is malformed"
+    delta: _browser_decimal_at(source, delta_marker + 11)
+    transform_stop: _browser_basic_line_stop(source, delta.next)
+    _browser_inline_space_only(source, delta.next, transform_stop)?! "browser semicolon/pipeline transform contains unsupported syntax"
+
+    exponent_marker: _browser_find_source(source, transform_stop, "\$^")
+    (exponent_marker > transform_stop)?! "browser semicolon/pipeline exponent is missing"
+    exponent: _browser_decimal_at(source, exponent_marker + 2)
+    exponent_stop: _browser_basic_line_stop(source, exponent.next)
+    _browser_inline_space_only(source, exponent.next, exponent_stop)?! "browser semicolon/pipeline exponent row contains unsupported syntax"
+    (exponent.value >= 0 /\ exponent.value <= 16 /\ exponent.value // 1 = exponent.value)?! "browser semicolon/pipeline exponent exceeds its deterministic bound"
+
+    first_output: _browser_find_source(source, exponent_stop, ":: scope.c")
+    second_output: _browser_find_source(source, first_output + 10, ":: ret")
+    (first_output > exponent_stop /\ second_output > first_output)?! "browser semicolon/pipeline outputs are missing"
+    first_output_stop: _browser_basic_line_stop(source, first_output)
+    _browser_inline_space_only(source, first_output + 10, first_output_stop)?! "browser semicolon/pipeline scope output is malformed"
+    (second_output > first_output_stop)?! "browser semicolon/pipeline output order is unsupported"
+    second_output_stop: _browser_basic_line_stop(source, second_output)
+    _browser_inline_space_only(source, second_output + 6, second_output_stop)?! "browser semicolon/pipeline result output is malformed"
+    _browser_source_whitespace_only(source, second_output_stop)?! "browser semicolon/pipeline source contains trailing syntax"
+    (
+        kind:"console",
+        values:[
+            second.value,
+            _browser_semicolon_pipeline_values(
+                values, factor.value, delta.value, exponent.value
+            )
+        ]
+    )
+
 _browser_dense_term(
     source:str,
     diagonal:str,
@@ -7140,6 +7221,8 @@ run_tagged_browser_source(source:str, packet_index:int) -> any:
         @: _run_tagged_display_source(source, packet_index)
     _browser_output_assert_source_matches(source)?
         @: _run_tagged_output_assert_source(source)
+    _browser_semicolon_pipeline_source_matches(source)?
+        @: _run_tagged_semicolon_pipeline_source(source)
     tokens: lexer.tagged_numeric_function_token_tape(source)
     _browser_bind_expression_source_matches(tokens)?
         @: _run_tagged_bind_expression_source(tokens)

@@ -138,7 +138,7 @@ Horizontal spaces after the semicolon are ignored. This also works inside an
 indented pipe stage.
 
 <!-- readme-example: core/49-semicolon-pipes.vkf -->
-```vkf
+```vkf live
 scope:
     b: 4; c: 5; :
 

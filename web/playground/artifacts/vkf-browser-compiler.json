@@ -296,17 +296,17 @@
       "resultType": 1
     },
     "_browser_dense_composition": {
-      "index": 170,
+      "index": 173,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_dense_term": {
-      "index": 168,
+      "index": 171,
       "parameters": 5,
       "resultType": 6
     },
     "_browser_dense_transform": {
-      "index": 169,
+      "index": 172,
       "parameters": 3,
       "resultType": 1
     },
@@ -426,7 +426,7 @@
       "resultType": 1
     },
     "_browser_expect_statement": {
-      "index": 188,
+      "index": 191,
       "parameters": 3,
       "resultType": 1
     },
@@ -461,7 +461,7 @@
       "resultType": 1
     },
     "_browser_layout_only": {
-      "index": 187,
+      "index": 190,
       "parameters": 3,
       "resultType": 1
     },
@@ -596,52 +596,52 @@
       "resultType": 6
     },
     "_browser_nbody_compact": {
-      "index": 175,
+      "index": 178,
       "parameters": 4,
       "resultType": 4
     },
     "_browser_nbody_flatten": {
-      "index": 183,
+      "index": 186,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_nbody_mass_terms": {
-      "index": 181,
+      "index": 184,
       "parameters": 4,
       "resultType": 1
     },
     "_browser_nbody_masses": {
-      "index": 182,
+      "index": 185,
       "parameters": 5,
       "resultType": 1
     },
     "_browser_nbody_nested_value": {
-      "index": 178,
+      "index": 181,
       "parameters": 2,
       "resultType": 1
     },
     "_browser_nbody_scale_row": {
-      "index": 179,
+      "index": 182,
       "parameters": 4,
       "resultType": 1
     },
     "_browser_nbody_scaled_rows": {
-      "index": 180,
+      "index": 183,
       "parameters": 7,
       "resultType": 1
     },
     "_browser_nbody_shape": {
-      "index": 177,
+      "index": 180,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_nbody_shape_field": {
-      "index": 176,
+      "index": 179,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_numeric_literal_array": {
-      "index": 190,
+      "index": 193,
       "parameters": 1,
       "resultType": 1
     },
@@ -656,37 +656,37 @@
       "resultType": 1
     },
     "_browser_pairwise_system_plan": {
-      "index": 185,
+      "index": 188,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_pairwise_system_source_matches": {
-      "index": 184,
+      "index": 187,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_parity_clause": {
-      "index": 191,
+      "index": 194,
       "parameters": 3,
       "resultType": 1
     },
     "_browser_permutation_reduction_source_matches": {
-      "index": 192,
+      "index": 195,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_power_final_multiplier": {
-      "index": 172,
+      "index": 175,
       "parameters": 2,
       "resultType": 2
     },
     "_browser_power_method_source_matches": {
-      "index": 173,
+      "index": 176,
       "parameters": 1,
       "resultType": 1
     },
     "_browser_power_state": {
-      "index": 171,
+      "index": 174,
       "parameters": 3,
       "resultType": 1
     },
@@ -815,6 +815,16 @@
       "parameters": 12,
       "resultType": 1
     },
+    "_browser_semicolon_pipeline_source_matches": {
+      "index": 168,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_semicolon_pipeline_values": {
+      "index": 169,
+      "parameters": 4,
+      "resultType": 1
+    },
     "_browser_signed_lifted_value": {
       "index": 102,
       "parameters": 2,
@@ -891,7 +901,7 @@
       "resultType": 1
     },
     "_browser_zero_vector_statement": {
-      "index": 189,
+      "index": 192,
       "parameters": 3,
       "resultType": 1
     },
@@ -926,7 +936,7 @@
       "resultType": 1
     },
     "_run_tagged_lifted_vector_function": {
-      "index": 194,
+      "index": 197,
       "parameters": 1,
       "resultType": 1
     },
@@ -941,17 +951,22 @@
       "resultType": 1
     },
     "_run_tagged_pairwise_system_source": {
-      "index": 186,
+      "index": 189,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_permutation_reduction_source": {
-      "index": 193,
+      "index": 196,
       "parameters": 1,
       "resultType": 1
     },
     "_run_tagged_power_method_source": {
-      "index": 174,
+      "index": 177,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_run_tagged_semicolon_pipeline_source": {
+      "index": 170,
       "parameters": 1,
       "resultType": 1
     },
@@ -971,7 +986,7 @@
       "resultType": 6
     },
     "run_tagged_browser_source": {
-      "index": 195,
+      "index": 198,
       "parameters": 2,
       "resultType": 2
     },
@@ -983,11 +998,11 @@
   },
   "memory": {
     "argumentsCapacity": 16,
-    "argumentsPointer": 342536,
-    "bytecodeLength": 342536,
+    "argumentsPointer": 349000,
+    "bytecodeLength": 348994,
     "bytecodePointer": 0,
     "resultsCapacity": 1,
-    "resultsPointer": 342792
+    "resultsPointer": 349256
   },
   "schema": "vektor-flow.symbolic-kernel",
   "version": 1,
