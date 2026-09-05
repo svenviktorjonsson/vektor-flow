@@ -1,19 +1,16 @@
 # Vektor Flow
 
-**A few powerful principles. A lot of possibilities.**
+A programming language by Viktor Jonsson, born from a passion for mathematics
+and physics—and one initial idea: **no keywords**.
 
-Vektor Flow is a general-purpose programming language shaped by a passion for
-mathematics and visualisation. It began as a drawing program, then grew around
-one idea: express the work naturally, and let the compiler work on making it fast.
+It grew into a scope-based, functional-style language with
+**immutable values and rebinding** at its core.
 
-A small, consistent core connects calculations, data and graphics, with
-convenient shortcuts for everyday work. The name reflects vectors flowing
-through operations—and its creator, Viktor Jonsson, once nicknamed Flo.
+The operators describe how values flow: `.` reaches in, `:` spills, and `::`
+extends that idea beyond the code—printing to the terminal or reading input
+into a variable.
 
-**[Explore the guide and run examples →](https://vektorflow.org/guide.html)**
+The principle is a powerful core of consistent operations, with convenient
+shorthand built on top.
 
-Start in your browser, without installing a compiler or setting up a backend.
-Download the native compiler when you want to work locally.
-
-VKF is experimental. The browser currently supports a subset of the language;
-the guide distinguishes browser examples from native capabilities.
+**[Explore the guide and run examples at vektorflow.org →](https://vektorflow.org/guide.html)**
