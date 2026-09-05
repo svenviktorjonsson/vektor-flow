@@ -22,7 +22,7 @@ same scope is a forbidden redeclaration. Module imports are separate:
 `alias: .folder.file` has the dotted module path on the right of `:`.
 
 <!-- readme-example: core/01-bindings.vkf -->
-```vkf
+```vkf live
 value: 3
 num scaled: value * 2
 .value: value + 4

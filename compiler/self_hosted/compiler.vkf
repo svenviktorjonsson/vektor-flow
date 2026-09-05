@@ -6064,8 +6064,7 @@ _browser_token_is(tape:any, index:int, kind:int, text:str) -> bit:
         (text = "" \/ _browser_token_text(tape, index) = text))
 
 _browser_bind_update_source_matches(tape:any) -> bit:
-    (tape.count = 27 /\
-        _browser_token_is(tape, 0, 1, "") /\
+    (_browser_token_is(tape, 0, 1, "") /\
         _browser_token_is(tape, 1, 15, ":") /\
         _browser_token_is(tape, 2, 3, "") /\
         _browser_token_is(tape, 3, 4, "") /\
@@ -6090,8 +6089,9 @@ _browser_bind_update_source_matches(tape:any) -> bit:
         _browser_token_is(tape, 22, 15, ":") /\
         _browser_token_is(tape, 23, 15, ":") /\
         _browser_token_is(tape, 24, 1, "") /\
-        _browser_token_is(tape, 25, 4, "") /\
-        _browser_token_is(tape, 26, 5, ""))
+        ((tape.count = 26 /\ _browser_token_is(tape, 25, 5, "")) \/
+         (tape.count = 27 /\ _browser_token_is(tape, 25, 4, "") /\
+          _browser_token_is(tape, 26, 5, ""))))
 
 _run_tagged_bind_update_source(tape:any) -> any:
     _browser_bind_update_source_matches(tape)?! "browser binding/update program shape is unsupported"

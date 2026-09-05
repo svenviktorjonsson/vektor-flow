@@ -70,6 +70,28 @@ test("the geometry example infers a continuous 2D topology from indexed channels
   assert.doesNotMatch(source, /\bz(?:_[A-Za-z]+)?\s*:/u);
 });
 
+test("the bindings feature is an editable reference example with one prefilled console", async () => {
+  const base = new URL("web/playground/artifacts/", root);
+  const [document, canonical, wasm, manifest] = await Promise.all([
+    buildSiteDocument(root, "docs/language-guide.md"),
+    readFile(new URL("examples/generated/readme/core/01-bindings.vkf", root), "utf8"),
+    readFile(new URL("vkf-browser-compiler.wasm", base)),
+    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+  const canonicalSource = canonical.replace(/\r\n/gu, "\n").trimEnd();
+  const example = document.examples.find(({ source }) => source === canonicalSource);
+
+  assert.ok(example, "the canonical bindings source must be editable");
+  assert.deepEqual(compiler.run(example.source).values, [7, 6]);
+  assert.deepEqual(compiler.run(`${example.source}\n`).values, [7, 6]);
+  assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>7\n6<\/pre>/u);
+  const bindingsSection = document.html.split('data-vkf-example-id="example-1"')[1]
+    .split('<p>Declarations and updates are expressions')[0];
+  assert.doesNotMatch(bindingsSection, /Recorded stdout/u);
+});
+
 test("the loops feature is an editable reference example with one prefilled console", async () => {
   const base = new URL("web/playground/artifacts/", root);
   const [document, canonical, wasm, manifest] = await Promise.all([
@@ -86,10 +108,10 @@ test("the loops feature is an editable reference example with one prefilled cons
   assert.ok(example, "the canonical loops source must be editable");
   assert.deepEqual(compiler.run(example.source).values, [10, 2]);
   assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>10\n2<\/pre>/u);
-  const loopsSection = document.html.split('data-vkf-example-id="example-1"')[1]
+  const loopsSection = document.html.split('data-vkf-example-id="example-2"')[1]
     .split('<h3 id="54-return-continue-and-break">')[0];
   assert.doesNotMatch(loopsSection, /Recorded stdout/u);
-  assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 64);
+  assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 63);
 });
 
 test("every displayed browser example compiles and executes through the shipped WASM", async () => {
@@ -143,8 +165,8 @@ test("every editor published anywhere on the site executes through the shipped W
     ...example,
   })));
 
-  assert.equal(editors.length, 9);
-  assert.equal(new Set(editors.map(({ source }) => source)).size, 4);
+  assert.equal(editors.length, 10);
+  assert.equal(new Set(editors.map(({ source }) => source)).size, 5);
   for (const editor of editors) {
     let result;
     assert.doesNotThrow(
