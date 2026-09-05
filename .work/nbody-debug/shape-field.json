@@ -1,0 +1,40 @@
+{
+  "functions": {
+    "_browser_decimal_at": {
+      "index": 3,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_find_source": {
+      "index": 1,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_inline_space_start": {
+      "index": 2,
+      "parameters": 2,
+      "resultType": 1
+    },
+    "_browser_nbody_shape_field": {
+      "index": 4,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_source_starts_with": {
+      "index": 0,
+      "parameters": 4,
+      "resultType": 1
+    }
+  },
+  "memory": {
+    "argumentsCapacity": 16,
+    "argumentsPointer": 2592,
+    "bytecodeLength": 2588,
+    "bytecodePointer": 0,
+    "resultsCapacity": 1,
+    "resultsPointer": 2848
+  },
+  "schema": "vektor-flow.symbolic-kernel",
+  "version": 1,
+  "wasm": "shape-field.wasm"
+}

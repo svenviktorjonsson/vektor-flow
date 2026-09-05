@@ -1,0 +1,20 @@
+{
+  "functions": {
+    "_browser_pairwise_system_energy": {
+      "index": 0,
+      "parameters": 1,
+      "resultType": 2
+    }
+  },
+  "memory": {
+    "argumentsCapacity": 16,
+    "argumentsPointer": 5072,
+    "bytecodeLength": 5071,
+    "bytecodePointer": 0,
+    "resultsCapacity": 1,
+    "resultsPointer": 5328
+  },
+  "schema": "vektor-flow.symbolic-kernel",
+  "version": 1,
+  "wasm": "energy.wasm"
+}

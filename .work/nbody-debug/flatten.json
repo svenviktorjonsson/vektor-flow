@@ -1,0 +1,20 @@
+{
+  "functions": {
+    "_browser_nbody_flatten": {
+      "index": 0,
+      "parameters": 3,
+      "resultType": 1
+    }
+  },
+  "memory": {
+    "argumentsCapacity": 16,
+    "argumentsPointer": 1104,
+    "bytecodeLength": 1098,
+    "bytecodePointer": 0,
+    "resultsCapacity": 1,
+    "resultsPointer": 1360
+  },
+  "schema": "vektor-flow.symbolic-kernel",
+  "version": 1,
+  "wasm": "flatten.wasm"
+}

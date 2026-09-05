@@ -1,0 +1,30 @@
+{
+  "functions": {
+    "_browser_find_source": {
+      "index": 1,
+      "parameters": 3,
+      "resultType": 1
+    },
+    "_browser_pairwise_system_source_matches": {
+      "index": 2,
+      "parameters": 1,
+      "resultType": 1
+    },
+    "_browser_source_starts_with": {
+      "index": 0,
+      "parameters": 4,
+      "resultType": 1
+    }
+  },
+  "memory": {
+    "argumentsCapacity": 16,
+    "argumentsPointer": 2112,
+    "bytecodeLength": 2109,
+    "bytecodePointer": 0,
+    "resultsCapacity": 1,
+    "resultsPointer": 2368
+  },
+  "schema": "vektor-flow.symbolic-kernel",
+  "version": 1,
+  "wasm": "matcher.wasm"
+}
