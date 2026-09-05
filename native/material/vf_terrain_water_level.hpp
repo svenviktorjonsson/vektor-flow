@@ -21,7 +21,25 @@ struct TerrainTileWorkingSet {
     std::vector<std::array<double, 3>> positions;
     std::uint64_t potential_count;
     bool truncated;
+    TerrainHeightCondition condition;
 };
+
+inline double SampleTerrainHeightReference(const TerrainHeightCondition& condition, double x, double z) {
+    const double height = SampleConditionedSpatial2Reference(condition.stream, {x, z},
+        condition.correlation_length, condition.mean, condition.amplitude);
+    if (!std::isfinite(height)) throw std::range_error("terrain height must be finite");
+    return height;
+}
+
+inline void RequireTerrainPositions(const std::shared_ptr<const TerrainTileWorkingSet>& terrain) {
+    if (!terrain) throw std::invalid_argument("terrain working set is required");
+    if (terrain->positions.size() > 65536)
+        throw std::invalid_argument("terrain working set must contain at most 65536 finite positions");
+    for (const auto& position : terrain->positions)
+        for (const auto value : position)
+            if (!std::isfinite(value))
+                throw std::invalid_argument("terrain working set must contain at most 65536 finite positions");
+}
 
 inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainTileReference(
     const TerrainHeightCondition& condition, std::array<std::int32_t, 2> tile,
@@ -35,16 +53,14 @@ inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainTileReference(
     const std::uint64_t width = divisions + 1;
     const std::uint64_t potential_count = width * width;
     const auto sample_height = [&](double x, double z) {
-        const double height = SampleConditionedSpatial2Reference(condition.stream, {x, z},
-            condition.correlation_length, condition.mean, condition.amplitude);
-        if (!std::isfinite(height)) throw std::range_error("terrain height must be finite");
-        return height;
+        return SampleTerrainHeightReference(condition, x, z);
     };
     // Validate the complete tile domain before allocating, including zero demand.
     sample_height(tile[0], tile[1]);
     sample_height(static_cast<double>(tile[0]) + 1, static_cast<double>(tile[1]) + 1);
     const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(potential_count, sample_budget));
     auto result = std::make_shared<TerrainTileWorkingSet>();
+    result->condition = condition;
     result->potential_count = potential_count;
     result->truncated = count < potential_count;
     result->positions.reserve(count);
@@ -73,13 +89,7 @@ inline TerrainWaterLevelMaterials BindTerrainWaterLevelMaterialsReference(
     std::shared_ptr<const TerrainTileWorkingSet> terrain, double water_level,
     std::uint32_t exposed_material, std::uint32_t submerged_material
 ) {
-    if (!terrain) throw std::invalid_argument("terrain working set is required");
-    if (terrain->positions.size() > 65536)
-        throw std::invalid_argument("terrain working set must contain at most 65536 finite positions");
-    for (const auto& position : terrain->positions)
-        for (const auto value : position)
-            if (!std::isfinite(value))
-                throw std::invalid_argument("terrain working set must contain at most 65536 finite positions");
+    RequireTerrainPositions(terrain);
     if (!std::isfinite(water_level)) throw std::range_error("terrain water level must be finite");
     TerrainWaterLevelMaterials result{std::move(terrain), {}};
     result.material_ids.reserve(result.source->positions.size());
