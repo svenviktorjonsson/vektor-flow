@@ -96,6 +96,29 @@ _bootstrap_x64_entry_prefix(local_count:num, maximum:num, value:num, windows:bit
     result.valid: true
     result
 
+# Complete scalar-constant entry bytes, still without an executable container.
+_bootstrap_x64_entry_constant(local_count:num, maximum:num, value:num, windows:bit):
+    result: _bootstrap_x64_entry_prefix(local_count, maximum, value, windows)
+    ~result.valid?
+        @: result
+    context: local_count + maximum
+    xmm_slot: context + 1
+    gpr_slot: xmm_slot
+    windows? .gpr_slot+: 4
+    result.bytes: result.bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(local_count + 1) * 8)
+    result.bytes: result.bytes & [76, 139, 165] & _bootstrap_x64_word(-(context + 1) * 8)
+    windows?
+        result.bytes: result.bytes & [243, 15, 111, 181] & _bootstrap_x64_word(-(xmm_slot + 1) * 8)
+        result.bytes: result.bytes & [243, 15, 111, 189] & _bootstrap_x64_word(-(xmm_slot + 3) * 8)
+    restores: [72, 139, 157, 72, 139, 181, 72, 139, 189, 76, 139, 173, 76, 139, 181, 76, 139, 189]
+    index: 0
+    (index < 6)?>
+        result.bytes: result.bytes & [restores.(index * 3), restores.(index * 3 + 1), restores.(index * 3 + 2)]
+        result.bytes: result.bytes & _bootstrap_x64_word(-(gpr_slot + index + 1) * 8)
+        .index+: 1
+    result.bytes: result.bytes & [201, 195]
+    result
+
 # Private scalar expression fragment over validated parser/type facts.
 # Private opcodes: 1 push_f64, 2 load_local, 3 count_f64_list (borrowed),
 # 4 divide_f64, 5 add_f64. Public opcode/schema bytes are fixed.

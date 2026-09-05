@@ -23,7 +23,8 @@ test("private x64 entry prefix matches native emitter bytes", () => {
       "maximum: vkf_decimal_parse(io.read_line()) - 1",
       "value: vkf_decimal_parse(io.read_line())",
       `encoded: machine._bootstrap_x64_entry_prefix(locals, maximum, value, ${process.platform === "win32" ? "true" : "false"})`,
-      ":: encoded.valid", ":: encoded.bytes", "",
+      `entry: machine._bootstrap_x64_entry_constant(locals, maximum, value, ${process.platform === "win32" ? "true" : "false"})`,
+      ":: encoded.valid", ":: encoded.bytes", ":: entry.valid", ":: entry.bytes", "",
     ].join("\n"));
     const built = spawnSync(join(bin, `vkf-strict${suffix}`), ["-b", source, "-o", artifact, "--optimizer-policy", "mask-0"], {
       cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true,
@@ -42,7 +43,7 @@ test("private x64 entry prefix matches native emitter bytes", () => {
       });
       assert.equal(run.status, 0, run.error?.message ?? run.stderr);
       assert.equal(run.stderr, "");
-      const [valid, encoded] = run.stdout.trimEnd().split(/\r?\n/);
+      const [valid, encoded, entryValid, entryBytes] = run.stdout.trimEnd().split(/\r?\n/);
       assert.equal(valid, "true", `locals=${locals}, maximum=${maximum}: ${run.stdout}`);
       const oracle = spawnSync(join(bin, `vkf_private_x64_prefix${suffix}`), [String(locals), String(maximum), String(value)], {
         cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true,
@@ -54,6 +55,8 @@ test("private x64 entry prefix matches native emitter bytes", () => {
       assert.ok(expected.length > 0 && expected.length < complete.length, "native prefix is partial");
       assert.deepEqual(expected, complete.slice(0, expected.length));
       assert.deepEqual(actual, expected);
+      assert.equal(entryValid, "true", run.stdout);
+      assert.deepEqual(JSON.parse(entryBytes), complete);
     }
     for (const [locals, maximum] of [[-1, 1], [0.5, 1], [0, 0], [0, 1.5], [268435456, 1], [0, 268435456]]) {
       const run = spawnSync(artifact, [], {
@@ -61,7 +64,7 @@ test("private x64 entry prefix matches native emitter bytes", () => {
       });
       assert.equal(run.status, 0, run.error?.message ?? run.stderr);
       assert.equal(run.stderr, "");
-      assert.deepEqual(run.stdout.trimEnd().split(/\r?\n/), ["false", "[]"]);
+      assert.deepEqual(run.stdout.trimEnd().split(/\r?\n/), ["false", "[]", "false", "[]"]);
     }
   } finally {
     rmSync(work, { recursive: true, force: true });
