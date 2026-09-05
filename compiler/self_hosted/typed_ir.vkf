@@ -3,6 +3,103 @@
 # Source-level contract for the native AST-to-IR smoke seam. The executable
 # consumes normalized parser AST JSON and emits deterministic typed IR JSON.
 
+# Private facts over a validated private expression arena and declaration spans.
+# Type codes: 1 int, 2 num, 3 vector parameter, 4 zero-argument vector length.
+# Public typed IR schemas and existing manifest-callable helpers are unchanged.
+_bootstrap_expression_types(
+    source:str, rows:[num], nodes:[num], arguments:[num],
+    parameter_starts:[num], parameter_stops:[num],
+    type_starts:[num], type_stops:[num]
+):
+    [num] types: []
+    [num] parameters: []
+    facts: (valid:false, error_index:0, types:types, parameters:parameters)
+    (nodes.length() = 0 \/ nodes.length() % 5 != 0 \/ rows.length() % 6 != 0 \/
+        parameter_starts.length() != parameter_stops.length() \/
+        parameter_starts.length() != type_starts.length() \/
+        parameter_starts.length() != type_stops.length())?
+        @: facts
+    index: 0
+    kind: 0
+    token: 0
+    parameter: 0
+    match: -1
+    type: 0
+    left: 0
+    right: 0
+    previous: 0
+    (parameter < parameter_starts.length())?>
+        .previous: 0
+        (previous < parameter)?>
+            (vkf_utf8_slice(source, parameter_starts.(parameter), parameter_stops.(parameter)) =
+                vkf_utf8_slice(source, parameter_starts.(previous), parameter_stops.(previous)))?
+                (token < rows.length() / 6 /\ rows.(token * 6 + 1) < parameter_starts.(parameter))?>
+                    .token+: 1
+                facts.error_index: token
+                @: facts
+            .previous+: 1
+        .parameter+: 1
+    (index < nodes.length() / 5)?>
+        .kind: nodes.(index * 5)
+        .token: nodes.(index * 5 + 1)
+        facts.error_index: token
+        (token < 0 \/ token % 1 != 0 \/ token >= rows.length() / 6)?
+            @: facts
+        .type: 0
+        .match: -1
+        kind = 1?
+            .parameter: 0
+            (parameter < parameter_starts.length())?>
+                (vkf_utf8_slice(source, rows.(token * 6 + 1), rows.(token * 6 + 2)) =
+                    vkf_utf8_slice(source, parameter_starts.(parameter), parameter_stops.(parameter)))?
+                    .match: parameter
+                .parameter+: 1
+            match < 0?
+                @: facts
+            .type: 3
+        kind = 2?
+            (nodes.(index * 5 + 3) != 0 /\ nodes.(index * 5 + 3) != 1)?
+                @: facts
+            .type: 2
+            nodes.(index * 5 + 3) = 1?
+                .type: 1
+        (kind = 3 \/ kind = 4 \/ kind = 5 \/ kind = 6)?
+            .left: nodes.(index * 5 + 2)
+            (left < 0 \/ left % 1 != 0 \/ left >= index)?
+                @: facts
+        kind = 3?
+            (facts.types.(left) != 3 \/
+                vkf_utf8_slice(source, rows.(token * 6 + 1), rows.(token * 6 + 2)) != "length")?
+                @: facts
+            .type: 4
+        kind = 4?
+            (facts.types.(left) != 4 \/ nodes.(index * 5 + 4) != 0 \/
+                nodes.(index * 5 + 3) < 0 \/ nodes.(index * 5 + 3) % 1 != 0 \/
+                nodes.(index * 5 + 3) > arguments.length())?
+                @: facts
+            .type: 1
+        kind = 6?
+            .type: facts.types.(left)
+            .match: facts.parameters.(left)
+        kind = 5?
+            .right: nodes.(index * 5 + 3)
+            (right < 0 \/ right % 1 != 0 \/ right >= index)?
+                @: facts
+            (rows.(token * 6) != 2 \/
+                (facts.types.(left) != 1 /\ facts.types.(left) != 2) \/
+                (facts.types.(right) != 1 /\ facts.types.(right) != 2))?
+                @: facts
+            .type: 1
+            (facts.types.(left) = 2 \/ facts.types.(right) = 2)?
+                .type: 2
+        type = 0?
+            @: facts
+        facts.types: facts.types & [type]
+        facts.parameters: facts.parameters & [match]
+        .index+: 1
+    facts.valid: true
+    facts
+
 TypeName: (name:str)
 FunctionSignature: (params:any, return_type:str, type:str)
 TypedModule: (kind:str, body:any)
