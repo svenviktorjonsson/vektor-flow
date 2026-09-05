@@ -2,6 +2,8 @@
 
 #include "vkf_wasm_bytecode.hpp"
 #include "vkf_wasm_value_layout.hpp"
+#include "vkf_wasm_math_kernels.hpp"
+#include "vkf_wasm_stat_kernels.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -148,6 +150,8 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::PushConstant:
         case Opcode::PushNull:
         case Opcode::LoadLocal:
+        case Opcode::OutputValues:
+        case Opcode::ResetOutput:
             return {0, 1};
         case Opcode::StoreLocal:
         case Opcode::Pop:
@@ -156,6 +160,13 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::Duplicate:
             return {1, 2};
         case Opcode::Negate:
+        case Opcode::PrintValue:
+        case Opcode::StatSum:
+        case Opcode::StatMean:
+        case Opcode::StatVariance:
+        case Opcode::StatStdDev:
+        case Opcode::StatRange:
+        case Opcode::StatCount:
         case Opcode::LogicalNot:
         case Opcode::SquareRoot:
         case Opcode::Utf8Length:
@@ -561,6 +572,8 @@ struct RuntimeIndexes {
     std::uint32_t dense_power = 0;
     std::uint32_t permutation_reduction = 0;
     std::uint32_t pairwise_system_energy = 0;
+    std::uint32_t stat_visitor = 0;
+    std::uint32_t stat_sum = 0;
 };
 
 inline void emit_stack_address(
@@ -801,6 +814,67 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 emit_push_from_stack(body, frame_local, sp_local, local_count);
                 i32_const(body, image.null_value);
                 emit_finish_push(body, sp_local);
+                break;
+            case Opcode::ResetOutput:
+                for (std::uint32_t global = 1; global <= 2; ++global) {
+                    i32_const(body, 0);
+                    body.u8(0x24); body.u32_leb(global);
+                }
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                i32_const(body, image.null_value);
+                emit_finish_push(body, sp_local);
+                break;
+            case Opcode::PrintValue:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                i32_const(body, 2U * values::pointer_size);
+                body.u8(0x10); body.u32_leb(runtime.allocate);
+                local_set(body, temp1);
+                local_get(body, temp1);
+                body.u8(0x23); body.u32_leb(1);
+                i32_store(body);
+                local_get(body, temp1);
+                local_get(body, temp0);
+                i32_store(body, values::pointer_size);
+                local_get(body, temp1);
+                body.u8(0x24); body.u32_leb(1);
+                body.u8(0x23); body.u32_leb(2);
+                i32_const(body, 1); body.u8(0x6a);
+                body.u8(0x24); body.u32_leb(2);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                i32_const(body, image.null_value);
+                emit_finish_push(body, sp_local);
+                break;
+            case Opcode::OutputValues:
+                body.u8(0x23); body.u32_leb(2);
+                local_set(body, temp2);
+                local_get(body, temp2);
+                i32_const(body, values::pointer_size); body.u8(0x6c);
+                i32_const(body, values::slot_size); body.u8(0x6a);
+                body.u8(0x10); body.u32_leb(runtime.allocate);
+                local_set(body, temp0);
+                local_get(body, temp0);
+                i32_const(body, static_cast<std::uint32_t>(values::Tag::Array));
+                i32_store(body, values::tag_offset);
+                local_get(body, temp0); local_get(body, temp2);
+                i32_store(body, values::length_offset);
+                local_get(body, temp0); local_get(body, temp0);
+                i32_const(body, values::slot_size); body.u8(0x6a);
+                i32_store(body, values::payload_offset);
+                body.u8(0x23); body.u32_leb(1); local_set(body, temp1);
+                body.u8(0x02); body.u8(0x40);
+                body.u8(0x03); body.u8(0x40);
+                local_get(body, temp2); body.u8(0x45);
+                body.u8(0x0d); body.u32_leb(1);
+                local_get(body, temp2); i32_const(body, 1); body.u8(0x6b);
+                local_set(body, temp2);
+                local_get(body, temp0); i32_const(body, values::slot_size); body.u8(0x6a);
+                local_get(body, temp2); i32_const(body, values::pointer_size); body.u8(0x6c); body.u8(0x6a);
+                local_get(body, temp1); i32_load(body, values::pointer_size); i32_store(body);
+                local_get(body, temp1); i32_load(body); local_set(body, temp1);
+                body.u8(0x0c); body.u32_leb(0);
+                body.u8(0x0b); body.u8(0x0b);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp0); emit_finish_push(body, sp_local);
                 break;
             case Opcode::LoadLocal:
                 emit_push_from_stack(body, frame_local, sp_local, local_count);
@@ -1475,6 +1549,22 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                     body, runtime, runtime.natural_log, frame_local, sp_local,
                     local_count, temp0
                 );
+                break;
+            case Opcode::StatSum:
+            case Opcode::StatMean:
+            case Opcode::StatVariance:
+            case Opcode::StatStdDev:
+            case Opcode::StatRange:
+            case Opcode::StatCount:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp0);
+                i32_const(body, instruction.first);
+                i32_const(body, instruction.second);
+                body.u8(0x10);
+                body.u32_leb(runtime.stat_sum + static_cast<std::uint32_t>(instruction.opcode)
+                    - static_cast<std::uint32_t>(Opcode::StatSum));
+                emit_finish_push(body, sp_local);
                 break;
             case Opcode::Exponential:
                 emit_call_unary_value(
@@ -2698,47 +2788,7 @@ inline std::vector<std::uint8_t> emit_number_to_string_function(
 inline std::vector<std::uint8_t> emit_power_function(
     std::uint32_t make_number_index
 ) {
-    Writer body;
-    body.u32_leb(2);
-    body.u32_leb(1);
-    body.u8(wasm_i32);
-    body.u32_leb(2);
-    body.u8(wasm_f64);
-    local_get(body, 0);
-    f64_load(body);
-    local_set(body, 3);
-    local_get(body, 1);
-    f64_load(body);
-    body.u8(0xaa);
-    local_set(body, 2);
-    body.u8(0x44);
-    body.f64(1.0);
-    local_set(body, 4);
-    body.u8(0x02);
-    body.u8(0x40);
-    body.u8(0x03);
-    body.u8(0x40);
-    local_get(body, 2);
-    body.u8(0x45);
-    body.u8(0x0d);
-    body.u32_leb(1);
-    local_get(body, 4);
-    local_get(body, 3);
-    body.u8(0xa2);
-    local_set(body, 4);
-    local_get(body, 2);
-    i32_const(body, 1);
-    body.u8(0x6b);
-    local_set(body, 2);
-    body.u8(0x0c);
-    body.u32_leb(0);
-    body.u8(0x0b);
-    body.u8(0x0b);
-    local_get(body, 4);
-    body.u8(0x10);
-    body.u32_leb(make_number_index);
-    body.u8(0x0b);
-    return encoded_body(std::move(body));
+    return math_kernels::emit_power_function<Writer>(make_number_index);
 }
 
 inline std::vector<std::uint8_t> emit_square_root_function(
@@ -2974,59 +3024,8 @@ inline std::vector<std::uint8_t> emit_sine_function(
     std::uint32_t make_number_index,
     double phase
 ) {
-    Writer body;
-    body.u32_leb(1);
-    body.u32_leb(3);
-    body.u8(wasm_f64);
-    local_get(body, 0);
-    f64_load(body);
-    body.u8(0x44);
-    body.f64(phase);
-    body.u8(0xa0);
-    local_tee(body, 1);
-    local_get(body, 1);
-    body.u8(0x44);
-    body.f64(6.2831853071795864769);
-    body.u8(0xa3);
-    body.u8(0x9e);
-    body.u8(0x44);
-    body.f64(6.2831853071795864769);
-    body.u8(0xa2);
-    body.u8(0xa1);
-    local_tee(body, 1);
-    local_get(body, 1);
-    body.u8(0xa2);
-    local_set(body, 2);
-
-    const auto emit_term = [&body](
-        std::uint32_t squared_factors,
-        double scale,
-        std::uint8_t combine_opcode
-    ) {
-        local_get(body, 1);
-        for (std::uint32_t index = 0; index < squared_factors; ++index) {
-            local_get(body, 2);
-            body.u8(0xa2);
-        }
-        body.u8(0x44);
-        body.f64(scale);
-        body.u8(0xa2);
-        body.u8(combine_opcode);
-    };
-
-    local_get(body, 1);
-    emit_term(1, 1.0 / 6.0, 0xa1);
-    emit_term(2, 1.0 / 120.0, 0xa0);
-    emit_term(3, 1.0 / 5040.0, 0xa1);
-    emit_term(4, 1.0 / 362880.0, 0xa0);
-    emit_term(5, 1.0 / 39916800.0, 0xa1);
-    emit_term(6, 1.0 / 6227020800.0, 0xa0);
-    emit_term(7, 1.0 / 1307674368000.0, 0xa1);
-    emit_term(8, 1.0 / 355687428096000.0, 0xa0);
-    body.u8(0x10);
-    body.u32_leb(make_number_index);
-    body.u8(0x0b);
-    return encoded_body(std::move(body));
+    return vkf::wasm::math_kernels::emit_trigonometric_function<Writer>(
+        make_number_index, phase != 0.0);
 }
 
 inline std::vector<std::uint8_t> emit_tangent_function(
@@ -3068,224 +3067,13 @@ inline std::vector<std::uint8_t> emit_absolute_function(
 inline std::vector<std::uint8_t> emit_exponential_function(
     std::uint32_t make_number_index
 ) {
-    Writer body;
-    body.u32_leb(2);
-    body.u32_leb(1);
-    body.u8(wasm_i32);
-    body.u32_leb(3);
-    body.u8(wasm_f64);
-
-    local_get(body, 0);
-    f64_load(body);
-    body.u8(0x44);
-    body.f64(0.69314718055994530942);
-    body.u8(0xa3);
-    body.u8(0x9c);
-    body.u8(0xaa);
-    local_set(body, 1);
-
-    local_get(body, 0);
-    f64_load(body);
-    local_get(body, 1);
-    body.u8(0xb7);
-    body.u8(0x44);
-    body.f64(0.69314718055994530942);
-    body.u8(0xa2);
-    body.u8(0xa1);
-    local_set(body, 2);
-    body.u8(0x44);
-    body.f64(1.0);
-    local_set(body, 3);
-    body.u8(0x44);
-    body.f64(1.0);
-    local_set(body, 4);
-    for (std::uint32_t degree = 1; degree <= 16; ++degree) {
-        local_get(body, 3);
-        local_get(body, 2);
-        body.u8(0xa2);
-        body.u8(0x44);
-        body.f64(static_cast<double>(degree));
-        body.u8(0xa3);
-        local_tee(body, 3);
-        local_get(body, 4);
-        body.u8(0xa0);
-        local_set(body, 4);
-    }
-
-    body.u8(0x02);
-    body.u8(0x40);
-    body.u8(0x03);
-    body.u8(0x40);
-    local_get(body, 1);
-    i32_const(body, 0);
-    body.u8(0x4c);
-    body.u8(0x0d);
-    body.u32_leb(1);
-    local_get(body, 4);
-    body.u8(0x44);
-    body.f64(2.0);
-    body.u8(0xa2);
-    local_set(body, 4);
-    local_get(body, 1);
-    i32_const(body, 1);
-    body.u8(0x6b);
-    local_set(body, 1);
-    body.u8(0x0c);
-    body.u32_leb(0);
-    body.u8(0x0b);
-    body.u8(0x0b);
-
-    body.u8(0x02);
-    body.u8(0x40);
-    body.u8(0x03);
-    body.u8(0x40);
-    local_get(body, 1);
-    i32_const(body, 0);
-    body.u8(0x4e);
-    body.u8(0x0d);
-    body.u32_leb(1);
-    local_get(body, 4);
-    body.u8(0x44);
-    body.f64(0.5);
-    body.u8(0xa2);
-    local_set(body, 4);
-    local_get(body, 1);
-    i32_const(body, 1);
-    body.u8(0x6a);
-    local_set(body, 1);
-    body.u8(0x0c);
-    body.u32_leb(0);
-    body.u8(0x0b);
-    body.u8(0x0b);
-
-    local_get(body, 4);
-    body.u8(0x10);
-    body.u32_leb(make_number_index);
-    body.u8(0x0b);
-    return encoded_body(std::move(body));
+    return math_kernels::emit_exponential_function<Writer>(make_number_index);
 }
 
 inline std::vector<std::uint8_t> emit_natural_log_function(
     std::uint32_t make_number_index
 ) {
-    Writer body;
-    body.u32_leb(2);
-    body.u32_leb(1);
-    body.u8(wasm_i32);
-    body.u32_leb(5);
-    body.u8(wasm_f64);
-
-    local_get(body, 0);
-    f64_load(body);
-    body.u8(0x44);
-    body.f64(0.0);
-    body.u8(0x65);
-    body.u8(0x04);
-    body.u8(0x40);
-    body.u8(0x44);
-    body.f64(std::numeric_limits<double>::quiet_NaN());
-    body.u8(0x10);
-    body.u32_leb(make_number_index);
-    body.u8(0x0f);
-    body.u8(0x0b);
-
-    i32_const(body, 0);
-    local_set(body, 1);
-    local_get(body, 0);
-    f64_load(body);
-    local_set(body, 2);
-
-    body.u8(0x02);
-    body.u8(0x40);
-    body.u8(0x03);
-    body.u8(0x40);
-    local_get(body, 2);
-    body.u8(0x44);
-    body.f64(2.0);
-    body.u8(0x63);
-    body.u8(0x0d);
-    body.u32_leb(1);
-    local_get(body, 2);
-    body.u8(0x44);
-    body.f64(2.0);
-    body.u8(0xa3);
-    local_set(body, 2);
-    local_get(body, 1);
-    i32_const(body, 1);
-    body.u8(0x6a);
-    local_set(body, 1);
-    body.u8(0x0c);
-    body.u32_leb(0);
-    body.u8(0x0b);
-    body.u8(0x0b);
-
-    body.u8(0x02);
-    body.u8(0x40);
-    body.u8(0x03);
-    body.u8(0x40);
-    local_get(body, 2);
-    body.u8(0x44);
-    body.f64(1.0);
-    body.u8(0x66);
-    body.u8(0x0d);
-    body.u32_leb(1);
-    local_get(body, 2);
-    body.u8(0x44);
-    body.f64(2.0);
-    body.u8(0xa2);
-    local_set(body, 2);
-    local_get(body, 1);
-    i32_const(body, 1);
-    body.u8(0x6b);
-    local_set(body, 1);
-    body.u8(0x0c);
-    body.u32_leb(0);
-    body.u8(0x0b);
-    body.u8(0x0b);
-
-    local_get(body, 2);
-    body.u8(0x44);
-    body.f64(1.0);
-    body.u8(0xa1);
-    local_get(body, 2);
-    body.u8(0x44);
-    body.f64(1.0);
-    body.u8(0xa0);
-    body.u8(0xa3);
-    local_tee(body, 3);
-    local_get(body, 3);
-    body.u8(0xa2);
-    local_set(body, 4);
-    local_get(body, 3);
-    local_set(body, 5);
-    local_get(body, 3);
-    local_set(body, 6);
-    for (std::uint32_t divisor = 3; divisor <= 21; divisor += 2) {
-        local_get(body, 5);
-        local_get(body, 4);
-        body.u8(0xa2);
-        local_tee(body, 5);
-        body.u8(0x44);
-        body.f64(static_cast<double>(divisor));
-        body.u8(0xa3);
-        local_get(body, 6);
-        body.u8(0xa0);
-        local_set(body, 6);
-    }
-    local_get(body, 6);
-    body.u8(0x44);
-    body.f64(2.0);
-    body.u8(0xa2);
-    local_get(body, 1);
-    body.u8(0xb7);
-    body.u8(0x44);
-    body.f64(0.69314718055994530942);
-    body.u8(0xa2);
-    body.u8(0xa0);
-    body.u8(0x10);
-    body.u32_leb(make_number_index);
-    body.u8(0x0b);
-    return encoded_body(std::move(body));
+    return vkf::wasm::math_kernels::emit_natural_log_function<Writer>(make_number_index);
 }
 
 inline std::vector<std::uint8_t> emit_plot_pack_function(
@@ -5628,7 +5416,9 @@ inline EmittedModule emit(
     runtime.dense_power = runtime.plot_builder_finish + 1;
     runtime.permutation_reduction = runtime.dense_power + 1;
     runtime.pairwise_system_energy = runtime.permutation_reduction + 1;
-    const std::uint32_t runtime_count = 42;
+    runtime.stat_visitor = runtime.pairwise_system_energy + 1;
+    runtime.stat_sum = runtime.stat_visitor + 1;
+    const std::uint32_t runtime_count = 49;
     const std::uint32_t getter_count = 9;
     const std::uint32_t getter_base = function_count + runtime_count;
     const std::uint32_t heap_pointer_index = getter_base + getter_count;
@@ -5746,6 +5536,10 @@ inline EmittedModule emit(
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
+    emit_type({detail::wasm_i32, detail::wasm_i32, detail::wasm_i32}, {});
+    for (std::uint32_t index = 0; index < 6; ++index) {
+        emit_type({detail::wasm_i32, detail::wasm_i32, detail::wasm_i32}, {detail::wasm_i32});
+    }
     for (std::uint32_t index = 0; index < getter_count + 2; ++index) {
         emit_type({}, {detail::wasm_i32});
     }
@@ -5771,12 +5565,26 @@ inline EmittedModule emit(
     detail::append_section(wasm, 5, memories.take());
 
     detail::Writer globals;
-    globals.u32_leb(1);
+    bool has_program_output = false;
+    for (const auto& function : module.functions) {
+        for (const auto& instruction : function.instructions) {
+            if (instruction.opcode == bytecode::Opcode::PrintValue
+                || instruction.opcode == bytecode::Opcode::OutputValues
+                || instruction.opcode == bytecode::Opcode::ResetOutput) has_program_output = true;
+        }
+    }
+    globals.u32_leb(has_program_output ? 3 : 1);
     globals.u8(detail::wasm_i32);
     globals.u8(0x01);
     globals.u8(0x41);
     globals.i32_leb(static_cast<std::int32_t>(emitted.layout.heap_base));
     globals.u8(0x0b);
+    if (has_program_output) {
+        for (int index = 0; index < 2; ++index) {
+            globals.u8(detail::wasm_i32); globals.u8(0x01);
+            globals.u8(0x41); globals.i32_leb(0); globals.u8(0x0b);
+        }
+    }
     detail::append_section(wasm, 6, globals.take());
 
     detail::Writer exports;
@@ -5929,6 +5737,13 @@ inline EmittedModule emit(
         runtime.make_number,
         image.null_value
     ));
+    code.raw(stat_kernels::emit_numeric_visit_function<detail::Writer>(runtime.stat_visitor));
+    for (const auto operation : {stat_kernels::Reduction::Sum, stat_kernels::Reduction::Mean,
+        stat_kernels::Reduction::Variance, stat_kernels::Reduction::StdDev,
+        stat_kernels::Reduction::Range, stat_kernels::Reduction::Count}) {
+        code.raw(stat_kernels::emit_reduction_function<detail::Writer>(
+            runtime.allocate, runtime.make_number, runtime.stat_visitor, operation));
+    }
     const std::uint32_t getter_values[] = {
         emitted.layout.bytecode_ptr,
         emitted.layout.bytecode_len,

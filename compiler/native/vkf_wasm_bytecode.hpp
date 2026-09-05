@@ -104,6 +104,15 @@ enum class Opcode : std::uint16_t {
     DensePower = 70,
     PermutationReduction = 71,
     PairwiseSystemEnergy = 72,
+    PrintValue = 73,
+    OutputValues = 74,
+    ResetOutput = 75,
+    StatSum = 76,
+    StatMean = 77,
+    StatVariance = 78,
+    StatStdDev = 79,
+    StatRange = 80,
+    StatCount = 81,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -204,7 +213,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::PairwiseSystemEnergy);
+        <= static_cast<std::uint16_t>(Opcode::StatCount);
 }
 
 inline bool is_valid_utf8(const std::string& value) {

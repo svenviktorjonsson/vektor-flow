@@ -12345,8 +12345,7 @@ private:
                     emit_number(static_cast<double>(instruction.argument_count));
                 } else {
                     code_.raw({0x66, 0x0f, 0xef, 0xc0});
-                    code_.raw({0x48, 0x8d, 0x85});
-                    code_.i32(frame.displacement(instruction.index));
+                    emit_fixed_base_address(instruction.index, instruction.argument_count);
                     code_.raw({0xb9});
                     code_.i32(static_cast<std::int32_t>(instruction.argument_count));
                     const auto loop = code_.position();
@@ -12363,9 +12362,8 @@ private:
                         if (instruction.argument_count <= instruction.degrees_of_freedom) {
                             throw BackendFailure("x64 stat.std input is too small for ddof");
                         }
-                        code_.raw({0x66, 0x0f, 0xef, 0xc9,
-                                   0x48, 0x8d, 0x85});
-                        code_.i32(frame.displacement(instruction.index));
+                        code_.raw({0x66, 0x0f, 0xef, 0xc9});
+                        emit_fixed_base_address(instruction.index, instruction.argument_count);
                         code_.raw({0xb9});
                         code_.i32(static_cast<std::int32_t>(instruction.argument_count));
                         const auto variance_loop = code_.position();

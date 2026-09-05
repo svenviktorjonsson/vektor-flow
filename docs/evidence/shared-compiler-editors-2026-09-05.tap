@@ -1,0 +1,286 @@
+TAP version 13
+# Subtest: shared browser compiler generates executable WASM from edited function source
+ok 1 - shared browser compiler generates executable WASM from edited function source
+  ---
+  duration_ms: 217.844188
+  type: 'test'
+  ...
+# Subtest: unlowered program statements fail instead of producing an empty successful program
+ok 2 - unlowered program statements fail instead of producing an empty successful program
+  ---
+  duration_ms: 30.322047
+  type: 'test'
+  ...
+# Subtest: failed compilation invalidates old program bytes and a subsequent compilation recovers
+ok 3 - failed compilation invalidates old program bytes and a subsequent compilation recovers
+  ---
+  duration_ms: 31.864276
+  type: 'test'
+  ...
+# Subtest: browser and native compiler produce identical typed IR for ordinary source
+ok 4 - browser and native compiler produce identical typed IR for ordinary source
+  ---
+  duration_ms: 824.21064
+  type: 'test'
+  ...
+# Subtest: source edits to names, range bounds and implicit multiplication reach the shared frontend
+ok 5 - source edits to names, range bounds and implicit multiplication reach the shared frontend
+  ---
+  duration_ms: 73.855823
+  type: 'test'
+  ...
+# Subtest: malformed source preserves native diagnostics and the next compilation recovers
+ok 6 - malformed source preserves native diagnostics and the next compilation recovers
+  ---
+  duration_ms: 67.327973
+  type: 'test'
+  ...
+# Subtest: the static documentation has lightweight navigation and progressively enhanced examples
+ok 7 - the static documentation has lightweight navigation and progressively enhanced examples
+  ---
+  duration_ms: 112.124294
+  type: 'test'
+  ...
+# Subtest: VKF fences remain editable without a live label on every documentation page
+ok 8 - VKF fences remain editable without a live label on every documentation page
+  ---
+  duration_ms: 897.477727
+  type: 'test'
+  ...
+# Subtest: every complete canonical reference example has one editable source and one console
+ok 9 - every complete canonical reference example has one editable source and one console
+  ---
+  duration_ms: 253.480237
+  type: 'test'
+  ...
+# Subtest: a fresh document restores original source while Run uses the current editor contents
+ok 10 - a fresh document restores original source while Run uses the current editor contents
+  ---
+  duration_ms: 49.631419
+  type: 'test'
+  ...
+# Subtest: inline runner precompiles once and starts a fresh isolated worker per Play click
+ok 11 - inline runner precompiles once and starts a fresh isolated worker per Play click
+  ---
+  duration_ms: 3.449462
+  type: 'test'
+  ...
+# Subtest: inline runner terminates an unresponsive worker
+ok 12 - inline runner terminates an unresponsive worker
+  ---
+  duration_ms: 7.714495
+  type: 'test'
+  ...
+# Subtest: worker materializes only validated WASM visual packets as typed buffers
+ok 13 - worker materializes only validated WASM visual packets as typed buffers
+  ---
+  duration_ms: 1.915101
+  type: 'test'
+  ...
+# Subtest: worker rejects texture packets with fields outside the versioned contract
+ok 14 - worker rejects texture packets with fields outside the versioned contract
+  ---
+  duration_ms: 0.183571
+  type: 'test'
+  ...
+# Subtest: worker materializes a strictly versioned transparent optical buffer
+ok 15 - worker materializes a strictly versioned transparent optical buffer
+  ---
+  duration_ms: 0.338347
+  type: 'test'
+  ...
+# Subtest: worker materializes a strictly versioned mirror surface buffer
+ok 16 - worker materializes a strictly versioned mirror surface buffer
+  ---
+  duration_ms: 0.642599
+  type: 'test'
+  ...
+# Subtest: worker materializes a strictly versioned World particle buffer
+ok 17 - worker materializes a strictly versioned World particle buffer
+  ---
+  duration_ms: 0.480625
+  type: 'test'
+  ...
+# Subtest: worker materializes a strictly versioned indexed field-mesh buffer
+ok 18 - worker materializes a strictly versioned indexed field-mesh buffer
+  ---
+  duration_ms: 0.498023
+  type: 'test'
+  ...
+# Subtest: worker materializes a strictly versioned native cube buffer
+ok 19 - worker materializes a strictly versioned native cube buffer
+  ---
+  duration_ms: 0.691792
+  type: 'test'
+  ...
+# Subtest: worker materializes a strictly versioned native spotlight buffer
+ok 20 - worker materializes a strictly versioned native spotlight buffer
+  ---
+  duration_ms: 0.937154
+  type: 'test'
+  ...
+# Subtest: worker materializes a strictly versioned rotated dice cube buffer
+ok 21 - worker materializes a strictly versioned rotated dice cube buffer
+  ---
+  duration_ms: 0.584309
+  type: 'test'
+  ...
+# Subtest: worker materializes a strict combined native glass surface buffer
+ok 22 - worker materializes a strict combined native glass surface buffer
+  ---
+  duration_ms: 0.38474
+  type: 'test'
+  ...
+# Subtest: worker materializes strict timing, orbit-light, and reflected-light packets
+ok 23 - worker materializes strict timing, orbit-light, and reflected-light packets
+  ---
+  duration_ms: 0.791976
+  type: 'test'
+  ...
+# Subtest: worker materializes strict orthographic rigid-world packets
+ok 24 - worker materializes strict orthographic rigid-world packets
+  ---
+  duration_ms: 0.476426
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer repeats canonical rigid-body motion
+ok 25 - trusted inline renderer repeats canonical rigid-body motion
+  ---
+  duration_ms: 53.494013
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer animates the orbit marker and projects the reflected aperture
+ok 26 - trusted inline renderer animates the orbit marker and projects the reflected aperture
+  ---
+  duration_ms: 6.966879
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer projects and lights validated retained 3D packets
+ok 27 - trusted inline renderer projects and lights validated retained 3D packets
+  ---
+  duration_ms: 0.565209
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer draws source-scaled alternating checker cells
+ok 28 - trusted inline renderer draws source-scaled alternating checker cells
+  ---
+  duration_ms: 1.272996
+  type: 'test'
+  ...
+# Subtest: worker preserves indexed topology and explicit coordinate dimensionality
+ok 29 - worker preserves indexed topology and explicit coordinate dimensionality
+  ---
+  duration_ms: 0.777575
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer gives an inferred 2D line continuous topology and labelled axes
+ok 30 - trusted inline renderer gives an inferred 2D line continuous topology and labelled axes
+  ---
+  duration_ms: 3.152093
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer never connects independent i groups
+ok 31 - trusted inline renderer never connects independent i groups
+  ---
+  duration_ms: 1.023235
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer modulates grass from the validated material parameters
+ok 32 - trusted inline renderer modulates grass from the validated material parameters
+  ---
+  duration_ms: 1.111321
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer applies source alpha and reflectivity
+ok 33 - trusted inline renderer applies source alpha and reflectivity
+  ---
+  duration_ms: 0.749179
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer clips source-derived geometry into the mirror camera
+ok 34 - trusted inline renderer clips source-derived geometry into the mirror camera
+  ---
+  duration_ms: 1.277594
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer draws the World particle embedding position, color, and size
+ok 35 - trusted inline renderer draws the World particle embedding position, color, and size
+  ---
+  duration_ms: 0.535814
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer draws native field-mesh line-list indices
+ok 36 - trusted inline renderer draws native field-mesh line-list indices
+  ---
+  duration_ms: 0.751079
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer projects source-derived native cubes and roughness
+ok 37 - trusted inline renderer projects source-derived native cubes and roughness
+  ---
+  duration_ms: 2.272235
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer applies the source-derived spotlight cone
+ok 38 - trusted inline renderer applies the source-derived spotlight cone
+  ---
+  duration_ms: 0.947448
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer rotates the die and draws procedural face marks
+ok 39 - trusted inline renderer rotates the die and draws procedural face marks
+  ---
+  duration_ms: 1.729722
+  type: 'test'
+  ...
+# Subtest: trusted inline renderer composites source-derived layered glass
+ok 40 - trusted inline renderer composites source-derived layered glass
+  ---
+  duration_ms: 2.465304
+  type: 'test'
+  ...
+# Subtest: terminal always appears below the editor and Result appears only for validated visual output
+ok 41 - terminal always appears below the editor and Result appears only for validated visual output
+  ---
+  duration_ms: 0.393037
+  type: 'test'
+  ...
+# Subtest: terminal renders VKF console values as one output line per emitted value
+ok 42 - terminal renders VKF console values as one output line per emitted value
+  ---
+  duration_ms: 0.174872
+  type: 'test'
+  ...
+# Subtest: Play replaces prefilled Console text on success and exact diagnostic paths
+ok 43 - Play replaces prefilled Console text on success and exact diagnostic paths
+  ---
+  duration_ms: 0.227363
+  type: 'test'
+  ...
+# Subtest: Play preserves the current Console text until VKF execution finishes
+ok 44 - Play preserves the current Console text until VKF execution finishes
+  ---
+  duration_ms: 15.844252
+  type: 'test'
+  ...
+# Subtest: unsupported execution reports failure without a fallback Result
+ok 45 - unsupported execution reports failure without a fallback Result
+  ---
+  duration_ms: 0.386738
+  type: 'test'
+  ...
+# Subtest: worker exposes no host capability imports or networking path
+ok 46 - worker exposes no host capability imports or networking path
+  ---
+  duration_ms: 2.935228
+  type: 'test'
+  ...
+1..46
+# tests 46
+# suites 0
+# pass 46
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2120.923767

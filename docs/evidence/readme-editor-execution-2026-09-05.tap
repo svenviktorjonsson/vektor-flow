@@ -1,0 +1,3153 @@
+TAP version 13
+# Subtest: every editor published anywhere on the site executes through the shipped WASM
+    # Subtest: docs/site/guide.md: example-1: Why
+    ok 1 - docs/site/guide.md: example-1: Why
+      ---
+      duration_ms: 10.317993
+      type: 'test'
+      ...
+    # Subtest: docs/site/guide.md: example-2: How
+    ok 2 - docs/site/guide.md: example-2: How
+      ---
+      duration_ms: 4.581571
+      type: 'test'
+      ...
+    # Subtest: docs/site/guide.md: example-3: What
+    not ok 3 - docs/site/guide.md: example-3: What
+      ---
+      duration_ms: 6.800104
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/site/guide.md: What
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:60:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-1: 1.1 Declare With name: And Update With .name:
+    ok 4 - docs/language-guide.md: example-1: 1.1 Declare With name: And Update With .name:
+      ---
+      duration_ms: 0.786279
+      type: 'test'
+      ...
+    # Subtest: docs/language-guide.md: example-2: 1.1 Declare With name: And Update With .name:
+    ok 5 - docs/language-guide.md: example-2: 1.1 Declare With name: And Update With .name:
+      ---
+      duration_ms: 0.402496
+      type: 'test'
+      ...
+    # Subtest: docs/language-guide.md: example-3: 1.2 Blocks Produce Values And Scopes
+    not ok 6 - docs/language-guide.md: example-3: 1.2 Blocks Produce Values And Scopes
+      ---
+      duration_ms: 0.796386
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 1.2 Blocks Produce Values And Scopes
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-4: 1.3 Output, Comments, And Assertions
+    ok 7 - docs/language-guide.md: example-4: 1.3 Output, Comments, And Assertions
+      ---
+      duration_ms: 1.078193
+      type: 'test'
+      ...
+    # Subtest: docs/language-guide.md: example-5: 1.4 Semicolons Preserve Logical Indentation
+    ok 8 - docs/language-guide.md: example-5: 1.4 Semicolons Preserve Logical Indentation
+      ---
+      duration_ms: 1.392925
+      type: 'test'
+      ...
+    # Subtest: docs/language-guide.md: example-6: 1.5 Tagged Tests
+    not ok 9 - docs/language-guide.md: example-6: 1.5 Tagged Tests
+      ---
+      duration_ms: 0.711624
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 1.5 Tagged Tests
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-7: 2.1 Primitive Values And null
+    not ok 10 - docs/language-guide.md: example-7: 2.1 Primitive Values And null
+      ---
+      duration_ms: 3.173335
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.1 Primitive Values And null
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-8: 2.1 Primitive Values And null
+    not ok 11 - docs/language-guide.md: example-8: 2.1 Primitive Values And null
+      ---
+      duration_ms: 1.567053
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.1 Primitive Values And null
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-9: 2.2 Strings, Characters, And Interpolation
+    not ok 12 - docs/language-guide.md: example-9: 2.2 Strings, Characters, And Interpolation
+      ---
+      duration_ms: 1.245817
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.2 Strings, Characters, And Interpolation
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-10: 2.3 Tuples And Records
+    not ok 13 - docs/language-guide.md: example-10: 2.3 Tuples And Records
+      ---
+      duration_ms: 2.412375
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.3 Tuples And Records
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-11: 2.4 Fixed And Dynamic Vectors
+    not ok 14 - docs/language-guide.md: example-11: 2.4 Fixed And Dynamic Vectors
+      ---
+      duration_ms: 2.998306
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.4 Fixed And Dynamic Vectors
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-12: 2.4 Fixed And Dynamic Vectors
+    not ok 15 - docs/language-guide.md: example-12: 2.4 Fixed And Dynamic Vectors
+      ---
+      duration_ms: 0.536695
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.4 Fixed And Dynamic Vectors
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-13: 2.4.1 Multidimensional And Distributed Indexing
+    not ok 16 - docs/language-guide.md: example-13: 2.4.1 Multidimensional And Distributed Indexing
+      ---
+      duration_ms: 5.610028
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.4.1 Multidimensional And Distributed Indexing
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-14: 2.4.1 Multidimensional And Distributed Indexing
+    not ok 17 - docs/language-guide.md: example-14: 2.4.1 Multidimensional And Distributed Indexing
+      ---
+      duration_ms: 7.833865
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.4.1 Multidimensional And Distributed Indexing
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-15: 2.5 Aggregate Updates And Aliases
+    not ok 18 - docs/language-guide.md: example-15: 2.5 Aggregate Updates And Aliases
+      ---
+      duration_ms: 2.227039
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.5 Aggregate Updates And Aliases
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-16: 2.6 Multisets
+    not ok 19 - docs/language-guide.md: example-16: 2.6 Multisets
+      ---
+      duration_ms: 0.4077
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.6 Multisets
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-17: 2.7 Inclusive Ranges
+    not ok 20 - docs/language-guide.md: example-17: 2.7 Inclusive Ranges
+      ---
+      duration_ms: 1.545938
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.7 Inclusive Ranges
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-18: 2.8 Complex Numbers
+    not ok 21 - docs/language-guide.md: example-18: 2.8 Complex Numbers
+      ---
+      duration_ms: 0.69271
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.8 Complex Numbers
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-19: 2.9 Equality Has Two Forms
+    not ok 22 - docs/language-guide.md: example-19: 2.9 Equality Has Two Forms
+      ---
+      duration_ms: 0.29992
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.9 Equality Has Two Forms
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-20: 2.10 Member Reflection And Spill
+    not ok 23 - docs/language-guide.md: example-20: 2.10 Member Reflection And Spill
+      ---
+      duration_ms: 0.704118
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.10 Member Reflection And Spill
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-21: 2.10 Member Reflection And Spill
+    not ok 24 - docs/language-guide.md: example-21: 2.10 Member Reflection And Spill
+      ---
+      duration_ms: 0.560513
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 2.10 Member Reflection And Spill
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-22: 3.1 Definitions, Results, And Early Return
+    not ok 25 - docs/language-guide.md: example-22: 3.1 Definitions, Results, And Early Return
+      ---
+      duration_ms: 1.854464
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.1 Definitions, Results, And Early Return
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-23: 3.2 Typed, Default, And Named Arguments
+    not ok 26 - docs/language-guide.md: example-23: 3.2 Typed, Default, And Named Arguments
+      ---
+      duration_ms: 0.487959
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.2 Typed, Default, And Named Arguments
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-24: 3.3 Local Functions, Recursion, And Closures
+    not ok 27 - docs/language-guide.md: example-24: 3.3 Local Functions, Recursion, And Closures
+      ---
+      duration_ms: 0.608648
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.3 Local Functions, Recursion, And Closures
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-25: 3.4 Lambdas And Higher-Order Functions
+    not ok 28 - docs/language-guide.md: example-25: 3.4 Lambdas And Higher-Order Functions
+      ---
+      duration_ms: 3.846831
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.4 Lambdas And Higher-Order Functions
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-26: 3.5 Variadics And Spreads
+    not ok 29 - docs/language-guide.md: example-26: 3.5 Variadics And Spreads
+      ---
+      duration_ms: 5.628542
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.5 Variadics And Spreads
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-27: 3.5 Variadics And Spreads
+    not ok 30 - docs/language-guide.md: example-27: 3.5 Variadics And Spreads
+      ---
+      duration_ms: 0.934388
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.5 Variadics And Spreads
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-28: 3.6 Compile-Time Shape Parameters
+    not ok 31 - docs/language-guide.md: example-28: 3.6 Compile-Time Shape Parameters
+      ---
+      duration_ms: 0.492963
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.6 Compile-Time Shape Parameters
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-29: 3.6.1 Named Generic Types And Singleton Tuples
+    not ok 32 - docs/language-guide.md: example-29: 3.6.1 Named Generic Types And Singleton Tuples
+      ---
+      duration_ms: 5.58411
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.6.1 Named Generic Types And Singleton Tuples
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-30: 3.7 Open any Inference
+    not ok 33 - docs/language-guide.md: example-30: 3.7 Open any Inference
+      ---
+      duration_ms: 2.467516
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.7 Open any Inference
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-31: 3.8 Nominal Constructors And Overloads
+    not ok 34 - docs/language-guide.md: example-31: 3.8 Nominal Constructors And Overloads
+      ---
+      duration_ms: 2.098244
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 3.8 Nominal Constructors And Overloads
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-32: 4.1 Compatible Vector Elements Are Selected
+    ok 35 - docs/language-guide.md: example-32: 4.1 Compatible Vector Elements Are Selected
+      ---
+      duration_ms: 0.96431
+      type: 'test'
+      ...
+    # Subtest: docs/language-guide.md: example-33: 4.2 Safe Scalar Conversions Apply At Every Vector Depth
+    not ok 36 - docs/language-guide.md: example-33: 4.2 Safe Scalar Conversions Apply At Every Vector Depth
+      ---
+      duration_ms: 1.275138
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 4.2 Safe Scalar Conversions Apply At Every Vector Depth
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-34: 4.3 Tuples And Records Are Atomic
+    not ok 37 - docs/language-guide.md: example-34: 4.3 Tuples And Records Are Atomic
+      ---
+      duration_ms: 2.874615
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 4.3 Tuples And Records Are Atomic
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-35: 4.4 Container Functions Can Lift Over Outer Vectors
+    not ok 38 - docs/language-guide.md: example-35: 4.4 Container Functions Can Lift Over Outer Vectors
+      ---
+      duration_ms: 2.195616
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 4.4 Container Functions Can Lift Over Outer Vectors
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-36: 4.5 Exact Container Matches Take Priority
+    not ok 39 - docs/language-guide.md: example-36: 4.5 Exact Container Matches Take Priority
+      ---
+      duration_ms: 2.350638
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 4.5 Exact Container Matches Take Priority
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-37: 4.6 Math Uses The Same Vector Rule
+    not ok 40 - docs/language-guide.md: example-37: 4.6 Math Uses The Same Vector Rule
+      ---
+      duration_ms: 2.419396
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 4.6 Math Uses The Same Vector Rule
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-38: 5.1 Conditionals
+    not ok 41 - docs/language-guide.md: example-38: 5.1 Conditionals
+      ---
+      duration_ms: 1.162619
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 5.1 Conditionals
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-39: 5.2 Match Values And Types
+    not ok 42 - docs/language-guide.md: example-39: 5.2 Match Values And Types
+      ---
+      duration_ms: 0.531628
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 5.2 Match Values And Types
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-40: 5.3 Conditional And Match Loops
+    ok 43 - docs/language-guide.md: example-40: 5.3 Conditional And Match Loops
+      ---
+      duration_ms: 1.157315
+      type: 'test'
+      ...
+    # Subtest: docs/language-guide.md: example-41: 5.5 Catching Typed Errors
+    not ok 44 - docs/language-guide.md: example-41: 5.5 Catching Typed Errors
+      ---
+      duration_ms: 0.434369
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 5.5 Catching Typed Errors
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-42: 6.1 Mapping With >>
+    not ok 45 - docs/language-guide.md: example-42: 6.1 Mapping With >>
+      ---
+      duration_ms: 0.341111
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 6.1 Mapping With >>
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-43: 6.2 Pipe Blocks And Infinite Ranges
+    not ok 46 - docs/language-guide.md: example-43: 6.2 Pipe Blocks And Infinite Ranges
+      ---
+      duration_ms: 0.337608
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 6.2 Pipe Blocks And Infinite Ranges
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-44: 6.3 Indexed Assignment In A Pipe
+    not ok 47 - docs/language-guide.md: example-44: 6.3 Indexed Assignment In A Pipe
+      ---
+      duration_ms: 0.671815
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 6.3 Indexed Assignment In A Pipe
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-45: 7.1 Built-In Operators
+    not ok 48 - docs/language-guide.md: example-45: 7.1 Built-In Operators
+      ---
+      duration_ms: 0.584962
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 7.1 Built-In Operators
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-46: 7.2 Absolute Value And Vector Norm
+    not ok 49 - docs/language-guide.md: example-46: 7.2 Absolute Value And Vector Norm
+      ---
+      duration_ms: 0.184915
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 7.2 Absolute Value And Vector Norm
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-47: 7.3 Operator Overloads
+    not ok 50 - docs/language-guide.md: example-47: 7.3 Operator Overloads
+      ---
+      duration_ms: 4.016383
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 7.3 Operator Overloads
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-48: 7.4 Dotted Access Overloads
+    not ok 51 - docs/language-guide.md: example-48: 7.4 Dotted Access Overloads
+      ---
+      duration_ms: 0.597669
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 7.4 Dotted Access Overloads
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-49: 8.1 Fixed Shapes
+    not ok 52 - docs/language-guide.md: example-49: 8.1 Fixed Shapes
+      ---
+      duration_ms: 2.778217
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 8.1 Fixed Shapes
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-50: 8.2 Single And Multi-Index Access
+    not ok 53 - docs/language-guide.md: example-50: 8.2 Single And Multi-Index Access
+      ---
+      duration_ms: 1.376951
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 8.2 Single And Multi-Index Access
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-51: 8.3 Axis Tags And Tensor Products
+    ok 54 - docs/language-guide.md: example-51: 8.3 Axis Tags And Tensor Products
+      ---
+      duration_ms: 2.967234
+      type: 'test'
+      ...
+    # Subtest: docs/language-guide.md: example-52: 9.1 Module Handles And Imports
+    not ok 55 - docs/language-guide.md: example-52: 9.1 Module Handles And Imports
+      ---
+      duration_ms: 1.210148
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 9.1 Module Handles And Imports
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-53: 9.2 Shadowing And Qualification
+    not ok 56 - docs/language-guide.md: example-53: 9.2 Shadowing And Qualification
+      ---
+      duration_ms: 4.224311
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 9.2 Shadowing And Qualification
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-54: 9.3 Overload Families And Type Dispatch
+    not ok 57 - docs/language-guide.md: example-54: 9.3 Overload Families And Type Dispatch
+      ---
+      duration_ms: 1.971319
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 9.3 Overload Families And Type Dispatch
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-55: 10.1 math
+    not ok 58 - docs/language-guide.md: example-55: 10.1 math
+      ---
+      duration_ms: 2.052469
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.1 math
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-56: 10.2 stat
+    not ok 59 - docs/language-guide.md: example-56: 10.2 stat
+      ---
+      duration_ms: 1.790907
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.2 stat
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-57: 10.3 random
+    not ok 60 - docs/language-guide.md: example-57: 10.3 random
+      ---
+      duration_ms: 1.936297
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.3 random
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-58: 10.4 time
+    not ok 61 - docs/language-guide.md: example-58: 10.4 time
+      ---
+      duration_ms: 0.643098
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.4 time
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-59: 10.5 io
+    not ok 62 - docs/language-guide.md: example-59: 10.5 io
+      ---
+      duration_ms: 0.11377
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.5 io
+        Actual message: "browser runtime does not expose filesystem capability"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser runtime does not expose filesystem capability'
+      stack: |-
+        assertBrowserCapabilities (file:///src/web/playground/vkf-browser-compiler.mjs:18:11)
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:39:7)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-60: 10.6 collections
+    not ok 63 - docs/language-guide.md: example-60: 10.6 collections
+      ---
+      duration_ms: 2.76571
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.6 collections
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-61: 10.7 errors
+    not ok 64 - docs/language-guide.md: example-61: 10.7 errors
+      ---
+      duration_ms: 0.387739
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.7 errors
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-62: 10.8 system
+    not ok 65 - docs/language-guide.md: example-62: 10.8 system
+      ---
+      duration_ms: 1.047648
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.8 system
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-63: 10.9 process
+    not ok 66 - docs/language-guide.md: example-63: 10.9 process
+      ---
+      duration_ms: 0.106166
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.9 process
+        Actual message: "browser runtime does not expose process capability"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser runtime does not expose process capability'
+      stack: |-
+        assertBrowserCapabilities (file:///src/web/playground/vkf-browser-compiler.mjs:18:11)
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:39:7)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-64: 10.10 regex
+    not ok 67 - docs/language-guide.md: example-64: 10.10 regex
+      ---
+      duration_ms: 0.498208
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.10 regex
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-65: 10.11 linalg
+    not ok 68 - docs/language-guide.md: example-65: 10.11 linalg
+      ---
+      duration_ms: 10.90244
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.11 linalg
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-66: 10.12 physics And Dimensioned Units
+    not ok 69 - docs/language-guide.md: example-66: 10.12 physics And Dimensioned Units
+      ---
+      duration_ms: 2.914002
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.12 physics And Dimensioned Units
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-67: 10.13 symbolic
+    not ok 70 - docs/language-guide.md: example-67: 10.13 symbolic
+      ---
+      duration_ms: 0.343012
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.13 symbolic
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-68: 10.13 symbolic
+    not ok 71 - docs/language-guide.md: example-68: 10.13 symbolic
+      ---
+      duration_ms: 5.269758
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.13 symbolic
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/language-guide.md: example-69: 10.13 symbolic
+    not ok 72 - docs/language-guide.md: example-69: 10.13 symbolic
+      ---
+      duration_ms: 3.457037
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/language-guide.md: 10.13 symbolic
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/site/origins.md: example-1: Write the calculation, not an array workaround
+    ok 73 - docs/site/origins.md: example-1: Write the calculation, not an array workaround
+      ---
+      duration_ms: 0.912063
+      type: 'test'
+      ...
+    # Subtest: INSTALL.md: example-1: Your first local program
+    not ok 74 - INSTALL.md: example-1: Your first local program
+      ---
+      duration_ms: 0.262262
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: INSTALL.md: Your first local program
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-1: Functions And Returns
+    not ok 75 - docs/style-guide.md: example-1: Functions And Returns
+      ---
+      duration_ms: 0.911364
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Functions And Returns
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-2: Functions And Returns
+    not ok 76 - docs/style-guide.md: example-2: Functions And Returns
+      ---
+      duration_ms: 0.454381
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Functions And Returns
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-3: Functions And Returns
+    not ok 77 - docs/style-guide.md: example-3: Functions And Returns
+      ---
+      duration_ms: 0.651703
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Functions And Returns
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-4: Pipe Layout
+    not ok 78 - docs/style-guide.md: example-4: Pipe Layout
+      ---
+      duration_ms: 0.215033
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Pipe Layout
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-5: Pipe Layout
+    not ok 79 - docs/style-guide.md: example-5: Pipe Layout
+      ---
+      duration_ms: 0.293382
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Pipe Layout
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-6: Pipe Layout
+    not ok 80 - docs/style-guide.md: example-6: Pipe Layout
+      ---
+      duration_ms: 0.312493
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Pipe Layout
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-7: Scope Names
+    not ok 81 - docs/style-guide.md: example-7: Scope Names
+      ---
+      duration_ms: 0.354119
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Scope Names
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-8: Scope Names
+    not ok 82 - docs/style-guide.md: example-8: Scope Names
+      ---
+      duration_ms: 0.51812
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Scope Names
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-9: Iteration
+    not ok 83 - docs/style-guide.md: example-9: Iteration
+      ---
+      duration_ms: 0.267265
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Iteration
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-10: Vectors And Indices
+    not ok 84 - docs/style-guide.md: example-10: Vectors And Indices
+      ---
+      duration_ms: 0.605374
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Vectors And Indices
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/style-guide.md: example-11: Updates
+    not ok 85 - docs/style-guide.md: example-11: Updates
+      ---
+      duration_ms: 0.732353
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/style-guide.md: Updates
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: vscode/README.md: example-1: Windows
+    not ok 86 - vscode/README.md: example-1: Windows
+      ---
+      duration_ms: 0.279473
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: vscode/README.md: Windows
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: vscode/README.md: example-2: macOS / Linux
+    not ok 87 - vscode/README.md: example-2: macOS / Linux
+      ---
+      duration_ms: 0.249855
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: vscode/README.md: macOS / Linux
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: vscode/README.md: example-3: Basic run
+    not ok 88 - vscode/README.md: example-3: Basic run
+      ---
+      duration_ms: 0.255158
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: vscode/README.md: Basic run
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: vscode/README.md: example-4: Explicit stdlib import surface
+    not ok 89 - vscode/README.md: example-4: Explicit stdlib import surface
+      ---
+      duration_ms: 0.755467
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: vscode/README.md: Explicit stdlib import surface
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/adr/0001-ui-runtime-shared-memory-gpu.md: example-1: Event Model
+    not ok 90 - docs/adr/0001-ui-runtime-shared-memory-gpu.md: example-1: Event Model
+      ---
+      duration_ms: 0.813302
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/adr/0001-ui-runtime-shared-memory-gpu.md: Event Model
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/site/getting-started.md: example-1: Run and change a program
+    ok 91 - docs/site/getting-started.md: example-1: Run and change a program
+      ---
+      duration_ms: 0.885947
+      type: 'test'
+      ...
+    # Subtest: docs/site/getting-started.md: example-2: Make it visible
+    not ok 92 - docs/site/getting-started.md: example-2: Make it visible
+      ---
+      duration_ms: 1.769394
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/site/getting-started.md: Make it visible
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:60:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/site/concepts.md: example-1: Functions, vectors and axes
+    ok 93 - docs/site/concepts.md: example-1: Functions, vectors and axes
+      ---
+      duration_ms: 1.975822
+      type: 'test'
+      ...
+    # Subtest: docs/site/concepts.md: example-2: Graphics and interfaces
+    not ok 94 - docs/site/concepts.md: example-2: Graphics and interfaces
+      ---
+      duration_ms: 1.930493
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/site/concepts.md: Graphics and interfaces
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:60:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/plans/0.4.0.md: example-1: Slice A: fixed rectangular vector introspection
+    not ok 95 - docs/plans/0.4.0.md: example-1: Slice A: fixed rectangular vector introspection
+      ---
+      duration_ms: 0.790088
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/plans/0.4.0.md: Slice A: fixed rectangular vector introspection
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/plans/0.4.0.md: example-2: Slice A: fixed rectangular vector introspection
+    not ok 96 - docs/plans/0.4.0.md: example-2: Slice A: fixed rectangular vector introspection
+      ---
+      duration_ms: 2.655042
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/plans/0.4.0.md: Slice A: fixed rectangular vector introspection
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    # Subtest: docs/releases/0.1.8.md: example-1: Language And Compiler
+    not ok 97 - docs/releases/0.1.8.md: example-1: Language And Compiler
+      ---
+      duration_ms: 0.301387
+      type: 'test'
+      location: '/src/tests/js/pages-readme-document.test.mjs:245:13'
+      failureType: 'testCodeFailure'
+      error: |-
+        Got unwanted exception: docs/releases/0.1.8.md: Language And Compiler
+        Actual message: "browser compiler could not run the VKF source"
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      actual:
+      error: 'browser compiler could not run the VKF source'
+      stack: |-
+        Object.run (file:///src/web/playground/vkf-browser-compiler.mjs:44:15)
+        file:///src/tests/js/pages-readme-document.test.mjs:248:33
+        getActual (node:assert:609:5)
+        Function.doesNotThrow (node:assert:777:32)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+      operator: 'doesNotThrow'
+      stack: |-
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:247:12)
+        Test.runInAsyncScope (node:async_hooks:214:14)
+        Test.run (node:internal/test_runner/test:1047:25)
+        Test.start (node:internal/test_runner/test:944:17)
+        TestContext.test (node:internal/test_runner/test:373:20)
+        TestContext.<anonymous> (file:///src/tests/js/pages-readme-document.test.mjs:245:13)
+        async Test.run (node:internal/test_runner/test:1054:7)
+        async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+      ...
+    1..97
+not ok 1 - every editor published anywhere on the site executes through the shipped WASM
+  ---
+  duration_ms: 670.651132
+  type: 'test'
+  location: '/src/tests/js/pages-readme-document.test.mjs:215:1'
+  failureType: 'subtestsFailed'
+  error: '85 subtests failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+1..1
+# tests 98
+# suites 0
+# pass 12
+# fail 86
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 830.38241

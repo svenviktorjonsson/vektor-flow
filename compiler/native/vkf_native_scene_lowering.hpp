@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/native/vkf_spectral_emission.hpp"
+#include "compiler/native/vkf_retained_scene_arena.hpp"
 #include "vkf_retained_scene_packet.hpp"
 #include "native/VfOverlay/vf/json.hpp"
 
@@ -24,11 +25,6 @@
 #include <vector>
 
 namespace vkf::native_scene {
-
-class Error : public std::runtime_error {
-public:
-    explicit Error(const std::string& message) : std::runtime_error(message) {}
-};
 
 enum class LiteralKind {
     Null,
@@ -689,40 +685,6 @@ inline void bake_compiled_material_color(LiteralValue& root) {
         }
     }
 }
-
-inline void append_f32(std::vector<std::uint8_t>& bytes, double value) {
-    if (!std::isfinite(value) ||
-        std::abs(value) > static_cast<double>(std::numeric_limits<float>::max())) {
-        throw Error("retained scene vertex is not f32-compatible");
-    }
-    const float packed = static_cast<float>(value);
-    std::uint32_t bits = 0;
-    std::memcpy(&bits, &packed, sizeof(bits));
-    for (int shift = 0; shift < 32; shift += 8) {
-        bytes.push_back(static_cast<std::uint8_t>((bits >> shift) & 0xffu));
-    }
-}
-
-inline void append_u32(
-    std::vector<std::uint8_t>& bytes,
-    const vf::JsonValue& value
-) {
-    if (!value.is_number() || !std::isfinite(value.as_number()) ||
-        value.as_number() < 0.0 || std::floor(value.as_number()) != value.as_number() ||
-        value.as_number() >
-            static_cast<double>(std::numeric_limits<std::uint32_t>::max())) {
-        throw Error("retained scene index is not u32-compatible");
-    }
-    const auto packed = static_cast<std::uint32_t>(value.as_number());
-    for (int shift = 0; shift < 32; shift += 8) {
-        bytes.push_back(static_cast<std::uint8_t>((packed >> shift) & 0xffu));
-    }
-}
-
-struct PackedScene {
-    std::string metadata_json;
-    std::vector<std::uint8_t> arena_bytes;
-};
 
 namespace render_parameter_layout {
 
@@ -1792,51 +1754,7 @@ inline PackedRenderParameters pack_render_parameters(
 inline PackedScene pack_meshes(LiteralValue root) {
     bake_compiled_material_color(root);
     vf::JsonValue scene = literal_to_value(root);
-    std::vector<std::uint8_t> arena;
-    auto& scene_object = scene.as_object();
-    const auto pack_geometry = [&](vf::JsonValue::Object& geometry) {
-        for (const auto& field_spec : {
-                 std::pair<const char*, const char*>{"vertices", "float32"},
-                 std::pair<const char*, const char*>{"indices", "uint32"}}) {
-            const auto found = geometry.find(field_spec.first);
-            if (found == geometry.end()) continue;
-            if (!found->second.is_array()) {
-                throw Error(
-                    std::string("native_scene geometry.") +
-                    field_spec.first + " must be a vector");
-            }
-            while ((arena.size() & 3u) != 0u) arena.push_back(0);
-            const std::size_t byte_offset = arena.size();
-            const std::size_t length = found->second.as_array().size();
-            for (const auto& item : found->second.as_array()) {
-                if (std::string(field_spec.second) == "float32") {
-                    if (!item.is_number()) {
-                        throw Error(
-                            "retained scene vertex must be numeric");
-                    }
-                    append_f32(arena, item.as_number());
-                } else {
-                    append_u32(arena, item);
-                }
-            }
-            found->second = vf::JsonValue(vf::JsonValue::Object{
-                {"byte_offset", vf::JsonValue(
-                    static_cast<double>(byte_offset))},
-                {"length", vf::JsonValue(static_cast<double>(length))},
-                {"storage", vf::JsonValue(field_spec.second)},
-            });
-        }
-    };
-    const auto surfaces_entry = scene_object.find("surfaces");
-    if (surfaces_entry != scene_object.end()) {
-        if (!surfaces_entry->second.is_array()) {
-            throw Error("native_scene.surfaces must be a vector");
-        }
-        for (auto& raw_surface : surfaces_entry->second.as_array()) {
-            if (!raw_surface.is_object()) {
-                throw Error("native_scene surface must be a struct");
-            }
-            auto& surface = raw_surface.as_object();
+    const auto prepare_surface = [](vf::JsonValue::Object& surface) {
             const auto color_it = surface.find("color");
             const auto color = color_it != surface.end() &&
                     color_it->second.is_array()
@@ -1876,30 +1794,8 @@ inline PackedScene pack_meshes(LiteralValue root) {
                 vf::JsonValue(2.0), vf::JsonValue(0.0),
                 vf::JsonValue(2.0), vf::JsonValue(3.0),
             });
-            pack_geometry(surface);
-        }
-    }
-    const auto meshes_entry = scene_object.find("meshes");
-    if (meshes_entry != scene_object.end()) {
-        if (!meshes_entry->second.is_array()) {
-            throw Error("native_scene.meshes must be a vector");
-        }
-        for (auto& raw_mesh : meshes_entry->second.as_array()) {
-            if (!raw_mesh.is_object()) {
-                throw Error("native_scene mesh must be a struct");
-            }
-            pack_geometry(raw_mesh.as_object());
-        }
-    }
-    vf::JsonValue::Object metadata{
-        {"schema", vf::JsonValue("vektor-flow/retained-scene-arena")},
-        {"version", vf::JsonValue(1.0)},
-        {"scene", std::move(scene)},
     };
-    return {
-        vf::json_stringify(vf::JsonValue(std::move(metadata)), -1),
-        std::move(arena),
-    };
+    return pack_scene_geometry(std::move(scene), prepare_surface);
 }
 
 inline vf::JsonValue::Array build_draw_lists(

@@ -65,6 +65,10 @@ struct TypedModule {
     std::vector<RuntimeBinding> runtime_bindings;
     std::vector<ExpressionStatement> expression_statements;
     std::vector<ModuleItem> items;
+    // Own canonical prepared IR for shared native layout inference. Its
+    // borrowed inference pointers remain valid for this module's lifetime.
+    // Private C++ storage only; not a serialized schema or public ABI field.
+    vf::JsonValue inference_source;
 };
 
 namespace detail {
@@ -148,6 +152,7 @@ inline TypedModule parse_typed_module(const vf::JsonValue& typed_ir) {
     );
 
     TypedModule module;
+    module.inference_source = typed_ir;
     module.type_aliases.reserve(body.size());
     module.functions.reserve(body.size());
     module.runtime_bindings.reserve(body.size());

@@ -1,8 +1,10 @@
 #include "vf/json.hpp"
 
 #include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -180,11 +182,17 @@ private:
         }
 
         const std::string slice = text_.substr(start, index_ - start);
-        try {
-            return std::stod(slice);
-        } catch (const std::exception&) {
+        char* end = nullptr;
+        errno = 0;
+        const double number = std::strtod(slice.c_str(), &end);
+        // strtod can report ERANGE for a representable subnormal. Such a
+        // value must survive compiler JSON transport; overflow and values
+        // that underflow to zero remain invalid, as with the prior parser.
+        if (end != slice.c_str() + slice.size() || !std::isfinite(number)
+            || (errno == ERANGE && number == 0.0)) {
             throw error("invalid number");
         }
+        return number;
     }
 
     void consume_digits() {
@@ -305,7 +313,7 @@ void stringify_json_impl(const JsonValue& value, std::ostringstream& out, int in
             throw std::runtime_error("cannot stringify non-finite json number");
         }
         std::ostringstream number_out;
-        number_out << std::setprecision(std::numeric_limits<double>::digits10 + 1) << number;
+        number_out << std::setprecision(std::numeric_limits<double>::max_digits10) << number;
         out << number_out.str();
         return;
     }

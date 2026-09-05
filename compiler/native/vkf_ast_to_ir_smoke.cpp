@@ -34,6 +34,7 @@ public:
 struct Binding {
     std::string name;
     std::string type;
+    std::optional<std::uint64_t> retained_ui_id;
 };
 
 struct FunctionInfo {
@@ -101,6 +102,7 @@ public:
         for (auto& binding : bindings_) {
             if (binding.name == name) {
                 binding.type = std::move(type);
+                binding.retained_ui_id.reset();
                 return;
             }
         }
@@ -141,6 +143,23 @@ public:
     }
 
     const std::vector<Binding>& bindings() const { return bindings_; }
+
+    std::optional<std::uint64_t> retained_ui_id(const std::string& name,
+                                                 const std::string& type) const {
+        for (auto it = bindings_.rbegin(); it != bindings_.rend(); ++it) {
+            if (it->name == name) return it->type == type ? it->retained_ui_id : std::nullopt;
+        }
+        return std::nullopt;
+    }
+
+    void set_retained_ui_id(const std::string& name, std::uint64_t id) {
+        for (auto& binding : bindings_) {
+            if (binding.name == name) {
+                binding.retained_ui_id = id;
+                return;
+            }
+        }
+    }
 
 private:
     std::vector<Binding> bindings_;
@@ -1824,6 +1843,19 @@ struct UiHandleRef {
     std::uint64_t id = 0;
 };
 
+char ui_coordinate_channel(const std::string& name) {
+    if (name.empty() || std::string_view("xyzp").find(name.front()) == std::string_view::npos) return '\0';
+    if (name.size() == 1) return name.front();
+    if (name.size() < 3 || name[1] != '_') return '\0';
+    std::set<char> axes;
+    for (std::size_t index = 2; index < name.size(); ++index) {
+        const char axis = name[index];
+        if (std::string_view("uvwijkt").find(axis) == std::string_view::npos ||
+            !axes.insert(axis).second) return '\0';
+    }
+    return name.front();
+}
+
 struct UiStaticIdentity {
     std::string id;
     std::string type;
@@ -1843,6 +1875,9 @@ struct WorldRef {
 
 class Lowerer {
 public:
+#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
+    explicit Lowerer(bool retain_ui_effects = false) : retain_ui_effects_(retain_ui_effects) {}
+#endif
     vf::JsonValue lower_module(const vf::JsonValue& ast) {
         const auto& object = object_of(ast, "module");
         const std::string kind = string_field(object, "kind", "module");
@@ -1960,6 +1995,18 @@ public:
             out["__vf_internal_world"] = vf::JsonValue(std::move(program));
         }
         if (!ui_displays_.empty() || !ui_operations_.empty()) {
+            finalize_inferred_ui_handles(out["body"]);
+            for (auto& operation : ui_operations_) finalize_inferred_ui_handles(operation);
+            if (ui_result_type_ == "Frame<2>") {
+                for (auto operation = ui_operations_.rbegin(); operation != ui_operations_.rend(); ++operation) {
+                    const auto& item = object_of(*operation, "retained operation");
+                    if (string_field(item, "kind", "retained operation") == "add_frame") {
+                        ui_result_type_ = inferred_ui_handle_type("frame", static_cast<std::uint64_t>(
+                            field(item, "frame_id", "retained operation").as_number()));
+                        break;
+                    }
+                }
+            }
             vf::JsonValue::Object program;
             program["schema"] = vf::JsonValue("vektor-flow/ui-program");
             program["version"] = vf::JsonValue(1.0);
@@ -1972,6 +2019,89 @@ public:
     }
 
 private:
+#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
+    bool retain_ui_effects_ = false;
+
+    vf::JsonValue private_ui_effect(vf::JsonValue result,
+                                    const vf::JsonValue::Array& named_args,
+                                    const std::string& identity, std::size_t index) const {
+        if (!retain_ui_effects_) return result;
+        auto effect = node("retained_ui_effect");
+        effect[identity] = vf::JsonValue(static_cast<double>(index));
+        vf::JsonValue::Array operands;
+        for (const auto& argument : named_args) {
+            const auto& named = object_of(argument, "UI argument");
+            vf::JsonValue::Object operand;
+            operand["name"] = field(named, "name", "UI argument");
+            operand["value"] = field(named, "value", "UI argument");
+            operands.emplace_back(std::move(operand));
+        }
+        effect["arguments"] = vf::JsonValue(std::move(operands));
+        effect["type"] = field(result.as_object(), "type", "UI result");
+        effect["result"] = std::move(result);
+        return vf::JsonValue(std::move(effect));
+    }
+#endif
+    std::string inferred_ui_handle_type(const std::string& kind, std::uint64_t id) const {
+        std::uint64_t display_id = id;
+        if (kind == "frame") {
+            const auto parent = ui_frame_displays_.find(id);
+            if (parent == ui_frame_displays_.end()) return "Frame<2>";
+            display_id = parent->second;
+        }
+        const auto& display = object_of(ui_displays_.at(display_id), "retained Display");
+        const auto dimension = field(display, "dimension", "retained Display").as_number();
+        return (kind == "display" ? "Display<" : "Frame<") +
+            std::to_string(static_cast<unsigned>(dimension)) + ">";
+    }
+
+    // Handle dimensions are constraints of the complete retained geometry, not
+    // defaults baked into a constructor before its Frame.add calls are lowered.
+    void finalize_inferred_ui_handles(vf::JsonValue& value) const {
+        if (value.is_array()) {
+            for (auto& item : value.as_array()) finalize_inferred_ui_handles(item);
+            return;
+        }
+        if (!value.is_object()) return;
+        auto& object = value.as_object();
+        for (auto& [name, child] : object) {
+            (void)name;
+            finalize_inferred_ui_handles(child);
+        }
+        const auto type = object.find("type");
+        const auto kind = object.find("kind");
+        if (type == object.end() || !type->second.is_string() ||
+            (type->second.as_string() != "Display<2>" &&
+             type->second.as_string() != "Frame<2>") ||
+            kind == object.end() || !kind->second.is_string()) return;
+        const std::string handle_kind = type->second.as_string() == "Display<2>"
+            ? "display" : "frame";
+        if (kind->second.as_string() == "const") {
+            const auto id = object.find("value");
+            if (id != object.end() && id->second.is_number()) {
+                type->second = vf::JsonValue(inferred_ui_handle_type(
+                    handle_kind, static_cast<std::uint64_t>(id->second.as_number())));
+            }
+        } else if (kind->second.as_string() == "load") {
+            const auto name = object.find("name");
+            if (name == object.end() || !name->second.is_string()) return;
+            const auto binding = ui_handle_bindings_.find(name->second.as_string());
+            if (binding != ui_handle_bindings_.end() && binding->second.kind == handle_kind) {
+                type->second = vf::JsonValue(inferred_ui_handle_type(handle_kind, binding->second.id));
+            }
+#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
+        } else if (kind->second.as_string() == "retained_ui_effect") {
+            type->second = field(object_of(field(object, "result", "private UI effect"),
+                "private UI result"), "type", "private UI result");
+#endif
+        } else if (kind->second.as_string() == "store_binding") {
+            const auto bound_value = object.find("value");
+            if (bound_value != object.end() && bound_value->second.is_object()) {
+                type->second = field(bound_value->second.as_object(), "type", "retained binding");
+            }
+        }
+    }
+
     void discover_static_ui_identities(const vf::JsonValue::Array& statements) {
         std::set<std::string> frame_bindings;
         for (const auto& statement_value : statements) {
@@ -2641,21 +2771,41 @@ private:
                             std::to_string(items.size()) + "]";
                     }
                 }
+                // Resolve the source binding before an update can replace its identity.
+                std::optional<std::uint64_t> retained_alias;
+                if ((value_type == "Display<2>" || value_type == "Frame<2>" || value_type == "Layer") &&
+                    string_field(value.as_object(), "kind", "UI handle") == "load") {
+                    retained_alias = env.retained_ui_id(
+                        string_field(value.as_object(), "name", "UI handle"), value_type);
+                }
                 if (is_update) env.set(name, environment_type);
                 else env.declare(name, environment_type);
                 if (value_type == "Display<2>" || value_type == "Frame<2>" ||
                     value_type == "Layer") {
+#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
+                    const vf::JsonValue* handle_value = &value;
+                    if (retain_ui_effects_ &&
+                        string_field(value.as_object(), "kind", "UI handle") == "retained_ui_effect") {
+                        handle_value = &field(value.as_object(), "result", "private UI effect");
+                    }
+                    const auto& handle = object_of(*handle_value, "UI handle");
+#else
                     const auto& handle = object_of(value, "UI handle");
-                    const auto& raw_handle = field(handle, "value", "UI handle");
-                    if (string_field(handle, "kind", "UI handle") != "const" ||
-                        !raw_handle.is_number() || raw_handle.as_number() < 0.0) {
-                        throw IRFailure("retained UI handle must be a non-negative constant");
+#endif
+                    if (!retained_alias) {
+                        const auto& raw_handle = field(handle, "value", "UI handle");
+                        if (string_field(handle, "kind", "UI handle") != "const" ||
+                            !raw_handle.is_number() || raw_handle.as_number() < 0.0) {
+                            throw IRFailure("retained UI handle must be a non-negative constant");
+                        }
+                        retained_alias = static_cast<std::uint64_t>(raw_handle.as_number());
                     }
                     ui_handle_bindings_[name] = UiHandleRef{
                         value_type == "Display<2>" ? "display" :
                         value_type == "Frame<2>" ? "frame" : "layer",
-                        static_cast<std::uint64_t>(raw_handle.as_number())
+                        *retained_alias
                     };
+                    env.set_retained_ui_id(name, *retained_alias);
                 }
                 if (value_type == "World<2>") {
                     const auto& handle = object_of(value, "World handle");
@@ -4062,27 +4212,33 @@ private:
             if (spilled_ui_display &&
                 string_field(callee_ast, "kind", "call.callee") == "identifier" &&
                 string_field(callee_ast, "name", "call.callee") == "Display") {
-                if (!args.empty() || !spread_args.empty() || named_args.size() != 1) {
+                if (!args.empty() || !spread_args.empty() || named_args.size() > 1) {
                     throw IRFailure("Display currently requires exactly `dim:`");
                 }
                 const vf::JsonValue* dimension_value = named_value("dim", "Display");
-                if (dimension_value == nullptr) {
+                if (dimension_value == nullptr && !named_args.empty()) {
                     throw IRFailure("Display currently requires exactly `dim:`");
                 }
-                const auto& dimension = object_of(*dimension_value, "Display dim");
-                const auto& raw_dimension = field(dimension, "value", "Display dim");
-                if (string_field(dimension, "kind", "Display dim") != "const" ||
-                    !raw_dimension.is_number() || raw_dimension.as_number() != 2.0) {
-                    throw IRFailure("Display currently requires `dim:2`");
+                if (dimension_value != nullptr) {
+                    const auto& dimension = object_of(*dimension_value, "Display dim");
+                    const auto& raw_dimension = field(dimension, "value", "Display dim");
+                    if (string_field(dimension, "kind", "Display dim") != "const" ||
+                        !raw_dimension.is_number() || raw_dimension.as_number() != 2.0) {
+                        throw IRFailure("Display currently requires `dim:2`");
+                    }
                 }
                 vf::JsonValue::Object display;
                 display["dimension"] = vf::JsonValue(2.0);
                 display["surface"] = vf::JsonValue("web_surface");
                 display["transparent"] = vf::JsonValue(true);
+                if (dimension_value == nullptr) ui_inferred_displays_.insert(ui_displays_.size());
                 ui_displays_.emplace_back(std::move(display));
                 vf::JsonValue handle = num_const(
                     static_cast<double>(ui_displays_.size() - 1));
                 handle.as_object()["type"] = vf::JsonValue("Display<2>");
+#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
+                return private_ui_effect(std::move(handle), named_args, "display_id", ui_displays_.size() - 1);
+#endif
                 return handle;
             }
             if (string_field(callee_ast, "kind", "call.callee") == "attribute") {
@@ -4228,7 +4384,8 @@ private:
                                 raw_named, "Frame." + method + " argument");
                             const std::string name = string_field(
                                 named, "name", "Frame." + method + " argument");
-                            if (supported.at(method).find(name) == supported.at(method).end()) {
+                            if (supported.at(method).find(name) == supported.at(method).end() &&
+                                !(method == "add" && ui_coordinate_channel(name) != '\0')) {
                                 throw IRFailure(
                                     "Frame." + method + " does not support `" + name + "`");
                             }
@@ -4270,6 +4427,11 @@ private:
                         }
                         const bool temporal_add = method == "add" &&
                             properties.find("p_t") != properties.end();
+                        const auto has_coordinate = [&](char coordinate) {
+                            return std::any_of(properties.begin(), properties.end(), [&](const auto& property) {
+                                return ui_coordinate_channel(property.first) == coordinate;
+                            });
+                        };
                         const bool indexed_add = method == "add" &&
                             (properties.find("p_uc") != properties.end() ||
                              properties.find("faces_uvw") != properties.end());
@@ -4283,8 +4445,7 @@ private:
                                 "`id:`, and `color:`");
                         }
                         if (method == "add" && !temporal_add && !indexed_add &&
-                            (properties.find("x") == properties.end() ||
-                             properties.find("y") == properties.end() ||
+                            ((!has_coordinate('p') && (!has_coordinate('x') || !has_coordinate('y'))) ||
                              properties.find("id") == properties.end() ||
                              properties.find("color") == properties.end())) {
                             throw IRFailure(
@@ -4294,6 +4455,12 @@ private:
                             const auto emission = properties.find("emission");
                             if (emission != properties.end()) {
                                 validate_emission_type(emission->second);
+                            }
+                            const auto parent = ui_frame_displays_.find(target->second.id);
+                            if (has_coordinate('z') &&
+                                parent != ui_frame_displays_.end() &&
+                                ui_inferred_displays_.count(parent->second) != 0) {
+                                ui_displays_.at(parent->second).as_object()["dimension"] = vf::JsonValue(3.0);
                             }
                         }
                         vf::JsonValue::Object operation;
@@ -4314,6 +4481,14 @@ private:
                             ui_result_type_ = "Layer";
                             vf::JsonValue layer = num_const(static_cast<double>(layer_id));
                             layer.as_object()["type"] = vf::JsonValue("Layer");
+#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
+                            // Only the ordinary add frontend slice is retained here.
+                            // Production lowering and temporal/indexed paths stay unchanged.
+                            if (retain_ui_effects_ && !temporal_add && !indexed_add) {
+                                return private_ui_effect(std::move(layer), named_args,
+                                    "operation_index", ui_operations_.size() - 1);
+                            }
+#endif
                             return layer;
                         }
                         ui_operations_.emplace_back(std::move(operation));
@@ -4535,6 +4710,7 @@ private:
                             throw IRFailure("Display.add_frame requires a retained Display binding");
                         }
                         const std::uint64_t frame_index = next_ui_frame_++;
+                        ui_frame_displays_[frame_index] = parent->second.id;
                         vf::JsonValue::Object add_frame;
                         add_frame["kind"] = vf::JsonValue("add_frame");
                         add_frame["frame_id"] = vf::JsonValue(
@@ -4548,6 +4724,9 @@ private:
                         ui_result_type_ = "Frame<2>";
                         vf::JsonValue frame = num_const(static_cast<double>(frame_index));
                         frame.as_object()["type"] = vf::JsonValue("Frame<2>");
+#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
+                        return private_ui_effect(std::move(frame), named_args, "operation_index", ui_operations_.size() - 1);
+#endif
                         return frame;
                     }
                     if (starts_with(queue_type, "queue<")) {
@@ -7746,6 +7925,8 @@ private:
     std::map<std::string, vf::JsonValue> symbolic_expression_sources_;
     std::set<std::string> symbolic_trace_stack_;
     std::map<std::string, UiHandleRef> ui_handle_bindings_;
+    std::set<std::uint64_t> ui_inferred_displays_;
+    std::map<std::uint64_t, std::uint64_t> ui_frame_displays_;
     std::vector<UiStaticIdentity> ui_static_identities_;
     std::map<std::string, std::uint64_t> world_handle_bindings_;
     std::vector<WorldRef> worlds_;
@@ -8135,6 +8316,15 @@ vf::JsonValue vkf::native_frontend::lower_value(const vf::JsonValue& ast) {
     Lowerer lowerer;
     return lowerer.lower_module(ast);
 }
+
+#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
+namespace vkf::native_frontend::private_ui_probe {
+vf::JsonValue lower_execution_value(const vf::JsonValue& ast) {
+    Lowerer lowerer(true);
+    return lowerer.lower_module(ast);
+}
+}
+#endif
 
 std::string vkf::native_frontend::lower(const std::string& ast_json) {
     return vf::json_stringify(lower_value(vf::parse_json(ast_json)), -1) + "\n";
