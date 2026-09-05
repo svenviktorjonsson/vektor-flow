@@ -39,6 +39,7 @@ test("private record producer matches the complete native MachineFunction", () =
       { source: "single(items:[num]):\n    (count:items.length(),)\n", invocation: "single([1, 2])", field: "count" },
       { source: "single_vector(items:[num]):\n    (saved:(items),)\n", invocation: "single_vector([1, 2])", field: "saved" },
       { source: "constants(items:[int]):\n    (integer:7, decimal:1.0, length:items.length())\n", invocation: "constants([1, 2])", field: "length" },
+      { source: "folded(items:[num]):\n    (first:2.5+1+4, mixed:items.length()+(2+3), original:items)\n", invocation: "folded([1, 2])", field: "mixed" },
     ]) {
       const input = join(work, "input.vkf"), oracle = join(work, "oracle.vkf");
       writeFileSync(input, source);
@@ -81,7 +82,7 @@ test("private record producer matches the complete native MachineFunction", () =
     for (const [source, errorIndex] of [
       ["check(items:[num]):\n    (first:missing, second:other)\n", 13],
       ["check(items:[num]):\n    (first:items, second:missing)\n", 17],
-      ["check(items:[num]):\n    (first:2+3, second:missing)\n", 14],
+      ["check(items:[num]):\n    (first:2+3, second:missing)\n", 19],
       ["check(items:[num]):\n    (first:items.length(1), second:missing)\n", 16],
       ["check(items:[num]):\n    (first:items)\n", 14],
       ["check(items:[str], items:[num]):\n    (first:missing, second:items)\n", 8],

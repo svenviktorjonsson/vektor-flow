@@ -22,6 +22,38 @@ _bootstrap_vector_stride(source:str, rows:[num], start:num, stop:num) -> num:
         @: 1
     0
 
+# Native folds adjacent push/push/add repeatedly, retaining pre-fold max_stack.
+_bootstrap_fold_additions(opcodes:[num], operands:[num]):
+    [num] codes: []
+    [num] values: []
+    [num] result_codes: []
+    [num] result_values: []
+    result: (valid:false, opcodes:result_codes, operands:result_values)
+    opcodes.length() != operands.length()?
+        @: result
+    index: 0
+    active: 0
+    (index < opcodes.length())?>
+        active = codes.length()?
+            .codes: codes & [opcodes.(index)]
+            .values: values & [operands.(index)]
+        active < codes.length()?
+            codes.(active): opcodes.(index)
+            values.(active): operands.(index)
+        .active+: 1
+        (active >= 3 /\ codes.(active - 3) = 1 /\
+            codes.(active - 2) = 1 /\ codes.(active - 1) = 5)?>
+            values.(active - 3): values.(active - 3) + values.(active - 2)
+            .active-: 2
+        .index+: 1
+    .index: 0
+    (index < active)?>
+        result.opcodes: result.opcodes & [codes.(index)]
+        result.operands: result.operands & [values.(index)]
+        .index+: 1
+    result.valid: true
+    result
+
 _bootstrap_lower_expression(
     source:str, rows:[num], nodes:[num], types:[num], parameters:[num],
     type_starts:[num], type_stops:[num]
@@ -29,7 +61,6 @@ _bootstrap_lower_expression(
     [num] opcodes: []
     [num] operands: []
     [num] strides: []
-    [num] constants: []
     fragment: (valid:false, error_index:0, opcodes:opcodes, operands:operands, max_stack:0)
     (nodes.length() = 0 \/ nodes.length() % 5 != 0 \/
         types.length() != nodes.length() / 5 \/ parameters.length() != types.length() \/
@@ -44,12 +75,10 @@ _bootstrap_lower_expression(
     right: 0
     parameter: 0
     stride: 0
-    constant: 0
     (index < types.length())?>
         fragment.error_index: nodes.(index * 5 + 1)
         .kind: nodes.(index * 5)
         .stride: 0
-        .constant: 0
         (kind < 1 \/ kind > 6 \/ kind % 1 != 0)?
             @: fragment
         kind = 1?
@@ -68,7 +97,6 @@ _bootstrap_lower_expression(
             fragment.opcodes: fragment.opcodes & [1]
             fragment.operands: fragment.operands & [nodes.(index * 5 + 4)]
             .depth+: 1
-            .constant: 1
         (kind = 3 \/ kind = 4 \/ kind = 5 \/ kind = 6)?
             .left: nodes.(index * 5 + 2)
             (left < 0 \/ left >= index \/ left % 1 != 0)?
@@ -91,7 +119,6 @@ _bootstrap_lower_expression(
             types.(index) != types.(left)?
                 @: fragment
             .stride: strides.(left)
-            .constant: constants.(left)
         kind = 5?
             .right: nodes.(index * 5 + 3)
             (right < 0 \/ right >= index \/ right % 1 != 0 \/ depth < 2)?
@@ -100,19 +127,20 @@ _bootstrap_lower_expression(
                 (types.(right) != 1 /\ types.(right) != 2) \/
                 (types.(index) != 1 /\ types.(index) != 2))?
                 @: fragment
-            # Native folds constant-only addition even under mask-0. Until the
-            # general folding stage exists, do not emit a contradictory stream.
-            (constants.(left) = 1 /\ constants.(right) = 1)?
-                @: fragment
             fragment.opcodes: fragment.opcodes & [5]
             fragment.operands: fragment.operands & [0]
             .depth-: 1
         depth > fragment.max_stack?
             fragment.max_stack: depth
         .strides: strides & [stride]
-        .constants: constants & [constant]
         .index+: 1
     fragment.valid: depth = 1
+    ~fragment.valid?
+        @: fragment
+    folded: _bootstrap_fold_additions(fragment.opcodes, fragment.operands)
+    fragment.valid: folded.valid
+    fragment.opcodes: folded.opcodes
+    fragment.operands: folded.operands
     fragment
 
 _bootstrap_lower_owned_result(
