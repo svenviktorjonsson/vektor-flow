@@ -4510,7 +4510,9 @@ inline bool expression_produces_owned_f64_list(
             string_field(callee, "name", "callee") == "list";
     }
     if (callee_kind != "load") return false;
-    const auto found = signatures.find(string_field(callee, "name", "callee"));
+    const std::string symbol = string_field(callee, "name", "callee");
+    if (symbol == "vkf_utf8_slice") return true;
+    const auto found = signatures.find(symbol);
     return found != signatures.end() && found->second.result.kind == ValueKind::DynamicF64List;
 }
 
@@ -11012,6 +11014,273 @@ inline ValueLayout lower_expression(
             return symbol == "vkf_string_peek_scalar"
                 ? ValueLayout{2, ValueKind::String, {}}
                 : ValueLayout{};
+        }
+        if (signature == signatures.end() && symbol == "vkf_decimal_parse") {
+            const auto& named_args = array_of(
+                field(expression, "named_args", "decimal parse"),
+                "decimal parse named args");
+            const auto& spread_args = array_of(
+                field(expression, "spread_args", "decimal parse"),
+                "decimal parse spread args");
+            if (!named_args.empty() || !spread_args.empty()) {
+                throw LoweringFailure(
+                    "machine IR vkf_decimal_parse requires one positional argument; "
+                    "named and spread arguments are unsupported");
+            }
+            if (args.size() != 1) {
+                throw LoweringFailure(
+                    "wrong arity for runtime intrinsic vkf_decimal_parse: expected 1, got "
+                    + std::to_string(args.size()));
+            }
+            const auto& source_expression = object_of(args.front(), "decimal parse source");
+            const auto source = lower_expression(
+                source_expression, builder, signatures, strings);
+            if (source.kind != ValueKind::String || source.width != 2) {
+                throw LoweringFailure("machine IR vkf_decimal_parse source must be str");
+            }
+            const auto source_local = builder.add_borrowed_temporary(source);
+            emit_store_local_component(builder, source_local + 1u);
+            emit_store_local_component(builder, source_local);
+            const bool release_source =
+                expression_transfers_string_value(source_expression, signatures);
+
+            const auto load = [&](std::uint32_t local) {
+                emit_load_local_component(builder, local);
+            };
+            const auto store = [&](std::uint32_t local) {
+                emit_store_local_component(builder, local);
+            };
+            const auto scalar_local = [&](double initial) {
+                const auto local = builder.add_borrowed_temporary(ValueLayout{});
+                emit_push_f64(builder, initial);
+                store(local);
+                return local;
+            };
+            const auto emit_label = [&](std::uint32_t label) {
+                Instruction instruction;
+                instruction.opcode = Opcode::Label;
+                instruction.label = label;
+                builder.emit(std::move(instruction));
+            };
+            const auto emit_jump = [&](Opcode opcode, std::uint32_t label) {
+                Instruction instruction;
+                instruction.opcode = opcode;
+                instruction.label = label;
+                builder.emit(std::move(instruction));
+            };
+
+            const auto byte_count = builder.add_borrowed_temporary(ValueLayout{});
+            load(source_local + 1u);
+            builder.emit({Opcode::Duplicate});
+            emit_push_f64(builder, 0.0);
+            builder.emit({Opcode::OrderedGreaterEqualF64});
+            const auto length_ready = builder.next_label();
+            emit_jump(Opcode::JumpIfTrue, length_ready);
+            builder.emit({Opcode::NegateF64});
+            emit_push_f64(builder, 1.0);
+            builder.emit({Opcode::SubtractF64});
+            emit_label(length_ready);
+            store(byte_count);
+
+            const auto cursor = scalar_local(0.0);
+            const auto scalar = scalar_local(0.0);
+            const auto digit = scalar_local(0.0);
+            const auto low_word = scalar_local(0.0);
+            const auto high_word = scalar_local(0.0);
+            const auto divisor = scalar_local(1.0);
+            const auto fractional = scalar_local(0.0);
+            const auto work = scalar_local(0.0);
+            const auto carry = scalar_local(0.0);
+            constexpr double word_base = 4294967296.0;
+
+            const auto loop = builder.next_label();
+            const auto decimal_point = builder.next_label();
+            const auto repeat = builder.next_label();
+            const auto finish = builder.next_label();
+            emit_label(loop);
+            load(cursor);
+            load(byte_count);
+            builder.emit({Opcode::OrderedLessF64});
+            emit_jump(Opcode::JumpIfFalse, finish);
+
+            load(source_local);
+            load(source_local + 1u);
+            load(cursor);
+            builder.emit({Opcode::DecodeUtf8At});
+            store(cursor);
+            store(scalar);
+
+            load(scalar);
+            emit_push_f64(builder, 46.0);
+            builder.emit({Opcode::OrderedEqualF64});
+            emit_jump(Opcode::JumpIfTrue, decimal_point);
+
+            load(scalar);
+            emit_push_f64(builder, 48.0);
+            builder.emit({Opcode::SubtractF64});
+            store(digit);
+            load(digit);
+            emit_push_f64(builder, 0.0);
+            builder.emit({Opcode::OrderedGreaterEqualF64});
+            emit_jump(Opcode::JumpIfFalse, finish);
+            load(digit);
+            emit_push_f64(builder, 9.0);
+            builder.emit({Opcode::OrderedLessEqualF64});
+            emit_jump(Opcode::JumpIfFalse, finish);
+
+            load(low_word);
+            emit_push_f64(builder, 10.0);
+            builder.emit({Opcode::MultiplyF64});
+            load(digit);
+            builder.emit({Opcode::AddF64});
+            store(work);
+            load(work);
+            emit_push_f64(builder, word_base);
+            builder.emit({Opcode::FloorDivideF64});
+            store(carry);
+            load(work);
+            load(carry);
+            emit_push_f64(builder, word_base);
+            builder.emit({Opcode::MultiplyF64});
+            builder.emit({Opcode::SubtractF64});
+            store(low_word);
+
+            load(high_word);
+            emit_push_f64(builder, 10.0);
+            builder.emit({Opcode::MultiplyF64});
+            load(carry);
+            builder.emit({Opcode::AddF64});
+            store(work);
+            load(work);
+            emit_push_f64(builder, word_base);
+            builder.emit({Opcode::FloorDivideF64});
+            store(carry);
+            load(work);
+            load(carry);
+            emit_push_f64(builder, word_base);
+            builder.emit({Opcode::MultiplyF64});
+            builder.emit({Opcode::SubtractF64});
+            store(high_word);
+
+            load(fractional);
+            emit_jump(Opcode::JumpIfFalse, repeat);
+            load(divisor);
+            emit_push_f64(builder, 10.0);
+            builder.emit({Opcode::MultiplyF64});
+            store(divisor);
+            emit_jump(Opcode::Jump, repeat);
+
+            emit_label(decimal_point);
+            emit_push_f64(builder, 1.0);
+            store(fractional);
+            emit_label(repeat);
+            emit_jump(Opcode::Jump, loop);
+
+            emit_label(finish);
+            const auto high_part = scalar_local(0.0);
+            load(high_word);
+            emit_push_f64(builder, word_base);
+            builder.emit({Opcode::MultiplyF64});
+            store(high_part);
+            const auto converted = scalar_local(0.0);
+            load(high_part);
+            load(low_word);
+            builder.emit({Opcode::AddF64});
+            store(converted);
+            const auto residual = scalar_local(0.0);
+            load(high_part);
+            load(converted);
+            builder.emit({Opcode::SubtractF64});
+            load(low_word);
+            builder.emit({Opcode::AddF64});
+            store(residual);
+
+            const auto quotient = scalar_local(0.0);
+            load(converted);
+            load(divisor);
+            builder.emit({Opcode::DivideF64});
+            store(quotient);
+            const auto product = scalar_local(0.0);
+            load(quotient);
+            load(divisor);
+            builder.emit({Opcode::MultiplyF64});
+            store(product);
+
+            constexpr double split_factor = 134217729.0;
+            const auto scaled_quotient = scalar_local(0.0);
+            emit_push_f64(builder, split_factor);
+            load(quotient);
+            builder.emit({Opcode::MultiplyF64});
+            store(scaled_quotient);
+            const auto quotient_high = scalar_local(0.0);
+            load(scaled_quotient);
+            load(scaled_quotient);
+            load(quotient);
+            builder.emit({Opcode::SubtractF64});
+            builder.emit({Opcode::SubtractF64});
+            store(quotient_high);
+            const auto quotient_low = scalar_local(0.0);
+            load(quotient);
+            load(quotient_high);
+            builder.emit({Opcode::SubtractF64});
+            store(quotient_low);
+
+            const auto scaled_divisor = scalar_local(0.0);
+            emit_push_f64(builder, split_factor);
+            load(divisor);
+            builder.emit({Opcode::MultiplyF64});
+            store(scaled_divisor);
+            const auto divisor_high = scalar_local(0.0);
+            load(scaled_divisor);
+            load(scaled_divisor);
+            load(divisor);
+            builder.emit({Opcode::SubtractF64});
+            builder.emit({Opcode::SubtractF64});
+            store(divisor_high);
+            const auto divisor_low = scalar_local(0.0);
+            load(divisor);
+            load(divisor_high);
+            builder.emit({Opcode::SubtractF64});
+            store(divisor_low);
+
+            const auto product_error = scalar_local(0.0);
+            load(quotient_high);
+            load(divisor_high);
+            builder.emit({Opcode::MultiplyF64});
+            load(product);
+            builder.emit({Opcode::SubtractF64});
+            load(quotient_high);
+            load(divisor_low);
+            builder.emit({Opcode::MultiplyF64});
+            builder.emit({Opcode::AddF64});
+            load(quotient_low);
+            load(divisor_high);
+            builder.emit({Opcode::MultiplyF64});
+            builder.emit({Opcode::AddF64});
+            load(quotient_low);
+            load(divisor_low);
+            builder.emit({Opcode::MultiplyF64});
+            builder.emit({Opcode::AddF64});
+            store(product_error);
+
+            const auto result = scalar_local(0.0);
+            load(converted);
+            load(product);
+            builder.emit({Opcode::SubtractF64});
+            load(product_error);
+            builder.emit({Opcode::SubtractF64});
+            load(residual);
+            builder.emit({Opcode::AddF64});
+            load(divisor);
+            builder.emit({Opcode::DivideF64});
+            load(quotient);
+            builder.emit({Opcode::AddF64});
+            store(result);
+            if (release_source) {
+                emit_release_layout_local(builder, source_local, source);
+            }
+            load(result);
+            return {};
         }
         if (signature == signatures.end() && symbol == "bit") {
             if (args.size() != 1 ||
