@@ -6107,6 +6107,38 @@ _run_tagged_bind_update_source(tape:any) -> any:
     delta: tape.rows.(16 * 6 + 3)
     (kind:"console", values:[initial + delta, initial * factor])
 
+_browser_bind_expression_source_matches(tape:any) -> bit:
+    (_browser_token_is(tape, 0, 1, "") /\
+        _browser_token_is(tape, 1, 15, ":") /\
+        _browser_token_is(tape, 2, 13, "(") /\
+        _browser_token_is(tape, 3, 1, "") /\
+        _browser_token_is(tape, 4, 15, ":") /\
+        _browser_token_is(tape, 5, 3, "") /\
+        _browser_token_is(tape, 6, 14, ")") /\
+        _browser_token_is(tape, 7, 2, "+") /\
+        _browser_token_is(tape, 8, 3, "") /\
+        _browser_token_is(tape, 9, 4, "") /\
+        _browser_token_is(tape, 10, 15, ":") /\
+        _browser_token_is(tape, 11, 15, ":") /\
+        _browser_token_is(tape, 12, 1, "") /\
+        _browser_token_is(tape, 13, 4, "") /\
+        _browser_token_is(tape, 14, 15, ":") /\
+        _browser_token_is(tape, 15, 15, ":") /\
+        _browser_token_is(tape, 16, 1, "") /\
+        ((tape.count = 18 /\ _browser_token_is(tape, 17, 5, "")) \/
+         (tape.count = 19 /\ _browser_token_is(tape, 17, 4, "") /\
+          _browser_token_is(tape, 18, 5, ""))))
+
+_run_tagged_bind_expression_source(tape:any) -> any:
+    _browser_bind_expression_source_matches(tape)?! "browser binding expression program shape is unsupported"
+    outer_name: _browser_token_text(tape, 0)
+    inner_name: _browser_token_text(tape, 3)
+    (_browser_token_text(tape, 12) = inner_name /\
+        _browser_token_text(tape, 16) = outer_name)?! "browser binding expression names do not resolve"
+    inner: tape.rows.(5 * 6 + 3)
+    delta: tape.rows.(8 * 6 + 3)
+    (kind:"console", values:[inner, inner + delta])
+
 _browser_dense_term(
     source:str,
     diagonal:str,
@@ -7061,6 +7093,8 @@ run_tagged_browser_source(source:str, packet_index:int) -> any:
     _browser_display_raw_source_matches(source)?
         @: _run_tagged_display_source(source, packet_index)
     tokens: lexer.tagged_numeric_function_token_tape(source)
+    _browser_bind_expression_source_matches(tokens)?
+        @: _run_tagged_bind_expression_source(tokens)
     _browser_bind_update_source_matches(tokens)?
         @: _run_tagged_bind_update_source(tokens)
     _browser_lifted_vector_function_matches(tokens)?

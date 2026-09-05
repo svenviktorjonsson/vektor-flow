@@ -92,6 +92,25 @@ test("the bindings feature is an editable reference example with one prefilled c
   assert.doesNotMatch(bindingsSection, /Recorded stdout/u);
 });
 
+test("binding expressions are editable and run from current source", async () => {
+  const base = new URL("web/playground/artifacts/", root);
+  const [document, canonical, wasm, manifest] = await Promise.all([
+    buildSiteDocument(root, "docs/language-guide.md"),
+    readFile(new URL("examples/generated/readme/core/02-bind-expression.vkf", root), "utf8"),
+    readFile(new URL("vkf-browser-compiler.wasm", base)),
+    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+  ]);
+  const { instance } = await WebAssembly.instantiate(wasm);
+  const compiler = createBrowserCompiler({ instance, manifest });
+  const canonicalSource = canonical.replace(/\r\n/gu, "\n").trimEnd();
+  const example = document.examples.find(({ source }) => source === canonicalSource);
+
+  assert.ok(example, "the canonical binding-expression source must be editable");
+  assert.deepEqual(compiler.run(example.source).values, [3, 4]);
+  assert.deepEqual(compiler.run(example.source.replace("+ 1", "+ 5")).values, [3, 8]);
+  assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>3\n4<\/pre>/u);
+});
+
 test("the loops feature is an editable reference example with one prefilled console", async () => {
   const base = new URL("web/playground/artifacts/", root);
   const [document, canonical, wasm, manifest] = await Promise.all([
@@ -108,10 +127,10 @@ test("the loops feature is an editable reference example with one prefilled cons
   assert.ok(example, "the canonical loops source must be editable");
   assert.deepEqual(compiler.run(example.source).values, [10, 2]);
   assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>10\n2<\/pre>/u);
-  const loopsSection = document.html.split('data-vkf-example-id="example-2"')[1]
+  const loopsSection = document.html.split('data-vkf-example-id="example-3"')[1]
     .split('<h3 id="54-return-continue-and-break">')[0];
   assert.doesNotMatch(loopsSection, /Recorded stdout/u);
-  assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 63);
+  assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 62);
 });
 
 test("every displayed browser example compiles and executes through the shipped WASM", async () => {
@@ -165,8 +184,8 @@ test("every editor published anywhere on the site executes through the shipped W
     ...example,
   })));
 
-  assert.equal(editors.length, 10);
-  assert.equal(new Set(editors.map(({ source }) => source)).size, 5);
+  assert.equal(editors.length, 11);
+  assert.equal(new Set(editors.map(({ source }) => source)).size, 6);
   for (const editor of editors) {
     let result;
     assert.doesNotThrow(

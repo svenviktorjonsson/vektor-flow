@@ -45,7 +45,7 @@ Declarations and updates are expressions; each returns the value it stored.
 The same strict name rule applies inside an expression.
 
 <!-- readme-example: core/02-bind-expression.vkf -->
-```vkf
+```vkf live
 b: (a: 3) + 1
 :: a
 :: b
