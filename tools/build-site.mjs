@@ -80,7 +80,10 @@ export async function buildSiteDocument(repoRoot, source = "README.md") {
   for (const match of included) {
     const path = match[1].trim();
     const code = (await readFile(await safeFile(root, path), "utf8")).trimEnd();
-    markdown = markdown.replace(match[0], `\`\`\`vkf live\n${code}\n\`\`\``);
+    markdown = markdown.replace(
+      match[0],
+      `<!-- readme-example: ${path} -->\n\`\`\`vkf live\n${code}\n\`\`\``,
+    );
   }
   if (markdown.includes("<!-- benchmark-summary -->")) {
     markdown = markdown.replace("<!-- benchmark-summary -->", benchmarkSummary(await readFile(await safeFile(root, REPORT), "utf8")));
@@ -139,12 +142,34 @@ export async function buildSiteDocument(repoRoot, source = "README.md") {
     return output;
   }
 
-  const lines = markdown.replaceAll("\r\n", "\n").split("\n");
+  const normalizedMarkdown = markdown.replaceAll("\r\n", "\n");
+  const evidenceOutputs = new Map(
+    [...normalizedMarkdown.matchAll(
+      /^<!-- readme-evidence:start ([^\n]+) -->\n([\s\S]*?)^<!-- readme-evidence:end -->$/gmu,
+    )].flatMap((match) => {
+      const output = /```text\n([\s\S]*?)\n```/u.exec(match[2]);
+      if (output) return [[match[1].trim(), output[1]]];
+      return /no output\./u.test(match[2]) ? [[match[1].trim(), ""]] : [];
+    }),
+  );
+  const lines = normalizedMarkdown.split("\n");
   const html = [], headings = [], examples = [], slugs = new Map();
-  let paragraph = [], title = "Vektor Flow";
+  const renderedEvidence = new Set();
+  let paragraph = [], title = "Vektor Flow", pendingExamplePath;
   const flush = () => { if (paragraph.length) html.push(`<p>${inline(paragraph.join(" "))}</p>`); paragraph = []; };
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
+    const exampleMarker = /^<!-- readme-example: ([^\n]+) -->$/u.exec(line.trim());
+    if (exampleMarker) {
+      pendingExamplePath = exampleMarker[1].trim();
+      continue;
+    }
+    const evidenceMarker = /^<!-- readme-evidence:start ([^\n]+) -->$/u.exec(line.trim());
+    if (evidenceMarker && renderedEvidence.has(evidenceMarker[1].trim())) {
+      flush();
+      while (index + 1 < lines.length && !/^<!-- readme-evidence:end -->$/u.test(lines[++index].trim())) {}
+      continue;
+    }
     if (/^<!--/u.test(line.trim())) {
       while (!lines[index]?.includes("-->") && index + 1 < lines.length) index++;
       continue;
@@ -158,9 +183,13 @@ export async function buildSiteDocument(repoRoot, source = "README.md") {
       const sourceCode = code.join("\n");
       if (language === "vkf" && mode === "live") {
         const id = `example-${examples.length + 1}`;
+        const hasDefaultOutput = evidenceOutputs.has(pendingExamplePath);
+        const defaultOutput = hasDefaultOutput ? evidenceOutputs.get(pendingExamplePath) : "";
+        if (hasDefaultOutput) renderedEvidence.add(pendingExamplePath);
         examples.push(Object.freeze({ id, source: sourceCode, title }));
-        html.push(`<section class="readme-example" data-vkf-example-id="${id}"><div class="readme-example-bar"><span>Run in browser</span><button type="button" class="readme-example-play">Run</button></div><div class="readme-example-layout"><div class="readme-example-workspace"><div class="readme-example-editor"><pre class="readme-example-highlight" aria-hidden="true"><code></code></pre><textarea class="readme-example-source" data-example-id="${id}" aria-label="Editable VKF source: ${escapeHtml(title)}" spellcheck="false">${escapeHtml(sourceCode)}</textarea></div><section class="readme-example-terminal" hidden><span>Console</span><pre class="readme-example-output" aria-live="polite"></pre></section></div></div></section>`);
+        html.push(`<section class="readme-example" data-vkf-example-id="${id}"><div class="readme-example-bar"><span>Run in browser</span><button type="button" class="readme-example-play">Run</button></div><div class="readme-example-layout"><div class="readme-example-workspace"><div class="readme-example-editor"><pre class="readme-example-highlight" aria-hidden="true"><code></code></pre><textarea class="readme-example-source" data-example-id="${id}" aria-label="Editable VKF source: ${escapeHtml(title)}" spellcheck="false">${escapeHtml(sourceCode)}</textarea></div><section class="readme-example-terminal"${hasDefaultOutput ? "" : " hidden"}><span>Console</span><pre class="readme-example-output" aria-live="polite">${escapeHtml(defaultOutput)}</pre></section></div></div></section>`);
       } else html.push(`<pre${language === "vkf" ? ' class="vkf-static" data-vkf-source' : ""}><code>${escapeHtml(sourceCode)}</code></pre>`);
+      pendingExamplePath = undefined;
       continue;
     }
     const heading = /^(#{1,6})\s+(.+)$/u.exec(line);

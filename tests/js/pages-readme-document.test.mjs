@@ -80,11 +80,15 @@ test("the loops feature is an editable reference example with one prefilled cons
   ]);
   const { instance } = await WebAssembly.instantiate(wasm);
   const compiler = createBrowserCompiler({ instance, manifest });
-  const example = document.examples.find(({ source }) => source === canonical.trimEnd());
+  const canonicalSource = canonical.replace(/\r\n/gu, "\n").trimEnd();
+  const example = document.examples.find(({ source }) => source === canonicalSource);
 
   assert.ok(example, "the canonical loops source must be editable");
   assert.deepEqual(compiler.run(example.source).values, [10, 2]);
   assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>10\n2<\/pre>/u);
+  const loopsSection = document.html.split('data-vkf-example-id="example-1"')[1]
+    .split('<h3 id="54-return-continue-and-break">')[0];
+  assert.doesNotMatch(loopsSection, /Recorded stdout/u);
   assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 64);
 });
 
@@ -139,8 +143,8 @@ test("every editor published anywhere on the site executes through the shipped W
     ...example,
   })));
 
-  assert.equal(editors.length, 8);
-  assert.equal(new Set(editors.map(({ source }) => source)).size, 3);
+  assert.equal(editors.length, 9);
+  assert.equal(new Set(editors.map(({ source }) => source)).size, 4);
   for (const editor of editors) {
     let result;
     assert.doesNotThrow(
