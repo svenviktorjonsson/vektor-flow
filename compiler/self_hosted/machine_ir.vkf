@@ -4,6 +4,43 @@
 # Stage 0 currently executes this contract in native C++; Stage 1 will execute
 # the same construction and lowering rules from VKF source.
 
+# Private little-endian IEEE-754 bytes; never serialize through decimal text.
+_bootstrap_f64_bytes(value:num):
+    [num] bytes: []
+    result: (valid:false, bytes:bytes)
+    value != value?
+        @: result
+    fraction: 0
+    exponent: 0
+    negative: value < 0 \/ (value = 0 /\ 1 / value < 0)
+    normalized: value
+    negative? .normalized: -normalized
+    power: 0
+    (normalized > 0 /\ normalized / 2 = normalized)?
+        .exponent: 2047
+        .normalized: 0
+    normalized > 0?
+        (normalized >= 2)?>
+            .normalized/: 2
+            .power+: 1
+        (normalized < 1 /\ power > -1022)?>
+            .normalized*: 2
+            .power-: 1
+        normalized >= 1?
+            .exponent: power + 1023
+            .normalized-: 1
+        .fraction: normalized * 4503599627370496
+    index: 0
+    (index < 6)?>
+        result.bytes: result.bytes & [fraction % 256]
+        .fraction: fraction // 256
+        .index+: 1
+    sign: 0
+    negative? .sign: 128
+    result.bytes: result.bytes & [fraction + (exponent % 16) * 16, exponent // 16 + sign]
+    result.valid: true
+    result
+
 # Private scalar expression fragment over validated parser/type facts.
 # Private opcodes: 1 push_f64, 2 load_local, 3 count_f64_list (borrowed),
 # 4 divide_f64, 5 add_f64. Public opcode/schema bytes are fixed.

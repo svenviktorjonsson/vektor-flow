@@ -47,6 +47,7 @@ vkf_native_target(vkf_compiler_artifact_smoke vkf_compiler_artifact_smoke.cpp TR
 vkf_native_target(vkf_arm64_artifact vkf_arm64_artifact.cpp TRUE)
 # Structural bootstrap test oracle only; excluded from installed compiler tools.
 vkf_native_target(vkf_private_machine_operands ../../tests/bootstrap/private-machine-operands.cpp TRUE)
+vkf_native_target(vkf_private_f64_bytes ../../tests/bootstrap/private-f64-bytes.cpp FALSE)
 set(VKF_AOT_TARGETS)
 if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|amd64|x86_64)")
     vkf_native_target(vkf_x64_artifact vkf_x64_artifact.cpp TRUE)
