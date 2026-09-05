@@ -29,7 +29,8 @@ private:
 inline bool SameTerrainResidencyKey(const TerrainTileWorkingSet& stored,
     const TerrainTileRequest& request, std::size_t count) {
     const auto bits = [](double value) { return std::bit_cast<std::uint64_t>(value); };
-    return stored.condition.stream.key == request.condition.stream.key &&
+    return stored.layout == TerrainSampleLayout::row_prefix &&
+        stored.condition.stream.key == request.condition.stream.key &&
         stored.condition.stream.counter_prefix == request.condition.stream.counter_prefix &&
         bits(stored.condition.correlation_length) == bits(request.condition.correlation_length) &&
         bits(stored.condition.mean) == bits(request.condition.mean) &&

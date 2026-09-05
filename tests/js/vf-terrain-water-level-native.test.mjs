@@ -24,17 +24,22 @@ const bits = value => {
 };
 function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
   correlationLength = 4, mean = 0, amplitude = 2, waterLevel = 0.25,
-  exposed = 101, submerged = 202, samplingDistance, cells, cellBudget, triangleBudget, segmentBudget } = {}, error) {
+  exposed = 101, submerged = 202, samplingDistance, cells, cellBudget, triangleBudget, segmentBudget, sampleIds } = {}, error) {
   const node = createConditionedRoot({ ...identity, seed });
   const stream = conditionedNodeStreamReference(node);
   const input = [...tile, level, budget, ...stream.key, ...stream.counterPrefix,
     ...[correlationLength, mean, amplitude, waterLevel].map(bits), exposed, submerged,
     ...(samplingDistance === undefined ? [] : [bits(samplingDistance)]),
+    ...(sampleIds === undefined ? [] : [sampleIds.length, ...sampleIds]),
     ...(cells === undefined ? [] : [cellBudget ?? cells.length, triangleBudget ?? cells.length * 2, cells.length, ...cells]),
     ...(segmentBudget === undefined ? [] : [segmentBudget])].join(' ');
   if (cells !== undefined) assert.notEqual(samplingDistance, undefined, 'mesh test requires explicit normal sampling distance');
   if (segmentBudget !== undefined) assert.notEqual(cells, undefined, 'waterline test requires explicit cells');
-  const native = spawnSync(executable, segmentBudget !== undefined ? ['--waterline'] : cells !== undefined ? ['--triangles'] : samplingDistance === undefined ? [] : ['--normals'],
+  if (sampleIds !== undefined) {
+    assert.notEqual(samplingDistance, undefined, 'indexed test requires explicit normal sampling distance');
+    assert.equal(cells, undefined, 'indexed topology remains unsupported');
+  }
+  const native = spawnSync(executable, sampleIds !== undefined ? ['--indexed'] : segmentBudget !== undefined ? ['--waterline'] : cells !== undefined ? ['--triangles'] : samplingDistance === undefined ? [] : ['--normals'],
     { input, timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
   if (error) {
     assert.equal(native.status, 1, `${native.error ?? ''}${native.stderr}`);
@@ -44,15 +49,16 @@ function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
   }
   assert.equal(native.status, 0, `${native.error ?? ''}${native.stderr}`);
   const divisions = 2 ** level, width = divisions + 1;
-  const count = Math.min(width * width, budget);
+  const count = Math.min(sampleIds === undefined ? width * width : sampleIds.length, budget);
   const stride = samplingDistance === undefined ? 28 : 52;
   let expected = Buffer.alloc(20 + count * stride);
   expected.writeBigUInt64LE(BigInt(count));
   expected.writeBigUInt64LE(BigInt(width * width), 8);
   expected.writeUInt32LE(Number(count < width * width), 16);
   for (let index = 0; index < count; ++index) {
-    const x = tile[0] + (index % width) / divisions;
-    const z = tile[1] + Math.floor(index / width) / divisions;
+    const sampleId = sampleIds === undefined ? index : sampleIds[index];
+    const x = tile[0] + (sampleId % width) / divisions;
+    const z = tile[1] + Math.floor(sampleId / width) / divisions;
     const height = sampleSpatialCorrelation2Reference(node, [x, z], { correlationLength, mean, amplitude });
     const offset = 20 + index * stride;
     expected.writeDoubleLE(x, offset);
@@ -132,6 +138,12 @@ function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
       expected = Buffer.concat([expected, line]);
     }
   }
+  if (sampleIds !== undefined) {
+    const addresses = Buffer.alloc(4 + count * 8);
+    addresses.writeUInt32LE(1);
+    sampleIds.slice(0, count).forEach((value, index) => addresses.writeBigUInt64LE(BigInt(value), 4 + index * 8));
+    expected = Buffer.concat([expected, addresses]);
+  }
   assert.deepEqual(native.stdout, expected, 'native terrain/material bytes differ from existing spatial truth');
   return native.stdout;
 }
@@ -141,6 +153,44 @@ test('terrain and water-level materials consume existing spatial field bytes exa
     for (const level of [0, 2, 4]) run({ tile, level });
   for (const tile of [[-2147483648, 0], [2147483647, -2147483648]])
     run({ tile, level: 16, budget: 101 });
+});
+
+test('sparse distant terrain samples consume the same spatial and normal bytes', () => {
+  const width = 65537, a = 60000 * width + 50000;
+  run({ level: 16, budget: 4, sampleIds: [a + width + 1, a, a + width, a + 1], samplingDistance: 1 / 1024 });
+});
+
+test('sparse order and replay preserve existing prefix positions normals and materials', () => {
+  for (const seed of [[1, 2], [67, 89]]) {
+    const options = { seed, level: 4, samplingDistance: 1 / 1024 };
+    const prefix = run({ ...options, budget: 289 });
+    const sampleIds = [288, 0, 17, 101];
+    const sparse = run({ ...options, sampleIds, budget: 4 });
+    for (let i = 0; i < sampleIds.length; ++i)
+      assert.deepEqual(sparse.subarray(20 + i * 52, 20 + (i + 1) * 52),
+        prefix.subarray(20 + sampleIds[i] * 52, 20 + (sampleIds[i] + 1) * 52));
+    assert.deepEqual(run({ ...options, sampleIds, budget: 4 }), sparse);
+    run({ ...options, sampleIds: sampleIds.toReversed(), budget: 4 });
+    const moved = run({ ...options, sampleIds, budget: 4, waterLevel: -1 });
+    for (let i = 0; i < sampleIds.length; ++i)
+      assert.deepEqual(sparse.subarray(20 + i * 52, 20 + i * 52 + 48), moved.subarray(20 + i * 52, 20 + i * 52 + 48));
+  }
+});
+test('full sparse demand retains 64-bit IDs without preceding or undemanded samples', () => {
+  const sampleIds = Array.from({ length: 65536 }, (_, i) => (65536 - i) * 65538);
+  const result = run({ level: 16, budget: 65536, sampleIds, samplingDistance: 1 / 1024 });
+  assert.equal(result.length, 3932184);
+  assert.equal(result.readBigUInt64LE(8), 4295098369n);
+  assert.equal(result.readBigUInt64LE(20 + 65536 * 52 + 4), 4295098368n);
+});
+test('sparse selected addresses reject in exact order without partial output', () => {
+  const options = { level: 16, samplingDistance: 1 / 1024 };
+  run({ ...options, sampleIds: [0, 0, 4295098369], budget: 2 }, 'terrain sample demand is duplicated');
+  run({ ...options, sampleIds: [4295098369, 0, 0], budget: 3 }, 'terrain sample demand exceeds tile domain');
+  run({ ...options, sampleIds: [0, 4295098369], budget: 1 });
+  run({ ...options, sampleIds: [4295098369], budget: 0 });
+  run({ ...options, sampleIds: Array(65537).fill(0), budget: 0 }, 'terrain sample demand must contain at most 65536 entries');
+  run({ ...options, sampleIds: [], budget: 65537 }, 'terrain sample budget must be from 0 to 65536');
 });
 test('seed, condition, replay, and demand order preserve exact terrain bytes', () => {
   const first = run();

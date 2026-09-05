@@ -20,9 +20,10 @@ int main(int argc, char** argv) try {
     _setmode(_fileno(stderr), _O_BINARY);
 #endif
     using namespace vf::material;
+    const bool with_indexed = argc == 2 && std::string_view(argv[1]) == "--indexed";
     const bool with_waterline = argc == 2 && std::string_view(argv[1]) == "--waterline";
     const bool with_triangles = with_waterline || (argc == 2 && std::string_view(argv[1]) == "--triangles");
-    const bool with_normals = with_triangles || (argc == 2 && std::string_view(argv[1]) == "--normals");
+    const bool with_normals = with_indexed || with_triangles || (argc == 2 && std::string_view(argv[1]) == "--normals");
     if (argc != 1 && !with_normals) throw std::invalid_argument("terrain probe mode is invalid");
     TerrainHeightCondition condition{};
     std::array<std::int32_t, 2> tile{};
@@ -37,6 +38,14 @@ int main(int argc, char** argv) try {
     if (with_normals) std::cin >> distance_bits;
     std::size_t cell_budget{}, triangle_budget{}, demand_count{}, segment_budget{};
     std::vector<std::uint64_t> demands;
+    std::vector<std::uint64_t> sample_ids;
+    if (with_indexed) {
+        std::size_t sample_demand_count{};
+        std::cin >> sample_demand_count;
+        if (sample_demand_count > 65536) throw std::range_error("terrain sample demand must contain at most 65536 entries");
+        sample_ids.resize(sample_demand_count);
+        for (auto& id : sample_ids) std::cin >> id;
+    }
     if (with_triangles) {
         std::cin >> cell_budget >> triangle_budget >> demand_count;
         if (demand_count > 65536) throw std::range_error("terrain cell demand must contain at most 65536 entries");
@@ -48,7 +57,8 @@ int main(int argc, char** argv) try {
     condition.correlation_length = std::bit_cast<double>(scalar_bits[0]);
     condition.mean = std::bit_cast<double>(scalar_bits[1]);
     condition.amplitude = std::bit_cast<double>(scalar_bits[2]);
-    const auto terrain = RealizeTerrainTileReference(condition, tile, level, budget);
+    const auto terrain = with_indexed ? RealizeTerrainSampleDemandReference(condition, tile, level, sample_ids, budget) :
+        RealizeTerrainTileReference(condition, tile, level, budget);
     const auto binding = BindTerrainWaterLevelMaterialsReference(terrain,
         std::bit_cast<double>(scalar_bits[3]), exposed, submerged);
     std::shared_ptr<const TerrainSurfacePacket> surface;
@@ -89,6 +99,10 @@ int main(int argc, char** argv) try {
         for (const auto& segment : waterline->segments)
             for (const auto& point : segment)
                 for (const auto value : point) write_word(std::bit_cast<std::uint64_t>(value), 8);
+    }
+    if (with_indexed) {
+        write_word(static_cast<std::uint8_t>(terrain->layout), 4);
+        for (const auto id : terrain->sample_ids) write_word(id, 8);
     }
 } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

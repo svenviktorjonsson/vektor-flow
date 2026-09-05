@@ -67,6 +67,8 @@ inline TerrainTriangulation TriangulateTerrainCellsReference(
     std::size_t cell_budget, std::size_t triangle_budget
 ) {
     const auto divisions = RequireTerrainSurfaceForTopology(surface);
+    if (surface->source->layout == TerrainSampleLayout::indexed)
+        throw std::invalid_argument("terrain indexed samples require addressed topology");
     const auto width = divisions + 1;
     if (cell_budget > 65536) throw std::range_error("terrain cell budget must be from 0 to 65536");
     if (triangle_budget > 131072) throw std::range_error("terrain triangle budget must be from 0 to 131072");
