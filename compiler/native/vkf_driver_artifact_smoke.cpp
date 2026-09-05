@@ -2167,7 +2167,9 @@ vf::JsonValue parse_linked_module(
 ) {
     std::string source_text = read_file(source);
     normalize_source_for_lexer(source_text);
-    const std::string cache_schema = "vkf-stdlib-ast-v1";
+    // v1 may contain numbers rounded by the old JSON writer. Source hashes
+    // alone cannot distinguish those lossy ASTs from current exact transport.
+    const std::string cache_schema = "vkf-stdlib-ast-v2-binary64-roundtrip";
     const auto cache_path = builtin_stdlib_cache_path(
         source, source_text, cache_schema, ".ast.json");
     const std::string source_digest = sha256_hex(source_text);
