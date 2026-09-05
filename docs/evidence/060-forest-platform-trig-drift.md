@@ -78,3 +78,24 @@ If none reproduces the frozen identity, choosing a new generator identity is
 a contract decision, not permission to update hashes until tests pass. Keep
 the existing tests and preserve this evidence while independent material and
 object work proceeds.
+
+## Separate ready-for-human decision draft
+
+**FOREST-IDENTITY-01:** When the same saved forest is opened on another
+computer, must it retain the recovered Windows version's exact identity?
+
+- **A (recommended):** Retain it exactly. Keep existing gates; an audited
+  cross-platform implementation must reproduce those values.
+- **B:** Permit a separately versioned portable generator to produce different
+  values. Old saved/versioned scenes must retain their old identity.
+
+Example: reopen one saved forest seed on Windows and Linux. A promises exactly
+the same recovered foliage data; B permits changed data only when explicitly
+selecting the new version. Silently replacing the old version's expected hash
+is not an option. Reply `FOREST-IDENTITY-01: A` or `B`.
+
+This draft is not an approved public change or a published GitHub issue.
+No new VKF constructor is proposed: that authoring surface remains unfrozen.
+The current shared WASM trig kernel was also checked read-only: the two
+discriminating inputs above produced `3f33c0e6` and `bf0c859c`, so it is not an
+exact replacement for the frozen Windows identity. Water work is independent.
