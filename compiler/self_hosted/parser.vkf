@@ -6,6 +6,170 @@
 TOKEN_STREAM_SCHEMA: "vektorflow.token_stream"
 TOKEN_STREAM_VERSION: 1
 
+# Private bootstrap declaration shape; not a token/API schema or expression AST.
+_bootstrap_shape_source_stop(source:str) -> int:
+    position: 0
+    (~vkf_string_eof(source, position))?>
+        .position: vkf_utf8_advance(source, position)
+    position
+
+_bootstrap_shape_kind(rows:[num], count:int, index:int, source_stop:int) -> num:
+    (index < 0 \/ index >= count)?
+        @: 0
+    start: rows.(index * 6 + 1)
+    stop: rows.(index * 6 + 2)
+    (start < 0 \/ stop < start \/ stop > source_stop \/
+        start % 1 != 0 \/ stop % 1 != 0)?
+        @: 0
+    (rows.(index * 6) != 5 /\ start = stop)?
+        @: 0
+    (rows.(index * 6) = 5 /\ (start != source_stop \/ stop != start))?
+        @: 0
+    index > 0?
+        start < rows.((index - 1) * 6 + 2)?
+            @: 0
+    rows.(index * 6)
+
+_bootstrap_shape_text(source:str, rows:[num], index:int) -> str:
+    vkf_utf8_slice(source, rows.(index * 6 + 1), rows.(index * 6 + 2))
+
+_bootstrap_record_function_shape(source:str, rows:[num], count:int):
+    [num] parameter_starts: []
+    [num] parameter_stops: []
+    [num] type_starts: []
+    [num] type_stops: []
+    [num] field_starts: []
+    [num] field_stops: []
+    [num] expression_starts: []
+    [num] expression_stops: []
+    shape: (
+        valid:false, error_index:0, name:"",
+        parameter_starts:parameter_starts, parameter_stops:parameter_stops,
+        type_starts:type_starts, type_stops:type_stops,
+        field_starts:field_starts, field_stops:field_stops, expression_starts:expression_starts,
+        expression_stops:expression_stops
+    )
+    index: 0
+    type_start: 0
+    expression_start: 0
+    [num] delimiters: []
+    depth: 0
+    closing_kind: 0
+    scanning: false
+    kind: 0
+    (count < 1 \/ rows.length() != count * 6)?
+        @: shape
+    source_stop: _bootstrap_shape_source_stop(source)
+    (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
+        .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) != 1)?
+        shape.error_index: index
+        @: shape
+    shape.name: _bootstrap_shape_text(source, rows, index)
+    .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) != 13)?
+        shape.error_index: index
+        @: shape
+    .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) != 14)?>
+        (_bootstrap_shape_kind(rows, count, index, source_stop) != 1)?
+            shape.error_index: index
+            @: shape
+        shape.parameter_starts: shape.parameter_starts & [rows.(index * 6 + 1)]
+        shape.parameter_stops: shape.parameter_stops & [rows.(index * 6 + 2)]
+        .index+: 1
+        (_bootstrap_shape_kind(rows, count, index, source_stop) != 15)?
+            shape.error_index: index
+            @: shape
+        .index+: 1
+        .type_start: index
+        (_bootstrap_shape_kind(rows, count, index, source_stop) != 22)?
+            shape.error_index: index
+            @: shape
+        .index+: 1
+        (_bootstrap_shape_kind(rows, count, index, source_stop) != 1)?
+            shape.error_index: index
+            @: shape
+        .index+: 1
+        (_bootstrap_shape_kind(rows, count, index, source_stop) != 23)?
+            shape.error_index: index
+            @: shape
+        shape.type_starts: shape.type_starts & [rows.(type_start * 6 + 1)]
+        shape.type_stops: shape.type_stops & [rows.(index * 6 + 2)]
+        .index+: 1
+        (_bootstrap_shape_kind(rows, count, index, source_stop) = 24)?
+            .index+: 1
+        (_bootstrap_shape_kind(rows, count, index, source_stop) != 14 /\
+            _bootstrap_shape_kind(rows, count, index - 1, source_stop) != 24)?
+            shape.error_index: index
+            @: shape
+    .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) != 15)?
+        shape.error_index: index
+        @: shape
+    .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
+        .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) != 13)?
+        shape.error_index: index
+        @: shape
+    .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) = 14)?
+        shape.error_index: index
+        @: shape
+    (_bootstrap_shape_kind(rows, count, index, source_stop) != 14)?>
+        (_bootstrap_shape_kind(rows, count, index, source_stop) != 1)?
+            shape.error_index: index
+            @: shape
+        shape.field_starts: shape.field_starts & [rows.(index * 6 + 1)]
+        shape.field_stops: shape.field_stops & [rows.(index * 6 + 2)]
+        .index+: 1
+        (_bootstrap_shape_kind(rows, count, index, source_stop) != 15)?
+            shape.error_index: index
+            @: shape
+        .index+: 1
+        .expression_start: index
+        .delimiters: []
+        .depth: 0
+        .scanning: true
+        scanning?>
+            .kind: _bootstrap_shape_kind(rows, count, index, source_stop)
+            (kind = 0 \/ kind = 5)?
+                shape.error_index: index
+                @: shape
+            ((kind = 14 \/ kind = 24) /\ depth = 0)?
+                .scanning: false
+            scanning?
+                (kind = 13 \/ kind = 22)?
+                    .closing_kind: kind + 1
+                    depth = delimiters.length()?
+                        .delimiters: delimiters & [closing_kind]
+                    depth < delimiters.length()?
+                        delimiters.(depth): closing_kind
+                    .depth+: 1
+                (kind = 14 \/ kind = 23)?
+                    depth = 0?
+                        shape.error_index: index
+                        @: shape
+                    kind != delimiters.(depth - 1)?
+                        shape.error_index: index
+                        @: shape
+                    .depth-: 1
+                .index+: 1
+        (index = expression_start)?
+            shape.error_index: index
+            @: shape
+        shape.expression_starts: shape.expression_starts & [rows.(expression_start * 6 + 1)]
+        shape.expression_stops: shape.expression_stops & [rows.((index - 1) * 6 + 2)]
+        (_bootstrap_shape_kind(rows, count, index, source_stop) = 24)?
+            .index+: 1
+    .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
+        .index+: 1
+    shape.error_index: index
+    shape.valid: _bootstrap_shape_kind(rows, count, index, source_stop) = 5 /\ index = count - 1
+    shape
+
 Location: (file:str, line:num, column:num)
 Span: (start:Location, stop:Location)
 Token: (kind:str, value:any, location:Location)
