@@ -1,0 +1,42 @@
+// Intentional pending lexer RED, not an enabled acceptance gate.
+// The existing manifest-callable tape splits native NUMBER 1e0 into 1 and e0.
+// Activate only in a separately authorized lexer-parity packet; do not repair
+// this with lexical pattern matching in the private expression parser.
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const bin = resolve(process.env.VKF_NATIVE_BIN ?? join(root, "build/native-windows/bin"));
+const suffix = process.platform === "win32" ? ".exe" : "";
+test("runtime exponent token preserves native NUMBER span", () => {
+  const workRoot = resolve(process.env.VKF_TEST_WORK_ROOT ?? join(root, "build/bootstrap-tests"));
+  mkdirSync(workRoot, { recursive: true });
+  const work = mkdtempSync(join(workRoot, "pending-exponent-parity-"));
+  try {
+    copyFileSync(join(root, "compiler/self_hosted/lexer.vkf"), join(work, "lexer.vkf"));
+    copyFileSync(join(root, "compiler/self_hosted/stdlib/io.vkf"), join(work, "io.vkf"));
+    const source = join(work, "probe.vkf"), artifact = join(work, `probe${suffix}`);
+    writeFileSync(source, "lexer: .lexer\nio: .io\nsource: io.read_line()\ntape: lexer.tagged_numeric_function_token_tape(source)\n:: tape.rows\n");
+    const built = spawnSync(join(bin, `vkf-strict${suffix}`), ["-b", source, "-o", artifact, "--optimizer-policy", "mask-0"], {
+      encoding: "utf8", timeout: 30_000, windowsHide: true,
+    });
+    assert.equal(built.status, 0, built.stderr);
+    const native = spawnSync(join(bin, `vkf_lexer_cursor_smoke${suffix}`), ["1e0"], {
+      encoding: "utf8", timeout: 3_000, windowsHide: true,
+    });
+    assert.equal(native.status, 0, native.stderr);
+    const number = JSON.parse(native.stdout).tokens.filter((token) => token.kind === "NUMBER");
+    assert.equal(number.length, 1);
+    const run = spawnSync(artifact, [], { encoding: "utf8", input: "1e0\n", timeout: 3_000, windowsHide: true });
+    assert.equal(run.status, 0, run.stderr);
+    const rows = JSON.parse(run.stdout);
+    const ordinary = Array.from({ length: rows.length / 6 }, (_, index) => rows.slice(index * 6, index * 6 + 6))
+      .filter(([kind]) => kind !== 4 && kind !== 5);
+    assert.deepEqual(ordinary, [[3, 0, 3, number[0].value, 1, 1]]);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});

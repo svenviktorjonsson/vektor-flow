@@ -170,6 +170,190 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
     shape.valid: _bootstrap_shape_kind(rows, count, index, source_stop) = 5 /\ index = count - 1
     shape
 
+# Private postorder arena rows: kind, source-token index, left, right, value.
+# Token rows and published AST/manifest schemas remain unchanged.
+BootstrapExpressionTree: (
+    valid:bit, error_index:int, next_index:int, root:num,
+    nodes:[num], arguments:[num]
+)
+
+_bootstrap_integer_surface(source:str, rows:[num], index:int) -> num:
+    position: rows.(index * 6 + 1)
+    stop: rows.(index * 6 + 2)
+    (position < stop)?>
+        str ch: vkf_string_peek_scalar(source, position)
+        (ch = "." \/ ch = "e" \/ ch = "E")?
+            @: 0
+        .position: vkf_utf8_advance(source, position)
+    1
+
+# The legacy tape tags native literal keywords as IDENT. This private syntax
+# slice does not support literal keywords and must not emit identifier nodes.
+_bootstrap_expression_identifier(source:str, rows:[num], index:int) -> bit:
+    text: _bootstrap_shape_text(source, rows, index)
+    text != "true" /\ text != "false" /\ text != "null"
+
+_bootstrap_parse_postfix(
+    source:str, rows:[num], count:int, source_stop:int, index:int, limit:int,
+    incoming:BootstrapExpressionTree
+) -> BootstrapExpressionTree:
+    result: incoming
+    cursor: index
+    kind: 0
+    token: 0
+    left: 0
+    scanning: true
+    [num] call_arguments: []
+    argument_offset: 0
+    result.valid: false
+    result.error_index: cursor
+    result.next_index: cursor
+    cursor >= limit?
+        @: result
+    .kind: _bootstrap_shape_kind(rows, count, cursor, source_stop)
+    (kind = 1 \/ kind = 3)?
+        result.root: result.nodes.length() / 5
+        kind = 1?
+            ~_bootstrap_expression_identifier(source, rows, cursor)?
+                @: result
+            result.nodes: result.nodes & [1, cursor, -1, -1, 0]
+        kind = 3?
+            result.nodes: result.nodes & [2, cursor, -1, _bootstrap_integer_surface(source, rows, cursor), rows.(cursor * 6 + 3)]
+        .cursor+: 1
+    kind = 13?
+        .token: cursor
+        .cursor+: 1
+        .result: _bootstrap_parse_additive(source, rows, count, source_stop, cursor, limit, result)
+        ~result.valid?
+            @: result
+        .cursor: result.next_index
+        (cursor >= limit \/ _bootstrap_shape_kind(rows, count, cursor, source_stop) != 14)?
+            result.valid: false
+            result.error_index: cursor
+            @: result
+        .left: result.root
+        result.root: result.nodes.length() / 5
+        result.nodes: result.nodes & [6, token, left, -1, 0]
+        .cursor+: 1
+    (kind != 1 /\ kind != 3 /\ kind != 13)?
+        @: result
+    (cursor < limit /\ scanning)?>
+        .kind: _bootstrap_shape_kind(rows, count, cursor, source_stop)
+        .token: cursor
+        .left: result.root
+        kind = 16?
+            .cursor+: 1
+            (cursor >= limit \/ _bootstrap_shape_kind(rows, count, cursor, source_stop) != 1)?
+                result.valid: false
+                result.error_index: cursor
+                @: result
+            ~_bootstrap_expression_identifier(source, rows, cursor)?
+                result.valid: false
+                result.error_index: cursor
+                @: result
+            result.root: result.nodes.length() / 5
+            result.nodes: result.nodes & [3, cursor, left, -1, 0]
+            .cursor+: 1
+        kind = 13?
+            .cursor+: 1
+            cursor >= limit?
+                result.valid: false
+                result.error_index: cursor
+                @: result
+            .call_arguments: []
+            (_bootstrap_shape_kind(rows, count, cursor, source_stop) != 14)?>
+                .result: _bootstrap_parse_additive(source, rows, count, source_stop, cursor, limit, result)
+                ~result.valid?
+                    @: result
+                .call_arguments: call_arguments & [result.root]
+                .cursor: result.next_index
+                cursor >= limit?
+                    result.valid: false
+                    result.error_index: cursor
+                    @: result
+                _bootstrap_shape_kind(rows, count, cursor, source_stop) = 24?
+                    .cursor+: 1
+                    (cursor >= limit \/ _bootstrap_shape_kind(rows, count, cursor, source_stop) = 14)?
+                        result.valid: false
+                        result.error_index: cursor
+                        @: result
+                (_bootstrap_shape_kind(rows, count, cursor, source_stop) != 14 /\
+                    _bootstrap_shape_kind(rows, count, cursor - 1, source_stop) != 24)?
+                    result.valid: false
+                    result.error_index: cursor
+                    @: result
+            .argument_offset: result.arguments.length()
+            result.arguments: result.arguments & call_arguments
+            result.root: result.nodes.length() / 5
+            result.nodes: result.nodes & [4, token, left, argument_offset, call_arguments.length()]
+            .cursor+: 1
+        (kind != 16 /\ kind != 13)?
+            .scanning: false
+    result.valid: true
+    result.error_index: cursor
+    result.next_index: cursor
+    result
+
+_bootstrap_parse_additive(
+    source:str, rows:[num], count:int, source_stop:int, index:int, limit:int,
+    incoming:BootstrapExpressionTree
+) -> BootstrapExpressionTree:
+    result: _bootstrap_parse_postfix(source, rows, count, source_stop, index, limit, incoming)
+    ~result.valid?
+        @: result
+    cursor: result.next_index
+    operator_token: 0
+    left: 0
+    right: 0
+    (cursor < limit /\ _bootstrap_shape_kind(rows, count, cursor, source_stop) = 2)?>
+        .operator_token: cursor
+        .left: result.root
+        .cursor+: 1
+        .result: _bootstrap_parse_postfix(source, rows, count, source_stop, cursor, limit, result)
+        ~result.valid?
+            @: result
+        .right: result.root
+        result.root: result.nodes.length() / 5
+        result.nodes: result.nodes & [5, operator_token, left, right, 0]
+        .cursor: result.next_index
+    result
+
+_bootstrap_expression_tree(source:str, rows:[num], count:int, start:num, stop:num):
+    [num] nodes: []
+    [num] arguments: []
+    tree: (valid:false, error_index:0, next_index:0, root:-1, nodes:nodes, arguments:arguments)
+    (count < 1 \/ rows.length() != count * 6 \/ start < 0 \/ stop <= start \/
+        start % 1 != 0 \/ stop % 1 != 0)?
+        @: tree
+    source_stop: _bootstrap_shape_source_stop(source)
+    stop > source_stop?
+        @: tree
+    index: 0
+    limit: 0
+    (index < count /\ rows.(index * 6 + 1) < start)?>
+        _bootstrap_shape_kind(rows, count, index, source_stop) = 0?
+            tree.error_index: index
+            @: tree
+        .index+: 1
+    tree.error_index: index
+    index >= count?
+        @: tree
+    rows.(index * 6 + 1) != start?
+        @: tree
+    .limit: index
+    (limit < count /\ rows.(limit * 6 + 1) < stop)?>
+        .limit+: 1
+    limit = index?
+        @: tree
+    .tree: _bootstrap_parse_additive(source, rows, count, source_stop, index, limit, tree)
+    (tree.valid /\ tree.next_index != limit)?
+        tree.valid: false
+        tree.error_index: tree.next_index
+    (tree.valid /\ rows.((limit - 1) * 6 + 2) != stop)?
+        tree.valid: false
+        tree.error_index: limit - 1
+    tree
+
 Location: (file:str, line:num, column:num)
 Span: (start:Location, stop:Location)
 Token: (kind:str, value:any, location:Location)
