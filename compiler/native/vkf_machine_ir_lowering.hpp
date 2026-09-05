@@ -2167,6 +2167,15 @@ inline DisplayShape display_shape_from_layout(const ValueLayout& layout) {
     return result;
 }
 
+inline bool is_scalar_f64_output(
+    const ValueLayout& layout,
+    const DisplayShape& display_shape
+) {
+    return layout.width == 1 &&
+        (layout.kind == ValueKind::Numeric ||
+         (layout.kind == ValueKind::Any && display_shape.kind == DisplayKind::F64));
+}
+
 inline bool same_display_shape(const DisplayShape& left, const DisplayShape& right) {
     if (left.kind != right.kind || left.label != right.label ||
         left.children.size() != right.children.size()) return false;
@@ -16698,7 +16707,7 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
             if (display_width(display_shape) != printed_layout.width) {
                 throw LoweringFailure("machine IR display shape does not match value layout");
             }
-            if (printed_layout.width == 1 && printed_layout.kind == ValueKind::Numeric) {
+            if (is_scalar_f64_output(printed_layout, display_shape)) {
                 outputs.push_back(display_shape.kind == DisplayKind::Bit
                     ? OutputKind::StructuredSequence : OutputKind::F64);
             } else if (printed_layout.width == 2 && printed_layout.kind == ValueKind::String) {
@@ -16814,7 +16823,7 @@ inline Module lower_monomorphic(const vf::JsonValue& typed_ir) {
             printed_layout.kind == ValueKind::Null ||
             printed_layout.kind == ValueKind::Complex ||
             printed_layout.kind == ValueKind::Aggregate;
-        if (!structured && printed_layout.kind != ValueKind::Numeric &&
+        if (!structured && !is_scalar_f64_output(printed_layout, display_shape) &&
             printed_layout.kind != ValueKind::String) {
             throw LoweringFailure("machine IR print requires a displayable core value");
         }
