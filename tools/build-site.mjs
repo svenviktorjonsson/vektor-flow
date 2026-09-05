@@ -177,17 +177,17 @@ export async function buildSiteDocument(repoRoot, source = "README.md") {
     const fence = /^\s*(`{3,}|~{3,})(.*)$/u.exec(line);
     if (fence) {
       flush();
-      const [language = "", mode = ""] = fence[2].trim().split(/\s+/u);
+      const [language = ""] = fence[2].trim().split(/\s+/u);
       const code = [];
       while (++index < lines.length && !lines[index].trimStart().startsWith(fence[1])) code.push(lines[index]);
       const sourceCode = code.join("\n");
-      if (language === "vkf" && mode === "live") {
+      if (language === "vkf") {
         const id = `example-${examples.length + 1}`;
         const hasDefaultOutput = evidenceOutputs.has(pendingExamplePath);
         const defaultOutput = hasDefaultOutput ? evidenceOutputs.get(pendingExamplePath) : "";
         if (hasDefaultOutput) renderedEvidence.add(pendingExamplePath);
         examples.push(Object.freeze({ id, source: sourceCode, title }));
-        html.push(`<section class="readme-example" data-vkf-example-id="${id}"><div class="readme-example-bar"><span>Run in browser</span><button type="button" class="readme-example-play">Run</button></div><div class="readme-example-layout"><div class="readme-example-workspace"><div class="readme-example-editor"><pre class="readme-example-highlight" aria-hidden="true"><code></code></pre><textarea class="readme-example-source" data-example-id="${id}" aria-label="Editable VKF source: ${escapeHtml(title)}" spellcheck="false">${escapeHtml(sourceCode)}</textarea></div><section class="readme-example-terminal"${hasDefaultOutput ? "" : " hidden"}><span>Console</span><pre class="readme-example-output" aria-live="polite">${escapeHtml(defaultOutput)}</pre></section></div></div></section>`);
+        html.push(`<section class="readme-example" data-vkf-example-id="${id}"><div class="readme-example-bar"><span>Run in browser</span><button type="button" class="readme-example-play">Run</button></div><div class="readme-example-layout"><div class="readme-example-workspace"><div class="readme-example-editor"><pre class="readme-example-highlight" aria-hidden="true"><code></code></pre><textarea class="readme-example-source" data-example-id="${id}" aria-label="Editable VKF source: ${escapeHtml(title)}" spellcheck="false">${escapeHtml(sourceCode)}</textarea></div><section class="readme-example-terminal"><span>Console</span><pre class="readme-example-output" aria-live="polite">${escapeHtml(defaultOutput)}</pre></section></div></div></section>`);
       } else html.push(`<pre${language === "vkf" ? ' class="vkf-static" data-vkf-source' : ""}><code>${escapeHtml(sourceCode)}</code></pre>`);
       pendingExamplePath = undefined;
       continue;
@@ -253,7 +253,7 @@ export function pageHtml(document) {
   return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="description" content="Vektor Flow: a few powerful principles for calculations, data and visual programs. Try supported examples in your browser."><title>${escapeHtml(title)}${home ? "" : " · Vektor Flow"}</title><link rel="canonical" href="${ORIGIN}${document.route === "index.html" ? "" : document.route}"><link rel="stylesheet" href="${prefix}/site.css"></head><body><a class="skip-link" href="#readme-documentation">Skip to content</a><header class="site-nav"><a class="wordmark" href="${prefix}/index.html">Vektor Flow</a><nav aria-label="Main navigation">${nav.map(([label, path]) => `<a${document.route === path ? ' aria-current="page"' : ""} href="${prefix}/${path}">${label}</a>`).join("")}</nav></header><main class="${home ? "landing" : "documentation"}">${toc}<article id="readme-documentation" class="readme">${document.html}</article></main><footer class="site-footer">Experimental software · <a href="${REPOSITORY}">Source</a> · <a href="${prefix}/origins.html">Origins</a></footer>${document.examples.length || document.html.includes("data-vkf-source") ? `<script type="module" src="${prefix}/documentation.mjs"></script>` : ""}</body></html>\n`;
 }
 
-/** Publish each Markdown source once. Only live-labelled examples become editors. */
+/** Publish each Markdown source once, with editable VKF examples. */
 export async function writeSite(repoRoot, outputRoot, { pages = Object.keys(SITE_PAGES) } = {}) {
   const root = rootPath(repoRoot), output = resolve(outputRoot), publishRoot = dirname(output);
   const queue = [...pages], documents = new Map();
