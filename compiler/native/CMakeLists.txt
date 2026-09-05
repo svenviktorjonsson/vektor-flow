@@ -36,6 +36,12 @@ vkf_native_target(vkf_lexer_cursor_smoke vkf_lexer_cursor_smoke.cpp FALSE)
 vkf_native_target(vkf_parser_token_stream_smoke vkf_parser_token_stream_smoke.cpp TRUE)
 vkf_native_target(vkf_ast_to_ir_smoke vkf_ast_to_ir_smoke.cpp TRUE)
 target_sources(vkf_ast_to_ir_smoke PRIVATE "${VKF_CSV_DEMAND_SOURCE}")
+if(WIN32)
+    # Match vkf-strict's native frontend stack reserve. The standalone IR
+    # producer lowers the same source graphs but does not include the backend
+    # header that supplies this linker directive to vkf-strict.
+    target_link_options(vkf_ast_to_ir_smoke PRIVATE "/STACK:8388608")
+endif()
 vkf_native_target(vkf_bootstrap_bundle_artifact_smoke vkf_bootstrap_bundle_artifact_smoke.cpp TRUE)
 vkf_native_target(vkf_compiler_artifact_smoke vkf_compiler_artifact_smoke.cpp TRUE)
 vkf_native_target(vkf_arm64_artifact vkf_arm64_artifact.cpp TRUE)
