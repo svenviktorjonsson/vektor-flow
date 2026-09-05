@@ -6573,7 +6573,7 @@ _browser_numeric_literal_array(source:str) -> any:
         _browser_token_is(tape, 0, 22, "[") /\
         _browser_token_is(tape, tape.count - 2, 23, "]") /\
         _browser_token_is(tape, tape.count - 1, 5, ""))?! "browser mutable seed must be a numeric array literal"
-    size: (tape.count - 2) / 2
+    num size: (tape.count - 2) / 2
     [num] values: [0:size]
     index: 0
     (index < size)?>
