@@ -7,6 +7,7 @@ binary64 bits must agree. This sampling is evidence, not a correct-rounding proo
 import json
 import math
 import struct
+import sys
 import mpmath as mp
 
 def number(bits):
@@ -19,7 +20,7 @@ def ordered(value):
     raw = int(bits(value), 16)
     return (~raw & ((1 << 64) - 1)) if raw & (1 << 63) else raw | (1 << 63)
 
-data = json.load(open('build/shared-trigonometry-observations.json'))
+data = json.load(open(sys.argv[1] if len(sys.argv)>1 else 'build/shared-trigonometry-observations.json'))
 groups = {}
 special = []
 rounding_disagreements = 0
@@ -60,5 +61,5 @@ assert rounding_disagreements == 0, rounding_disagreements
 result = {k:v for k,v in data.items() if k != 'rows'}
 result.update({'mpmathVersion':mp.__version__,'referenceDecimalDigits':[400,600],
     'referenceRoundingDisagreements':rounding_disagreements,'groups':groups,'nonFinite':special})
-json.dump(result,open('build/shared-trigonometry-audit.json','w'),indent=2)
+json.dump(result,open(sys.argv[2] if len(sys.argv)>2 else 'build/shared-trigonometry-audit.json','w'),indent=2)
 print(json.dumps(result,indent=2))

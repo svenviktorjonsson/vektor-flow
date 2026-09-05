@@ -1,0 +1,290 @@
+{
+  "policy": "vkf-trig-v1-candidate",
+  "wasmSha256": "195765a4b0d2e54a047505d3e245abfe045c3289debc1eab150fd7c129eb4624",
+  "sourceHashes": {
+    "compiler/native/runtime/trig/sin.c": "f97ae2dc659d0ef5600bd30dd3b887344f10abaa69b511f77fa962c04149cfc2",
+    "compiler/native/runtime/trig/cos.c": "e8bd7ddb8c146c3c980568cceea5f266b088049cb5bbc3cd9fcb16e679ed20f7",
+    "compiler/native/runtime/trig/__sin.c": "c53a9a8e6c8ae1b528bd37eb933adde1e3806b4bf3eb084475f9c275f61c3efb",
+    "compiler/native/runtime/trig/__cos.c": "ae212fba4159c6de303eb7013cd65c139ee1355ee09ffca34e638f04f0b6fe2f",
+    "compiler/native/runtime/trig/__rem_pio2.c": "589051763be0d388b4604bd4557febd84d57f61ab2d461afe6296f87940c779a",
+    "compiler/native/runtime/trig/__rem_pio2_large.c": "4340dd48dd3aea6a1a9e67aeed97c05ab95b1bee206fac7278ec80bf3be9e7ad",
+    "compiler/native/runtime/trig/scalbn.c": "ca9669d1ff3a9d4c300615f5d6ad66c096dc44c3b0389f39a2b9402c6b760098",
+    "compiler/native/runtime/trig/floor.c": "fab33da4ac6f6f5c87c22bd51e49f79f93f921d3792bca8010c6016aa1a1b106",
+    "compiler/native/runtime/trig/vkf_trig_internal.h": "b46402b7fad9ef8b856b8502340094d3413161273ff5baef70cfdf407925ac01"
+  },
+  "flags": [
+    "-std=c11",
+    "-O2",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-builtin",
+    "-fexcess-precision=standard"
+  ],
+  "nativePlatform": "Linux x64 GCC; compiler-owned candidate (not system sin/cos)",
+  "bitParityInputs": 12793,
+  "mpmathVersion": "1.3.0",
+  "referenceDecimalDigits": [
+    400,
+    600
+  ],
+  "referenceRoundingDisagreements": 0,
+  "groups": {
+    "readme101/sin": {
+      "samples": 101,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 96,
+      "wasmCorrectRounded": 96,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 6.164039984284917e-17,
+      "wasmMaxAbsoluteError": 6.164039984284917e-17,
+      "nativeWorstULP": {
+        "input": "4004000000000000",
+        "x": 2.5,
+        "actual": 0.5984721441039564,
+        "reference": 0.5984721441039565
+      },
+      "wasmWorstULP": {
+        "input": "4004000000000000",
+        "x": 2.5,
+        "actual": 0.5984721441039564,
+        "reference": 0.5984721441039565
+      }
+    },
+    "all/sin": {
+      "samples": 12790,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 12569,
+      "wasmCorrectRounded": 12569,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 7.179249520604303e-17,
+      "wasmMaxAbsoluteError": 7.179249520604303e-17,
+      "nativeWorstULP": {
+        "input": "4004000000000000",
+        "x": 2.5,
+        "actual": 0.5984721441039564,
+        "reference": 0.5984721441039565
+      },
+      "wasmWorstULP": {
+        "input": "4004000000000000",
+        "x": 2.5,
+        "actual": 0.5984721441039564,
+        "reference": 0.5984721441039565
+      }
+    },
+    "readme101/cos": {
+      "samples": 101,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 97,
+      "wasmCorrectRounded": 97,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 5.50210156918377e-17,
+      "wasmMaxAbsoluteError": 5.50210156918377e-17,
+      "nativeWorstULP": {
+        "input": "3ffe666666666667",
+        "x": 1.9000000000000001,
+        "actual": -0.3232895668635035,
+        "reference": -0.3232895668635036
+      },
+      "wasmWorstULP": {
+        "input": "3ffe666666666667",
+        "x": 1.9000000000000001,
+        "actual": -0.3232895668635035,
+        "reference": -0.3232895668635036
+      }
+    },
+    "all/cos": {
+      "samples": 12790,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 12631,
+      "wasmCorrectRounded": 12631,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 7.300428728686178e-17,
+      "wasmMaxAbsoluteError": 7.300428728686178e-17,
+      "nativeWorstULP": {
+        "input": "3ffe666666666667",
+        "x": 1.9000000000000001,
+        "actual": -0.3232895668635035,
+        "reference": -0.3232895668635036
+      },
+      "wasmWorstULP": {
+        "input": "3ffe666666666667",
+        "x": 1.9000000000000001,
+        "actual": -0.3232895668635035,
+        "reference": -0.3232895668635036
+      }
+    },
+    "decimal-grid/sin": {
+      "samples": 201,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 191,
+      "wasmCorrectRounded": 191,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 6.164039984284917e-17,
+      "wasmMaxAbsoluteError": 6.164039984284917e-17,
+      "nativeWorstULP": {
+        "input": "c023cccccccccccd",
+        "x": -9.9,
+        "actual": 0.4575358937753214,
+        "reference": 0.45753589377532133
+      },
+      "wasmWorstULP": {
+        "input": "c023cccccccccccd",
+        "x": -9.9,
+        "actual": 0.4575358937753214,
+        "reference": 0.45753589377532133
+      }
+    },
+    "decimal-grid/cos": {
+      "samples": 201,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 197,
+      "wasmCorrectRounded": 197,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 6.747222843454751e-17,
+      "wasmMaxAbsoluteError": 6.747222843454751e-17,
+      "nativeWorstULP": {
+        "input": "c02099999999999a",
+        "x": -8.3,
+        "actual": -0.43137684497062084,
+        "reference": -0.4313768449706208
+      },
+      "wasmWorstULP": {
+        "input": "c02099999999999a",
+        "x": -8.3,
+        "actual": -0.43137684497062084,
+        "reference": -0.4313768449706208
+      }
+    },
+    "quadrant-neighbors/sin": {
+      "samples": 193,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 193,
+      "wasmCorrectRounded": 193,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 0,
+      "nativeMaxAbsoluteError": 5.810405701071459e-29,
+      "wasmMaxAbsoluteError": 5.810405701071459e-29
+    },
+    "quadrant-neighbors/cos": {
+      "samples": 193,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 193,
+      "wasmCorrectRounded": 193,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 0,
+      "nativeMaxAbsoluteError": 7.806390238904267e-29,
+      "wasmMaxAbsoluteError": 7.806390238904267e-29
+    },
+    "edges/sin": {
+      "samples": 13,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 13,
+      "wasmCorrectRounded": 13,
+      "nativeMaxULP": 0,
+      "wasmMaxULP": 0,
+      "nativeMaxAbsoluteError": 5.0185382399526676e-17,
+      "wasmMaxAbsoluteError": 5.0185382399526676e-17
+    },
+    "edges/cos": {
+      "samples": 13,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 12,
+      "wasmCorrectRounded": 12,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 5.941087891866745e-17,
+      "wasmMaxAbsoluteError": 5.941087891866745e-17,
+      "nativeWorstULP": {
+        "input": "408f400000000000",
+        "x": 1000.0,
+        "actual": 0.562379076290703,
+        "reference": 0.5623790762907029
+      },
+      "wasmWorstULP": {
+        "input": "408f400000000000",
+        "x": 1000.0,
+        "actual": 0.562379076290703,
+        "reference": 0.5623790762907029
+      }
+    },
+    "exponent-bands/sin": {
+      "samples": 12282,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 12076,
+      "wasmCorrectRounded": 12076,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 7.179249520604303e-17,
+      "wasmMaxAbsoluteError": 7.179249520604303e-17,
+      "nativeWorstULP": {
+        "input": "4050000000000000",
+        "x": 64.0,
+        "actual": 0.9200260381967907,
+        "reference": 0.9200260381967906
+      },
+      "wasmWorstULP": {
+        "input": "4050000000000000",
+        "x": 64.0,
+        "actual": 0.9200260381967907,
+        "reference": 0.9200260381967906
+      }
+    },
+    "exponent-bands/cos": {
+      "samples": 12282,
+      "nativeWasmBitDifferences": 0,
+      "nativeCorrectRounded": 12132,
+      "wasmCorrectRounded": 12132,
+      "nativeMaxULP": 1,
+      "wasmMaxULP": 1,
+      "nativeMaxAbsoluteError": 7.300428728686178e-17,
+      "wasmMaxAbsoluteError": 7.300428728686178e-17,
+      "nativeWorstULP": {
+        "input": "40afffffffffffff",
+        "x": 4095.9999999999995,
+        "actual": 0.8039906134855785,
+        "reference": 0.8039906134855787
+      },
+      "wasmWorstULP": {
+        "input": "40afffffffffffff",
+        "x": 4095.9999999999995,
+        "actual": 0.8039906134855785,
+        "reference": 0.8039906134855787
+      }
+    }
+  },
+  "nonFinite": [
+    {
+      "group": "edges",
+      "input": "7ff0000000000000",
+      "nativeSin": "fff8000000000000",
+      "nativeCos": "fff8000000000000",
+      "wasmSin": "fff8000000000000",
+      "wasmCos": "fff8000000000000",
+      "allNaN": true
+    },
+    {
+      "group": "edges",
+      "input": "fff0000000000000",
+      "nativeSin": "fff8000000000000",
+      "nativeCos": "fff8000000000000",
+      "wasmSin": "fff8000000000000",
+      "wasmCos": "fff8000000000000",
+      "allNaN": true
+    },
+    {
+      "group": "edges",
+      "input": "7ff8000000000000",
+      "nativeSin": "7ff8000000000000",
+      "nativeCos": "7ff8000000000000",
+      "wasmSin": "7ff8000000000000",
+      "wasmCos": "7ff8000000000000",
+      "allNaN": true
+    }
+  ]
+}

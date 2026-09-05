@@ -54,7 +54,7 @@ Build/entry: `compiler/native/{vkf_browser_compiler.cpp,vkf_browser_host_policy.
 Execution changes: `compiler/native/{vkf_wasm_bytecode.hpp,vkf_wasm_bytecode_lowering.hpp,vkf_wasm_typed_ir.hpp,vkf_wasm_vm_emitter.hpp,vkf_symbolic_kernel_artifact.cpp}`.
 Helpers: `vkf_wasm_default_call_thunk.hpp`, `vkf_wasm_record_argument_plan.hpp`,
 `vkf_wasm_math_kernels.hpp`, `vkf_wasm_stat_kernels.hpp`;
-`compiler/native/runtime/{vkf_pow_kernel.c,vkf_pow_kernel.generated.hpp,LICENSE-musl}`;
+`compiler/native/runtime/{vkf_pow_kernel.c,vkf_pow_kernel.generated.hpp,LICENSE-musl.txt}`;
 `tools/build-wasm-math-kernels.mjs`.
 
 Within the overlapping lowerer: whole-program/output order and scopes first;
