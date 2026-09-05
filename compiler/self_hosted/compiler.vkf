@@ -11,6 +11,50 @@ mir: .machine_ir
 validation: .machine_ir_validation
 pe_x64: .pe_x64
 
+# Private, structural record-function producer. No artifact emission or execution.
+_bootstrap_record_function_machine(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    shape: parser._bootstrap_record_function_shape(source, tokens.rows, tokens.count)
+    [num] opcodes: []
+    [num] operands: []
+    function: (
+        valid:false, error_index:shape.error_index, name:shape.name,
+        opcodes:opcodes, operands:operands, max_stack:0,
+        parameter_starts:shape.parameter_starts, parameter_stops:shape.parameter_stops
+    )
+    ~shape.valid?
+        @: function
+    field: 0
+    (field < shape.expression_starts.length())?>
+        tree: parser._bootstrap_expression_tree(source, tokens.rows, tokens.count,
+            shape.expression_starts.(field), shape.expression_stops.(field))
+        function.error_index: tree.error_index
+        ~tree.valid?
+            @: function
+        facts: typed._bootstrap_expression_types(source, tokens.rows, tree.nodes, tree.arguments,
+            shape.parameter_starts, shape.parameter_stops, shape.type_starts, shape.type_stops)
+        function.error_index: facts.error_index
+        ~facts.valid?
+            @: function
+        fragment: mir._bootstrap_lower_owned_result(source, tokens.rows, tree.nodes, facts.types,
+            facts.parameters, shape.type_starts, shape.type_stops)
+        function.error_index: fragment.error_index
+        ~fragment.valid?
+            @: function
+        function.opcodes: function.opcodes & fragment.opcodes
+        function.operands: function.operands & fragment.operands
+        field + fragment.max_stack > function.max_stack?
+            function.max_stack: field + fragment.max_stack
+        .field+: 1
+    field = 1?
+        function.opcodes: function.opcodes & [8]
+        function.operands: function.operands & [0]
+    field > 1?
+        function.opcodes: function.opcodes & [7]
+        function.operands: function.operands & [field]
+    function.valid: true
+    function
+
 compile_tagged_empty_module(source:str):
     bit comment_only: lexer.tagged_comment_only_source(source)
     comment_only?! "empty module source must contain comments and layout only"

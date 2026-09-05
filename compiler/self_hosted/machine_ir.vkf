@@ -115,6 +115,37 @@ _bootstrap_lower_expression(
     fragment.valid: depth = 1
     fragment
 
+_bootstrap_lower_owned_result(
+    source:str, rows:[num], nodes:[num], types:[num], parameters:[num],
+    type_starts:[num], type_stops:[num]
+):
+    fragment: _bootstrap_lower_expression(source, rows, nodes, types, parameters, type_starts, type_stops)
+    (types.length() = 0 \/ types.length() != nodes.length() / 5 \/
+        parameters.length() != types.length() \/ type_starts.length() != type_stops.length())?
+        @: fragment
+    root: types.length() - 1
+    types.(root) != 3?
+        @: fragment
+    child: 0
+    (nodes.(root * 5) = 6)?>
+        .child: nodes.(root * 5 + 2)
+        (child < 0 \/ child >= root \/ child % 1 != 0)?
+            @: fragment
+        .root: child
+    fragment.error_index: nodes.(root * 5 + 1)
+    (nodes.(root * 5) != 1 \/ types.(root) != 3)?
+        @: fragment
+    parameter: parameters.(root)
+    (parameter < 0 \/ parameter % 1 != 0 \/ parameter >= type_starts.length())?
+        @: fragment
+    _bootstrap_vector_stride(source, rows, type_starts.(parameter), type_stops.(parameter)) = 0?
+        @: fragment
+    fragment.opcodes: fragment.opcodes & [2, 6]
+    fragment.operands: fragment.operands & [parameter, 0]
+    fragment.max_stack: 1
+    fragment.valid: true
+    fragment
+
 MachineInstruction: (
     kind:str,
     value:any,
