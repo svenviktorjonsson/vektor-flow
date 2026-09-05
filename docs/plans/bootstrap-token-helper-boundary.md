@@ -109,7 +109,7 @@ Raw-span consumers must move together with any eventual decoding repair:
 `_browser_token_text` returns the raw source span. Merely expanding the span to
 three delimiters leaves extra quotes in these consumer values; it does not
 establish decoded-string parity. The comment-token fixture also uses
-`JSON.parse` on raw single-quoted-delimiter spans and cannot serve unchanged as
+`JSON.parse` on raw ordinary double-quoted spans and cannot serve unchanged as
 a triple-string decoder oracle. Named native `STRING`/`STRING_RAW` parser
 consumption and unrelated symbolic opcode 25 are distinct representations.
 
