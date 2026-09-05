@@ -80,10 +80,12 @@ test("browser compiler emits retained geometry packets for the complete README d
   assert.equal(output.kind, "visual");
   assert.equal(output.packet_records.length, 1);
   const packet = { ...output.packet_records[0] };
-  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 6, 1, 7]);
+  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 6, 1, 513]);
   assert.deepEqual(rounded(packet.color), [0.12, 0.72, 1, 1]);
-  assert.deepEqual(rounded(packet.x[0]), [-3, -2, -1, 0, 1, 2, 3]);
-  assert.deepEqual(rounded(packet.y[0]), [-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09]);
+  assert.deepEqual([0, 128, 256, 384, 512].map((index) => rounded([packet.x[0][index]])[0]),
+    [-1, -0.5, 0, 0.5, 1]);
+  assert.deepEqual([0, 128, 256, 384, 512].map((index) => rounded([packet.y[0][index]])[0]),
+    [-1.9e-8, -0.85, 0, 0.85, 1.9e-8]);
 
   const changed = { ...compiler.run([
     ": .ui.display",

@@ -62,6 +62,8 @@ test("the geometry example infers a continuous 2D topology from indexed channels
   assert.doesNotMatch(source, /Display\([^)]*dim\s*:/u);
   assert.match(source, /\bp_u\s*:/u);
   assert.match(source, /num\s*\(/u);
+  assert.match(source, /\[\.\.512\]/u);
+  assert.doesNotMatch(source, /\bp_u\s*:\s*\[/u);
   assert.doesNotMatch(source, /\bp_uc\s*:/u);
   assert.doesNotMatch(source, /\bx_u\s*:/u);
   assert.doesNotMatch(source, /\by_u\s*:/u);
@@ -88,11 +90,8 @@ test("every displayed browser example compiles and executes through the shipped 
   assert.equal(results[2].packet_records.length, 1);
   assert.deepEqual(compiler.run(document.examples[0].source.replace("* 2", "* 3")).values,
     [[3, 6, 9], [[3, 6], [9, 12]]]);
-  const changed = compiler.run(document.examples[2].source.replace(
-    "num(-3, -0.12)", "num(-4, -0.12)",
-  ));
-  assert.equal(changed.packet_records[0].x[0][0], -4);
-  assert.equal(changed.packet_records[0].y[0][0], -0.12);
+  const changed = compiler.run(document.examples[2].source.replace("0.85 * sin", "0.5 * sin"));
+  assert.ok(Math.abs(changed.packet_records[0].y[0][384] - 0.5) < 1e-12);
 });
 
 test("every editor published anywhere on the site executes through the shipped WASM", async () => {
@@ -125,10 +124,19 @@ test("every editor published anywhere on the site executes through the shipped W
   assert.equal(editors.length, 8);
   assert.equal(new Set(editors.map(({ source }) => source)).size, 3);
   for (const editor of editors) {
+    let result;
     assert.doesNotThrow(
-      () => compiler.run(editor.source),
+      () => { result = compiler.run(editor.source); },
       `${editor.page}: ${editor.title}`,
     );
+    if (/\bp_[A-Za-z_][A-Za-z0-9_]*\s*:/u.test(editor.source)) {
+      const geometry = result.packet_records.filter(({ rows, columns }) => (
+        Number.isInteger(rows) && Number.isInteger(columns)
+      ));
+      assert.ok(geometry.length > 0, `${editor.page}: ${editor.title} must emit p geometry`);
+      assert.ok(geometry.every(({ rows, columns }) => rows * columns >= 100),
+        `${editor.page}: ${editor.title} must emit at least 100 p positions`);
+    }
   }
 });
 

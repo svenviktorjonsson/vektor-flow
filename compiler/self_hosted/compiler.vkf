@@ -1955,6 +1955,10 @@ run_tagged_dependency_source(source:str) -> num:
 BrowserLiftedParse: (value:any, next:int)
 BrowserLiftedComplex: (real:num, imaginary:num, next:int)
 BrowserLiftedComplexCoordinates: (x:any, y:any, next:int)
+BrowserDisplayDecimal: (value:num, next:int)
+BrowserProceduralAffineRange: (
+    limit:num, divisor:num, offset:num, next:int
+)
 BrowserAxisTerm: (values:any, axis:str, next:int)
 BrowserDisplayOptions: (background:any, combine_transparent:bit, next:int)
 BrowserDisplayScan: (
@@ -2548,6 +2552,95 @@ _browser_display_identifier_stop(source:str, offset:int) -> int:
             source, vkf_utf8_advance(source, offset)
         )
     offset
+
+_browser_display_decimal_at(source:str, offset:int) -> BrowserDisplayDecimal:
+    start: _browser_display_value_start(source, offset)
+    stop: vkf_decimal_scan_end(source, start)
+    (stop > start)?! "browser display procedural p requires a decimal literal"
+    (value:vkf_decimal_parse(vkf_utf8_slice(source, start, stop)), next:stop)
+
+_browser_procedural_affine_range(
+    source:str, offset:int
+) -> BrowserProceduralAffineRange:
+    cursor: _browser_display_value_start(source, offset)
+    _browser_source_starts_with(source, cursor, "[..", 0)?! "browser display procedural p requires a materialized range"
+    limit: _browser_display_decimal_at(source, cursor + 3)
+    int limit_next: limit.next
+    .cursor: _browser_display_value_start(source, limit_next)
+    _browser_source_starts_with(source, cursor, "]", 0)?! "browser display procedural p range is unterminated"
+    .cursor: _browser_display_value_start(source, cursor + 1)
+    _browser_source_starts_with(source, cursor, "/", 0)?! "browser display procedural p range requires a divisor"
+    divisor: _browser_display_decimal_at(source, cursor + 1)
+    int divisor_next: divisor.next
+    .cursor: _browser_display_value_start(source, divisor_next)
+    _browser_source_starts_with(source, cursor, "-", 0)?! "browser display procedural p range requires an offset"
+    range_offset: _browser_display_decimal_at(source, cursor + 1)
+    num range_limit: limit.value
+    num range_divisor: divisor.value
+    num parsed_offset: range_offset.value
+    int range_next: range_offset.next
+    (range_limit >= 0 /\ range_limit <= 2048 /\ range_limit // 1 = range_limit)?! "browser display procedural p range limit must be an integer from 0 through 2048"
+    (range_divisor != 0)?! "browser display procedural p range divisor cannot be zero"
+    (limit:range_limit, divisor:range_divisor, offset:parsed_offset, next:range_next)
+
+_browser_procedural_complex_samples(
+    limit:num, first_divisor:num, first_offset:num,
+    second_divisor:num, second_offset:num,
+    amplitude:num, index:int, x:any, y:any
+) -> BrowserLiftedComplexCoordinates:
+    index > limit?
+        @: (x:x, y:y, next:0)
+    real: index / first_divisor - first_offset
+    phase: index / second_divisor - second_offset
+    _browser_procedural_complex_samples(
+        limit, first_divisor, first_offset,
+        second_divisor, second_offset, amplitude, index + 1,
+        x & [real], y & [amplitude * math.sin(phase * 3.141592653589793)]
+    )
+
+_browser_procedural_complex_coordinates(
+    source:str
+) -> BrowserLiftedComplexCoordinates:
+    cursor: _browser_display_value_start(source, 0)
+    _browser_source_starts_with(source, cursor, "num(", 0)?! "browser display procedural p requires num(real, imaginary)"
+    first: _browser_procedural_affine_range(source, cursor + 4)
+    int first_next: first.next
+    .cursor: _browser_display_value_start(source, first_next)
+    _browser_source_starts_with(source, cursor, ",", 0)?! "browser display procedural p requires real and imaginary components"
+    amplitude: _browser_display_decimal_at(source, cursor + 1)
+    int amplitude_next: amplitude.next
+    .cursor: _browser_display_value_start(source, amplitude_next)
+    _browser_source_starts_with(source, cursor, "*", 0)?! "browser display procedural p imaginary component requires a scale"
+    .cursor: _browser_display_value_start(source, cursor + 1)
+    _browser_source_starts_with(source, cursor, "sin(", 0)?! "browser display procedural p imaginary component requires sin"
+    .cursor: _browser_display_value_start(source, cursor + 4)
+    _browser_source_starts_with(source, cursor, "(", 0)?! "browser display procedural p sin argument requires grouping"
+    second: _browser_procedural_affine_range(source, cursor + 1)
+    int second_next: second.next
+    .cursor: _browser_display_value_start(source, second_next)
+    _browser_source_starts_with(source, cursor, ")", 0)?! "browser display procedural p sin range group is unterminated"
+    .cursor: _browser_display_value_start(source, cursor + 1)
+    _browser_source_starts_with(source, cursor, "*", 0)?! "browser display procedural p sin argument requires pi scaling"
+    .cursor: _browser_display_value_start(source, cursor + 1)
+    _browser_source_starts_with(source, cursor, "pi", 0)?! "browser display procedural p sin argument requires pi"
+    .cursor: _browser_display_value_start(source, cursor + 2)
+    _browser_source_starts_with(source, cursor, ")", 0)?! "browser display procedural p sin expression is unterminated"
+    .cursor: _browser_display_value_start(source, cursor + 1)
+    _browser_source_starts_with(source, cursor, ")", 0)?! "browser display procedural p num expression is unterminated"
+    .cursor: _browser_display_value_start(source, cursor + 1)
+    (vkf_string_eof(source, cursor) = true)?! "browser display procedural p has trailing tokens"
+    num first_limit: first.limit
+    num second_limit: second.limit
+    num first_divisor: first.divisor
+    num first_offset: first.offset
+    num second_divisor: second.divisor
+    num second_offset: second.offset
+    num scale: amplitude.value
+    (first_limit = second_limit)?! "browser display procedural p component lengths disagree"
+    _browser_procedural_complex_samples(
+        first_limit, first_divisor, first_offset,
+        second_divisor, second_offset, scale, 0, [], []
+    )
 
 _browser_display_axis_contains(
     axes:[str], axis:str, index:int
@@ -3263,7 +3356,8 @@ _browser_scan_display_mesh_source(
             source, coordinate.value_offset
         )
         vector: vkf_string_peek_scalar(source, value_start) = 91
-        (vector \/ (coordinate.coordinate = "z" /\
+        procedural_p: coordinate.coordinate = "p" /\ _browser_source_starts_with(source, value_start, "num(", 0)
+        (vector \/ procedural_p \/ (coordinate.coordinate = "z" /\
             coordinate.axes.length() = 0))?! "browser display indexed coordinates require vectors"
         (coordinate.coordinate != "p" \/ coordinate.axes.length() > 0)?! "browser display complex p requires semantic axes"
         stop: vkf_decimal_scan_end(source, value_start)
@@ -3271,6 +3365,8 @@ _browser_scan_display_mesh_source(
             .stop: _browser_display_bracket_stop(
                 source, value_start + 1, 1
             )
+        procedural_p?
+            .stop: _browser_display_call_stop(source, value_start + 4, 1, false)
         (stop > value_start)?! "browser display coordinate value is missing"
         value_source: vkf_utf8_slice(source, value_start, stop)
         next_x: x_source
@@ -3613,6 +3709,12 @@ _browser_display_mesh_source(source:str) -> any:
     optical: _browser_display_optical_packet(source)
     surface_system: _browser_display_surface_packet(source, 0, false)
     fields.p_source != ""?
+        vkf_string_peek_scalar(fields.p_source, 0) != 91?
+            procedural_coordinates: _browser_procedural_complex_coordinates(fields.p_source)
+            @: _browser_display_complex_p_packet(
+                fields, procedural_coordinates, color, texture, optical,
+                surface_system
+            )
         p_tape: lexer.tagged_numeric_function_token_tape(fields.p_source)
         coordinates: _browser_lifted_complex_coordinates(
             p_tape, fields.p_axes.length()
@@ -4021,6 +4123,12 @@ _run_tagged_display_source(source:str, packet_index:int) -> any:
     )
     ~scan.unsupported?! "browser display source requires unsupported scene features"
     (scan.packet_count > 0)?! "display source did not retain geometry"
+    procedural_p: scan.selected_kind = "mesh" /\ _browser_find_source(scan.selected_source, 0, ":num(") >= 0
+    procedural_p?
+        math_spill: _browser_find_source(source, 0, "\n:.math\n") >= 0 \/ _browser_find_source(source, 0, "\n: .math\n") >= 0
+        math_spill?! "browser display procedural p requires the .math spill"
+        unshadowed_math: _browser_find_source(source, 0, "\npi:") < 0 /\ _browser_find_source(source, 0, "\nsin(") < 0
+        unshadowed_math?! "browser display procedural p does not support shadowed pi or sin bindings"
     packet_index >= 0?
         (scan.selected_source != "")?! "browser display packet index is out of range"
         scan.selected_kind = "camera"?

@@ -1,8 +1,13 @@
 : .ui.display
+:.math
+
 display: Display()
 frame: display.add_frame(pos:[0.08, 0.08], size:[0.84, 0.84])
 frame.add(
-    p_u:[num(-3, -0.12), num(-2, -0.92), num(-1, -0.86), num(0, -0.03), num(1, 0.82), num(2, 0.88), num(3, 0.09)],
+    p_u:num(
+        [..512] / 256 - 1,
+        0.85 * sin(([..512] / 256 - 1) * pi)
+    ),
     id:"sine",
     color:[0.12, 0.72, 1.0, 1.0]
 )

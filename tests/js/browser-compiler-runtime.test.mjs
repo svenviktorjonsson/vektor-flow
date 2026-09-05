@@ -61,19 +61,21 @@ test("packaged browser compiler runs the README native function example", async 
   assert.equal(compiler.run(source), 42);
 });
 
-test("complex p coordinates become inferred 2D x and y channels", async () => {
+test("procedural complex p coordinates retain at least 100 inferred 2D positions", async () => {
   const [wasm, manifest] = await Promise.all([
     readFile(new URL("vkf-browser-compiler.wasm", artifacts)),
     readFile(new URL("vkf-browser-compiler.json", artifacts), "utf8").then(JSON.parse),
   ]);
   const { instance } = await WebAssembly.instantiate(wasm);
   const compiler = createBrowserCompiler({ instance, manifest });
-  const output = compiler.run([
+  const source = [
     ": .ui.display",
+    ":.math",
     "display: Display()",
     "frame: display.add_frame(pos:[0, 0], size:[1, 1])",
-    "frame.add(p_u:[num(-3, -0.12), num(-2, -0.92), num(-1, -0.86), num(0, -0.03), num(1, 0.82), num(2, 0.88), num(3, 0.09)], id:\"complex-line\", color:[0.12, 0.72, 1, 1])",
-  ].join("\n"));
+    "frame.add(p_u:num([..512] / 256 - 1, 0.85 * sin(([..512] / 256 - 1) * pi)), id:\"complex-line\", color:[0.12, 0.72, 1, 1])",
+  ].join("\n");
+  const output = compiler.run(source);
 
   assert.equal(output.kind, "visual");
   assert.equal(output.packet_records.length, 1);
@@ -81,12 +83,46 @@ test("complex p coordinates become inferred 2D x and y channels", async () => {
   assert.equal(packet.version, 6);
   assert.equal(packet.dimension, 2);
   assert.equal(packet.rows, 1);
-  assert.equal(packet.columns, 7);
-  assert.deepEqual(packet.x, [[-3, -2, -1, 0, 1, 2, 3]]);
-  assert.deepEqual(packet.y, [[-0.12, -0.92, -0.86, -0.03, 0.82, 0.88, 0.09]]);
+  assert.equal(packet.columns, 513);
+  assert.ok(packet.rows * packet.columns >= 100);
+  assert.equal(packet.x[0][0], -1);
+  assert.equal(packet.x[0][256], 0);
+  assert.equal(packet.x[0][512], 1);
+  assert.ok(Math.abs(packet.y[0][0]) < 2e-8);
+  assert.ok(Math.abs(packet.y[0][128] + 0.85) < 1e-12);
+  assert.ok(Math.abs(packet.y[0][256]) < 1e-12);
+  assert.ok(Math.abs(packet.y[0][384] - 0.85) < 1e-12);
+  assert.ok(Math.abs(packet.y[0][512]) < 2e-8);
   assert.deepEqual(packet.x_axes, ["u"]);
   assert.deepEqual(packet.y_axes, ["u"]);
   assert.equal("z" in packet, false);
+
+  const edited = compiler.run(source.replaceAll("512", "128").replaceAll("256", "64"));
+  assert.equal(edited.packet_records[0].columns, 129);
+  assert.deepEqual([
+    edited.packet_records[0].x[0][0], edited.packet_records[0].x[0][64],
+    edited.packet_records[0].x[0][128],
+  ], [-1, 0, 1]);
+  assert.throws(
+    () => compiler.run(source.replace("[..512]", "[..511]")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(source.replace(":.math\n", "")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(source.replace(":.math", ":.math\npi: 4")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(source.replace(":.math", ":.math\nsin(value:num) -> num: 0")),
+    /browser compiler could not run the VKF source/u,
+  );
+  assert.throws(
+    () => compiler.run(source.replaceAll("512", "2049")),
+    /browser compiler could not run the VKF source/u,
+  );
 });
 
 test("browser compiler fails clearly on unsupported source", async () => {
