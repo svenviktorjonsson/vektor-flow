@@ -110,7 +110,7 @@ with `#` + `##`; it is not a third comment syntax. Comments are absent from
 runtime artifacts.
 
 <!-- readme-example: core/04-output-assert.vkf -->
-```vkf
+```vkf live
 # Comments continue to the end of the row.
 ##
 Paired double hashes delimit a multiline comment.

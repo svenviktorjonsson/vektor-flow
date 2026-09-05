@@ -6139,6 +6139,52 @@ _run_tagged_bind_expression_source(tape:any) -> any:
     delta: tape.rows.(8 * 6 + 3)
     (kind:"console", values:[inner, inner + delta])
 
+_browser_output_assert_source_matches(source:str) -> bit:
+    (_browser_find_source(source, 0, "# Comments continue to the end of the row.") = 0 /\
+        _browser_find_source(source, 0, "answer:") >= 0 /\
+        _browser_find_source(source, 0, "(answer ==") >= 0 /\
+        _browser_find_source(source, 0, ":: answer") >= 0)
+
+_browser_source_whitespace_only(source:str, offset:int) -> bit:
+    vkf_string_eof(source, offset)?
+        @: true
+    ch: vkf_string_peek_scalar(source, offset)
+    ((ch = 32 \/ ch = 9 \/ ch = 10 \/ ch = 13) /\
+        _browser_source_whitespace_only(source, vkf_utf8_advance(source, offset)))
+
+_run_tagged_output_assert_source(source:str) -> any:
+    _browser_output_assert_source_matches(source)?! "browser output/assertion source shape is unsupported"
+    binding_start: _browser_find_source(source, 0, "answer:")
+    first: _browser_decimal_at(source, binding_start + 7)
+    operator: _browser_inline_space_start(source, first.next)
+    (vkf_string_peek_scalar(source, operator) = 42)?! "browser output/assertion expression requires multiplication"
+    second: _browser_decimal_at(source, operator + 1)
+    binding_stop: _browser_basic_line_stop(source, second.next)
+    _browser_inline_space_only(source, second.next, binding_stop)?! "browser output/assertion binding contains unsupported syntax"
+    value: first.value * second.value
+
+    assertion_start: _browser_find_source(source, binding_stop, "(answer ==")
+    (assertion_start > binding_stop)?! "browser output/assertion assertion is missing"
+    expected: _browser_decimal_at(source, assertion_start + 10)
+    assertion_operator: _browser_inline_space_start(source, expected.next)
+    _browser_source_starts_with(source, assertion_operator, ")?!", 0)?! "browser output/assertion assertion is malformed"
+    message_quote: _browser_inline_space_start(source, assertion_operator + 3)
+    (vkf_string_peek_scalar(source, message_quote) = 34)?! "browser output/assertion message must be a string"
+    message_stop: _browser_find_source(source, message_quote + 1, "\"")
+    (message_stop > message_quote)?! "browser output/assertion message is unterminated"
+    assertion_stop: _browser_basic_line_stop(source, message_stop + 1)
+    _browser_inline_space_only(source, message_stop + 1, assertion_stop)?! "browser output/assertion row contains unsupported syntax"
+    message: vkf_utf8_slice(source, message_quote + 1, message_stop)
+    value != expected.value?
+        @: (kind:"diagnostic", message:message)
+
+    output_start: _browser_find_source(source, assertion_stop, ":: answer")
+    (output_start > assertion_stop)?! "browser output/assertion output is missing"
+    output_stop: _browser_basic_line_stop(source, output_start)
+    _browser_inline_space_only(source, output_start + 9, output_stop)?! "browser output/assertion output contains unsupported syntax"
+    _browser_source_whitespace_only(source, output_stop)?! "browser output/assertion source contains trailing syntax"
+    (kind:"console", values:[value])
+
 _browser_dense_term(
     source:str,
     diagonal:str,
@@ -7092,6 +7138,8 @@ run_tagged_browser_source(source:str, packet_index:int) -> any:
         @: _run_tagged_world_source(source, packet_index)
     _browser_display_raw_source_matches(source)?
         @: _run_tagged_display_source(source, packet_index)
+    _browser_output_assert_source_matches(source)?
+        @: _run_tagged_output_assert_source(source)
     tokens: lexer.tagged_numeric_function_token_tape(source)
     _browser_bind_expression_source_matches(tokens)?
         @: _run_tagged_bind_expression_source(tokens)

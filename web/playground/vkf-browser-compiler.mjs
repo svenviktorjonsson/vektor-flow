@@ -37,9 +37,17 @@ function wrapKernel(kernel) {
         throw new TypeError("browser compiler source must be a string");
       }
       assertBrowserCapabilities(source);
+      let initial;
       try {
-        const initial = kernel.invokeValue(RUN_ENTRY, [source, -1]);
-        if (initial?.kind !== "visual_stream") return initial;
+        initial = kernel.invokeValue(RUN_ENTRY, [source, -1]);
+      } catch (cause) {
+        throw new Error("browser compiler could not run the VKF source", { cause });
+      }
+      if (initial?.kind === "diagnostic") {
+        throw new Error(initial.message);
+      }
+      if (initial?.kind !== "visual_stream") return initial;
+      try {
         const packetRecords = [];
         if (Array.isArray(initial.background) && initial.background.length === 4) {
           packetRecords.push({ magic: 1447773767, version: 1, color: initial.background });
