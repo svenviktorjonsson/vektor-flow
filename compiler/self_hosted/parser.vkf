@@ -56,6 +56,7 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
     depth: 0
     closing_kind: 0
     scanning: false
+    record_comma: false
     kind: 0
     (count < 1 \/ rows.length() != count * 6)?
         @: shape
@@ -162,7 +163,11 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
         shape.expression_starts: shape.expression_starts & [rows.(expression_start * 6 + 1)]
         shape.expression_stops: shape.expression_stops & [rows.((index - 1) * 6 + 2)]
         (_bootstrap_shape_kind(rows, count, index, source_stop) = 24)?
+            .record_comma: true
             .index+: 1
+    ~record_comma?
+        shape.error_index: index
+        @: shape
     .index+: 1
     (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
         .index+: 1

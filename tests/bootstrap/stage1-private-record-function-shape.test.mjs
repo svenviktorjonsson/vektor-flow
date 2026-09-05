@@ -37,6 +37,8 @@ test("private parser reads general vector-parameter record shape from runtime to
       { source: "summarize(items:[str]):\n    (size:items.length(), originals:items)\n", expressions: ["items.length()", "items"] },
       { source: "combine(left:[str], right:[str]):\n    (second:right, count:(left.length() + 1), first:left)\n", expressions: ["right", "(left.length() + 1)", "left"] },
       { source: "# λ location prefix\ncollect_42(values_7:[Widget]):\n    (nested:pair(values_7, [values_7, values_7]), original:values_7)\n", expressions: ["pair(values_7, [values_7, values_7])", "values_7"] },
+      { source: "single(items:[str]):\n    (original:items,)\n", expressions: ["items"] },
+      { source: "single_nested(items:[str]):\n    (value:pair(items, items),)\n", expressions: ["pair(items, items)"] },
     ];
     for (const fixture of cases) {
       const input = join(work, "input.vkf");
@@ -116,18 +118,34 @@ test("private shape parser rejects malformed spans and delimiters at their first
       cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true,
     });
     assert.equal(compiled.status, 0, compiled.error?.message ?? compiled.stderr);
-    const valid = "inspect(items:[str]):\n    (original:items)\n";
+    const valid = "inspect(items:[str]):\n    (original:items,)\n";
     const cases = [
       ...["negative", "past-end", "reversed", "fractional", "empty-span", "count"].map((mode) => ({ source: valid, mode, error: 0 })),
-      { source: valid, mode: "extra-eof", error: 16 },
+      { source: valid, mode: "extra-eof", error: 17 },
       { source: "inspect items:[str]):\n    (original:items)\n", mode: "later-bad-span", error: 1 },
       { source: "inspect(items:[str]):\n    (original:([items)]))\n", mode: "none", error: 16 },
       { source: "inspect(items:[str]):\n    (original:)\n", mode: "none", error: 13 },
       { source: "inspect(items:[str]):\n    ()\n", mode: "none", error: 11 },
+      { source: "inspect(items:[str]):\n    (original:items)\n", mode: "none", error: 14, nativeBinding: true },
+      { source: "inspect(items:[str]):\n    (value:pair(items, items))\n", mode: "none", error: 19, nativeBinding: true },
+      { source: "inspect(items:[str]):\n    (original:(items))\n", mode: "none", error: 16, nativeBinding: true },
     ];
     for (const fixture of cases) {
       const input = join(work, "input.vkf");
       writeFileSync(input, fixture.source);
+      if (fixture.nativeBinding) {
+        const lexed = spawnSync(join(bin, `vkf_lexer_cursor_smoke${suffix}`), ["--file", input, "<private-shape-binding>"], {
+          encoding: "utf8", timeout: 3_000, windowsHide: true,
+        });
+        assert.equal(lexed.status, 0, lexed.stderr);
+        const parsed = spawnSync(join(bin, `vkf_parser_token_stream_smoke${suffix}`), [], {
+          input: lexed.stdout, encoding: "utf8", timeout: 3_000, windowsHide: true,
+        });
+        assert.equal(parsed.status, 0, parsed.stderr);
+        const body = JSON.parse(parsed.stdout).body[0].body;
+        assert.equal(body.kind, "block");
+        assert.equal(body.statements[0].kind, "bind_expr");
+      }
       const run = spawnSync(artifact, [], {
         cwd: work, encoding: "utf8", input: `${input}\n${fixture.mode}\n`, timeout: 3_000, windowsHide: true,
       });
