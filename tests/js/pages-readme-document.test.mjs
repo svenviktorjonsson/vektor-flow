@@ -60,13 +60,11 @@ test("the geometry example infers a continuous 2D topology from indexed channels
 
   assert.match(source, /display:\s*Display\(\)/u);
   assert.doesNotMatch(source, /Display\([^)]*dim\s*:/u);
-  assert.match(source, /\bp_u\s*:/u);
-  assert.match(source, /num\s*\(/u);
-  assert.match(source, /\[\.\.512\]/u);
-  assert.doesNotMatch(source, /\bp_u\s*:\s*\[/u);
-  assert.doesNotMatch(source, /\bp_uc\s*:/u);
-  assert.doesNotMatch(source, /\bx_u\s*:/u);
-  assert.doesNotMatch(source, /\by_u\s*:/u);
+  assert.match(source, /\bx\s*:\s*0\.1\[\.\.100\]/u);
+  assert.match(source, /\by\s*:\s*sin\(x\)/u);
+  assert.match(source, /frame\.add\([^]*\bx_u\s*:\s*x\b[^]*\by_u\s*:\s*y\b/u);
+  assert.doesNotMatch(source, /\bp(?:_[A-Za-z]+)?\s*:/u);
+  assert.doesNotMatch(source, /\bnum\s*\(/u);
   assert.doesNotMatch(source, /\bz(?:_[A-Za-z]+)?\s*:/u);
 });
 
@@ -181,7 +179,7 @@ test("the loops feature is an editable reference example with one prefilled cons
   const loopsSection = document.html.split('data-vkf-example-id="example-5"')[1]
     .split('<h3 id="54-return-continue-and-break">')[0];
   assert.doesNotMatch(loopsSection, /Recorded stdout/u);
-  assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 60);
+  assert.equal((document.html.match(/Recorded stdout/gu) ?? []).length, 0);
 });
 
 test("every displayed browser example compiles and executes through the shipped WASM", async () => {
@@ -204,11 +202,17 @@ test("every displayed browser example compiles and executes through the shipped 
   assert.equal(results[2].packet_records.length, 1);
   assert.deepEqual(compiler.run(document.examples[0].source.replace("* 2", "* 3")).values,
     [[3, 6, 9], [[3, 6], [9, 12]]]);
-  const changed = compiler.run(document.examples[2].source.replace("0.85 * sin", "0.5 * sin"));
-  assert.ok(Math.abs(changed.packet_records[0].y[0][384] - 0.5) < 1e-12);
+  const changedSource = document.examples[2].source.replace("0.1[..100]", "0.2[..100]");
+  assert.notEqual(changedSource, document.examples[2].source);
+  const changed = compiler.run(changedSource);
+  assert.equal(changed.packet_records[0].columns, 101);
+  assert.equal(changed.packet_records[0].x[0][50], 10);
+  assert.equal(changed.packet_records[0].x[0][100], 20);
+  assert.ok(Math.abs(changed.packet_records[0].y[0][50] - Math.sin(10)) < 1e-12);
+  assert.ok(Math.abs(changed.packet_records[0].y[0][100] - Math.sin(20)) < 1e-12);
 });
 
-test("every editor published anywhere on the site executes through the shipped WASM", async () => {
+test("every editor published anywhere on the site executes through the shipped WASM", async (t) => {
   const queue = Object.keys(SITE_PAGES);
   const visited = new Set();
   const documents = [];
@@ -235,22 +239,24 @@ test("every editor published anywhere on the site executes through the shipped W
     ...example,
   })));
 
-  assert.equal(editors.length, 13);
-  assert.equal(new Set(editors.map(({ source }) => source)).size, 8);
+  assert.equal(editors.length, 97);
+  assert.equal(new Set(editors.map(({ source }) => source)).size, 87);
   for (const editor of editors) {
-    let result;
-    assert.doesNotThrow(
-      () => { result = compiler.run(editor.source); },
-      `${editor.page}: ${editor.title}`,
-    );
-    if (/\bp_[A-Za-z_][A-Za-z0-9_]*\s*:/u.test(editor.source)) {
-      const geometry = result.packet_records.filter(({ rows, columns }) => (
-        Number.isInteger(rows) && Number.isInteger(columns)
-      ));
-      assert.ok(geometry.length > 0, `${editor.page}: ${editor.title} must emit p geometry`);
-      assert.ok(geometry.every(({ rows, columns }) => rows * columns >= 100),
-        `${editor.page}: ${editor.title} must emit at least 100 p positions`);
-    }
+    await t.test(`${editor.page}: ${editor.id}: ${editor.title}`, () => {
+      let result;
+      assert.doesNotThrow(
+        () => { result = compiler.run(editor.source); },
+        `${editor.page}: ${editor.title}`,
+      );
+      if (/\b(?:p|x|y)_[A-Za-z_][A-Za-z0-9_]*\s*:/u.test(editor.source)) {
+        const geometry = result.packet_records.filter(({ rows, columns }) => (
+          Number.isInteger(rows) && Number.isInteger(columns)
+        ));
+        assert.ok(geometry.length > 0, `${editor.page}: ${editor.title} must emit indexed geometry`);
+        assert.ok(geometry.every(({ rows, columns }) => rows * columns >= 100),
+          `${editor.page}: ${editor.title} must emit at least 100 positions`);
+      }
+    });
   }
 });
 
@@ -304,10 +310,10 @@ test("performance ratios are derived from the versioned native report", async ()
   assert.throws(() => benchmarkSummary("no measurements"), /Missing raw-kernel/u);
 });
 
-test("native reference and install snippets are not advertised as browser-runnable", async () => {
+test("install VKF snippets are editable alongside the native release instructions", async () => {
   const document = await buildSiteDocument(root, "INSTALL.md");
-  assert.equal(document.examples.length, 0);
-  assert.match(document.html, /data-vkf-source/u);
+  assert.equal(document.examples.length, 1);
+  assert.match(document.html, /class="readme-example-source"/u);
   assert.match(document.html, /Published preview: VKF 0\.4\.0/u);
   assert.match(document.html, /release candidate/u);
   assert.match(document.html, /not a public/u);
