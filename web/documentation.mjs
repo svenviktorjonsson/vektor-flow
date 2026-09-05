@@ -32,6 +32,7 @@ function fitEditor(source) {
 
 function prepareExample(example, runner) {
   const source = example.querySelector(".readme-example-source");
+  source.value = source.defaultValue;
   const highlight = example.querySelector(".readme-example-highlight code");
   const play = example.querySelector(".readme-example-play");
   const terminal = example.querySelector(".readme-example-terminal");
