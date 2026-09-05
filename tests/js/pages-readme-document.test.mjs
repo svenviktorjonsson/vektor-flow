@@ -60,11 +60,12 @@ test("the geometry example infers a continuous 2D topology from indexed channels
 
   assert.match(source, /display:\s*Display\(\)/u);
   assert.doesNotMatch(source, /Display\([^)]*dim\s*:/u);
-  assert.match(source, /\bx_u\s*:/u);
-  assert.match(source, /\by_u\s*:/u);
+  assert.match(source, /\bp_u\s*:/u);
+  assert.match(source, /num\s*\(/u);
+  assert.doesNotMatch(source, /\bp_uc\s*:/u);
+  assert.doesNotMatch(source, /\bx_u\s*:/u);
+  assert.doesNotMatch(source, /\by_u\s*:/u);
   assert.doesNotMatch(source, /\bz(?:_[A-Za-z]+)?\s*:/u);
-  assert.doesNotMatch(source, /\bx_u\s*:\s*\[\s*\[/u);
-  assert.doesNotMatch(source, /\by_u\s*:\s*\[\s*\[/u);
 });
 
 test("every displayed browser example compiles and executes through the shipped WASM", async () => {
@@ -87,8 +88,11 @@ test("every displayed browser example compiles and executes through the shipped 
   assert.equal(results[2].packet_records.length, 1);
   assert.deepEqual(compiler.run(document.examples[0].source.replace("* 2", "* 3")).values,
     [[3, 6, 9], [[3, 6], [9, 12]]]);
-  const changed = compiler.run(document.examples[2].source.replaceAll("-3, -2, -1", "-4, -2, -1"));
+  const changed = compiler.run(document.examples[2].source.replace(
+    "num(-3, -0.12)", "num(-4, -0.12)",
+  ));
   assert.equal(changed.packet_records[0].x[0][0], -4);
+  assert.equal(changed.packet_records[0].y[0][0], -0.12);
 });
 
 test("each guide branch links back and drills into the existing reference", async () => {
