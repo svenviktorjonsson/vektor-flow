@@ -1,0 +1,20 @@
+loop_total() -> int:
+    total: 0
+    ..4 >>
+        .total+: $
+    total
+
+switch_loop() -> int:
+    k: 0
+    k??>
+        0 =>
+            .k: k + 1
+            @>
+        1 =>
+            .k: k + 1
+            @>
+        2 => @|
+    k
+
+:: loop_total()
+:: switch_loop()

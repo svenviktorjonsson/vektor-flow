@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - codex/0.5/integration
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -13,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deployment' }}
   cancel-in-progress: true
 
 jobs:
@@ -25,6 +26,8 @@ jobs:
       - name: Build native compiler and browser compiler
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
           ./scripts/build-native-compiler.ps1 `
             -OutputDirectory build/pages-compiler/bin `
             -OnlyTargets vkf-strict,vkf_symbolic_kernel_artifact
@@ -34,9 +37,11 @@ jobs:
       - name: Verify committed browser artifact
         shell: pwsh
         run: git diff --exit-code -- web/playground/artifacts
-      - name: Build executable README
+      - name: Build documentation from its single sources
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
           node --test `
             tests/js/browser-compiler-runtime.test.mjs `
             tests/js/browser-playground-shell.test.mjs `
@@ -52,6 +57,7 @@ jobs:
           path: web
 
   deploy:
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

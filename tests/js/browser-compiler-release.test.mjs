@@ -48,13 +48,18 @@ test("tagged releases publish the browser compiler beside native installers", as
   assert.match(workflow, /publish:[\s\S]*?needs:[\s\S]*?- browser-wasm/u);
 });
 
-test("README documents the downloadable compiler beside the VKF CLI", async () => {
-  const readme = await readFile("README.md", "utf8");
-
-  assert.match(readme, /\| Browser WebAssembly \| `vektor-flow-browser-wasm\.zip` \|/u);
-  assert.match(readme, /import \{ loadPackagedBrowserCompiler \} from "\.\/vkf-browser-compiler\.mjs"/u);
-  assert.match(readme, /const compiler = await loadPackagedBrowserCompiler\(\)/u);
-  assert.match(readme, /compiler\.run\(source\)/u);
-  assert.match(readme, /entirely client-side/u);
-  assert.match(readme, /no\s+network, server, filesystem, process, DOM, localhost, or host API access/u);
+test("the linked documentation explains browser integration without bloating the README", async () => {
+  const [readme, install, guide] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("INSTALL.md", "utf8"),
+    readFile("docs/site/browser.md", "utf8"),
+  ]);
+  assert.match(readme, /vektorflow\.org\/guide\.html/u);
+  assert.match(install, /docs\/site\/browser\.md/u);
+  assert.match(guide, /vektor-flow-browser-wasm\.zip/u);
+  assert.match(guide, /import \{ loadPackagedBrowserCompiler \} from "\.\/vkf-browser-compiler\.mjs"/u);
+  assert.match(guide, /const compiler = await loadPackagedBrowserCompiler\(\)/u);
+  assert.match(guide, /compiler\.run\(source\)/u);
+  assert.match(guide, /entirely client-side/u);
+  assert.match(guide, /no\s+network, server, filesystem, process, DOM, localhost, or host API access/u);
 });

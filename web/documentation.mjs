@@ -1,13 +1,30 @@
 import { highlightVkf } from "./editor/vkf-highlighter.mjs";
 import { createInlineExampleController } from "./inline-example-controller.mjs";
-import { createInlineRunner } from "./inline-runner.mjs";
-import { renderInlineResult } from "./inline-result-renderer.mjs";
+// No compiler download until a reader runs an example.
+let renderInlineResult;
+let runtime;
+let runtimePromise;
+function createLazyRunner() {
+  return {
+    async run(source) {
+      runtimePromise ??= Promise.all([
+        import("./inline-runner.mjs"),
+        import("./inline-result-renderer.mjs"),
+      ]).then(([runner, renderer]) => {
+        renderInlineResult = renderer.renderInlineResult;
+        runtime = runner.createInlineRunner();
+      }).catch((error) => { runtimePromise = null; throw error; });
+      await runtimePromise;
+      return runtime.run(source);
+    },
+  };
+}
 
 const readme = globalThis.document.querySelector("#readme-documentation");
 
 function fitEditor(source) {
   source.style.height = "0";
-  source.style.height = `${Math.max(140, source.scrollHeight)}px`;
+  source.style.height = `${Math.min(420, Math.max(100, source.scrollHeight))}px`;
 }
 
 function prepareExample(example, runner) {
@@ -82,6 +99,12 @@ function prepareExample(example, runner) {
   });
 
   play.addEventListener("click", () => controller.run(source.value));
+  source.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && !play.disabled) {
+      event.preventDefault();
+      controller.run(source.value);
+    }
+  });
 }
 
 export function renderDocumentation(document, readmeElement, runner) {
@@ -94,10 +117,12 @@ export function renderDocumentation(document, readmeElement, runner) {
   }
 }
 
-try {
-  const response = await fetch("./generated/readme.json");
-  if (!response.ok) throw new Error(`README request failed (${response.status})`);
-  renderDocumentation(await response.json(), readme, createInlineRunner());
-} catch (error) {
-  readme.textContent = `README unavailable: ${error.message}`;
+// Text and links are already present in the built HTML. JavaScript only adds
+// syntax highlighting and the explicitly labelled browser execution controls.
+const runner = createLazyRunner();
+for (const example of readme.querySelectorAll(".readme-example")) {
+  prepareExample(example, runner);
+}
+for (const code of readme.querySelectorAll("[data-vkf-source] code")) {
+  code.innerHTML = highlightVkf(code.textContent);
 }
