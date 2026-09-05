@@ -1,35 +1,65 @@
 # Why Vektor Flow?
 
-Viktor Jonsson started with a small function parser for a drawing program.
-Then came a question: if a language compiler can handle functions, why not build
-the language too?
+[Guide](guide.md) / Why
 
-His experience doing numerical work supplied the motivation. He had spent time
-fighting Python arrays to express the calculations he wanted, waiting for large
-datasets to load and trying to fit execution frameworks around the problem.
-Graphics libraries added more names to learn without the freedom he wanted.
+## Start with a few operations
 
-At first, VKF accumulated too many clever operations. The turning point was to
-make vectors the foundation and let a few consistent rules do more work.
-A keyword-free syntax became a design constraint: operators, types, functions
-and scopes, with useful shorthand—not minimalism at the expense of convenience.
+I started with a function parser for a drawing program. A compiler could handle
+functions too, so I began building a language. My first constraint was simply
+**no keywords**: could operators, types, functions and scopes be enough?
 
-The name fits the model: vectors flowing naturally through operations. It also
-carries a personal connection: **Viktor**, with a K, and his school nickname **Flo**.
+`.` reaches in; `:` spills. `::` extends the idea to terminal output and user
+input. The aim was consistent operations, not just replacing words with symbols.
+Early versions became crowded. Making vectors central gave the design focus.
 
-## From a parser to a compiler
+[Operator rules](../language-guide.md#7-operators-and-overloads) and
+[scopes](../language-guide.md#9-modules-scope-and-dispatch).
 
-The early implementation translated a rough syntax into Python. It then moved
-to generated C++ before gaining direct machine-code output, without a separate
-assembler or linker in the installed compilation path.
+## Write the calculation, not an array workaround
 
-Self-hosting is the next step: making VKF build its own compiler. That work is
-still in progress; it is not presented here as a completed release capability.
-[The staged compiler architecture](../adr/0005-staged-self-hosting-and-direct-machine-code.md)
-records that direction.
+During my PhD work, I fought Python arrays to express the calculations I wanted.
+I wanted an ordinary function to work elementwise through vectors without
+writing another version of it.
 
-The implementation has been developed with AI-assisted, “vibe-coded” workflows.
-That is its history, not a quality guarantee. Readable source, reproducible tests
-and honest measurements are how it should earn trust.
+Run this, then change `* 2` to `* 3`.
 
-[Back to the guide](guide.md).
+<!-- live-example: examples/introduction/vector-functions.vkf -->
+
+[How vector function application works](../language-guide.md#4-automatic-vector-function-application).
+
+## Fewer things to manage
+
+Immutability with explicit rebinding keeps the value model clear without
+requiring the programmer to manage pointers. I also wanted mathematical types
+to define operators as binary functions, without a catalogue of special method
+names or the complexity I encountered in C++.
+
+[Values and rebinding](../language-guide.md#1-programs-and-bindings) and
+[defining operators](../language-guide.md#73-operator-overloads).
+
+Slow dataset loading and the effort of fitting Dask to my needs motivated lazy
+data access and parallel execution when beneficial. These are execution-model
+goals, not a promise that every target and library implements them identically.
+
+[Execution-policy search and current limits](execution.md).
+
+## Build graphics, not a catalogue of names
+
+I wanted more freedom from fewer general graphics operations. The core centres
+on `set`, `add`, `push` and `show`; `append` and `plot` provide convenient
+shorthand. HTML and CSS already solve layout and styling, so those skills
+should carry over rather than be replaced.
+
+[Try the graphics example](getting-started.md#make-it-visible) and
+[build an interface](getting-started.md#build-an-interface).
+
+## The name and implementation
+
+Vektor Flow describes vectors flowing through operations. It also carries my
+name, **Viktor**, and my school nickname, **Flo**.
+
+The implementation moved from Python translation to generated C++ and then
+direct machine-code output. Self-hosting remains work in progress.
+[Compiler architecture and self-hosting](../adr/0005-staged-self-hosting-and-direct-machine-code.md).
+
+[How: get started →](getting-started.md) · [What: core ideas →](concepts.md)
