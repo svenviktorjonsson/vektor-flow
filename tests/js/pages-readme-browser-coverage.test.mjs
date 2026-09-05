@@ -11,13 +11,25 @@ const artifacts = new URL("../../web/playground/artifacts/", import.meta.url);
 const rounded = (values) => values.map((value) => Math.round(value * 1e9) / 1e9);
 
 async function compilerAndExamples() {
-  const [document, wasm, manifest] = await Promise.all([
+  const [document, wasm, manifest, gallery] = await Promise.all([
     buildReadmeDocument(root),
     readFile(new URL("vkf-browser-compiler.wasm", artifacts)),
     readFile(new URL("vkf-browser-compiler.json", artifacts), "utf8").then(JSON.parse),
+    readFile(new URL("../../examples/scene_gallery/manifest.json", import.meta.url), "utf8").then(JSON.parse),
   ]);
+  const galleryExamples = await Promise.all(gallery.examples.map(async (example, index) => ({
+    id: `readme-${String(index + 3).padStart(2, "0")}`,
+    source: await readFile(
+      new URL(`../../examples/scene_gallery/${example.source}`, import.meta.url),
+      "utf8",
+    ),
+  })));
   const { instance } = await WebAssembly.instantiate(wasm);
-  return { compiler: createBrowserCompiler({ instance, manifest }), examples: document.examples };
+  return {
+    compiler: createBrowserCompiler({ instance, manifest }),
+    examples: document.examples,
+    galleryExamples,
+  };
 }
 
 test("browser coverage matrix classifies every README VKF fence exactly once", async () => {
@@ -27,7 +39,7 @@ test("browser coverage matrix classifies every README VKF fence exactly once", a
   ]);
   const classified = matrix.clusters.flatMap(({ examples }) => examples);
 
-  assert.equal(classified.length, 26);
+  assert.equal(classified.length, document.examples.length);
   assert.deepEqual([...new Set(classified)].sort(), document.examples.map(({ id }) => id).sort());
 });
 
@@ -73,7 +85,7 @@ test("browser compiler runs the complete README named-axis tensor fence", async 
 });
 
 test("browser compiler emits retained geometry packets for the complete README display fence", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const example = examples.find(({ id }) => id === "readme-03");
   const output = { ...compiler.run(example.source) };
 
@@ -98,7 +110,7 @@ test("browser compiler emits retained geometry packets for the complete README d
 });
 
 test("browser compiler retains background options and multiple meshes from README displays", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const bands = examples.find(({ id }) => id === "readme-16");
   const ribbon = examples.find(({ id }) => id === "readme-20");
   const bandOutput = { ...compiler.run(bands.source) };
@@ -150,7 +162,7 @@ test("browser compiler retains background options and multiple meshes from READM
 });
 
 test("browser compiler retains the README camera, light, and 3D surface scene", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const example = examples.find(({ id }) => id === "readme-04");
   const output = { ...compiler.run(example.source) };
 
@@ -204,7 +216,7 @@ test("browser compiler retains the README camera, light, and 3D surface scene", 
 });
 
 test("browser compiler retains README lit materials and receiver-shadow ownership", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const shadows = examples.find(({ id }) => id === "readme-08");
   const lights = examples.find(({ id }) => id === "readme-09");
   const material = examples.find(({ id }) => id === "readme-15");
@@ -246,7 +258,7 @@ test("browser compiler retains README lit materials and receiver-shadow ownershi
 });
 
 test("browser compiler retains source-derived README procedural textures", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const checker = examples.find(({ id }) => id === "readme-07");
   const grass = examples.find(({ id }) => id === "readme-10");
   const checkerOutput = { ...compiler.run(checker.source) };
@@ -276,7 +288,7 @@ test("browser compiler retains source-derived README procedural textures", async
 });
 
 test("browser compiler retains source-derived transparent optical material", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const glass = examples.find(({ id }) => id === "readme-06");
   const output = { ...compiler.run(glass.source) };
   assert.deepEqual({ ...output.packet_records.at(-1).optical }, {
@@ -299,7 +311,7 @@ test("browser compiler retains source-derived transparent optical material", asy
 });
 
 test("browser compiler retains the README mirror surface and virtual camera", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const mirror = examples.find(({ id }) => id === "readme-05");
   const output = { ...compiler.run(mirror.source) };
   assert.deepEqual({ ...output.packet_records.at(-1).surface_system }, {
@@ -325,7 +337,7 @@ test("browser compiler retains the README mirror surface and virtual camera", as
 });
 
 test("browser compiler applies the README World embedding to its retained particle", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const world = examples.find(({ id }) => id === "readme-19");
   const controls = examples.find(({ id }) => id === "readme-11");
   const output = { ...compiler.run(world.source) };
@@ -361,7 +373,7 @@ test("browser compiler applies the README World embedding to its retained partic
 });
 
 test("browser compiler retains the README native indexed field mesh", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const wireframe = examples.find(({ id }) => id === "readme-21");
   const output = { ...compiler.run(wireframe.source) };
   assert.equal(output.packet_records[0].magic, 1447773767);
@@ -395,7 +407,7 @@ test("browser compiler retains the README native indexed field mesh", async () =
 });
 
 test("browser compiler retains the README native roughness scene", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const roughness = examples.find(({ id }) => id === "readme-13");
   const output = { ...compiler.run(roughness.source) };
 
@@ -437,7 +449,7 @@ test("browser compiler retains the README native roughness scene", async () => {
 });
 
 test("browser compiler retains the animated README sun-reflection scene", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const example = examples.find(({ id }) => id === "readme-12");
   const output = { ...compiler.run(example.source) };
 
@@ -507,7 +519,7 @@ test("browser compiler retains the animated README sun-reflection scene", async 
 });
 
 test("browser compiler retains the README native spotlight cone", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const spotlight = examples.find(({ id }) => id === "readme-17");
   const output = { ...compiler.run(spotlight.source) };
 
@@ -548,7 +560,7 @@ test("browser compiler retains the README native spotlight cone", async () => {
 });
 
 test("browser compiler retains the README rotated procedural die", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const dice = examples.find(({ id }) => id === "readme-18");
   const output = { ...compiler.run(dice.source) };
 
@@ -599,7 +611,7 @@ test("browser compiler retains the README rotated procedural die", async () => {
 });
 
 test("browser compiler retains the README layered native glass surfaces", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const layered = examples.find(({ id }) => id === "readme-14");
   const output = { ...compiler.run(layered.source) };
 
@@ -661,7 +673,7 @@ test("browser compiler retains the README layered native glass surfaces", async 
 });
 
 test("browser compiler retains the README rigid-body world", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, galleryExamples: examples } = await compilerAndExamples();
   const example = examples.find(({ id }) => id === "readme-22");
   const output = { ...compiler.run(example.source) };
 
@@ -707,7 +719,7 @@ test("browser compiler retains the README rigid-body world", async () => {
 
 test("browser compiler runs the complete README basic-syntax fence", async () => {
   const { compiler, examples } = await compilerAndExamples();
-  const example = examples.find(({ id }) => id === "readme-23");
+  const example = examples.find(({ id }) => id === "readme-03");
 
   assert.deepEqual({ ...compiler.run(example.source) }, {
     kind: "console",
@@ -725,7 +737,7 @@ test("browser compiler runs the complete README basic-syntax fence", async () =>
 
 test("browser compiler runs the complete README spectral-norm fence", { timeout: 10_000 }, async () => {
   const { compiler, examples } = await compilerAndExamples();
-  const example = examples.find(({ id }) => id === "readme-24");
+  const example = examples.find(({ id }) => id === "readme-04");
 
   assert.deepEqual({ ...compiler.run(example.source) }, {
     kind: "console",
@@ -764,7 +776,7 @@ test("browser compiler runs the complete README spectral-norm fence", { timeout:
 
 test("browser compiler runs the complete README fannkuch fence", { timeout: 10_000 }, async () => {
   const { compiler, examples } = await compilerAndExamples();
-  const example = examples.find(({ id }) => id === "readme-25");
+  const example = examples.find(({ id }) => id === "readme-05");
 
   assert.deepEqual({ ...compiler.run(example.source) }, {
     kind: "console",
@@ -816,7 +828,28 @@ test("browser compiler runs the complete README fannkuch fence", { timeout: 10_0
   );
 });
 
-test("browser execution coverage is measured against all 26 README VKF fences", async () => {
+test("browser compiler runs the complete README N-body fence exactly", { timeout: 10_000 }, async () => {
+  const { compiler, examples } = await compilerAndExamples();
+  const example = examples.find(({ id }) => id === "readme-06");
+
+  assert.deepEqual({ ...compiler.run(example.source) }, {
+    kind: "console",
+    values: [-0.16907807065934341],
+  });
+  assert.deepEqual({ ...compiler.run(example.source.replace("n_body(50000)", "n_body(100)")) }, {
+    kind: "console",
+    values: [-0.16905076238240949],
+  });
+  assert.throws(
+    () => compiler.run(example.source.replace(
+      "totals.kinetic + totals.potential",
+      "totals.kinetic - totals.potential",
+    )),
+    /browser compiler could not run the VKF source/u,
+  );
+});
+
+test("browser execution coverage is measured against all 6 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
     compilerAndExamples(),
     readFile(new URL("../fixtures/pages-readme-browser-coverage.json", import.meta.url), "utf8").then(JSON.parse),
@@ -833,6 +866,6 @@ test("browser execution coverage is measured against all 26 README VKF fences", 
   }
 
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
-  assert.equal(runnable.length, 24);
-  assert.equal(examples.length, 26);
+  assert.equal(runnable.length, 6);
+  assert.equal(examples.length, 6);
 });
