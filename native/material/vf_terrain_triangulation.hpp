@@ -48,6 +48,18 @@ inline std::uint64_t RequireTerrainSurfaceForTopology(
     return divisions;
 }
 
+inline void RequireTerrainSurfaceMaterialTruth(
+    const std::shared_ptr<const TerrainSurfacePacket>& surface, const char* mismatch_message
+) {
+    RequireTerrainSurfaceForTopology(surface);
+    if (!std::isfinite(surface->water_level)) throw std::range_error("terrain water level must be finite");
+    for (std::size_t index = 0; index < surface->vertices.size(); ++index) {
+        const auto expected = surface->vertices[index][1] <= surface->water_level ?
+            surface->submerged_material : surface->exposed_material;
+        if (surface->material_ids[index] != expected) throw std::invalid_argument(mismatch_message);
+    }
+}
+
 // Demands are externally ordered cell IDs, not a camera/error policy.
 // Bounds enclose emitted linear triangles only, not unsampled terrain relief.
 inline TerrainTriangulation TriangulateTerrainCellsReference(

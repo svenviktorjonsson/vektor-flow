@@ -19,15 +19,8 @@ inline TerrainWaterline ExtractTerrainWaterlineReference(
     std::shared_ptr<const TerrainTriangulation> mesh, std::size_t segment_budget
 ) {
     if (!mesh) throw std::invalid_argument("terrain triangulation is required");
-    RequireTerrainSurfaceForTopology(mesh->source);
+    RequireTerrainSurfaceMaterialTruth(mesh->source, "terrain waterline material truth does not match retained level");
     const double level = mesh->source->water_level;
-    if (!std::isfinite(level)) throw std::range_error("terrain water level must be finite");
-    for (std::size_t index = 0; index < mesh->source->vertices.size(); ++index) {
-        const auto expected = mesh->source->vertices[index][1] <= level ?
-            mesh->source->submerged_material : mesh->source->exposed_material;
-        if (mesh->source->material_ids[index] != expected)
-            throw std::invalid_argument("terrain waterline material truth does not match retained level");
-    }
     if (mesh->triangles.size() > 131072)
         throw std::invalid_argument("terrain waterline input exceeds 131072 triangles");
     if (segment_budget > 65536)
