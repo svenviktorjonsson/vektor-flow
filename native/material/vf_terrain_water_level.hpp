@@ -43,7 +43,7 @@ inline void RequireTerrainPositions(const std::shared_ptr<const TerrainTileWorki
                 throw std::invalid_argument("terrain working set must contain at most 65536 finite positions");
 }
 
-inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainTileReference(
+inline std::uint64_t ValidateTerrainTileRequestReference(
     const TerrainHeightCondition& condition, std::array<std::int32_t, 2> tile,
     std::uint32_t refinement, std::size_t sample_budget
 ) {
@@ -51,15 +51,20 @@ inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainTileReference(
         throw std::range_error("terrain refinement must be from 0 to 16");
     if (sample_budget > 65536)
         throw std::range_error("terrain sample budget must be from 0 to 65536");
+    // Validate the complete tile domain before allocating, including zero demand.
+    SampleTerrainHeightReference(condition, tile[0], tile[1]);
+    SampleTerrainHeightReference(condition, static_cast<double>(tile[0]) + 1, static_cast<double>(tile[1]) + 1);
+    const std::uint64_t width = (std::uint64_t{1} << refinement) + 1;
+    return width * width;
+}
+
+inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainTileReference(
+    const TerrainHeightCondition& condition, std::array<std::int32_t, 2> tile,
+    std::uint32_t refinement, std::size_t sample_budget
+) {
+    const auto potential_count = ValidateTerrainTileRequestReference(condition, tile, refinement, sample_budget);
     const std::uint64_t divisions = std::uint64_t{1} << refinement;
     const std::uint64_t width = divisions + 1;
-    const std::uint64_t potential_count = width * width;
-    const auto sample_height = [&](double x, double z) {
-        return SampleTerrainHeightReference(condition, x, z);
-    };
-    // Validate the complete tile domain before allocating, including zero demand.
-    sample_height(tile[0], tile[1]);
-    sample_height(static_cast<double>(tile[0]) + 1, static_cast<double>(tile[1]) + 1);
     const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(potential_count, sample_budget));
     auto result = std::make_shared<TerrainTileWorkingSet>();
     result->condition = condition;
@@ -78,7 +83,7 @@ inline std::shared_ptr<const TerrainTileWorkingSet> RealizeTerrainTileReference(
         const double z = static_cast<double>(static_cast<std::int64_t>(tile[1]) *
             static_cast<std::int64_t>(divisions) + static_cast<std::int64_t>(index / width)) /
             static_cast<double>(divisions);
-        const double height = sample_height(x, z);
+        const double height = SampleTerrainHeightReference(condition, x, z);
         result->positions.push_back({x, height, z});
     }
     return result;
