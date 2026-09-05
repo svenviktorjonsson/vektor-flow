@@ -9,6 +9,7 @@ parser: .parser
 typed: .typed_ir
 mir: .machine_ir
 validation: .machine_ir_validation
+pe_x64: .pe_x64
 
 compile_tagged_empty_module(source:str):
     bit comment_only: lexer.tagged_comment_only_source(source)
@@ -479,6 +480,101 @@ _compile_x64_arena_byte(value:num, high_bytes:[str]) -> str:
     (value <= 255 /\ high_bytes.length() = 128)?! "x64 tracer high-byte arena does not cover one byte"
     high_bytes.(value - 128)
 
+_compile_x64_locked_code_section_offset(template:str) -> num:
+    position: 0
+    found: -1
+    (found < 0 /\ vkf_string_eof(template, position + 15) = false)?>
+        vkf_string_peek_scalar(template, position) = "V"?
+            (
+                vkf_string_peek_scalar(template, position + 1) = "K" /\
+                vkf_string_peek_scalar(template, position + 2) = "F" /\
+                vkf_string_peek_scalar(template, position + 3) = "X" /\
+                vkf_string_peek_scalar(template, position + 4) = "6" /\
+                vkf_string_peek_scalar(template, position + 5) = "4" /\
+                vkf_string_peek_scalar(template, position + 6) = "A" /\
+                vkf_string_peek_scalar(template, position + 7) = "O" /\
+                vkf_string_peek_scalar(template, position + 8) = "T" /\
+                vkf_string_peek_scalar(template, position + 9) = "C" /\
+                vkf_string_peek_scalar(template, position + 10) = "O" /\
+                vkf_string_peek_scalar(template, position + 11) = "D" /\
+                vkf_string_peek_scalar(template, position + 12) = "E" /\
+                vkf_string_peek_scalar(template, position + 13) = "0" /\
+                vkf_string_peek_scalar(template, position + 14) = "0" /\
+                vkf_string_peek_scalar(template, position + 15) = "1"
+            )?
+                .found: position
+        .position+: 1
+    found
+
+_compile_x64_forward_rel32(displacement:num, high_bytes:[str]) -> str:
+    (displacement >= 0 /\ displacement <= 2147483647)?! "x64 forward relocation is outside rel32"
+    (
+        _compile_x64_arena_byte(displacement % 256, high_bytes) &
+        _compile_x64_arena_byte((displacement // 256) % 256, high_bytes) &
+        _compile_x64_arena_byte((displacement // 65536) % 256, high_bytes) &
+        _compile_x64_arena_byte((displacement // 16777216) % 256, high_bytes)
+    )
+
+_compile_x64_signed_rel32(displacement:num, high_bytes:[str]) -> str:
+    (displacement >= -2147483648 /\ displacement <= 2147483647)?! "x64 signed relocation is outside rel32"
+    encoded: displacement
+    encoded < 0?
+        .encoded+: 4294967296
+    (
+        _compile_x64_arena_byte(encoded % 256, high_bytes) &
+        _compile_x64_arena_byte((encoded // 256) % 256, high_bytes) &
+        _compile_x64_arena_byte((encoded // 65536) % 256, high_bytes) &
+        _compile_x64_arena_byte((encoded // 16777216) % 256, high_bytes)
+    )
+
+_compile_x64_resolved_rel32(
+    origin_position:num, target_position:num, high_bytes:[str]
+) -> str:
+    _compile_x64_signed_rel32(
+        target_position - origin_position, high_bytes
+    )
+
+_compile_x64_apply_resolved_rel32_table(
+    fragments:[str],
+    origin_positions:[num],
+    target_positions:[num],
+    high_bytes:[str]
+) -> str:
+    (
+        origin_positions.length() = target_positions.length() /\
+        fragments.length() = origin_positions.length() + 1
+    )?! "x64 relocation table cardinality does not match artifact fragments"
+    index: 0
+    body: fragments.0
+    (index < origin_positions.length())?>
+        .body: (
+            body & _compile_x64_resolved_rel32(
+                origin_positions.(index), target_positions.(index), high_bytes
+            ) & fragments.(index + 1)
+        )
+        .index+: 1
+    body
+
+_compile_x64_bounded_section_tail(
+    code_size:num, code_capacity:num, artifact_suffix:str
+) -> str:
+    (code_size >= 0 /\ code_size <= code_capacity)?! "x64 code exceeds bounded section capacity"
+    remaining: code_capacity - code_size
+    padding: ""
+    block: _compile_x64_byte(0)
+    (remaining > 0)?>
+        remaining % 2 = 1?
+            .padding: padding & block
+        .remaining: remaining // 2
+        .block: block & block
+    padding & artifact_suffix
+
+_compile_x64_positive_immediate_size(value:num) -> num:
+    (value >= 0 /\ value <= 9007199254740991)?! "x64 immediate size requires an exact positive integer"
+    value <= 127? @: 2
+    value <= 2147483647? @: 5
+    11
+
 _compile_x64_positive_immediate_from_arena(
     value:num, high_bytes:[str]
 ) -> str:
@@ -570,7 +666,9 @@ _compile_printed_dynamic_numeric_tape_x64(
     remainder_code:str,
     integer_print_tail:str,
     floating_print_tail:str,
-    high_bytes:[str]
+    high_bytes:[str],
+    negate_code:str="",
+    floating_negate_code:str=""
 ) -> str:
     statement: _compile_dynamic_numeric_statement(source, grouped)
     (statement.max_stack >= 2 /\ statement.max_stack <= 3)?! "integer x64 tracer stack maximum changed"
@@ -585,12 +683,14 @@ _compile_printed_dynamic_numeric_tape_x64(
     left_representation: 0
     right_representation: 0
     result_representation: 0
+    operand_representation: 0
     (index < statement.opcodes.length())?>
         .code: statement.opcodes.(index)
         .binary: code = 2 \/ code = 4 \/ code = 5 \/ code = 6 \/ code = 7 \/ code = 8 \/ code = 9
         .left_representation: 0
         .right_representation: 0
         .result_representation: 0
+        .operand_representation: 0
         binary = 1?
             (representation_depth >= 2)?! "numeric x64 tracer representation stack underflow"
             representation_depth = 2?
@@ -700,6 +800,21 @@ _compile_printed_dynamic_numeric_tape_x64(
             (left_representation = 0 /\ right_representation = 0)?! "numeric x64 tracer power requires integer operands"
             (~(power_code = ""))?! "integer x64 tracer power code is missing"
             .body: body & power_code
+        code = 10?
+            (representation_depth >= 1)?! "numeric x64 tracer negation stack underflow"
+            representation_depth = 1?
+                .operand_representation: representation0
+            representation_depth = 2?
+                .operand_representation: representation1
+            representation_depth = 3?
+                .operand_representation: representation2
+            operand_representation = 0?
+                (~(negate_code = ""))?! "numeric x64 tracer negation code is missing"
+                .body: body & negate_code
+            operand_representation = 1?
+                (~(floating_negate_code = ""))?! "numeric x64 tracer floating negation code is missing"
+                .body: body & floating_negate_code
+            (operand_representation = 0 \/ operand_representation = 1)?! "numeric x64 tracer negation representation is unsupported"
         binary = 1?
             .representation_depth-: 1
             representation_depth = 1?
@@ -713,7 +828,7 @@ _compile_printed_dynamic_numeric_tape_x64(
                 .body: body & floating_print_tail
             representation0 = 0?
                 .body: body & integer_print_tail
-        (code = 1 \/ code = 2 \/ code = 3 \/ code = 4 \/ code = 5 \/ code = 6 \/ code = 7 \/ code = 8 \/ code = 9)?! "integer x64 tracer encountered an unsupported opcode"
+        (code = 1 \/ code = 2 \/ code = 3 \/ code = 4 \/ code = 5 \/ code = 6 \/ code = 7 \/ code = 8 \/ code = 9 \/ code = 10)?! "integer x64 tracer encountered an unsupported opcode"
         .index+: 1
     template_prefix & body
 
@@ -827,11 +942,20 @@ _compile_printed_dynamic_arithmetic_chain_x64_with_byte_arena(
     multiplication_code:str,
     subtraction_code:str,
     print_tail:str,
-    high_bytes:[str]
+    high_bytes:[str],
+    negate_code:str=""
 ) -> str:
+    ~(negate_code = "")?
+        @: _compile_printed_dynamic_numeric_tape_x64(
+            source, 1, template_prefix, addition_code, "", "", "",
+            multiplication_code, "", "", "", subtraction_code, "", "", "",
+            "", "", "", "", "", "", "", print_tail, "", high_bytes,
+            negate_code
+        )
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
-        "", "", "", subtraction_code, "", "", "", "", "", "", "", "", "", "", print_tail, "", high_bytes
+        "", "", "", subtraction_code, "", "", "", "", "", "", "", "", "", "", print_tail, "", high_bytes,
+        negate_code
     )
 
 _compile_printed_dynamic_integer_chain_x64(
@@ -864,12 +988,23 @@ _compile_printed_dynamic_numeric_chain_x64(
     remainder_code:str,
     integer_print_tail:str,
     floating_print_tail:str,
-    high_bytes:[str]
+    high_bytes:[str],
+    negate_code:str="",
+    floating_negate_code:str=""
 ) -> str:
+    (~(negate_code = "") \/ ~(floating_negate_code = ""))?
+        @: _compile_printed_dynamic_numeric_tape_x64(
+            source, 1, template_prefix, addition_code, "", "", "",
+            multiplication_code, "", "", "", subtraction_code, "", "", "",
+            division_code, "", "", "", power_code, floor_division_code,
+            remainder_code, integer_print_tail, floating_print_tail, high_bytes,
+            negate_code, floating_negate_code
+        )
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "", multiplication_code,
         "", "", "", subtraction_code, "", "", "", division_code, "", "", "", power_code, floor_division_code,
-        remainder_code, integer_print_tail, floating_print_tail, high_bytes
+        remainder_code, integer_print_tail, floating_print_tail, high_bytes,
+        negate_code, floating_negate_code
     )
 
 _compile_printed_dynamic_grouped_numeric_chain_x64(
@@ -954,15 +1089,26 @@ _compile_printed_dynamic_complete_addition_numeric_chain_x64(
     remainder_code:str,
     integer_print_tail:str,
     floating_print_tail:str,
-    high_bytes:[str]
+    high_bytes:[str],
+    negate_code:str=""
 ) -> str:
+    ~(negate_code = "")?
+        @: _compile_printed_dynamic_numeric_tape_x64(
+            source, 1, template_prefix, addition_code,
+            floating_left_integer_addition_code,
+            integer_left_floating_addition_code, floating_addition_code,
+            multiplication_code, "", "", "", subtraction_code, "", "", "",
+            division_code, "", "", "", power_code, floor_division_code,
+            remainder_code, integer_print_tail, floating_print_tail, high_bytes,
+            negate_code
+        )
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code,
         floating_left_integer_addition_code,
         integer_left_floating_addition_code, floating_addition_code,
         multiplication_code, "", "", "", subtraction_code, "", "", "", division_code, "", "", "", power_code,
         floor_division_code, remainder_code, integer_print_tail,
-        floating_print_tail, high_bytes
+        floating_print_tail, high_bytes, negate_code
     )
 
 _compile_printed_dynamic_typed_multiplication_numeric_chain_x64(
@@ -978,14 +1124,23 @@ _compile_printed_dynamic_typed_multiplication_numeric_chain_x64(
     remainder_code:str,
     integer_print_tail:str,
     floating_print_tail:str,
-    high_bytes:[str]
+    high_bytes:[str],
+    negate_code:str=""
 ) -> str:
+    ~(negate_code = "")?
+        @: _compile_printed_dynamic_numeric_tape_x64(
+            source, 1, template_prefix, addition_code, "", "", "",
+            multiplication_code, floating_left_integer_multiplication_code,
+            "", "", subtraction_code, "", "", "", division_code, "", "", "",
+            power_code, floor_division_code, remainder_code,
+            integer_print_tail, floating_print_tail, high_bytes, negate_code
+        )
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "",
         multiplication_code, floating_left_integer_multiplication_code,
         "", "", subtraction_code, "", "", "", division_code, "", "", "",
         power_code, floor_division_code, remainder_code, integer_print_tail,
-        floating_print_tail, high_bytes
+        floating_print_tail, high_bytes, negate_code
     )
 
 _compile_printed_dynamic_grouped_typed_multiplication_numeric_chain_x64(
@@ -1047,14 +1202,23 @@ _compile_printed_dynamic_typed_subtraction_numeric_chain_x64(
     remainder_code:str,
     integer_print_tail:str,
     floating_print_tail:str,
-    high_bytes:[str]
+    high_bytes:[str],
+    negate_code:str=""
 ) -> str:
+    ~(negate_code = "")?
+        @: _compile_printed_dynamic_numeric_tape_x64(
+            source, 1, template_prefix, addition_code, "", "", "",
+            multiplication_code, "", "", "", subtraction_code,
+            floating_left_integer_subtraction_code, "", "", division_code,
+            "", "", "", power_code, floor_division_code, remainder_code,
+            integer_print_tail, floating_print_tail, high_bytes, negate_code
+        )
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "",
         multiplication_code, "", "", "", subtraction_code,
         floating_left_integer_subtraction_code, "", "", division_code, "", "", "", power_code,
         floor_division_code, remainder_code, integer_print_tail,
-        floating_print_tail, high_bytes
+        floating_print_tail, high_bytes, negate_code
     )
 
 _compile_printed_dynamic_grouped_typed_subtraction_numeric_chain_x64(
@@ -1116,13 +1280,23 @@ _compile_printed_dynamic_typed_division_numeric_chain_x64(
     remainder_code:str,
     integer_print_tail:str,
     floating_print_tail:str,
-    high_bytes:[str]
+    high_bytes:[str],
+    negate_code:str=""
 ) -> str:
+    ~(negate_code = "")?
+        @: _compile_printed_dynamic_numeric_tape_x64(
+            source, 1, template_prefix, addition_code, "", "", "",
+            multiplication_code, "", "", "", subtraction_code, "", "", "",
+            division_code, floating_left_integer_division_code, "", "",
+            power_code, floor_division_code, remainder_code, integer_print_tail,
+            floating_print_tail, high_bytes, negate_code
+        )
     _compile_printed_dynamic_numeric_tape_x64(
         source, 0, template_prefix, addition_code, "", "", "",
         multiplication_code, "", "", "", subtraction_code, "", "", "", division_code,
         floating_left_integer_division_code, "", "", power_code, floor_division_code,
-        remainder_code, integer_print_tail, floating_print_tail, high_bytes
+        remainder_code, integer_print_tail, floating_print_tail, high_bytes,
+        negate_code
     )
 
 _compile_printed_dynamic_grouped_typed_division_numeric_chain_x64(
@@ -1280,13 +1454,412 @@ _compile_tagged_numeric_literal_function_tape(
     (call_name = function_name)?! "numeric literal function call target does not match declaration"
     factor: rows.(81)
     argument: rows.(123)
-    [num:4] opcodes: [1, 1, 5, 3]
+    [num] opcodes: [1, 1, 5, 3]
     maximum: validation.machine_ir_arithmetic_opcode_tape_stack_maximum(opcodes)
     (
         name:"\$entry",
         opcodes:opcodes,
         values:[argument, factor, 0, 0],
         max_stack:maximum
+    )
+
+_compile_tagged_numeric_literal_function_x64(
+    source:str,
+    template_prefix:str,
+    entry_function_gap:str,
+    forward_displacement:num,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    artifact_tail:str,
+    high_bytes:[str]
+) -> str:
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    statement: _compile_tagged_numeric_literal_function_tape(
+        tokens.source, tokens.rows, tokens.count
+    )
+    (
+        statement.max_stack = 2 /\ statement.opcodes.length() = 4 /\
+        statement.opcodes.0 = 1 /\ statement.opcodes.1 = 1 /\
+        statement.opcodes.2 = 5 /\ statement.opcodes.3 = 3
+    )?! "numeric literal function x64 tape changed"
+    relocation: _compile_x64_forward_rel32(forward_displacement, high_bytes)
+    (
+        template_prefix &
+        _compile_x64_positive_immediate_from_arena(statement.values.0, high_bytes) &
+        _compile_x64_arena_byte(232, high_bytes) & relocation &
+        _compile_x64_arena_byte(195, high_bytes) & entry_function_gap &
+        function_prologue &
+        _compile_x64_positive_immediate_from_arena(statement.values.1, high_bytes) &
+        multiplication_code & function_epilogue & artifact_tail
+    )
+
+_compile_tagged_numeric_literal_function_backward_x64(
+    source:str,
+    template_prefix:str,
+    entry_displacement:num,
+    backward_displacement:num,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    artifact_tail:str,
+    high_bytes:[str]
+) -> str:
+    (entry_displacement >= 0 /\ entry_displacement <= 127)?! "x64 entry relocation is outside positive rel8"
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    statement: _compile_tagged_numeric_literal_function_tape(
+        tokens.source, tokens.rows, tokens.count
+    )
+    (
+        statement.max_stack = 2 /\ statement.opcodes.length() = 4 /\
+        statement.opcodes.0 = 1 /\ statement.opcodes.1 = 1 /\
+        statement.opcodes.2 = 5 /\ statement.opcodes.3 = 3
+    )?! "numeric literal function x64 tape changed"
+    (
+        template_prefix & _compile_x64_arena_byte(235, high_bytes) &
+        _compile_x64_byte(entry_displacement) & function_prologue &
+        _compile_x64_positive_immediate_from_arena(statement.values.1, high_bytes) &
+        multiplication_code & function_epilogue &
+        _compile_x64_positive_immediate_from_arena(statement.values.0, high_bytes) &
+        _compile_x64_arena_byte(232, high_bytes) &
+        _compile_x64_signed_rel32(backward_displacement, high_bytes) &
+        _compile_x64_arena_byte(195, high_bytes) & artifact_tail
+    )
+
+_compile_tagged_numeric_literal_function_symbols_x64(
+    source:str,
+    template_prefix:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    artifact_tail:str,
+    high_bytes:[str]
+) -> str:
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    statement: _compile_tagged_numeric_literal_function_tape(
+        tokens.source, tokens.rows, tokens.count
+    )
+    (
+        statement.max_stack = 2 /\ statement.opcodes.length() = 4 /\
+        statement.opcodes.0 = 1 /\ statement.opcodes.1 = 1 /\
+        statement.opcodes.2 = 5 /\ statement.opcodes.3 = 3
+    )?! "numeric literal function x64 tape changed"
+    argument_size: _compile_x64_positive_immediate_size(statement.values.0)
+    factor_size: _compile_x64_positive_immediate_size(statement.values.1)
+    entry_relocation_origin: 2
+    helper_position: 2
+    helper_size: 2 + factor_size + 7 + 9
+    entry_position: helper_position + helper_size
+    call_relocation_origin: entry_position + argument_size + 5
+    entry_displacement: entry_position - entry_relocation_origin
+    (entry_displacement >= 0 /\ entry_displacement <= 127)?! "x64 discovered entry relocation is outside positive rel8"
+    (
+        template_prefix & _compile_x64_arena_byte(235, high_bytes) &
+        _compile_x64_byte(entry_displacement) & function_prologue &
+        _compile_x64_positive_immediate_from_arena(statement.values.1, high_bytes) &
+        multiplication_code & function_epilogue &
+        _compile_x64_positive_immediate_from_arena(statement.values.0, high_bytes) &
+        _compile_x64_arena_byte(232, high_bytes) &
+        _compile_x64_resolved_rel32(
+            call_relocation_origin, helper_position, high_bytes
+        ) & _compile_x64_arena_byte(195, high_bytes) & artifact_tail
+    )
+
+_compile_tagged_numeric_literal_function_pair_symbols_x64(
+    first_source:str,
+    second_source:str,
+    template_prefix:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    artifact_tail:str,
+    high_bytes:[str]
+) -> str:
+    first_tokens: lexer.tagged_numeric_function_token_tape(first_source)
+    first: _compile_tagged_numeric_literal_function_tape(
+        first_tokens.source, first_tokens.rows, first_tokens.count
+    )
+    second_tokens: lexer.tagged_numeric_function_token_tape(second_source)
+    second: _compile_tagged_numeric_literal_function_tape(
+        second_tokens.source, second_tokens.rows, second_tokens.count
+    )
+    (
+        first.max_stack = 2 /\ first.opcodes.length() = 4 /\
+        first.opcodes.0 = 1 /\ first.opcodes.1 = 1 /\
+        first.opcodes.2 = 5 /\ first.opcodes.3 = 3 /\
+        second.max_stack = 2 /\ second.opcodes.length() = 4 /\
+        second.opcodes.0 = 1 /\ second.opcodes.1 = 1 /\
+        second.opcodes.2 = 5 /\ second.opcodes.3 = 3
+    )?! "numeric literal function pair x64 tape changed"
+    (first.values.0 * first.values.1 = second.values.0)?! "numeric literal function pair result bridge does not match second argument"
+    first_argument_size: _compile_x64_positive_immediate_size(first.values.0)
+    first_factor_size: _compile_x64_positive_immediate_size(first.values.1)
+    second_factor_size: _compile_x64_positive_immediate_size(second.values.1)
+    entry_relocation_origin: 2
+    first_helper_position: 2
+    first_helper_size: 2 + first_factor_size + 7 + 9
+    second_helper_position: first_helper_position + first_helper_size
+    second_helper_size: 2 + second_factor_size + 7 + 9
+    entry_position: second_helper_position + second_helper_size
+    first_call_origin: entry_position + first_argument_size + 5
+    second_call_origin: first_call_origin + 6 + 5
+    entry_displacement: entry_position - entry_relocation_origin
+    (entry_displacement >= 0 /\ entry_displacement <= 127)?! "x64 discovered pair entry relocation is outside positive rel8"
+    _compile_x64_apply_resolved_rel32_table(
+        [
+            (
+                template_prefix & _compile_x64_arena_byte(235, high_bytes) &
+                _compile_x64_byte(entry_displacement) & function_prologue &
+                _compile_x64_positive_immediate_from_arena(first.values.1, high_bytes) &
+                multiplication_code & function_epilogue & function_prologue &
+                _compile_x64_positive_immediate_from_arena(second.values.1, high_bytes) &
+                multiplication_code & function_epilogue &
+                _compile_x64_positive_immediate_from_arena(first.values.0, high_bytes) &
+                _compile_x64_arena_byte(232, high_bytes)
+            ),
+            result_bridge & _compile_x64_arena_byte(232, high_bytes),
+            _compile_x64_arena_byte(195, high_bytes) & artifact_tail
+        ],
+        [first_call_origin, second_call_origin],
+        [first_helper_position, second_helper_position],
+        high_bytes
+    )
+
+_compile_tagged_numeric_literal_function_chain_symbols_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    template_prefix:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    artifact_tail:str,
+    high_bytes:[str]
+) -> str:
+    first_tokens: lexer.tagged_numeric_function_token_tape(first_source)
+    first: _compile_tagged_numeric_literal_function_tape(
+        first_tokens.source, first_tokens.rows, first_tokens.count
+    )
+    second_tokens: lexer.tagged_numeric_function_token_tape(second_source)
+    second: _compile_tagged_numeric_literal_function_tape(
+        second_tokens.source, second_tokens.rows, second_tokens.count
+    )
+    third_tokens: lexer.tagged_numeric_function_token_tape(third_source)
+    third: _compile_tagged_numeric_literal_function_tape(
+        third_tokens.source, third_tokens.rows, third_tokens.count
+    )
+    (
+        first.max_stack = 2 /\ first.opcodes.length() = 4 /\
+        first.opcodes.0 = 1 /\ first.opcodes.1 = 1 /\
+        first.opcodes.2 = 5 /\ first.opcodes.3 = 3 /\
+        second.max_stack = 2 /\ second.opcodes.length() = 4 /\
+        second.opcodes.0 = 1 /\ second.opcodes.1 = 1 /\
+        second.opcodes.2 = 5 /\ second.opcodes.3 = 3 /\
+        third.max_stack = 2 /\ third.opcodes.length() = 4 /\
+        third.opcodes.0 = 1 /\ third.opcodes.1 = 1 /\
+        third.opcodes.2 = 5 /\ third.opcodes.3 = 3
+    )?! "numeric literal function chain x64 tape changed"
+    (first.values.0 * first.values.1 = second.values.0)?! "first numeric function result bridge does not match second argument"
+    (second.values.0 * second.values.1 = third.values.0)?! "second numeric function result bridge does not match third argument"
+    first_argument_size: _compile_x64_positive_immediate_size(first.values.0)
+    first_factor_size: _compile_x64_positive_immediate_size(first.values.1)
+    second_factor_size: _compile_x64_positive_immediate_size(second.values.1)
+    third_factor_size: _compile_x64_positive_immediate_size(third.values.1)
+    entry_relocation_origin: 2
+    first_helper_position: 2
+    first_helper_size: 2 + first_factor_size + 7 + 9
+    second_helper_position: first_helper_position + first_helper_size
+    second_helper_size: 2 + second_factor_size + 7 + 9
+    third_helper_position: second_helper_position + second_helper_size
+    third_helper_size: 2 + third_factor_size + 7 + 9
+    entry_position: third_helper_position + third_helper_size
+    first_call_origin: entry_position + first_argument_size + 5
+    second_call_origin: first_call_origin + 6 + 5
+    third_call_origin: second_call_origin + 6 + 5
+    entry_displacement: entry_position - entry_relocation_origin
+    (entry_displacement >= 0 /\ entry_displacement <= 127)?! "x64 discovered chain entry relocation is outside positive rel8"
+    _compile_x64_apply_resolved_rel32_table(
+        [
+            (
+                template_prefix & _compile_x64_arena_byte(235, high_bytes) &
+                _compile_x64_byte(entry_displacement) & function_prologue &
+                _compile_x64_positive_immediate_from_arena(first.values.1, high_bytes) &
+                multiplication_code & function_epilogue & function_prologue &
+                _compile_x64_positive_immediate_from_arena(second.values.1, high_bytes) &
+                multiplication_code & function_epilogue & function_prologue &
+                _compile_x64_positive_immediate_from_arena(third.values.1, high_bytes) &
+                multiplication_code & function_epilogue &
+                _compile_x64_positive_immediate_from_arena(first.values.0, high_bytes) &
+                _compile_x64_arena_byte(232, high_bytes)
+            ),
+            result_bridge & _compile_x64_arena_byte(232, high_bytes),
+            result_bridge & _compile_x64_arena_byte(232, high_bytes),
+            _compile_x64_arena_byte(195, high_bytes) & artifact_tail
+        ],
+        [first_call_origin, second_call_origin, third_call_origin],
+        [first_helper_position, second_helper_position, third_helper_position],
+        high_bytes
+    )
+
+_compile_tagged_numeric_literal_function_chain_bounded_section_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    template_prefix:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    artifact_suffix:str,
+    code_capacity:num,
+    high_bytes:[str]
+) -> str:
+    code_size: _compile_tagged_numeric_literal_function_chain_code_size(
+        first_source, second_source, third_source
+    )
+    artifact_tail: _compile_x64_bounded_section_tail(
+        code_size, code_capacity, artifact_suffix
+    )
+    _compile_tagged_numeric_literal_function_chain_symbols_x64(
+        first_source,
+        second_source,
+        third_source,
+        template_prefix,
+        function_prologue,
+        multiplication_code,
+        function_epilogue,
+        result_bridge,
+        artifact_tail,
+        high_bytes
+    )
+
+_compile_tagged_numeric_literal_function_chain_code_size(
+    first_source:str,
+    second_source:str,
+    third_source:str
+) -> num:
+    first_tokens: lexer.tagged_numeric_function_token_tape(first_source)
+    first: _compile_tagged_numeric_literal_function_tape(
+        first_tokens.source, first_tokens.rows, first_tokens.count
+    )
+    second_tokens: lexer.tagged_numeric_function_token_tape(second_source)
+    second: _compile_tagged_numeric_literal_function_tape(
+        second_tokens.source, second_tokens.rows, second_tokens.count
+    )
+    third_tokens: lexer.tagged_numeric_function_token_tape(third_source)
+    third: _compile_tagged_numeric_literal_function_tape(
+        third_tokens.source, third_tokens.rows, third_tokens.count
+    )
+    first_argument_size: _compile_x64_positive_immediate_size(first.values.0)
+    first_factor_size: _compile_x64_positive_immediate_size(first.values.1)
+    second_factor_size: _compile_x64_positive_immediate_size(second.values.1)
+    third_factor_size: _compile_x64_positive_immediate_size(third.values.1)
+    helper_sizes: (
+        (2 + first_factor_size + 7 + 9) +
+        (2 + second_factor_size + 7 + 9) +
+        (2 + third_factor_size + 7 + 9)
+    )
+    2 + helper_sizes + first_argument_size + 5 + 6 + 5 + 6 + 5 + 1
+
+_compile_tagged_numeric_literal_function_chain_section_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    template_prefix:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    artifact_suffix:str,
+    high_bytes:[str]
+) -> str:
+    _compile_tagged_numeric_literal_function_chain_bounded_section_x64(
+        first_source,
+        second_source,
+        third_source,
+        template_prefix,
+        function_prologue,
+        multiplication_code,
+        function_epilogue,
+        result_bridge,
+        artifact_suffix,
+        32768,
+        high_bytes
+    )
+
+_compile_tagged_numeric_literal_function_chain_template_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    template:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    high_bytes:[str]
+) -> str:
+    code_size: _compile_tagged_numeric_literal_function_chain_code_size(
+        first_source, second_source, third_source
+    )
+    section: pe_x64.code_section(template, code_size, high_bytes)
+    artifact_template: pe_x64.materialize_code_section(
+        template,
+        section.existing,
+        section.append,
+        section.middle,
+        section.header_offset,
+        section.virtual_size,
+        section.virtual_address,
+        section.raw_size,
+        section.raw_offset,
+        section.template_length,
+        high_bytes
+    )
+    template_prefix: pe_x64.slice_bytes(
+        artifact_template, 0, section.raw_offset
+    )
+    artifact_suffix: pe_x64.slice_bytes(
+        artifact_template,
+        section.raw_offset + section.raw_size,
+        section.artifact_length
+    )
+    _compile_tagged_numeric_literal_function_chain_bounded_section_x64(
+        first_source,
+        second_source,
+        third_source,
+        template_prefix,
+        function_prologue,
+        multiplication_code,
+        function_epilogue,
+        result_bridge,
+        artifact_suffix,
+        section.raw_size,
+        high_bytes
+    )
+
+_compile_tagged_numeric_literal_function_chain_runner_seed_x64(
+    first_source:str,
+    second_source:str,
+    third_source:str,
+    runtime_body:str,
+    function_prologue:str,
+    multiplication_code:str,
+    function_epilogue:str,
+    result_bridge:str,
+    high_bytes:[str]
+) -> str:
+    _compile_tagged_numeric_literal_function_chain_template_x64(
+        first_source,
+        second_source,
+        third_source,
+        pe_x64.runner_seed(runtime_body, high_bytes),
+        function_prologue,
+        multiplication_code,
+        function_epilogue,
+        result_bridge,
+        high_bytes
     )
 
 _run_tagged_browser_numeric_tape(
@@ -1393,6 +1966,9 @@ BrowserDisplayMeshSources: (
     x_source:str,
     y_source:str,
     z_source:str,
+    x_axes:[str],
+    y_axes:[str],
+    z_axes:[str],
     color_source:str,
     receives_lighting:bit,
     casts_shadow:bit,
@@ -1400,6 +1976,12 @@ BrowserDisplayMeshSources: (
     roughness:num,
     specular_strength:num,
     unsupported:bit
+)
+BrowserDisplayCoordinateKey: (
+    matched:bit,
+    coordinate:str,
+    axes:[str],
+    value_offset:int
 )
 BrowserDisplayTextureFields: (
     kind:str,
@@ -1907,6 +2489,94 @@ _browser_display_identifier_stop(source:str, offset:int) -> int:
             source, vkf_utf8_advance(source, offset)
         )
     offset
+
+_browser_display_axis_contains(
+    axes:[str], axis:str, index:int
+) -> bit:
+    index >= axes.length()?
+        @: false
+    axes.(index) = axis?
+        @: true
+    _browser_display_axis_contains(axes, axis, index + 1)
+
+_browser_display_coordinate_axes(
+    source:str, offset:int, stop:int, axes:[str]
+) -> [str]:
+    offset >= stop?
+        @: axes
+    next: vkf_utf8_advance(source, offset)
+    axis_code: vkf_string_peek_scalar(source, offset)
+    axis: ""
+    axis_code = 117? .axis: "u"
+    axis_code = 118? .axis: "v"
+    axis_code = 119? .axis: "w"
+    axis_code = 105? .axis: "i"
+    axis_code = 106? .axis: "j"
+    axis_code = 107? .axis: "k"
+    axis_code = 116? .axis: "t"
+    (axis != "")?! "browser display coordinate axis is unsupported"
+    (~_browser_display_axis_contains(axes, axis, 0))?! "browser display coordinate axis is duplicated"
+    _browser_display_coordinate_axes(source, next, stop, axes & [axis])
+
+_browser_display_coordinate_key(
+    source:str, offset:int
+) -> BrowserDisplayCoordinateKey:
+    vkf_string_eof(source, offset)?
+        @: (matched:false, coordinate:"", axes:[], value_offset:offset)
+    coordinate_stop: vkf_utf8_advance(source, offset)
+    coordinate: vkf_utf8_slice(source, offset, coordinate_stop)
+    ~(coordinate = "x" \/ coordinate = "y" \/ coordinate = "z")?
+        @: (matched:false, coordinate:"", axes:[], value_offset:offset)
+    vkf_string_eof(source, coordinate_stop)?
+        @: (matched:false, coordinate:"", axes:[], value_offset:offset)
+    separator: vkf_string_peek_scalar(source, coordinate_stop)
+    separator = 58?
+        @: (
+            matched:true, coordinate:coordinate, axes:[],
+            value_offset:vkf_utf8_advance(source, coordinate_stop)
+        )
+    separator != 95?
+        @: (matched:false, coordinate:"", axes:[], value_offset:offset)
+    axes_start: vkf_utf8_advance(source, coordinate_stop)
+    axes_stop: _browser_display_identifier_stop(source, axes_start)
+    (axes_stop > axes_start)?! "browser display coordinate axis is missing"
+    (vkf_string_eof(source, axes_stop) = false)?! "browser display coordinate axis requires a colon"
+    (vkf_string_peek_scalar(source, axes_stop) = 58)?! "browser display coordinate axis requires a colon"
+    (
+        matched:true,
+        coordinate:coordinate,
+        axes:_browser_display_coordinate_axes(
+            source, axes_start, axes_stop, []
+        ),
+        value_offset:vkf_utf8_advance(source, axes_stop)
+    )
+
+_browser_display_axes_equal(
+    left:[str], right:[str], index:int=0
+) -> bit:
+    left.length() != right.length()?
+        @: false
+    index >= left.length()?
+        @: true
+    left.(index) != right.(index)?
+        @: false
+    _browser_display_axes_equal(left, right, index + 1)
+
+_browser_display_axes_by_kind(
+    axes:[str], kind:str, index:int, selected:[str]
+) -> [str]:
+    index >= axes.length()?
+        @: selected
+    axis: axes.(index)
+    matches: false
+    kind = "topology"?
+        .matches: axis = "u" \/ axis = "v" \/ axis = "w"
+    kind = "group"?
+        .matches: axis = "i" \/ axis = "j" \/ axis = "k"
+    next_selected: selected
+    matches?
+        .next_selected: selected & [axis]
+    _browser_display_axes_by_kind(axes, kind, index + 1, next_selected)
 
 _browser_display_string_stop(source:str, offset:int) -> int:
     vkf_string_eof(source, offset)?
@@ -2468,6 +3138,9 @@ _browser_scan_display_mesh_source(
     x_source:str,
     y_source:str,
     z_source:str,
+    x_axes:[str],
+    y_axes:[str],
+    z_axes:[str],
     color_source:str,
     receives_lighting:bit,
     casts_shadow:bit,
@@ -2482,6 +3155,9 @@ _browser_scan_display_mesh_source(
             x_source:x_source,
             y_source:y_source,
             z_source:z_source,
+            x_axes:x_axes,
+            y_axes:y_axes,
+            z_axes:z_axes,
             color_source:color_source,
             receives_lighting:receives_lighting,
             casts_shadow:casts_shadow,
@@ -2494,41 +3170,65 @@ _browser_scan_display_mesh_source(
     next: vkf_utf8_advance(source, offset)
     in_string?
         @: _browser_scan_display_mesh_source(
-            source, next, x_source, y_source, z_source, color_source,
+            source, next, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes, color_source,
             receives_lighting, casts_shadow, receives_shadow,
             roughness, specular_strength, unsupported, ch != 34
         )
     ch = 34?
         @: _browser_scan_display_mesh_source(
-            source, next, x_source, y_source, z_source, color_source,
+            source, next, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes, color_source,
             receives_lighting, casts_shadow, receives_shadow,
             roughness, specular_strength, unsupported, true
         )
-    (_browser_source_starts_with(source, offset, "x:", 0) \/
-        _browser_source_starts_with(source, offset, "y:", 0) \/
-        _browser_source_starts_with(source, offset, "z:", 0) \/
-        _browser_source_starts_with(source, offset, "color:", 0))?
-        colon_width: 2
-        _browser_source_starts_with(source, offset, "color:", 0)?
-            .colon_width: 6
-        value_start: _browser_display_value_start(source, offset + colon_width)
-        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser display geometry fields require vectors"
-        stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+    coordinate: _browser_display_coordinate_key(source, offset)
+    coordinate.matched?
+        value_start: _browser_display_value_start(
+            source, coordinate.value_offset
+        )
+        vector: vkf_string_peek_scalar(source, value_start) = 91
+        (vector \/ (coordinate.coordinate = "z" /\
+            coordinate.axes.length() = 0))?! "browser display indexed coordinates require vectors"
+        stop: vkf_decimal_scan_end(source, value_start)
+        vector?
+            .stop: _browser_display_bracket_stop(
+                source, value_start + 1, 1
+            )
+        (stop > value_start)?! "browser display coordinate value is missing"
         value_source: vkf_utf8_slice(source, value_start, stop)
         next_x: x_source
         next_y: y_source
         next_z: z_source
-        next_color: color_source
-        _browser_source_starts_with(source, offset, "x:", 0)?
+        next_x_axes: x_axes
+        next_y_axes: y_axes
+        next_z_axes: z_axes
+        coordinate.coordinate = "x"?
+            (x_source = "" /\ y_source = "" /\ z_source = "")?! "browser display coordinates must appear once in x, y, z order"
             .next_x: value_source
-        _browser_source_starts_with(source, offset, "y:", 0)?
+            .next_x_axes: coordinate.axes
+        coordinate.coordinate = "y"?
+            (x_source != "" /\ y_source = "" /\ z_source = "")?! "browser display coordinates must appear once in x, y, z order"
             .next_y: value_source
-        _browser_source_starts_with(source, offset, "z:", 0)?
+            .next_y_axes: coordinate.axes
+        coordinate.coordinate = "z"?
+            (x_source != "" /\ y_source != "" /\ z_source = "")?! "browser display coordinates must appear once in x, y, z order"
             .next_z: value_source
-        _browser_source_starts_with(source, offset, "color:", 0)?
-            .next_color: value_source
+            .next_z_axes: coordinate.axes
         @: _browser_scan_display_mesh_source(
-            source, stop, next_x, next_y, next_z, next_color,
+            source, stop, next_x, next_y, next_z,
+            next_x_axes, next_y_axes, next_z_axes, color_source,
+            receives_lighting, casts_shadow, receives_shadow,
+            roughness, specular_strength, unsupported, false
+        )
+    _browser_source_starts_with(source, offset, "color:", 0)?
+        value_start: _browser_display_value_start(source, offset + 6)
+        (vkf_string_peek_scalar(source, value_start) = 91)?! "browser display color requires a vector"
+        stop: _browser_display_bracket_stop(source, value_start + 1, 1)
+        @: _browser_scan_display_mesh_source(
+            source, stop, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes,
+            vkf_utf8_slice(source, value_start, stop),
             receives_lighting, casts_shadow, receives_shadow,
             roughness, specular_strength, unsupported, false
         )
@@ -2561,7 +3261,8 @@ _browser_scan_display_mesh_source(
         _browser_source_starts_with(source, offset, "receives_shadow:", 0)?
             .next_receives_shadow: value
         @: _browser_scan_display_mesh_source(
-            source, next_value, x_source, y_source, z_source, color_source,
+            source, next_value, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes, color_source,
             next_receives, next_casts, next_receives_shadow,
             roughness, specular_strength, unsupported, false
         )
@@ -2580,7 +3281,8 @@ _browser_scan_display_mesh_source(
         _browser_source_starts_with(source, offset, "specular_strength:", 0)?
             .next_specular: value
         @: _browser_scan_display_mesh_source(
-            source, value_stop, x_source, y_source, z_source, color_source,
+            source, value_stop, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes, color_source,
             receives_lighting, casts_shadow, receives_shadow,
             next_roughness, next_specular, unsupported, false
         )
@@ -2592,7 +3294,8 @@ _browser_scan_display_mesh_source(
         value_start: _browser_display_value_start(source, offset + colon_width)
         value_stop: vkf_decimal_scan_end(source, value_start)
         @: _browser_scan_display_mesh_source(
-            source, value_stop, x_source, y_source, z_source, color_source,
+            source, value_stop, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes, color_source,
             receives_lighting, casts_shadow, receives_shadow,
             roughness, specular_strength, unsupported, false
         )
@@ -2607,7 +3310,8 @@ _browser_scan_display_mesh_source(
             .value_stop: value_start + 5
         (value_stop > value_start)?! "browser optical flags require booleans"
         @: _browser_scan_display_mesh_source(
-            source, value_stop, x_source, y_source, z_source, color_source,
+            source, value_stop, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes, color_source,
             receives_lighting, casts_shadow, receives_shadow,
             roughness, specular_strength, unsupported, false
         )
@@ -2616,7 +3320,8 @@ _browser_scan_display_mesh_source(
         (vkf_string_peek_scalar(source, value_start) = 40)?! "browser texture must be a record"
         value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
         @: _browser_scan_display_mesh_source(
-            source, value_stop, x_source, y_source, z_source, color_source,
+            source, value_stop, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes, color_source,
             receives_lighting, casts_shadow, receives_shadow,
             roughness, specular_strength, unsupported, false
         )
@@ -2625,13 +3330,15 @@ _browser_scan_display_mesh_source(
         (vkf_string_peek_scalar(source, value_start) = 40)?! "browser surface system must be a record"
         value_stop: _browser_display_call_stop(source, value_start + 1, 1, false)
         @: _browser_scan_display_mesh_source(
-            source, value_stop, x_source, y_source, z_source, color_source,
+            source, value_stop, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes, color_source,
             receives_lighting, casts_shadow, receives_shadow,
             roughness, specular_strength, unsupported, false
         )
     _browser_source_starts_with(source, offset, "id:", 0)?
         @: _browser_scan_display_mesh_source(
-            source, offset + 3, x_source, y_source, z_source, color_source,
+            source, offset + 3, x_source, y_source, z_source,
+            x_axes, y_axes, z_axes, color_source,
             receives_lighting, casts_shadow, receives_shadow,
             roughness, specular_strength, unsupported, false
         )
@@ -2642,24 +3349,151 @@ _browser_scan_display_mesh_source(
             vkf_string_peek_scalar(source, identifier_stop) = 58)?
             .unknown: true
     _browser_scan_display_mesh_source(
-        source, next, x_source, y_source, z_source, color_source,
+        source, next, x_source, y_source, z_source,
+        x_axes, y_axes, z_axes, color_source,
         receives_lighting, casts_shadow, receives_shadow,
         roughness, specular_strength, unknown, false
     )
 
+_browser_display_grid_shape_matches(
+    left:any, right:any, row:int=0
+) -> bit:
+    left.length() != right.length()?
+        @: false
+    row >= left.length()?
+        @: true
+    left.(row).length() != right.(row).length()?
+        @: false
+    _browser_display_grid_shape_matches(left, right, row + 1)
+
+_browser_display_coordinate_rank(source:str) -> int:
+    (~vkf_string_eof(source, 0) /\
+        vkf_string_peek_scalar(source, 0) = 91)?! "browser display indexed coordinate requires a vector"
+    first: _browser_display_value_start(
+        source, vkf_utf8_advance(source, 0)
+    )
+    (vkf_string_eof(source, first) = false)?! "browser display indexed coordinate is unterminated"
+    vkf_string_peek_scalar(source, first) != 91?
+        @: 1
+    second: _browser_display_value_start(
+        source, vkf_utf8_advance(source, first)
+    )
+    (vkf_string_eof(source, second) = false)?! "browser display indexed coordinate row is unterminated"
+    vkf_string_peek_scalar(source, second) = 91?
+        @: 3
+    2
+
+_browser_display_v6_packet(
+    fields:BrowserDisplayMeshSources,
+    x:any,
+    y:any,
+    z:any,
+    z_kind:str,
+    color:any,
+    texture:any,
+    optical:any,
+    surface_system:any
+) -> any:
+    (_browser_display_axes_equal(fields.x_axes, fields.y_axes) /\
+        fields.x_axes.length() >= 1 /\ fields.x_axes.length() <= 2)?! "browser display x and y axes must match in source order"
+    (_browser_display_coordinate_rank(fields.x_source) = fields.x_axes.length() /\
+        _browser_display_coordinate_rank(fields.y_source) = fields.y_axes.length())?! "browser display coordinate nesting must match declared axes"
+    x_grid: x
+    y_grid: y
+    fields.x_axes.length() = 1?
+        .x_grid: [x]
+        .y_grid: [y]
+    (x_grid.length() > 0 /\ x_grid.0.length() > 0 /\
+        _browser_display_grid_shape_matches(x_grid, y_grid))?! "browser display indexed coordinate shapes disagree"
+    topology_axes: _browser_display_axes_by_kind(
+        fields.x_axes, "topology", 0, []
+    )
+    group_axes: _browser_display_axes_by_kind(
+        fields.x_axes, "group", 0, []
+    )
+    time_axis: ""
+    _browser_display_axis_contains(fields.x_axes, "t", 0)?
+        .time_axis: "t"
+    z_kind = "vector"?
+        _browser_display_axes_equal(fields.x_axes, fields.z_axes)?! "browser display z axes must match x and y in source order"
+        (_browser_display_coordinate_rank(fields.z_source) = fields.z_axes.length())?! "browser display z nesting must match declared axes"
+        z_grid: z
+        fields.z_axes.length() = 1?
+            .z_grid: [z]
+        _browser_display_grid_shape_matches(x_grid, z_grid)?! "browser display indexed z shape disagrees"
+        @: (
+            magic:1447773766, version:6, dimension:3,
+            rows:x_grid.length(), columns:x_grid.0.length(),
+            color:color, x:x_grid, y:y_grid, z:z_grid,
+            x_axes:fields.x_axes, y_axes:fields.y_axes,
+            z_axes:fields.z_axes,
+            topology_axes:topology_axes,
+            group_axes:group_axes,
+            time_axis:time_axis,
+            receives_lighting:fields.receives_lighting,
+            casts_shadow:fields.casts_shadow,
+            receives_shadow:fields.receives_shadow,
+            roughness:fields.roughness,
+            specular_strength:fields.specular_strength,
+            texture:texture, optical:optical,
+            surface_system:surface_system
+        )
+    z_kind = "scalar"?
+        (fields.z_axes.length() = 0)?! "browser display scalar z must be unindexed"
+        @: (
+            magic:1447773766, version:6, dimension:3,
+            rows:x_grid.length(), columns:x_grid.0.length(),
+            color:color, x:x_grid, y:y_grid, z:z,
+            x_axes:fields.x_axes, y_axes:fields.y_axes, z_axes:[],
+            topology_axes:topology_axes,
+            group_axes:group_axes,
+            time_axis:time_axis,
+            receives_lighting:fields.receives_lighting,
+            casts_shadow:fields.casts_shadow,
+            receives_shadow:fields.receives_shadow,
+            roughness:fields.roughness,
+            specular_strength:fields.specular_strength,
+            texture:texture, optical:optical,
+            surface_system:surface_system
+        )
+    (z_kind = "missing")?! "browser display z representation is invalid"
+    (fields.z_axes.length() = 0)?! "browser display omitted z cannot declare axes"
+    (
+        magic:1447773766, version:6, dimension:2,
+        rows:x_grid.length(), columns:x_grid.0.length(),
+        color:color, x:x_grid, y:y_grid,
+        x_axes:fields.x_axes, y_axes:fields.y_axes, z_axes:[],
+        topology_axes:topology_axes,
+        group_axes:group_axes,
+        time_axis:time_axis,
+        receives_lighting:fields.receives_lighting,
+        casts_shadow:fields.casts_shadow,
+        receives_shadow:fields.receives_shadow,
+        roughness:fields.roughness,
+        specular_strength:fields.specular_strength,
+        texture:texture, optical:optical,
+        surface_system:surface_system
+    )
+
 _browser_display_mesh_source(source:str) -> any:
     fields: _browser_scan_display_mesh_source(
-        source, 10, "", "", "", "", false, false, false,
+        source, 10, "", "", "", [], [], [], "", false, false, false,
         1, 0, false, false
     )
     ~fields.unsupported?! "browser display does not support this frame.add option"
-    (fields.x_source != "" /\ fields.y_source != "" /\ fields.z_source != "")?! "frame.add requires x, y, and z geometry"
+    (fields.x_source != "" /\ fields.y_source != "")?! "frame.add requires x and y geometry"
     x_tape: lexer.tagged_numeric_function_token_tape(fields.x_source)
     x: _browser_lifted_value(x_tape, 0, 1).value
     y_tape: lexer.tagged_numeric_function_token_tape(fields.y_source)
     y: _browser_lifted_value(y_tape, 0, 1).value
-    z_tape: lexer.tagged_numeric_function_token_tape(fields.z_source)
-    z: _browser_lifted_value(z_tape, 0, 1).value
+    z: []
+    z_kind: "missing"
+    fields.z_source != ""?
+        z_tape: lexer.tagged_numeric_function_token_tape(fields.z_source)
+        .z: _browser_lifted_value(z_tape, 0, 1).value
+        .z_kind: "scalar"
+        vkf_string_peek_scalar(fields.z_source, 0) = 91?
+            .z_kind: "vector"
     color: [0.2, 0.7, 1, 1]
     fields.color_source != ""?
         color_tape: lexer.tagged_numeric_function_token_tape(fields.color_source)
@@ -2668,6 +3502,16 @@ _browser_display_mesh_source(source:str) -> any:
     texture: _browser_display_texture_packet(source, 0, false)
     optical: _browser_display_optical_packet(source)
     surface_system: _browser_display_surface_packet(source, 0, false)
+    indexed: (
+        fields.x_axes.length() > 0 \/ fields.y_axes.length() > 0 \/
+        fields.z_axes.length() > 0 \/ z_kind = "scalar"
+    )
+    indexed?
+        @: _browser_display_v6_packet(
+            fields, x, y, z, z_kind, color,
+            texture, optical, surface_system
+        )
+    (z_kind = "vector")?! "frame.add requires vector z geometry"
     rows: x.length()
     (rows > 0)?! "frame.add geometry must contain rows"
     (
@@ -5344,6 +6188,354 @@ _run_tagged_power_method_source(source:str) -> any:
     ])
     (kind:"console", values:[value])
 
+BrowserNBodyShape: (bodies:int, dimensions:int)
+BrowserNBodyRows: (values:any, next:int)
+BrowserNBodyPlan: (
+    positions:[num], velocities:[num], masses:[num],
+    bodies:int, dimensions:int, timestep:num, steps:int
+)
+
+_browser_nbody_compact(
+    source:str, cursor:int, stop:int, result:str
+) -> str:
+    cursor >= stop?
+        @: result
+    ch: vkf_string_peek_scalar(source, cursor)
+    next: vkf_utf8_advance(source, cursor)
+    (ch = 9 \/ ch = 10 \/ ch = 13 \/ ch = 32)?
+        @: _browser_nbody_compact(source, next, stop, result)
+    _browser_nbody_compact(
+        source, next, stop, result & vkf_utf8_slice(source, cursor, next)
+    )
+
+_browser_nbody_shape_field(source:str, offset:int, name:str) -> any:
+    prefix: name & ":[[num:"
+    start: _browser_find_source(source, offset, prefix)
+    (start >= offset)?! "browser pairwise system shape is missing"
+    dimensions: _browser_decimal_at(source, start + prefix.length())
+    body_separator: _browser_inline_space_start(source, dimensions.next)
+    _browser_source_starts_with(
+        source, body_separator, "]:" , 0
+    )?! "browser pairwise system dimension is malformed"
+    bodies: _browser_decimal_at(source, body_separator + 2)
+    close: _browser_inline_space_start(source, bodies.next)
+    _browser_source_starts_with(
+        source, close, "]", 0
+    )?! "browser pairwise system body count is malformed"
+    (
+        shape:(bodies:bodies.value, dimensions:dimensions.value),
+        next:close + 1
+    )
+
+_browser_nbody_shape(source:str) -> BrowserNBodyShape:
+    positions: _browser_nbody_shape_field(source, 0, "positions")
+    velocities: _browser_nbody_shape_field(
+        source, positions.next, "velocities"
+    )
+    mass_prefix: "masses:[num:"
+    mass_start: _browser_find_source(
+        source, velocities.next, mass_prefix
+    )
+    (mass_start > velocities.next)?! "browser pairwise mass shape is missing"
+    masses: _browser_decimal_at(
+        source, mass_start + mass_prefix.length()
+    )
+    mass_close: _browser_inline_space_start(source, masses.next)
+    _browser_source_starts_with(
+        source, mass_close, "]", 0
+    )?! "browser pairwise mass shape is malformed"
+    (positions.shape.bodies = velocities.shape.bodies /\
+        positions.shape.dimensions = velocities.shape.dimensions /\
+        masses.value = positions.shape.bodies)?! "browser pairwise system shapes disagree"
+    (positions.shape.bodies >= 2 /\ positions.shape.bodies <= 16 /\
+        positions.shape.dimensions >= 1 /\
+        positions.shape.dimensions <= 8 /\
+        positions.shape.bodies // 1 = positions.shape.bodies /\
+        positions.shape.dimensions // 1 = positions.shape.dimensions)?! "browser pairwise system shape exceeds its bound"
+    positions.shape
+
+_browser_nbody_nested_value(source:str, start:int) -> any:
+    stop: _browser_display_bracket_stop(source, start + 1, 1)
+    tape: lexer.tagged_numeric_function_token_tape(
+        _browser_nbody_compact(source, start, stop, "")
+    )
+    parsed: _browser_lifted_value(tape, 0, 1)
+    _browser_token_is(tape, parsed.next, 5, "")?! "browser pairwise vector contains unsupported syntax"
+    (value:parsed.value, next:stop)
+
+_browser_nbody_scale_row(
+    values:any, index:int, factor:num, result:any
+) -> any:
+    index >= values.length()?
+        @: result
+    _browser_nbody_scale_row(
+        values, index + 1, factor, result & [values.(index) * factor]
+    )
+
+_browser_nbody_scaled_rows(
+    source:str, cursor:int, stop:int, index:int, count:int,
+    factor:num, values:any
+) -> BrowserNBodyRows:
+    index = count?
+        close: _browser_display_value_start(source, cursor)
+        (close < stop /\ vkf_string_peek_scalar(source, close) = 93 /\
+            vkf_utf8_advance(source, close) = stop)?! "browser pairwise velocity row count changed"
+        @: (values:values, next:stop)
+    row_start: _browser_display_value_start(source, cursor)
+    (vkf_string_peek_scalar(source, row_start) = 91)?! "browser pairwise velocity row is missing"
+    row: _browser_nbody_nested_value(source, row_start)
+    row_value: row.value
+    next: _browser_display_value_start(source, row.next)
+    index > 0?
+        scale: "* constants.days_per_year"
+        _browser_source_starts_with(source, next, scale, 0)?! "browser pairwise velocity scale changed"
+        .row_value: _browser_nbody_scale_row(row.value, 0, factor, [])
+        .next: _browser_display_value_start(
+            source, next + scale.length()
+        )
+    index + 1 < count?
+        (vkf_string_peek_scalar(source, next) = 44)?! "browser pairwise velocity rows require commas"
+        @: _browser_nbody_scaled_rows(
+            source, next + 1, stop, index + 1, count,
+            factor, values & [row_value]
+        )
+    _browser_nbody_scaled_rows(
+        source, next, stop, index + 1, count,
+        factor, values & [row_value]
+    )
+
+_browser_nbody_mass_terms(
+    tape:any, index:int, solar_mass:num, values:any
+) -> BrowserLiftedParse:
+    _browser_token_kind(tape, index) = 23?
+        @: (value:values, next:index + 1)
+    value: solar_mass
+    next: index
+    values.length() = 0?
+        (_browser_token_is(tape, index, 1, "constants") /\
+            _browser_token_is(tape, index + 1, 16, ".") /\
+            _browser_token_is(tape, index + 2, 1, "solar_mass"))?! "browser pairwise primary mass changed"
+        .next: index + 3
+    values.length() > 0?
+        coefficient: _browser_lifted_number(tape, index, 1)
+        (_browser_token_is(tape, coefficient.next, 7, "*") /\
+            _browser_token_is(
+                tape, coefficient.next + 1, 1, "constants"
+            ) /\
+            _browser_token_is(tape, coefficient.next + 2, 16, ".") /\
+            _browser_token_is(
+                tape, coefficient.next + 3, 1, "solar_mass"
+            ))?! "browser pairwise mass expression changed"
+        .value: coefficient.value * solar_mass
+        .next: coefficient.next + 4
+    _browser_token_kind(tape, next) = 24?
+        @: _browser_nbody_mass_terms(
+            tape, next + 1, solar_mass, values & [value]
+        )
+    (_browser_token_kind(tape, next) = 23)?! "browser pairwise masses require commas or a closing bracket"
+    (value:values & [value], next:next + 1)
+
+_browser_nbody_masses(
+    source:str, start:int, stop:int, solar_mass:num, bodies:int
+) -> [num]:
+    tape: lexer.tagged_numeric_function_token_tape(
+        _browser_nbody_compact(source, start, stop, "")
+    )
+    _browser_token_is(tape, 0, 22, "")?! "browser pairwise masses require a vector"
+    masses: _browser_nbody_mass_terms(tape, 1, solar_mass, [])
+    (_browser_token_is(tape, masses.next, 5, "") /\
+        masses.value.length() = bodies)?! "browser pairwise mass count changed"
+    masses.value
+
+_browser_nbody_flatten(
+    rows:any, bodies:int, dimensions:int
+) -> [num]:
+    (rows.length() = bodies)?! "browser pairwise body count changed"
+    [num] values: [0:bodies * dimensions]
+    body: 0
+    (body < bodies)?>
+        row: rows.(body)
+        (row.length() = dimensions)?! "browser pairwise vector dimension changed"
+        dimension: 0
+        (dimension < dimensions)?>
+            values.(body * dimensions + dimension): row.(dimension)
+            .dimension+: 1
+        .body+: 1
+    values
+
+_browser_pairwise_system_source_matches(source:str) -> bit:
+    (_browser_find_source(source, 0, "positions:[[num:") >= 0 /\
+        _browser_find_source(source, 0, "velocities:[[num:") >= 0 /\
+        _browser_find_source(source, 0, "masses:[num:") >= 0 /\
+        _browser_find_source(source, 0, "momentum: [0, 0, 0]") >= 0 /\
+        _browser_find_source(
+            source, 0, "velocities.0: momentum * (-1 / solar_mass)"
+        ) >= 0 /\
+        _browser_find_source(
+            source, 0,
+            "[num:3] displacement: positions.(i) - positions.(j)"
+        ) >= 0 /\
+        _browser_find_source(
+            source, 0, "magnitude: timestep / |displacement|^3"
+        ) >= 0 /\
+        _browser_find_source(
+            source, 0,
+            "totals.potential -: masses.(i) * masses.(j) / |displacement|"
+        ) >= 0 /\
+        _browser_find_source(
+            source, 0, "@: totals.kinetic + totals.potential"
+        ) >= 0 /\
+        _browser_find_source(source, 0, ":: ") >= 0)
+
+_browser_pairwise_system_plan(source:str) -> BrowserNBodyPlan:
+    _browser_pairwise_system_source_matches(source)?! "browser pairwise vector-system shape is unsupported"
+    shape: _browser_nbody_shape(source)
+    momentum_loop: _browser_find_source(
+        source, 0,
+        "..4 >>\n        i: \$\n        .momentum+: velocities.(i) * masses.(i)"
+    )
+    (momentum_loop >= 0)?! "browser pairwise momentum loop bounds changed"
+    advance_loop: _browser_find_source(
+        source, momentum_loop + 1,
+        "..3 >>\n        i: \$\n        (i + 1)..4 >>\n            j: \$\n            [num:3] displacement: positions.(i) - positions.(j)\n            magnitude: timestep / |displacement|^3\n            velocities.(i) -: displacement * masses.(j) * magnitude\n            velocities.(j) +: displacement * masses.(i) * magnitude"
+    )
+    (advance_loop > momentum_loop)?! "browser pairwise advance loop bounds changed"
+    position_loop: _browser_find_source(
+        source, advance_loop + 1,
+        "..4 >>\n        i: \$\n        positions.(i) +: velocities.(i) * timestep"
+    )
+    (position_loop > advance_loop)?! "browser pairwise position loop bounds changed"
+    kinetic_loop: _browser_find_source(
+        source, position_loop + 1,
+        "..4 >>\n        i: \$\n        totals.kinetic +: 0.5 * masses.(i) * |velocities.(i)|^2"
+    )
+    (kinetic_loop > position_loop)?! "browser pairwise kinetic loop bounds changed"
+    energy_loop: _browser_find_source(
+        source, kinetic_loop + 1,
+        "..3 >>\n        i: \$\n        (i + 1)..4 >>\n            j: \$\n            [num:3] displacement: positions.(i) - positions.(j)\n            totals.potential -: masses.(i) * masses.(j) / |displacement|"
+    )
+    (energy_loop > kinetic_loop)?! "browser pairwise energy loop bounds changed"
+    first_numeric_arrow: _browser_find_source(source, 0, ") -> num:")
+    driver_arrow: _browser_find_source(
+        source, first_numeric_arrow + 1, ") -> num:"
+    )
+    (first_numeric_arrow >= 0 /\ driver_arrow > first_numeric_arrow)?! "browser pairwise driver function is missing"
+    driver_start: _browser_line_start_before(source, driver_arrow)
+    function_name: _browser_function_name(source, driver_arrow)
+    parameter: _browser_function_parameter(source, driver_arrow)
+    constants_start: _browser_find_source(
+        source, driver_start, "constants: ("
+    )
+    system_start: _browser_find_source(source, constants_start, "system: (")
+    (constants_start >= driver_start /\ system_start > constants_start)?! "browser pairwise constants or system is missing"
+    solar_start: _browser_find_source(
+        source, constants_start, "solar_mass:"
+    )
+    days_start: _browser_find_source(
+        source, solar_start, "days_per_year:"
+    )
+    timestep_start: _browser_find_source(
+        source, days_start, "timestep:"
+    )
+    (solar_start >= constants_start /\ days_start > solar_start /\
+        timestep_start > days_start /\ timestep_start < system_start)?! "browser pairwise numeric constants changed"
+    solar_mass: _browser_decimal_at(source, solar_start + 11).value
+    days_per_year: _browser_decimal_at(source, days_start + 14).value
+    timestep: _browser_decimal_at(source, timestep_start + 9).value
+    positions_prefix: "positions:"
+    positions_start: _browser_find_source(
+        source, system_start, positions_prefix
+    )
+    positions_value_start: _browser_display_value_start(
+        source, positions_start + positions_prefix.length()
+    )
+    positions_rows: _browser_nbody_nested_value(
+        source, positions_value_start
+    )
+    velocities_prefix: "velocities:"
+    velocities_start: _browser_find_source(
+        source, positions_rows.next, velocities_prefix
+    )
+    velocities_value_start: _browser_display_value_start(
+        source, velocities_start + velocities_prefix.length()
+    )
+    velocities_stop: _browser_display_bracket_stop(
+        source, velocities_value_start + 1, 1
+    )
+    velocity_rows: _browser_nbody_scaled_rows(
+        source, velocities_value_start + 1, velocities_stop,
+        0, shape.bodies, days_per_year, []
+    )
+    masses_prefix: "masses:"
+    masses_start: _browser_find_source(
+        source, velocities_stop, masses_prefix
+    )
+    masses_value_start: _browser_display_value_start(
+        source, masses_start + masses_prefix.length()
+    )
+    masses_stop: _browser_display_bracket_stop(
+        source, masses_value_start + 1, 1
+    )
+    masses: _browser_nbody_masses(
+        source, masses_value_start, masses_stop,
+        solar_mass, shape.bodies
+    )
+    offset_expected: ".system: offset_momentum(system, constants.solar_mass)"
+    offset_call: _browser_find_source(source, masses_stop, offset_expected)
+    (offset_call > masses_stop)?! "browser pairwise momentum offset call changed"
+    offset_stop: _browser_basic_line_stop(source, offset_call)
+    _browser_inline_space_only(
+        source, offset_call + offset_expected.length(), offset_stop
+    )?! "browser pairwise momentum offset call changed"
+    loop_start: _browser_find_source(source, offset_call, "..")
+    expected_loop: ".." & parameter & " - 1 >>"
+    (offset_call > masses_stop /\ loop_start > offset_call /\
+        _browser_source_starts_with(source, loop_start, expected_loop, 0))?! "browser pairwise step loop changed"
+    advance_expected: ".system: advance(system, constants.timestep)"
+    advance_call: _browser_find_source(source, loop_start, advance_expected)
+    (advance_call > loop_start)?! "browser pairwise driver advance call changed"
+    advance_stop: _browser_basic_line_stop(source, advance_call)
+    _browser_inline_space_only(
+        source, advance_call + advance_expected.length(), advance_stop
+    )?! "browser pairwise driver advance call changed"
+    return_call: _browser_find_source(
+        source, advance_call, "@: system_energy(system)"
+    )
+    top_prefix: ":: " & function_name & "("
+    top_start: _browser_find_source(source, return_call, top_prefix)
+    (return_call > loop_start /\ top_start > return_call)?! "browser pairwise result call is missing"
+    steps: _browser_decimal_at(
+        source, top_start + top_prefix.length()
+    )
+    top_stop: _browser_basic_line_stop(source, top_start)
+    close: _browser_inline_space_start(source, steps.next)
+    (_browser_source_starts_with(source, close, ")", 0) /\
+        _browser_inline_space_only(source, close + 1, top_stop))?! "browser pairwise top-level call contains unsupported syntax"
+    (steps.value >= 0 /\ steps.value <= 100000 /\
+        steps.value // 1 = steps.value /\
+        steps.value * shape.bodies * shape.bodies * shape.dimensions <= 100000000)?! "browser pairwise program exceeds its operation budget"
+    positions: _browser_nbody_flatten(
+        positions_rows.value, shape.bodies, shape.dimensions
+    )
+    velocities: _browser_nbody_flatten(
+        velocity_rows.values, shape.bodies, shape.dimensions
+    )
+    (
+        positions:positions, velocities:velocities,
+        masses:masses, bodies:shape.bodies,
+        dimensions:shape.dimensions, timestep:timestep,
+        steps:steps.value
+    )
+
+_run_tagged_pairwise_system_source(source:str) -> any:
+    plan: _browser_pairwise_system_plan(source)
+    value: vkf_pairwise_system_energy(
+        [plan.bodies, plan.dimensions, plan.timestep, plan.steps] &
+            plan.positions & plan.velocities & plan.masses
+    )
+    (value != null)?! "browser pairwise runtime rejected its source-derived plan"
+    (kind:"console", values:[value])
+
 BrowserParityClause: (modulus:num, residue:num, next:int)
 
 _browser_layout_only(source:str, offset:int, stop:int) -> bit:
@@ -5566,6 +6758,8 @@ _run_tagged_lifted_vector_function(tape:any) -> any:
     (kind:"console", values:outputs)
 
 run_tagged_browser_source(source:str, packet_index:int) -> any:
+    _browser_pairwise_system_source_matches(source)?
+        @: _run_tagged_pairwise_system_source(source)
     _browser_permutation_reduction_source_matches(source)?
         @: _run_tagged_permutation_reduction_source(source)
     _browser_power_method_source_matches(source)?

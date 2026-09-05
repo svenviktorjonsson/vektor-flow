@@ -161,14 +161,18 @@ _lexer_scan_number(
     fractional:bit
 ) -> Token:
     cursor.eof?
-        @: token("NUMBER", value, line, column)
+        @: token(
+            "NUMBER",
+            vkf_decimal_parse(cursor.slice(start, cursor.position)),
+            line, column
+        )
     ch: cursor.peek()
     is_digit(ch)?
         digit: _lexer_digit_value(ch)
         fractional?
             @: _lexer_scan_number(
                 cursor.advance(), start, line, column,
-                value + digit / scale, scale * 10, true
+                value * 10 + digit, scale * 10, true
             )
         @: _lexer_scan_number(
             cursor.advance(), start, line, column,
@@ -177,16 +181,20 @@ _lexer_scan_number(
     (ch = "." /\ ~fractional)?
         @: _lexer_scan_number(
             cursor.advance(), start, line, column,
-            value, 10, true
+            value, 1, true
         )
-    token("NUMBER", value, line, column)
+    token(
+        "NUMBER",
+        vkf_decimal_parse(cursor.slice(start, cursor.position)),
+        line, column
+    )
 
 number_token(source:str, start:int) -> Token:
     cursor: _lexer_cursor_at(StringCursor(source), start)
     cursor.eof?
         false?! "number start is outside the source"
     is_digit(cursor.peek())?! "number token must start with a digit"
-    _lexer_scan_number(cursor, start, cursor.line, cursor.column, 0, 10, false)
+    _lexer_scan_number(cursor, start, cursor.line, cursor.column, 0, 1, false)
 
 _lexer_skip_number(cursor:StringCursor) -> StringCursor:
     cursor.eof?

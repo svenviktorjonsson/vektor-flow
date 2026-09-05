@@ -2039,6 +2039,12 @@ private:
                 ValueType::Number
             )
             || bind(
+                "vkf_pairwise_system_energy",
+                1,
+                Opcode::PairwiseSystemEnergy,
+                ValueType::Number
+            )
+            || bind(
                 "vkf_math_atan2",
                 2,
                 Opcode::Atan2,

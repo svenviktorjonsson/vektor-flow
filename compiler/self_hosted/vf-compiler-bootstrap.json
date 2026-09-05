@@ -9,7 +9,7 @@
   "sources": [
     {
       "path": "compiler/self_hosted/lexer.vkf",
-      "source_sha256": "a589a2ba64006de455a763c07f9f2df328344fd68553b5aeab0d3fb84a540dd8",
+      "source_sha256": "14f181225e5f4a989c8519b19296c59ec68c415780be332889d6f95b70b866c0",
       "parsed_with_native_parser": true
     },
     {
@@ -34,7 +34,12 @@
     },
     {
       "path": "compiler/self_hosted/compiler.vkf",
-      "source_sha256": "3d1c58ab45a3de7b5f4181b8cc3c83d9805cfaa0657e5330ac486fd7d8aaea57",
+      "source_sha256": "0df925599fec2cbd5819d0072ce2e1305103c09c1ed1f70ffaac361219797849",
+      "parsed_with_native_parser": true
+    },
+    {
+      "path": "compiler/self_hosted/pe_x64.vkf",
+      "source_sha256": "ca25b8e8cdbeeb13fa9fb0b1b8dc01801f410641ec339d2da658b3b15706cd63",
       "parsed_with_native_parser": true
     },
     {
@@ -65,11 +70,12 @@
     "compiler/self_hosted/machine_ir.vkf",
     "compiler/self_hosted/machine_ir_validation.vkf",
     "compiler/self_hosted/compiler.vkf",
+    "compiler/self_hosted/pe_x64.vkf",
     "compiler/self_hosted/native_scene_compiler.vkf",
     "compiler/self_hosted/stdlib.vkf",
     "compiler/self_hosted/stdlib/math.vkf",
     "compiler/self_hosted/stdlib/io.vkf"
   ],
-  "source_count": 10,
-  "bundle_sha256": "5eee8ade8a7613cfdfa7a775ae9e1d0c157cf9e1846574bacfcec7888a3f3952"
+  "source_count": 11,
+  "bundle_sha256": "eaec78e11a884c18b2e7762282991c01391577f95c422c62e5be9e73a5783b5d"
 }

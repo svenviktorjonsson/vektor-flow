@@ -46,6 +46,7 @@ struct EmittedModule {
 namespace detail {
 
 inline constexpr std::uint8_t wasm_i32 = 0x7f;
+inline constexpr std::uint8_t wasm_i64 = 0x7e;
 inline constexpr std::uint8_t wasm_f64 = 0x7c;
 inline constexpr std::uint32_t wasm_page_size = 65536;
 
@@ -176,6 +177,7 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::PlotBuilderFinish:
         case Opcode::DensePower:
         case Opcode::PermutationReduction:
+        case Opcode::PairwiseSystemEnergy:
             return {1, 1};
         case Opcode::Add:
         case Opcode::Subtract:
@@ -558,6 +560,7 @@ struct RuntimeIndexes {
     std::uint32_t plot_builder_finish = 0;
     std::uint32_t dense_power = 0;
     std::uint32_t permutation_reduction = 0;
+    std::uint32_t pairwise_system_energy = 0;
 };
 
 inline void emit_stack_address(
@@ -1419,6 +1422,12 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                     sp_local, local_count, temp0
                 );
                 break;
+            case Opcode::PairwiseSystemEnergy:
+                emit_call_unary_value(
+                    body, runtime, runtime.pairwise_system_energy, frame_local,
+                    sp_local, local_count, temp0
+                );
+                break;
             case Opcode::Atan2:
                 emit_call_binary_value(
                     body, runtime.atan2, frame_local, sp_local, local_count,
@@ -2167,10 +2176,12 @@ inline std::vector<std::uint8_t> emit_decimal_scan_function(
     std::uint32_t make_number_index
 ) {
     Writer body;
-    body.u32_leb(2);
+    body.u32_leb(3);
     body.u32_leb(4);
     body.u8(wasm_i32);
-    body.u32_leb(2);
+    body.u32_leb(1);
+    body.u8(wasm_i64);
+    body.u32_leb(11);
     body.u8(wasm_f64);
     local_get(body, 0);
     i32_load(body, values::payload_offset);
@@ -2179,11 +2190,11 @@ inline std::vector<std::uint8_t> emit_decimal_scan_function(
     i32_load(body, values::length_offset);
     body.u8(0x6a);
     local_set(body, 2);
-    body.u8(0x44);
-    body.f64(0.0);
+    body.u8(0x42);
+    body.i32_leb(0);
     local_set(body, 5);
     body.u8(0x44);
-    body.f64(0.1);
+    body.f64(1.0);
     local_set(body, 6);
     i32_const(body, 0);
     local_set(body, 4);
@@ -2222,33 +2233,23 @@ inline std::vector<std::uint8_t> emit_decimal_scan_function(
     body.u8(0x4b);
     body.u8(0x0d);
     body.u32_leb(1);
-    local_get(body, 4);
-    body.u8(0x45);
-    body.u8(0x04);
-    body.u8(wasm_f64);
     local_get(body, 5);
+    body.u8(0x42);
+    body.i32_leb(10);
+    body.u8(0x7e);
+    local_get(body, 3);
+    body.u8(0xad);
+    body.u8(0x7c);
+    local_set(body, 5);
+    local_get(body, 4);
+    body.u8(0x04);
+    body.u8(0x40);
+    local_get(body, 6);
     body.u8(0x44);
     body.f64(10.0);
     body.u8(0xa2);
-    local_get(body, 3);
-    body.u8(0xb7);
-    body.u8(0xa0);
-    body.u8(0x05);
-    local_get(body, 5);
-    local_get(body, 3);
-    body.u8(0xb7);
-    local_get(body, 6);
-    body.u8(0xa2);
-    body.u8(0xa0);
-    local_set(body, 5);
-    local_get(body, 6);
-    body.u8(0x44);
-    body.f64(0.1);
-    body.u8(0xa2);
     local_set(body, 6);
-    local_get(body, 5);
     body.u8(0x0b);
-    local_set(body, 5);
     local_get(body, 1);
     i32_const(body, 1);
     body.u8(0x6a);
@@ -2258,6 +2259,79 @@ inline std::vector<std::uint8_t> emit_decimal_scan_function(
     body.u8(0x0b);
     body.u8(0x0b);
     local_get(body, 5);
+    body.u8(0xba);
+    local_set(body, 7);
+    local_get(body, 5);
+    local_get(body, 7);
+    body.u8(0xb1);
+    body.u8(0x7d);
+    body.u8(0xb9);
+    local_set(body, 8);
+    local_get(body, 7);
+    local_get(body, 6);
+    body.u8(0xa3);
+    local_set(body, 9);
+    local_get(body, 9);
+    local_get(body, 6);
+    body.u8(0xa2);
+    local_set(body, 10);
+    body.u8(0x44);
+    body.f64(134217729.0);
+    local_get(body, 9);
+    body.u8(0xa2);
+    local_tee(body, 15);
+    local_get(body, 15);
+    local_get(body, 9);
+    body.u8(0xa1);
+    body.u8(0xa1);
+    local_set(body, 11);
+    local_get(body, 9);
+    local_get(body, 11);
+    body.u8(0xa1);
+    local_set(body, 12);
+    body.u8(0x44);
+    body.f64(134217729.0);
+    local_get(body, 6);
+    body.u8(0xa2);
+    local_tee(body, 15);
+    local_get(body, 15);
+    local_get(body, 6);
+    body.u8(0xa1);
+    body.u8(0xa1);
+    local_set(body, 13);
+    local_get(body, 6);
+    local_get(body, 13);
+    body.u8(0xa1);
+    local_set(body, 14);
+    local_get(body, 11);
+    local_get(body, 13);
+    body.u8(0xa2);
+    local_get(body, 10);
+    body.u8(0xa1);
+    local_get(body, 11);
+    local_get(body, 14);
+    body.u8(0xa2);
+    body.u8(0xa0);
+    local_get(body, 12);
+    local_get(body, 13);
+    body.u8(0xa2);
+    body.u8(0xa0);
+    local_get(body, 12);
+    local_get(body, 14);
+    body.u8(0xa2);
+    body.u8(0xa0);
+    local_set(body, 16);
+    local_get(body, 7);
+    local_get(body, 10);
+    body.u8(0xa1);
+    local_get(body, 16);
+    body.u8(0xa1);
+    local_get(body, 8);
+    body.u8(0xa0);
+    local_get(body, 6);
+    body.u8(0xa3);
+    local_get(body, 9);
+    body.u8(0xa0);
     body.u8(0x10);
     body.u32_leb(make_number_index);
     body.u8(0x0b);
@@ -3820,6 +3894,694 @@ inline std::vector<std::uint8_t> emit_dense_power_function(
     return encoded_body(std::move(body));
 }
 
+inline std::vector<std::uint8_t> emit_pairwise_system_energy_function(
+    std::uint32_t allocate_index,
+    std::uint32_t make_number_index,
+    std::uint32_t null_value
+) {
+    Writer body;
+    body.u32_leb(2);
+    body.u32_leb(14);
+    body.u8(wasm_i32);
+    body.u32_leb(13);
+    body.u8(wasm_f64);
+
+    constexpr std::uint32_t payload_local = 1;
+    constexpr std::uint32_t bodies_local = 2;
+    constexpr std::uint32_t dimensions_local = 3;
+    constexpr std::uint32_t steps_local = 4;
+    constexpr std::uint32_t vector_size_local = 5;
+    constexpr std::uint32_t expected_length_local = 6;
+    constexpr std::uint32_t positions_local = 7;
+    constexpr std::uint32_t velocities_local = 8;
+    constexpr std::uint32_t body_local = 9;
+    constexpr std::uint32_t left_local = 10;
+    constexpr std::uint32_t right_local = 11;
+    constexpr std::uint32_t dimension_local = 12;
+    constexpr std::uint32_t step_local = 13;
+    constexpr std::uint32_t index_local = 14;
+    constexpr std::uint32_t timestep_local = 15;
+    constexpr std::uint32_t momentum_local = 16;
+    constexpr std::uint32_t distance_squared_local = 17;
+    constexpr std::uint32_t distance_local = 18;
+    constexpr std::uint32_t magnitude_local = 19;
+    constexpr std::uint32_t displacement_local = 20;
+    constexpr std::uint32_t kinetic_local = 21;
+    constexpr std::uint32_t potential_local = 22;
+    constexpr std::uint32_t speed_squared_local = 23;
+    constexpr std::uint32_t speed_local = 24;
+    constexpr std::uint32_t left_mass_local = 25;
+    constexpr std::uint32_t right_mass_local = 26;
+    constexpr std::uint32_t temporary_local = 27;
+
+    const auto return_null = [&] {
+        i32_const(body, null_value);
+        body.u8(0x0f);
+    };
+    const auto reject_if = [&] {
+        body.u8(0x04);
+        body.u8(0x40);
+        return_null();
+        body.u8(0x0b);
+    };
+    local_get(body, 0);
+    i32_load(body, values::tag_offset);
+    i32_const(body, static_cast<std::uint32_t>(values::Tag::Array));
+    body.u8(0x47);
+    body.u8(0x04);
+    body.u8(0x40);
+    return_null();
+    body.u8(0x0b);
+    local_get(body, 0);
+    i32_load(body, values::length_offset);
+    i32_const(body, 4);
+    body.u8(0x49);
+    body.u8(0x04);
+    body.u8(0x40);
+    return_null();
+    body.u8(0x0b);
+    local_get(body, 0);
+    i32_load(body, values::payload_offset);
+    local_set(body, payload_local);
+
+    const auto emit_plan_pointer = [&](std::uint32_t index) {
+        local_get(body, payload_local);
+        i32_const(body, index * values::pointer_size);
+        body.u8(0x6a);
+        i32_load(body);
+    };
+    const auto emit_plan_number = [&](std::uint32_t index) {
+        emit_plan_pointer(index);
+        f64_load(body);
+    };
+    for (std::uint32_t index = 0; index < 4; ++index) {
+        emit_plan_pointer(index);
+        i32_load(body, values::tag_offset);
+        i32_const(body, static_cast<std::uint32_t>(values::Tag::Number));
+        body.u8(0x47);
+        body.u8(0x04);
+        body.u8(0x40);
+        return_null();
+        body.u8(0x0b);
+    }
+    emit_plan_number(2);
+    local_set(body, timestep_local);
+    const auto load_bounded_integer = [&](
+        std::uint32_t plan_index,
+        std::uint32_t destination,
+        double minimum,
+        double maximum
+    ) {
+        emit_plan_number(plan_index);
+        emit_plan_number(plan_index);
+        body.u8(0x62);
+        emit_plan_number(plan_index);
+        body.u8(0x44);
+        body.f64(minimum);
+        body.u8(0x63);
+        body.u8(0x72);
+        emit_plan_number(plan_index);
+        body.u8(0x44);
+        body.f64(maximum);
+        body.u8(0x64);
+        body.u8(0x72);
+        reject_if();
+        emit_plan_number(plan_index);
+        body.u8(0xaa);
+        local_set(body, destination);
+        local_get(body, destination);
+        body.u8(0xb7);
+        emit_plan_number(plan_index);
+        body.u8(0x62);
+        reject_if();
+    };
+    load_bounded_integer(0, bodies_local, 2.0, 16.0);
+    load_bounded_integer(1, dimensions_local, 1.0, 8.0);
+    load_bounded_integer(3, steps_local, 0.0, 100000.0);
+
+    local_get(body, steps_local);
+    local_get(body, bodies_local);
+    body.u8(0x6c);
+    local_get(body, bodies_local);
+    body.u8(0x6c);
+    local_get(body, dimensions_local);
+    body.u8(0x6c);
+    i32_const(body, 100000000);
+    body.u8(0x4b);
+    reject_if();
+
+    local_get(body, bodies_local);
+    local_get(body, dimensions_local);
+    body.u8(0x6c);
+    local_set(body, vector_size_local);
+    i32_const(body, 4);
+    local_get(body, vector_size_local);
+    i32_const(body, 2);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    local_get(body, bodies_local);
+    body.u8(0x6a);
+    local_set(body, expected_length_local);
+    local_get(body, 0);
+    i32_load(body, values::length_offset);
+    local_get(body, expected_length_local);
+    body.u8(0x47);
+    body.u8(0x04);
+    body.u8(0x40);
+    return_null();
+    body.u8(0x0b);
+
+    i32_const(body, 4);
+    local_set(body, index_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, index_local);
+    local_get(body, expected_length_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    local_get(body, payload_local);
+    local_get(body, index_local);
+    i32_const(body, values::pointer_size);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    i32_load(body);
+    i32_load(body, values::tag_offset);
+    i32_const(body, static_cast<std::uint32_t>(values::Tag::Number));
+    body.u8(0x47);
+    body.u8(0x04);
+    body.u8(0x40);
+    return_null();
+    body.u8(0x0b);
+    local_get(body, index_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, index_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    local_get(body, vector_size_local);
+    i32_const(body, 16);
+    body.u8(0x6c);
+    body.u8(0x10);
+    body.u32_leb(allocate_index);
+    local_tee(body, positions_local);
+    local_get(body, vector_size_local);
+    i32_const(body, 8);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    local_set(body, velocities_local);
+
+    const auto emit_raw_address = [&](std::uint32_t pointer,
+                                      std::uint32_t index) {
+        local_get(body, pointer);
+        local_get(body, index);
+        i32_const(body, 8);
+        body.u8(0x6c);
+        body.u8(0x6a);
+    };
+    const auto emit_raw_load = [&](std::uint32_t pointer,
+                                   std::uint32_t index) {
+        emit_raw_address(pointer, index);
+        f64_load(body, 0);
+    };
+    const auto emit_dynamic_plan_number = [&](std::uint32_t index,
+                                               std::uint32_t offset) {
+        local_get(body, payload_local);
+        local_get(body, index);
+        if (offset != 0) {
+            i32_const(body, offset);
+            body.u8(0x6a);
+        }
+        i32_const(body, values::pointer_size);
+        body.u8(0x6c);
+        body.u8(0x6a);
+        i32_load(body);
+        f64_load(body);
+    };
+    const auto emit_mass = [&](std::uint32_t index) {
+        local_get(body, payload_local);
+        i32_const(body, 4);
+        local_get(body, vector_size_local);
+        i32_const(body, 2);
+        body.u8(0x6c);
+        body.u8(0x6a);
+        local_get(body, index);
+        body.u8(0x6a);
+        i32_const(body, values::pointer_size);
+        body.u8(0x6c);
+        body.u8(0x6a);
+        i32_load(body);
+        f64_load(body);
+    };
+    const auto emit_vector_index = [&](std::uint32_t body_index,
+                                       std::uint32_t dimension_index) {
+        local_get(body, body_index);
+        local_get(body, dimensions_local);
+        body.u8(0x6c);
+        local_get(body, dimension_index);
+        body.u8(0x6a);
+        local_set(body, index_local);
+    };
+
+    i32_const(body, 0);
+    local_set(body, index_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, index_local);
+    local_get(body, vector_size_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_raw_address(positions_local, index_local);
+    emit_dynamic_plan_number(index_local, 4);
+    f64_store(body, 0);
+    emit_raw_address(velocities_local, index_local);
+    local_get(body, payload_local);
+    i32_const(body, 4);
+    local_get(body, vector_size_local);
+    body.u8(0x6a);
+    local_get(body, index_local);
+    body.u8(0x6a);
+    i32_const(body, values::pointer_size);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    i32_load(body);
+    f64_load(body);
+    f64_store(body, 0);
+    local_get(body, index_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, index_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    i32_const(body, 0);
+    local_set(body, dimension_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, dimension_local);
+    local_get(body, dimensions_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    body.u8(0x44);
+    body.f64(0.0);
+    local_set(body, momentum_local);
+    i32_const(body, 0);
+    local_set(body, body_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, body_local);
+    local_get(body, bodies_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_vector_index(body_local, dimension_local);
+    local_get(body, momentum_local);
+    emit_raw_load(velocities_local, index_local);
+    emit_mass(body_local);
+    body.u8(0xa2);
+    body.u8(0xa0);
+    local_set(body, momentum_local);
+    local_get(body, body_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, body_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, dimension_local);
+    local_set(body, index_local);
+    emit_raw_address(velocities_local, index_local);
+    local_get(body, momentum_local);
+    body.u8(0x44);
+    body.f64(-1.0);
+    i32_const(body, 0);
+    local_set(body, body_local);
+    emit_mass(body_local);
+    body.u8(0xa3);
+    body.u8(0xa2);
+    f64_store(body, 0);
+    local_get(body, dimension_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, dimension_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    const auto emit_pair_distance = [&] {
+        body.u8(0x44);
+        body.f64(0.0);
+        local_set(body, distance_squared_local);
+        i32_const(body, 0);
+        local_set(body, dimension_local);
+        body.u8(0x02);
+        body.u8(0x40);
+        body.u8(0x03);
+        body.u8(0x40);
+        local_get(body, dimension_local);
+        local_get(body, dimensions_local);
+        body.u8(0x4f);
+        body.u8(0x0d);
+        body.u32_leb(1);
+        emit_vector_index(left_local, dimension_local);
+        emit_raw_load(positions_local, index_local);
+        local_set(body, temporary_local);
+        emit_vector_index(right_local, dimension_local);
+        local_get(body, temporary_local);
+        emit_raw_load(positions_local, index_local);
+        body.u8(0xa1);
+        local_set(body, displacement_local);
+        local_get(body, distance_squared_local);
+        local_get(body, displacement_local);
+        local_get(body, displacement_local);
+        body.u8(0xa2);
+        body.u8(0xa0);
+        local_set(body, distance_squared_local);
+        local_get(body, dimension_local);
+        i32_const(body, 1);
+        body.u8(0x6a);
+        local_set(body, dimension_local);
+        body.u8(0x0c);
+        body.u32_leb(0);
+        body.u8(0x0b);
+        body.u8(0x0b);
+        local_get(body, distance_squared_local);
+        body.u8(0x9f);
+        local_set(body, distance_local);
+    };
+
+    i32_const(body, 0);
+    local_set(body, step_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, step_local);
+    local_get(body, steps_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    i32_const(body, 0);
+    local_set(body, left_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, left_local);
+    local_get(body, bodies_local);
+    i32_const(body, 1);
+    body.u8(0x6b);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    local_get(body, left_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, right_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, right_local);
+    local_get(body, bodies_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_pair_distance();
+    local_get(body, timestep_local);
+    local_get(body, distance_squared_local);
+    local_get(body, distance_local);
+    body.u8(0xa2);
+    body.u8(0xa3);
+    local_set(body, magnitude_local);
+    emit_mass(left_local);
+    local_set(body, left_mass_local);
+    emit_mass(right_local);
+    local_set(body, right_mass_local);
+    i32_const(body, 0);
+    local_set(body, dimension_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, dimension_local);
+    local_get(body, dimensions_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_vector_index(left_local, dimension_local);
+    emit_raw_load(positions_local, index_local);
+    local_set(body, temporary_local);
+    emit_vector_index(right_local, dimension_local);
+    local_get(body, temporary_local);
+    emit_raw_load(positions_local, index_local);
+    body.u8(0xa1);
+    local_set(body, displacement_local);
+    emit_vector_index(left_local, dimension_local);
+    emit_raw_address(velocities_local, index_local);
+    emit_raw_load(velocities_local, index_local);
+    local_get(body, displacement_local);
+    local_get(body, right_mass_local);
+    body.u8(0xa2);
+    local_get(body, magnitude_local);
+    body.u8(0xa2);
+    body.u8(0xa1);
+    f64_store(body, 0);
+    emit_vector_index(right_local, dimension_local);
+    emit_raw_address(velocities_local, index_local);
+    emit_raw_load(velocities_local, index_local);
+    local_get(body, displacement_local);
+    local_get(body, left_mass_local);
+    body.u8(0xa2);
+    local_get(body, magnitude_local);
+    body.u8(0xa2);
+    body.u8(0xa0);
+    f64_store(body, 0);
+    local_get(body, dimension_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, dimension_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, right_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, right_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, left_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, left_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    i32_const(body, 0);
+    local_set(body, body_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, body_local);
+    local_get(body, bodies_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    i32_const(body, 0);
+    local_set(body, dimension_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, dimension_local);
+    local_get(body, dimensions_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_vector_index(body_local, dimension_local);
+    emit_raw_address(positions_local, index_local);
+    emit_raw_load(positions_local, index_local);
+    emit_raw_load(velocities_local, index_local);
+    local_get(body, timestep_local);
+    body.u8(0xa2);
+    body.u8(0xa0);
+    f64_store(body, 0);
+    local_get(body, dimension_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, dimension_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, body_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, body_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, step_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, step_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    body.u8(0x44);
+    body.f64(0.0);
+    local_set(body, kinetic_local);
+    i32_const(body, 0);
+    local_set(body, body_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, body_local);
+    local_get(body, bodies_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    body.u8(0x44);
+    body.f64(0.0);
+    local_set(body, speed_squared_local);
+    i32_const(body, 0);
+    local_set(body, dimension_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, dimension_local);
+    local_get(body, dimensions_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_vector_index(body_local, dimension_local);
+    local_get(body, speed_squared_local);
+    emit_raw_load(velocities_local, index_local);
+    emit_raw_load(velocities_local, index_local);
+    body.u8(0xa2);
+    body.u8(0xa0);
+    local_set(body, speed_squared_local);
+    local_get(body, dimension_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, dimension_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, speed_squared_local);
+    body.u8(0x9f);
+    local_set(body, speed_local);
+    local_get(body, kinetic_local);
+    body.u8(0x44);
+    body.f64(0.5);
+    emit_mass(body_local);
+    body.u8(0xa2);
+    local_get(body, speed_local);
+    local_get(body, speed_local);
+    body.u8(0xa2);
+    body.u8(0xa2);
+    body.u8(0xa0);
+    local_set(body, kinetic_local);
+    local_get(body, body_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, body_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+
+    body.u8(0x44);
+    body.f64(0.0);
+    local_set(body, potential_local);
+    i32_const(body, 0);
+    local_set(body, left_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, left_local);
+    local_get(body, bodies_local);
+    i32_const(body, 1);
+    body.u8(0x6b);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    local_get(body, left_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, right_local);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, right_local);
+    local_get(body, bodies_local);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    emit_pair_distance();
+    local_get(body, potential_local);
+    emit_mass(left_local);
+    emit_mass(right_local);
+    body.u8(0xa2);
+    local_get(body, distance_local);
+    body.u8(0xa3);
+    body.u8(0xa1);
+    local_set(body, potential_local);
+    local_get(body, right_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, right_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, left_local);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, left_local);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, kinetic_local);
+    local_get(body, potential_local);
+    body.u8(0xa0);
+    body.u8(0x10);
+    body.u32_leb(make_number_index);
+    body.u8(0x0b);
+    return encoded_body(std::move(body));
+}
+
 inline std::vector<std::uint8_t> emit_permutation_reduction_function(
     std::uint32_t allocate_index,
     std::uint32_t make_number_index,
@@ -4865,7 +5627,8 @@ inline EmittedModule emit(
     runtime.plot_builder_finish = runtime.plot_builder_push + 1;
     runtime.dense_power = runtime.plot_builder_finish + 1;
     runtime.permutation_reduction = runtime.dense_power + 1;
-    const std::uint32_t runtime_count = 41;
+    runtime.pairwise_system_energy = runtime.permutation_reduction + 1;
+    const std::uint32_t runtime_count = 42;
     const std::uint32_t getter_count = 9;
     const std::uint32_t getter_base = function_count + runtime_count;
     const std::uint32_t heap_pointer_index = getter_base + getter_count;
@@ -4979,6 +5742,7 @@ inline EmittedModule emit(
         {detail::wasm_i32, detail::wasm_i32},
         {detail::wasm_i32}
     );
+    emit_type({detail::wasm_i32}, {detail::wasm_i32});
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
@@ -5156,6 +5920,11 @@ inline EmittedModule emit(
         image.null_value
     ));
     code.raw(detail::emit_permutation_reduction_function(
+        runtime.allocate,
+        runtime.make_number,
+        image.null_value
+    ));
+    code.raw(detail::emit_pairwise_system_energy_function(
         runtime.allocate,
         runtime.make_number,
         image.null_value
