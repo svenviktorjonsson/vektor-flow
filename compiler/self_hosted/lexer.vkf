@@ -161,14 +161,18 @@ _lexer_scan_number(
     fractional:bit
 ) -> Token:
     cursor.eof?
-        @: token("NUMBER", value, line, column)
+        @: token(
+            "NUMBER",
+            vkf_decimal_parse(cursor.slice(start, cursor.position)),
+            line, column
+        )
     ch: cursor.peek()
     is_digit(ch)?
         digit: _lexer_digit_value(ch)
         fractional?
             @: _lexer_scan_number(
                 cursor.advance(), start, line, column,
-                value + digit / scale, scale * 10, true
+                value * 10 + digit, scale * 10, true
             )
         @: _lexer_scan_number(
             cursor.advance(), start, line, column,
@@ -177,16 +181,20 @@ _lexer_scan_number(
     (ch = "." /\ ~fractional)?
         @: _lexer_scan_number(
             cursor.advance(), start, line, column,
-            value, 10, true
+            value, 1, true
         )
-    token("NUMBER", value, line, column)
+    token(
+        "NUMBER",
+        vkf_decimal_parse(cursor.slice(start, cursor.position)),
+        line, column
+    )
 
 number_token(source:str, start:int) -> Token:
     cursor: _lexer_cursor_at(StringCursor(source), start)
     cursor.eof?
         false?! "number start is outside the source"
     is_digit(cursor.peek())?! "number token must start with a digit"
-    _lexer_scan_number(cursor, start, cursor.line, cursor.column, 0, 10, false)
+    _lexer_scan_number(cursor, start, cursor.line, cursor.column, 0, 1, false)
 
 _lexer_skip_number(cursor:StringCursor) -> StringCursor:
     cursor.eof?
@@ -592,8 +600,20 @@ _tagged_function_punctuation_kind(ch:str) -> int:
         @: 18
     ch = "@"?
         @: 19
+    ch = "["?
+        @: 22
+    ch = "]"?
+        @: 23
+    ch = ","?
+        @: 24
     (ch = "-")?! "function token tape encountered unsupported punctuation"
     20
+
+_scan_tagged_function_string(cursor:StringCursor) -> StringCursor:
+    ~cursor.eof?! "unterminated string literal"
+    cursor.peek() = "\""?
+        @: cursor.advance()
+    _scan_tagged_function_string(cursor.advance())
 
 _scan_tagged_function_tokens(
     cursor:StringCursor, tape:TaggedTokenTape
@@ -627,6 +647,13 @@ _scan_tagged_function_tokens(
             number.value, cursor.line, cursor.column
         )
         @: _scan_tagged_function_tokens(stop, number_tape)
+    cursor.peek() = "\""?
+        string_stop: _scan_tagged_function_string(cursor.advance())
+        string_tape: _append_tagged_token(
+            tape, 25, cursor.position, string_stop.position,
+            0, cursor.line, cursor.column
+        )
+        @: _scan_tagged_function_tokens(string_stop, string_tape)
     stop: cursor.advance()
     kind_code: _tagged_function_punctuation_kind(cursor.peek())
     floor_divide: cursor.peek() = "/" /\ stop.peek() = "/"

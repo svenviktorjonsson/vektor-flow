@@ -9,7 +9,7 @@
   "sources": [
     {
       "path": "compiler/self_hosted/lexer.vkf",
-      "source_sha256": "e66f475ddfbdf81c7351d4a91a962ecc56b3e61d5364cabde1ab742b17219804",
+      "source_sha256": "14f181225e5f4a989c8519b19296c59ec68c415780be332889d6f95b70b866c0",
       "parsed_with_native_parser": true
     },
     {
@@ -34,7 +34,7 @@
     },
     {
       "path": "compiler/self_hosted/compiler.vkf",
-      "source_sha256": "ce45bc6c5d970e89ec09c834b059643ba0776db94f2682ef07032033a9200ce1",
+      "source_sha256": "0df925599fec2cbd5819d0072ce2e1305103c09c1ed1f70ffaac361219797849",
       "parsed_with_native_parser": true
     },
     {
@@ -77,5 +77,5 @@
     "compiler/self_hosted/stdlib/io.vkf"
   ],
   "source_count": 11,
-  "bundle_sha256": "5117b508e7580bbf206d3a2d2b3507e3a32fe4b7e3c8f672f7322a6bb266fce7"
+  "bundle_sha256": "eaec78e11a884c18b2e7762282991c01391577f95c422c62e5be9e73a5783b5d"
 }
