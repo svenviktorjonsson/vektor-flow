@@ -20,9 +20,11 @@ int main(int argc, char** argv) try {
     _setmode(_fileno(stderr), _O_BINARY);
 #endif
     using namespace vf::material;
-    const bool with_indexed = argc == 2 && std::string_view(argv[1]) == "--indexed";
-    const bool with_waterline = argc == 2 && std::string_view(argv[1]) == "--waterline";
-    const bool with_triangles = with_waterline || (argc == 2 && std::string_view(argv[1]) == "--triangles");
+    const bool with_indexed_waterline = argc == 2 && std::string_view(argv[1]) == "--indexed-waterline";
+    const bool with_addressed = with_indexed_waterline || (argc == 2 && std::string_view(argv[1]) == "--indexed-triangles");
+    const bool with_indexed = with_addressed || (argc == 2 && std::string_view(argv[1]) == "--indexed");
+    const bool with_waterline = with_indexed_waterline || (argc == 2 && std::string_view(argv[1]) == "--waterline");
+    const bool with_triangles = with_addressed || with_waterline || (argc == 2 && std::string_view(argv[1]) == "--triangles");
     const bool with_normals = with_indexed || with_triangles || (argc == 2 && std::string_view(argv[1]) == "--normals");
     if (argc != 1 && !with_normals) throw std::invalid_argument("terrain probe mode is invalid");
     TerrainHeightCondition condition{};
@@ -66,7 +68,8 @@ int main(int argc, char** argv) try {
         DeriveTerrainNormalsReference(terrain, std::bit_cast<double>(distance_bits)), binding));
     std::shared_ptr<const TerrainTriangulation> triangles;
     if (with_triangles) triangles = std::make_shared<const TerrainTriangulation>(
-        TriangulateTerrainCellsReference(surface, demands, cell_budget, triangle_budget));
+        with_addressed ? TriangulateTerrainAddressedCellsReference(surface, demands, cell_budget, triangle_budget) :
+            TriangulateTerrainCellsReference(surface, demands, cell_budget, triangle_budget));
     std::optional<TerrainWaterline> waterline;
     if (with_waterline) waterline = ExtractTerrainWaterlineReference(triangles, segment_budget);
     write_word(terrain->positions.size(), 8);

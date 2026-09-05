@@ -4,6 +4,7 @@
 #include <bit>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace vf::material {
@@ -62,23 +63,37 @@ inline void RequireTerrainSurfaceMaterialTruth(
 
 // Demands are externally ordered cell IDs, not a camera/error policy.
 // Bounds enclose emitted linear triangles only, not unsampled terrain relief.
-inline TerrainTriangulation TriangulateTerrainCellsReference(
+inline TerrainTriangulation TriangulateTerrainCellsKernel(
     std::shared_ptr<const TerrainSurfacePacket> surface, std::span<const std::uint64_t> demands,
-    std::size_t cell_budget, std::size_t triangle_budget
+    std::size_t cell_budget, std::size_t triangle_budget, std::uint64_t divisions
 ) {
-    const auto divisions = RequireTerrainSurfaceForTopology(surface);
-    if (surface->source->layout == TerrainSampleLayout::indexed)
-        throw std::invalid_argument("terrain indexed samples require addressed topology");
     const auto width = divisions + 1;
     if (cell_budget > 65536) throw std::range_error("terrain cell budget must be from 0 to 65536");
     if (triangle_budget > 131072) throw std::range_error("terrain triangle budget must be from 0 to 131072");
     if (demands.size() > 65536) throw std::range_error("terrain cell demand must contain at most 65536 entries");
     const auto count = std::min({demands.size(), cell_budget, triangle_budget / 2});
     TerrainTriangulation result{std::move(surface), {}, {}, count, count < demands.size()};
+    std::unordered_map<std::uint64_t, std::uint32_t> resident;
+    if (count != 0 && result.source->source->layout == TerrainSampleLayout::indexed) {
+        const auto& ids = result.source->source->sample_ids;
+        resident.reserve(ids.size());
+        for (std::size_t index = 0; index < ids.size(); ++index)
+            resident.emplace(ids[index], static_cast<std::uint32_t>(index));
+    }
     const auto corners = [&](std::uint64_t cell) {
         if (cell >= divisions * divisions) throw std::range_error("terrain cell demand exceeds tile domain");
         const auto a = (cell / divisions) * width + cell % divisions;
         const auto b = a + 1, c = a + width, d = c + 1;
+        if (result.source->source->layout == TerrainSampleLayout::indexed) {
+            std::array<std::uint32_t, 4> indices{};
+            const std::array<std::uint64_t, 4> ids{a, b, c, d};
+            for (std::size_t corner = 0; corner < ids.size(); ++corner) {
+                const auto found = resident.find(ids[corner]);
+                if (found == resident.end()) throw std::range_error("terrain demanded cell is not fully resident");
+                indices[corner] = found->second;
+            }
+            return indices;
+        }
         if (d >= result.source->vertices.size()) throw std::range_error("terrain demanded cell is not fully resident");
         return std::array<std::uint32_t, 4>{static_cast<std::uint32_t>(a), static_cast<std::uint32_t>(b),
             static_cast<std::uint32_t>(c), static_cast<std::uint32_t>(d)};
@@ -114,6 +129,26 @@ inline TerrainTriangulation TriangulateTerrainCellsReference(
         }
     }
     return result;
+}
+
+inline TerrainTriangulation TriangulateTerrainCellsReference(
+    std::shared_ptr<const TerrainSurfacePacket> surface, std::span<const std::uint64_t> demands,
+    std::size_t cell_budget, std::size_t triangle_budget
+) {
+    const auto divisions = RequireTerrainSurfaceForTopology(surface);
+    if (surface->source->layout == TerrainSampleLayout::indexed)
+        throw std::invalid_argument("terrain indexed samples require addressed topology");
+    return TriangulateTerrainCellsKernel(std::move(surface), demands, cell_budget, triangle_budget, divisions);
+}
+
+// Explicit addressed adapter. Sample IDs identify corners; output indices
+// address the retained compact vertex buffer. No geometry is regenerated.
+inline TerrainTriangulation TriangulateTerrainAddressedCellsReference(
+    std::shared_ptr<const TerrainSurfacePacket> surface, std::span<const std::uint64_t> demands,
+    std::size_t cell_budget, std::size_t triangle_budget
+) {
+    const auto divisions = RequireTerrainSurfaceForTopology(surface);
+    return TriangulateTerrainCellsKernel(std::move(surface), demands, cell_budget, triangle_budget, divisions);
 }
 
 } // namespace vf::material

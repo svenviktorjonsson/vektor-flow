@@ -37,9 +37,10 @@ function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
   if (segmentBudget !== undefined) assert.notEqual(cells, undefined, 'waterline test requires explicit cells');
   if (sampleIds !== undefined) {
     assert.notEqual(samplingDistance, undefined, 'indexed test requires explicit normal sampling distance');
-    assert.equal(cells, undefined, 'indexed topology remains unsupported');
   }
-  const native = spawnSync(executable, sampleIds !== undefined ? ['--indexed'] : segmentBudget !== undefined ? ['--waterline'] : cells !== undefined ? ['--triangles'] : samplingDistance === undefined ? [] : ['--normals'],
+  const mode = sampleIds !== undefined ? (segmentBudget !== undefined ? '--indexed-waterline' : cells !== undefined ? '--indexed-triangles' : '--indexed') :
+    segmentBudget !== undefined ? '--waterline' : cells !== undefined ? '--triangles' : samplingDistance === undefined ? undefined : '--normals';
+  const native = spawnSync(executable, mode === undefined ? [] : [mode],
     { input, timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
   if (error) {
     assert.equal(native.status, 1, `${native.error ?? ''}${native.stderr}`);
@@ -78,9 +79,11 @@ function run({ tile = [-1, 2], level = 4, budget = 289, seed = identity.seed,
   if (cells !== undefined) {
     const selected = Math.min(cells.length, cellBudget ?? cells.length, Math.floor((triangleBudget ?? cells.length * 2) / 2));
     const topology = [], minimum = [], maximum = [];
+    const resident = sampleIds === undefined ? undefined : new Map(sampleIds.slice(0, count).map((id, index) => [id, index]));
     for (const cell of cells.slice(0, selected)) {
-      const a = Math.floor(cell / divisions) * width + cell % divisions;
-      const b = a + 1, c = a + width, d = c + 1;
+      const first = Math.floor(cell / divisions) * width + cell % divisions;
+      const [a, b, c, d] = [first, first + 1, first + width, first + width + 1].map(id => resident === undefined ? id : resident.get(id));
+      assert.ok([a, b, c, d].every(index => index !== undefined), 'oracle cell must be fully resident');
       topology.push(a, c, b, b, c, d);
       for (const vertex of [a, b, c, d])
         for (let axis = 0; axis < 3; ++axis) {
@@ -158,6 +161,74 @@ test('terrain and water-level materials consume existing spatial field bytes exa
 test('sparse distant terrain samples consume the same spatial and normal bytes', () => {
   const width = 65537, a = 60000 * width + 50000;
   run({ level: 16, budget: 4, sampleIds: [a + width + 1, a, a + width, a + 1], samplingDistance: 1 / 1024 });
+});
+
+test('addressed distant cell topology maps retained sample IDs to exact compact indices', () => {
+  const width = 65537, a = 60000 * width + 50000;
+  const result = run({ level: 16, budget: 4, sampleIds: [a + width + 1, a, a + width, a + 1],
+    samplingDistance: 1 / 1024, cells: [60000 * 65536 + 50000] });
+  const offset = 20 + 4 * 52 + 72;
+  assert.deepEqual(Array.from({ length: 6 }, (_, i) => result.readUInt32LE(offset + i * 4)), [1, 2, 3, 3, 2, 0]);
+});
+
+test('addressed waterline consumes the same retained surface and level as prefix topology', () => {
+  const options = { level: 3, budget: 81, samplingDistance: 1 / 1024, correlationLength: 0.125,
+    cells: Array.from({ length: 64 }, (_, i) => i), segmentBudget: 128, waterLevel: 0 };
+  const prefix = run(options);
+  const indexed = run({ ...options, sampleIds: Array.from({ length: 81 }, (_, i) => i) });
+  assert.deepEqual(indexed.subarray(0, prefix.length), prefix);
+});
+
+test('addressed topology preserves source permutations replay seeds budgets and signed-zero bounds', () => {
+  const ids = Array.from({ length: 81 }, (_, i) => i), cells = Array.from({ length: 64 }, (_, i) => i);
+  for (const seed of [[1, 2], [67, 89]]) {
+    const options = { seed, level: 3, budget: 81, correlationLength: 0.125, samplingDistance: 1 / 1024,
+      sampleIds: ids.toReversed(), cells: cells.toReversed(), segmentBudget: 128, waterLevel: 0 };
+    const first = run(options);
+    assert.deepEqual(run(options), first);
+    for (const cellBudget of [0, 1, 7, 64])
+      for (const triangleBudget of [1, 3, 128]) run({ ...options, cellBudget, triangleBudget });
+    run({ ...options, sampleIds: [...ids.slice(17), ...ids.slice(0, 17)], waterLevel: 0.5 });
+  }
+  const options = { level: 3, budget: 81, correlationLength: 0.125, mean: -0, amplitude: 0,
+    samplingDistance: 1 / 1024, sampleIds: ids.toReversed() };
+  const offset = 20 + 81 * 52 + 24;
+  const first = run({ ...options, cells }), reversed = run({ ...options, cells: cells.toReversed() });
+  const bounds = first.subarray(offset, offset + 48);
+  assert.equal(bounds.readBigUInt64LE(8), 0x8000000000000000n);
+  assert.equal(bounds.readBigUInt64LE(32), 0n);
+  assert.deepEqual(reversed.subarray(offset, offset + 48), bounds);
+});
+
+test('addressed selected cell diagnostics remain ordered and never publish partial output', () => {
+  const width = 65537, a = 60000 * width + 50000, cell = 60000 * 65536 + 50000;
+  const options = { level: 16, budget: 4, sampleIds: [a + width + 1, a, a + width, a + 1],
+    samplingDistance: 1 / 1024, cells: [cell] };
+  for (let missing = 0; missing < 4; ++missing)
+    run({ ...options, sampleIds: options.sampleIds.filter((_, index) => index !== missing) },
+      'terrain demanded cell is not fully resident');
+  run({ ...options, cells: [cell, cell, 4294967296] }, 'terrain cell demand is duplicated');
+  run({ ...options, cells: [4294967296, cell, cell] }, 'terrain cell demand exceeds tile domain');
+  run({ ...options, cells: [cell - 1, 4294967296] }, 'terrain demanded cell is not fully resident');
+  run({ ...options, cellBudget: 65537, triangleBudget: 131073 }, 'terrain cell budget must be from 0 to 65536');
+  run({ ...options, triangleBudget: 131073 }, 'terrain triangle budget must be from 0 to 131072');
+  run({ ...options, cells: Array(65537).fill(cell), cellBudget: 0, triangleBudget: 0 },
+    'terrain cell demand must contain at most 65536 entries');
+  run({ ...options, cells: [cell, cell, 4294967296], triangleBudget: 3 });
+  run({ ...options, cells: [4294967296], triangleBudget: 1 });
+  run({ ...options, sampleIds: [], budget: 0, cells: [4294967296], cellBudget: 0 });
+});
+
+test('full addressed topology and waterline retain exact bytes within unchanged capture limits', () => {
+  const result = run({ level: 8, budget: 65536, sampleIds: Array.from({ length: 65536 }, (_, i) => 65535 - i),
+    correlationLength: 1 / 256, samplingDistance: 1 / 1024, waterLevel: 0,
+    cells: Array.from({ length: 65024 }, (_, i) => i), cellBudget: 65536, triangleBudget: 131072, segmentBudget: 65536 });
+  assert.equal(result.length, 8638572);
+  assert.equal(result.readBigUInt64LE(4968540), 65536n);
+  assert.equal(result.readUInt32LE(4968548), 1);
+  const width = 65537;
+  run({ level: 16, budget: 4, sampleIds: [65536 * width + 65536, 65535 * width + 65535,
+    65536 * width + 65535, 65535 * width + 65536], samplingDistance: 1 / 1024, cells: [4294967295] });
 });
 
 test('sparse order and replay preserve existing prefix positions normals and materials', () => {
