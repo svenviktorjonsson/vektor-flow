@@ -25,6 +25,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -2535,6 +2536,54 @@ private:
         );
     }
 
+    static bool type_pattern_matches(
+        const std::string& actual,
+        const std::string& pattern
+    ) {
+        using Validation = vkf::stat_semantics::Validation<BytecodeLoweringError>;
+        if (pattern == "any" || actual == pattern) return true;
+        const auto union_parts = Validation::split_top_level(pattern, '|');
+        if (union_parts.size() > 1) {
+            return std::any_of(union_parts.begin(), union_parts.end(), [&](const auto& part) {
+                return type_pattern_matches(actual, Validation::trim(part));
+            });
+        }
+        const auto intersection_parts = Validation::split_top_level(pattern, '&');
+        if (intersection_parts.size() > 1) {
+            return std::all_of(intersection_parts.begin(), intersection_parts.end(), [&](const auto& part) {
+                return type_pattern_matches(actual, Validation::trim(part));
+            });
+        }
+        if (pattern == "num") {
+            return actual == "int" || actual == "f32" || actual == "f64"
+                || actual == "i32" || actual == "i64";
+        }
+        const auto structural_match = [&](std::string_view prefix, char close) {
+            if (actual.rfind(prefix, 0) != 0 || pattern.rfind(prefix, 0) != 0
+                || actual.back() != close || pattern.back() != close) return false;
+            const auto actual_items = Validation::split_top_level(
+                actual.substr(prefix.size(), actual.size() - prefix.size() - 1), ',');
+            const auto pattern_items = Validation::split_top_level(
+                pattern.substr(prefix.size(), pattern.size() - prefix.size() - 1), ',');
+            if (actual_items.size() != pattern_items.size()) return false;
+            for (std::size_t index = 0; index < actual_items.size(); ++index) {
+                const auto actual_colon = Validation::find_top_level(actual_items[index], ':');
+                const auto pattern_colon = Validation::find_top_level(pattern_items[index], ':');
+                if ((actual_colon == std::string::npos) != (pattern_colon == std::string::npos)) return false;
+                if (pattern_colon != std::string::npos) {
+                    if (Validation::trim(actual_items[index].substr(0, actual_colon))
+                        != Validation::trim(pattern_items[index].substr(0, pattern_colon))) return false;
+                    if (!type_pattern_matches(
+                            Validation::trim(actual_items[index].substr(actual_colon + 1)),
+                            Validation::trim(pattern_items[index].substr(pattern_colon + 1)))) return false;
+                } else if (!type_pattern_matches(Validation::trim(actual_items[index]),
+                               Validation::trim(pattern_items[index]))) return false;
+            }
+            return true;
+        };
+        return structural_match("record{", '}') || structural_match("tuple<", '>');
+    }
+
     ValueType lower_pipe_chain(
         const vf::JsonValue::Object& object,
         FunctionState& state,
@@ -3008,6 +3057,10 @@ private:
             emit(state, Opcode::PushNull, ValueType::Dynamic);
             return ValueType::Dynamic;
         }
+        const auto& discriminant = object_of(field(object, "discriminant", context),
+            context + ".discriminant");
+        const std::string discriminant_surface = string_field(discriminant, "type",
+            context + ".discriminant");
         lower_expression(
             field(object, "discriminant", context),
             state,
@@ -3037,12 +3090,18 @@ private:
             }
 
             emit(state, Opcode::Duplicate, ValueType::Dynamic);
-            lower_expression(
-                condition,
-                state,
-                arm_context + ".condition"
-            );
-            emit(state, Opcode::Equal, ValueType::Boolean);
+            const auto& condition_object = object_of(condition, arm_context + ".condition");
+            if (string_field(condition_object, "kind", arm_context + ".condition")
+                == "type_pattern") {
+                emit(state, Opcode::Pop, ValueType::Dynamic);
+                const bool matches = type_pattern_matches(discriminant_surface,
+                    string_field(condition_object, "name", arm_context + ".condition"));
+                emit(state, Opcode::PushConstant, ValueType::Boolean,
+                    intern_constant(Constant::number_value(matches ? 1.0 : 0.0)));
+            } else {
+                lower_expression(condition, state, arm_context + ".condition");
+                emit(state, Opcode::Equal, ValueType::Boolean);
+            }
             const std::size_t next_arm =
                 state.function->instructions.size();
             emit(state, Opcode::JumpIfFalse, ValueType::Void);
