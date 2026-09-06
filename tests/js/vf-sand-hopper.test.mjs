@@ -9,6 +9,8 @@ import {
   createDrySandHopperHardwarePacketsReference,
   createDrySandRenderPacketReference,
   resetDrySandHopperReference,
+  setDrySandBaseTiltReference,
+  measureDrySandPileStabilityReference,
   runDrySandHopperTrialReference,
   stepDrySandHopperReference,
   syncDrySandRenderPacketReference,
@@ -60,6 +62,32 @@ test('settled sand forms a stable bounded repose angle', () => {
   });
   assert.ok(trial.reposeAngleDegrees >= 24 && trial.reposeAngleDegrees <= 39);
   assert.ok(trial.settledSpeedRms < 0.08);
+});
+
+test('controlled base tilt triggers an avalanche then conservatively recovers repose', () => {
+  const realize = () => {
+    const world = createDrySandHopperReference({
+      seed: 0xa71a, grainCount: 256, outletDiameterInGrains: 4.5,
+    });
+    stepDrySandHopperReference(world, 480);
+    const settled = measureDrySandPileStabilityReference(world);
+    setDrySandBaseTiltReference(world, { degrees: 12, azimuthRadians: 0 });
+    stepDrySandHopperReference(world, 96);
+    const disturbed = measureDrySandPileStabilityReference(world);
+    setDrySandBaseTiltReference(world, { degrees: 0, azimuthRadians: 0 });
+    stepDrySandHopperReference(world, 360);
+    return { world, settled, disturbed, recovered: measureDrySandPileStabilityReference(world) };
+  };
+  const first = realize(); const replay = realize();
+  assert.ok(first.disturbed.speedRms > first.settled.speedRms + 0.01);
+  assert.ok(first.disturbed.downslopeCentroid > first.settled.downslopeCentroid + 0.025);
+  assert.ok(first.disturbed.maximumHeight < first.settled.maximumHeight + first.world.diameter * 2);
+  assert.ok(first.recovered.speedRms < first.disturbed.speedRms * 0.65);
+  assert.ok(first.recovered.reposeAngleDegrees >= 24 && first.recovered.reposeAngleDegrees <= 39);
+  assert.equal(first.recovered.grainCount, first.settled.grainCount);
+  assert.equal(first.recovered.massError, 0);
+  assert.deepEqual(first.recovered, replay.recovered);
+  assert.equal(hash(first.world.state.positions), hash(replay.world.state.positions));
 });
 
 test('outlet sweep scales discharge and resolves a near-grain arch regime', () => {
@@ -296,6 +324,16 @@ test('outlet regime fixture compares blocked and flowing authoritative states in
   assert.match(scene, /outletDiameterInGrains:\s*1\.8/);
   assert.match(scene, /outletDiameterInGrains:\s*4\.2/);
   assert.match(scene, /flowDiagnostic/);
+  assert.match(scene, /unified_renderer:\s*true/);
+  assert.match(scene, /createDrySandEllipsoidRenderPacketReference/);
+  assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
+});
+
+test('avalanche fixture renders settled, tilted, and recovered canonical grain states', () => {
+  const scene = readFileSync(new URL('../fixtures/dry-sand-avalanche-scene.mjs', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../fixtures/dry-sand-avalanche.html', import.meta.url), 'utf8');
+  assert.match(scene, /setDrySandBaseTiltReference\(world,\s*\{ degrees: 12/);
+  assert.match(scene, /measureDrySandPileStabilityReference/);
   assert.match(scene, /unified_renderer:\s*true/);
   assert.match(scene, /createDrySandEllipsoidRenderPacketReference/);
   assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);

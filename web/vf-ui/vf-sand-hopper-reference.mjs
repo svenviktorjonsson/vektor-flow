@@ -132,6 +132,7 @@ export function createDrySandHopperReference({
       sizeScales: initial.sizeScales,
     }),
     maxPersistentPenetration: 0,
+    baseTilt: Object.freeze({ degrees: 0, azimuthRadians: 0, slopeX: 0, slopeY: 0, inverseNormal: 1 }),
     archLocked: false,
     _archLastDischargedCount: 0,
     _archStableSteps: 0,
@@ -151,6 +152,7 @@ export function resetDrySandHopperReference(world) {
   world.state.aggregated.fill(0);
   world.time = 0;
   world.maxPersistentPenetration = 0;
+  world.baseTilt = Object.freeze({ degrees: 0, azimuthRadians: 0, slopeX: 0, slopeY: 0, inverseNormal: 1 });
   world.archLocked = false;
   world._archLastDischargedCount = 0;
   world._archStableSteps = 0;
@@ -164,6 +166,48 @@ function grainRadius(world, index) {
   return world.radius * world.state.sizeScales[index];
 }
 
+export function setDrySandBaseTiltReference(world, { degrees = 0, azimuthRadians = 0 } = {}) {
+  const tilt = Number(degrees); const azimuth = Number(azimuthRadians);
+  if (!Number.isFinite(tilt) || Math.abs(tilt) > 28) {
+    throw new RangeError('base tilt must be finite and within +/-28 degrees');
+  }
+  if (!Number.isFinite(azimuth)) throw new RangeError('base tilt azimuth must be finite');
+  const rotateSupported = (radians, direction) => {
+    if (Math.abs(radians) < 1e-12) return;
+    const ux = Math.cos(direction); const uy = Math.sin(direction);
+    const cosine = Math.cos(radians); const sine = Math.sin(radians);
+    for (let index = 0; index < world.count; index += 1) {
+      if (!world.state.discharged[index]) continue;
+      const offset = index * 3;
+      const along = world.state.positions[offset] * ux + world.state.positions[offset + 1] * uy;
+      const acrossX = world.state.positions[offset] - along * ux;
+      const acrossY = world.state.positions[offset + 1] - along * uy;
+      const height = world.state.positions[offset + 2];
+      const rotatedAlong = cosine * along - sine * height;
+      world.state.positions[offset] = acrossX + rotatedAlong * ux;
+      world.state.positions[offset + 1] = acrossY + rotatedAlong * uy;
+      world.state.positions[offset + 2] = sine * along + cosine * height;
+      const speedAlong = world.state.velocities[offset] * ux + world.state.velocities[offset + 1] * uy;
+      const speedAcrossX = world.state.velocities[offset] - speedAlong * ux;
+      const speedAcrossY = world.state.velocities[offset + 1] - speedAlong * uy;
+      const speedHeight = world.state.velocities[offset + 2];
+      const rotatedSpeed = cosine * speedAlong - sine * speedHeight;
+      world.state.velocities[offset] = speedAcrossX + rotatedSpeed * ux;
+      world.state.velocities[offset + 1] = speedAcrossY + rotatedSpeed * uy;
+      world.state.velocities[offset + 2] = sine * speedAlong + cosine * speedHeight;
+    }
+  };
+  rotateSupported(-world.baseTilt.degrees * Math.PI / 180, world.baseTilt.azimuthRadians);
+  rotateSupported(tilt * Math.PI / 180, azimuth);
+  const slope = Math.tan(tilt * Math.PI / 180);
+  const slopeX = slope * Math.cos(azimuth); const slopeY = slope * Math.sin(azimuth);
+  world.baseTilt = Object.freeze({
+    degrees: tilt, azimuthRadians: azimuth, slopeX, slopeY,
+    inverseNormal: 1 / Math.sqrt(1 + slopeX * slopeX + slopeY * slopeY),
+  });
+  return world;
+}
+
 function projectBoundaries(world, previous) {
   const p = world.state.positions;
   const v = world.state.velocities;
@@ -172,11 +216,22 @@ function projectBoundaries(world, previous) {
     const offset = index * 3;
     const r = grainRadius(world, index);
     let x = p[offset]; let y = p[offset + 1]; let z = p[offset + 2];
-    if (z < r) {
-      maxPenetration = Math.max(maxPenetration, r - z);
-      z = r;
-      const slip = Math.max(0, 1 - world.friction * 0.15);
-      v[offset] *= slip; v[offset + 1] *= slip;
+    if (world.baseTilt.degrees === 0) {
+      if (z < r) {
+        maxPenetration = Math.max(maxPenetration, r - z);
+        z = r;
+        const slip = Math.max(0, 1 - world.friction * 0.15);
+        v[offset] *= slip; v[offset + 1] *= slip;
+      }
+    } else {
+      const { slopeX, slopeY, inverseNormal } = world.baseTilt;
+      const distance = (z - slopeX * x - slopeY * y) * inverseNormal;
+      if (distance < r) {
+        const penetration = r - distance;
+        const nx = -slopeX * inverseNormal; const ny = -slopeY * inverseNormal;
+        x += nx * penetration; y += ny * penetration; z += inverseNormal * penetration;
+        maxPenetration = Math.max(maxPenetration, penetration);
+      }
     }
     if (z >= world.hopperBottom - r && z <= world.hopperTop + r) {
       const path = Math.max(0, Math.min(1, (z - world.hopperBottom) / (world.hopperTop - world.hopperBottom)));
@@ -430,10 +485,23 @@ export function stepDrySandHopperReference(world, steps = 1) {
       v[offset] = (p[offset] - previous[offset]) / dt * 0.985;
       v[offset + 1] = (p[offset + 1] - previous[offset + 1]) / dt * 0.985;
       v[offset + 2] = (p[offset + 2] - previous[offset + 2]) / dt * 0.992;
-      if (p[offset + 2] <= radius * 1.02) {
-        v[offset] *= 0.03;
-        v[offset + 1] *= 0.03;
-        if (v[offset + 2] < 0) v[offset + 2] = 0;
+      const baseDistance = world.baseTilt.degrees === 0 ? p[offset + 2]
+        : (p[offset + 2] - world.baseTilt.slopeX * p[offset]
+          - world.baseTilt.slopeY * p[offset + 1]) * world.baseTilt.inverseNormal;
+      if (baseDistance <= radius * 1.02) {
+        if (world.baseTilt.degrees !== 0) {
+          const nx = -world.baseTilt.slopeX * world.baseTilt.inverseNormal;
+          const ny = -world.baseTilt.slopeY * world.baseTilt.inverseNormal;
+          const nz = world.baseTilt.inverseNormal;
+          const inward = Math.min(0, v[offset] * nx + v[offset + 1] * ny + v[offset + 2] * nz);
+          v[offset] -= inward * nx; v[offset + 1] -= inward * ny; v[offset + 2] -= inward * nz;
+          const retain = Math.max(0.2, 1 - world.friction * 0.6);
+          v[offset] *= retain; v[offset + 1] *= retain; v[offset + 2] *= retain;
+        } else {
+          v[offset] *= 0.03;
+          v[offset + 1] *= 0.03;
+          if (v[offset + 2] < 0) v[offset + 2] = 0;
+        }
       } else if (p[offset + 2] < world.hopperBottom) {
         v[offset] *= 0.42;
         v[offset + 1] *= 0.42;
@@ -448,7 +516,10 @@ export function stepDrySandHopperReference(world, steps = 1) {
     for (let index = 0; index < world.count; index += 1) {
       const offset = index * 3;
       const radius = grainRadius(world, index);
-      if (p[offset + 2] <= radius * 1.04) {
+      const baseDistance = world.baseTilt.degrees === 0 ? p[offset + 2]
+        : (p[offset + 2] - world.baseTilt.slopeX * p[offset]
+          - world.baseTilt.slopeY * p[offset + 1]) * world.baseTilt.inverseNormal;
+      if (baseDistance <= radius * 1.04) {
         world.state.angularVelocities[offset] *= 1 - world.rollingResistance;
         world.state.angularVelocities[offset + 1] *= 1 - world.rollingResistance;
         world.state.angularVelocities[offset + 2] *= 1 - world.rollingResistance;
@@ -541,6 +612,31 @@ function reposeAngle(world) {
   slopes.sort((a, b) => a - b);
   const middle = Math.floor(slopes.length / 2);
   return slopes.length % 2 ? slopes[middle] : (slopes[middle - 1] + slopes[middle]) * 0.5;
+}
+
+export function measureDrySandPileStabilityReference(world) {
+  let grainCount = 0; let speedSquared = 0; let downslope = 0; let maximumHeight = 0;
+  const directionX = -Math.cos(world.baseTilt.azimuthRadians);
+  const directionY = -Math.sin(world.baseTilt.azimuthRadians);
+  for (let index = 0; index < world.count; index += 1) {
+    if (!world.state.discharged[index]) continue;
+    const offset = index * 3;
+    grainCount += 1;
+    speedSquared += world.state.velocities[offset] ** 2
+      + world.state.velocities[offset + 1] ** 2 + world.state.velocities[offset + 2] ** 2;
+    downslope += world.state.positions[offset] * directionX
+      + world.state.positions[offset + 1] * directionY;
+    maximumHeight = Math.max(maximumHeight, world.state.positions[offset + 2] + grainRadius(world, index));
+  }
+  const activeCount = world.count - grainCount;
+  return Object.freeze({
+    grainCount, activeCount,
+    massError: (world.count - activeCount - grainCount) / world.count,
+    speedRms: Math.sqrt(speedSquared / Math.max(1, grainCount)),
+    downslopeCentroid: downslope / Math.max(1, grainCount),
+    maximumHeight,
+    reposeAngleDegrees: reposeAngle(world),
+  });
 }
 
 const TRIAL_CACHE = new Map();
