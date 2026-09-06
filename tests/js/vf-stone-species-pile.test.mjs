@@ -7,6 +7,7 @@ import {
 } from '../../web/vf-ui/vf-stone-species-pile.mjs';
 import {
   realizeGraniteGranularProbeReference,
+  realizeStoneSpeciesReliefProbeReference,
 } from '../../web/vf-ui/vf-granite-microrelief-reference.mjs';
 
 const hashView = (view) => createHash('sha256')
@@ -102,4 +103,24 @@ test('one individual per species retains directional fine-relief reversal', () =
     assert.ok(probe.r8MicroShadowReversalFraction > 0.20);
     assert.equal(probe.r8EmptyCoverageTileFraction, 0);
   }
+});
+
+test('each stone species owns a deterministic bounded relief spectrum', () => {
+  const pile = createStoneSpeciesPileReference();
+  const probes = pile.profiles.map((_, speciesIndex) => {
+    const identity = pile.individuals.find((item) => item.speciesIndex === speciesIndex).identity;
+    return realizeStoneSpeciesReliefProbeReference(identity, {
+      speciesIndex, resolution: 32, footprint: 0.0015,
+    });
+  });
+  const replayIdentity = pile.individuals.find((item) => item.speciesIndex === 3).identity;
+  const replay = realizeStoneSpeciesReliefProbeReference(replayIdentity, {
+    speciesIndex: 3, resolution: 32, footprint: 0.0015,
+  });
+  assert.deepEqual(probes[3], replay);
+  assert.equal(new Set(probes.map((probe) => hashView(probe.heights))).size, 5);
+  assert.ok(probes[3].transitionDensity > probes[2].transitionDensity * 1.15);
+  assert.ok(probes[2].heightDeviation < probes[0].heightDeviation * 0.75);
+  assert.ok(probes.every((probe) => probe.shadowReversalFraction > 0.08));
+  assert.ok(probes.every((probe) => probe.maximumAbsoluteHeight < 0.03));
 });

@@ -240,6 +240,83 @@ function granularHeight(node, position, footprint) {
     + graniteMicroBump(node, position, footprint);
 }
 
+export const STONE_SPECIES_RELIEF_PROFILES = Object.freeze([
+  Object.freeze({ id: 'gray-granite', frequency: 1.00, amplitude: 1.00 }),
+  Object.freeze({ id: 'red-granite', frequency: 0.92, amplitude: 0.92 }),
+  Object.freeze({ id: 'pale-quartzite', frequency: 0.72, amplitude: 0.52 }),
+  Object.freeze({ id: 'dark-basalt', frequency: 1.80, amplitude: 0.68 }),
+  Object.freeze({ id: 'banded-gneiss', frequency: 1.12, amplitude: 0.84 }),
+]);
+
+function stoneSpeciesHeight(node, position, footprint, profile) {
+  return profile.amplitude * granularHeight(
+    node,
+    position.map((value) => value * profile.frequency),
+    footprint * profile.frequency,
+  );
+}
+
+export function realizeStoneSpeciesReliefProbeReference(identity, {
+  speciesIndex,
+  resolution,
+  footprint,
+}) {
+  const profile = STONE_SPECIES_RELIEF_PROFILES[speciesIndex];
+  if (!profile) throw new RangeError('stone species index must be from 0 through 4');
+  if (!Number.isSafeInteger(resolution) || resolution < 8 || resolution > 128) {
+    throw new RangeError('stone species relief resolution must be from 8 through 128');
+  }
+  if (!Number.isFinite(footprint) || footprint < 0) {
+    throw new RangeError('stone species relief footprint must be finite and non-negative');
+  }
+  const node = nodeFor(identity);
+  const heights = new Float32Array(resolution * resolution);
+  const span = 0.16;
+  for (let y = 0; y < resolution; y += 1) for (let x = 0; x < resolution; x += 1) {
+    heights[y * resolution + x] = stoneSpeciesHeight(node, [
+      (x + 0.5) / resolution * span,
+      (y + 0.5) / resolution * span,
+      0.31,
+    ], footprint, profile);
+  }
+  const mean = heights.reduce((sum, value) => sum + value, 0) / heights.length;
+  const heightDeviation = Math.sqrt(
+    heights.reduce((sum, value) => sum + (value - mean) ** 2, 0) / heights.length,
+  );
+  let adjacentDifference = 0; let adjacentCount = 0; let reversed = 0; let maximumAbsoluteHeight = 0;
+  const horizon = (position, direction) => {
+    const origin = stoneSpeciesHeight(node, position, footprint, profile);
+    const travelStep = Math.max(0.0030 / profile.frequency, footprint * 1.2);
+    for (let step = 1; step <= MAX_HORIZON_STEPS; step += 1) {
+      const travel = step * travelStep;
+      const sample = [position[0] + direction * travel, position[1], position[2]];
+      if (stoneSpeciesHeight(node, sample, footprint, profile)
+          > origin + travel * 0.20 / 1.85 + 0.00005) return true;
+    }
+    return false;
+  };
+  for (let y = 0; y < resolution; y += 1) for (let x = 0; x < resolution; x += 1) {
+    const index = y * resolution + x;
+    maximumAbsoluteHeight = Math.max(maximumAbsoluteHeight, Math.abs(heights[index]));
+    if (x + 1 < resolution) {
+      adjacentDifference += Math.abs(heights[index] - heights[index + 1]); adjacentCount += 1;
+    }
+    if (y + 1 < resolution) {
+      adjacentDifference += Math.abs(heights[index] - heights[index + resolution]); adjacentCount += 1;
+    }
+    const position = [(x + 0.5) / resolution * span, (y + 0.5) / resolution * span, 0.31];
+    reversed += horizon(position, -1) !== horizon(position, 1) ? 1 : 0;
+  }
+  return Object.freeze({
+    kind: 'stone-species-relief-probe:v1', speciesIndex, profile,
+    heights,
+    heightDeviation,
+    maximumAbsoluteHeight,
+    transitionDensity: adjacentDifference / Math.max(heightDeviation * adjacentCount, 1e-12),
+    shadowReversalFraction: reversed / heights.length,
+  });
+}
+
 function measuredPeakStats(
   node,
   wavelength,

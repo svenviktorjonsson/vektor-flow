@@ -542,6 +542,79 @@ fn vf_granite_granular_visibility(
   }
   return 1.0;
 }
+
+fn vf_stone_species_relief_profile(species: u32) -> vec2<f32> {
+  if (species == 1u) { return vec2<f32>(0.92, 0.92); }
+  if (species == 2u) { return vec2<f32>(0.72, 0.52); }
+  if (species == 3u) { return vec2<f32>(1.80, 0.68); }
+  if (species == 4u) { return vec2<f32>(1.12, 0.84); }
+  return vec2<f32>(1.0, 1.0);
+}
+
+fn vf_stone_species_granular_height(
+  position: vec3<f32>,
+  footprint: f32,
+  species: u32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> f32 {
+  let profile = vf_stone_species_relief_profile(species);
+  return profile.y * vf_granite_granular_height(
+    position * profile.x, footprint * profile.x, counter_prefix, key,
+  );
+}
+
+fn vf_stone_species_granular_normal(
+  position: vec3<f32>,
+  footprint: f32,
+  species: u32,
+  base_normal: vec3<f32>,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> vec3<f32> {
+  let step = 0.0007;
+  let gradient = clamp(vec3<f32>(
+    vf_stone_species_granular_height(position + vec3<f32>(step, 0.0, 0.0), footprint, species, counter_prefix, key)
+      - vf_stone_species_granular_height(position - vec3<f32>(step, 0.0, 0.0), footprint, species, counter_prefix, key),
+    vf_stone_species_granular_height(position + vec3<f32>(0.0, step, 0.0), footprint, species, counter_prefix, key)
+      - vf_stone_species_granular_height(position - vec3<f32>(0.0, step, 0.0), footprint, species, counter_prefix, key),
+    vf_stone_species_granular_height(position + vec3<f32>(0.0, 0.0, step), footprint, species, counter_prefix, key)
+      - vf_stone_species_granular_height(position - vec3<f32>(0.0, 0.0, step), footprint, species, counter_prefix, key)
+  ) / (2.0 * step) * 0.28, vec3<f32>(-0.62), vec3<f32>(0.62));
+  let tangentGradient = gradient - base_normal * dot(gradient, base_normal);
+  return normalize(base_normal - tangentGradient);
+}
+
+fn vf_stone_species_granular_visibility(
+  position: vec3<f32>,
+  footprint: f32,
+  species: u32,
+  tangent_light: vec3<f32>,
+  incidence: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> f32 {
+  let profile = vf_stone_species_relief_profile(species);
+  let horizontal = length(tangent_light);
+  let fade = smoothstep(0.02, 0.10, incidence)
+    * (1.0 - smoothstep(0.48, 0.90, incidence))
+    * vf_rock_filter_weight(0.052 / profile.x, footprint);
+  if (horizontal <= 0.000001 || fade <= 0.0) { return 1.0; }
+  let direction = tangent_light / horizontal;
+  let origin = vf_stone_species_granular_height(
+    position, footprint, species, counter_prefix, key,
+  );
+  let stepDistance = max(0.0030 / profile.x, footprint * 1.20);
+  for (var stepIndex = 1u; stepIndex <= 8u; stepIndex += 1u) {
+    let travel = stepDistance * f32(stepIndex);
+    let terrain = vf_stone_species_granular_height(
+      position + direction * travel, footprint, species, counter_prefix, key,
+    );
+    let rayHeight = origin + travel * max(incidence, 0.0) / max(horizontal * 1.85, 0.08);
+    if (terrain > rayHeight + 0.00005) { return 1.0 - 0.94 * fade; }
+  }
+  return 1.0;
+}
 `;
 
 function requireRecord(record, index) {

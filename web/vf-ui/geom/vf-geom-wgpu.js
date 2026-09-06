@@ -3327,8 +3327,9 @@ fn fs(i: Vout) -> @location(0) vec4f {
     }
     var rockNormal = vfRockWorldNormal(i.normal, rock.tangent_normal);
     if (sc.rock_material_filter.w > 4.5) {
-      rockNormal = vf_granite_granular_normal(
-        graniteLocal, max(graniteFootprint, sc.rock_material_filter.x), normalize(i.normal),
+      rockNormal = vf_stone_species_granular_normal(
+        graniteLocal, max(graniteFootprint, sc.rock_material_filter.x),
+        u32(max(sc.rock_material_filter.z, 0.0)), normalize(i.normal),
         sc.rock_material_stream.xy, sc.rock_material_stream.zw,
       );
     }
@@ -3356,8 +3357,9 @@ fn fs(i: Vout) -> @location(0) vec4f {
       let incidence = max(dot(baseNormal, lightWorld), 0.0);
       let tangentWorld = lightWorld - baseNormal * dot(lightWorld, baseNormal);
       let tangentLight = tangentWorld / max(sc.rock_material_radii_enabled.xyz, vec3<f32>(0.001));
-      let visibility = vf_granite_granular_visibility(
+      let visibility = vf_stone_species_granular_visibility(
         graniteLocal, max(graniteFootprint, sc.rock_material_filter.x),
+        u32(max(sc.rock_material_filter.z, 0.0)),
         tangentLight, incidence, sc.rock_material_stream.xy, sc.rock_material_stream.zw,
       );
       let ambientFloor = rock.base_color.rgb * 0.20;

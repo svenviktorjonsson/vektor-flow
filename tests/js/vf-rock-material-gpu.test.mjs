@@ -115,13 +115,25 @@ test('main receiver shader evaluates filtered rock channels per fragment', async
   assert.match(ROCK_MATERIAL_WGSL, /position\.xy[\s\S]*position\.yz[\s\S]*position\.zx/);
   assert.match(ROCK_MATERIAL_WGSL, /vf_granite_granular_gradient/);
   assert.match(ROCK_MATERIAL_WGSL, /stepIndex <= 8u/);
-  assert.match(rendererSource, /vf_granite_granular_visibility/);
+  assert.match(rendererSource, /vf_stone_species_granular_visibility/);
   assert.match(ROCK_MATERIAL_WGSL, /feldspar/);
   assert.match(ROCK_MATERIAL_WGSL, /quartz/);
   assert.match(ROCK_MATERIAL_WGSL, /mica/);
   assert.match(rendererSource, /cavityBounce/);
   assert.match(ROCK_MATERIAL_WGSL, /vf_granite_crystal_cell/);
   assert.match(ROCK_MATERIAL_WGSL, /crystalEdge/);
+});
+
+test('stone species controls the rendered relief normal and horizon response', async () => {
+  const rendererSource = await readFile(
+    new URL('../../web/vf-ui/geom/vf-geom-wgpu.js', import.meta.url),
+    'utf8',
+  );
+  assert.match(ROCK_MATERIAL_WGSL, /vf_stone_species_relief_profile/);
+  assert.match(ROCK_MATERIAL_WGSL, /vf_stone_species_granular_normal/);
+  assert.match(ROCK_MATERIAL_WGSL, /vf_stone_species_granular_visibility/);
+  assert.match(rendererSource, /vf_stone_species_granular_normal\(/);
+  assert.match(rendererSource, /vf_stone_species_granular_visibility\(/);
 });
 
 test('rock GPU fixture packs the exact conditioned stream and CPU material oracle', () => {
