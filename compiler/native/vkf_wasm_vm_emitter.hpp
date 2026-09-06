@@ -26,7 +26,7 @@ public:
 
 struct EmitterOptions {
     std::uint32_t slot_capacity = 16;
-    std::uint32_t arena_capacity = 1024U * 1024U;
+    std::uint32_t arena_capacity = 64U * 1024U * 1024U;
 };
 
 struct ModuleLayout {

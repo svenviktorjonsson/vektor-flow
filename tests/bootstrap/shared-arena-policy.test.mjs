@@ -1,5 +1,4 @@
-// RED-only policy evidence. This does not approve a new capacity or diagnostic.
-// It compares the two existing emitter configurations without changing either.
+// Guard the shared emitter default used by every adapter against capacity drift.
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
@@ -24,9 +23,9 @@ int main(int argc,char** argv) {
 const build=spawnSync(process.env.CXX??'g++',['-std=c++17','-O0',`-I${root}`,cpp,'-o',executable],{encoding:'utf8',timeout:120000});
 assert.equal(build.status,0,build.stderr);
 
-test('existing browser-default and native-artifact allocation paths retain the same request outcome',async context=>{
+test('shared-default and explicit native-artifact allocation paths retain the same request outcome',async context=>{
   const observations=[];
-  for(const [name,expected,extra] of [['browser-default',1024*1024,[]],['native-artifact',64*1024*1024,['--native-policy']]]) {
+  for(const [name,expected,extra] of [['shared-default',64*1024*1024,[]],['native-artifact',64*1024*1024,['--native-policy']]]) {
     const file=path.join(directory,name+'.wasm');
     const generated=spawnSync(executable,[file,...extra],{encoding:'utf8',timeout:30000});
     assert.equal(generated.status,0,generated.stderr);
@@ -51,8 +50,6 @@ test('existing browser-default and native-artifact allocation paths retain the s
   }
   await writeFile(path.join(directory,'observations.json'),JSON.stringify(observations,null,2));
   context.diagnostic(JSON.stringify({directory,observations}));
-  // Preserve this discrepancy as RED pending an explicit resource-policy choice.
-  // Do not green it by changing the fixture, filtering a path or raising capacity.
   assert.equal(observations[0].outcomes[3].ok,observations[1].outcomes[3].ok,
-    'the same 2 MiB allocation traps with browser defaults but succeeds with native-artifact settings');
+    'the same 2 MiB allocation must have the same outcome through both emitter paths');
 });

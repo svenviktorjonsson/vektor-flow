@@ -52,6 +52,7 @@ for (const [id,example,stdout] of [
   [16,'33-loops','10\n2\n'],
   [18,'13-updates-aliases','[3, 4]\n(x:5, y:6, name:my point)\n'],
   [19,'11b-multidimensional-indexing','11\n11\n[1, 13, 21]\n[[2, 12], [22, 32]]\n'],
+  [20,'36-pipe-blocks','[1, 20, 3, 4]\n'],
 ]) {
   test(`unchanged ${example} guide preserves compiler-owned pipe result shape`,async()=>{
     const [wasm,source]=await Promise.all([

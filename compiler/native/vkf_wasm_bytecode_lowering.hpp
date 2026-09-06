@@ -248,6 +248,11 @@ private:
             std::uint32_t continue_target = 0;
             std::vector<std::size_t> break_jumps;
         };
+        struct PipeControl {
+            std::uint32_t value_local = 0;
+            ValueType value_type = ValueType::Dynamic;
+            std::vector<std::size_t> return_jumps;
+        };
         Function* function = nullptr;
         std::map<std::string, std::uint32_t> locals;
         std::string context;
@@ -257,6 +262,7 @@ private:
         const vf::JsonValue::Object* forwarded_named_call = nullptr;
         std::optional<std::uint32_t> forwarded_named_local;
         std::vector<LoopControl> loop_controls;
+        std::vector<PipeControl> pipe_controls;
     };
 
     struct PendingDefaultThunk {
@@ -852,6 +858,18 @@ private:
         }
         if (kind == "return") {
             const auto* value = optional_field(object, "value");
+            if (!state.pipe_controls.empty()) {
+                const auto value_type = value != nullptr
+                    ? lower_expression(*value, state, context + ".value")
+                    : ValueType::Dynamic;
+                if (value == nullptr) emit(state, Opcode::PushNull, ValueType::Dynamic);
+                emit(state, Opcode::StoreLocal, value_type,
+                    state.pipe_controls.back().value_local);
+                state.pipe_controls.back().return_jumps.push_back(
+                    state.function->instructions.size());
+                emit(state, Opcode::Jump, ValueType::Void);
+                return;
+            }
             if (value != nullptr) {
                 lower_expression(*value, state, context + ".value");
             } else if (state.function->return_type != ValueType::Void) {
@@ -2836,13 +2854,23 @@ private:
                 const bool had_previous_dollar = previous_dollar != state.locals.end();
                 const auto previous_dollar_index = had_previous_dollar ? previous_dollar->second : 0;
                 state.locals["$"] = scalar;
-                const auto segment_type = lower_expression(segments[segment_index], state,
+                const auto segment_type = expression_type(object_of(segments[segment_index],
+                    context + ".segments[" + std::to_string(segment_index) + "]"), context);
+                const auto segment_value = add_temporary_local(state, segment_type);
+                state.loop_controls.push_back({loop_start, {}});
+                state.pipe_controls.push_back({segment_value, segment_type, {}});
+                const auto lowered_segment_type = lower_expression(segments[segment_index], state,
                     context + ".segments[" + std::to_string(segment_index) + "]");
-                if (segment_type != ValueType::String) {
+                if (lowered_segment_type != ValueType::String) {
                     throw BytecodeLoweringError("string pipe segment must produce text in " + context);
                 }
-                const auto segment_value = add_temporary_local(state, ValueType::String);
                 emit(state, Opcode::StoreLocal, ValueType::String, segment_value);
+                const auto segment_done = checked_index(state.function->instructions.size(),
+                    "string pipe segment continuation");
+                emit(state, Opcode::Nop, ValueType::Void);
+                auto pipe_control = std::move(state.pipe_controls.back());
+                state.pipe_controls.pop_back();
+                for (const auto jump : pipe_control.return_jumps) patch_jump(state, jump, segment_done);
                 emit(state, Opcode::LoadLocal, ValueType::String, output);
                 emit(state, Opcode::LoadLocal, ValueType::String, segment_value);
                 emit(state, Opcode::StringConcat, ValueType::String);
@@ -2858,6 +2886,9 @@ private:
                     "string pipe continuation");
                 emit(state, Opcode::Nop, ValueType::Void);
                 patch_jump(state, loop_end_jump, loop_end);
+                auto loop_control = std::move(state.loop_controls.back());
+                state.loop_controls.pop_back();
+                for (const auto jump : loop_control.break_jumps) patch_jump(state, jump, loop_end);
                 current = output;
             }
             emit(state, Opcode::LoadLocal, ValueType::String, current);
@@ -2867,6 +2898,9 @@ private:
         std::size_t first_segment = 0;
 
         if (source_kind == "range") {
+            const auto* infinite_field = optional_field(source, "infinite");
+            const bool infinite = infinite_field != nullptr && infinite_field->is_boolean()
+                && infinite_field->as_boolean();
             const auto cursor = add_temporary_local(state, ValueType::Number);
             const auto end = add_temporary_local(state, ValueType::Number);
             const auto direction = add_temporary_local(state, ValueType::Number);
@@ -2879,16 +2913,19 @@ private:
                 context + ".source.start"
             );
             emit(state, Opcode::StoreLocal, ValueType::Number, cursor);
-            lower_expression(
-                field(source, "end", context + ".source"),
-                state,
-                context + ".source.end"
-            );
-            emit(state, Opcode::StoreLocal, ValueType::Number, end);
+            if (!infinite) {
+                lower_expression(field(source, "end", context + ".source"), state,
+                    context + ".source.end");
+                emit(state, Opcode::StoreLocal, ValueType::Number, end);
+            }
 
-            emit(state, Opcode::LoadLocal, ValueType::Number, end);
-            emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
-            emit(state, Opcode::GreaterEqual, ValueType::Boolean);
+            if (!infinite) {
+                emit(state, Opcode::LoadLocal, ValueType::Number, end);
+                emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
+                emit(state, Opcode::GreaterEqual, ValueType::Boolean);
+            } else {
+                emit_number(state, 1.0);
+            }
             const std::size_t descending_jump =
                 state.function->instructions.size();
             emit(state, Opcode::JumpIfFalse, ValueType::Void);
@@ -2911,13 +2948,17 @@ private:
             patch_jump(state, descending_jump, descending_target);
             patch_jump(state, direction_end_jump, direction_end);
 
-            emit(state, Opcode::LoadLocal, ValueType::Number, end);
-            emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
-            emit(state, Opcode::Subtract, ValueType::Number);
-            emit(state, Opcode::LoadLocal, ValueType::Number, direction);
-            emit(state, Opcode::Multiply, ValueType::Number);
-            emit_number(state, 1.0);
-            emit(state, Opcode::Add, ValueType::Number);
+            if (!infinite) {
+                emit(state, Opcode::LoadLocal, ValueType::Number, end);
+                emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
+                emit(state, Opcode::Subtract, ValueType::Number);
+                emit(state, Opcode::LoadLocal, ValueType::Number, direction);
+                emit(state, Opcode::Multiply, ValueType::Number);
+                emit_number(state, 1.0);
+                emit(state, Opcode::Add, ValueType::Number);
+            } else {
+                emit_number(state, 0.0);
+            }
             emit(state, Opcode::AllocateArray, ValueType::Array);
             emit(state, Opcode::StoreLocal, ValueType::Array, current_array);
             emit_number(state, 0.0);
@@ -2927,16 +2968,18 @@ private:
                 state.function->instructions.size(),
                 "range pipe loop"
             );
-            emit(state, Opcode::LoadLocal, ValueType::Number, end);
-            emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
-            emit(state, Opcode::Subtract, ValueType::Number);
-            emit(state, Opcode::LoadLocal, ValueType::Number, direction);
-            emit(state, Opcode::Multiply, ValueType::Number);
-            emit_number(state, 0.0);
-            emit(state, Opcode::GreaterEqual, ValueType::Boolean);
-            const std::size_t loop_end_jump =
-                state.function->instructions.size();
-            emit(state, Opcode::JumpIfFalse, ValueType::Void);
+            std::optional<std::size_t> loop_end_jump;
+            if (!infinite) {
+                emit(state, Opcode::LoadLocal, ValueType::Number, end);
+                emit(state, Opcode::LoadLocal, ValueType::Number, cursor);
+                emit(state, Opcode::Subtract, ValueType::Number);
+                emit(state, Opcode::LoadLocal, ValueType::Number, direction);
+                emit(state, Opcode::Multiply, ValueType::Number);
+                emit_number(state, 0.0);
+                emit(state, Opcode::GreaterEqual, ValueType::Boolean);
+                loop_end_jump = state.function->instructions.size();
+                emit(state, Opcode::JumpIfFalse, ValueType::Void);
+            }
 
             const auto previous_dollar = state.locals.find("$");
             const bool had_previous_dollar = previous_dollar != state.locals.end();
@@ -2944,17 +2987,33 @@ private:
                 ? previous_dollar->second
                 : 0;
             state.locals["$"] = cursor;
-            const ValueType segment_type = lower_expression(
+            const auto segment_type = expression_type(
+                object_of(segments.front(), context + ".segments[0]"),
+                context + ".segments[0]");
+            const auto segment_value = add_temporary_local(state, segment_type);
+            state.loop_controls.push_back({loop_start, {}});
+            state.pipe_controls.push_back({segment_value, segment_type, {}});
+            const ValueType lowered_segment_type = lower_expression(
                 segments.front(),
                 state,
                 context + ".segments[0]"
             );
-            const auto segment_value = add_temporary_local(state, segment_type);
-            emit(state, Opcode::StoreLocal, segment_type, segment_value);
+            emit(state, Opcode::StoreLocal, lowered_segment_type, segment_value);
+            const auto segment_done = checked_index(state.function->instructions.size(),
+                "pipe segment continuation");
+            emit(state, Opcode::Nop, ValueType::Void);
+            auto pipe_control = std::move(state.pipe_controls.back());
+            state.pipe_controls.pop_back();
+            for (const auto jump : pipe_control.return_jumps) patch_jump(state, jump, segment_done);
             emit(state, Opcode::LoadLocal, ValueType::Array, current_array);
-            emit(state, Opcode::LoadLocal, ValueType::Number, output_index);
+            if (!infinite) emit(state, Opcode::LoadLocal, ValueType::Number, output_index);
             emit(state, Opcode::LoadLocal, segment_type, segment_value);
-            emit(state, Opcode::ArraySet, ValueType::Array);
+            if (infinite) {
+                emit(state, Opcode::MakeArray, ValueType::Array, 1);
+                emit(state, Opcode::ArrayConcat, ValueType::Array);
+            } else {
+                emit(state, Opcode::ArraySet, ValueType::Array);
+            }
             emit(state, Opcode::StoreLocal, ValueType::Array, current_array);
             if (had_previous_dollar) {
                 state.locals["$"] = previous_dollar_index;
@@ -2976,7 +3035,10 @@ private:
                 "range pipe continuation"
             );
             emit(state, Opcode::Nop, ValueType::Void);
-            patch_jump(state, loop_end_jump, loop_end);
+            if (loop_end_jump) patch_jump(state, *loop_end_jump, loop_end);
+            auto loop_control = std::move(state.loop_controls.back());
+            state.loop_controls.pop_back();
+            for (const auto jump : loop_control.break_jumps) patch_jump(state, jump, loop_end);
             (void)segment_type;
             first_segment = 1;
         } else {
@@ -3028,13 +3090,23 @@ private:
                 ? previous_dollar->second
                 : 0;
             state.locals["$"] = current_value;
-            const ValueType segment_type = lower_expression(
+            const auto segment_type = expression_type(object_of(segments[segment_index],
+                context + ".segments[" + std::to_string(segment_index) + "]"), context);
+            const auto segment_value = add_temporary_local(state, segment_type);
+            state.loop_controls.push_back({loop_start, {}});
+            state.pipe_controls.push_back({segment_value, segment_type, {}});
+            const ValueType lowered_segment_type = lower_expression(
                 segments[segment_index],
                 state,
                 context + ".segments[" + std::to_string(segment_index) + "]"
             );
-            const auto segment_value = add_temporary_local(state, segment_type);
-            emit(state, Opcode::StoreLocal, segment_type, segment_value);
+            emit(state, Opcode::StoreLocal, lowered_segment_type, segment_value);
+            const auto segment_done = checked_index(state.function->instructions.size(),
+                "array pipe segment continuation");
+            emit(state, Opcode::Nop, ValueType::Void);
+            auto pipe_control = std::move(state.pipe_controls.back());
+            state.pipe_controls.pop_back();
+            for (const auto jump : pipe_control.return_jumps) patch_jump(state, jump, segment_done);
             emit(state, Opcode::LoadLocal, ValueType::Array, output_array);
             emit(state, Opcode::LoadLocal, ValueType::Number, index);
             emit(state, Opcode::LoadLocal, segment_type, segment_value);
@@ -3057,6 +3129,9 @@ private:
             );
             emit(state, Opcode::Nop, ValueType::Void);
             patch_jump(state, loop_end_jump, loop_end);
+            auto loop_control = std::move(state.loop_controls.back());
+            state.loop_controls.pop_back();
+            for (const auto jump : loop_control.break_jumps) patch_jump(state, jump, loop_end);
             current_array = output_array;
         }
 
