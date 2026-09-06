@@ -34,8 +34,21 @@
       import {
         adaptEllipsoidWorkingSetToRetainedGeometryPacketsReference,
       } from '../../web/vf-ui/vf-rock-renderer-packets.mjs';
+      import {
+        adaptRockMaterialToRendererPacketReference,
+        createRockMaterialFieldReference,
+      } from '../../web/vf-ui/vf-rock-material-field.mjs';
 
       const frameId = 'rock_renderer_packet_frame';
+      const materialIdentity = Object.freeze({
+        generator: 'vkf.conditioned',
+        version: 1,
+        seed: Object.freeze([0x01234567, 0x89abcdef]),
+        domain: 'material',
+        hierarchy: Object.freeze(['world:alpine', 'rock:webgpu-demo']),
+        lod: 0,
+        channel: 'surface',
+      });
       const demand = (face, error) => Object.freeze({
         face,
         silhouette: true,
@@ -50,7 +63,7 @@
         const layer = document.getElementById('layer');
         const panel = window.VfFrame.mount(layer, {
           id: frameId,
-          title: 'Retained rock packets',
+          title: 'Procedural rock material',
           draggable: false,
           dockable: false,
           resizable: false,
@@ -74,13 +87,37 @@
           working,
           null,
         );
+        const materialField = createRockMaterialFieldReference(materialIdentity);
+        const materialPackets = adapted.packets.map((packet) => (
+          adaptRockMaterialToRendererPacketReference(packet, materialField, {
+            radii: coarse.radii,
+            detailLevel: packet === adapted.coarse ? 0 : 1,
+            footprint: 0.08,
+          })
+        ));
+        const span = (values) => Math.max(...values) - Math.min(...values);
+        const baseColors = materialPackets.flatMap((packet) => (
+          Array.from(packet.vertices).filter((_, index) => index % 10 >= 6 && index % 10 <= 8)
+        ));
+        const roughness = materialPackets.flatMap((packet) => (
+          Array.from(packet.material_channels.roughness)
+        ));
+        const displacement = materialPackets.flatMap((packet) => (
+          Array.from(packet.material_channels.displacement)
+        ));
         window.__rockRendererPacketEvidence = {
           ids: adapted.packets.map(({ id }) => id),
           objectIds: adapted.packets.map(({ object_id: objectId }) => objectId),
           upload: adapted.delta.upload,
+          proceduralMaterial: {
+            channelKind: materialPackets[0].material_channels.kind,
+            baseColorSpan: span(baseColors),
+            roughnessSpan: span(roughness),
+            displacementSpan: span(displacement),
+          },
         };
         window.VfDisplay.mountDynamicGeomFrame(frameId, () => ({
-          meshes: adapted.packets,
+          meshes: materialPackets,
           camera: {
             pos: [7, -7, 5],
             target: [0, 0, 0],
@@ -93,7 +130,7 @@
             pos: [4, -5, 7],
             target: [0, 0, 0],
             color: [1, 0.94, 0.82, 1],
-            intensity: 14,
+            intensity: 35,
             range: 20,
           }],
           background: [0.035, 0.05, 0.075, 1],

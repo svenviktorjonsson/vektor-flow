@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import {
   createCoarseEllipsoidReference,
@@ -297,4 +298,16 @@ test('field-mesh packing pins positions, normals, colors, and triangle winding',
     assert.equal(packet.receives_shadow, true);
     assert.ok([...packet.vertices].every(Number.isFinite));
   }
+});
+
+test('WebGPU smoke fixture renders the existing procedural rock material packets', async () => {
+  const source = await readFile(new URL(
+    '../fixtures/rock-renderer-packet-smoke.html',
+    import.meta.url,
+  ), 'utf8');
+  assert.match(source, /createRockMaterialFieldReference/u);
+  assert.match(source, /adaptRockMaterialToRendererPacketReference/u);
+  assert.match(source, /meshes:\s*materialPackets/u);
+  assert.match(source, /proceduralMaterial:\s*\{/u);
+  assert.match(source, /channelKind:\s*materialPackets\[0\]\.material_channels\.kind/u);
 });
