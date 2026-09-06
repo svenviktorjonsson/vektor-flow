@@ -698,7 +698,11 @@ parse_tagged_binary_result(
     start: location(left.file, left.line, left.column)
     stop: location(right.file, right.line, right.column)
     expression: parse_tagged_binary_expression(left, operator, right)
-    parsed_module: module_node([expression], span(start, stop))
+    parsed_module: (
+        kind:"module",
+        body:[expression],
+        span:span(start, stop)
+    )
     (module:parsed_module, diagnostics:[])
 
 append_tagged_binary_statement(
@@ -1545,6 +1549,25 @@ native_parser_smoke_capability:
     unsupported: ["bind annotation answer:num: 42 because bootstrap parser does not support that exact shape"]
     errors: ["unsupported token diagnostic includes file line column"]
     :
+
+parse_module_from_cursor(
+    left:TaggedParseCursor,
+    operator:TaggedParseCursor,
+    right:TaggedParseCursor
+) -> TaggedSingleStatementResult:
+    valid_shape: (left.kind = "IDENT" /\ left.value_tag = "text" /\
+        operator.kind = "PLUS" /\ operator.value_tag = "null" /\
+        right.kind = "NUMBER" /\ right.value_tag = "number")
+    valid_shape?! "tagged parser expression cursor expects IDENT PLUS NUMBER"
+    start: location(left.file, left.line, left.column)
+    stop: location(right.file, right.line, right.column)
+    expression: parse_tagged_binary_expression(left, operator, right)
+    parsed_module: (
+        kind:"module",
+        body:[expression],
+        span:span(start, stop)
+    )
+    (module:parsed_module, diagnostics:[])
 
 parse_module_from_cursor(cursor:ParseCursor):
     first: peek(cursor)
