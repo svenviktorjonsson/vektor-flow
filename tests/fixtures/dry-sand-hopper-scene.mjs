@@ -4,12 +4,20 @@ import {
   stepDrySandHopperReference,
   syncDrySandRenderPacketReference,
 } from '../../web/vf-ui/vf-sand-hopper-reference.mjs';
+import {
+  createDrySandAggregateReference,
+  createDrySandAggregateRenderPacketReference,
+  settleDrySandIntoAggregateReference,
+  stepDrySandBcreReference,
+} from '../../web/vf-ui/vf-sand-aggregate-reference.mjs';
 
 const frameId = 'dry_sand_hopper_frame';
 const world = createDrySandHopperReference({
-  seed: 0x5a17, grainCount: 640, outletDiameterInGrains: 4.2, fillHeightInGrains: 24,
+  seed: 0x5a17, grainCount: 320, outletDiameterInGrains: 4.2, fillHeightInGrains: 18,
 });
 const grains = createDrySandRenderPacketReference(world);
+const aggregate = createDrySandAggregateReference(world, { resolution: 33, extent: 1.0 });
+let aggregatePacket = createDrySandAggregateRenderPacketReference(aggregate, { distance: 2 });
 
 function funnelMesh() {
   const segments = 64; const vertices = new Float32Array((segments + 1) * 2 * 10);
@@ -61,12 +69,15 @@ try {
   });
   panel.root.style.left = '2%'; panel.root.style.top = '2%';
   panel.root.style.width = '96%'; panel.root.style.height = '96%';
-  stepDrySandHopperReference(world, 54);
-  window.__drySandEvidence = { world, grains, frames: 0, wgpuErrors: [] };
+  stepDrySandHopperReference(world, 200);
+  settleDrySandIntoAggregateReference(world, aggregate, { speedThreshold: 0.08 });
+  stepDrySandBcreReference(aggregate, 20);
+  window.__drySandEvidence = { world, aggregate, grains, frames: 0, wgpuErrors: [] };
   window.VfDisplay.mountDynamicGeomFrame(frameId, () => {
     syncDrySandRenderPacketReference(world, grains);
+    aggregatePacket = createDrySandAggregateRenderPacketReference(aggregate, { distance: 2 });
     return {
-      meshes: [ground, grains, funnelMesh()],
+      meshes: [ground, aggregatePacket, grains, funnelMesh()],
       camera: { pos: [3.0, -4.8, 3.0], target: [0, 0, 1.03], up: [0, 0, 1], fov: 32 },
       lights: [
         { id: 'sand_key', kind: 'point', pos: [3, -3, 5], target: [0, 0, 0.8], color: [1, 0.88, 0.68, 1], intensity: 48, range: 16 },
@@ -76,8 +87,10 @@ try {
     };
   });
   const advance = () => {
-    if (window.__drySandEvidence.frames < 300) {
+    if (window.__drySandEvidence.frames < 60) {
       stepDrySandHopperReference(world, 1);
+      settleDrySandIntoAggregateReference(world, aggregate, { speedThreshold: 0.08 });
+      stepDrySandBcreReference(aggregate, 1);
       window.__drySandEvidence.frames += 1;
       window.VfDisplay.requestDynamicGeomFrameUpdate(frameId);
       requestAnimationFrame(advance);

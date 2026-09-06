@@ -92,6 +92,7 @@ export function createDrySandHopperReference({
     aspects: initial.aspects.slice(),
     discharged: new Uint8Array(count),
     dischargedAt: new Float32Array(count).fill(-1),
+    aggregated: new Uint8Array(count),
   };
   return {
     kind: 'dry-sand-hopper-reference:v1', seed: seed >>> 0, count,
@@ -118,6 +119,7 @@ export function resetDrySandHopperReference(world) {
   world.state.aspects.set(world.initial.aspects);
   world.state.discharged.fill(0);
   world.state.dischargedAt.fill(-1);
+  world.state.aggregated.fill(0);
   world.time = 0;
   world.maxPersistentPenetration = 0;
   world.archLocked = false;
@@ -457,7 +459,7 @@ export function syncDrySandRenderPacketReference(world, packet) {
     instances[target] = world.state.positions[source];
     instances[target + 1] = world.state.positions[source + 1];
     instances[target + 2] = world.state.positions[source + 2];
-    instances[target + 3] = world.radius * (world.state.aspects[source]
+    instances[target + 3] = world.state.aggregated[index] ? 0 : world.radius * (world.state.aspects[source]
       + world.state.aspects[source + 1] + world.state.aspects[source + 2]) / 3;
   }
   return packet;
