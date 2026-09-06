@@ -10,6 +10,7 @@ import {
   createDrySandObstacleRenderPacketReference,
   createDrySandRenderPacketReference,
   resetDrySandHopperReference,
+  removeDrySandReceivingObstacleReference,
   setDrySandBaseTiltReference,
   measureDrySandPileStabilityReference,
   measureDrySandPileInteractionReference,
@@ -62,6 +63,32 @@ test('receiving obstacle packet renders the exact configured collision ellipsoid
   assert.ok(packet.vertices.every(Number.isFinite));
 });
 
+test('removing a supporting obstacle conserves and deterministically relaxes the pile', () => {
+  const realize = () => {
+    const world = createDrySandHopperReference({
+      seed: 0xb01e, grainCount: 256, outletDiameterInGrains: 4.5,
+    });
+    setDrySandReceivingObstacleReference(world, {
+      center: [0, 0, 0.13], radii: [0.23, 0.18, 0.13],
+    });
+    stepDrySandHopperReference(world, 600);
+    const supported = measureDrySandPileStabilityReference(world);
+    removeDrySandReceivingObstacleReference(world);
+    stepDrySandHopperReference(world, 120);
+    const collapsing = measureDrySandPileStabilityReference(world);
+    stepDrySandHopperReference(world, 360);
+    return { world, supported, collapsing, settled: measureDrySandPileStabilityReference(world) };
+  };
+  const first = realize(); const replay = realize();
+  assert.ok(first.collapsing.maximumHeight < first.supported.maximumHeight - 0.015);
+  assert.ok(first.settled.maximumHeight < first.supported.maximumHeight - 0.04);
+  assert.ok(first.settled.speedRms < first.supported.speedRms);
+  assert.equal(first.settled.grainCount, 256);
+  assert.equal(first.settled.massError, 0);
+  assert.deepEqual(first.settled, replay.settled);
+  assert.equal(hash(first.world.state.positions), hash(replay.world.state.positions));
+});
+
 test('obstacle interaction fixture renders canonical collision and grain state in WebGPU', () => {
   const scene = readFileSync(new URL('../fixtures/dry-sand-obstacle-interaction-scene.mjs', import.meta.url), 'utf8');
   const html = readFileSync(new URL('../fixtures/dry-sand-obstacle-interaction.html', import.meta.url), 'utf8');
@@ -69,6 +96,16 @@ test('obstacle interaction fixture renders canonical collision and grain state i
   assert.match(scene, /createDrySandObstacleRenderPacketReference/);
   assert.match(scene, /syncDrySandEllipsoidRenderPacketReference/);
   assert.match(scene, /unified_renderer:\s*true/);
+  assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
+});
+
+test('support-removal fixture renders supported and collapsed canonical states', () => {
+  const scene = readFileSync(new URL('../fixtures/dry-sand-support-removal-scene.mjs', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../fixtures/dry-sand-support-removal.html', import.meta.url), 'utf8');
+  assert.match(scene, /removeDrySandReceivingObstacleReference/);
+  assert.match(scene, /phase === 'removed'/);
+  assert.match(scene, /unified_renderer:\s*true/);
+  assert.match(scene, /syncDrySandEllipsoidRenderPacketReference/);
   assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
 });
 

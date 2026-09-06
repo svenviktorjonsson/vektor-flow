@@ -180,6 +180,11 @@ export function setDrySandReceivingObstacleReference(world, { center, radii } = 
   return world;
 }
 
+export function removeDrySandReceivingObstacleReference(world) {
+  world.receivingObstacle = null;
+  return world;
+}
+
 function grainRadius(world, index) {
   return world.radius * world.state.sizeScales[index];
 }
