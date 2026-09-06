@@ -179,6 +179,34 @@ TypedTaggedScalarExpression: (
     type:str,
     span:TaggedAstSpan
 )
+TypedTaggedConcreteModule: (
+    kind:str,
+    source:str,
+    token_rows:[num],
+    token_count:int,
+    node_rows:[num],
+    node_count:int,
+    block_rows:[num],
+    block_count:int,
+    payload_rows:[num],
+    span:TaggedAstSpan
+)
+TypedTaggedConcreteNode: (
+    kind:str,
+    expression_kind:str,
+    order:int,
+    depth:int,
+    parent_order:int,
+    identifier_count:num,
+    first_text:str,
+    second_text:str,
+    third_text:str,
+    op:str,
+    has_number:bit,
+    value:num,
+    type:str,
+    span:TaggedAstSpan
+)
 TypedTaggedStoreBinding: (
     kind:str,
     name:str,
@@ -502,7 +530,7 @@ typed_tagged_cursor_numeric_expression(
     )
 
 typed_tagged_scalar_expression_kind(
-    identifier_count:int, operator_kind:str
+    identifier_count:num, operator_kind:str
 ) -> str:
     (identifier_count = 0 /\ operator_kind = "UNKNOWN")?
         @: "const"
@@ -538,6 +566,140 @@ typed_tagged_cursor_scalar_expression(
         span:(
             start:(file:file, line:start_line, column:start_column),
             stop:(file:file, line:stop_line, column:stop_column)
+        )
+    )
+
+typed_tagged_cursor_operator_kind(kind_code:num) -> str:
+    kind_code??
+        2 => "PLUS"
+        7 => "STAR"
+        8 => "MINUS"
+        9 => "SLASH"
+        10 => "PERCENT"
+        11 => "CARET"
+        12 => "FLOORDIV"
+        "UNKNOWN"
+
+typed_tagged_concrete_kind(kind_code:num) -> str:
+    kind_code??
+        1 => "import"
+        2 => "function"
+        3 => "expr_stmt"
+        4 => "expr_stmt"
+        5 => "store_binding"
+        "unsupported"
+
+typed_tagged_concrete_type(kind_code:num, has_number:num) -> str:
+    (kind_code = 5 /\ has_number = 1)?
+        @: "int"
+    kind_code??
+        1 => "module"
+        2 => "function"
+        3 => "num"
+        4 => "unresolved"
+        5 => "unresolved"
+        "unsupported"
+
+typed_tagged_concrete_expression_kind(
+    statement_code:num, identifier_count:num, operator_code:num
+) -> str:
+    statement_code = 3?
+        @: typed_tagged_scalar_expression_kind(
+            identifier_count,
+            typed_tagged_cursor_operator_kind(operator_code)
+        )
+    statement_code = 4?
+        @: "call"
+    "none"
+
+typed_tagged_cursor_concrete_module(
+    source:str, token_rows:[num], token_count:int,
+    node_rows:[num], node_count:int,
+    block_rows:[num], block_count:int, payload_rows:[num],
+    file:str, start_line:num, start_column:num,
+    stop_line:num, stop_column:num
+) -> TypedTaggedConcreteModule:
+    (token_rows.length() = token_count * 6)?! "concrete typed token arena has an invalid shape"
+    (node_rows.length() = node_count * 10)?! "concrete typed node arena has an invalid shape"
+    (block_rows.length() = block_count * 8)?! "concrete typed block arena has an invalid shape"
+    (payload_rows.length() = node_count * 7)?! "concrete typed payload arena has an invalid shape"
+    (
+        kind:"typed_module",
+        source:source,
+        token_rows:token_rows,
+        token_count:token_count,
+        node_rows:node_rows,
+        node_count:node_count,
+        block_rows:block_rows,
+        block_count:block_count,
+        payload_rows:payload_rows,
+        span:(
+            start:(file:file, line:start_line, column:start_column),
+            stop:(file:file, line:stop_line, column:stop_column)
+        )
+    )
+
+typed_tagged_concrete_payload_text(
+    module:TypedTaggedConcreteModule, token_index:num
+) -> str:
+    token_index < 0?
+        @: vkf_utf8_slice(module.source, 0, 0)
+    token_offset: token_index * 6
+    vkf_utf8_slice(
+        module.source,
+        module.token_rows.(token_offset + 1),
+        module.token_rows.(token_offset + 2)
+    )
+
+typed_tagged_cursor_concrete_node(
+    module:TypedTaggedConcreteModule, index:int
+) -> TypedTaggedConcreteNode:
+    (index >= 0 /\ index < module.node_count)?! "concrete typed node index is out of bounds"
+    node_offset: index * 10
+    payload_offset: index * 7
+    statement_code: module.node_rows.(node_offset + 3)
+    kind: typed_tagged_concrete_kind(statement_code)
+    type: typed_tagged_concrete_type(
+        statement_code, module.payload_rows.(payload_offset + 5)
+    )
+    (kind != "unsupported" /\ type != "unsupported")?! "concrete typed node has an unsupported statement kind"
+    (
+        kind:kind,
+        expression_kind:typed_tagged_concrete_expression_kind(
+            statement_code,
+            module.payload_rows.(payload_offset),
+            module.payload_rows.(payload_offset + 4)
+        ),
+        order:index,
+        depth:module.node_rows.(node_offset + 4),
+        parent_order:module.node_rows.(node_offset + 5),
+        identifier_count:module.payload_rows.(payload_offset),
+        first_text:typed_tagged_concrete_payload_text(
+            module, module.payload_rows.(payload_offset + 1)
+        ),
+        second_text:typed_tagged_concrete_payload_text(
+            module, module.payload_rows.(payload_offset + 2)
+        ),
+        third_text:typed_tagged_concrete_payload_text(
+            module, module.payload_rows.(payload_offset + 3)
+        ),
+        op:typed_tagged_cursor_operator_kind(
+            module.payload_rows.(payload_offset + 4)
+        ),
+        has_number:module.payload_rows.(payload_offset + 5),
+        value:module.payload_rows.(payload_offset + 6),
+        type:type,
+        span:(
+            start:(
+                file:module.span.start.file,
+                line:module.node_rows.(node_offset + 6),
+                column:module.node_rows.(node_offset + 7)
+            ),
+            stop:(
+                file:module.span.start.file,
+                line:module.node_rows.(node_offset + 8),
+                column:module.node_rows.(node_offset + 9)
+            )
         )
     )
 

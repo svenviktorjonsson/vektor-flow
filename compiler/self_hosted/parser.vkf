@@ -1893,7 +1893,7 @@ tagged_cursor_operator_kind(kind_code:num) -> str:
         "UNKNOWN"
 
 tagged_cursor_payload_text(
-    ast:TaggedCursorAstModule, token_index:int
+    ast:TaggedCursorAstModule, token_index:num
 ) -> str:
     token_index < 0?
         @: vkf_utf8_slice(ast.source, 0, 0)
@@ -1904,9 +1904,9 @@ tagged_cursor_payload_text(
         ast.token_rows.(token_offset + 2)
     )
 
-tagged_cursor_ast_payload(
+tagged_cursor_ast_payload_row(
     ast:TaggedCursorAstModule, index:int
-) -> TaggedCursorAstPayload:
+) -> [num:7]:
     node: tagged_cursor_ast_node(ast, index)
     int token_index: node.token_start
     int identifier_count: 0
@@ -1936,15 +1936,38 @@ tagged_cursor_ast_payload(
             tagged_cursor_operator_kind(token_kind) != "UNKNOWN")?
             .operator_code: token_kind
         .token_index+: 1
+    [
+        identifier_count,
+        first_token,
+        second_token,
+        third_token,
+        operator_code,
+        has_number,
+        number_value
+    ]
+
+tagged_cursor_ast_payload_rows(ast:TaggedCursorAstModule) -> [num]:
+    [num] rows: []
+    int index: 0
+    (index < ast.node_count)?>
+        .rows: rows & tagged_cursor_ast_payload_row(ast, index)
+        .index+: 1
+    rows
+
+tagged_cursor_ast_payload(
+    ast:TaggedCursorAstModule, index:int
+) -> TaggedCursorAstPayload:
+    node: tagged_cursor_ast_node(ast, index)
+    row: tagged_cursor_ast_payload_row(ast, index)
     (
         kind:node.kind,
-        identifier_count:identifier_count,
-        first_text:tagged_cursor_payload_text(ast, first_token),
-        second_text:tagged_cursor_payload_text(ast, second_token),
-        third_text:tagged_cursor_payload_text(ast, third_token),
-        operator_kind:tagged_cursor_operator_kind(operator_code),
-        has_number:has_number,
-        number_value:number_value,
+        identifier_count:row.0,
+        first_text:tagged_cursor_payload_text(ast, row.1),
+        second_text:tagged_cursor_payload_text(ast, row.2),
+        third_text:tagged_cursor_payload_text(ast, row.3),
+        operator_kind:tagged_cursor_operator_kind(row.4),
+        has_number:row.5,
+        number_value:row.6,
         span:node.span
     )
 
