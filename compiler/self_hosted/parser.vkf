@@ -462,7 +462,10 @@ TaggedCursorModule: (
     span:Span
 )
 TaggedCursorStatement: (
+    kind:str,
     order:int,
+    depth:int,
+    parent_order:int,
     token_start:int,
     token_stop:int,
     token_count:int,
@@ -544,6 +547,68 @@ tagged_tape_cursor(
     source:str, rows:[num], count:int
 ) -> TaggedTapeParseCursor:
     (source:source, rows:rows, count:count, index:0)
+
+tagged_cursor_statement_kind_code(
+    token_rows:[num], token_start:int, token_stop:int
+) -> int:
+    first_kind: token_rows.(token_start * 6)
+    second_kind: 0
+    token_stop > token_start?
+        .second_kind: token_rows.((token_start + 1) * 6)
+    last_kind: token_rows.(token_stop * 6)
+    (first_kind = 15 /\ second_kind = 15)?
+        @: 4
+    (first_kind = 15 /\ second_kind = 16)?
+        @: 1
+    (first_kind = 1 /\ last_kind = 15 /\ token_stop > token_start + 1)?
+        @: 2
+    (first_kind = 1 /\ second_kind = 15)?
+        @: 5
+    3
+
+tagged_cursor_statement_kind(kind_code:num) -> str:
+    kind_code??
+        1 => "import"
+        2 => "function"
+        4 => "output"
+        5 => "binding"
+        "expression"
+
+tagged_cursor_parent_order(
+    statement_rows:[num], statement_count:int, column:num
+) -> int:
+    index: statement_count - 1
+    (index >= 0)?>
+        statement_rows.(index * 10 + 7) < column?
+            @: index
+        .index-: 1
+    -1
+
+tagged_cursor_statement_row(
+    token_rows:[num], statement_rows:[num], statement_count:int,
+    token_start:int, token_stop:int
+) -> [num:10]:
+    start_column: token_rows.(token_start * 6 + 5)
+    parent_order: tagged_cursor_parent_order(
+        statement_rows, statement_count, start_column
+    )
+    depth: 0
+    parent_order >= 0?
+        .depth: statement_rows.(parent_order * 10 + 4) + 1
+    [
+        token_start,
+        token_stop,
+        token_stop - token_start + 1,
+        tagged_cursor_statement_kind_code(
+            token_rows, token_start, token_stop
+        ),
+        depth,
+        parent_order,
+        token_rows.(token_start * 6 + 4),
+        start_column,
+        token_rows.(token_stop * 6 + 4),
+        token_rows.(token_stop * 6 + 5)
+    ]
 
 peek(cursor:ParseCursor):
     cursor.tokens.(cursor.index)
@@ -1628,15 +1693,18 @@ parse_module_from_cursor(
     (cursor.count > 1 /\ cursor.rows.length() = cursor.count * 6)?! "tagged parser cursor has an invalid token tape"
     (cursor.rows.((cursor.count - 1) * 6) = 5)?! "tagged parser cursor requires terminal EOF"
     [num] statement_rows: []
-    token_index: 0
-    statement_start: 0
-    statement_count: 0
-    last_token: 0
+    int token_index: 0
+    int statement_start: 0
+    int statement_count: 0
+    int last_token: 0
     (token_index < cursor.count)?>
         kind: cursor.rows.(token_index * 6)
         boundary: kind = 4 \/ kind = 5
         (boundary /\ token_index > statement_start)?
-            .statement_rows: statement_rows & [statement_start] & [token_index - 1] & [token_index - statement_start] & [cursor.rows.(statement_start * 6 + 4)] & [cursor.rows.(statement_start * 6 + 5)] & [cursor.rows.((token_index - 1) * 6 + 4)] & [cursor.rows.((token_index - 1) * 6 + 5)]
+            .statement_rows: statement_rows & tagged_cursor_statement_row(
+                cursor.rows, statement_rows, statement_count,
+                statement_start, token_index - 1
+            )
             .statement_count+: 1
             .last_token: token_index - 1
         boundary?
@@ -1644,7 +1712,7 @@ parse_module_from_cursor(
         .token_index+: 1
     (statement_count > 0)?! "tagged parser cursor contains no statements"
     module_start: location(
-        "<self-hosted>", statement_rows.(3), statement_rows.(4)
+        "<self-hosted>", statement_rows.(6), statement_rows.(7)
     )
     module_stop: location(
         "<self-hosted>", cursor.rows.(last_token * 6 + 4),
@@ -1664,20 +1732,25 @@ tagged_module_statement(
     module:TaggedCursorModule, index:int
 ) -> TaggedCursorStatement:
     (index >= 0 /\ index < module.statement_count)?! "tagged parser statement index is out of bounds"
-    offset: index * 7
+    offset: index * 10
     (
+        kind:tagged_cursor_statement_kind(
+            module.statement_rows.(offset + 3)
+        ),
         order:index,
+        depth:module.statement_rows.(offset + 4),
+        parent_order:module.statement_rows.(offset + 5),
         token_start:module.statement_rows.(offset),
         token_stop:module.statement_rows.(offset + 1),
         token_count:module.statement_rows.(offset + 2),
         span:span(
             location(
-                "<self-hosted>", module.statement_rows.(offset + 3),
-                module.statement_rows.(offset + 4)
+                "<self-hosted>", module.statement_rows.(offset + 6),
+                module.statement_rows.(offset + 7)
             ),
             location(
-                "<self-hosted>", module.statement_rows.(offset + 5),
-                module.statement_rows.(offset + 6)
+                "<self-hosted>", module.statement_rows.(offset + 8),
+                module.statement_rows.(offset + 9)
             )
         )
     )
