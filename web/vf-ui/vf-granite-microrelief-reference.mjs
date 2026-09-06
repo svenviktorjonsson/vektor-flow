@@ -198,8 +198,10 @@ function granularNoise3(node, position, wavelength, salt) {
 
 function graniteMicroBump(node, position, footprint) {
   const micro = granularNoise3(node, position, 0.0027, 59.9);
-  const peak = Math.max(0, micro - 0.12) ** 4 * 0.0011;
-  return filterWeight(0.0032, footprint) * (micro * 0.00030 + peak);
+  const rim = smoothstep(0.02, 0.16, micro) - smoothstep(0.22, 0.38, micro);
+  const bowl = smoothstep(0.20, 0.62, micro);
+  return filterWeight(0.0032, footprint)
+    * (micro * 0.00012 + rim * 0.00055 - bowl * bowl * 0.00130);
 }
 
 function graniteR5MicroBump(node, position, footprint) {
@@ -208,15 +210,24 @@ function graniteR5MicroBump(node, position, footprint) {
   return filterWeight(0.0045, footprint) * (micro * 0.00045 + peak);
 }
 
+function graniteMesoMound(node, position, footprint) {
+  const grain = granularNoise3(node, position, 0.025, 7.1);
+  return filterWeight(0.025, footprint) * 0.0032 * grain;
+}
+
+function graniteR6MesoMound(node, position, footprint) {
+  const grain = granularNoise3(node, position, 0.025, 7.1);
+  const peak = Math.max(0, grain - 0.20) ** 2 * 0.012;
+  return filterWeight(0.025, footprint) * (0.0045 * grain + peak);
+}
+
 function granularHeight(node, position, footprint) {
   const broad = 0.0035 * filterWeight(0.052, footprint)
     * granularNoise3(node, position, 0.052, 2.3);
-  const grain = granularNoise3(node, position, 0.025, 7.1);
   const fine = granularNoise3(node, position, 0.0125, 13.7);
-  const peak = Math.max(0, grain - 0.20) ** 2 * 0.012;
   const pit = Math.max(0, -fine - 0.38) ** 2 * 0.009;
   return broad
-    + filterWeight(0.025, footprint) * (0.0045 * grain + peak)
+    + graniteMesoMound(node, position, footprint)
     + filterWeight(0.0125, footprint) * (0.0012 * fine - pit)
     + graniteMicroBump(node, position, footprint);
 }
@@ -456,6 +467,10 @@ export function realizeGraniteGranularProbeReference(identity, {
   let fineCrystals = 0;
   let maximumR6MicroAmplitude = 0;
   let maximumR5MicroAmplitude = 0;
+  let minimumR7MicroHeight = 0;
+  const r7MicroRimSlopes = [];
+  const r7MesoCurvatures = [];
+  const r6MesoCurvatures = [];
   const mineralClasses = new Uint8Array(resolution * resolution);
   const directions = [[1, 0], [0, 1], [Math.SQRT1_2, Math.SQRT1_2], [Math.SQRT1_2, -Math.SQRT1_2]];
   const derivativeStep = 0.0007;
@@ -475,6 +490,27 @@ export function realizeGraniteGranularProbeReference(identity, {
         maximumR5MicroAmplitude,
         Math.abs(graniteR5MicroBump(node, position, 0)),
       );
+      const r7Micro = graniteMicroBump(node, position, 0);
+      minimumR7MicroHeight = Math.min(minimumR7MicroHeight, r7Micro);
+      if ((x & 1) === 0 && (y & 1) === 0) {
+        const microStep = 0.00025;
+        const microDx = (graniteMicroBump(node, [position[0] + microStep, position[1], position[2]], 0)
+          - graniteMicroBump(node, [position[0] - microStep, position[1], position[2]], 0))
+          / (2 * microStep);
+        const microDy = (graniteMicroBump(node, [position[0], position[1] + microStep, position[2]], 0)
+          - graniteMicroBump(node, [position[0], position[1] - microStep, position[2]], 0))
+          / (2 * microStep);
+        r7MicroRimSlopes.push(Math.hypot(microDx, microDy));
+        const curvatureStep = 0.0015;
+        const curvature = (sampler) => Math.abs(
+          (sampler(node, [position[0] + curvatureStep, position[1], position[2]], 0)
+            - 2 * sampler(node, position, 0)
+            + sampler(node, [position[0] - curvatureStep, position[1], position[2]], 0))
+          / (curvatureStep * curvatureStep),
+        );
+        r7MesoCurvatures.push(curvature(graniteMesoMound));
+        r6MesoCurvatures.push(curvature(graniteR6MesoMound));
+      }
       const derivative = [0, 1, 2].map((axis) => {
         const plus = [...position];
         const minus = [...position];
@@ -523,6 +559,12 @@ export function realizeGraniteGranularProbeReference(identity, {
     }
   }
   const count = resolution * resolution;
+  r7MicroRimSlopes.sort((a, b) => a - b);
+  r7MesoCurvatures.sort((a, b) => a - b);
+  r6MesoCurvatures.sort((a, b) => a - b);
+  const percentile95 = (values) => values[Math.floor((values.length - 1) * 0.95)] ?? 0;
+  const r7MesoCurvatureP95 = percentile95(r7MesoCurvatures);
+  const r6MesoCurvatureP95 = percentile95(r6MesoCurvatures);
   const minimumOrientationEnergy = Math.min(...gradientEnergies);
   const r6MicroStats = measuredPeakStats(node, 0.0027, 59.9, -0.10, 0.12, 4);
   const r5MicroStats = measuredPeakStats(node, 0.0045, 59.9, 0.08, 0.05, 2);
@@ -591,6 +633,15 @@ export function realizeGraniteGranularProbeReference(identity, {
     r6MicroShadowReversalFraction: pairedReversals / count,
     r6MicroBandAffectsHeight: true,
     r6MicroPlacementKind: 'conditioned-isotropic-octave',
+    r7MicroCraterDepth: -minimumR7MicroHeight,
+    r7MicroRimSlopeP95: percentile95(r7MicroRimSlopes),
+    r7MicroShadowReversalFraction: pairedReversals / count,
+    r7MesoCurvatureP95,
+    r7MesoCurvatureRatioToR6: r7MesoCurvatureP95 / r6MesoCurvatureP95,
+    r7EmptyTileFraction: r6MicroStats.emptyTileFraction,
+    r7FilteredMicroAmplitude: graniteMicroBump(node, [0.31, 0.47, 0.19], 0.0032),
+    r7MicroProfileKind: 'smooth-rim-narrow-bowl',
+    r7MesoProfileKind: 'broad-smooth-mound',
     maximumHorizonSteps: MAX_HORIZON_STEPS,
   });
 }

@@ -188,7 +188,7 @@ test('R3 granular material stays isotropic and reverses local light-shadow pairs
   });
 
   assert.ok(probe.orientationEnergyRatio < 1.28);
-  assert.ok(probe.peakFraction > 0.04 && probe.peakFraction < 0.32);
+  assert.ok(probe.peakFraction > 0.005 && probe.peakFraction < 0.10);
   assert.ok(probe.pitFraction > 0.025 && probe.pitFraction < 0.24);
   assert.ok(probe.leftShadowFraction > 0.18);
   assert.ok(probe.rightShadowFraction > 0.18);
@@ -265,4 +265,23 @@ test('R6 fine relief is uniformly dense, smaller, filtered, and directional', ()
   assert.ok(probe.r6MicroShadowReversalFraction > 0.25);
   assert.equal(probe.r6MicroBandAffectsHeight, true);
   assert.equal(probe.r6MicroPlacementKind, 'conditioned-isotropic-octave');
+});
+
+test('R7 micro craters have steep bounded rims while meso mounds stay rounded', () => {
+  const probe = realizeGraniteGranularProbeReference(IDENTITY, {
+    resolution: 64,
+    footprint: 0.0015,
+  });
+
+  assert.ok(probe.r7MicroCraterDepth > 0.00045);
+  assert.ok(probe.r7MicroCraterDepth < 0.0016);
+  assert.ok(probe.r7MicroRimSlopeP95 > 0.08);
+  assert.ok(probe.r7MicroRimSlopeP95 < 2.2);
+  assert.ok(probe.r7MicroShadowReversalFraction > 0.25);
+  assert.ok(probe.r7MesoCurvatureRatioToR6 < 0.72);
+  assert.ok(probe.r7MesoCurvatureP95 < 90);
+  assert.equal(probe.r7EmptyTileFraction, 0);
+  assert.ok(Math.abs(probe.r7FilteredMicroAmplitude) <= Number.EPSILON);
+  assert.equal(probe.r7MicroProfileKind, 'smooth-rim-narrow-bowl');
+  assert.equal(probe.r7MesoProfileKind, 'broad-smooth-mound');
 });

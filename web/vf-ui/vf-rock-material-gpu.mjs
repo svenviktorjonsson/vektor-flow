@@ -375,13 +375,15 @@ fn vf_granite_granular_height(
   let grain = vf_granite_noise3(position, 0.025, 7.1, counter_prefix, key);
   let fine = vf_granite_noise3(position, 0.0125, 13.7, counter_prefix, key);
   let micro = vf_granite_noise3(position, 0.0027, 59.9, counter_prefix, key);
-  let peak = pow(max(grain - 0.20, 0.0), 2.0) * 0.012;
   let pit = pow(max(-fine - 0.38, 0.0), 2.0) * 0.009;
-  let microPeak = pow(max(micro - 0.12, 0.0), 4.0) * 0.0011;
+  let microRim = smoothstep(0.02, 0.16, micro) - smoothstep(0.22, 0.38, micro);
+  let microBowl = smoothstep(0.20, 0.62, micro);
+  let microCrater = micro * 0.00012 + microRim * 0.00055
+    - microBowl * microBowl * 0.00130;
   return broadWeight * broad * 0.0035
-    + grainWeight * (grain * 0.0045 + peak)
+    + grainWeight * grain * 0.0032
     + fineWeight * (fine * 0.0012 - pit)
-    + vf_rock_filter_weight(0.0032, footprint) * (micro * 0.00030 + microPeak);
+    + vf_rock_filter_weight(0.0032, footprint) * microCrater;
 }
 
 fn vf_granite_granular_gradient(
