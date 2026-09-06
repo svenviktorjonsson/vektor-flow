@@ -283,7 +283,7 @@ _bootstrap_x64_borrowed_scalar_function(opcodes:[num], operands:[num], parameter
 
 # Non-entry owned-string records from validated borrowed-string parameters.
 _bootstrap_x64_borrowed_string_record_function(
-    opcodes:[num], operands:[num], parameter_count:num, maximum:num, windows:bit
+    opcodes:[num], operands:[num], parameter_count:num, maximum:num, windows:bit, avx2:bit
 ):
     [num] bytes: []
     [num] types: []
@@ -310,6 +310,9 @@ _bootstrap_x64_borrowed_string_record_function(
     returned: false
     saw_clone: false
     field: 0
+    return_blocks: 0
+    return_copy: 0
+    return_repeat_reference: 0
     (index < opcodes.length())?>
         .code: opcodes.(index)
         .operand: operands.(index)
@@ -372,7 +375,7 @@ _bootstrap_x64_borrowed_string_record_function(
             types.(first + 1): 7
             .saw_clone: true
         code = 7?
-            (operand < 2 \/ operand >= 8 \/ operand % 1 != 0 \/
+            (operand < 2 \/ operand % 1 != 0 \/
                 depth != operand \/ index + 1 != opcodes.length())?
                 @: result
             .field: 0
@@ -381,7 +384,22 @@ _bootstrap_x64_borrowed_string_record_function(
                     @: result
                 .field+: 2
             .bytes: bytes & [76, 139, 157] & _bootstrap_x64_word(-(frame.context + 1) * 8)
-            .field: 0
+            (operand >= 8 /\ avx2)?
+                .bytes: bytes & [72, 141, 133] & _bootstrap_x64_word(-(cell_count + 1) * 8)
+                .bytes: bytes & [76, 137, 218]
+                .return_blocks: operand // 4
+                .bytes: bytes & [72, 131, 232, 24, 72, 131, 234, 24, 185]
+                .bytes: bytes & _bootstrap_x64_word(return_blocks)
+                .return_copy: bytes.length()
+                .bytes: bytes & [197, 253, 16, 0, 197, 253, 17, 2,
+                    72, 131, 232, 32, 72, 131, 234, 32, 255, 201, 15, 133]
+                .return_repeat_reference: bytes.length()
+                .bytes: bytes & [0, 0, 0, 0]
+                .bytes: _bootstrap_x64_patch_relative(bytes, return_repeat_reference, return_copy)
+                .bytes: bytes & [197, 248, 119]
+                .field: return_blocks * 4
+            (operand < 8 \/ ~avx2)?
+                .field: 0
             (field < operand)?>
                 .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(cell_count + field + 1) * 8)
                 .bytes: bytes & [242, 65, 15, 17, 131] & _bootstrap_x64_word(-field * 8)
