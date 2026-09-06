@@ -44,11 +44,12 @@ test("source-produced compiler graph function executes source-responsively", {
       "function: compiler._bootstrap_record_function_machine(source)",
       "body: machine._bootstrap_x64_borrowed_scalar_function(function.opcodes, function.operands, function.parameter_starts.length(), function.max_stack, true)",
       "entry: machine._bootstrap_x64_string_list_count_entry(11, 2, true)",
-      "linked: machine._bootstrap_x64_compose_function_bytes(entry.bytes & body.bytes, [entry.bytes.length(), body.bytes.length()], [0], [entry.relocation_offset], [1])",
+      "linked: machine._bootstrap_x64_compose_function_bytes(entry.bytes & body.bytes, [entry.bytes.length(), body.bytes.length()], [0, 0], [entry.relocation_offset, entry.second_relocation_offset], [1, 1])",
       "image: pe.materialize_composed_callable_code_section(template, linked.bytes, 0, high_bytes)",
       "io.write_bytes(output, image.artifact)",
       ":: function.valid", ":: body.valid", ":: entry.valid", ":: linked.valid",
-      ":: function.opcodes", ":: function.operands", ":: body.bytes", "",
+      ":: function.opcodes", ":: function.operands", ":: body.bytes",
+      ":: entry.relocation_offset", ":: entry.second_relocation_offset", "",
     ].join("\n"));
     const built = spawnSync(join(bin, `vkf-strict${suffix}`), ["-b", producerSource, "-o", producer, "--optimizer-policy", "mask-0"], {
       cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true,
@@ -79,6 +80,8 @@ test("source-produced compiler graph function executes source-responsively", {
     assert.deepEqual(readFileSync(first), readFileSync(repeat));
     assert.notDeepEqual(readFileSync(mutated), readFileSync(first));
     assert.notDeepEqual(firstProduce.stdout.trimEnd().split(/\r?\n/)[5], changedProduce.stdout.trimEnd().split(/\r?\n/)[5]);
+    const producedLines = firstProduce.stdout.trimEnd().split(/\r?\n/);
+    assert.ok(Number(producedLines[8]) > Number(producedLines[7]));
     for (const [artifact, output] of [[first, "11"], [repeat, "11"], [mutated, "12"]]) {
       const run = spawnSync(artifact, [], { cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true });
       assert.equal(run.status, 0, run.error?.message ?? run.stderr);

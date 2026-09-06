@@ -299,13 +299,13 @@ _bootstrap_x64_string_list_count_entry(
     element_count:num, result_count:num, windows:bit
 ):
     [num] bytes: []
-    result: (valid:false, bytes:bytes, relocation_offset:0)
+    result: (valid:false, bytes:bytes, relocation_offset:0, second_relocation_offset:0)
     (element_count < 1 \/ element_count > 16383 \/ element_count % 1 != 0 \/
         result_count != 2 \/ ~windows)?
         @: result
     cell_count: element_count * 2
     allocation_size: cell_count * 8 + 16
-    frame: _bootstrap_x64_frame(0, 3, windows)
+    frame: _bootstrap_x64_frame(0, 4, windows)
     ~frame.valid?
         @: result
     .bytes: _bootstrap_x64_prologue(frame.frame_bytes, frame.xmm_slot, frame.gpr_slot, windows)
@@ -324,9 +324,46 @@ _bootstrap_x64_string_list_count_entry(
     .bytes: bytes & [76, 141, 157, 240, 255, 255, 255, 232]
     result.relocation_offset: bytes.length()
     .bytes: bytes & [0, 0, 0, 0]
-    # Free returned clone then borrowed-call input; preserve count in its slot.
-    .bytes: bytes & [72, 139, 141, 240, 255, 255, 255, 65, 255, 84, 36, 72]
+    # Prove the first owned vector result has the expected list representation.
+    .bytes: bytes & [72, 139, 133, 240, 255, 255, 255, 72, 133, 192, 15, 133]
+    first_non_null_reference: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+    .bytes: _bootstrap_x64_patch_relative(bytes, first_non_null_reference, bytes.length())
+    .bytes: bytes & [72, 129, 56] & _bootstrap_x64_word(cell_count) & [15, 132]
+    first_count_reference: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+    .bytes: _bootstrap_x64_patch_relative(bytes, first_count_reference, bytes.length())
+    .bytes: bytes & [72, 129, 120, 8] & _bootstrap_x64_word(cell_count) & [15, 132]
+    first_capacity_reference: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+    .bytes: _bootstrap_x64_patch_relative(bytes, first_capacity_reference, bytes.length())
+    # Replace the borrowed input with the first owned result and reenter the
+    # same source-produced compiler function. Preserve the first clone because
+    # the second result context overwrites its pointer slot.
+    .bytes: bytes & [72, 137, 133, 224, 255, 255, 255]
     .bytes: bytes & [72, 139, 141, 248, 255, 255, 255, 65, 255, 84, 36, 72]
+    .bytes: bytes & [72, 139, 133, 224, 255, 255, 255]
+    .bytes: bytes & [72, 137, 133, 248, 255, 255, 255]
+    .bytes: bytes & [76, 141, 149, 248, 255, 255, 255]
+    .bytes: bytes & [76, 141, 157, 240, 255, 255, 255, 232]
+    result.second_relocation_offset: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0]
+    # Prove the second owned vector result before releasing both generations.
+    .bytes: bytes & [72, 139, 133, 240, 255, 255, 255, 72, 133, 192, 15, 133]
+    second_non_null_reference: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+    .bytes: _bootstrap_x64_patch_relative(bytes, second_non_null_reference, bytes.length())
+    .bytes: bytes & [72, 129, 56] & _bootstrap_x64_word(cell_count) & [15, 132]
+    second_count_reference: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+    .bytes: _bootstrap_x64_patch_relative(bytes, second_count_reference, bytes.length())
+    .bytes: bytes & [72, 129, 120, 8] & _bootstrap_x64_word(cell_count) & [15, 132]
+    second_capacity_reference: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+    .bytes: _bootstrap_x64_patch_relative(bytes, second_capacity_reference, bytes.length())
+    # Free second and first returned clones; preserve count in its result slot.
+    .bytes: bytes & [72, 139, 141, 240, 255, 255, 255, 65, 255, 84, 36, 72]
+    .bytes: bytes & [72, 139, 141, 224, 255, 255, 255, 65, 255, 84, 36, 72]
     .bytes: bytes & [242, 15, 16, 133, 232, 255, 255, 255]
     .bytes: bytes & [76, 139, 165] & _bootstrap_x64_word(-(frame.context + 1) * 8)
     .bytes: bytes & _bootstrap_x64_epilogue(frame.xmm_slot, frame.gpr_slot, windows)
