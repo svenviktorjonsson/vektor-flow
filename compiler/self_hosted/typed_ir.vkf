@@ -263,6 +263,12 @@ TypedTaggedArgument: (
     token_start:int,
     token_stop:int
 )
+TypedTaggedFunctionBodyArena: (
+    module:TypedTaggedConcreteModule,
+    function_order:int,
+    rows:[int],
+    count:int
+)
 TypedTaggedStoreBinding: (
     kind:str,
     name:str,
@@ -514,6 +520,8 @@ typed_tagged_cursor_kind(kind_code:num) -> str:
         3 => "expr_stmt"
         4 => "expr_stmt"
         5 => "store_binding"
+        6 => "if_stmt"
+        7 => "return"
         "unsupported"
 
 typed_tagged_cursor_ast_module(
@@ -634,6 +642,7 @@ typed_tagged_cursor_operator_kind(kind_code:num) -> str:
         10 => "PERCENT"
         11 => "CARET"
         12 => "FLOORDIV"
+        17 => "GT"
         "UNKNOWN"
 
 typed_tagged_concrete_kind(kind_code:num) -> str:
@@ -643,11 +652,17 @@ typed_tagged_concrete_kind(kind_code:num) -> str:
         3 => "expr_stmt"
         4 => "expr_stmt"
         5 => "store_binding"
+        6 => "if_stmt"
+        7 => "return"
         "unsupported"
 
 typed_tagged_concrete_type(kind_code:num, has_number:num) -> str:
     (kind_code = 5 /\ has_number = 1)?
         @: "int"
+    kind_code = 6?
+        @: "bit"
+    kind_code = 7?
+        @: "num"
     kind_code??
         1 => "module"
         2 => "function"
@@ -666,6 +681,10 @@ typed_tagged_concrete_expression_kind(
         )
     statement_code = 4?
         @: "call"
+    statement_code = 6?
+        @: "binary_op"
+    statement_code = 7?
+        @: "const"
     "none"
 
 typed_tagged_cursor_concrete_module(
@@ -764,15 +783,16 @@ typed_tagged_function_returns_num(
 ) -> bit:
     int index: function_order + 1
     bit has_child: false
-    (index < module.node_count /\
-        module.node_rows.(index * 10 + 5) = function_order)?>
-        (module.node_rows.(index * 10 + 3) = 3)?! "concrete function body contains a non-expression statement"
-        (typed_tagged_concrete_expression_kind(
-            module.node_rows.(index * 10 + 3),
-            module.payload_rows.(index * 7),
-            module.payload_rows.(index * 7 + 4)
-        ) != "none")?! "concrete function expression type is unresolved"
-        .has_child: true
+    (index < module.node_count)?>
+        module.node_rows.(index * 10 + 5) = function_order?
+            statement_code: module.node_rows.(index * 10 + 3)
+            (statement_code = 3 \/ statement_code = 6 \/ statement_code = 7)?! "concrete function body contains an unsupported statement"
+            (typed_tagged_concrete_expression_kind(
+                statement_code,
+                module.payload_rows.(index * 7),
+                module.payload_rows.(index * 7 + 4)
+            ) != "none")?! "concrete function expression type is unresolved"
+            .has_child: true
         .index+: 1
     has_child
 
@@ -1073,6 +1093,36 @@ typed_tagged_argument(
         token_start:token_start,
         token_stop:token_stop
     )
+
+_typed_tagged_function_body_rows(
+    module:TypedTaggedConcreteModule,
+    index:int,
+    function_depth:num,
+    rows:[int]
+) -> [int]:
+    index >= module.node_count?
+        @: rows
+    module.node_rows.(index * 10 + 4) <= function_depth?
+        @: rows
+    _typed_tagged_function_body_rows(
+        module, index + 1, function_depth, rows & [index]
+    )
+
+typed_tagged_function_body_arena(
+    module:TypedTaggedConcreteModule, function_order:int
+) -> TypedTaggedFunctionBodyArena:
+    (function_order >= 0 /\ function_order < module.node_count /\ module.node_rows.(function_order * 10 + 3) = 2)?! "concrete function body owner is invalid"
+    rows: _typed_tagged_function_body_rows(
+        module, function_order + 1,
+        module.node_rows.(function_order * 10 + 4), []
+    )
+    (module:module, function_order:function_order, rows:rows, count:rows.length())
+
+typed_tagged_function_body_node(
+    arena:TypedTaggedFunctionBodyArena, index:int
+) -> TypedTaggedConcreteNode:
+    (index >= 0 /\ index < arena.count)?! "concrete function body index is out of bounds"
+    typed_tagged_cursor_concrete_node(arena.module, arena.rows.(index))
 
 typed_tagged_ast_binary_expression(
     name:str, op:str, value:num, file:str,

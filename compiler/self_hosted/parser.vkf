@@ -589,6 +589,10 @@ tagged_cursor_statement_kind_code(
         @: 4
     (first_kind = 15 /\ second_kind = 16)?
         @: 1
+    last_kind = 18?
+        @: 6
+    (first_kind = 19 /\ second_kind = 15)?
+        @: 7
     (first_kind = 1 /\ last_kind = 15 /\ token_stop > token_start + 1)?
         @: 2
     (first_kind = 1 /\ second_kind = 15)?
@@ -601,6 +605,8 @@ tagged_cursor_statement_kind(kind_code:num) -> str:
         2 => "function"
         4 => "output"
         5 => "binding"
+        6 => "conditional"
+        7 => "return"
         "expression"
 
 tagged_cursor_parent_order(
@@ -1890,6 +1896,7 @@ tagged_cursor_operator_kind(kind_code:num) -> str:
         10 => "PERCENT"
         11 => "CARET"
         12 => "FLOORDIV"
+        17 => "GT"
         "UNKNOWN"
 
 tagged_cursor_payload_text(

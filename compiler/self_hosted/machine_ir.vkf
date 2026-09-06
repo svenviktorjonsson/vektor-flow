@@ -888,6 +888,7 @@ MachineModule: (
 ConcreteTaggedMachineInstruction: (
     kind:str,
     index:num,
+    label:num,
     value:num,
     symbol:str,
     argument_count:num,
@@ -1965,6 +1966,7 @@ _mir_numeric_parameter_multiply_function(function:NumericFunctionInput):
 _mir_concrete_tagged_instruction(
     kind:str,
     index:num=0,
+    label:num=0,
     value:num=0,
     symbol:str="",
     argument_count:num=0,
@@ -1974,6 +1976,7 @@ _mir_concrete_tagged_instruction(
     (
         kind:kind,
         index:index,
+        label:label,
         value:value,
         symbol:symbol,
         argument_count:argument_count,
@@ -2016,8 +2019,11 @@ _mir_concrete_tagged_function(
 mir_assemble_tagged_resolved_module(
     function_name:str,
     parameter_names:[str],
-    operator_kind:str,
-    value:num,
+    body_kinds:[str],
+    body_names:[str],
+    body_ops:[str],
+    body_values:[num],
+    body_depths:[int],
     callee:str,
     argument_kinds:[str],
     argument_names:[str],
@@ -2025,6 +2031,8 @@ mir_assemble_tagged_resolved_module(
     argument_values:[num]
 ) -> ConcreteTaggedMachineModule:
     (callee = function_name)?! "concrete Machine IR call target does not match function"
+    body_count: body_kinds.length()
+    (body_names.length() = body_count /\ body_ops.length() = body_count /\ body_values.length() = body_count /\ body_depths.length() = body_count)?! "concrete Machine IR body arenas are not parallel"
     argument_count: argument_kinds.length()
     (argument_count = parameter_names.length() /\ argument_names.length() = argument_count /\ argument_ops.length() = argument_count /\ argument_values.length() = argument_count)?! "concrete Machine IR argument arenas are not parallel"
     provided_parameter_mask: 0
@@ -2077,12 +2085,35 @@ mir_assemble_tagged_resolved_module(
         .numeric_parameter_classes: numeric_parameter_classes & [true]
         .parameter_index+: 1
     [ConcreteTaggedMachineInstruction] numeric_instructions: []
-    .numeric_instructions: numeric_instructions & [
-        _mir_concrete_tagged_instruction("load_local", index:0),
-        _mir_concrete_tagged_instruction("push_f64", value:value),
-        _mir_concrete_tagged_instruction("multiply_f64"),
-        _mir_concrete_tagged_instruction("return_f64")
-    ]
+    int body_index: 0
+    str body_kind: ""
+    (body_index < body_count)?>
+        .body_kind: body_kinds.(body_index)
+        body_kind = "binary_op"?
+            body_ops.(body_index) = "GT"?
+                .numeric_instructions: numeric_instructions & [
+                    _mir_concrete_tagged_instruction("load_local", index:0),
+                    _mir_concrete_tagged_instruction("push_f64", value:body_values.(body_index)),
+                    _mir_concrete_tagged_instruction("ordered_greater_f64"),
+                    _mir_concrete_tagged_instruction("jump_if_false", label:1)
+                ]
+            body_ops.(body_index) = "STAR"?
+                .numeric_instructions: numeric_instructions & [
+                    _mir_concrete_tagged_instruction("load_local", index:0),
+                    _mir_concrete_tagged_instruction("push_f64", value:body_values.(body_index)),
+                    _mir_concrete_tagged_instruction("multiply_f64"),
+                    _mir_concrete_tagged_instruction("return_f64")
+                ]
+            (body_ops.(body_index) = "GT" \/ body_ops.(body_index) = "STAR")?! "concrete Machine IR body binary operator is unsupported"
+        body_kind = "const"?
+            .numeric_instructions: numeric_instructions & [
+                _mir_concrete_tagged_instruction("push_f64", value:body_values.(body_index)),
+                _mir_concrete_tagged_instruction("return_f64")
+            ]
+            body_depths.(body_index) > 1?
+                .numeric_instructions: numeric_instructions & [_mir_concrete_tagged_instruction("label", label:1)]
+        (body_kind = "binary_op" \/ body_kind = "const")?! "concrete Machine IR body statement is unsupported"
+        .body_index+: 1
     numeric_function: _mir_concrete_tagged_function(
         function_name, parameter_names, numeric_parameter_classes, true,
         numeric_instructions, 2
@@ -2105,14 +2136,10 @@ mir_tagged_resolved_module_matches(
     module:ConcreteTaggedMachineModule,
     function_name:str,
     parameter_names:[str],
-    value:num,
-    argument_count:int
+    argument_count:int,
+    conditional:bit
 ) -> bit:
     numeric_function: module.functions.(1)
-    first_instruction: numeric_function.instructions.(0)
-    second_instruction: numeric_function.instructions.(1)
-    third_instruction: numeric_function.instructions.(2)
-    fourth_instruction: numeric_function.instructions.(3)
     entry_call: module.entry.instructions.(module.entry.instructions.length() - 2)
     bit parameters_match: numeric_function.parameters.length() = parameter_names.length()
     int parameter_index: 0
@@ -2125,10 +2152,8 @@ mir_tagged_resolved_module_matches(
         entry_call.argument_count = argument_count /\
         numeric_function.name = function_name /\
         parameters_match /\ numeric_function.parameters.length() = argument_count /\
-        first_instruction.kind = "load_local" /\
-        second_instruction.value = value /\
-        third_instruction.kind = "multiply_f64" /\
-        fourth_instruction.kind = "return_f64")
+        ((conditional /\ numeric_function.instructions.(2).kind = "ordered_greater_f64" /\ numeric_function.instructions.(3).kind = "jump_if_false" /\ numeric_function.instructions.(6).kind = "label") \/
+         (conditional = false /\ numeric_function.instructions.(2).kind = "multiply_f64")))
 
 mir_lower_numeric_parameter_multiply_function_module(function:any):
     mir_numeric_parameter_multiply_function_matches(function)?!
