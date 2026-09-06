@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -10,6 +11,7 @@ import {
   createDrySandAggregateReference,
   createDrySandAggregateRenderPacketReference,
   settleDrySandIntoAggregateReference,
+  stepDrySandPourAggregateReference,
   stepDrySandBcreReference,
 } from '../../web/vf-ui/vf-sand-aggregate-reference.mjs';
 
@@ -35,6 +37,39 @@ test('settled explicit grains transfer once into one conservative dense state', 
   assert.ok(Math.abs(aggregate.totalMass - aggregate.grainEquivalentCount * aggregate.grainMass) < 1e-12);
   assert.equal(world.render.aggregate, aggregate);
   assert.equal(world.state.aggregated.length, world.count);
+});
+
+test('continuous hole pour conserves one shared explicit and dense grain population', () => {
+  const realize = () => {
+    const world = createDrySandHopperReference({
+      seed: 0x6a11, grainCount: 320, outletDiameterInGrains: 4.2,
+    });
+    const aggregate = createDrySandAggregateReference(world, { resolution: 33, extent: 1.4 });
+    const receipt = stepDrySandPourAggregateReference(world, aggregate, {
+      steps: 720, speedThreshold: 0.08,
+    });
+    return { world, aggregate, receipt };
+  };
+  const first = realize(); const replay = realize();
+  assert.ok(first.receipt.transferredCount > 64);
+  assert.equal(first.receipt.explicitCount + first.receipt.denseGrainCount, 320);
+  assert.equal(first.receipt.maximumCountError, 0);
+  assert.ok(first.receipt.maximumMassError < first.aggregate.grainMass * 1e-6);
+  assert.ok(first.aggregate.maximumSlopeDegrees <= first.aggregate.reposeAngleDegrees + 1.5);
+  assert.equal(hash(first.aggregate.heights), hash(replay.aggregate.heights));
+  assert.equal(hash(first.world.state.positions), hash(replay.world.state.positions));
+  assert.deepEqual(first.receipt, replay.receipt);
+});
+
+test('continuous pour fixture renders explicit and dense state through unified WebGPU', () => {
+  const scene = readFileSync(new URL('../fixtures/dry-sand-continuous-pour-scene.mjs', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../fixtures/dry-sand-continuous-pour.html', import.meta.url), 'utf8');
+  assert.match(scene, /stepDrySandPourAggregateReference/);
+  assert.match(scene, /createDrySandEllipsoidRenderPacketReference/);
+  assert.match(scene, /createDrySandAggregateRenderPacketReference/);
+  assert.match(scene, /createDrySandHopperHardwarePacketsReference/);
+  assert.match(scene, /unified_renderer:\s*true/);
+  assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
 });
 
 test('aggregate replay is byte exact and a different geology identity varies glints', () => {

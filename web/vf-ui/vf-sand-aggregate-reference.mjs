@@ -1,3 +1,5 @@
+import { stepDrySandHopperReference } from './vf-sand-hopper-reference.mjs';
+
 function mix32(value) {
   let word = value >>> 0;
   word ^= word >>> 16;
@@ -143,6 +145,36 @@ export function stepDrySandBcreReference(aggregate, steps = 1) {
   }
   updateMetrics(aggregate);
   return aggregate;
+}
+
+export function stepDrySandPourAggregateReference(world, aggregate, {
+  steps = 1,
+  speedThreshold = 0.08,
+} = {}) {
+  const count = Math.max(0, Math.trunc(steps));
+  let transferredCount = 0; let maximumCountError = 0; let maximumMassError = 0;
+  for (let step = 0; step < count; step += 1) {
+    stepDrySandHopperReference(world, 1);
+    const transfer = settleDrySandIntoAggregateReference(world, aggregate, { speedThreshold });
+    transferredCount += transfer.transferredCount;
+    stepDrySandBcreReference(aggregate, 1);
+    const denseGrainCount = aggregate.grainEquivalentCount;
+    const explicitCount = world.count - denseGrainCount;
+    maximumCountError = Math.max(maximumCountError,
+      Math.abs(world.count - explicitCount - denseGrainCount));
+    maximumMassError = Math.max(maximumMassError,
+      Math.abs(aggregate.totalMass - denseGrainCount * aggregate.grainMass));
+  }
+  return Object.freeze({
+    steps: count,
+    transferredCount,
+    explicitCount: world.count - aggregate.grainEquivalentCount,
+    denseGrainCount: aggregate.grainEquivalentCount,
+    maximumCountError,
+    maximumMassError,
+    maximumSlopeDegrees: aggregate.maximumSlopeDegrees,
+    heightHash: aggregate.heightHash,
+  });
 }
 
 function normalAt(aggregate, x, y, step) {
