@@ -207,6 +207,32 @@ TypedTaggedConcreteNode: (
     type:str,
     span:TaggedAstSpan
 )
+TypedTaggedDeclarationTable: (
+    module:TypedTaggedConcreteModule,
+    rows:[num],
+    count:int,
+    imports_system:bit
+)
+TypedTaggedDeclaration: (
+    kind:str,
+    node_order:int,
+    name:str,
+    parameter_name:str,
+    parameter_type:str,
+    return_type:str,
+    type:str,
+    arity:int
+)
+TypedTaggedResolvedCall: (
+    kind:str,
+    node_order:int,
+    callee:str,
+    callee_type:str,
+    argument_callee:str,
+    argument_type:str,
+    result_type:str,
+    span:TaggedAstSpan
+)
 TypedTaggedStoreBinding: (
     kind:str,
     name:str,
@@ -701,6 +727,126 @@ typed_tagged_cursor_concrete_node(
                 column:module.node_rows.(node_offset + 9)
             )
         )
+    )
+
+typed_tagged_function_returns_num(
+    module:TypedTaggedConcreteModule, function_order:int
+) -> bit:
+    int index: function_order + 1
+    bit has_child: false
+    (index < module.node_count /\
+        module.node_rows.(index * 10 + 5) = function_order)?>
+        (module.node_rows.(index * 10 + 3) = 3)?! "concrete function body contains a non-expression statement"
+        (typed_tagged_concrete_expression_kind(
+            module.node_rows.(index * 10 + 3),
+            module.payload_rows.(index * 7),
+            module.payload_rows.(index * 7 + 4)
+        ) != "none")?! "concrete function expression type is unresolved"
+        .has_child: true
+        .index+: 1
+    has_child
+
+typed_tagged_declaration_table(
+    module:TypedTaggedConcreteModule
+) -> TypedTaggedDeclarationTable:
+    [num] rows: []
+    int count: 0
+    bit imports_system: false
+    int index: 0
+    num node_offset: 0
+    num payload_offset: 0
+    num statement_code: 0
+    (index < module.node_count)?>
+        .node_offset: index * 10
+        .payload_offset: index * 7
+        .statement_code: module.node_rows.(node_offset + 3)
+        statement_code = 1?
+            typed_tagged_concrete_payload_text(
+                module, module.payload_rows.(payload_offset + 1)
+            ) = "system"?
+                .imports_system: true
+        statement_code = 2?
+            (module.payload_rows.(payload_offset) = 3)?! "concrete function declaration shape is unsupported"
+            typed_tagged_function_returns_num(module, index)?! "concrete function return type is unresolved"
+            .rows: rows & [
+                index,
+                module.payload_rows.(payload_offset + 1),
+                module.payload_rows.(payload_offset + 2),
+                module.payload_rows.(payload_offset + 3),
+                1,
+                1
+            ]
+            .count+: 1
+        .index+: 1
+    (
+        module:module,
+        rows:rows,
+        count:count,
+        imports_system:imports_system
+    )
+
+typed_tagged_declaration(
+    table:TypedTaggedDeclarationTable, index:int
+) -> TypedTaggedDeclaration:
+    (index >= 0 /\ index < table.count)?! "concrete declaration index is out of bounds"
+    offset: index * 6
+    parameter_type: typed_tagged_concrete_payload_text(
+        table.module, table.rows.(offset + 3)
+    )
+    (parameter_type = "num")?! "concrete declaration parameter type is unsupported"
+    (table.rows.(offset + 5) = 1)?! "concrete declaration return type is unsupported"
+    (
+        kind:"function_symbol",
+        node_order:table.rows.(offset),
+        name:typed_tagged_concrete_payload_text(
+            table.module, table.rows.(offset + 1)
+        ),
+        parameter_name:typed_tagged_concrete_payload_text(
+            table.module, table.rows.(offset + 2)
+        ),
+        parameter_type:parameter_type,
+        return_type:"num",
+        type:"fn(num)->num",
+        arity:table.rows.(offset + 4)
+    )
+
+typed_tagged_declaration_name(
+    table:TypedTaggedDeclarationTable, index:int
+) -> str:
+    (index >= 0 /\ index < table.count)?! "concrete declaration index is out of bounds"
+    typed_tagged_concrete_payload_text(
+        table.module, table.rows.(index * 6 + 1)
+    )
+
+typed_tagged_resolve_output_call(
+    module:TypedTaggedConcreteModule,
+    declarations:TypedTaggedDeclarationTable,
+    node_index:int
+) -> TypedTaggedResolvedCall:
+    output: typed_tagged_cursor_concrete_node(module, node_index)
+    (output.expression_kind = "call")?! "concrete output node is not a call"
+    (output.second_text = "cpu_count")?! "concrete nested call is not a supported system function"
+    declarations.imports_system?! "concrete nested system call has no system import"
+    int declaration_index: 0
+    int resolved_index: -1
+    (declaration_index < declarations.count)?>
+        typed_tagged_declaration_name(
+            declarations, declaration_index
+        ) = output.first_text?
+            .resolved_index: declaration_index
+        .declaration_index+: 1
+    (resolved_index >= 0)?! "concrete call target is not declared"
+    symbol: typed_tagged_declaration(declarations, resolved_index)
+    (symbol.arity = 1 /\ symbol.parameter_type = "num")?! "concrete call argument does not match declaration"
+    (
+        kind:"call",
+        node_order:node_index,
+        callee:symbol.name,
+        callee_type:symbol.type,
+        argument_callee:output.second_text,
+        argument_type:"int",
+        result_type:symbol.return_type,
+        span:output.span
     )
 
 typed_tagged_ast_binary_expression(

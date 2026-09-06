@@ -896,6 +896,17 @@ TaggedScalarMachineInstructions: (
     instruction_count:int,
     max_stack:num
 )
+TaggedResolvedCallInstruction: (
+    kind:str,
+    symbol:str,
+    argument_count:int,
+    result_count:int
+)
+TaggedResolvedCallInstructions: (
+    instructions:[TaggedResolvedCallInstruction:3],
+    instruction_count:int,
+    max_stack:num
+)
 TaggedMachineStatement: (
     name:str,
     instructions:TaggedMachineInstructions,
@@ -1058,6 +1069,35 @@ mir_lower_tagged_scalar_expression(
         @: _mir_tagged_scalar_binary(operator_kind, value)
     false?! "tagged scalar expression kind is unsupported"
     _mir_tagged_scalar_constant(value)
+
+_mir_tagged_resolved_call_instruction(
+    kind:str, symbol:str, argument_count:int, result_count:int
+) -> TaggedResolvedCallInstruction:
+    (
+        kind:kind,
+        symbol:symbol,
+        argument_count:argument_count,
+        result_count:result_count
+    )
+
+mir_lower_tagged_resolved_call(
+    callee:str, callee_type:str,
+    argument_callee:str, argument_type:str,
+    result_type:str
+) -> TaggedResolvedCallInstructions:
+    (callee != "")?! "resolved call target is empty"
+    (callee_type = "fn(num)->num")?! "resolved call target type is unsupported"
+    (argument_callee = "cpu_count" /\ argument_type = "int")?! "resolved call argument is unsupported"
+    (result_type = "num")?! "resolved call result type is unsupported"
+    (
+        instructions:[
+            _mir_tagged_resolved_call_instruction("call", argument_callee, 0, 1),
+            _mir_tagged_resolved_call_instruction("call", callee, 1, 1),
+            _mir_tagged_resolved_call_instruction("return_f64", "", 0, 1)
+        ],
+        instruction_count:3,
+        max_stack:1
+    )
 
 mir_tagged_module_statement(
     module:TaggedMachineModule, index:int
