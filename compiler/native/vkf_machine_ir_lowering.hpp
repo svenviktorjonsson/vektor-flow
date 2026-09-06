@@ -4906,6 +4906,16 @@ inline std::optional<ValueLayout> lower_literal_projection_argument(
     std::stable_sort(required.begin(), required.end(), [](const auto& left, const auto& right) {
         return left.second.offset < right.second.offset;
     });
+    // Projection lowering must be transactional.  If the literal cannot supply
+    // the complete target shape, decline before emitting any prefix values so
+    // the ordinary expression fallback starts with an unchanged value stack.
+    if (std::any_of(required.begin(), required.end(), [&](const auto& item) {
+            return std::none_of(supplied.begin(), supplied.end(), [&](const auto& candidate) {
+                return candidate.first == item.first;
+            });
+        })) {
+        return std::nullopt;
+    }
     for (const auto& [name, slice] : required) {
         const std::string required_name = name;
         const auto found = std::find_if(supplied.begin(), supplied.end(), [&](const auto& item) {
