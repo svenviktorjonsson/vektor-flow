@@ -51,8 +51,8 @@ test('pile placement is deterministic, grounded, supported, and bounded', () => 
     indices: hashView(pile.meshes[index].indices),
   }));
   assert.deepEqual(signature(replay), signature(first));
-  assert.ok(first.individuals.filter((item) => item.layer === 0)
-    .every((item) => Math.abs(item.center[2]) <= 1e-9));
+  const grounded = first.individuals.filter((item) => Math.abs(item.center[2]) <= 1e-9);
+  assert.ok(grounded.length >= 5);
   for (const item of first.individuals.filter((candidate) => candidate.layer > 0)) {
     const supports = first.individuals.filter((candidate) => (
       candidate.layer < item.layer
@@ -62,6 +62,18 @@ test('pile placement is deterministic, grounded, supported, and bounded', () => 
     assert.ok(supports.length >= 2);
   }
   assert.ok(first.individuals.reduce((sum, item) => sum + item.vectorBytes, 0) < 5 * 1024 * 1024);
+});
+
+test('gravity-settled pile has contact support without persistent proxy penetration', () => {
+  const pile = createStoneSpeciesPileReference();
+  const elevated = pile.individuals.filter((item) => item.center[2] > 1e-7);
+  assert.ok(elevated.length >= 8);
+  assert.ok(elevated.every((item) => item.contacts.length >= 1));
+  assert.ok(elevated.every((item) => item.contacts.every((contact) => (
+    contact.supportIndex < item.index && Math.abs(contact.normalizedSeparation - 1) < 2e-6
+  ))));
+  assert.ok(pile.settlement.maximumNormalizedPenetration <= 2e-6);
+  assert.equal(pile.settlement.floatingCount, 0);
 });
 
 test('species material descriptors stay coherent while sharing zero-triangle microrelief', () => {

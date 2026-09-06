@@ -35,6 +35,18 @@ function modelMatrix(center, yaw, scale) {
   ];
 }
 
+function meshBounds(packet) {
+  const minimum = [Infinity, Infinity, Infinity];
+  const maximum = [-Infinity, -Infinity, -Infinity];
+  for (let offset = 0; offset < packet.vertices.length; offset += 10) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      minimum[axis] = Math.min(minimum[axis], packet.vertices[offset + axis]);
+      maximum[axis] = Math.max(maximum[axis], packet.vertices[offset + axis]);
+    }
+  }
+  return { minimum, maximum };
+}
+
 export function createStoneSpeciesPileReference() {
   const meshes = [];
   const individuals = [];
@@ -66,21 +78,52 @@ export function createStoneSpeciesPileReference() {
     const angle = layerIndex / layerCount * Math.PI * 2
       + (layer === 1 ? 0.31 : 0) + (unit(seed1, 7) - 0.5) * 0.09;
     const innerBase = layer === 0 && layerIndex >= 10;
-    const radiusX = layer === 0 ? 1.90 : (layer === 1 ? 0.96 : 0.26);
-    const radiusY = layer === 0 ? 1.25 : (layer === 1 ? 0.60 : 0.10);
-    const layerBase = layer === 0 ? 0 : (layer === 1 ? 0.29 : 0.57);
-    const center = [
+    const radiusX = layer === 0 ? 1.55 : (layer === 1 ? 0.76 : 0.19);
+    const radiusY = layer === 0 ? 0.98 : (layer === 1 ? 0.48 : 0.09);
+    const horizontalCenter = [
       (innerBase ? (layerIndex === 10 ? -0.43 : 0.43) : Math.cos(angle) * radiusX)
         + (unit(seed1, 8) - 0.5) * 0.06,
       (innerBase ? 0 : Math.sin(angle) * radiusY)
         + (unit(seed1, 10) - 0.5) * 0.05,
-      layerBase - specimen.metrics.minimumZ * scale[2],
     ];
     const supportRadius = Math.max(
       specimen.metrics.maximumRadius * scale[0],
       specimen.metrics.maximumRadius * scale[1],
     );
     const yaw = unit(seed1, 9) * Math.PI * 2;
+    const bounds = meshBounds(specimen.packet);
+    const localMidZ = (bounds.minimum[2] + bounds.maximum[2]) * scale[2] * 0.5;
+    const halfHeight = (bounds.maximum[2] - bounds.minimum[2]) * scale[2] * 0.34;
+    const collisionRadius = supportRadius * 0.68;
+    const groundTranslation = -bounds.minimum[2] * scale[2];
+    let translationZ = groundTranslation;
+    const candidates = [];
+    for (const support of individuals) {
+      const distance = Math.hypot(
+        horizontalCenter[0] - support.center[0], horizontalCenter[1] - support.center[1],
+      );
+      const horizontalSum = collisionRadius + support.collisionRadius;
+      if (distance >= horizontalSum) continue;
+      const horizontalPart = distance / horizontalSum;
+      const verticalSum = halfHeight + support.halfHeight;
+      const requiredCenterZ = support.proxyCenterZ
+        + verticalSum * Math.sqrt(Math.max(0, 1 - horizontalPart * horizontalPart));
+      const requiredTranslation = requiredCenterZ - localMidZ;
+      candidates.push({ supportIndex: support.index, requiredTranslation });
+      translationZ = Math.max(translationZ, requiredTranslation);
+    }
+    const center = [horizontalCenter[0], horizontalCenter[1], translationZ];
+    const proxyCenterZ = translationZ + localMidZ;
+    const contacts = candidates
+      .filter(({ requiredTranslation }) => Math.abs(requiredTranslation - translationZ) < 2e-6)
+      .map(({ supportIndex }) => {
+        const support = individuals[supportIndex];
+        const horizontalPart = Math.hypot(
+          center[0] - support.center[0], center[1] - support.center[1],
+        ) / (collisionRadius + support.collisionRadius);
+        const verticalPart = (proxyCenterZ - support.proxyCenterZ) / (halfHeight + support.halfHeight);
+        return Object.freeze({ supportIndex, normalizedSeparation: Math.hypot(horizontalPart, verticalPart) });
+      });
     const packet = Object.freeze({
       ...specimen.packet,
       id: `stone:pile:${profile.id}:${individualIndex}`,
@@ -100,13 +143,32 @@ export function createStoneSpeciesPileReference() {
       triangleCount: packet.indices.length / 3,
       baseHeightSpan: specimen.metrics.baseHeightSpan,
       undersideHeightSpan: specimen.metrics.undersideHeightSpan,
+      collisionRadius, halfHeight, proxyCenterZ, contacts: Object.freeze(contacts),
       vectorBytes: specimen.vectorBytes,
     }));
+  }
+  let maximumNormalizedPenetration = 0;
+  for (let right = 1; right < individuals.length; right += 1) {
+    for (let left = 0; left < right; left += 1) {
+      const a = individuals[left]; const b = individuals[right];
+      const horizontalPart = Math.hypot(a.center[0] - b.center[0], a.center[1] - b.center[1])
+        / (a.collisionRadius + b.collisionRadius);
+      const verticalPart = Math.abs(a.proxyCenterZ - b.proxyCenterZ) / (a.halfHeight + b.halfHeight);
+      maximumNormalizedPenetration = Math.max(
+        maximumNormalizedPenetration, Math.max(0, 1 - Math.hypot(horizontalPart, verticalPart)),
+      );
+    }
   }
   return Object.freeze({
     kind: 'stone-species-pile:v1',
     profiles: STONE_SPECIES_PROFILES,
     individuals: Object.freeze(individuals),
     meshes: Object.freeze(meshes),
+    settlement: Object.freeze({
+      maximumNormalizedPenetration,
+      floatingCount: individuals.filter((item) => (
+        item.center[2] > 1e-7 && item.contacts.length === 0
+      )).length,
+    }),
   });
 }
