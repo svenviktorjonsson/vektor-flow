@@ -1731,6 +1731,36 @@ private:
                     field(object, "args", context),
                     context + ".args"
                 );
+                if (name == "int") {
+                    const auto& named = array_of(
+                        field(object, "named_args", context), context + ".named_args");
+                    const auto& spreads = array_of(
+                        field(object, "spread_args", context), context + ".spread_args");
+                    if (args.size() != 1 || !named.empty() || !spreads.empty()) {
+                        throw BytecodeLoweringError(
+                            "int conversion requires one positional argument in " + context);
+                    }
+                    lower_expression(args.front(), state, context + ".args[0]");
+                    emit(state, Opcode::Duplicate, ValueType::Number);
+                    emit(state, Opcode::Duplicate, ValueType::Number);
+                    emit_number(state, 1);
+                    emit(state, Opcode::FloorDivide, ValueType::Number);
+                    emit(state, Opcode::Equal, ValueType::Boolean);
+                    const auto failure_jump = state.function->instructions.size();
+                    emit(state, Opcode::JumpIfFalse, ValueType::Void);
+                    const auto success_jump = state.function->instructions.size();
+                    emit(state, Opcode::Jump, ValueType::Void);
+                    const auto failure_target = checked_index(
+                        state.function->instructions.size(), "int conversion failure");
+                    emit(state, Opcode::Pop, ValueType::Void);
+                    emit(state, Opcode::Trap, ValueType::Void);
+                    const auto success_target = checked_index(
+                        state.function->instructions.size(), "int conversion continuation");
+                    emit(state, Opcode::Nop, ValueType::Void);
+                    patch_jump(state, failure_jump, failure_target);
+                    patch_jump(state, success_jump, success_target);
+                    return ValueType::Number;
+                }
                 const auto primitive = vkf::math_primitives::classify(name);
                 if (primitive != vkf::math_primitives::Kind::None) {
                     vkf::math_primitives::validate_builtin<BytecodeLoweringError>(name, args.size(),
