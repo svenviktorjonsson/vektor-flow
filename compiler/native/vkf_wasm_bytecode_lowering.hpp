@@ -863,6 +863,40 @@ private:
                     + context
                 );
             }
+            const auto* nested_field = optional_field(object, "nested_index");
+            const bool nested = nested_field != nullptr
+                && nested_field->is_boolean() && nested_field->as_boolean();
+            const auto& update_value = object_of(
+                field(object, "value", context), context + ".value");
+            const auto update_value_type = string_field(
+                update_value, "type", context + ".value");
+            const bool scatter = update_value_type.rfind("tuple<", 0) == 0
+                || update_value_type.rfind("[", 0) == 0;
+            if (indices.size() > 1 && !nested && scatter) {
+                std::vector<std::uint32_t> index_locals;
+                index_locals.reserve(indices.size());
+                for (std::size_t index = 0; index < indices.size(); ++index) {
+                    lower_expression(indices[index], state,
+                        context + ".indices[" + std::to_string(index) + "]");
+                    const auto local_index = add_temporary_local(state, ValueType::Number);
+                    emit(state, Opcode::StoreLocal, ValueType::Number, local_index);
+                    index_locals.push_back(local_index);
+                }
+                const auto value_type = lower_expression(
+                    field(object, "value", context), state, context + ".value");
+                const auto values = add_temporary_local(state, value_type);
+                emit(state, Opcode::StoreLocal, value_type, values);
+                for (std::size_t index = 0; index < indices.size(); ++index) {
+                    emit(state, Opcode::LoadLocal, ValueType::Array, local->second);
+                    emit(state, Opcode::LoadLocal, ValueType::Number, index_locals[index]);
+                    emit(state, Opcode::LoadLocal, value_type, values);
+                    emit_number(state, static_cast<double>(index));
+                    emit(state, Opcode::ArrayGet, ValueType::Dynamic);
+                    emit(state, Opcode::ArraySet, ValueType::Array);
+                    emit(state, Opcode::StoreLocal, ValueType::Array, local->second);
+                }
+                return;
+            }
             emit(state, Opcode::LoadLocal, ValueType::Array, local->second);
             for (std::size_t index = 0; index + 1 < indices.size(); ++index) {
                 lower_expression(
@@ -1222,6 +1256,24 @@ private:
                 field(object, "indices", context),
                 context + ".indices"
             );
+            const auto* nested_field = optional_field(object, "nested_index");
+            const bool nested = nested_field != nullptr
+                && nested_field->is_boolean() && nested_field->as_boolean();
+            const auto& base_object = object_of(field(object, "base", context), context + ".base");
+            const auto base_path = vector_path(string_field(base_object, "type", context + ".base"));
+            if (indices.size() > 1 && !nested && base_path == "*") {
+                const auto base = add_temporary_local(state, ValueType::Array);
+                emit(state, Opcode::StoreLocal, ValueType::Array, base);
+                for (std::size_t index = 0; index < indices.size(); ++index) {
+                    emit(state, Opcode::LoadLocal, ValueType::Array, base);
+                    lower_expression(indices[index], state,
+                        context + ".indices[" + std::to_string(index) + "]");
+                    emit(state, Opcode::ArrayGet, ValueType::Dynamic);
+                }
+                emit(state, Opcode::MakeArray, ValueType::Array,
+                    checked_index(indices.size(), "gather index count"));
+                return ValueType::Array;
+            }
             for (std::size_t index = 0; index < indices.size(); ++index) {
                 lower_expression(
                     indices[index],

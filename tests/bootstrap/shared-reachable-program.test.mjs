@@ -43,3 +43,16 @@ test('unchanged literal-spread guide expands fixed items in the compiler',async(
     id:3,status:'ok',output:{kind:'console',stdout:'(1, 2, 3, 4)\n4\n',stderr:''},
   });
 });
+
+test('unchanged indexing guide gathers and scatters selected lanes',async()=>{
+  const [wasm,source]=await Promise.all([
+    readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url)),
+    readFile(new URL('../../examples/generated/readme/core/41-indexing.vkf',import.meta.url),'utf8'),
+  ]);
+  const module=new WebAssembly.Module(wasm);
+  assert.deepEqual(runInlineWorkerRequest({type:'run',id:4,source,module}),{
+    id:4,status:'ok',output:{
+      kind:'console',stdout:'20\n[10, 30]\n[10, 21, 30, 41]\n',stderr:'',
+    },
+  });
+});
