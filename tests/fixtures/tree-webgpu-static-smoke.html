@@ -151,6 +151,68 @@
           unified_renderer: true,
         }));
         window.VfDisplay.requestDynamicGeomFrameUpdate(frameId);
+
+        const junctionFrameId = 'tree_webgpu_junction_frame';
+        const junction = tree.junctions.find((candidate) => (
+          candidate.ports.filter((port) => port.role === 'child').length === 2
+        ));
+        const junctionRadius = junction.ports.find((port) => port.role === 'incoming').radius;
+        const junctionPanel = window.VfFrame.mount(layer, {
+          id: junctionFrameId,
+          title: 'Connected branching junction close-up',
+          draggable: false,
+          dockable: false,
+          resizable: false,
+          closable: false,
+        });
+        junctionPanel.root.style.left = '104%';
+        junctionPanel.root.style.top = '3%';
+        junctionPanel.root.style.width = '92%';
+        junctionPanel.root.style.height = '94%';
+        window.VfDisplay.mountDynamicGeomFrame(junctionFrameId, () => ({
+          meshes: tree.meshes,
+          camera: {
+            pos: [
+              junction.point[0] + junctionRadius * 9,
+              junction.point[1] - junctionRadius * 16,
+              junction.point[2] + junctionRadius * 6,
+            ],
+            target: junction.point,
+            up: [0, 0, 1],
+            fov: 30,
+          },
+          lights: [
+            {
+              id: 'junction_key',
+              kind: 'point',
+              pos: [
+                junction.point[0] - junctionRadius * 2,
+                junction.point[1] - junctionRadius * 4,
+                junction.point[2] + junctionRadius * 5,
+              ],
+              target: junction.point,
+              color: [1, 0.92, 0.76, 1],
+              intensity: junctionRadius * junctionRadius * 42,
+              range: junctionRadius * 14,
+            },
+            {
+              id: 'junction_fill',
+              kind: 'point',
+              pos: [
+                junction.point[0] + junctionRadius * 4,
+                junction.point[1] - junctionRadius * 3,
+                junction.point[2],
+              ],
+              target: junction.point,
+              color: [0.55, 0.72, 0.62, 1],
+              intensity: junctionRadius * junctionRadius * 18,
+              range: junctionRadius * 12,
+            },
+          ],
+          background: [0.065, 0.105, 0.15, 1],
+          unified_renderer: true,
+        }));
+        window.VfDisplay.requestDynamicGeomFrameUpdate(junctionFrameId);
       } catch (error) {
         window.__vfLastError = String(error && error.stack || error);
       }

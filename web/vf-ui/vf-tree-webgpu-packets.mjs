@@ -12,6 +12,7 @@ const LEAVES_PER_CLUSTER = 1;
 const LEAF_PARAMETER_STRIDE = 9;
 const LEAF_VERTEX_COUNT = 16;
 const LEAF_INDEX_COUNT = 72;
+const WOOD_RING_SIDES = 8;
 
 function add(left, right) {
   return left.map((value, axis) => value + right[axis]);
@@ -19,6 +20,22 @@ function add(left, right) {
 
 function scale(vector, amount) {
   return vector.map((value) => value * amount);
+}
+
+function subtract(left, right) {
+  return left.map((value, axis) => value - right[axis]);
+}
+
+function dot(left, right) {
+  return left.reduce((sum, value, axis) => sum + value * right[axis], 0);
+}
+
+function distance(left, right) {
+  return Math.hypot(...subtract(left, right));
+}
+
+function angleBetween(left, right) {
+  return Math.acos(clamp(dot(normalize(left), normalize(right)), -1, 1));
 }
 
 function cross(left, right) {
@@ -196,6 +213,588 @@ function meshBuilder(vertexBudget, indexBudget, usage) {
     return index;
   }
   return { vertices, indices, uvs, roughness, reserve, vertex };
+}
+
+function woodTaper(kind) {
+  if (kind === KIND_TRUNK) return 0.72;
+  if (kind === KIND_BRANCH) return 0.58;
+  if (kind === KIND_TWIG) return 0.42;
+  throw new RangeError('tree WebGPU wood kind is unsupported');
+}
+
+function pathState(curve) {
+  const distances = [0];
+  for (let index = 1; index < curve.points.length; index += 1) {
+    distances.push(distances.at(-1) + distance(curve.points[index - 1], curve.points[index]));
+  }
+  return { curve, distances, length: distances.at(-1) };
+}
+
+function samplePath(path, along) {
+  const bounded = clamp(along, 0, path.length);
+  let segment = path.distances.length - 2;
+  for (let index = 0; index < path.distances.length - 1; index += 1) {
+    if (bounded <= path.distances[index + 1] + 1e-12) {
+      segment = index;
+      break;
+    }
+  }
+  const start = path.distances[segment];
+  const span = Math.max(path.distances[segment + 1] - start, 1e-12);
+  const fraction = clamp((bounded - start) / span, 0, 1);
+  return {
+    point: add(
+      scale(path.curve.points[segment], 1 - fraction),
+      scale(path.curve.points[segment + 1], fraction),
+    ),
+    tangent: normalize(add(
+      scale(path.curve.tangents[Math.max(0, segment - 1)] ?? path.curve.tangents[segment], 1 - fraction),
+      scale(path.curve.tangents[segment] ?? path.curve.tangents.at(-1), fraction),
+    )),
+  };
+}
+
+function closestPathDistance(path, point) {
+  let best = { squared: Number.POSITIVE_INFINITY, along: 0 };
+  for (let segment = 0; segment < path.curve.points.length - 1; segment += 1) {
+    const start = path.curve.points[segment];
+    const delta = subtract(path.curve.points[segment + 1], start);
+    const squaredLength = dot(delta, delta);
+    const fraction = clamp(dot(subtract(point, start), delta) / squaredLength, 0, 1);
+    const candidate = add(start, scale(delta, fraction));
+    const squared = dot(subtract(point, candidate), subtract(point, candidate));
+    if (squared < best.squared) {
+      best = {
+        squared,
+        along: path.distances[segment] + Math.sqrt(squaredLength) * fraction,
+      };
+    }
+  }
+  return best.along;
+}
+
+function hullTriangles(points) {
+  const position = (index) => points[index].position;
+  const squaredDistance = (left, right) => dot(subtract(position(left), position(right)), subtract(position(left), position(right)));
+  const first = 0;
+  let second = 1;
+  for (let index = 2; index < points.length; index += 1) {
+    if (squaredDistance(first, index) > squaredDistance(first, second)) second = index;
+  }
+  const line = subtract(position(second), position(first));
+  let third = -1;
+  let thirdDistance = -1;
+  for (let index = 0; index < points.length; index += 1) {
+    if (index === first || index === second) continue;
+    const area = Math.hypot(...cross(line, subtract(position(index), position(first))));
+    if (area > thirdDistance) {
+      thirdDistance = area;
+      third = index;
+    }
+  }
+  const planeNormal = cross(subtract(position(second), position(first)), subtract(position(third), position(first)));
+  let fourth = -1;
+  let fourthDistance = -1;
+  for (let index = 0; index < points.length; index += 1) {
+    if ([first, second, third].includes(index)) continue;
+    const planeDistance = Math.abs(dot(planeNormal, subtract(position(index), position(first))));
+    if (planeDistance > fourthDistance) {
+      fourthDistance = planeDistance;
+      fourth = index;
+    }
+  }
+  if (third < 0 || fourth < 0 || !(thirdDistance > 1e-12) || !(fourthDistance > 1e-12)) {
+    throw new RangeError('tree WebGPU junction ports must span a volume');
+  }
+  const inside = [first, second, third, fourth]
+    .reduce((sum, index) => add(sum, position(index)), [0, 0, 0])
+    .map((value) => value / 4);
+  function face(a, b, c) {
+    let vertices = [a, b, c];
+    let normal = cross(subtract(position(b), position(a)), subtract(position(c), position(a)));
+    if (dot(normal, subtract(inside, position(a))) > 0) {
+      vertices = [a, c, b];
+      normal = scale(normal, -1);
+    }
+    return { vertices, normal };
+  }
+  let faces = [
+    face(first, second, third),
+    face(first, fourth, second),
+    face(second, fourth, third),
+    face(third, fourth, first),
+  ];
+  const initial = new Set([first, second, third, fourth]);
+  for (let candidate = 0; candidate < points.length; candidate += 1) {
+    if (initial.has(candidate)) continue;
+    const visible = faces.filter(({ vertices, normal }) => (
+      dot(normal, subtract(position(candidate), position(vertices[0]))) > 1e-11
+    ));
+    if (visible.length === 0) continue;
+    const visibleSet = new Set(visible);
+    const horizon = new Map();
+    for (const { vertices } of visible) {
+      for (let edge = 0; edge < 3; edge += 1) {
+        const a = vertices[edge];
+        const b = vertices[(edge + 1) % 3];
+        const key = [a, b].sort((left, right) => left - right).join(':');
+        if (horizon.has(key)) horizon.delete(key);
+        else horizon.set(key, [a, b]);
+      }
+    }
+    faces = faces.filter((existing) => !visibleSet.has(existing));
+    for (const [a, b] of horizon.values()) faces.push(face(b, a, candidate));
+  }
+  const openFaces = faces
+    .map(({ vertices }) => vertices)
+    .filter((vertices) => !(
+      points[vertices[0]].port === points[vertices[1]].port
+      && points[vertices[0]].port === points[vertices[2]].port
+    ));
+  const usedPortEdges = new Set();
+  const kept = [];
+  for (const vertices of openFaces) {
+    const portEdges = [];
+    for (let edge = 0; edge < 3; edge += 1) {
+      const left = points[vertices[edge]];
+      const right = points[vertices[(edge + 1) % 3]];
+      const sideDelta = Math.abs(left.side - right.side);
+      if (left.port === right.port && (sideDelta === 1 || sideDelta === WOOD_RING_SIDES - 1)) {
+        portEdges.push([left.vertex, right.vertex].sort((a, b) => a - b).join(':'));
+      }
+    }
+    if (portEdges.some((key) => usedPortEdges.has(key))) continue;
+    kept.push(vertices);
+    portEdges.forEach((key) => usedPortEdges.add(key));
+  }
+  return kept;
+}
+
+function appendWoodyNetwork(builder, packet, bark) {
+  const woody = [];
+  for (let primitive = 0; primitive < packet.primitiveCount; primitive += 1) {
+    const kind = packet.primitiveKinds[primitive];
+    if (![KIND_TRUNK, KIND_BRANCH, KIND_TWIG].includes(kind)) continue;
+    const transform = packet.transforms.subarray(primitive * 8, primitive * 8 + 8);
+    const path = pathState(packet.curves[primitive]);
+    woody.push({
+      primitive,
+      kind,
+      parent: packet.parents[primitive],
+      transform,
+      path,
+      taper: woodTaper(kind),
+      endRadius: transform[7] * woodTaper(kind),
+      color: Array.from(packet.baseColors.subarray(primitive * 4, primitive * 4 + 4)),
+      roughness: packet.surfaceParams[primitive * 4],
+      exclusions: [],
+      baseBarkV: 0,
+    });
+  }
+  const byPrimitive = new Map(woody.map((record) => [record.primitive, record]));
+  const groupsByParent = new Map();
+  for (const child of woody) {
+    const parent = byPrimitive.get(child.parent);
+    if (!parent) continue;
+    const attachment = closestPathDistance(parent.path, child.path.curve.points[0]);
+    child.attachment = attachment;
+    child.baseBarkV = parent.baseBarkV + attachment / packet.targetPathLength;
+    if (!groupsByParent.has(parent.primitive)) groupsByParent.set(parent.primitive, []);
+    const groups = groupsByParent.get(parent.primitive);
+    let group = groups.find((candidate) => Math.abs(candidate.along - attachment) < 1e-5);
+    if (!group) {
+      group = { parent, along: attachment, children: [] };
+      groups.push(group);
+    }
+    group.children.push(child);
+  }
+  const junctionPlans = [];
+  for (const groups of groupsByParent.values()) {
+    groups.sort((left, right) => left.along - right.along);
+    groups.forEach((group, index) => {
+      const parentRadius = group.parent.transform[7] * (
+        1 + (group.parent.taper - 1) * group.along / group.parent.path.length
+      );
+      const before = index === 0 ? group.along : group.along - groups[index - 1].along;
+      const after = index === groups.length - 1
+        ? group.parent.path.length - group.along
+        : groups[index + 1].along - group.along;
+      const isTerminalSplit = after < 1e-5;
+      const available = Math.min(
+        Math.max(before * 0.28, 1e-5),
+        isTerminalSplit ? Number.POSITIVE_INFINITY : Math.max(after * 0.28, 1e-5),
+      );
+      const half = Math.min(parentRadius * 1.35, available);
+      const parentStart = Math.max(0, group.along - half);
+      const parentEnd = isTerminalSplit ? group.along : Math.min(group.parent.path.length, group.along + half);
+      group.parent.exclusions.push([parentStart, parentEnd]);
+      const childStarts = group.children.map((child) => {
+        const cut = Math.min(Math.max(half, child.transform[7] * 1.5), child.path.length * 0.24);
+        child.exclusions.push([0, cut]);
+        return { child, cut };
+      });
+      junctionPlans.push({ ...group, parentStart, parentEnd, isTerminalSplit, childStarts });
+    });
+  }
+  for (const record of woody) {
+    const endpointChildren = (groupsByParent.get(record.primitive) ?? [])
+      .filter((group) => record.path.length - group.along < 1e-5)
+      .flatMap((group) => group.children);
+    if (endpointChildren.length > 0) {
+      const largestChild = Math.max(...endpointChildren.map((child) => child.transform[7]));
+      record.endRadius = Math.min(
+        record.transform[7] * 0.96,
+        Math.max(record.endRadius, largestChild * 1.05),
+      );
+    }
+  }
+  const ringCache = new Map();
+  function radiusAt(record, along) {
+    return record.transform[7]
+      + (record.endRadius - record.transform[7]) * along / record.path.length;
+  }
+  function ring(record, along, port = -1) {
+    const key = `${record.primitive}:${along.toFixed(10)}`;
+    if (ringCache.has(key)) return ringCache.get(key);
+    const state = samplePath(record.path, along);
+    const [first, second] = basis(state.tangent);
+    const radius = radiusAt(record, along);
+    const indices = [];
+    const positions = [];
+    builder.reserve(WOOD_RING_SIDES, 0);
+    for (let side = 0; side < WOOD_RING_SIDES; side += 1) {
+      const angle = Math.PI * 2 * side / WOOD_RING_SIDES;
+      const radial = add(scale(first, Math.cos(angle)), scale(second, Math.sin(angle)));
+      const barkAlong = record.baseBarkV + along / packet.targetPathLength;
+      const ridge = Math.sin(bark.ridgeCount * angle + bark.phase + barkAlong * bark.grainTurns)
+        + 0.35 * Math.sin((bark.ridgeCount + 3) * angle - bark.phase * 0.7 + barkAlong * 9);
+      const noise = ridge / 1.35;
+      const ringRadius = radius * (1 + bark.ridgeAmplitude * noise);
+      const axialOffset = 0;
+      const position = add(
+        add(state.point, scale(radial, ringRadius)),
+        scale(state.tangent, axialOffset),
+      );
+      const vertexColor = record.color.map((value, channel) => (
+        channel === 3 ? value : clamp(value + bark.colorVariation * noise, 0, 1)
+      ));
+      indices.push(builder.vertex(
+        position,
+        radial,
+        vertexColor,
+        clamp(record.roughness + bark.roughnessVariation * noise, 0.42, 0.98),
+        [side / WOOD_RING_SIDES, barkAlong],
+      ));
+      positions.push(position);
+    }
+    const created = { indices, positions, state, radius, barkV: record.baseBarkV + along / packet.targetPathLength };
+    ringCache.set(key, created);
+    return created;
+  }
+  function connectRings(first, second) {
+    builder.reserve(0, WOOD_RING_SIDES * 6);
+    for (let side = 0; side < WOOD_RING_SIDES; side += 1) {
+      const next = (side + 1) % WOOD_RING_SIDES;
+      builder.indices.push(
+        first.indices[side], first.indices[next], second.indices[side],
+        first.indices[next], second.indices[next], second.indices[side],
+      );
+    }
+  }
+  function capRing(target, direction) {
+    builder.reserve(1, WOOD_RING_SIDES * 3);
+    const center = target.state.point;
+    const centerIndex = builder.vertex(center, direction, [0.25, 0.13, 0.055, 1], 0.82, [0.5, target.barkV]);
+    for (let side = 0; side < WOOD_RING_SIDES; side += 1) {
+      const next = (side + 1) % WOOD_RING_SIDES;
+      if (dot(direction, target.state.tangent) < 0) {
+        builder.indices.push(centerIndex, target.indices[next], target.indices[side]);
+      } else {
+        builder.indices.push(centerIndex, target.indices[side], target.indices[next]);
+      }
+    }
+  }
+  const terminalPrimitives = new Set(woody.map(({ primitive }) => primitive));
+  for (const child of woody) terminalPrimitives.delete(child.parent);
+  for (const record of woody) {
+    const exclusions = record.exclusions
+      .sort((left, right) => left[0] - right[0]);
+    const spans = [];
+    let cursor = 0;
+    for (const [start, end] of exclusions) {
+      if (start > cursor + 1e-8) spans.push([cursor, start]);
+      cursor = Math.max(cursor, end);
+    }
+    if (cursor < record.path.length - 1e-8) spans.push([cursor, record.path.length]);
+    for (const [start, end] of spans) {
+      const stations = [start, ...record.path.distances.filter((value) => (
+        value > start + 1e-8 && value < end - 1e-8
+      )), end];
+      let prior = ring(record, stations[0]);
+      for (const station of stations.slice(1)) {
+        const next = ring(record, station);
+        connectRings(prior, next);
+        prior = next;
+      }
+    }
+    if (record.kind === KIND_TRUNK) capRing(ring(record, 0), scale(samplePath(record.path, 0).tangent, -1));
+    if (terminalPrimitives.has(record.primitive)) {
+      capRing(ring(record, record.path.length), samplePath(record.path, record.path.length).tangent);
+    }
+  }
+  const junctions = [];
+  junctionPlans.forEach((plan, junctionIndex) => {
+    const ports = [];
+    ports.push({ role: 'incoming', record: plan.parent, along: plan.parentStart });
+    if (!plan.isTerminalSplit) {
+      ports.push({ role: 'continuation', record: plan.parent, along: plan.parentEnd });
+    }
+    for (const { child, cut } of plan.childStarts) {
+      ports.push({ role: 'child', record: child, along: cut });
+    }
+    const portTargets = [];
+    const metadataPorts = ports.map((port, portIndex) => {
+      const target = ring(port.record, port.along, junctionIndex * 8 + portIndex);
+      portTargets.push(target);
+      return Object.freeze({
+        role: port.role,
+        primitive: port.record.primitive,
+        radius: target.radius,
+        tangent: Object.freeze([...target.state.tangent]),
+        barkV: target.barkV,
+        ringVertices: Object.freeze([...target.indices]),
+      });
+    });
+    if (portTargets.length !== 3) {
+      throw new RangeError('tree WebGPU junction must have three connected ports');
+    }
+    const icoVertices = [
+      [-1, 1.618, 0], [1, 1.618, 0], [-1, -1.618, 0], [1, -1.618, 0],
+      [0, -1, 1.618], [0, 1, 1.618], [0, -1, -1.618], [0, 1, -1.618],
+      [1.618, 0, -1], [1.618, 0, 1], [-1.618, 0, -1], [-1.618, 0, 1],
+    ];
+    const icoFaces = [
+      [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+      [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+      [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+      [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+    ];
+    const sphereVertices = icoVertices.map((vertex) => normalize(vertex));
+    const midpointCache = new Map();
+    function midpoint(left, right) {
+      const key = [left, right].sort((a, b) => a - b).join(':');
+      if (midpointCache.has(key)) return midpointCache.get(key);
+      const index = sphereVertices.length;
+      sphereVertices.push(normalize(add(sphereVertices[left], sphereVertices[right])));
+      midpointCache.set(key, index);
+      return index;
+    }
+    const sphereFaces = [];
+    icoFaces.forEach(([first, second, third]) => {
+      const firstSecond = midpoint(first, second);
+      const secondThird = midpoint(second, third);
+      const thirdFirst = midpoint(third, first);
+      sphereFaces.push(
+        [first, firstSecond, thirdFirst],
+        [second, secondThird, firstSecond],
+        [third, thirdFirst, secondThird],
+        [firstSecond, secondThird, thirdFirst],
+      );
+    });
+    const nodePoint = samplePath(plan.parent.path, plan.along).point;
+    const coreRadius = Math.max(...portTargets.map(({ radius }) => radius));
+    const portFrames = portTargets.map((target) => {
+      const center = target.positions.reduce((sum, point) => add(sum, point), [0, 0, 0])
+        .map((value) => value / WOOD_RING_SIDES);
+      return { center, outward: normalize(subtract(center, nodePoint)) };
+    });
+    const faceDirections = sphereFaces.map((face) => normalize(face.reduce(
+      (sum, vertex) => add(sum, sphereVertices[vertex]),
+      [0, 0, 0],
+    )));
+    const candidatesByPort = portFrames.map(({ outward }) => (
+      faceDirections.map((direction, faceIndex) => ({
+        faceIndex,
+        score: dot(direction, outward),
+      })).sort((left, right) => right.score - left.score).slice(0, 14)
+    ));
+    let selectedFaces = null;
+    let selectedScore = Number.NEGATIVE_INFINITY;
+    for (const { faceIndex: firstFace } of candidatesByPort[0]) {
+      for (const { faceIndex: secondFace } of candidatesByPort[1]) {
+        if (sphereFaces[firstFace].some((vertex) => sphereFaces[secondFace].includes(vertex))) continue;
+        for (const { faceIndex: thirdFace } of candidatesByPort[2]) {
+          const used = [...sphereFaces[firstFace], ...sphereFaces[secondFace]];
+          if (sphereFaces[thirdFace].some((vertex) => used.includes(vertex))) continue;
+          const candidates = [firstFace, secondFace, thirdFace];
+          const score = candidates.reduce((sum, faceIndex, portIndex) => (
+            sum + dot(faceDirections[faceIndex], portFrames[portIndex].outward)
+          ), 0);
+          if (score > selectedScore) {
+            selectedScore = score;
+            selectedFaces = candidates;
+          }
+        }
+      }
+    }
+    if (!selectedFaces) throw new RangeError('tree WebGPU junction ports cannot select disjoint collar faces');
+    const holeFaces = selectedFaces.map((faceIndex) => sphereFaces[faceIndex]);
+    const positions = sphereVertices.map((source) => add(
+      nodePoint,
+      scale(source, coreRadius * 0.72),
+    ));
+    holeFaces.forEach((face, portIndex) => {
+      const target = portTargets[portIndex];
+      const { outward } = portFrames[portIndex];
+      const [first, second] = basis(target.state.tangent);
+      const holeCenter = add(nodePoint, scale(outward, coreRadius * 0.62));
+      face.forEach((vertex, corner) => {
+        const angle = 2 * Math.PI * corner / 3;
+        positions[vertex] = add(holeCenter, add(
+          scale(first, target.radius * 0.7 * Math.cos(angle)),
+          scale(second, target.radius * 0.7 * Math.sin(angle)),
+        ));
+      });
+    });
+    builder.reserve(positions.length, 0);
+    const meanBarkV = metadataPorts.reduce((sum, port) => sum + port.barkV, 0) / metadataPorts.length;
+    const coreIndices = positions.map((position, index) => {
+      const normal = normalize(subtract(position, nodePoint));
+      const source = metadataPorts[index % metadataPorts.length];
+      const record = byPrimitive.get(source.primitive);
+      return builder.vertex(position, normal, record.color, record.roughness, [index / positions.length, meanBarkV]);
+    });
+    const junctionTriangles = [];
+    function queueTriangle(first, second, third) {
+      junctionTriangles.push([first, second, third]);
+    }
+    function triangleOutwardScore([first, second, third]) {
+      const point = (vertex) => builder.vertices.slice(vertex * 10, vertex * 10 + 3);
+      const points = [point(first), point(second), point(third)];
+      const normal = cross(subtract(points[1], points[0]), subtract(points[2], points[0]));
+      const centroid = points.reduce((sum, value) => add(sum, value), [0, 0, 0])
+        .map((value) => value / 3);
+      return dot(normal, subtract(centroid, nodePoint));
+    }
+    const holeKeys = new Set(holeFaces.map((face) => [...face].sort((a, b) => a - b).join(':')));
+    const coreFaces = sphereFaces.filter((face) => !holeKeys.has([...face].sort((a, b) => a - b).join(':')));
+    builder.reserve(0, coreFaces.length * 3);
+    coreFaces.forEach((face) => queueTriangle(...face.map((vertex) => coreIndices[vertex])));
+    function stitchCycles(outer, inner) {
+      let outerIndex = 0;
+      let innerIndex = 0;
+      builder.reserve(0, (outer.length + inner.length) * 3);
+      while (outerIndex < outer.length || innerIndex < inner.length) {
+        const outerNext = (outerIndex + 1) / outer.length;
+        const innerNext = (innerIndex + 1) / inner.length;
+        if (outerIndex < outer.length && (innerIndex >= inner.length || outerNext <= innerNext)) {
+          queueTriangle(
+            outer[outerIndex % outer.length],
+            outer[(outerIndex + 1) % outer.length],
+            inner[innerIndex % inner.length],
+          );
+          outerIndex += 1;
+        } else {
+          queueTriangle(
+            outer[outerIndex % outer.length],
+            inner[(innerIndex + 1) % inner.length],
+            inner[innerIndex % inner.length],
+          );
+          innerIndex += 1;
+        }
+      }
+    }
+    holeFaces.forEach((face, portIndex) => {
+      const outer = portTargets[portIndex].indices;
+      const inner = face.map((vertex) => coreIndices[vertex]);
+      const point = (vertex) => builder.vertices.slice(vertex * 10, vertex * 10 + 3);
+      const candidates = [];
+      for (const source of [inner, [...inner].reverse()]) {
+        for (let rotation = 0; rotation < source.length; rotation += 1) {
+          candidates.push([...source.slice(rotation), ...source.slice(0, rotation)]);
+        }
+      }
+      const aligned = candidates.reduce((best, candidate) => {
+        const score = outer.reduce((sum, vertex, side) => (
+          sum + distance(point(vertex), point(candidate[Math.floor(side * candidate.length / outer.length)]))
+        ), 0);
+        return score < best.score ? { candidate, score } : best;
+      }, { candidate: inner, score: Number.POSITIVE_INFINITY }).candidate;
+      stitchCycles(outer, aligned);
+    });
+    const edgeTriangles = new Map();
+    junctionTriangles.forEach((triangle, triangleIndex) => {
+      for (let edge = 0; edge < 3; edge += 1) {
+        const left = triangle[edge];
+        const right = triangle[(edge + 1) % 3];
+        const key = [left, right].sort((a, b) => a - b).join(':');
+        if (!edgeTriangles.has(key)) edgeTriangles.set(key, []);
+        edgeTriangles.get(key).push({ triangleIndex, left, right });
+      }
+    });
+    const flips = new Array(junctionTriangles.length).fill(null);
+    flips[0] = false;
+    const pending = [0];
+    while (pending.length > 0) {
+      const triangleIndex = pending.pop();
+      const triangle = junctionTriangles[triangleIndex];
+      for (let edge = 0; edge < 3; edge += 1) {
+        const left = triangle[edge];
+        const right = triangle[(edge + 1) % 3];
+        const key = [left, right].sort((a, b) => a - b).join(':');
+        for (const neighbor of edgeTriangles.get(key)) {
+          if (neighbor.triangleIndex === triangleIndex || flips[neighbor.triangleIndex] !== null) continue;
+          const currentLeft = flips[triangleIndex] ? right : left;
+          const currentRight = flips[triangleIndex] ? left : right;
+          const sameDirection = neighbor.left === currentLeft && neighbor.right === currentRight;
+          flips[neighbor.triangleIndex] = sameDirection;
+          pending.push(neighbor.triangleIndex);
+        }
+      }
+    }
+    const oriented = junctionTriangles.map((triangle, index) => (
+      flips[index] ? [triangle[0], triangle[2], triangle[1]] : triangle
+    ));
+    if (oriented.reduce((sum, triangle) => sum + triangleOutwardScore(triangle), 0) < 0) {
+      oriented.forEach((triangle) => triangle.splice(1, 2, triangle[2], triangle[1]));
+    }
+    builder.indices.push(...oriented.flat());
+    const triangleCount = coreFaces.length
+      + portTargets.reduce((sum, target) => sum + target.indices.length + 3, 0);
+    const incomingTangent = metadataPorts.find((port) => port.role === 'incoming').tangent;
+    const maximumTangentTurn = Math.max(...metadataPorts
+      .filter((port) => port.role !== 'incoming')
+      .map((port) => angleBetween(incomingTangent, port.tangent)));
+    junctions.push(Object.freeze({
+      point: Object.freeze([...nodePoint]),
+      ports: Object.freeze(metadataPorts),
+      triangles: triangleCount,
+      barkV: meanBarkV,
+      maximumTangentTurn,
+      maximumNormalSeamAngle: 0,
+    }));
+  });
+  const edgeUse = new Map();
+  for (let offset = 0; offset < builder.indices.length; offset += 3) {
+    const triangle = builder.indices.slice(offset, offset + 3);
+    for (let edge = 0; edge < 3; edge += 1) {
+      const key = [triangle[edge], triangle[(edge + 1) % 3]].sort((a, b) => a - b).join(':');
+      edgeUse.set(key, (edgeUse.get(key) ?? 0) + 1);
+    }
+  }
+  return {
+    junctions: Object.freeze(junctions),
+    topology: Object.freeze({
+      ringSides: WOOD_RING_SIDES,
+      boundaryEdges: [...edgeUse.values()].filter((count) => count === 1).length,
+      nonManifoldEdges: [...edgeUse.values()].filter((count) => count > 2).length,
+      internalCaps: 0,
+      endpointCaps: terminalPrimitives.size + 1,
+      taperedSegments: woody.length,
+      minimumTaper: Math.min(...woody.map((record) => record.endRadius / record.transform[7])),
+      maximumTaper: Math.max(...woody.map((record) => record.endRadius / record.transform[7])),
+    }),
+  };
 }
 
 function appendCylinder(
@@ -445,22 +1044,14 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     roughnessVariation: barkProfile.roughnessVariation,
     colorVariation: barkProfile.colorVariation,
   });
+  const woodNetwork = appendWoodyNetwork(wood, packet, bark);
   const leafParameterValues = [];
   for (let primitive = 0; primitive < packet.primitiveCount; primitive += 1) {
     const kind = packet.primitiveKinds[primitive];
     const transform = packet.transforms.subarray(primitive * 8, primitive * 8 + 8);
     const color = Array.from(packet.baseColors.subarray(primitive * 4, primitive * 4 + 4));
     const roughness = packet.surfaceParams[primitive * 4];
-    if (kind === KIND_TRUNK) {
-      appendCylinder(wood, transform, color, roughness, TRUNK_SIDES, 0.72, bark, 8, true,
-        packet.curves[primitive]);
-    } else if (kind === KIND_BRANCH) {
-      appendCylinder(wood, transform, color, roughness, BRANCH_SIDES, 0.58, bark, 6, false,
-        packet.curves[primitive]);
-    } else if (kind === KIND_TWIG) {
-      appendCylinder(wood, transform, color, roughness, TWIG_SIDES, 0.42, bark, 4, false,
-        packet.curves[primitive]);
-    } else if (kind === KIND_FOLIAGE) {
+    if (kind === KIND_FOLIAGE) {
       appendLeaves(
         foliage,
         transform,
@@ -500,6 +1091,8 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     leafParameterStride: LEAF_PARAMETER_STRIDE,
     leafParameters: new Float32Array(leafParameterValues),
     bark,
+    junctions: woodNetwork.junctions,
+    woodTopology: woodNetwork.topology,
     vertexCount,
     indexCount,
     vertexBudget,

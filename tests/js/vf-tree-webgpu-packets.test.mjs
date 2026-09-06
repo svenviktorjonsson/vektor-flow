@@ -35,6 +35,18 @@ function distance(left, right) {
   return Math.hypot(...left.map((value, axis) => value - right[axis]));
 }
 
+function subtract(left, right) {
+  return left.map((value, axis) => value - right[axis]);
+}
+
+function cross(left, right) {
+  return [
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0],
+  ];
+}
+
 function envelopeMetric(envelope, point) {
   const dx = point[0] - envelope.center[0];
   const dy = point[1] - envelope.center[1];
@@ -128,14 +140,105 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
   assert.ok(result.meshes[1].vertices.some((value, index) => (
     index % 10 === 7 && value > 0.15
   )));
-  assert.ok(distance(
-    Array.from(result.meshes[0].vertices.slice(80 * 10, 80 * 10 + 3)),
-    source.curves[0].points[0],
-  ) < 1e-5);
-  assert.ok(distance(
-    Array.from(result.meshes[0].vertices.slice(81 * 10, 81 * 10 + 3)),
-    source.curves[0].points.at(-1),
-  ) < 1e-5);
+  const woodPoints = Array.from(
+    { length: result.meshes[0].vertices.length / 10 },
+    (_, vertex) => Array.from(result.meshes[0].vertices.slice(vertex * 10, vertex * 10 + 3)),
+  );
+  assert.ok(Math.min(...woodPoints.map((point) => distance(point, source.curves[0].points[0]))) < 1e-5);
+});
+
+test('woody split ports share one open junction mesh without internal caps', () => {
+  const source = sourcePacket();
+  const result = adaptTreeRenderPacketToWebGpuMeshesReference(source, {
+    vertexBudget: 32768,
+    indexBudget: 131072,
+  });
+  const wood = result.meshes[0];
+  assert.ok(result.junctions.length > 0);
+  const edgeUse = new Map();
+  const triangleKeys = new Set();
+  for (let offset = 0; offset < wood.indices.length; offset += 3) {
+    const triangle = Array.from(wood.indices.slice(offset, offset + 3));
+    assert.equal(new Set(triangle).size, 3);
+    const key = [...triangle].sort((a, b) => a - b).join(':');
+    assert.equal(triangleKeys.has(key), false);
+    triangleKeys.add(key);
+    for (let edge = 0; edge < 3; edge += 1) {
+      const endpoints = [triangle[edge], triangle[(edge + 1) % 3]].sort((a, b) => a - b);
+      const edgeKey = endpoints.join(':');
+      edgeUse.set(edgeKey, (edgeUse.get(edgeKey) ?? 0) + 1);
+    }
+  }
+  const boundaryEdges = [...edgeUse.values()].filter((count) => count === 1).length;
+  assert.equal(boundaryEdges, result.woodTopology.boundaryEdges);
+  assert.equal(result.woodTopology.internalCaps, 0);
+  assert.equal(result.woodTopology.nonManifoldEdges, 0);
+  for (const junction of result.junctions) {
+    assert.ok(junction.ports.length >= 3);
+    for (const port of junction.ports) {
+      assert.equal(port.ringVertices.length, result.woodTopology.ringSides);
+      for (let side = 0; side < port.ringVertices.length; side += 1) {
+        const next = (side + 1) % port.ringVertices.length;
+        const key = [port.ringVertices[side], port.ringVertices[next]]
+          .sort((a, b) => a - b).join(':');
+        assert.equal(edgeUse.get(key), 2);
+      }
+    }
+  }
+});
+
+test('every woody path tapers and junction collars keep bounded tangent radius and bark seams', () => {
+  const source = sourcePacket();
+  const result = adaptTreeRenderPacketToWebGpuMeshesReference(source, {
+    vertexBudget: 32768,
+    indexBudget: 131072,
+  });
+  const woodyCount = Array.from(source.primitiveKinds)
+    .filter((kind) => kind === 0 || kind === 2 || kind === 4).length;
+  assert.equal(result.woodTopology.taperedSegments, woodyCount);
+  assert.ok(result.woodTopology.minimumTaper > 0);
+  assert.ok(result.woodTopology.maximumTaper < 1);
+  for (const junction of result.junctions) {
+    const incoming = junction.ports.find((port) => port.role === 'incoming');
+    const outgoing = junction.ports.filter((port) => port.role !== 'incoming');
+    assert.ok(incoming);
+    assert.ok(outgoing.every((port) => port.radius < incoming.radius));
+    assert.ok(outgoing.every((port) => Math.abs(port.barkV - junction.barkV) < 0.08));
+    assert.ok(junction.maximumTangentTurn > 0 && junction.maximumTangentTurn < Math.PI * 0.7);
+    assert.ok(junction.maximumNormalSeamAngle < 0.35);
+  }
+});
+
+test('connected wood has only root and terminal boundaries with no degenerate or coplanar duplicates', () => {
+  const source = sourcePacket();
+  const result = adaptTreeRenderPacketToWebGpuMeshesReference(source, {
+    vertexBudget: 32768,
+    indexBudget: 131072,
+  });
+  const wood = result.meshes[0];
+  const woody = new Set();
+  const parents = new Set();
+  source.primitiveKinds.forEach((kind, primitive) => {
+    if (kind === 0 || kind === 2 || kind === 4) woody.add(primitive);
+  });
+  for (const primitive of woody) {
+    if (woody.has(source.parents[primitive])) parents.add(source.parents[primitive]);
+  }
+  const terminalCount = [...woody].filter((primitive) => !parents.has(primitive)).length;
+  assert.equal(result.woodTopology.boundaryEdges, 0);
+  assert.equal(result.woodTopology.endpointCaps, terminalCount + 1);
+  const point = (vertex) => Array.from(wood.vertices.slice(vertex * 10, vertex * 10 + 3));
+  const geometricTriangles = new Set();
+  for (let offset = 0; offset < wood.indices.length; offset += 3) {
+    const points = Array.from(wood.indices.slice(offset, offset + 3), point);
+    const ab = subtract(points[1], points[0]);
+    const ac = subtract(points[2], points[0]);
+    assert.ok(Math.hypot(...cross(ab, ac)) > 1e-9);
+    const key = points.map((position) => position.map((value) => value.toFixed(7)).join(','))
+      .sort().join(':');
+    assert.equal(geometricTriangles.has(key), false);
+    geometricTriangles.add(key);
+  }
 });
 
 test('tree WebGPU meshes replay exactly and reject incomplete or exceeded packets', () => {

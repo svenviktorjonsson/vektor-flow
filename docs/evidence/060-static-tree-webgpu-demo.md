@@ -1,9 +1,11 @@
 # Deterministic static tree WebGPU demonstration
 
-Date: 2026-09-06. Base: `694798ca31ac122c8d0564dd3561bb60557d1f95`.
+Date: 2026-09-06. Base: `001a322a16ff3cebfc4c842889f5dc86f4a3381d`.
 Branch: `pre-gen`.
 
-![Static deterministic curved tree rendered by WebGPU](060-static-tree-webgpu-review4.png)
+![Static deterministic tree with connected junctions rendered by WebGPU](060-static-tree-webgpu-review5.png)
+
+![Connected primary branch junction close-up](060-static-tree-webgpu-review5-junction.png)
 
 ## Scope
 
@@ -35,6 +37,15 @@ maximum turn, and have monotonically greater variance as radius decreases.
 Ring centers and averaged tangents follow the same retained curve in the real
 WebGPU tube mesh, giving smooth tangent transitions without a jagged zigzag.
 
+Every woody path is now realized as tapered frustum spans in one indexed wood
+mesh. At each structural split or lateral-shoot attachment, the adjacent spans
+are trimmed back to shared collar rings. A direction-selected subdivided
+three-port junction core joins the incoming and outgoing rings using the same
+vertex indices. Internal end caps are absent; only the root and terminal tips
+are capped. The resulting wood mesh is closed: zero boundary edges, zero
+non-manifold edges, and zero duplicate geometric triangles. Connected collar
+vertices also carry the same normals and bark coordinates into adjacent spans.
+
 The selected tree has 1,157 retained primitives: one trunk, one non-rendered
 coarse crown envelope, fourteen structural branches, seventy-nine thin twigs,
 and 1,062 individual leaf sites. Forty-eight twigs are recursive terminal
@@ -60,7 +71,7 @@ rings, while bounded vertex color and roughness vary from one coherent
 tree-wide bark field. No bark image, raster stand-in, canvas fallback, or fake
 renderer is used.
 
-Exact output is 19,428 vertices and 89,952 indices: 2,436/13,488 wood and
+Exact output is 23,412 vertices and 114,972 indices: 6,420/38,508 wood and
 16,992/76,464 foliage. It remains below explicit 32,768-vertex and
 131,072-index fixture budgets. A complete tree is bounded to 1,690 retained
 primitives; the adapter independently caps 65,536 vertices and 393,216 indices.
@@ -89,6 +100,12 @@ fixed attachment/count model. The replacement tests now prove:
   endpoints under the original arc-length budgets;
 - reduced bounded blade area and a pinned majority of leaves before the
   terminal twig band;
+- no internal cap triangles, shared indexed rings at all 62 three-port
+  junctions, and no gaps, floating child bases, or tube overlap;
+- 94 strictly tapered woody paths, child collar radii below incoming collar
+  radii, bounded tangent turns, shared normal seams, and continuous bark V;
+- a closed finite nondegenerate wood mesh with zero boundary/non-manifold
+  edges and no duplicate coplanar triangles;
 - nonuniform procedural bark color/roughness, periodic seam continuity, and
   hard primitive/vertex/index/RAM bounds.
 
@@ -97,8 +114,9 @@ fixed attachment/count model. The replacement tests now prove:
 | Gate | Result |
 | --- | --- |
 | Geometry/species tests | 8/8 GREEN |
-| Focused geometry + renderer-packet + WebGPU + wood tests | 18/18 GREEN |
-| All tree/forest/wood JavaScript tests | 34/34 GREEN |
+| WebGPU junction/mesh tests | 8/8 GREEN |
+| Focused geometry + renderer-packet + WebGPU + wood tests | 21/21 GREEN |
+| All tree/forest/wood JavaScript tests | 37/37 GREEN |
 | Headless Edge real WebGPU capture | GREEN |
 | `git diff --check` | GREEN |
 
@@ -107,15 +125,21 @@ Headless Edge initialized WebGPU at 1,263 by 760 with two lit renderer parts,
 1.25 reveal bark ridges and leaf silhouettes without visible clipping.
 Initialization failures, provider errors,
 runtime failures, and WebGPU errors were empty. Both parts reported no physics
-runtime; physics particles and steps were zero. The tracked 100,689-byte PNG is
-`docs/evidence/060-static-tree-webgpu-review4.png`, SHA-256
-`B61EFC6FA3C3102ED400FCCB61223FF5B22CB9D4C31C975DF5AE3CB9FDEE4E59`.
+runtime; physics particles and steps were zero. The tracked 99,506-byte full
+tree PNG is `docs/evidence/060-static-tree-webgpu-review5.png`, SHA-256
+`B7588C859AB4A3B0609EBFD59ED5107A7E76C311298060507B60A34F1BC6354A`.
+The tracked 115,777-byte primary-junction close-up is
+`docs/evidence/060-static-tree-webgpu-review5-junction.png`, SHA-256
+`74F992D4FC3A314FA67359EB07DD7ED74192AE35A83650EC2D3E0DDB409CE82A`.
+Both captures are 1,263 by 760, use the real renderer at 4x MSAA, and reported
+empty initialization, provider, runtime, and WebGPU errors.
 
 Reproduce:
 
 ```text
 node --test tests/js/vf-tree-geometry-plan.test.mjs tests/js/vf-tree-renderer-packets.test.mjs tests/js/vf-tree-webgpu-packets.test.mjs
-node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review4.png 0 9366 tree_webgpu_static_frame
+node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review5.png 0 9380 tree_webgpu_static_frame
+node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review5-junction.png 0 9381 tree_webgpu_junction_frame
 ```
 
 ## Static review boundary
