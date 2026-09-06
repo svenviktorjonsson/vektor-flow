@@ -56,3 +56,21 @@ test('unchanged indexing guide gathers and scatters selected lanes',async()=>{
     },
   });
 });
+
+for (const [id,example,stdout] of [
+  [5,'50-generic-types','vkf\n4\n[int:3]\n6\n'],
+  [6,'49-nominal-constructors',
+    'Point\n(x:num, y:num)\n(x:num, y:num)\ntype\n[x, y]\ntrue\n[int:3]\n(x:num, y:num)\ninteger\nnumber\n'],
+]) {
+  test(`unchanged ${example} guide executes reflected type descriptors`,async()=>{
+    const [wasm,source]=await Promise.all([
+      readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url)),
+      readFile(new URL(`../../examples/generated/readme/core/${example}.vkf`,import.meta.url),'utf8'),
+    ]);
+    const module=new WebAssembly.Module(wasm);
+    assert.deepEqual(WebAssembly.Module.imports(module),[]);
+    assert.deepEqual(runInlineWorkerRequest({type:'run',id,source,module}),{
+      id,status:'ok',output:{kind:'console',stdout,stderr:''},
+    });
+  });
+}

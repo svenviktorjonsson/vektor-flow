@@ -128,6 +128,12 @@ inline ValueType lower_type(
     if (type == "str" || type == "string") {
         return ValueType::String;
     }
+    // The frontend has already rendered a reflected type descriptor into its
+    // canonical surface spelling. Preserve that compiler-owned text as a VM
+    // string; the browser transport must never reconstruct type metadata.
+    if (type.rfind("type<", 0) == 0 && type.back() == '>') {
+        return ValueType::String;
+    }
     if (symbolic_expression_surface_type(type)) {
         return ValueType::Array;
     }
