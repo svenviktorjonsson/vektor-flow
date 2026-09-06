@@ -885,6 +885,46 @@ MachineModule: (
     entry:MachineFunction,
     functions:any
 )
+ConcreteTaggedMachineInstruction: (
+    kind:str,
+    index:num,
+    value:num,
+    symbol:str,
+    argument_count:num,
+    result_count:num,
+    provided_parameter_mask:num,
+    uses_parameter_mask:bit,
+    may_error:bit,
+    has_error_handler:bit,
+    error_label:num,
+    error_value_local:num,
+    error_type_local:num
+)
+ConcreteTaggedMachineFunction: (
+    name:str,
+    parameters:[str],
+    parameter_is_numeric_scalar:[bit],
+    result_is_numeric_scalar:bit,
+    result_is_dynamic_f64_list:bit,
+    locals:[str],
+    local_classes:[str],
+    owned_f64_list_locals:[num],
+    owned_string_locals:[num],
+    may_error:bit,
+    instructions:[ConcreteTaggedMachineInstruction],
+    max_stack:num
+)
+ConcreteTaggedMachineModule: (
+    schema:str,
+    version:num,
+    output_kind:str,
+    output_count:num,
+    outputs:[str],
+    output_tokens:[str],
+    string_data:[num],
+    entry:ConcreteTaggedMachineFunction,
+    functions:[ConcreteTaggedMachineFunction]
+)
 
 TaggedMachineModule: (source:str, statements:[num], count:int)
 TaggedMachineInstruction: (kind:str, index:num, value:num)
@@ -1921,6 +1961,140 @@ _mir_numeric_parameter_multiply_function(function:NumericFunctionInput):
         result_is_dynamic_f64_list: false,
         result_is_numeric_scalar: true
     )
+
+_mir_concrete_tagged_instruction(
+    kind:str,
+    index:num=0,
+    value:num=0,
+    symbol:str="",
+    argument_count:num=0,
+    result_count:num=0,
+    provided_parameter_mask:num=0
+) -> ConcreteTaggedMachineInstruction:
+    (
+        kind:kind,
+        index:index,
+        value:value,
+        symbol:symbol,
+        argument_count:argument_count,
+        result_count:result_count,
+        provided_parameter_mask:provided_parameter_mask,
+        uses_parameter_mask:false,
+        may_error:false,
+        has_error_handler:false,
+        error_label:0,
+        error_value_local:0,
+        error_type_local:0
+    )
+
+_mir_concrete_tagged_function(
+    name:str,
+    parameters:[str],
+    parameter_is_numeric_scalar:[bit],
+    result_is_numeric_scalar:bit,
+    instructions:[ConcreteTaggedMachineInstruction],
+    max_stack:num
+) -> ConcreteTaggedMachineFunction:
+    (parameters.length() = parameter_is_numeric_scalar.length())?! "concrete Machine IR parameter classes are not parallel"
+    [str] empty_strings: []
+    [num] empty_numbers: []
+    (
+        name:name,
+        parameters:parameters,
+        parameter_is_numeric_scalar:parameter_is_numeric_scalar,
+        result_is_numeric_scalar:result_is_numeric_scalar,
+        result_is_dynamic_f64_list:false,
+        locals:empty_strings,
+        local_classes:empty_strings,
+        owned_f64_list_locals:empty_numbers,
+        owned_string_locals:empty_numbers,
+        may_error:false,
+        instructions:instructions,
+        max_stack:max_stack
+    )
+
+mir_assemble_tagged_resolved_module(
+    function_name:str,
+    parameter_name:str,
+    operator_kind:str,
+    value:num,
+    callee:str,
+    argument_callee:str
+) -> ConcreteTaggedMachineModule:
+    (callee = function_name)?! "concrete Machine IR call target does not match function"
+    (argument_callee = "cpu_count")?! "concrete Machine IR argument target is unsupported"
+    [str] empty_strings: []
+    [bit] empty_bits: []
+    [num] empty_numbers: []
+    [ConcreteTaggedMachineInstruction] entry_instructions: []
+    .entry_instructions: entry_instructions & [
+        _mir_concrete_tagged_instruction("call", symbol:"cpu_count", argument_count:0, result_count:1, provided_parameter_mask:0),
+        _mir_concrete_tagged_instruction("call", symbol:callee, argument_count:1, result_count:1, provided_parameter_mask:1),
+        _mir_concrete_tagged_instruction("return_f64")
+    ]
+    entry: _mir_concrete_tagged_function(
+        "\$entry", empty_strings, empty_bits, false,
+        entry_instructions, 1
+    )
+    [ConcreteTaggedMachineInstruction] cpu_instructions: []
+    .cpu_instructions: cpu_instructions & [
+        _mir_concrete_tagged_instruction("system_cpu_count"),
+        _mir_concrete_tagged_instruction("return_f64")
+    ]
+    cpu_function: _mir_concrete_tagged_function(
+        "cpu_count", empty_strings, empty_bits, true,
+        cpu_instructions, 1
+    )
+    [str] numeric_parameters: []
+    .numeric_parameters: numeric_parameters & [parameter_name]
+    [bit] numeric_parameter_classes: []
+    .numeric_parameter_classes: numeric_parameter_classes & [true]
+    [ConcreteTaggedMachineInstruction] numeric_instructions: []
+    .numeric_instructions: numeric_instructions & [
+        _mir_concrete_tagged_instruction("load_local", index:0),
+        _mir_concrete_tagged_instruction("push_f64", value:value),
+        _mir_concrete_tagged_instruction("multiply_f64"),
+        _mir_concrete_tagged_instruction("return_f64")
+    ]
+    numeric_function: _mir_concrete_tagged_function(
+        function_name, numeric_parameters, numeric_parameter_classes, true,
+        numeric_instructions, 2
+    )
+    [ConcreteTaggedMachineFunction] functions: []
+    .functions: functions & [cpu_function, numeric_function]
+    (
+        schema:"vektorflow.machine_ir",
+        version:4,
+        output_kind:"f64",
+        output_count:1,
+        outputs:empty_strings,
+        output_tokens:empty_strings,
+        string_data:empty_numbers,
+        entry:entry,
+        functions:functions
+    )
+
+mir_tagged_resolved_module_matches(
+    module:ConcreteTaggedMachineModule,
+    function_name:str,
+    parameter_name:str,
+    value:num
+) -> bit:
+    numeric_function: module.functions.(1)
+    numeric_parameter: numeric_function.parameters.(0)
+    first_instruction: numeric_function.instructions.(0)
+    second_instruction: numeric_function.instructions.(1)
+    third_instruction: numeric_function.instructions.(2)
+    fourth_instruction: numeric_function.instructions.(3)
+    (module.entry.name = "\$entry" /\
+        module.entry.instructions.(0).symbol = "cpu_count" /\
+        module.entry.instructions.(1).symbol = function_name /\
+        numeric_function.name = function_name /\
+        numeric_parameter = parameter_name /\
+        first_instruction.kind = "load_local" /\
+        second_instruction.value = value /\
+        third_instruction.kind = "multiply_f64" /\
+        fourth_instruction.kind = "return_f64")
 
 mir_lower_numeric_parameter_multiply_function_module(function:any):
     mir_numeric_parameter_multiply_function_matches(function)?!

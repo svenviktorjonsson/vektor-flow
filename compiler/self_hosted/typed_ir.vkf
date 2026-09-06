@@ -233,6 +233,31 @@ TypedTaggedResolvedCall: (
     result_type:str,
     span:TaggedAstSpan
 )
+TypedTaggedParameterArena: (
+    declarations:TypedTaggedDeclarationTable,
+    rows:[int],
+    count:int
+)
+TypedTaggedParameter: (
+    kind:str,
+    declaration_order:int,
+    position:int,
+    name:str,
+    type:str
+)
+TypedTaggedArgumentArena: (
+    module:TypedTaggedConcreteModule,
+    call:TypedTaggedResolvedCall,
+    rows:[int],
+    count:int
+)
+TypedTaggedArgument: (
+    kind:str,
+    call_order:int,
+    position:int,
+    callee:str,
+    type:str
+)
 TypedTaggedStoreBinding: (
     kind:str,
     name:str,
@@ -786,7 +811,7 @@ typed_tagged_declaration_table(
     )
 
 typed_tagged_declaration(
-    table:TypedTaggedDeclarationTable, index:int
+    table:TypedTaggedDeclarationTable, index:num
 ) -> TypedTaggedDeclaration:
     (index >= 0 /\ index < table.count)?! "concrete declaration index is out of bounds"
     offset: index * 6
@@ -847,6 +872,68 @@ typed_tagged_resolve_output_call(
         argument_type:"int",
         result_type:symbol.return_type,
         span:output.span
+    )
+
+typed_tagged_parameter_arena(
+    declarations:TypedTaggedDeclarationTable
+) -> TypedTaggedParameterArena:
+    [int] rows: []
+    int declaration_index: 0
+    (declaration_index < declarations.count)?>
+        declaration: typed_tagged_declaration(declarations, declaration_index)
+        (declaration.arity = 1)?! "concrete parameter arity is unsupported"
+        .rows: rows & [declaration_index, 0]
+        .declaration_index+: 1
+    (
+        declarations:declarations,
+        rows:rows,
+        count:rows.length() / 2
+    )
+
+typed_tagged_parameter(
+    arena:TypedTaggedParameterArena, index:int
+) -> TypedTaggedParameter:
+    (index >= 0 /\ index < arena.count)?! "concrete parameter index is out of bounds"
+    offset: index * 2
+    declaration: typed_tagged_declaration(
+        arena.declarations, arena.rows.(offset)
+    )
+    position: arena.rows.(offset + 1)
+    (position = 0 /\ declaration.arity = 1)?! "concrete parameter position is unsupported"
+    (
+        kind:"parameter",
+        declaration_order:declaration.node_order,
+        position:position,
+        name:declaration.parameter_name,
+        type:declaration.parameter_type
+    )
+
+typed_tagged_argument_arena(
+    module:TypedTaggedConcreteModule,
+    call:TypedTaggedResolvedCall
+) -> TypedTaggedArgumentArena:
+    (call.node_order >= 0 /\ call.node_order < module.node_count)?! "concrete argument call order is out of bounds"
+    [int] rows: []
+    .rows: rows & [call.node_order, 0]
+    (
+        module:module,
+        call:call,
+        rows:rows,
+        count:1
+    )
+
+typed_tagged_argument(
+    arena:TypedTaggedArgumentArena, index:int
+) -> TypedTaggedArgument:
+    (index >= 0 /\ index < arena.count)?! "concrete argument index is out of bounds"
+    offset: index * 2
+    (arena.rows.(offset) = arena.call.node_order /\ arena.rows.(offset + 1) = 0)?! "concrete argument arena row is invalid"
+    (
+        kind:"argument",
+        call_order:arena.rows.(offset),
+        position:arena.rows.(offset + 1),
+        callee:arena.call.argument_callee,
+        type:arena.call.argument_type
     )
 
 typed_tagged_ast_binary_expression(
