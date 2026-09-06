@@ -2019,17 +2019,31 @@ mir_assemble_tagged_resolved_module(
     operator_kind:str,
     value:num,
     callee:str,
-    argument_callee:str
+    argument_callee:str,
+    second_parameter_name:str,
+    argument_count:int,
+    second_argument_value:num
 ) -> ConcreteTaggedMachineModule:
     (callee = function_name)?! "concrete Machine IR call target does not match function"
     (argument_callee = "cpu_count")?! "concrete Machine IR argument target is unsupported"
+    (argument_count = 1 \/ argument_count = 2)?! "concrete Machine IR call arity is unsupported"
+    (argument_count = 1 \/ second_parameter_name != "")?! "concrete Machine IR second parameter is missing"
+    provided_parameter_mask: 1
+    argument_count = 2?
+        .provided_parameter_mask: 3
     [str] empty_strings: []
     [bit] empty_bits: []
     [num] empty_numbers: []
     [ConcreteTaggedMachineInstruction] entry_instructions: []
     .entry_instructions: entry_instructions & [
-        _mir_concrete_tagged_instruction("call", symbol:"cpu_count", argument_count:0, result_count:1, provided_parameter_mask:0),
-        _mir_concrete_tagged_instruction("call", symbol:callee, argument_count:1, result_count:1, provided_parameter_mask:1),
+        _mir_concrete_tagged_instruction("call", symbol:"cpu_count", argument_count:0, result_count:1, provided_parameter_mask:0)
+    ]
+    argument_count > 1?
+        .entry_instructions: entry_instructions & [
+            _mir_concrete_tagged_instruction("push_f64", value:second_argument_value)
+        ]
+    .entry_instructions: entry_instructions & [
+        _mir_concrete_tagged_instruction("call", symbol:callee, argument_count:argument_count, result_count:1, provided_parameter_mask:provided_parameter_mask),
         _mir_concrete_tagged_instruction("return_f64")
     ]
     entry: _mir_concrete_tagged_function(
@@ -2047,8 +2061,12 @@ mir_assemble_tagged_resolved_module(
     )
     [str] numeric_parameters: []
     .numeric_parameters: numeric_parameters & [parameter_name]
+    argument_count > 1?
+        .numeric_parameters: numeric_parameters & [second_parameter_name]
     [bit] numeric_parameter_classes: []
     .numeric_parameter_classes: numeric_parameter_classes & [true]
+    argument_count > 1?
+        .numeric_parameter_classes: numeric_parameter_classes & [true]
     [ConcreteTaggedMachineInstruction] numeric_instructions: []
     .numeric_instructions: numeric_instructions & [
         _mir_concrete_tagged_instruction("load_local", index:0),
@@ -2078,7 +2096,10 @@ mir_tagged_resolved_module_matches(
     module:ConcreteTaggedMachineModule,
     function_name:str,
     parameter_name:str,
-    value:num
+    value:num,
+    second_parameter_name:str,
+    argument_count:int,
+    second_argument_value:num
 ) -> bit:
     numeric_function: module.functions.(1)
     numeric_parameter: numeric_function.parameters.(0)
@@ -2086,11 +2107,16 @@ mir_tagged_resolved_module_matches(
     second_instruction: numeric_function.instructions.(1)
     third_instruction: numeric_function.instructions.(2)
     fourth_instruction: numeric_function.instructions.(3)
+    entry_call: module.entry.instructions.(argument_count)
     (module.entry.name = "\$entry" /\
         module.entry.instructions.(0).symbol = "cpu_count" /\
-        module.entry.instructions.(1).symbol = function_name /\
+        entry_call.symbol = function_name /\
+        entry_call.argument_count = argument_count /\
         numeric_function.name = function_name /\
         numeric_parameter = parameter_name /\
+        numeric_function.parameters.length() = argument_count /\
+        (argument_count = 1 \/ numeric_function.parameters.(1) = second_parameter_name) /\
+        (argument_count = 1 \/ module.entry.instructions.(1).value = second_argument_value) /\
         first_instruction.kind = "load_local" /\
         second_instruction.value = value /\
         third_instruction.kind = "multiply_f64" /\

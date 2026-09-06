@@ -230,6 +230,9 @@ TypedTaggedResolvedCall: (
     callee_type:str,
     argument_callee:str,
     argument_type:str,
+    argument_count:int,
+    has_second_value:bit,
+    second_value:num,
     result_type:str,
     span:TaggedAstSpan
 )
@@ -256,7 +259,9 @@ TypedTaggedArgument: (
     call_order:int,
     position:int,
     callee:str,
-    type:str
+    type:str,
+    has_value:bit,
+    value:num
 )
 TypedTaggedStoreBinding: (
     kind:str,
@@ -791,14 +796,14 @@ typed_tagged_declaration_table(
             ) = "system"?
                 .imports_system: true
         statement_code = 2?
-            (module.payload_rows.(payload_offset) = 3)?! "concrete function declaration shape is unsupported"
+            (module.payload_rows.(payload_offset) >= 3 /\ module.payload_rows.(payload_offset) % 2 = 1)?! "concrete function declaration shape is unsupported"
             typed_tagged_function_returns_num(module, index)?! "concrete function return type is unresolved"
             .rows: rows & [
                 index,
                 module.payload_rows.(payload_offset + 1),
                 module.payload_rows.(payload_offset + 2),
                 module.payload_rows.(payload_offset + 3),
-                1,
+                (module.payload_rows.(payload_offset) - 1) / 2,
                 1
             ]
             .count+: 1
@@ -820,6 +825,11 @@ typed_tagged_declaration(
     )
     (parameter_type = "num")?! "concrete declaration parameter type is unsupported"
     (table.rows.(offset + 5) = 1)?! "concrete declaration return type is unsupported"
+    str declaration_type: "unsupported"
+    table.rows.(offset + 4) = 1?
+        .declaration_type: "fn(num)->num"
+    table.rows.(offset + 4) = 2?
+        .declaration_type: "fn(num,num)->num"
     (
         kind:"function_symbol",
         node_order:table.rows.(offset),
@@ -831,7 +841,7 @@ typed_tagged_declaration(
         ),
         parameter_type:parameter_type,
         return_type:"num",
-        type:"fn(num)->num",
+        type:declaration_type,
         arity:table.rows.(offset + 4)
     )
 
@@ -862,7 +872,8 @@ typed_tagged_resolve_output_call(
         .declaration_index+: 1
     (resolved_index >= 0)?! "concrete call target is not declared"
     symbol: typed_tagged_declaration(declarations, resolved_index)
-    (symbol.arity = 1 /\ symbol.parameter_type = "num")?! "concrete call argument does not match declaration"
+    ((symbol.arity = 1 \/ symbol.arity = 2) /\ symbol.parameter_type = "num")?! "concrete call argument does not match declaration"
+    ((symbol.arity = 1 /\ output.has_number = false) \/ (symbol.arity = 2 /\ output.has_number))?! "concrete call argument does not match declaration"
     (
         kind:"call",
         node_order:node_index,
@@ -870,20 +881,36 @@ typed_tagged_resolve_output_call(
         callee_type:symbol.type,
         argument_callee:output.second_text,
         argument_type:"int",
+        argument_count:symbol.arity,
+        has_second_value:output.has_number,
+        second_value:output.value,
         result_type:symbol.return_type,
         span:output.span
+    )
+
+_typed_tagged_parameter_rows(
+    declarations:TypedTaggedDeclarationTable,
+    declaration_index:int,
+    position:int,
+    rows:[int]
+) -> [int]:
+    declaration_index >= declarations.count?
+        @: rows
+    declaration: typed_tagged_declaration(declarations, declaration_index)
+    position < declaration.arity?
+        @: _typed_tagged_parameter_rows(
+            declarations, declaration_index, position + 1,
+            rows & [declaration_index, position]
+        )
+    _typed_tagged_parameter_rows(
+        declarations, declaration_index + 1, 0, rows
     )
 
 typed_tagged_parameter_arena(
     declarations:TypedTaggedDeclarationTable
 ) -> TypedTaggedParameterArena:
     [int] rows: []
-    int declaration_index: 0
-    (declaration_index < declarations.count)?>
-        declaration: typed_tagged_declaration(declarations, declaration_index)
-        (declaration.arity = 1)?! "concrete parameter arity is unsupported"
-        .rows: rows & [declaration_index, 0]
-        .declaration_index+: 1
+    .rows: _typed_tagged_parameter_rows(declarations, 0, 0, rows)
     (
         declarations:declarations,
         rows:rows,
@@ -899,13 +926,35 @@ typed_tagged_parameter(
         arena.declarations, arena.rows.(offset)
     )
     position: arena.rows.(offset + 1)
-    (position = 0 /\ declaration.arity = 1)?! "concrete parameter position is unsupported"
+    (position >= 0 /\ position < declaration.arity)?! "concrete parameter position is unsupported"
+    node_offset: declaration.node_order * 10
+    token_index: arena.declarations.module.node_rows.(node_offset)
+    token_stop: arena.declarations.module.node_rows.(node_offset + 1)
+    found_position: -1
+    parameter_token: -1
+    previous_kind: 0
+    token_kind: 0
+    (token_index <= token_stop /\ parameter_token < 0)?>
+        .token_kind: arena.declarations.module.token_rows.(token_index * 6)
+        (token_kind = 1 /\ (previous_kind = 13 \/ previous_kind = 24))?
+            .found_position+: 1
+            found_position = position?
+                .parameter_token: token_index
+        .previous_kind: token_kind
+        .token_index+: 1
+    (parameter_token >= 0)?! "concrete parameter token is missing"
+    type_token: parameter_token + 2
+    (arena.declarations.module.token_rows.(type_token * 6) = 1)?! "concrete parameter type token is missing"
     (
         kind:"parameter",
         declaration_order:declaration.node_order,
         position:position,
-        name:declaration.parameter_name,
-        type:declaration.parameter_type
+        name:typed_tagged_concrete_payload_text(
+            arena.declarations.module, parameter_token
+        ),
+        type:typed_tagged_concrete_payload_text(
+            arena.declarations.module, type_token
+        )
     )
 
 typed_tagged_argument_arena(
@@ -915,11 +964,13 @@ typed_tagged_argument_arena(
     (call.node_order >= 0 /\ call.node_order < module.node_count)?! "concrete argument call order is out of bounds"
     [int] rows: []
     .rows: rows & [call.node_order, 0]
+    call.argument_count > 1?
+        .rows: rows & [call.node_order, 1]
     (
         module:module,
         call:call,
         rows:rows,
-        count:1
+        count:call.argument_count
     )
 
 typed_tagged_argument(
@@ -927,13 +978,22 @@ typed_tagged_argument(
 ) -> TypedTaggedArgument:
     (index >= 0 /\ index < arena.count)?! "concrete argument index is out of bounds"
     offset: index * 2
-    (arena.rows.(offset) = arena.call.node_order /\ arena.rows.(offset + 1) = 0)?! "concrete argument arena row is invalid"
+    (arena.rows.(offset) = arena.call.node_order)?! "concrete argument arena row is invalid"
+    position: arena.rows.(offset + 1)
+    str argument_callee: ""
+    position = 0?
+        .argument_callee: arena.call.argument_callee
+    num argument_value: 0
+    position = 1?
+        .argument_value: arena.call.second_value
     (
         kind:"argument",
         call_order:arena.rows.(offset),
-        position:arena.rows.(offset + 1),
-        callee:arena.call.argument_callee,
-        type:arena.call.argument_type
+        position:position,
+        callee:argument_callee,
+        type:arena.call.argument_type,
+        has_value:position = 1 /\ arena.call.has_second_value,
+        value:argument_value
     )
 
 typed_tagged_ast_binary_expression(
