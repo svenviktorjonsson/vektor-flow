@@ -64,13 +64,13 @@
         const geometry = planTreeGeometryReference(
           createTreeGeometryPlannerReference(identity),
           forest,
-          { treeIndices: [0], detailLevels: [2], primitiveBudget: 128 },
+          { treeIndices: [0], detailLevels: [2], primitiveBudget: 256 },
         );
         const materials = realizeTreeMaterialsReference(
           createTreeMaterialFieldReference(identity),
           forest,
           geometry,
-          { materialBudget: 128 },
+          { materialBudget: 256 },
         );
         const retained = adaptTreeWorkingSetsToRetainedPacketsReference(
           geometry,
@@ -134,7 +134,7 @@
               pos: [center[0] - span * 0.45, center[1] - span * 0.55, maximum[2] + span * 0.35],
               target: center,
               color: [1, 0.91, 0.72, 1],
-              intensity: span * span * 0.7,
+              intensity: span * span * 1.45,
               range: span * 3,
             },
             {
@@ -143,11 +143,11 @@
               pos: [center[0] + span * 0.55, center[1] + span * 0.35, center[2]],
               target: center,
               color: [0.45, 0.62, 0.5, 1],
-              intensity: span * span * 0.2,
+              intensity: span * span * 0.55,
               range: span * 2.5,
             },
           ],
-          background: [0.12, 0.20, 0.28, 1],
+          background: [0.065, 0.105, 0.15, 1],
           unified_renderer: true,
         }));
         window.VfDisplay.requestDynamicGeomFrameUpdate(frameId);

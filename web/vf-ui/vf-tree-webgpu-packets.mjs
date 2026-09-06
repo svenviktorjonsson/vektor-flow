@@ -8,7 +8,7 @@ const KIND_TWIG = 4;
 const TRUNK_SIDES = 10;
 const BRANCH_SIDES = 7;
 const TWIG_SIDES = 5;
-const LEAVES_PER_CLUSTER = 24;
+const LEAVES_PER_CLUSTER = 8;
 const LEAF_PARAMETER_STRIDE = 9;
 const LEAF_VERTEX_COUNT = 16;
 const LEAF_INDEX_COUNT = 72;
@@ -109,10 +109,10 @@ function requirePacket(packet) {
   if (
     counts.trunks !== 1
     || counts.crowns !== 1
-    || counts.branches !== 18
-    || counts.twigs < 24
-    || counts.twigs > 54
-    || counts.foliageClusters !== counts.twigs
+    || counts.branches !== 14
+    || counts.twigs !== 48
+    || counts.foliageClusters < 96
+    || counts.foliageClusters > 192
   ) {
     throw new RangeError('complete tree detail packet is required');
   }
@@ -133,15 +133,20 @@ function requirePacket(packet) {
     if (kind === KIND_TWIG && !(
       parent >= 0
       && parent < index
-      && packet.primitiveKinds[parent] === KIND_BRANCH
+      && (packet.primitiveKinds[parent] === KIND_BRANCH
+        || packet.primitiveKinds[parent] === KIND_TWIG)
     )) throw new RangeError('complete tree detail packet is required');
   }
-  const leafParents = new Set();
+  const leafParents = new Map();
   for (let index = 0; index < packet.primitiveCount; index += 1) {
-    if (packet.primitiveKinds[index] === KIND_FOLIAGE) leafParents.add(packet.parents[index]);
+    if (packet.primitiveKinds[index] === KIND_FOLIAGE) {
+      const parent = packet.parents[index];
+      leafParents.set(parent, (leafParents.get(parent) ?? 0) + 1);
+    }
   }
   for (let index = 0; index < packet.primitiveCount; index += 1) {
-    if (packet.primitiveKinds[index] === KIND_TWIG && !leafParents.has(index)) {
+    if (packet.primitiveKinds[index] === KIND_TWIG
+      && ((leafParents.get(index) ?? 0) < 2 || leafParents.get(index) > 4)) {
       throw new RangeError('complete tree detail packet is required');
     }
   }
@@ -190,7 +195,9 @@ function meshBuilder(vertexBudget, indexBudget, usage) {
   return { vertices, indices, uvs, roughness, reserve, vertex };
 }
 
-function appendCylinder(builder, transform, color, roughness, sides, taper, centered = false) {
+function appendCylinder(
+  builder, transform, color, roughness, sides, taper, bark, axialRings, centered = false,
+) {
   let origin = Array.from(transform.slice(0, 3));
   const direction = normalize(Array.from(transform.slice(3, 6)));
   const length = transform[6];
@@ -199,35 +206,50 @@ function appendCylinder(builder, transform, color, roughness, sides, taper, cent
     throw new RangeError('tree WebGPU cylinder dimensions must be positive');
   }
   if (centered) origin = add(origin, scale(direction, length * -0.5));
-  builder.reserve(sides * 2 + 2, sides * 12);
+  builder.reserve(sides * axialRings + 2, sides * axialRings * 6);
   const [first, second] = basis(direction);
-  const end = add(origin, scale(direction, length));
   const base = builder.vertices.length / 10;
-  for (let ring = 0; ring < 2; ring += 1) {
-    const center = ring === 0 ? origin : end;
-    const ringRadius = radius * (ring === 0 ? 1 : taper);
+  for (let ring = 0; ring < axialRings; ring += 1) {
+    const along = ring / (axialRings - 1);
+    const center = add(origin, scale(direction, length * along));
+    const nominalRadius = radius * (1 + (taper - 1) * along);
     for (let side = 0; side < sides; side += 1) {
       const angle = 2 * Math.PI * side / sides;
       const normal = add(scale(first, Math.cos(angle)), scale(second, Math.sin(angle)));
+      const ridge = Math.sin(bark.ridgeCount * angle + bark.phase + along * bark.grainTurns)
+        + 0.35 * Math.sin((bark.ridgeCount + 3) * angle - bark.phase * 0.7 + along * 9);
+      const noise = ridge / 1.35;
+      const ringRadius = nominalRadius * (1 + bark.ridgeAmplitude * noise);
+      const vertexColor = color.map((value, channel) => (
+        channel === 3 ? value : clamp(value + bark.colorVariation * noise, 0, 1)
+      ));
       builder.vertex(
         add(center, scale(normal, ringRadius)),
         normal,
-        color,
-        roughness,
-        [side / sides, ring],
+        vertexColor,
+        clamp(roughness + bark.roughnessVariation * noise, 0.42, 0.98),
+        [side / sides, along],
       );
     }
   }
+  const end = add(origin, scale(direction, length));
   const bottom = builder.vertex(origin, scale(direction, -1), color, roughness, [0.5, 0.5]);
   const top = builder.vertex(end, direction, color, roughness, [0.5, 0.5]);
+  for (let ring = 0; ring < axialRings - 1; ring += 1) {
+    for (let side = 0; side < sides; side += 1) {
+      const next = (side + 1) % sides;
+      const lower = base + ring * sides + side;
+      const lowerNext = base + ring * sides + next;
+      const upper = lower + sides;
+      const upperNext = lowerNext + sides;
+      builder.indices.push(lower, lowerNext, upper, lowerNext, upperNext, upper);
+    }
+  }
   for (let side = 0; side < sides; side += 1) {
     const next = (side + 1) % sides;
-    const lower = base + side;
-    const lowerNext = base + next;
-    const upper = base + sides + side;
-    const upperNext = base + sides + next;
-    builder.indices.push(lower, lowerNext, upper, lowerNext, upperNext, upper);
-    builder.indices.push(bottom, lowerNext, lower, top, upper, upperNext);
+    builder.indices.push(bottom, base + next, base + side);
+    const upper = base + (axialRings - 1) * sides;
+    builder.indices.push(top, upper + side, upper + next);
   }
 }
 
@@ -369,6 +391,7 @@ function finishMesh(packet, suffix, objectId, builder) {
     specular_strength: Math.max(0.02, 0.12 * (1 - meanRoughness)),
     vertices: new Float32Array(builder.vertices),
     uvs: new Float32Array(builder.uvs),
+    roughness: new Float32Array(builder.roughness),
     indices: new Uint32Array(builder.indices),
   });
 }
@@ -383,6 +406,31 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
   const wood = meshBuilder(vertexBudget, indexBudget, usage);
   const foliage = meshBuilder(vertexBudget, indexBudget, usage);
   const root = leafRoot(packet);
+  const barkNode = conditionChild(root, { segment: 'bark', channel: 'bark-material' });
+  const barkProfile = packet.profile?.bark;
+  if (!barkProfile) throw new RangeError('tree species bark profile is required');
+  const variantTotal = barkProfile.textureVariantWeights.reduce((sum, value) => sum + value, 0);
+  let variantMark = hashString(packet.treeId, 0x85ebca6b) % variantTotal;
+  let textureVariant = 0;
+  while (variantMark >= barkProfile.textureVariantWeights[textureVariant]) {
+    variantMark -= barkProfile.textureVariantWeights[textureVariant];
+    textureVariant += 1;
+  }
+  const bark = Object.freeze({
+    textureVariant,
+    ridgeCount: Math.round(boundedNormal(
+      barkNode, 0, barkProfile.ridgeCountMean, barkProfile.ridgeCountDeviation,
+      ...barkProfile.ridgeCountBounds,
+    )),
+    ridgeAmplitude: boundedNormal(
+      barkNode, 1, barkProfile.ridgeAmplitudeMean, barkProfile.ridgeAmplitudeDeviation,
+      ...barkProfile.ridgeAmplitudeBounds,
+    ),
+    phase: boundedNormal(barkNode, 2, Math.PI, 1.4, 0, Math.PI * 2),
+    grainTurns: boundedNormal(barkNode, 3, 4.5, 0.8, 2.5, 6.5),
+    roughnessVariation: barkProfile.roughnessVariation,
+    colorVariation: barkProfile.colorVariation,
+  });
   const leafParameterValues = [];
   for (let primitive = 0; primitive < packet.primitiveCount; primitive += 1) {
     const kind = packet.primitiveKinds[primitive];
@@ -390,11 +438,11 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     const color = Array.from(packet.baseColors.subarray(primitive * 4, primitive * 4 + 4));
     const roughness = packet.surfaceParams[primitive * 4];
     if (kind === KIND_TRUNK) {
-      appendCylinder(wood, transform, color, roughness, TRUNK_SIDES, 0.72, true);
+      appendCylinder(wood, transform, color, roughness, TRUNK_SIDES, 0.72, bark, 8, true);
     } else if (kind === KIND_BRANCH) {
-      appendCylinder(wood, transform, color, roughness, BRANCH_SIDES, 0.45);
+      appendCylinder(wood, transform, color, roughness, BRANCH_SIDES, 0.58, bark, 6);
     } else if (kind === KIND_TWIG) {
-      appendCylinder(wood, transform, color, roughness, TWIG_SIDES, 0.32);
+      appendCylinder(wood, transform, color, roughness, TWIG_SIDES, 0.42, bark, 4);
     } else if (kind === KIND_FOLIAGE) {
       appendLeaves(
         foliage,
@@ -434,6 +482,7 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     }),
     leafParameterStride: LEAF_PARAMETER_STRIDE,
     leafParameters: new Float32Array(leafParameterValues),
+    bark,
     vertexCount,
     indexCount,
     vertexBudget,

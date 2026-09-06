@@ -2,7 +2,9 @@ import {
   conditionChild,
   createConditionedRoot,
   sampleBoundedUniform,
+  sampleNormalReference,
 } from './vf-conditioned-distribution.mjs';
+import { treeSpeciesProfileReference } from './vf-tree-species-profile.mjs';
 
 const plannerState = new WeakMap();
 const floatBitsBuffer = new ArrayBuffer(8);
@@ -10,11 +12,8 @@ const floatBitsView = new DataView(floatBitsBuffer);
 const MAX_DEMANDED_TREES = 4096;
 const MAX_PRIMITIVE_BUDGET = 65536;
 const MAX_CACHED_TREES = MAX_DEMANDED_TREES * 2;
-const PRIMARY_BRANCHES = 6;
-const CHILDREN_PER_BRANCH = 2;
-const TERMINAL_TWIGS_PER_BRANCH = 2;
-const PRIMARY_TWIG_SLOTS = 1;
-const SECONDARY_TWIG_SLOTS = 2;
+const SPLIT_DEPTH = 5;
+const MAX_FOLIAGE_PER_TWIG = 4;
 const KIND_TRUNK = 0;
 const KIND_CROWN = 1;
 const KIND_BRANCH = 2;
@@ -33,9 +32,11 @@ function requireForestWorkingSet(forest) {
     || !Array.isArray(forest.treeIds)
     || !(forest.positions instanceof Float32Array)
     || !(forest.growth instanceof Float32Array)
+    || !(forest.rotations instanceof Float32Array)
     || !(forest.speciesIndices instanceof Uint32Array)
     || forest.positions.length !== forest.treeIds.length * 3
     || forest.growth.length !== forest.treeIds.length * 4
+    || forest.rotations.length !== forest.treeIds.length
     || forest.speciesIndices.length !== forest.treeIds.length
   ) {
     throw new TypeError('forest patch working set is required');
@@ -98,36 +99,90 @@ function branchNode(tree, path) {
   });
 }
 
-function directionFromAngles(azimuth, elevation) {
-  const horizontal = Math.cos(elevation);
+function cross(left, right) {
   return [
-    Math.cos(azimuth) * horizontal,
-    Math.sin(azimuth) * horizontal,
-    Math.sin(elevation),
+    left[1] * right[2] - left[2] * right[1],
+    left[2] * right[0] - left[0] * right[2],
+    left[0] * right[1] - left[1] * right[0],
   ];
 }
 
-function primaryDirection(node) {
-  return directionFromAngles(
-    sample(node, 0, 0, 0, Math.PI * 2),
-    sample(node, 0, 1, 0.24, 0.72),
+function directionBasis(direction) {
+  const axis = Math.abs(direction[2]) < 0.92 ? [0, 0, 1] : [1, 0, 0];
+  const first = normalize(cross(axis, direction));
+  return [first, normalize(cross(direction, first))];
+}
+
+function rotateFrom(direction, angle, azimuth) {
+  const [first, second] = directionBasis(direction);
+  const radial = first.map((value, axis) => (
+    value * Math.cos(azimuth) + second[axis] * Math.sin(azimuth)
+  ));
+  return normalize(direction.map((value, axis) => (
+    value * Math.cos(angle) + radial[axis] * Math.sin(angle)
+  )));
+}
+
+function boundedNormal(node, lane, mean, standardDeviation, minimum, maximum) {
+  return clamp(
+    sampleNormalReference(node, [0, lane], { mean, standardDeviation }),
+    minimum,
+    maximum,
   );
 }
 
-function childDirection(node, parentDirection, generation) {
-  const parentAzimuth = Math.atan2(parentDirection[1], parentDirection[0]);
-  const parentElevation = Math.asin(clamp(parentDirection[2], -1, 1));
-  const azimuthSpread = generation === 1 ? 1.18 : 0.92;
-  const upwardBias = generation === 1 ? 0.08 : 0.12;
-  const maximumElevation = generation === 1 ? 1.02 : 1.18;
-  return normalize(directionFromAngles(
-    parentAzimuth + sample(node, 0, 0, -azimuthSpread, azimuthSpread),
-    clamp(
-      parentElevation + sample(node, 0, 1, -0.24, 0.24) + upwardBias,
-      0.14,
-      maximumElevation,
-    ),
-  ));
+function ellipsoidCoordinates(envelope, point) {
+  const dx = point[0] - envelope.center[0];
+  const dy = point[1] - envelope.center[1];
+  const cosine = Math.cos(envelope.orientation);
+  const sine = Math.sin(envelope.orientation);
+  return [
+    dx * cosine + dy * sine,
+    -dx * sine + dy * cosine,
+    point[2] - envelope.center[2],
+  ];
+}
+
+function ellipsoidDirection(envelope, direction) {
+  const cosine = Math.cos(envelope.orientation);
+  const sine = Math.sin(envelope.orientation);
+  return [
+    direction[0] * cosine + direction[1] * sine,
+    -direction[0] * sine + direction[1] * cosine,
+    direction[2],
+  ];
+}
+
+function maximumEnvelopeRay(envelope, origin, direction, margin) {
+  const localOrigin = ellipsoidCoordinates(envelope, origin);
+  const localDirection = ellipsoidDirection(envelope, direction);
+  const axes = envelope.axes.map((axis) => Math.max(axis - margin, axis * 0.35));
+  let a = 0;
+  let b = 0;
+  let c = -1;
+  for (let axis = 0; axis < 3; axis += 1) {
+    const inverseAxis2 = 1 / (axes[axis] * axes[axis]);
+    a += localDirection[axis] * localDirection[axis] * inverseAxis2;
+    b += 2 * localOrigin[axis] * localDirection[axis] * inverseAxis2;
+    c += localOrigin[axis] * localOrigin[axis] * inverseAxis2;
+  }
+  const discriminant = Math.max(0, b * b - 4 * a * c);
+  return Math.max(0, (-b + Math.sqrt(discriminant)) / (2 * a));
+}
+
+function constrainToEnvelope(tree, node, origin, direction, desiredLength, radius) {
+  const maximumLength = maximumEnvelopeRay(tree.envelope, origin, direction, radius * 1.2);
+  const attraction = sample(
+    node, 0, 9,
+    tree.profile.crownEnvelope.localAttractionBounds[0],
+    tree.profile.crownEnvelope.localAttractionBounds[1],
+  );
+  return {
+    direction,
+    length: Math.min(desiredLength, maximumLength * (0.9 + attraction * 0.08)),
+    attraction,
+    envelopeLimited: maximumLength < desiredLength,
+  };
 }
 
 function pointAlong(transform, along, centered = false) {
@@ -139,13 +194,14 @@ function pointAlong(transform, along, centered = false) {
   return start.map((value, axis) => value + transform[axis + 3] * transform[6] * along);
 }
 
-function primitive(id, kind, level, parentId, transform) {
+function primitive(id, kind, level, parentId, transform, metadata = {}) {
   return Object.freeze({
     id,
     kind,
     level,
     parentId,
     transform: Object.freeze(transform),
+    ...metadata,
   });
 }
 
@@ -168,15 +224,52 @@ function treeRealization(state, forest, treeIndex) {
     return cached;
   }
   const treeId = forest.treeIds[treeIndex];
+  const speciesIndex = forest.speciesIndices[treeIndex];
+  const profile = treeSpeciesProfileReference(speciesIndex);
+  const position = Array.from(forest.positions.subarray(treeIndex * 3, treeIndex * 3 + 3));
+  const growth = Array.from(forest.growth.subarray(treeIndex * 4, treeIndex * 4 + 4));
+  const node = conditionChild(state.geometryNode, {
+    segment: `geometry:${treeId}`,
+    channel: 'tree-geometry',
+  });
+  const traitsNode = conditionChild(node, { segment: 'species-traits', channel: 'tree-traits' });
+  const targetPathLength = growth[1] * boundedNormal(
+    traitsNode, 0, profile.pathLength.scaleMean, profile.pathLength.scaleDeviation,
+    ...profile.pathLength.scaleBounds,
+  );
+  const axes = profile.crownEnvelope.axisScaleMean.map((mean, axis) => (
+    (axis === 2 ? growth[1] : growth[2]) * boundedNormal(
+      traitsNode, axis + 1, mean, profile.crownEnvelope.axisScaleDeviation[axis],
+      mean * 0.78, mean * 1.22,
+    )
+  ));
+  const centerHeight = boundedNormal(
+    traitsNode, 4, profile.crownEnvelope.centerHeightMean,
+    profile.crownEnvelope.centerHeightDeviation, 0.42, 0.62,
+  );
+  const horizontalBias = profile.crownEnvelope.centerHorizontalDeviation * growth[2];
+  const centerAzimuth = sample(traitsNode, 0, 5, 0, Math.PI * 2);
   const tree = {
     id: treeId,
     treeIndex,
-    node: conditionChild(state.geometryNode, {
-      segment: `geometry:${treeId}`,
-      channel: 'tree-geometry',
+    speciesIndex,
+    profile,
+    node,
+    position,
+    growth,
+    targetPathLength,
+    terminalRadius: growth[0] * 0.001,
+    envelope: Object.freeze({
+      center: Object.freeze([
+        position[0] + Math.cos(centerAzimuth) * horizontalBias,
+        position[1] + Math.sin(centerAzimuth) * horizontalBias,
+        position[2] + growth[1] * centerHeight,
+      ]),
+      axes: Object.freeze(axes),
+      orientation: forest.rotations[treeIndex] + boundedNormal(
+        traitsNode, 6, 0, profile.crownEnvelope.orientationDeviation, -0.85, 0.85,
+      ),
     }),
-    position: Array.from(forest.positions.subarray(treeIndex * 3, treeIndex * 3 + 3)),
-    growth: Array.from(forest.growth.subarray(treeIndex * 4, treeIndex * 4 + 4)),
     levels: new Map(),
   };
   state.treeCache.set(cacheKey, tree);
@@ -189,13 +282,27 @@ function treeRealization(state, forest, treeIndex) {
 function realizeCoarse(tree) {
   const [x, y, z] = tree.position;
   const [trunkRadius, height, crownRadius, crownHeight] = tree.growth;
+  const trunkNode = branchNode(tree, ['root']);
+  const trunkLength = tree.targetPathLength * boundedNormal(
+    trunkNode, 0,
+    tree.profile.pathLength.rootConsumptionMean,
+    tree.profile.pathLength.rootConsumptionDeviation,
+    0.24, 0.38,
+  );
+  const remaining = tree.targetPathLength - trunkLength;
   return Object.freeze([
     primitive(
       `${tree.id}:trunk`,
       KIND_TRUNK,
       0,
       null,
-      [x, y, z + height * 0.5, 0, 0, 1, height, trunkRadius],
+      [x, y, z + trunkLength * 0.5, 0, 0, 1, trunkLength, trunkRadius],
+      {
+        generation: 0,
+        pathTarget: tree.targetPathLength,
+        pathRemainingBefore: tree.targetPathLength,
+        pathRemainingAfter: remaining,
+      },
     ),
     primitive(
       `${tree.id}:crown`,
@@ -207,136 +314,123 @@ function realizeCoarse(tree) {
   ]);
 }
 
-function realizeBranches(tree) {
-  const [trunkRadius, height, crownRadius] = tree.growth;
-  const trunk = realizeLevel(tree, 0)[0];
-  const branches = [];
-  for (let branchIndex = 0; branchIndex < PRIMARY_BRANCHES; branchIndex += 1) {
-    const node = branchNode(tree, [0, branchIndex]);
-    const direction = primaryDirection(node);
-    const origin = pointAlong(trunk.transform, sample(node, 0, 2, 0.32, 0.88), true);
-    branches.push(primitive(
-      `${tree.id}:branch:g0:${branchIndex}`,
-      KIND_BRANCH,
-      1,
-      trunk.id,
-      [
-        ...origin,
-        ...direction,
-        crownRadius * sample(node, 0, 3, 0.72, 1.16),
-        trunkRadius * sample(node, 0, 4, 0.34, 0.52),
-      ],
+function splitChildren(tree, parent, path, generation) {
+  const node = branchNode(tree, ['split', ...path]);
+  const parentDirection = parent.transform.slice(3, 6);
+  const profile = tree.profile;
+  const mainAngle = boundedNormal(
+    node, 1, profile.split.mainAngleMean, profile.split.mainAngleDeviation,
+    ...profile.split.mainAngleBounds,
+  );
+  const lateralAngle = boundedNormal(
+    node, 2, profile.split.lateralAngleMean, profile.split.lateralAngleDeviation,
+    ...profile.split.lateralAngleBounds,
+  );
+  const azimuth = sample(node, 0, 3, 0, Math.PI * 2);
+  const loss = boundedNormal(
+    node, 4, profile.split.areaLossMean, profile.split.areaLossDeviation,
+    ...profile.split.areaLossBounds,
+  );
+  const mainShare = boundedNormal(
+    node, 5, profile.split.mainAreaShareMean, profile.split.mainAreaShareDeviation,
+    ...profile.split.mainAreaShareBounds,
+  );
+  const parentRadius = parent.transform[7];
+  const origin = pointAlong(parent.transform, 1, parent.kind === KIND_TRUNK);
+  const childKind = generation >= SPLIT_DEPTH - 1 ? KIND_TWIG : KIND_BRANCH;
+  const childLevel = generation === 1 ? 1 : 2;
+  const roles = [
+    ['main', mainAngle, azimuth, mainShare, profile.split.mainBudgetRatio, 6],
+    ['lateral', lateralAngle, azimuth + Math.PI, 1 - mainShare,
+      profile.split.lateralBudgetRatio, 7],
+  ];
+  return Object.freeze(roles.map(([role, angle, childAzimuth, share, budgetBounds, lane]) => {
+    const pathBefore = parent.pathRemainingAfter * sample(node, 0, lane, ...budgetBounds);
+    const terminal = generation === SPLIT_DEPTH;
+    const desiredLength = pathBefore * boundedNormal(
+      node, lane + 10, terminal ? 0.91 : 0.39 + generation * 0.065, 0.045,
+      terminal ? 0.82 : 0.34, terminal ? 0.98 : 0.66,
+    );
+    const allocatedRadius = parentRadius * Math.sqrt(loss * share);
+    const constrained = constrainToEnvelope(
+      tree, node, origin, rotateFrom(parentDirection, angle, childAzimuth),
+      desiredLength, allocatedRadius,
+    );
+    const pathAfter = Math.max(0, pathBefore - constrained.length);
+    const radiusFactor = clamp(Math.sqrt(pathAfter / tree.targetPathLength) * 1.55, 0, 1);
+    const radius = Math.max(tree.terminalRadius, allocatedRadius * Math.max(0.04, radiusFactor));
+    const splitAngle = Math.acos(clamp(
+      parentDirection.reduce((sum, value, axis) => sum + value * constrained.direction[axis], 0),
+      -1, 1,
     ));
-  }
-  return Object.freeze(branches);
+    return primitive(
+      `${tree.id}:branch:g${generation}:${path.join('.')}:${role}`,
+      childKind,
+      childLevel,
+      parent.id,
+      [...origin, ...constrained.direction, constrained.length, radius],
+      {
+        generation,
+        splitRole: role,
+        splitAngle,
+        splitLoss: loss,
+        localAttraction: constrained.attraction,
+        envelopeLimited: constrained.envelopeLimited,
+        pathTarget: tree.targetPathLength,
+        pathRemainingBefore: pathBefore,
+        pathRemainingAfter: pathAfter,
+      },
+    );
+  }));
 }
 
-function childBranch(tree, parent, path, generation, childIndex) {
-  const node = branchNode(tree, path);
-  const direction = childDirection(node, parent.transform.slice(3, 6), generation);
-  const along = generation === 1
-    ? sample(node, 0, 2, 0.35, 0.82)
-    : sample(node, 0, 2, 0.42, 0.9);
-  return primitive(
-    `${parent.id}:g${generation}:${childIndex}`,
-    KIND_BRANCH,
-    2,
-    parent.id,
-    [
-      ...pointAlong(parent.transform, along),
-      ...direction,
-      parent.transform[6] * sample(node, 0, 3, generation === 1 ? 0.52 : 0.48, generation === 1 ? 0.72 : 0.68),
-      parent.transform[7] * sample(node, 0, 4, generation === 1 ? 0.52 : 0.48, generation === 1 ? 0.68 : 0.64),
-    ],
-  );
+function realizeBranches(tree) {
+  return splitChildren(tree, realizeLevel(tree, 0)[0], [0], 1);
 }
 
-function twigProbability(tree, parent) {
-  const relativeRadius = parent.transform[7] / tree.growth[0];
-  return clamp((0.5 - relativeRadius) / 0.45, 0, 0.82);
-}
-
-function twigShoot(tree, parent, path, twigIndex, terminal) {
-  const node = branchNode(tree, path);
-  return primitive(
-    `${parent.id}:twig:${twigIndex}`,
-    KIND_TWIG,
-    2,
-    parent.id,
-    [
-      ...pointAlong(parent.transform, sample(node, 0, 2, terminal ? 0.55 : 0.28, 0.94)),
-      ...childDirection(node, parent.transform.slice(3, 6), 2),
-      parent.transform[6] * sample(node, 0, 3, terminal ? 0.42 : 0.32, terminal ? 0.62 : 0.54),
-      parent.transform[7] * sample(node, 0, 4, 0.28, 0.48),
-    ],
-  );
-}
-
-function optionalTwigs(tree, parent, path, slotCount, indexOffset = 0) {
-  const twigs = [];
-  const probability = twigProbability(tree, parent);
-  for (let slot = 0; slot < slotCount; slot += 1) {
-    const node = branchNode(tree, [...path, slot]);
-    if (sample(node, 0, 7, 0, 1) < probability) {
-      twigs.push(twigShoot(tree, parent, [...path, slot], indexOffset + slot, false));
-    }
-  }
-  return twigs;
-}
-
-function realizeFine(tree, primaries) {
+function realizeFine(tree, firstGeneration) {
   const [, , , crownHeight] = tree.growth;
-  const secondaries = [];
+  const branches = [];
   const twigs = [];
   const foliage = [];
-  primaries.forEach((primary, primaryIndex) => {
-    for (let childIndex = 0; childIndex < CHILDREN_PER_BRANCH; childIndex += 1) {
-      secondaries.push(childBranch(
-        tree,
-        primary,
-        [1, primaryIndex, childIndex],
-        1,
-        childIndex,
-      ));
-    }
-  });
-  secondaries.forEach((secondary, secondaryIndex) => {
-    for (let twigIndex = 0; twigIndex < TERMINAL_TWIGS_PER_BRANCH; twigIndex += 1) {
-      twigs.push(twigShoot(tree, secondary, [2, secondaryIndex, twigIndex], twigIndex, true));
-    }
-    twigs.push(...optionalTwigs(
-      tree,
-      secondary,
-      [3, secondaryIndex],
-      SECONDARY_TWIG_SLOTS,
-      TERMINAL_TWIGS_PER_BRANCH,
-    ));
-  });
-  primaries.forEach((primary, primaryIndex) => {
-    twigs.push(...optionalTwigs(
-      tree,
-      primary,
-      [4, primaryIndex],
-      PRIMARY_TWIG_SLOTS,
-    ));
-  });
+  let frontier = firstGeneration;
+  for (let generation = 2; generation <= SPLIT_DEPTH; generation += 1) {
+    const next = [];
+    frontier.forEach((parent, parentIndex) => {
+      next.push(...splitChildren(tree, parent, [generation, parentIndex], generation));
+    });
+    if (generation >= SPLIT_DEPTH - 1) twigs.push(...next);
+    else branches.push(...next);
+    frontier = next;
+  }
   twigs.forEach((twig, twigIndex) => {
-    const node = branchNode(tree, [5, twigIndex]);
+    const node = branchNode(tree, ['foliage', twigIndex]);
+    const foliageCount = Math.round(boundedNormal(
+      node, 0,
+      tree.profile.twig.foliageCountMean,
+      tree.profile.twig.foliageCountDeviation,
+      ...tree.profile.twig.foliageCountBounds,
+    ));
     const radius = crownHeight * sample(node, 0, 5, 0.045, 0.085);
-    foliage.push(primitive(
-        `${twig.id}:foliage`,
+    for (let foliageIndex = 0; foliageIndex < foliageCount; foliageIndex += 1) {
+      const foliageNode = branchNode(tree, ['foliage', twigIndex, foliageIndex]);
+      foliage.push(primitive(
+        `${twig.id}:foliage:${foliageIndex}`,
         KIND_FOLIAGE,
         2,
         twig.id,
         [
-          ...pointAlong(twig.transform, sample(node, 0, 6, 0.82, 1)),
+          ...pointAlong(twig.transform, sample(
+            foliageNode, 0, 1, ...tree.profile.twig.attachmentBounds,
+          )),
           ...twig.transform.slice(3, 6),
-          radius * 1.8,
+          twig.transform[6] * sample(foliageNode, 0, 2, 0.12, 0.24),
           radius,
         ],
       ));
+    }
   });
-  return Object.freeze([...secondaries, ...twigs, ...foliage]);
+  return Object.freeze([...branches, ...twigs, ...foliage]);
 }
 
 function realizeLevel(tree, level) {
@@ -410,12 +504,20 @@ export function planTreeGeometryReference(
   });
   const trees = demands
     .filter(({ treeIndex }) => treePrimitives.has(treeIndex))
-    .map(({ treeIndex, detailLevel }) => Object.freeze({
-      id: forest.treeIds[treeIndex],
-      treeIndex,
-      detailLevel,
-      primitives: Object.freeze(treePrimitives.get(treeIndex)),
-    }));
+    .map(({ treeIndex, detailLevel }) => {
+      const tree = treeRealization(state, forest, treeIndex);
+      return Object.freeze({
+        id: tree.id,
+        treeIndex,
+        detailLevel,
+        speciesIndex: tree.speciesIndex,
+        profile: tree.profile,
+        envelope: tree.envelope,
+        targetPathLength: tree.targetPathLength,
+        terminalRadius: tree.terminalRadius,
+        primitives: Object.freeze(treePrimitives.get(treeIndex)),
+      });
+    });
   return Object.freeze({
     kind: 'tree-geometry-plan:v1',
     trees: Object.freeze(trees),

@@ -39,20 +39,20 @@ test('tree packet runtime bounds active memory and releases removed tree packets
   const materialField = createTreeMaterialFieldReference(IDENTITY);
   const renders = [];
   const runtime = createTreePacketRuntimeCacheReference({
-    byteBudget: 130 * 71,
+    byteBudget: 260 * 71,
     requestRender: (packets, receipt) => renders.push({ packets, receipt }),
   });
   const realize = (treeIndices, detailLevels, previous = null) => {
     const geometry = planTreeGeometryReference(planner, forest, {
       treeIndices,
       detailLevels,
-      primitiveBudget: 160,
+      primitiveBudget: 256,
     });
     const materials = realizeTreeMaterialsReference(
       materialField,
       forest,
       geometry,
-      { materialBudget: 160 },
+      { materialBudget: 256 },
     );
     return adaptTreeWorkingSetsToRetainedPacketsReference(
       geometry,
@@ -76,7 +76,7 @@ test('tree packet runtime bounds active memory and releases removed tree packets
     packetCount: 2,
     primitiveCount: 4,
     bytes: 4 * 71,
-    byteBudget: 130 * 71,
+    byteBudget: 260 * 71,
   });
 
   const refined = realize([0, 1], [2, 0], coarse);
@@ -96,7 +96,7 @@ test('tree packet runtime bounds active memory and releases removed tree packets
     packetCount: 1,
     primitiveCount: 2,
     bytes: 2 * 71,
-    byteBudget: 130 * 71,
+    byteBudget: 260 * 71,
   });
   assert.strictEqual(runtime.packets()[0], coarse.packets[1]);
   assert.equal(renders.length, 3);

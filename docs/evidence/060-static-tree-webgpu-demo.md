@@ -1,98 +1,95 @@
 # Deterministic static tree WebGPU demonstration
 
-Date: 2026-09-06. Base: `e2c498a948c8f2c35604030e5c1075c3b237bd16`.
+Date: 2026-09-06. Base: `a441f64f511875340a0cd2ca6bc64e45abe20d25`.
 Branch: `pre-gen`.
+
+![Static deterministic tree rendered by WebGPU](060-static-tree-webgpu-review2.png)
 
 ## Scope
 
-This packet adds a private adapter and fixture that carry one tree through the
-existing deterministic forest population, tree geometry, tree material, and
-retained renderer-packet chain into the existing real WebGPU dynamic geometry
-renderer. It changes no VKF source syntax, public constructor, schema, ABI,
-default, or diagnostic.
+This private reference packet carries one tree through the existing conditioned
+forest population, tree geometry, tree material, retained packet, and real
+WebGPU renderer chain. It changes no VKF syntax, public constructor, schema,
+ABI, default, or diagnostic. Physics, wind, and animation remain excluded.
 
-The selected deterministic tree has 100 retained primitives: one tapered
-trunk, one coarse crown envelope, eighteen structural branches, forty thin
-twigs, and forty foliage clusters. Primary branches emerge at conditioned
-positions and directions along the trunk. Secondary branches attach along
-their parents with strict length and radius decay. Terminal and optional twig
-shoots are thinner again. Optional twig probability is zero on the trunk, rare
-on thick branches, and increases monotonically as parent radius falls. Every
-foliage primitive has a twig parent, every twig terminates in one foliage
-primitive, and no leaf attaches to trunk or structural branch.
+The generator is driven by an internal immutable species profile. Profiles
+contain distribution statistics for root-to-tip path length, split angles and
+ratios, apical dominance, cross-sectional area loss, crown ellipsoid axes and
+orientation, local attraction, twig and leaf density, and bark texture
+mixtures. The current five profiles are private implementation data intended to
+make later species configuration possible without hardcoding one species into
+the algorithms.
 
-The adapter converts that source into separate lit wood and foliage
-`field_mesh` packets. Its 960 leaves are real pointed-ovate meshes rather than
-four-vertex cards. Each leaf has a narrow four-vertex petiole, a rounded
-five-station blade body, and a single sharp apex: sixteen vertices and twelve
-double-sided nondegenerate triangles. Conditioned approximately-normal samples
-control blade length and width, base roundness, asymmetry, petiole length,
-camber, attachment, orientation, and color. Every parameter is clamped to a
-physical finite interval. UVs parallel all emitted vertices.
+Every woody parent ends at its split and has exactly two deviating children.
+The larger child deviates less. At every split, the sum of child squared radii
+is strictly less than the parent squared radius. Segment length consumes a
+deterministic root-to-tip arc-length budget; child budgets condition from the
+parent remainder. A sampled rotated ellipsoid bounds growth. A candidate that
+would escape is shortened or terminated deterministically. This prevents
+horizontal paths from escaping a height-only budget.
 
-Exact demo output is 16,150 vertices and 73,152 indices under explicit
-32,768-vertex and 131,072-index budgets. A tree is hard bounded to 128 retained
-primitives. The adapter rejects budgets above 65,536 vertices or 393,216
-indices and reserves against a shared aggregate before allocation.
+The selected tree has 214 retained primitives: one trunk, one non-rendered
+coarse crown envelope, fourteen structural branches, forty-eight thin twigs,
+and 150 foliage attachment clusters. Leaves attach only along eligible twigs,
+including nonterminal positions. The 1,200 leaves use real pointed-ovate meshes:
+a thin petiole, rounded broad blade body, and sharp apex. Conditioned
+approximately-normal samples vary dimensions, roundness, asymmetry, petiole,
+camber, attachment, orientation, and color within finite physical bounds.
 
-This is an honest procedural low-poly static tree demonstration, not a
-photoreal scanned asset. It uses no raster stand-in, JavaScript canvas fallback,
-animation loop, wind, or physics.
+All visible wood uses procedural vertex geometry and material variation in the
+real WebGPU path. Periodic longitudinal grain/ridges deform multiple axial
+rings, while bounded vertex color and roughness vary from one coherent
+tree-wide bark field. No bark image, raster stand-in, canvas fallback, or fake
+renderer is used.
+
+Exact output is 20,954 vertices and 96,168 indices: 1,754/9,768 wood and
+19,200/86,400 foliage. It remains below explicit 32,768-vertex and
+131,072-index fixture budgets. A complete tree is bounded to 256 retained
+primitives; the adapter independently caps 65,536 vertices and 393,216 indices.
 
 ## RED to GREEN
 
-The focused suite recorded these RED states:
+The review began at focused 3/9 GREEN: six assertions still described the old
+fixed attachment/count model. The replacement tests now prove:
 
-- 0/1: the WebGPU tree adapter module did not exist.
-- 2/3: the static WebGPU tree fixture did not exist.
-- 2/3: the trunk adapter treated its documented center transform as an endpoint.
-- 1/4: the former fixed-spoke planner had only four branches and no recursion.
-- 4/5: optional and terminal twig identities collided, leaving a twig without
-  a unique leaf child.
-- 1/4: the former leaf adapter emitted four-vertex diamond cards and had no UV
-  or conditioned leaf parameter stream.
-- 2/3: roughness was mapped to excessive generic-renderer specular strength.
+- exact end-of-parent binary linkage and no cylinder protrusion past a split;
+- nonzero child deviations and larger-radius child angle ordering;
+- strict squared-radius area loss and taper toward terminal epsilon;
+- strictly consumed finite arc-length budgets and bounded termination;
+- every segment endpoint and every emitted WebGPU vertex inside the ellipsoid;
+- deterministic replay, seed variation, whole-tree envelope variance, and
+  path-local conditioned variance;
+- leaf parents are eligible twigs and nonterminal attachment positions exist;
+- finite nondegenerate pointed-ovate leaf triangles, normals, UVs, and centered
+  bounded distribution statistics;
+- nonuniform procedural bark color/roughness, periodic seam continuity, and
+  hard primitive/vertex/index/RAM bounds.
 
-GREEN adds recursive deterministic structural branching, radius-conditioned
-twig shoots, twig-only foliage topology, bounded pointed-ovate leaf meshing,
-center-correct trunk geometry, dielectric tree specular scaling, and the
-full-chain fixture. Tests prove parent linkage, strict child radius decrease,
-bounded attachment and upward-biased directions, monotonic aggregate twig
-frequency, terminal topology, deterministic replay, seed variation, finite
-nondegenerate geometry, UV bounds, ovate outline shape, and centered bounded
-leaf parameter statistics.
-
-## Gates
+## Gates and capture
 
 | Gate | Result |
 | --- | --- |
-| Recursive tree geometry tests | 5/5 GREEN |
-| Focused tree WebGPU tests | 4/4 GREEN |
-| All tree/forest JavaScript tests | 27/27 GREEN |
+| Geometry/species tests | 6/6 GREEN |
+| Focused geometry + renderer-packet + WebGPU tests | 13/13 GREEN |
+| All tree/forest JavaScript tests | 29/29 GREEN |
 | Headless Edge real WebGPU capture | GREEN |
 | `git diff --check` | GREEN |
 
-Headless Edge initialized WebGPU at 1,263 by 760 with two renderer parts and
-two active clustered lights. Initialization failures, provider errors, runtime
-errors, and WebGPU errors were empty. Both parts reported no physics runtime;
-the physics profile reported zero particles and zero steps. The captured
-116,926-byte PNG has SHA-256
-`C394A10A87232C553A80567473156177D92AE9371C6074B84F78741E0DA67905`.
-It was visually inspected for a fully framed coherent trunk base, visible
-primary/secondary/twig hierarchy, pointed ovate leaf clusters supported only
-by thin twigs, differentiated bark/foliage shading, and camera/light placement
-derived from actual emitted mesh bounds. The generated PNG remains ignored build evidence at
-`build/tree-webgpu-static-demo.png`.
+Headless Edge initialized WebGPU at 1,263 by 760 with two lit renderer parts
+and two active clustered lights. Initialization failures, provider errors,
+runtime failures, and WebGPU errors were empty. Both parts reported no physics
+runtime; physics particles and steps were zero. The tracked 95,890-byte PNG is
+`docs/evidence/060-static-tree-webgpu-review2.png`, SHA-256
+`EB805056A1B62954D2D65ACE647423A11354AA96D7C9DB08E7A338AD11C8D136`.
 
 Reproduce:
 
 ```text
-node --test tests/js/vf-tree-webgpu-packets.test.mjs
-node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html build/tree-webgpu-static-demo.png 0 9364 tree_webgpu_static_frame
+node --test tests/js/vf-tree-geometry-plan.test.mjs tests/js/vf-tree-renderer-packets.test.mjs tests/js/vf-tree-webgpu-packets.test.mjs
+node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review2.png 0 9364 tree_webgpu_static_frame
 ```
 
 ## Static review boundary
 
-This packet stops at the requested static review gate. It does not add branch
-elasticity, leaf motion, wind response, or any physics coupling. Those remain a
-separate later phase requiring explicit approval after visual review.
+This packet stops at Viktor's requested static review gate. Branch elasticity,
+leaf motion, wind response, and physics coupling require separate approval.

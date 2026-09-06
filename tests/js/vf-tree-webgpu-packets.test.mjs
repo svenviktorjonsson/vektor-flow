@@ -35,6 +35,21 @@ function distance(left, right) {
   return Math.hypot(...left.map((value, axis) => value - right[axis]));
 }
 
+function envelopeMetric(envelope, point) {
+  const dx = point[0] - envelope.center[0];
+  const dy = point[1] - envelope.center[1];
+  const cosine = Math.cos(envelope.orientation);
+  const sine = Math.sin(envelope.orientation);
+  const local = [
+    dx * cosine + dy * sine,
+    -dx * sine + dy * cosine,
+    point[2] - envelope.center[2],
+  ];
+  return local.reduce((sum, value, axis) => (
+    sum + (value / envelope.axes[axis]) ** 2
+  ), 0);
+}
+
 function sourcePacket(detailLevel = 2, identity = IDENTITY) {
   const forest = realizeForestPatchesReference(
     createForestPopulationReference(identity),
@@ -43,13 +58,13 @@ function sourcePacket(detailLevel = 2, identity = IDENTITY) {
   const geometry = planTreeGeometryReference(
     createTreeGeometryPlannerReference(identity),
     forest,
-    { treeIndices: [0], detailLevels: [detailLevel], primitiveBudget: 128 },
+    { treeIndices: [0], detailLevels: [detailLevel], primitiveBudget: 256 },
   );
   const materials = realizeTreeMaterialsReference(
     createTreeMaterialFieldReference(identity),
     forest,
     geometry,
-    { materialBudget: 128 },
+    { materialBudget: 256 },
   );
   return adaptTreeWorkingSetsToRetainedPacketsReference(
     geometry,
@@ -64,8 +79,9 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
     indexBudget: 131072,
   });
   const twigCount = Array.from(source.primitiveKinds).filter((kind) => kind === 4).length;
+  const foliageCount = Array.from(source.primitiveKinds).filter((kind) => kind === 3).length;
 
-  assert.ok(source.primitiveCount >= 68 && source.primitiveCount <= 128);
+  assert.ok(source.primitiveCount >= 160 && source.primitiveCount <= 256);
   assert.equal(result.kind, 'tree-webgpu-mesh-state:v1');
   assert.strictEqual(result.source, source);
   assert.equal(result.meshes.length, 2);
@@ -76,10 +92,10 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
   assert.deepEqual(result.counts, {
     trunks: 1,
     crowns: 0,
-    branches: 18,
+    branches: 14,
     twigs: twigCount,
-    foliageClusters: twigCount,
-    leaves: twigCount * 24,
+    foliageClusters: foliageCount,
+    leaves: foliageCount * 8,
   });
   assert.ok(result.meshes.every((mesh) => (
     mesh.type === 'field_mesh'
@@ -88,6 +104,8 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
     && mesh.indices instanceof Uint32Array
     && mesh.vertices.length % 10 === 0
     && mesh.uvs instanceof Float32Array
+    && mesh.roughness instanceof Float32Array
+    && mesh.roughness.length === mesh.vertices.length / 10
     && mesh.uvs.length === mesh.vertices.length / 5
     && mesh.indices.length % 3 === 0
     && [...mesh.vertices].every(Number.isFinite)
@@ -96,6 +114,12 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
   assert.ok(result.meshes.every((mesh) => (
     mesh.specular_strength >= 0.02 && mesh.specular_strength <= 0.12
   )));
+  for (const mesh of result.meshes) {
+    for (let vertex = 0; vertex < mesh.vertices.length / 10; vertex += 1) {
+      const point = mesh.vertices.slice(vertex * 10, vertex * 10 + 3);
+      assert.ok(envelopeMetric(source.envelope, point) <= 1.00001);
+    }
+  }
   assert.ok(result.vertexCount <= result.vertexBudget);
   assert.ok(result.indexCount <= result.indexBudget);
   assert.ok(result.meshes[0].vertices.some((value, index) => (
@@ -107,7 +131,7 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
   const trunkCenterZ = source.transforms[2];
   const trunkLength = source.transforms[6];
   const trunkZ = Array.from(
-    { length: 22 },
+    { length: 82 },
     (_, vertex) => result.meshes[0].vertices[vertex * 10 + 2],
   );
   assert.ok(Math.abs(Math.min(...trunkZ) - (trunkCenterZ - trunkLength * 0.5)) < 1e-5);
@@ -146,6 +170,32 @@ test('tree WebGPU meshes replay exactly and reject incomplete or exceeded packet
     ...options,
     indexBudget: first.indexCount - 1,
   }), /tree WebGPU index budget is exhausted/u);
+});
+
+test('procedural bark has coherent periodic grain and nonuniform color and roughness', () => {
+  const source = sourcePacket();
+  const result = adaptTreeRenderPacketToWebGpuMeshesReference(source, {
+    vertexBudget: 32768, indexBudget: 131072,
+  });
+  const wood = result.meshes[0];
+  assert.ok(result.bark.ridgeCount >= source.profile.bark.ridgeCountBounds[0]);
+  assert.ok(result.bark.ridgeCount <= source.profile.bark.ridgeCountBounds[1]);
+  assert.ok(result.bark.textureVariant >= 0 && result.bark.textureVariant < 3);
+  assert.ok(Math.max(...wood.roughness) - Math.min(...wood.roughness) > 0.03);
+  const colors = new Set();
+  for (let vertex = 0; vertex < wood.vertices.length / 10; vertex += 1) {
+    colors.add(Array.from(wood.vertices.slice(vertex * 10 + 6, vertex * 10 + 9)).join(','));
+    assert.ok(envelopeMetric(source.envelope, wood.vertices.slice(vertex * 10, vertex * 10 + 3)) <= 1.00001);
+  }
+  assert.ok(colors.size > 20);
+  const grain = (angle, along) => (
+    Math.sin(result.bark.ridgeCount * angle + result.bark.phase + along * result.bark.grainTurns)
+      + 0.35 * Math.sin((result.bark.ridgeCount + 3) * angle
+        - result.bark.phase * 0.7 + along * 9)
+  );
+  for (const along of [0, 0.25, 0.5, 1]) {
+    assert.ok(Math.abs(grain(0, along) - grain(Math.PI * 2, along)) < 1e-12);
+  }
 });
 
 test('conditioned leaves form bounded petioles and pointed ovate nondegenerate blades', () => {
