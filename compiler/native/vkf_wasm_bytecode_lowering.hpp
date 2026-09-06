@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vkf_stdlib_classification.hpp"
+
 #include "compiler/native/vkf_wasm_bytecode.hpp"
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
 #include "compiler/native/vkf_call_binding_plan.hpp"
@@ -1949,12 +1951,11 @@ private:
                     context + ".args"
                 );
                 const std::string full_name = string_field(callee, "full_name", context + ".callee");
-                if (full_name == "stat.sum" || full_name == "stat.mean"
-                    || full_name == "stat.variance" || full_name == "stat.std"
-                    || full_name == "stat.range" || full_name == "stat.count") {
+                const auto family = stdlib::classify_call(full_name);
+                if (family == stdlib::CallFamily::Statistics) {
                     return lower_stat_call(object, state, context, full_name.substr(5));
                 }
-                if (full_name == "io.print" && args.size() == 1) {
+                if (family == stdlib::CallFamily::Output && args.size() == 1) {
                     lower_expression(args.front(), state, context + ".args[0]");
                     const auto& argument = object_of(args.front(), context + ".args[0]");
                     const std::string argument_type = string_field(
@@ -1967,7 +1968,7 @@ private:
                     }
                     return ValueType::Dynamic;
                 }
-                if (full_name == "collections.list") {
+                if (family == stdlib::CallFamily::Collection) {
                     const auto& spreads = array_of(field(object, "spread_args", context), context);
                     const auto& named = array_of(field(object, "named_args", context), context);
                     if (!spreads.empty()) throw BytecodeLoweringError("direct machine IR stdlib calls do not accept spread arguments");
@@ -1994,6 +1995,12 @@ private:
                     emit(state, Opcode::MakeArray, ValueType::Array, checked_index(args.size(), context));
                     return ValueType::Array;
                 }
+                if (family != stdlib::CallFamily::MathUnary) {
+                    throw BytecodeLoweringError(
+                        "unsupported standard-library call " + full_name
+                        + " in " + context
+                    );
+                }
                 if (args.size() != 1) {
                     throw BytecodeLoweringError(
                         "WASM math intrinsic requires one argument in "
@@ -2010,11 +2017,6 @@ private:
                     opcode = Opcode::NaturalLog;
                 } else if (full_name == "math.exp") {
                     opcode = Opcode::Exponential;
-                } else {
-                    throw BytecodeLoweringError(
-                        "unsupported standard-library call " + full_name
-                        + " in " + context
-                    );
                 }
                 lower_expression(
                     args.front(),

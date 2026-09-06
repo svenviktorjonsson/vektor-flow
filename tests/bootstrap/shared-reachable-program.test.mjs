@@ -20,6 +20,20 @@ test('unchanged random guide omits unreachable clock capability functions',async
   });
 });
 
+test('unchanged time guide rejects its unreachable host capability without a false math diagnostic',async()=>{
+  const [wasm,source]=await Promise.all([
+    readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url)),
+    readFile(new URL('../../examples/generated/readme/stdlib/04-time.vkf',import.meta.url),'utf8'),
+  ]);
+  const module=new WebAssembly.Module(wasm);
+  assert.deepEqual(WebAssembly.Module.imports(module),[]);
+  assert.deepEqual(runInlineWorkerRequest({type:'run',id:22,source,module}),{
+    id:22,
+    status:'error',
+    message:'unsupported standard-library call time.wall_seconds in function __vkf_module_time__wall_time.body.body[0].expr',
+  });
+});
+
 test('unchanged primitive guide executes compiler-owned scalar conversions',async()=>{
   const [wasm,source]=await Promise.all([
     readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url)),
