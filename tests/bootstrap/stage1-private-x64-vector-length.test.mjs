@@ -31,7 +31,7 @@ test("private source-derived vector length function matches native x64 bytes", (
     });
     assert.equal(built.status, 0, built.error?.message ?? built.stderr);
     const encodedFunctions = new Map();
-    for (const [source, name, invocation, field] of [
+    for (const [source, name, invocation, field, expectedValid = true] of [
       ["measure(items:[num]):\n    (count:items.length(),)\n", "measure", "measure([1, 2])", "count"],
       ["renamed(left:[num], right:[bit]):\n    (size:right.length(),)\n", "renamed", "renamed([1], [true, false])", "size"],
       ["words(items:[str]):\n    (count:items.length(),)\n", "words", 'words(["a", "bc"])', "count"],
@@ -42,6 +42,15 @@ test("private source-derived vector length function matches native x64 bytes", (
       ["combined(names:[str], values:[num]):\n    (total:names.length() + values.length(),)\n", "combined", 'combined(["a"], [1, 2])', "total"],
       ["nested(flags:[bit], names:[str]):\n    (size:flags.length() + (names.length() + 2),)\n", "nested", 'nested([true], ["a"] )', "size"],
       ["rounded(items:[num]):\n    (count:items.length() + (9007199254740992 + 1),)\n", "rounded", "rounded([1])", "count"],
+      ["pair(items:[str]):\n    (count:items.length(), next:items.length() + 1)\n", "pair", 'pair(["a", "bc"])', "count"],
+      ["reversed(items:[str]):\n    (next:items.length() + 1, count:items.length())\n", "reversed", 'reversed(["a", "bc"])', "count"],
+      ...Array.from({ length: 6 }, (_, index) => {
+        const width = index + 3, name = `record${width}`;
+        const fields = Array.from({ length: width }, (_, field) =>
+          `cell${field}:${field % 2 ? "names" : "flags"}.length() + ${field}`).join(", ");
+        return [`${name}(flags:[bit], names:[str]):\n    (${fields})\n`, name,
+          `${name}([true, false], ["a"])`, "cell0", width < 8];
+      }),
     ]) {
       const input = join(work, "input.vkf"), oracleSource = join(work, "oracle.vkf");
       writeFileSync(input, source);
@@ -68,11 +77,17 @@ test("private source-derived vector length function matches native x64 bytes", (
       assert.equal(run.stderr, "");
       const [parsed, valid, bytes] = run.stdout.trimEnd().split(/\r?\n/);
       assert.equal(parsed, "true", run.stdout);
-      assert.equal(valid, "true", run.stdout);
-      assert.deepEqual(JSON.parse(bytes), JSON.parse(bytesJson));
-      encodedFunctions.set(name, JSON.parse(bytes));
+      assert.equal(valid, String(expectedValid), run.stdout);
+      if (expectedValid) {
+        assert.deepEqual(JSON.parse(bytes), JSON.parse(bytesJson));
+        encodedFunctions.set(name, JSON.parse(bytes));
+      } else {
+        assert.equal(expectedFunction.instructions.at(-1).result_count, 8);
+        assert.deepEqual(JSON.parse(bytes), []);
+      }
     }
     assert.notDeepEqual(encodedFunctions.get("successor"), encodedFunctions.get("words"), "length()+1 must change emitted function bytes");
+    assert.notDeepEqual(encodedFunctions.get("pair"), encodedFunctions.get("reversed"), "field source order must change emitted function bytes");
     // Invalid private inputs publish no partial code. These are validation
     // results, not new public VKF diagnostics or executable-code tests.
     const rejected = [
@@ -108,6 +123,15 @@ test("private source-derived vector length function matches native x64 bytes", (
       ["[2, 3, 1, 5, 8]", "[0, 0, 1, 0, 0]", 1, 1],
       ["[2, 3, 6, 8]", "[0, 0, 0, 0]", 1, 1],
       ["[2, 3, 7]", "[0, 0, 1]", 1, 1],
+      ["[2, 3, 1, 7]", "[0, 0, 1, 0]", 1, 2],
+      ["[2, 3, 1, 7]", "[0, 0, 1, 1]", 1, 2],
+      ["[2, 3, 1, 7]", "[0, 0, 1, 2.5]", 1, 3],
+      ["[2, 3, 1, 7]", "[0, 0, 1, 3]", 1, 3],
+      ["[2, 3, 2, 7]", "[0, 0, 0, 2]", 1, 2],
+      ["[2, 2, 3, 7]", "[0, 0, 0, 2]", 1, 2],
+      ["[2, 3, 1, 7, 1]", "[0, 0, 1, 2, 1]", 1, 2],
+      ["[2, 3, 1, 7]", "[0, 0, 1, 2]", 1, 1],
+      ["[2, 3, 1, 1, 1, 1, 1, 1, 1, 7]", "[0, 0, 1, 1, 1, 1, 1, 1, 1, 8]", 1, 8],
     ];
     writeFileSync(probe, ["machine: .machine_ir", ...rejected.flatMap(([codes, values, parameters, maximum], index) => [
       `r${index}: machine._bootstrap_x64_borrowed_scalar_function(${codes}, ${values}, ${parameters}, ${maximum}, ${process.platform === "win32" ? "true" : "false"})`,

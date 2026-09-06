@@ -135,7 +135,7 @@ _bootstrap_x64_entry_constant(local_count:num, maximum:num, value:num, windows:b
     result.bytes: result.bytes & _bootstrap_x64_epilogue(frame.xmm_slot, frame.gpr_slot, windows)
     result
 
-# Non-entry scalar results from validated borrowed-vector parameters.
+# Non-entry numeric results from validated borrowed-vector parameters.
 # Count is required: native integer/register-cache tiers then remain ineligible.
 _bootstrap_x64_borrowed_scalar_function(opcodes:[num], operands:[num], parameter_count:num, maximum:num, windows:bit):
     [num] bytes: []
@@ -159,10 +159,11 @@ _bootstrap_x64_borrowed_scalar_function(opcodes:[num], operands:[num], parameter
     returned: false
     code: 0
     operand: 0
+    field: 0
     (index < opcodes.length())?>
         .code: opcodes.(index)
         .operand: operands.(index)
-        (code != 1 /\ code != 2 /\ code != 3 /\ code != 4 /\ code != 5 /\ code != 8)?
+        (code != 1 /\ code != 2 /\ code != 3 /\ code != 4 /\ code != 5 /\ code != 7 /\ code != 8)?
             @: result
         code = 1?
             literal: _bootstrap_f64_bytes(operand)
@@ -203,6 +204,24 @@ _bootstrap_x64_borrowed_scalar_function(opcodes:[num], operands:[num], parameter
             .bytes: bytes & [242, 15, arithmetic, 200, 102, 15, 40, 193]
             .depth-: 1
             .bytes: bytes & [242, 15, 17, 133] & _bootstrap_x64_word(-(parameter_count + depth) * 8)
+        code = 7?
+            # Native selects a separate host-AVX2 return path at eight cells.
+            (operand < 2 \/ operand >= 8 \/ operand % 1 != 0 \/ depth != operand \/ index + 1 != opcodes.length())?
+                @: result
+            .field: 0
+            (field < operand)?>
+                types.(field) != 1?
+                    @: result
+                .field+: 1
+            .bytes: bytes & [76, 139, 157] & _bootstrap_x64_word(-(frame.context + 1) * 8)
+            .field: 0
+            (field < operand)?>
+                .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(parameter_count + field + 1) * 8)
+                .bytes: bytes & [242, 65, 15, 17, 131] & _bootstrap_x64_word(-field * 8)
+                .field+: 1
+            .bytes: bytes & _bootstrap_x64_epilogue(frame.xmm_slot, frame.gpr_slot, windows)
+            .depth: 0
+            .returned: true
         code = 8?
             (depth != 1 \/ index + 1 != opcodes.length() \/ operand != 0)?
                 @: result
