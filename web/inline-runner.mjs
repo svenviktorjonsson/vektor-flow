@@ -1,4 +1,4 @@
-const WASM_URL = new URL("./playground/artifacts/vkf-browser-compiler.wasm", import.meta.url);
+const WASM_URL = new URL("./playground/artifacts/vkf-shared-compiler.wasm", import.meta.url);
 const MANIFEST_URL = new URL("./playground/artifacts/vkf-browser-compiler.json", import.meta.url);
 const WORKER_URL = new URL("./inline-runner-worker.mjs", import.meta.url);
 

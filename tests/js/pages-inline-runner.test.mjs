@@ -50,7 +50,8 @@ test("inline runner precompiles once and starts a fresh isolated worker per Play
   assert.deepEqual(await runner.run(":: 40 + 2"), { output: 42, packets: null });
   assert.deepEqual(await runner.run(":: 40 + 3"), { output: 43, packets: null });
   assert.equal(requests.length, 2);
-  assert.ok(requests.every((url) => /vkf-browser-compiler\.(?:wasm|json)$/u.test(url)));
+  assert.ok(requests.some((url) => /vkf-shared-compiler\.wasm$/u.test(url)));
+  assert.ok(requests.some((url) => /vkf-browser-compiler\.json$/u.test(url)));
   assert.equal(compilationCount, 1);
   assert.equal(WorkerStub.instances.length, 2);
   assert.deepEqual(messages.map(({ type }) => type), ["run", "run"]);
@@ -1083,6 +1084,28 @@ test("terminal renders VKF console values as one output line per emitted value",
 
   await controller.run("complete README vector example");
   assert.deepEqual(terminal, ["[2,4,6]\n[[2,4],[6,8]]"]);
+});
+
+test("terminal renders compiler-formatted shared WASM stdout without decoding VKF values", async () => {
+  const terminal = [];
+  const controller = createInlineExampleController({
+    runner: {
+      run: async () => ({
+        output: { kind: "console", stdout: "7\n6\n", stderr: "" },
+        packets: null,
+      }),
+    },
+    view: {
+      start: () => {},
+      showTerminal: (value) => terminal.push(value),
+      hideResult: () => {},
+      showResult: () => {},
+      finish: () => {},
+    },
+  });
+
+  await controller.run("core/01-bindings.vkf");
+  assert.deepEqual(terminal, ["7\n6"]);
 });
 
 test("Play replaces prefilled Console text on success and exact diagnostic paths", async () => {
