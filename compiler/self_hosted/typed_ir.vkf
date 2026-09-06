@@ -260,9 +260,20 @@ TypedTaggedArgument: (
     type:str,
     has_value:bit,
     value:num,
+    element_kinds:[str],
+    element_names:[str],
+    element_ops:[str],
     values:[num],
     token_start:int,
     token_stop:int
+)
+
+TypedTaggedScalarExpression: (
+    expression_kind:str,
+    name:str,
+    op:str,
+    has_value:bit,
+    value:num
 )
 TypedTaggedFunctionBodyArena: (
     module:TypedTaggedConcreteModule,
@@ -1062,6 +1073,78 @@ typed_tagged_argument_arena(
         count:rows.length() / 2
     )
 
+_typed_tagged_scalar_expression(
+    module:TypedTaggedConcreteModule, token_start:int, token_stop:int
+) -> TypedTaggedScalarExpression:
+    (token_start >= 0 /\ token_stop >= token_start /\ token_stop < module.token_count)?! "concrete scalar expression token range is invalid"
+    first_kind: module.token_rows.(token_start * 6)
+    str expression_kind: "unsupported"
+    str name: ""
+    str op: "UNKNOWN"
+    bit has_value: false
+    num value: 0
+    first_kind = 1?
+        .name: typed_tagged_concrete_payload_text(module, token_start)
+        (token_start < token_stop /\ module.token_rows.((token_start + 1) * 6) = 13)?
+            .expression_kind: "call"
+        (token_start < token_stop /\ module.token_rows.((token_start + 1) * 6) != 13)?
+            .expression_kind: "binary_op"
+    first_kind = 3?
+        .expression_kind: "const"
+    int token_index: token_start
+    token_kind: 0
+    (token_index <= token_stop)?>
+        .token_kind: module.token_rows.(token_index * 6)
+        token_kind = 3?
+            .has_value: true
+            .value: module.token_rows.(token_index * 6 + 3)
+        typed_tagged_cursor_operator_kind(token_kind) != "UNKNOWN"?
+            .op: typed_tagged_cursor_operator_kind(token_kind)
+        .token_index+: 1
+    op != "UNKNOWN"?
+        .expression_kind: "binary_op"
+    (expression_kind != "unsupported")?! "concrete scalar expression is unsupported"
+    (expression_kind != "binary_op" \/ (name != "" /\ has_value))?! "concrete binary expression shape is unsupported"
+    (expression_kind != "const" \/ (token_start = token_stop /\ has_value))?! "concrete constant expression shape is unsupported"
+    (
+        expression_kind:expression_kind,
+        name:name,
+        op:op,
+        has_value:has_value,
+        value:value
+    )
+
+_typed_tagged_collection_element_rows(
+    module:TypedTaggedConcreteModule, token_start:int, token_stop:int
+) -> [int]:
+    (module.token_rows.(token_start * 6) = 22 /\ module.token_rows.(token_stop * 6) = 23)?! "concrete collection argument delimiters are missing"
+    int bracket_depth: 0
+    int parenthesis_depth: 0
+    int element_start: token_start + 1
+    int token_index: element_start
+    token_kind: 0
+    [int] rows: []
+    (token_index < token_stop)?>
+        .token_kind: module.token_rows.(token_index * 6)
+        token_kind = 22?
+            .bracket_depth+: 1
+        token_kind = 23?
+            .bracket_depth-: 1
+        token_kind = 13?
+            .parenthesis_depth+: 1
+        token_kind = 14?
+            .parenthesis_depth-: 1
+        (token_kind = 24 /\ bracket_depth = 0 /\ parenthesis_depth = 0)?
+            (token_index > element_start)?! "concrete collection has an empty element"
+            .rows: rows & [element_start, token_index - 1]
+            .element_start: token_index + 1
+        .token_index+: 1
+    (bracket_depth = 0 /\ parenthesis_depth = 0)?! "concrete collection element delimiters are unbalanced"
+    element_start < token_stop?
+        .rows: rows & [element_start, token_stop - 1]
+    (element_start < token_stop \/ rows.length() = 0)?! "concrete collection has a trailing empty element"
+    rows
+
 typed_tagged_argument(
     arena:TypedTaggedArgumentArena, index:int
 ) -> TypedTaggedArgument:
@@ -1071,37 +1154,56 @@ typed_tagged_argument(
     token_stop: arena.rows.(offset + 1)
     position: index
     first_kind: arena.module.token_rows.(token_start * 6)
-    str expression_kind: "unsupported"
-    str name: ""
-    str op: "UNKNOWN"
-    bit has_value: false
-    num value: 0
+    expression: (
+        expression_kind:"unsupported",
+        name:"",
+        op:"UNKNOWN",
+        has_value:false,
+        value:0
+    )
+    first_kind != 22?
+        .expression: _typed_tagged_scalar_expression(
+            arena.module, token_start, token_stop
+        )
+    str expression_kind: expression.expression_kind
+    str name: expression.name
+    str op: expression.op
+    bit has_value: expression.has_value
+    num value: expression.value
+    [str] element_kinds: []
+    [str] element_names: []
+    [str] element_ops: []
     [num] values: []
-    first_kind = 1?
-        .name: typed_tagged_concrete_payload_text(arena.module, token_start)
-        (token_start < token_stop /\ arena.module.token_rows.((token_start + 1) * 6) = 13)?
-            .expression_kind: "call"
-        (token_start < token_stop /\ arena.module.token_rows.((token_start + 1) * 6) != 13)?
-            .expression_kind: "binary_op"
-    first_kind = 3?
-        .expression_kind: "const"
-        .has_value: true
-        .value: arena.module.token_rows.(token_start * 6 + 3)
+    [int] element_rows: []
+    int element_index: 0
+    element: (
+        expression_kind:"unsupported",
+        name:"",
+        op:"UNKNOWN",
+        has_value:false,
+        value:0
+    )
     first_kind = 22?
         .expression_kind: "collection"
-    int token_index: token_start
-    token_kind: 0
-    (token_index <= token_stop)?>
-        .token_kind: arena.module.token_rows.(token_index * 6)
-        token_kind = 3?
-            .has_value: true
-            .value: arena.module.token_rows.(token_index * 6 + 3)
-            .values: values & [value]
-        typed_tagged_cursor_operator_kind(token_kind) != "UNKNOWN"?
-            .op: typed_tagged_cursor_operator_kind(token_kind)
-        .token_index+: 1
-    op != "UNKNOWN"?
-        .expression_kind: "binary_op"
+        .name: ""
+        .op: "UNKNOWN"
+        .has_value: false
+        .value: 0
+        .element_rows: _typed_tagged_collection_element_rows(
+            arena.module, token_start, token_stop
+        )
+        .element_index: 0
+        (element_index < element_rows.length() / 2)?>
+            .element: _typed_tagged_scalar_expression(
+                arena.module,
+                element_rows.(element_index * 2),
+                element_rows.(element_index * 2 + 1)
+            )
+            .element_kinds: element_kinds & [element.expression_kind]
+            .element_names: element_names & [element.name]
+            .element_ops: element_ops & [element.op]
+            .values: values & [element.value]
+            .element_index+: 1
     (expression_kind != "unsupported")?! "concrete call argument expression is unsupported"
     str argument_type: "num"
     expression_kind = "call"?
@@ -1118,6 +1220,9 @@ typed_tagged_argument(
         type:argument_type,
         has_value:has_value,
         value:value,
+        element_kinds:element_kinds,
+        element_names:element_names,
+        element_ops:element_ops,
         values:values,
         token_start:token_start,
         token_stop:token_stop

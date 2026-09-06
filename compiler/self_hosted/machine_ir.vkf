@@ -2031,6 +2031,9 @@ mir_assemble_tagged_resolved_module(
     argument_ops:[str],
     argument_values:[num],
     argument_element_counts:[int],
+    argument_collection_kinds:[str],
+    argument_collection_names:[str],
+    argument_collection_ops:[str],
     argument_collection_values:[num]
 ) -> ConcreteTaggedMachineModule:
     (callee = function_name)?! "concrete Machine IR call target does not match function"
@@ -2050,16 +2053,22 @@ mir_assemble_tagged_resolved_module(
     [ConcreteTaggedMachineInstruction] entry_instructions: []
     int argument_index: 0
     int collection_offset: 0
+    int entry_stack_depth: 0
+    int entry_max_stack: 0
     str argument_kind: ""
     literal_offset: 0
     element_count: 0
     int element_index: 0
     literal: _bootstrap_f64_bytes(0)
+    bit collection_is_literal: true
     (argument_index < argument_count)?>
         .argument_kind: argument_kinds.(argument_index)
         argument_kind = "call"?
             (argument_names.(argument_index) = "cpu_count")?! "concrete Machine IR argument call is unsupported"
             .entry_instructions: entry_instructions & [_mir_concrete_tagged_instruction("call", symbol:argument_names.(argument_index), argument_count:0, result_count:1, provided_parameter_mask:0)]
+            .entry_stack_depth+: 1
+            entry_stack_depth > entry_max_stack?
+                .entry_max_stack: entry_stack_depth
         argument_kind = "binary_op"?
             (argument_names.(argument_index) = "cpu_count" /\ argument_ops.(argument_index) = "STAR")?! "concrete Machine IR argument binary expression is unsupported"
             .entry_instructions: entry_instructions & [
@@ -2067,29 +2076,73 @@ mir_assemble_tagged_resolved_module(
                 _mir_concrete_tagged_instruction("push_f64", value:argument_values.(argument_index)),
                 _mir_concrete_tagged_instruction("multiply_f64")
             ]
+            entry_stack_depth + 2 > entry_max_stack?
+                .entry_max_stack: entry_stack_depth + 2
+            .entry_stack_depth+: 1
         argument_kind = "const"?
             .entry_instructions: entry_instructions & [_mir_concrete_tagged_instruction("push_f64", value:argument_values.(argument_index))]
+            .entry_stack_depth+: 1
+            entry_stack_depth > entry_max_stack?
+                .entry_max_stack: entry_stack_depth
         argument_kind = "collection"?
             .literal_offset: string_data.length()
             .element_count: argument_element_counts.(argument_index)
+            .collection_is_literal: true
             .element_index: 0
             (element_index < element_count)?>
-                .literal: _bootstrap_f64_bytes(argument_collection_values.(collection_offset + element_index))
-                literal.valid?! "concrete collection argument contains an unsupported number"
-                .string_data: string_data & literal.bytes
+                argument_collection_kinds.(collection_offset + element_index) != "const"?
+                    .collection_is_literal: false
                 .element_index+: 1
+            collection_is_literal?
+                .element_index: 0
+                (element_index < element_count)?>
+                    .literal: _bootstrap_f64_bytes(argument_collection_values.(collection_offset + element_index))
+                    literal.valid?! "concrete collection argument contains an unsupported number"
+                    .string_data: string_data & literal.bytes
+                    .element_index+: 1
+                .entry_instructions: entry_instructions & [_mir_concrete_tagged_instruction("make_owned_f64_list_literal", index:literal_offset, argument_count:element_count)]
+                .entry_stack_depth+: 1
+                entry_stack_depth > entry_max_stack?
+                    .entry_max_stack: entry_stack_depth
+            collection_is_literal = false?
+                .element_index: 0
+                (element_index < element_count)?>
+                    argument_collection_kinds.(collection_offset + element_index) = "const"?
+                        .entry_instructions: entry_instructions & [_mir_concrete_tagged_instruction("push_f64", value:argument_collection_values.(collection_offset + element_index))]
+                        .entry_stack_depth+: 1
+                        entry_stack_depth > entry_max_stack?
+                            .entry_max_stack: entry_stack_depth
+                    argument_collection_kinds.(collection_offset + element_index) = "call"?
+                        (argument_collection_names.(collection_offset + element_index) = "cpu_count")?! "concrete collection element call is unsupported"
+                        .entry_instructions: entry_instructions & [_mir_concrete_tagged_instruction("call", symbol:argument_collection_names.(collection_offset + element_index), argument_count:0, result_count:1, provided_parameter_mask:0)]
+                        .entry_stack_depth+: 1
+                        entry_stack_depth > entry_max_stack?
+                            .entry_max_stack: entry_stack_depth
+                    argument_collection_kinds.(collection_offset + element_index) = "binary_op"?
+                        (argument_collection_names.(collection_offset + element_index) = "cpu_count" /\ argument_collection_ops.(collection_offset + element_index) = "STAR")?! "concrete collection element binary expression is unsupported"
+                        .entry_instructions: entry_instructions & [
+                            _mir_concrete_tagged_instruction("call", symbol:argument_collection_names.(collection_offset + element_index), argument_count:0, result_count:1, provided_parameter_mask:0),
+                            _mir_concrete_tagged_instruction("push_f64", value:argument_collection_values.(collection_offset + element_index)),
+                            _mir_concrete_tagged_instruction("multiply_f64")
+                        ]
+                        entry_stack_depth + 2 > entry_max_stack?
+                            .entry_max_stack: entry_stack_depth + 2
+                        .entry_stack_depth+: 1
+                    (argument_collection_kinds.(collection_offset + element_index) = "const" \/ argument_collection_kinds.(collection_offset + element_index) = "call" \/ argument_collection_kinds.(collection_offset + element_index) = "binary_op")?! "concrete collection element expression is unsupported"
+                    .element_index+: 1
+                .entry_instructions: entry_instructions & [_mir_concrete_tagged_instruction("make_owned_f64_list", argument_count:element_count)]
+                .entry_stack_depth: entry_stack_depth - element_count + 1
             .collection_offset+: element_count
-            .entry_instructions: entry_instructions & [_mir_concrete_tagged_instruction("make_owned_f64_list_literal", index:literal_offset, argument_count:element_count)]
         (argument_kind = "call" \/ argument_kind = "binary_op" \/ argument_kind = "const" \/ argument_kind = "collection")?! "concrete Machine IR argument expression is unsupported"
         .argument_index+: 1
-    (collection_offset = argument_collection_values.length())?! "concrete collection argument values are not parallel"
+    (collection_offset = argument_collection_kinds.length() /\ collection_offset = argument_collection_names.length() /\ collection_offset = argument_collection_ops.length() /\ collection_offset = argument_collection_values.length())?! "concrete collection argument arenas are not parallel"
     .entry_instructions: entry_instructions & [
         _mir_concrete_tagged_instruction("call", symbol:callee, argument_count:argument_count, result_count:1, provided_parameter_mask:provided_parameter_mask),
         _mir_concrete_tagged_instruction("return_f64")
     ]
     entry: _mir_concrete_tagged_function(
         "\$entry", empty_strings, empty_bits, false,
-        entry_instructions, argument_count
+        entry_instructions, entry_max_stack
     )
     [ConcreteTaggedMachineInstruction] cpu_instructions: []
     .cpu_instructions: cpu_instructions & [
@@ -2160,7 +2213,8 @@ mir_tagged_resolved_module_matches(
     parameter_types:[str],
     argument_count:int,
     conditional:bit,
-    collection_count:int
+    collection_count:int,
+    dynamic_collection:bit
 ) -> bit:
     numeric_function: module.functions.(1)
     entry_call: module.entry.instructions.(module.entry.instructions.length() - 2)
@@ -2177,18 +2231,23 @@ mir_tagged_resolved_module_matches(
             .parameter_classes_match: false
         .parameter_index+: 1
     bit collection_matches: collection_count = 0
+    int multiply_count: 0
     int instruction_index: 0
     entry_instruction: module.entry.instructions.(0)
     (instruction_index < module.entry.instructions.length())?>
         .entry_instruction: module.entry.instructions.(instruction_index)
-        entry_instruction.kind = "make_owned_f64_list_literal"?
+        entry_instruction.kind = "multiply_f64"?
+            .multiply_count+: 1
+        (dynamic_collection = false /\ entry_instruction.kind = "make_owned_f64_list_literal")?
             .collection_matches: entry_instruction.index = 0 /\ entry_instruction.argument_count = collection_count /\ module.string_data.length() = collection_count * 8
+        (dynamic_collection /\ entry_instruction.kind = "make_owned_f64_list")?
+            .collection_matches: entry_instruction.argument_count = collection_count /\ module.string_data.length() = 0
         .instruction_index+: 1
     (module.entry.name = "\$entry" /\
         entry_call.symbol = function_name /\
         entry_call.argument_count = argument_count /\
         numeric_function.name = function_name /\
-        parameters_match /\ parameter_classes_match /\ collection_matches /\ numeric_function.parameters.length() = argument_count /\
+        parameters_match /\ parameter_classes_match /\ collection_matches /\ (dynamic_collection = false \/ multiply_count >= 2) /\ numeric_function.parameters.length() = argument_count /\
         ((conditional /\ numeric_function.instructions.(2).kind = "ordered_greater_f64" /\ numeric_function.instructions.(3).kind = "jump_if_false" /\ numeric_function.instructions.(6).kind = "label") \/
          (conditional = false /\ numeric_function.instructions.(2).kind = "multiply_f64")))
 
