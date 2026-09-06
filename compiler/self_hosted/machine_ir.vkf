@@ -47,6 +47,15 @@ _bootstrap_x64_word(value:num) -> [num]:
     word < 0? .word+: 4294967296
     [word % 256, (word // 256) % 256, (word // 65536) % 256, (word // 16777216) % 256]
 
+# Private rel32 fixup over an already emitted four-byte placeholder.
+_bootstrap_x64_patch_relative(bytes:[num], reference:num, target:num) -> [num]:
+    word: _bootstrap_x64_word(target - reference - 4)
+    index: 0
+    (index < 4)?>
+        bytes.(reference + index): word.(index)
+        .index+: 1
+    bytes
+
 # Private shared frame: no scratch, errors, parameter mask or owned locals.
 _bootstrap_x64_frame(local_count:num, maximum:num, windows:bit):
     result: (valid:false, context:0, xmm_slot:0, gpr_slot:0, frame_bytes:0)
@@ -135,7 +144,7 @@ _bootstrap_x64_entry_constant(local_count:num, maximum:num, value:num, windows:b
     result.bytes: result.bytes & _bootstrap_x64_epilogue(frame.xmm_slot, frame.gpr_slot, windows)
     result
 
-# Non-entry numeric results from validated borrowed-vector parameters.
+# Non-entry numeric/owned-list results from validated borrowed-vector parameters.
 # Count is required: native integer/register-cache tiers then remain ineligible.
 _bootstrap_x64_borrowed_scalar_function(opcodes:[num], operands:[num], parameter_count:num, maximum:num, windows:bit):
     [num] bytes: []
@@ -163,7 +172,7 @@ _bootstrap_x64_borrowed_scalar_function(opcodes:[num], operands:[num], parameter
     (index < opcodes.length())?>
         .code: opcodes.(index)
         .operand: operands.(index)
-        (code != 1 /\ code != 2 /\ code != 3 /\ code != 4 /\ code != 5 /\ code != 7 /\ code != 8)?
+        (code != 1 /\ code != 2 /\ code != 3 /\ code != 4 /\ code != 5 /\ code != 6 /\ code != 7 /\ code != 8)?
             @: result
         code = 1?
             literal: _bootstrap_f64_bytes(operand)
@@ -204,13 +213,43 @@ _bootstrap_x64_borrowed_scalar_function(opcodes:[num], operands:[num], parameter
             .bytes: bytes & [242, 15, arithmetic, 200, 102, 15, 40, 193]
             .depth-: 1
             .bytes: bytes & [242, 15, 17, 133] & _bootstrap_x64_word(-(parameter_count + depth) * 8)
+        code = 6?
+            (depth < 1 \/ operand != 0 \/ types.(depth - 1) != 3)?
+                @: result
+            # Borrowed list pointer must exist before its allocation size is read.
+            .bytes: bytes & [72, 139, 133] & _bootstrap_x64_word(-(parameter_count + depth) * 8)
+            .bytes: bytes & [72, 133, 192, 15, 133]
+            source_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+            .bytes: _bootstrap_x64_patch_relative(bytes, source_reference, bytes.length())
+            .bytes: bytes & [72, 139, 0, 72, 193, 224, 3, 72, 131, 192, 16]
+            windows? .bytes: bytes & [72, 137, 193]
+            ~windows? .bytes: bytes & [72, 137, 199]
+            .bytes: bytes & [65, 255, 84, 36, 64, 72, 133, 192, 15, 133]
+            allocated_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+            .bytes: _bootstrap_x64_patch_relative(bytes, allocated_reference, bytes.length())
+            .bytes: bytes & [73, 137, 195, 76, 139, 149]
+            .bytes: bytes & _bootstrap_x64_word(-(parameter_count + depth) * 8)
+            .bytes: bytes & [73, 139, 10, 73, 137, 11, 73, 137, 75, 8, 72, 133, 201, 15, 132]
+            empty_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0, 73, 131, 194, 16, 73, 131, 195, 16]
+            copy: bytes.length()
+            .bytes: bytes & [242, 65, 15, 16, 2, 242, 65, 15, 17, 3,
+                73, 131, 194, 8, 73, 131, 195, 8, 72, 255, 201, 15, 133]
+            repeat_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0]
+            .bytes: _bootstrap_x64_patch_relative(bytes, repeat_reference, copy)
+            .bytes: _bootstrap_x64_patch_relative(bytes, empty_reference, bytes.length())
+            .bytes: bytes & [72, 137, 133] & _bootstrap_x64_word(-(parameter_count + depth) * 8)
+            types.(depth - 1): 2
         code = 7?
             # Native selects a separate host-AVX2 return path at eight cells.
             (operand < 2 \/ operand >= 8 \/ operand % 1 != 0 \/ depth != operand \/ index + 1 != opcodes.length())?
                 @: result
             .field: 0
             (field < operand)?>
-                types.(field) != 1?
+                (types.(field) != 1 /\ types.(field) != 2)?
                     @: result
                 .field+: 1
             .bytes: bytes & [76, 139, 157] & _bootstrap_x64_word(-(frame.context + 1) * 8)

@@ -31,6 +31,9 @@ test("private source-derived vector length function matches native x64 bytes", (
     });
     assert.equal(built.status, 0, built.error?.message ?? built.stderr);
     const encodedFunctions = new Map();
+    const lockedGraphSource = readFileSync(join(root, "compiler/self_hosted/compiler.vkf"), "utf8").replace(/\r\n/g, "\n")
+      .match(/^_compile_locked_valid_source_graph\(sources:\[str\]\):\n[^\n]+/m)?.[0];
+    assert.ok(lockedGraphSource);
     for (const [source, name, invocation, field, expectedValid = true] of [
       ["measure(items:[num]):\n    (count:items.length(),)\n", "measure", "measure([1, 2])", "count"],
       ["renamed(left:[num], right:[bit]):\n    (size:right.length(),)\n", "renamed", "renamed([1], [true, false])", "size"],
@@ -42,6 +45,7 @@ test("private source-derived vector length function matches native x64 bytes", (
       ["combined(names:[str], values:[num]):\n    (total:names.length() + values.length(),)\n", "combined", 'combined(["a"], [1, 2])', "total"],
       ["nested(flags:[bit], names:[str]):\n    (size:flags.length() + (names.length() + 2),)\n", "nested", 'nested([true], ["a"] )', "size"],
       ["rounded(items:[num]):\n    (count:items.length() + (9007199254740992 + 1),)\n", "rounded", "rounded([1])", "count"],
+      [`${lockedGraphSource}\n`, "_compile_locked_valid_source_graph", '_compile_locked_valid_source_graph(["a", "b"])', "source_count"],
       ["pair(items:[str]):\n    (count:items.length(), next:items.length() + 1)\n", "pair", 'pair(["a", "bc"])', "count"],
       ["reversed(items:[str]):\n    (next:items.length() + 1, count:items.length())\n", "reversed", 'reversed(["a", "bc"])', "count"],
       ...Array.from({ length: 6 }, (_, index) => {
@@ -122,6 +126,12 @@ test("private source-derived vector length function matches native x64 bytes", (
       ["[2, 3, 1, 5, 8]", "[0, 0, 1, 1, 0]", 1, 2],
       ["[2, 3, 1, 5, 8]", "[0, 0, 1, 0, 0]", 1, 1],
       ["[2, 3, 6, 8]", "[0, 0, 0, 0]", 1, 1],
+      ["[6, 2, 3, 7]", "[0, 0, 0, 2]", 1, 2],
+      ["[2, 6, 2, 3, 7]", "[0, 1, 0, 0, 2]", 1, 2],
+      ["[1, 6, 2, 3, 7]", "[4, 0, 0, 0, 2]", 1, 2],
+      ["[2, 6, 6, 2, 3, 7]", "[0, 0, 0, 0, 0, 2]", 1, 2],
+      ["[2, 6, 1, 5, 7]", "[0, 0, 1, 0, 2]", 1, 2],
+      ["[2, 2, 3, 7]", "[0, 0, 0, 2]", 1, 2],
       ["[2, 3, 7]", "[0, 0, 1]", 1, 1],
       ["[2, 3, 1, 7]", "[0, 0, 1, 0]", 1, 2],
       ["[2, 3, 1, 7]", "[0, 0, 1, 1]", 1, 2],
