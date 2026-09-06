@@ -119,6 +119,51 @@ test('contact-driven grain rotation stays normalized and replay exact', () => {
   }
 });
 
+test('grain impact rebound scales with the configured restitution', () => {
+  const collide = (restitution) => {
+    const world = createDrySandHopperReference({ seed: 0x9912, grainCount: 2 });
+    world.friction = 0; world.rollingResistance = 0; world.restitution = restitution;
+    const d = world.diameter;
+    world.state.positions.set([-0.49 * d, 0, 2.8, 0.49 * d, 0, 2.8]);
+    world.state.velocities.set([0.30, 0, 0, -0.30, 0, 0]);
+    stepDrySandHopperReference(world, 1);
+    return world.state.velocities[3] - world.state.velocities[0];
+  };
+  const deadened = collide(0);
+  const rebounding = collide(0.35);
+  assert.ok(rebounding > deadened + 0.12);
+  assert.ok(rebounding > 0);
+});
+
+test('rolling resistance dissipates contact spin without damping free flight', () => {
+  const realize = (height) => {
+    const world = createDrySandHopperReference({ seed: 0x9913, grainCount: 1 });
+    world.state.positions.set([0, 0, height]);
+    world.state.velocities.fill(0);
+    world.state.angularVelocities.set([1, 0, 0]);
+    stepDrySandHopperReference(world, 1);
+    return Math.hypot(...world.state.angularVelocities);
+  };
+  const free = realize(2.8);
+  const grounded = realize(0.026);
+  assert.ok(Math.abs(free - 1) < 1e-6);
+  assert.ok(grounded < free * 0.95);
+});
+
+test('grain friction reduces slip without exceeding its Coulomb impact bound', () => {
+  const world = createDrySandHopperReference({ seed: 0x9914, grainCount: 2 });
+  world.friction = 0.20; world.rollingResistance = 0; world.restitution = 0.10;
+  const d = world.diameter;
+  world.state.positions.set([-0.49 * d, 0, 2.8, 0.49 * d, 0, 2.8]);
+  world.state.velocities.set([0.30, 0.50, 0, -0.30, -0.50, 0]);
+  stepDrySandHopperReference(world, 1);
+  const normalImpulse = Math.abs(world.state.velocities[0] - 0.30);
+  const tangentImpulse = Math.abs(world.state.velocities[1] - 0.50);
+  const remainingSlip = world.state.velocities[1] - world.state.velocities[4];
+  assert.ok(remainingSlip >= -1e-6 && remainingSlip < 1);
+  assert.ok(tangentImpulse <= world.friction * normalImpulse + 1e-6);
+});
+
 test('oriented ellipsoid mesh is a dynamic view of the authoritative grain SoA', () => {
   const world = createDrySandHopperReference({ seed: 0x4a22, grainCount: 96, outletDiameterInGrains: 4.2 });
   const packet = createDrySandEllipsoidRenderPacketReference(world, { latitudeSegments: 5, longitudeSegments: 8 });

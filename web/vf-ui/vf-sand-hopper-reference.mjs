@@ -169,7 +169,7 @@ function projectBoundaries(world, previous) {
   return maxPenetration;
 }
 
-function applyGrainFriction(world) {
+function applyGrainFriction(world, incoming) {
   const p = world.state.positions;
   const v = world.state.velocities;
   const omega = world.state.angularVelocities;
@@ -191,14 +191,26 @@ function applyGrainFriction(world) {
         const distance = Math.hypot(nx0, ny0, nz0);
         if (distance > world.diameter * 1.025 || distance < 1e-9) continue;
         const nx = nx0 / distance; const ny = ny0 / distance; const nz = nz0 / distance;
-        const rvx = v[offset] - v[oo];
-        const rvy = v[offset + 1] - v[oo + 1];
-        const rvz = v[offset + 2] - v[oo + 2];
+        const spinX = omega[offset] + omega[oo];
+        const spinY = omega[offset + 1] + omega[oo + 1];
+        const spinZ = omega[offset + 2] + omega[oo + 2];
+        const rvx = v[offset] - v[oo] - world.radius * (spinY * nz - spinZ * ny);
+        const rvy = v[offset + 1] - v[oo + 1] - world.radius * (spinZ * nx - spinX * nz);
+        const rvz = v[offset + 2] - v[oo + 2] - world.radius * (spinX * ny - spinY * nx);
         const normalSpeed = rvx * nx + rvy * ny + rvz * nz;
         const tx = rvx - normalSpeed * nx;
         const ty = rvy - normalSpeed * ny;
         const tz = rvz - normalSpeed * nz;
-        const scale = Math.min(0.49, world.friction * 0.82);
+        const tangentSpeed = Math.hypot(tx, ty, tz);
+        const incomingNormal = (incoming[offset] - incoming[oo]) * nx
+          + (incoming[offset + 1] - incoming[oo + 1]) * ny
+          + (incoming[offset + 2] - incoming[oo + 2]) * nz;
+        const normalImpulse = Math.max(
+          -(1 + world.restitution) * Math.min(0, incomingNormal) * 0.5,
+          Math.abs(GRAVITY) * world.fixedStep * 0.5,
+        );
+        const tangentImpulse = Math.min(tangentSpeed * 0.5, world.friction * normalImpulse);
+        const scale = tangentSpeed > 1e-12 ? tangentImpulse / tangentSpeed : 0;
         v[offset] -= tx * scale; v[offset + 1] -= ty * scale; v[offset + 2] -= tz * scale;
         v[oo] += tx * scale; v[oo + 1] += ty * scale; v[oo + 2] += tz * scale;
         const torqueX = ny * tz - nz * ty;
@@ -207,6 +219,48 @@ function applyGrainFriction(world) {
         const spin = scale * 0.36 / world.radius;
         omega[offset] += torqueX * spin; omega[offset + 1] += torqueY * spin; omega[offset + 2] += torqueZ * spin;
         omega[oo] -= torqueX * spin; omega[oo + 1] -= torqueY * spin; omega[oo + 2] -= torqueZ * spin;
+        const rolling = 1 - world.rollingResistance * 0.5;
+        omega[offset] *= rolling; omega[offset + 1] *= rolling; omega[offset + 2] *= rolling;
+        omega[oo] *= rolling; omega[oo + 1] *= rolling; omega[oo + 2] *= rolling;
+      }
+    }
+    const key = `${cx}:${cy}:${cz}`;
+    const bucket = cells.get(key);
+    if (bucket) bucket.push(index); else cells.set(key, [index]);
+  }
+}
+
+function applyGrainRestitution(world, incoming) {
+  const p = world.state.positions;
+  const v = world.state.velocities;
+  const inverse = 1 / world.diameter;
+  const cells = new Map();
+  for (let index = 0; index < world.count; index += 1) {
+    const offset = index * 3;
+    const cx = Math.floor(p[offset] * inverse);
+    const cy = Math.floor(p[offset + 1] * inverse);
+    const cz = Math.floor(p[offset + 2] * inverse);
+    for (let dz = -1; dz <= 1; dz += 1) for (let dy = -1; dy <= 1; dy += 1) for (let dx = -1; dx <= 1; dx += 1) {
+      const bucket = cells.get(`${cx + dx}:${cy + dy}:${cz + dz}`);
+      if (!bucket) continue;
+      for (const other of bucket) {
+        const oo = other * 3;
+        const nx0 = p[offset] - p[oo];
+        const ny0 = p[offset + 1] - p[oo + 1];
+        const nz0 = p[offset + 2] - p[oo + 2];
+        const distance = Math.hypot(nx0, ny0, nz0);
+        if (distance > world.diameter * 1.025 || distance < 1e-9) continue;
+        const nx = nx0 / distance; const ny = ny0 / distance; const nz = nz0 / distance;
+        const incomingNormal = (incoming[offset] - incoming[oo]) * nx
+          + (incoming[offset + 1] - incoming[oo + 1]) * ny
+          + (incoming[offset + 2] - incoming[oo + 2]) * nz;
+        if (incomingNormal >= 0) continue;
+        const currentNormal = (v[offset] - v[oo]) * nx
+          + (v[offset + 1] - v[oo + 1]) * ny
+          + (v[offset + 2] - v[oo + 2]) * nz;
+        const impulse = (-world.restitution * incomingNormal - currentNormal) * 0.5;
+        v[offset] += impulse * nx; v[offset + 1] += impulse * ny; v[offset + 2] += impulse * nz;
+        v[oo] -= impulse * nx; v[oo + 1] -= impulse * ny; v[oo + 2] -= impulse * nz;
       }
     }
     const key = `${cx}:${cy}:${cz}`;
@@ -305,8 +359,10 @@ export function stepDrySandHopperReference(world, steps = 1) {
   const p = world.state.positions;
   const v = world.state.velocities;
   const previous = new Float32Array(p.length);
+  const incoming = new Float32Array(v.length);
   for (let step = 0; step < count; step += 1) {
     previous.set(p);
+    incoming.set(v);
     for (let index = 0; index < world.count; index += 1) {
       const offset = index * 3;
       v[offset + 2] += GRAVITY * dt;
@@ -334,18 +390,19 @@ export function stepDrySandHopperReference(world, steps = 1) {
         v[offset] *= 0.42;
         v[offset + 1] *= 0.42;
       }
-      world.state.angularVelocities[offset] *= 1 - world.rollingResistance;
-      world.state.angularVelocities[offset + 1] *= 1 - world.rollingResistance;
-      world.state.angularVelocities[offset + 2] *= 1 - world.rollingResistance;
       if (!world.state.discharged[index] && p[offset + 2] < world.hopperBottom - world.radius) {
         world.state.discharged[index] = 1;
         world.state.dischargedAt[index] = world.time + dt;
       }
     }
-    applyGrainFriction(world);
+    applyGrainRestitution(world, incoming);
+    applyGrainFriction(world, incoming);
     for (let index = 0; index < world.count; index += 1) {
       const offset = index * 3;
       if (p[offset + 2] <= world.radius * 1.04) {
+        world.state.angularVelocities[offset] *= 1 - world.rollingResistance;
+        world.state.angularVelocities[offset + 1] *= 1 - world.rollingResistance;
+        world.state.angularVelocities[offset + 2] *= 1 - world.rollingResistance;
         const blend = world.friction * 0.055;
         world.state.angularVelocities[offset] += (-v[offset + 1] / world.radius
           - world.state.angularVelocities[offset]) * blend;
