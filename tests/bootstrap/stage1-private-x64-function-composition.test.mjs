@@ -41,25 +41,47 @@ test("private source-produced functions compose through symbolic call relocation
     copyFileSync(join(root, "compiler/self_hosted/stdlib/io.vkf"), join(work, "io.vkf"));
     const probe = join(work, "probe.vkf"), artifact = join(work, `probe${suffix}`);
     const byteRoot = join(work, "bytes"), imagePath = join(work, "composed.exe");
+    const callableImagePath = join(work, "callable.exe");
+    const entrySource = 'result: manifest("", "", "", "", "", "", "", "", "")\n:: 1\n';
+    const invalidEntrySources = [
+      'result: manifest("", "", "", "", "", "", "", "")\n:: 1\n',
+      'result: manifest("x", "", "", "", "", "", "", "", "")\n:: 1\n',
+      'result: manifest("", "", "", "", "", "", "", "", "")\n:: 2\n',
+      'result: manifest("" "", "", "", "", "", "", "", "", "")\n:: 1\n',
+    ];
     mkdirSync(byteRoot);
     for (let value = 128; value < 256; ++value) writeFileSync(join(byteRoot, `${value}.bin`), Buffer.from([value]));
     const arenaReads = Array.from({ length: 128 }, (_, index) => `    io.read_bytes(byte_root & "/${index + 128}.bin")`);
     writeFileSync(probe, [
       "compiler: .compiler", "machine: .machine_ir", "pe: .pe_x64", "io: .io",
       "first_source: io.read_text(io.read_line())", "second_source: io.read_text(io.read_line())",
-      "template: io.read_bytes(io.read_line())", "image_path: io.read_line()", "byte_root: io.read_line()",
+      "entry_source: io.read_text(io.read_line())", "template: io.read_bytes(io.read_line())",
+      "image_path: io.read_line()", "callable_image_path: io.read_line()", "byte_root: io.read_line()",
       "[str] high_bytes: [", arenaReads.join(",\n"), "]",
       "first_function: compiler._bootstrap_record_function_machine(first_source)",
       "second_function: compiler._bootstrap_record_function_machine(second_source)",
       `first: machine._bootstrap_x64_borrowed_string_record_function(first_function.opcodes, first_function.operands, first_function.parameter_starts.length(), first_function.max_stack, ${process.platform === "win32" ? "true" : "false"}, true)`,
       `second: machine._bootstrap_x64_borrowed_string_record_function(second_function.opcodes, second_function.operands, second_function.parameter_starts.length(), second_function.max_stack, ${process.platform === "win32" ? "true" : "false"}, true)`,
+      "entry_function: compiler._bootstrap_empty_string_record_entry_machine(entry_source)",
+      `entry: machine._bootstrap_x64_empty_string_record_entry(entry_function.opcodes, entry_function.operands, entry_function.result_count, entry_function.max_stack, ${process.platform === "win32" ? "true" : "false"})`,
       "caller: [232, 0, 0, 0, 0, 232, 0, 0, 0, 0, 195]",
       "composed: machine._bootstrap_x64_compose_function_bytes(first.bytes & second.bytes & caller, [first.bytes.length(), second.bytes.length(), caller.length()], [2, 2], [1, 6], [0, 1])",
       "image: pe.materialize_composed_code_section(template, composed.bytes, composed.positions.1, high_bytes)",
+      "callable: machine._bootstrap_x64_compose_function_bytes(entry.bytes & second.bytes, [entry.bytes.length(), second.bytes.length()], [0], [entry.relocation_offset], [1])",
+      "callable_image: pe.materialize_composed_callable_code_section(template, callable.bytes, callable.positions.0, high_bytes)",
       "io.write_bytes(image_path, image.artifact)",
+      "io.write_bytes(callable_image_path, callable_image.artifact)",
       ":: first_function.valid", ":: second_function.valid", ":: first.valid", ":: second.valid",
       ":: first.bytes", ":: second.bytes", ":: composed.valid", ":: composed.positions", ":: composed.bytes",
       ":: image.raw_offset", ":: image.raw_size", ":: image.entry_rva", "",
+      ":: entry_function.valid", ":: entry_function.argument_count", ":: entry_function.result_count",
+      ":: entry.valid", ":: entry.relocation_offset", ":: entry.bytes",
+      ":: callable.valid", ":: callable.positions", ":: callable.bytes",
+      ":: callable_image.callable_rva", ":: callable_image.entry_rva", "",
+      ...invalidEntrySources.flatMap((source, index) => [
+        `invalid_entry_${index}: compiler._bootstrap_empty_string_record_entry_machine(${JSON.stringify(source)})`,
+        `:: invalid_entry_${index}.valid`,
+      ]),
     ].join("\n"));
     const built = spawnSync(join(bin, `vkf-strict${suffix}`), ["-b", probe, "-o", artifact, "--optimizer-policy", "mask-0"], {
       cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true,
@@ -72,12 +94,21 @@ test("private source-produced functions compose through symbolic call relocation
     const manifestStop = compilerSource.indexOf("\n\nartifact_result(", manifestStart);
     assert.ok(artifactResult && manifestStart >= 0 && manifestStop > manifestStart);
     const firstInput = join(work, "artifact-result.vkf"), secondInput = join(work, "manifest.vkf");
+    const entryInput = join(work, "entry.vkf");
     writeFileSync(firstInput, `${artifactResult}\n`);
     writeFileSync(secondInput, `${compilerSource.slice(manifestStart + 1, manifestStop)}\n`);
-    const run = spawnSync(artifact, [], {
-      cwd: work, encoding: "utf8", input: `${firstInput}\n${secondInput}\n${join(bin, `vkf_x64_runner_template${suffix}`)}\n${imagePath}\n${byteRoot}\n`, timeout: 3_000, windowsHide: true,
+    writeFileSync(entryInput, entrySource);
+    const nativeInput = join(work, "native-input.vkf");
+    const nativeArtifact = join(work, `native-input${suffix}`);
+    writeFileSync(nativeInput, `${compilerSource.slice(manifestStart + 1, manifestStop)}\n${entrySource}`);
+    const nativeBuilt = spawnSync(join(bin, `vkf-strict${suffix}`), ["-b", nativeInput, "-o", nativeArtifact, "--diagnostics", "--optimizer-policy", "mask-0"], {
+      cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true,
     });
-    assert.equal(run.status, 0, run.error?.message ?? run.stderr);
+    assert.equal(nativeBuilt.status, 0, nativeBuilt.error?.message ?? nativeBuilt.stderr);
+    const run = spawnSync(artifact, [], {
+      cwd: work, encoding: "utf8", input: `${firstInput}\n${secondInput}\n${entryInput}\n${join(bin, `vkf_x64_runner_template${suffix}`)}\n${imagePath}\n${callableImagePath}\n${byteRoot}\n`, timeout: 3_000, windowsHide: true,
+    });
+    assert.equal(run.status, 0, run.error?.message ?? `${run.stdout}\n${run.stderr}`);
     assert.equal(run.stderr, "");
     const lines = run.stdout.trimEnd().split(/\r?\n/);
     assert.deepEqual(lines.slice(0, 4), ["true", "true", "true", "true"], run.stdout);
@@ -98,6 +129,22 @@ test("private source-produced functions compose through symbolic call relocation
     Buffer.from(expected).copy(expectedImage, section.rawOffset);
     expectedImage.writeUInt32LE(section.virtualAddress + positions[1], section.peOffset + 24 + 16);
     assert.deepEqual(readFileSync(imagePath), expectedImage);
+    assert.deepEqual(lines.slice(12, 16), ["true", "18", "18", "true"], run.stdout);
+    const relocationOffset = Number(lines[16]);
+    const entryBytes = JSON.parse(lines[17]);
+    assert.equal(entryBytes[relocationOffset - 1], 232);
+    assert.deepEqual(entryBytes.slice(relocationOffset, relocationOffset + 4), [0, 0, 0, 0]);
+    assert.equal(lines[18], "true", run.stdout);
+    assert.deepEqual(JSON.parse(lines[19]), [0, entryBytes.length]);
+    const callableBytes = JSON.parse(lines[20]);
+    const nativeCode = readFileSync(join(work, ".vkfbuild", "native-input", "x64-code.bin"));
+    assert.deepEqual(Buffer.from(callableBytes), nativeCode);
+    assert.deepEqual(lines.slice(21, 23).map(Number), [section.virtualAddress, template.readUInt32LE(section.peOffset + 24 + 16)]);
+    assert.deepEqual(lines.slice(23, 27), invalidEntrySources.map(() => "false"), run.stdout);
+    const executed = spawnSync(callableImagePath, [], { cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true });
+    assert.equal(executed.status, 0, executed.error?.message ?? executed.stderr);
+    assert.equal(executed.stderr, "");
+    assert.equal(executed.stdout.trim(), "1");
 
     const rejected = [
       ["[]", "[]", "[]", "[]", "[]"],

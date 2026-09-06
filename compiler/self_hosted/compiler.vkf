@@ -60,6 +60,51 @@ _bootstrap_record_function_machine(source:str):
     function.valid: true
     function
 
+# Private source-owned entry slice: one binding calls a record constructor with
+# nine empty string literals, then returns numeric success to the runner.
+_bootstrap_empty_string_record_entry_machine(source:str):
+    tokens: lexer.tagged_numeric_function_token_tape(source)
+    [num] opcodes: []
+    [num] operands: []
+    entry: (
+        valid:false, error_index:0, callee_start:0, callee_stop:0,
+        argument_count:0, result_count:0, opcodes:opcodes, operands:operands,
+        max_stack:0
+    )
+    (tokens.count != 28 \/ tokens.rows.length() != 168)?
+        @: entry
+    expected: [1, 15, 1, 13, 25, 24, 25, 24, 25, 24, 25, 24, 25,
+        24, 25, 24, 25, 24, 25, 24, 25, 14, 4, 15, 15, 3, 4, 5]
+    index: 0
+    (index < expected.length())?>
+        entry.error_index: index
+        tokens.rows.(index * 6) != expected.(index)?
+            @: entry
+        .index+: 1
+    .index: 0
+    (index < 9)?>
+        token: 4 + index * 2
+        vkf_utf8_slice(
+            source, tokens.rows.(token * 6 + 1), tokens.rows.(token * 6 + 2)
+        ) != "\"\""?
+            entry.error_index: token
+            @: entry
+        entry.opcodes: entry.opcodes & [1]
+        entry.operands: entry.operands & [0]
+        .index+: 1
+    tokens.rows.(25 * 6 + 3) != 1?
+        entry.error_index: 25
+        @: entry
+    entry.callee_start: tokens.rows.(2 * 6 + 1)
+    entry.callee_stop: tokens.rows.(2 * 6 + 2)
+    entry.argument_count: 18
+    entry.result_count: 18
+    entry.opcodes: entry.opcodes & [2, 3]
+    entry.operands: entry.operands & [18, 1]
+    entry.max_stack: 18
+    entry.valid: true
+    entry
+
 compile_tagged_empty_module(source:str):
     bit comment_only: lexer.tagged_comment_only_source(source)
     comment_only?! "empty module source must contain comments and layout only"

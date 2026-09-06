@@ -205,6 +205,93 @@ _bootstrap_x64_epilogue(xmm_slot:num, gpr_slot:num, windows:bit) -> [num]:
         .index+: 1
     bytes & [201, 195]
 
+# Private executable entry for a validated source call with empty string
+# literals. Opcode slice: 1 push empty string, 2 call record constructor,
+# 3 return numeric success. The call remains a symbolic rel32 relocation.
+_bootstrap_x64_empty_string_record_entry(
+    opcodes:[num], operands:[num], result_count:num, maximum:num, windows:bit
+):
+    [num] bytes: []
+    result: (valid:false, bytes:bytes, relocation_offset:0)
+    (opcodes.length() != 11 \/ operands.length() != 11 \/
+        result_count != 18 \/ maximum != 18 \/ ~windows)?
+        @: result
+    index: 0
+    (index < 9)?>
+        (opcodes.(index) != 1 \/ operands.(index) != 0)?
+            @: result
+        .index+: 1
+    (opcodes.9 != 2 \/ operands.9 != 18 \/ opcodes.10 != 3 \/ operands.10 != 1)?
+        @: result
+    local_count: result_count
+    frame: _bootstrap_x64_frame(local_count, maximum, windows)
+    ~frame.valid?
+        @: result
+    .bytes: _bootstrap_x64_prologue(frame.frame_bytes, frame.xmm_slot, frame.gpr_slot, windows)
+    .bytes: bytes & [76, 137, 165] & _bootstrap_x64_word(-(frame.context + 1) * 8)
+    .bytes: bytes & [73, 137, 204]
+    .index: 0
+    (index < local_count)?>
+        .bytes: bytes & [72, 199, 133] & _bootstrap_x64_word(-(index + 1) * 8)
+        .bytes: bytes & [0, 0, 0, 0]
+        .index+: 1
+    .index: 0
+    pointer_slot: 0
+    length_slot: 0
+    (index < 9)?>
+        .pointer_slot: local_count + index * 2
+        .length_slot: pointer_slot + 1
+        .bytes: bytes & [73, 139, 68, 36, 56, 102, 72, 15, 110, 192]
+        .bytes: bytes & [242, 15, 17, 133] & _bootstrap_x64_word(-(pointer_slot + 1) * 8)
+        .bytes: bytes & [72, 184, 0, 0, 0, 0, 0, 0, 0, 0, 102, 72, 15, 110, 192]
+        .bytes: bytes & [242, 15, 17, 133] & _bootstrap_x64_word(-(length_slot + 1) * 8)
+        .index+: 1
+    .bytes: bytes & [76, 141, 149] & _bootstrap_x64_word(-(local_count + 1) * 8)
+    .bytes: bytes & [77, 137, 211, 232]
+    result.relocation_offset: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0]
+    # Native initializes owned locals before storing aggregate call results.
+    .index: 0
+    length_local: 0
+    pointer_local: 0
+    (index < 9)?>
+        .length_local: index * 2 + 1
+        .pointer_local: index * 2
+        .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(length_local + 1) * 8)
+        .bytes: bytes & [242, 72, 15, 44, 192, 72, 133, 192, 15, 137, 19, 0, 0, 0]
+        .bytes: bytes & [72, 139, 133] & _bootstrap_x64_word(-(pointer_local + 1) * 8)
+        .bytes: bytes & [72, 131, 232, 8, 72, 137, 193, 65, 255, 84, 36, 72]
+        .bytes: bytes & [72, 199, 133] & _bootstrap_x64_word(-(length_local + 1) * 8)
+        .bytes: bytes & [0, 0, 0, 0]
+        .index+: 1
+    .index: result_count
+    (index > 0)?>
+        .index-: 1
+        .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(local_count + index + 1) * 8)
+        .bytes: bytes & [242, 15, 17, 133] & _bootstrap_x64_word(-(index + 1) * 8)
+    literal: _bootstrap_f64_bytes(1)
+    ~literal.valid?
+        @: result
+    .bytes: bytes & [72, 184] & literal.bytes & [102, 72, 15, 110, 192]
+    .bytes: bytes & [242, 15, 17, 133] & _bootstrap_x64_word(-(local_count + 1) * 8)
+    .index: 0
+    (index < 9)?>
+        .length_local: index * 2 + 1
+        .pointer_local: index * 2
+        .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(length_local + 1) * 8)
+        .bytes: bytes & [242, 72, 15, 44, 192, 72, 133, 192, 15, 137, 19, 0, 0, 0]
+        .bytes: bytes & [72, 139, 133] & _bootstrap_x64_word(-(pointer_local + 1) * 8)
+        .bytes: bytes & [72, 131, 232, 8, 72, 137, 193, 65, 255, 84, 36, 72]
+        .bytes: bytes & [72, 199, 133] & _bootstrap_x64_word(-(length_local + 1) * 8)
+        .bytes: bytes & [0, 0, 0, 0]
+        .index+: 1
+    .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(local_count + 1) * 8)
+    .bytes: bytes & [76, 139, 165] & _bootstrap_x64_word(-(frame.context + 1) * 8)
+    .bytes: bytes & _bootstrap_x64_epilogue(frame.xmm_slot, frame.gpr_slot, windows)
+    result.valid: true
+    result.bytes: bytes
+    result
+
 # Complete scalar-constant entry bytes, still without an executable container.
 _bootstrap_x64_entry_constant(local_count:num, maximum:num, value:num, windows:bit):
     result: _bootstrap_x64_entry_prefix(local_count, maximum, value, windows)

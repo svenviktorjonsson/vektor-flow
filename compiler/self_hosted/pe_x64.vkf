@@ -751,3 +751,29 @@ materialize_composed_code_section(
         raw_size:section.raw_size,
         entry_rva:entry_rva
     )
+
+# Keep the runner's CRT entry while replacing its callable .vkfcod blob.
+materialize_composed_callable_code_section(
+    template:str, code:[num], callable_offset:num, high_bytes:[str]
+):
+    image: materialize_composed_code_section(
+        template, code, callable_offset, high_bytes
+    )
+    template_pe_offset: _u32(template, 60, high_bytes)
+    artifact_pe_offset: _u32(image.artifact, 60, high_bytes)
+    original_entry_rva: _u32(
+        template, template_pe_offset + 24 + 16, high_bytes
+    )
+    artifact: _replace_u32(
+        image.artifact,
+        artifact_pe_offset + 24 + 16,
+        original_entry_rva,
+        high_bytes
+    )
+    (
+        artifact:artifact,
+        raw_offset:image.raw_offset,
+        raw_size:image.raw_size,
+        callable_rva:image.entry_rva,
+        entry_rva:original_entry_rva
+    )

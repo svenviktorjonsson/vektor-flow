@@ -6,6 +6,8 @@
 #pragma comment(lib, "kernel32.lib")
 #pragma comment(lib, "msvcrt.lib")
 extern "C" int __cdecl printf(const char*, ...);
+extern "C" void* __cdecl malloc(unsigned __int64);
+extern "C" void __cdecl free(void*);
 extern "C" __declspec(dllimport) __declspec(noreturn) void __stdcall ExitProcess(unsigned long);
 extern "C" int _fltused = 0;
 extern "C" __declspec(allocate(".vkfcod")) unsigned char vkf_entry_blob[32768] = {
@@ -14,6 +16,7 @@ extern "C" __declspec(allocate(".vkfcod")) unsigned char vkf_entry_blob[32768] =
 };
 #else
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 extern "C" unsigned char vkf_entry_blob[];
 asm(
@@ -40,7 +43,7 @@ extern "C" double __cdecl cos(double);
 extern "C" double __cdecl exp(double);
 #endif
 
-struct VkfRuntimeV4 {
+struct VkfRuntimeV12 {
     double (*power_f64)(double, double);
     double (*remainder_f64)(double, double);
     double (*floor_f64)(double);
@@ -48,7 +51,35 @@ struct VkfRuntimeV4 {
     double (*sin_f64)(double);
     double (*cos_f64)(double);
     double (*exp_f64)(double);
+    const unsigned char* string_data;
+    void* (*allocate)(unsigned long long);
+    void (*release)(void*);
+    void (*abort_runtime)();
 };
+
+static void vkf_abort_runtime() {
+#ifdef _WIN32
+    ExitProcess(1);
+#else
+    std::abort();
+#endif
+}
+
+static void* vkf_allocate(unsigned long long size) {
+#ifdef _WIN32
+    return malloc(size);
+#else
+    return std::malloc(static_cast<std::size_t>(size));
+#endif
+}
+
+static void vkf_release(void* pointer) {
+#ifdef _WIN32
+    free(pointer);
+#else
+    std::free(pointer);
+#endif
+}
 
 static double vkf_power_f64(double base, double exponent) {
 #ifdef _WIN32
@@ -111,7 +142,7 @@ extern "C" void mainCRTStartup() {
 #else
 int main() {
 #endif
-    VkfRuntimeV4 runtime;
+    VkfRuntimeV12 runtime;
     runtime.power_f64 = vkf_power_f64;
     runtime.remainder_f64 = vkf_remainder_f64;
     runtime.floor_f64 = vkf_floor_f64;
@@ -119,7 +150,12 @@ int main() {
     runtime.sin_f64 = vkf_sin_f64;
     runtime.cos_f64 = vkf_cos_f64;
     runtime.exp_f64 = vkf_exp_f64;
-    using Entry = double (*)(const VkfRuntimeV4*);
+    static const unsigned char empty_string[] = {0};
+    runtime.string_data = empty_string;
+    runtime.allocate = vkf_allocate;
+    runtime.release = vkf_release;
+    runtime.abort_runtime = vkf_abort_runtime;
+    using Entry = double (*)(const VkfRuntimeV12*);
     const auto address = reinterpret_cast<unsigned long long>(vkf_entry_blob);
     const double value = reinterpret_cast<Entry>(address)(&runtime);
     printf("%.17g\n", value);
