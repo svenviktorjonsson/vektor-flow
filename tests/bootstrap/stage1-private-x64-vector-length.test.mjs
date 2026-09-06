@@ -30,12 +30,18 @@ test("private source-derived vector length function matches native x64 bytes", (
       cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true,
     });
     assert.equal(built.status, 0, built.error?.message ?? built.stderr);
+    const encodedFunctions = new Map();
     for (const [source, name, invocation, field] of [
       ["measure(items:[num]):\n    (count:items.length(),)\n", "measure", "measure([1, 2])", "count"],
       ["renamed(left:[num], right:[bit]):\n    (size:right.length(),)\n", "renamed", "renamed([1], [true, false])", "size"],
       ["words(items:[str]):\n    (count:items.length(),)\n", "words", 'words(["a", "bc"])', "count"],
       ["reordered(numbers:[int], names:[str], flags:[bit]):\n    (total:names.length(),)\n", "reordered", 'reordered([1, 2], ["a"], [true])', "total"],
       ["integers(names:[str], numbers:[int]):\n    (amount:numbers.length(),)\n", "integers", 'integers(["a"], [1, 2, 3])', "amount"],
+      ["successor(items:[str]):\n    (count:items.length() + 1,)\n", "successor", 'successor(["a", "bc"])', "count"],
+      ["offset(numbers:[int], names:[str]):\n    (amount:0.1 + names.length(),)\n", "offset", 'offset([1], ["a", "bc"])', "amount"],
+      ["combined(names:[str], values:[num]):\n    (total:names.length() + values.length(),)\n", "combined", 'combined(["a"], [1, 2])', "total"],
+      ["nested(flags:[bit], names:[str]):\n    (size:flags.length() + (names.length() + 2),)\n", "nested", 'nested([true], ["a"] )', "size"],
+      ["rounded(items:[num]):\n    (count:items.length() + (9007199254740992 + 1),)\n", "rounded", "rounded([1])", "count"],
     ]) {
       const input = join(work, "input.vkf"), oracleSource = join(work, "oracle.vkf");
       writeFileSync(input, source);
@@ -64,7 +70,9 @@ test("private source-derived vector length function matches native x64 bytes", (
       assert.equal(parsed, "true", run.stdout);
       assert.equal(valid, "true", run.stdout);
       assert.deepEqual(JSON.parse(bytes), JSON.parse(bytesJson));
+      encodedFunctions.set(name, JSON.parse(bytes));
     }
+    assert.notDeepEqual(encodedFunctions.get("successor"), encodedFunctions.get("words"), "length()+1 must change emitted function bytes");
     // Invalid private inputs publish no partial code. These are validation
     // results, not new public VKF diagnostics or executable-code tests.
     const rejected = [
@@ -94,6 +102,11 @@ test("private source-derived vector length function matches native x64 bytes", (
       ["[2, 3, 1, 4, 8]", "[0, 0, 2, 1, 0]", 1, 2],
       ["[2, 3, 1, 4, 8]", "[0, 0, null, 0, 0]", 1, 2],
       ["[2, 3, 5, 8]", "[0, 0, 0, 0]", 1, 2],
+      ["[2, 3, 2, 5, 8]", "[0, 0, 0, 0, 0]", 1, 2],
+      ["[2, 2, 3, 5, 8]", "[0, 0, 0, 0, 0]", 1, 2],
+      ["[2, 3, 1, 5, 8]", "[0, 0, 1, 1, 0]", 1, 2],
+      ["[2, 3, 1, 5, 8]", "[0, 0, 1, 0, 0]", 1, 1],
+      ["[2, 3, 6, 8]", "[0, 0, 0, 0]", 1, 1],
       ["[2, 3, 7]", "[0, 0, 1]", 1, 1],
     ];
     writeFileSync(probe, ["machine: .machine_ir", ...rejected.flatMap(([codes, values, parameters, maximum], index) => [
