@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vkf_stdlib_classification.hpp"
+#include "vkf_runtime_value_semantics.hpp"
 
 #include "compiler/native/vkf_wasm_bytecode.hpp"
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
@@ -1054,6 +1055,205 @@ private:
         state.function->instructions[instruction_index].first = target;
     }
 
+    void append_static_text(FunctionState& state, const std::string& text) {
+        emit(state, Opcode::PushConstant, ValueType::String,
+            intern_constant(Constant::utf8_string(text)));
+        emit(state, Opcode::StringConcat, ValueType::String);
+    }
+
+    void format_number_on_stack(
+        FunctionState& state,
+        const std::string& format,
+        const std::string& context
+    ) {
+        if (format.empty()) {
+            emit(state, Opcode::NumberToString, ValueType::String);
+            return;
+        }
+        const auto precision = runtime_value_semantics::fixed_precision(format);
+        if (!precision || *precision != 2) {
+            throw BytecodeLoweringError(
+                "unsupported numeric interpolation format " + format
+                + " in " + context);
+        }
+
+        const auto value = add_temporary_local(state, ValueType::Number);
+        const auto scaled = add_temporary_local(state, ValueType::Number);
+        const auto fraction = add_temporary_local(state, ValueType::Number);
+        const auto result = add_temporary_local(state, ValueType::String);
+        emit(state, Opcode::StoreLocal, ValueType::Number, value);
+        emit(state, Opcode::PushConstant, ValueType::String,
+            intern_constant(Constant::utf8_string("")));
+        emit(state, Opcode::StoreLocal, ValueType::String, result);
+
+        emit(state, Opcode::LoadLocal, ValueType::Number, value);
+        emit_number(state, 0.0);
+        emit(state, Opcode::Less, ValueType::Boolean);
+        const auto nonnegative_jump = state.function->instructions.size();
+        emit(state, Opcode::JumpIfFalse, ValueType::Void);
+        emit(state, Opcode::LoadLocal, ValueType::String, result);
+        append_static_text(state, "-");
+        emit(state, Opcode::StoreLocal, ValueType::String, result);
+        const auto nonnegative = checked_index(state.function->instructions.size(),
+            "numeric interpolation sign continuation");
+        emit(state, Opcode::Nop, ValueType::Void);
+        patch_jump(state, nonnegative_jump, nonnegative);
+
+        emit(state, Opcode::LoadLocal, ValueType::Number, value);
+        emit(state, Opcode::Absolute, ValueType::Number);
+        emit_number(state, 100.0);
+        emit(state, Opcode::Multiply, ValueType::Number);
+        emit_number(state, 0.5);
+        emit(state, Opcode::Add, ValueType::Number);
+        emit_number(state, 1.0);
+        emit(state, Opcode::FloorDivide, ValueType::Number);
+        emit(state, Opcode::StoreLocal, ValueType::Number, scaled);
+
+        emit(state, Opcode::LoadLocal, ValueType::String, result);
+        emit(state, Opcode::LoadLocal, ValueType::Number, scaled);
+        emit_number(state, 100.0);
+        emit(state, Opcode::FloorDivide, ValueType::Number);
+        emit(state, Opcode::NumberToString, ValueType::String);
+        emit(state, Opcode::StringConcat, ValueType::String);
+        append_static_text(state, ".");
+        emit(state, Opcode::StoreLocal, ValueType::String, result);
+
+        emit(state, Opcode::LoadLocal, ValueType::Number, scaled);
+        emit_number(state, 100.0);
+        emit(state, Opcode::Remainder, ValueType::Number);
+        emit(state, Opcode::StoreLocal, ValueType::Number, fraction);
+        emit(state, Opcode::LoadLocal, ValueType::Number, fraction);
+        emit_number(state, 10.0);
+        emit(state, Opcode::Less, ValueType::Boolean);
+        const auto two_digit_jump = state.function->instructions.size();
+        emit(state, Opcode::JumpIfFalse, ValueType::Void);
+        emit(state, Opcode::LoadLocal, ValueType::String, result);
+        append_static_text(state, "0");
+        emit(state, Opcode::StoreLocal, ValueType::String, result);
+        const auto two_digit = checked_index(state.function->instructions.size(),
+            "numeric interpolation digit continuation");
+        emit(state, Opcode::Nop, ValueType::Void);
+        patch_jump(state, two_digit_jump, two_digit);
+        emit(state, Opcode::LoadLocal, ValueType::String, result);
+        emit(state, Opcode::LoadLocal, ValueType::Number, fraction);
+        emit(state, Opcode::NumberToString, ValueType::String);
+        emit(state, Opcode::StringConcat, ValueType::String);
+    }
+
+    void format_stack_value(
+        FunctionState& state,
+        const std::string& type,
+        const std::string& format,
+        const std::string& context
+    ) {
+        const auto family = runtime_value_semantics::display_family(type);
+        if (family == runtime_value_semantics::DisplayFamily::Text) {
+            if (!format.empty() && format != "s") {
+                throw BytecodeLoweringError(
+                    "unsupported string interpolation format " + format
+                    + " in " + context);
+            }
+            return;
+        }
+        if (family == runtime_value_semantics::DisplayFamily::Boolean) {
+            if (!format.empty()) {
+                throw BytecodeLoweringError(
+                    "bit interpolation does not accept a format in " + context);
+            }
+            const auto false_jump = state.function->instructions.size();
+            emit(state, Opcode::JumpIfFalse, ValueType::Void);
+            emit(state, Opcode::PushConstant, ValueType::String,
+                intern_constant(Constant::utf8_string("true")));
+            const auto end_jump = state.function->instructions.size();
+            emit(state, Opcode::Jump, ValueType::Void);
+            const auto false_target = checked_index(state.function->instructions.size(),
+                "bit interpolation false branch");
+            emit(state, Opcode::Nop, ValueType::Void);
+            emit(state, Opcode::PushConstant, ValueType::String,
+                intern_constant(Constant::utf8_string("false")));
+            const auto end_target = checked_index(state.function->instructions.size(),
+                "bit interpolation continuation");
+            emit(state, Opcode::Nop, ValueType::Void);
+            patch_jump(state, false_jump, false_target);
+            patch_jump(state, end_jump, end_target);
+            return;
+        }
+        if (family == runtime_value_semantics::DisplayFamily::Number) {
+            format_number_on_stack(state, format, context);
+            return;
+        }
+        if (family == runtime_value_semantics::DisplayFamily::Record) {
+            if (!format.empty()) {
+                throw BytecodeLoweringError(
+                    "aggregate interpolation does not accept a format in " + context);
+            }
+            const auto object = add_temporary_local(state, ValueType::Object);
+            const auto result = add_temporary_local(state, ValueType::String);
+            emit(state, Opcode::StoreLocal, ValueType::Object, object);
+            emit(state, Opcode::PushConstant, ValueType::String,
+                intern_constant(Constant::utf8_string("(")));
+            emit(state, Opcode::StoreLocal, ValueType::String, result);
+            const auto fields = runtime_value_semantics::record_fields(type);
+            if (!fields) {
+                throw BytecodeLoweringError(
+                    "record interpolation field needs a type in " + context);
+            }
+            for (std::size_t index = 0; index < fields->size(); ++index) {
+                const auto& name = fields->at(index).name;
+                const auto& field_type = fields->at(index).type;
+                emit(state, Opcode::LoadLocal, ValueType::String, result);
+                append_static_text(state, (index == 0 ? "" : ", ") + name + ":");
+                emit(state, Opcode::LoadLocal, ValueType::Object, object);
+                emit(state, Opcode::ObjectGet, ValueType::Dynamic,
+                    intern_constant(Constant::utf8_string(name)));
+                format_stack_value(state, field_type, "", context + "." + name);
+                emit(state, Opcode::StringConcat, ValueType::String);
+                emit(state, Opcode::StoreLocal, ValueType::String, result);
+            }
+            emit(state, Opcode::LoadLocal, ValueType::String, result);
+            append_static_text(state, ")");
+            return;
+        }
+        throw BytecodeLoweringError(
+            "unsupported interpolation type " + type + " in " + context);
+    }
+
+    ValueType lower_interpolated_string(
+        const vf::JsonValue::Object& object,
+        FunctionState& state,
+        const std::string& context
+    ) {
+        emit(state, Opcode::PushConstant, ValueType::String,
+            intern_constant(Constant::utf8_string("")));
+        const auto& segments = array_of(field(object, "segments", context),
+            context + ".segments");
+        for (std::size_t index = 0; index < segments.size(); ++index) {
+            const auto segment_context = context + ".segments[" + std::to_string(index) + "]";
+            const auto& segment = object_of(segments[index], segment_context);
+            const auto kind = string_field(segment, "kind", segment_context);
+            if (kind == "interpolation_text") {
+                append_static_text(state, string_field(segment, "value", segment_context));
+                continue;
+            }
+            if (kind != "interpolation_value") {
+                throw BytecodeLoweringError(
+                    "unsupported interpolation segment " + kind + " in " + segment_context);
+            }
+            const auto& value = object_of(field(segment, "value", segment_context),
+                segment_context + ".value");
+            lower_expression(vf::JsonValue(value), state, segment_context + ".value");
+            const auto& format_value = field(segment, "format", segment_context);
+            if (!format_value.is_string()) {
+                throw BytecodeLoweringError(
+                    "expected string field format in " + segment_context);
+            }
+            format_stack_value(state, string_field(value, "type", segment_context + ".value"),
+                format_value.as_string(), segment_context);
+            emit(state, Opcode::StringConcat, ValueType::String);
+        }
+        return ValueType::String;
+    }
+
     ValueType lower_expression(
         const vf::JsonValue& expression,
         FunctionState& state,
@@ -1061,6 +1261,9 @@ private:
     ) {
         const auto& object = object_of(expression, context);
         const std::string kind = string_field(object, "kind", context);
+        if (kind == "interpolated_string") {
+            return lower_interpolated_string(object, state, context);
+        }
         if (kind == "wasm_output_reset") {
             emit(state, Opcode::ResetOutput, ValueType::Dynamic);
             return ValueType::Dynamic;

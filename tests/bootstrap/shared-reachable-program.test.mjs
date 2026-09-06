@@ -67,6 +67,7 @@ for (const [id,example,stdout] of [
   [18,'13-updates-aliases','[3, 4]\n(x:5, y:6, name:my point)\n'],
   [19,'11b-multidimensional-indexing','11\n11\n[1, 13, 21]\n[[2, 12], [22, 32]]\n'],
   [20,'36-pipe-blocks','[1, 20, 3, 4]\n'],
+  [21,'08-strings','Hej världen\nvalue=4.23\nsum=5 point=(x:2, y:false) cost=$5\n😀\ntrue\n'],
 ]) {
   test(`unchanged ${example} guide preserves compiler-owned pipe result shape`,async()=>{
     const [wasm,source]=await Promise.all([
