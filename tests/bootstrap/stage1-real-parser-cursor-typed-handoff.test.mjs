@@ -119,7 +119,7 @@ test("real parser cursor preserves a typed numeric function declaration and call
   mkdirSync(workRoot, { recursive: true });
   const work = mkdtempSync(join(workRoot, "real-parser-function-typed-"));
   try {
-    for (const name of ["lexer", "parser", "typed_ir"]) {
+    for (const name of ["lexer", "parser", "typed_ir", "machine_ir"]) {
       copyFileSync(join(root, `compiler/self_hosted/${name}.vkf`), join(work, `${name}.vkf`));
     }
     const source = join(work, "probe.vkf");
@@ -128,6 +128,7 @@ test("real parser cursor preserves a typed numeric function declaration and call
       "lexer: .lexer",
       "parser: .parser",
       "typed: .typed_ir",
+      "mir: .machine_ir",
       'source: ": .system\\ntwice(value:num):\\n    value * 2\\n:: twice(cpu_count())\\n"',
       "tokens: lexer.tagged_numeric_function_token_tape(source)",
       "cursor: parser.tagged_tape_cursor(tokens.source, tokens.rows, tokens.count)",
@@ -142,6 +143,9 @@ test("real parser cursor preserves a typed numeric function declaration and call
       "ast_body: parser.tagged_cursor_ast_node(ast, 2)",
       "ast_call: parser.tagged_cursor_ast_node(ast, 3)",
       "function_block: parser.tagged_cursor_block(ast, 0)",
+      "header_payload: parser.tagged_cursor_ast_payload(ast, 1)",
+      "body_payload: parser.tagged_cursor_ast_payload(ast, 2)",
+      "call_payload: parser.tagged_cursor_ast_payload(ast, 3)",
       "typed_cursor: typed.typed_tagged_cursor_ast_module(",
       "    ast.source, ast.node_rows, ast.node_count,",
       "    ast.block_rows, ast.block_count,",
@@ -152,14 +156,20 @@ test("real parser cursor preserves a typed numeric function declaration and call
       "typed_header: typed.typed_tagged_cursor_node(typed_cursor, 1)",
       "typed_body: typed.typed_tagged_cursor_node(typed_cursor, 2)",
       "typed_call: typed.typed_tagged_cursor_node(typed_cursor, 3)",
-      "function_shape: parser.parse_tagged_numeric_function_call(",
-      "    parsed.source, parsed.token_rows, parsed.token_count",
+      "typed_expression: typed.typed_tagged_cursor_numeric_expression(",
+      "    body_payload.first_text, body_payload.operator_kind, body_payload.number_value,",
+      "    header_payload.second_text, header_payload.third_text,",
+      "    body_payload.span.start.file, body_payload.span.start.line,",
+      "    body_payload.span.start.column, body_payload.span.stop.line,",
+      "    body_payload.span.stop.column",
       ")",
       "typed_module: typed.typed_numeric_parameter_multiply_application(",
-      "    function_shape.function_name, function_shape.parameter_name, function_shape.factor",
+      "    header_payload.first_text, header_payload.second_text, body_payload.number_value",
       ")",
       "function: typed_module.body.0",
       "call: typed_module.body.1.expr.args.0",
+      "instructions: mir.mir_numeric_parameter_multiply_instructions(body_payload.number_value)",
+      "machine: mir.mir_lower_numeric_parameter_multiply_typed_module(typed_module)",
       "module_matches: (parsed.kind = \"module\" /\\ parsed.statement_count = 4 /\\",
       "    parsed.span.start.line = 1 /\\ parsed.span.start.column = 1 /\\",
       "    parsed.span.stop.line = 4 /\\ parsed.span.stop.column = 21)",
@@ -201,9 +211,27 @@ test("real parser cursor preserves a typed numeric function declaration and call
       "    typed_body.parent_order = 1 /\\ typed_body.span.start.line = 3 /\\",
       "    typed_body.span.start.column = 5 /\\ typed_body.span.stop.column = 13)",
       'typed_cursor_matches?! "general AST lowering lost typed nodes, nesting, or spans"',
-      "typed_matches: (function_shape.function_name = \"twice\" /\\",
-      "    function_shape.parameter_name = \"value\" /\\ function_shape.factor = 2 /\\",
-      "    function.kind = \"function\" /\\ function.name = \"twice\" /\\",
+      "payload_matches: (header_payload.first_text = \"twice\" /\\",
+      "    header_payload.second_text = \"value\" /\\ header_payload.third_text = \"num\" /\\",
+      "    header_payload.operator_kind = \"UNKNOWN\" /\\ header_payload.has_number = false /\\",
+      "    body_payload.first_text = \"value\" /\\ body_payload.operator_kind = \"STAR\" /\\",
+      "    body_payload.has_number /\\ body_payload.number_value = 2 /\\",
+      "    call_payload.first_text = \"twice\" /\\",
+      "    call_payload.second_text = \"cpu_count\")",
+      'payload_matches?! "general AST payload decoding lost token values"',
+      "expression_matches: (typed_expression.left.name = \"value\" /\\",
+      "    typed_expression.left.type = \"num\" /\\ typed_expression.op = \"STAR\" /\\",
+      "    typed_expression.right.value = 2 /\\ typed_expression.type = \"num\" /\\",
+      "    typed_expression.span.start.column = 5 /\\ typed_expression.span.stop.column = 13)",
+      'expression_matches?! "general expression typing lost payload or span"',
+      "mir_matches: (machine.schema = \"vektorflow.machine_ir\" /\\",
+      "    instructions.0.kind = \"load_local\" /\\",
+      "    instructions.1.kind = \"push_f64\" /\\",
+      "    instructions.1.value = body_payload.number_value /\\",
+      "    instructions.2.kind = \"multiply_f64\" /\\",
+      "    instructions.3.kind = \"return_f64\")",
+      'mir_matches?! "decoded AST payload did not feed executable Machine IR"',
+      "typed_matches: (function.kind = \"function\" /\\ function.name = \"twice\" /\\",
       "    function.params.0.name = \"value\" /\\ function.params.0.type = \"num\" /\\",
       "    function.body.body.0.expr.op = \"STAR\" /\\",
       "    function.body.body.0.expr.right.value = 2 /\\",
@@ -221,7 +249,7 @@ test("real parser cursor preserves a typed numeric function declaration and call
     const executed = spawnSync(artifact, [], {
       cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true,
     });
-    assert.equal(executed.status, 0, executed.stderr);
+    assert.equal(executed.status, 0, `${executed.stderr}\n${executed.stdout}`);
     assert.equal(executed.stdout.trim(), "2");
   } finally {
     rmSync(work, { recursive: true, force: true });

@@ -468,6 +468,28 @@ typed_tagged_cursor_node(
         )
     )
 
+typed_tagged_cursor_numeric_expression(
+    name:str, operator_kind:str, value:num,
+    parameter_name:str, parameter_type:str, file:str,
+    start_line:num, start_column:num, stop_line:num, stop_column:num
+) -> TypedTaggedAstBinaryOp:
+    (name = parameter_name)?! "typed tagged expression identifier is not a declared parameter"
+    (parameter_type != "")?! "typed tagged expression parameter type is empty"
+    (operator_kind != "UNKNOWN")?! "typed tagged expression operator is unsupported"
+    (
+        kind:"binary_op",
+        left:(kind:"load", name:name, type:parameter_type),
+        left_type:parameter_type,
+        op:operator_kind,
+        right:(kind:"const", value:value, type:"int"),
+        right_type:"int",
+        type:parameter_type,
+        span:(
+            start:(file:file, line:start_line, column:start_column),
+            stop:(file:file, line:stop_line, column:stop_column)
+        )
+    )
+
 typed_tagged_ast_binary_expression(
     name:str, op:str, value:num, file:str,
     start_line:num, start_column:num, stop_line:num, stop_column:num

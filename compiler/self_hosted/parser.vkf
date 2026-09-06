@@ -489,6 +489,17 @@ TaggedCursorBlock: (
     child_count:int,
     span:Span
 )
+TaggedCursorAstPayload: (
+    kind:str,
+    identifier_count:int,
+    first_text:str,
+    second_text:str,
+    third_text:str,
+    operator_kind:str,
+    has_number:bit,
+    number_value:num,
+    span:Span
+)
 TaggedNumericConditionalCall: (
     function_name:str,
     parameter_name:str
@@ -1868,6 +1879,73 @@ tagged_cursor_ast_node(
                 ast.node_rows.(offset + 9)
             )
         )
+    )
+
+tagged_cursor_operator_kind(kind_code:num) -> str:
+    kind_code??
+        2 => "PLUS"
+        7 => "STAR"
+        8 => "MINUS"
+        9 => "SLASH"
+        10 => "PERCENT"
+        11 => "CARET"
+        12 => "FLOORDIV"
+        "UNKNOWN"
+
+tagged_cursor_payload_text(
+    ast:TaggedCursorAstModule, token_index:int
+) -> str:
+    token_index < 0?
+        @: vkf_utf8_slice(ast.source, 0, 0)
+    token_offset: token_index * 6
+    vkf_utf8_slice(
+        ast.source,
+        ast.token_rows.(token_offset + 1),
+        ast.token_rows.(token_offset + 2)
+    )
+
+tagged_cursor_ast_payload(
+    ast:TaggedCursorAstModule, index:int
+) -> TaggedCursorAstPayload:
+    node: tagged_cursor_ast_node(ast, index)
+    int token_index: node.token_start
+    int identifier_count: 0
+    int first_token: -1
+    int second_token: -1
+    int third_token: -1
+    num operator_code: 0
+    bit has_number: false
+    num number_value: 0
+    num token_offset: 0
+    num token_kind: 0
+    (token_index <= node.token_stop)?>
+        .token_offset: token_index * 6
+        .token_kind: ast.token_rows.(token_offset)
+        token_kind = 1?
+            identifier_count = 0?
+                .first_token: token_index
+            identifier_count = 1?
+                .second_token: token_index
+            identifier_count = 2?
+                .third_token: token_index
+            .identifier_count+: 1
+        token_kind = 3?
+            .has_number: true
+            .number_value: ast.token_rows.(token_offset + 3)
+        (operator_code = 0 /\
+            tagged_cursor_operator_kind(token_kind) != "UNKNOWN")?
+            .operator_code: token_kind
+        .token_index+: 1
+    (
+        kind:node.kind,
+        identifier_count:identifier_count,
+        first_text:tagged_cursor_payload_text(ast, first_token),
+        second_text:tagged_cursor_payload_text(ast, second_token),
+        third_text:tagged_cursor_payload_text(ast, third_token),
+        operator_kind:tagged_cursor_operator_kind(operator_code),
+        has_number:has_number,
+        number_value:number_value,
+        span:node.span
     )
 
 tagged_cursor_block(
