@@ -286,6 +286,138 @@ fn vf_granite_micro_visibility(
   }
   return 1.0;
 }
+
+fn vf_granite_noise3(
+  position: vec3<f32>,
+  wavelength: f32,
+  salt: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> f32 {
+  let xy = vf_rock_spatial(
+    position.xy + vec2<f32>(salt, -salt * 0.37), wavelength, counter_prefix, key,
+  );
+  let yz = vf_rock_spatial(
+    position.yz + vec2<f32>(salt * 1.7, salt * 0.61), wavelength, counter_prefix, key,
+  );
+  let zx = vf_rock_spatial(
+    position.zx + vec2<f32>(-salt * 0.83, salt * 1.13), wavelength, counter_prefix, key,
+  );
+  return (xy + yz + zx) * 0.57735026919;
+}
+
+fn vf_granite_granular_height(
+  position: vec3<f32>,
+  footprint: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> f32 {
+  let broadWeight = vf_rock_filter_weight(0.052, footprint);
+  let grainWeight = vf_rock_filter_weight(0.025, footprint);
+  let fineWeight = vf_rock_filter_weight(0.0125, footprint);
+  let broad = vf_granite_noise3(position, 0.052, 2.3, counter_prefix, key);
+  let grain = vf_granite_noise3(position, 0.025, 7.1, counter_prefix, key);
+  let fine = vf_granite_noise3(position, 0.0125, 13.7, counter_prefix, key);
+  let peak = pow(max(grain - 0.20, 0.0), 2.0) * 0.012;
+  let pit = pow(max(-fine - 0.38, 0.0), 2.0) * 0.009;
+  return broadWeight * broad * 0.0035
+    + grainWeight * (grain * 0.0045 + peak)
+    + fineWeight * (fine * 0.0012 - pit);
+}
+
+fn vf_granite_granular_gradient(
+  position: vec3<f32>,
+  footprint: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> vec3<f32> {
+  let step = 0.0007;
+  return vec3<f32>(
+    vf_granite_granular_height(position + vec3<f32>(step, 0.0, 0.0), footprint, counter_prefix, key)
+      - vf_granite_granular_height(position - vec3<f32>(step, 0.0, 0.0), footprint, counter_prefix, key),
+    vf_granite_granular_height(position + vec3<f32>(0.0, step, 0.0), footprint, counter_prefix, key)
+      - vf_granite_granular_height(position - vec3<f32>(0.0, step, 0.0), footprint, counter_prefix, key),
+    vf_granite_granular_height(position + vec3<f32>(0.0, 0.0, step), footprint, counter_prefix, key)
+      - vf_granite_granular_height(position - vec3<f32>(0.0, 0.0, step), footprint, counter_prefix, key),
+  ) / (2.0 * step);
+}
+
+fn vf_weathered_granite_granular_sample(
+  position: vec3<f32>,
+  footprint: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> VfRockMaterialSample {
+  let broad = vf_granite_noise3(position, 0.31, 1.1, counter_prefix, key);
+  let grainWeight = vf_rock_filter_weight(0.035, footprint);
+  let grain = vf_granite_noise3(position, 0.035, 5.7, counter_prefix, key) * grainWeight;
+  let fine = vf_granite_noise3(position, 0.0175, 11.3, counter_prefix, key)
+    * vf_rock_filter_weight(0.0175, footprint);
+  let quartz = smoothstep(0.42, 0.68, grain);
+  let mica = 1.0 - smoothstep(-0.70, -0.43, grain);
+  let pit = 1.0 - smoothstep(-0.67, -0.48, fine);
+  var granite = vec3<f32>(0.57, 0.555, 0.535) + broad * vec3<f32>(0.010, 0.009, 0.008);
+  granite = mix(granite, vec3<f32>(0.70, 0.69, 0.67), quartz * 0.08);
+  granite = mix(granite, vec3<f32>(0.38, 0.39, 0.40), mica * 0.06);
+  let roughNoise = vf_granite_noise3(position, 0.030, 19.1, counter_prefix, key)
+    * vf_rock_filter_weight(0.030, footprint);
+  let height = vf_granite_granular_height(position, footprint, counter_prefix, key);
+  return VfRockMaterialSample(
+    broad,
+    clamp(0.5 + broad * 0.5, 0.0, 1.0),
+    vec4<f32>(clamp(granite, vec3<f32>(0.20), vec3<f32>(0.82)), 1.0),
+    clamp(0.80 + roughNoise * 0.075 + pit * 0.035, 0.70, 0.93),
+    clamp(height, -0.04, 0.04),
+    vec2<f32>(0.0),
+    vec3<f32>(0.0, 0.0, 1.0),
+  );
+}
+
+fn vf_granite_granular_normal(
+  position: vec3<f32>,
+  footprint: f32,
+  base_normal: vec3<f32>,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> vec3<f32> {
+  let gradient = clamp(
+    vf_granite_granular_gradient(position, footprint, counter_prefix, key) * 0.28,
+    vec3<f32>(-0.62), vec3<f32>(0.62),
+  );
+  let tangentGradient = gradient - base_normal * dot(gradient, base_normal);
+  return normalize(base_normal - tangentGradient);
+}
+
+fn vf_granite_granular_visibility(
+  position: vec3<f32>,
+  footprint: f32,
+  tangent_light: vec3<f32>,
+  incidence: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> f32 {
+  let horizontal = length(tangent_light);
+  let fade = smoothstep(0.02, 0.10, incidence)
+    * (1.0 - smoothstep(0.48, 0.90, incidence))
+    * vf_rock_filter_weight(0.052, footprint);
+  if (horizontal <= 0.000001 || fade <= 0.0) {
+    return 1.0;
+  }
+  let direction = tangent_light / horizontal;
+  let origin = vf_granite_granular_height(position, footprint, counter_prefix, key);
+  let stepDistance = max(0.0030, footprint * 1.20);
+  for (var stepIndex = 1u; stepIndex <= 8u; stepIndex += 1u) {
+    let travel = stepDistance * f32(stepIndex);
+    let terrain = vf_granite_granular_height(
+      position + direction * travel, footprint, counter_prefix, key,
+    );
+    let rayHeight = origin + travel * max(incidence, 0.0) / max(horizontal * 1.85, 0.08);
+    if (terrain > rayHeight + 0.00005) {
+      return 1.0 - 0.94 * fade;
+    }
+  }
+  return 1.0;
+}
 `;
 
 function requireRecord(record, index) {

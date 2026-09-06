@@ -86,7 +86,11 @@ function createTopology() {
 
 export function createWeatheredGraniteSpecimenReference(
   identity,
-  { microrelief = false, microshadow = true } = {},
+  {
+    microrelief = false,
+    microshadow = true,
+    granularMicrorelief = false,
+  } = {},
 ) {
   const root = createConditionedRoot(identity);
   const formNode = conditionChild(root, {
@@ -109,6 +113,31 @@ export function createWeatheredGraniteSpecimenReference(
     height: 0.22 + unit(formNode, 21 + index * 3) * 0.66,
     depth: 0.055 + unit(formNode, 22 + index * 3) * 0.085,
   }));
+  const baseContactScores = Array.from({ length: SECTORS }, (_, sector) => {
+    const u = sector / SECTORS;
+    const angle = u * Math.PI * 2;
+    return 0.55 * correlation(formNode, u * 5.1, 0.13, 0.31)
+      + 0.25 * Math.sin(angle * 3 + phase * 0.73)
+      + 0.20 * Math.sin(angle * 7 - phase * 0.41);
+  });
+  const rankedBaseSectors = baseContactScores
+    .map((score, sector) => ({ score, sector }))
+    .sort((a, b) => a.score - b.score);
+  const contactSectors = new Set(rankedBaseSectors.slice(0, 12).map(({ sector }) => sector));
+  for (let bin = 0; bin < 8; bin += 1) {
+    const start = bin * (SECTORS / 8);
+    const localMinimum = rankedBaseSectors.find(
+      ({ sector }) => sector >= start && sector < start + SECTORS / 8,
+    );
+    contactSectors.add(localMinimum.sector);
+  }
+  const scoreMinimum = rankedBaseSectors[0].score;
+  const scoreSpan = rankedBaseSectors.at(-1).score - scoreMinimum;
+  const baseLifts = baseContactScores.map((score, sector) => (
+    contactSectors.has(sector)
+      ? 0
+      : 0.010 + 0.045 * ((score - scoreMinimum) / scoreSpan)
+  ));
   const positions = [[0, 0, 0]];
   const surfaceCoordinates = [[0.5, 0]];
   const radialValues = [];
@@ -148,7 +177,7 @@ export function createWeatheredGraniteSpecimenReference(
       positions.push([
         centerX + Math.cos(angle) * radiusX * radial,
         centerY + Math.sin(angle) * radiusY * radial,
-        height * t,
+        height * t + (ring === 0 ? baseLifts[sector] : 0),
       ]);
       surfaceCoordinates.push([u, t]);
       radialValues.push(radialScale);
@@ -242,11 +271,15 @@ export function createWeatheredGraniteSpecimenReference(
     specular_strength: 1 - roughness.reduce((sum, value) => sum + value, 0) / roughness.length,
     rock_material_gpu: Object.freeze({
       kind: 'rock-geology-weathering-gpu:v1',
-      variant: microrelief
+      variant: granularMicrorelief
+        ? (microshadow
+          ? 'weathered-granite-granular'
+          : 'weathered-granite-granular-no-shadow')
+        : (microrelief
         ? (microshadow
           ? 'weathered-granite-microrelief'
           : 'weathered-granite-microrelief-no-shadow')
-        : 'weathered-granite',
+        : 'weathered-granite'),
       streamWords: Object.freeze((() => {
         const stream = conditionedNodeStreamReference(detailNode);
         return [...stream.counterPrefix, ...stream.key];
@@ -267,6 +300,14 @@ export function createWeatheredGraniteSpecimenReference(
     }),
   });
   const baseRadii = positions.slice(1, SECTORS + 1).map(([x, y]) => Math.hypot(x, y));
+  const basePositions = positions.slice(1, SECTORS + 1);
+  const baseHeights = basePositions.map((position) => position[2]);
+  const baseContactSectors = baseHeights
+    .map((heightValue, sector) => (heightValue <= 1e-9 ? sector : -1))
+    .filter((sector) => sector >= 0);
+  const baseContactAngularBins = new Set(baseContactSectors.map(
+    (sector) => Math.floor(sector * 12 / SECTORS),
+  )).size;
   const allRadii = positions.slice(1, -1).map(([x, y]) => Math.hypot(x, y));
   const radialMean = radialValues.reduce((sum, value) => sum + value, 0) / radialValues.length;
   const radialDeviation = Math.sqrt(radialValues.reduce(
@@ -290,7 +331,9 @@ export function createWeatheredGraniteSpecimenReference(
     metrics: Object.freeze({
       minimumTriangleArea,
       minimumZ: Math.min(...positions.map((position) => position[2])),
-      baseVertexCount: SECTORS,
+      baseVertexCount: baseContactSectors.length,
+      baseHeightSpan: range(baseHeights),
+      baseContactAngularBins,
       supportRadius: Math.min(...baseRadii),
       maximumRadius: Math.max(...allRadii),
       centerOfMassProjectionInsideSupport: Math.hypot(

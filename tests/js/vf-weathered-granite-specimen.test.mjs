@@ -5,6 +5,7 @@ import {
   createWeatheredGraniteSpecimenReference,
 } from '../../web/vf-ui/vf-weathered-granite-specimen.mjs';
 import {
+  realizeGraniteGranularProbeReference,
   realizeGraniteMicroreliefProbeReference,
 } from '../../web/vf-ui/vf-granite-microrelief-reference.mjs';
 
@@ -46,6 +47,9 @@ test('weathered granite specimen is bounded, closed, stable, and nondegenerate',
   assert.ok(metrics.minimumTriangleArea > 1e-6);
   assert.equal(metrics.minimumZ, 0);
   assert.ok(metrics.baseVertexCount >= 12);
+  assert.ok(metrics.baseHeightSpan > 0.025);
+  assert.ok(metrics.baseHeightSpan < 0.065);
+  assert.ok(metrics.baseContactAngularBins >= 8);
   assert.ok(metrics.supportRadius >= metrics.maximumRadius * 0.42);
   assert.ok(metrics.centerOfMassProjectionInsideSupport);
 });
@@ -175,4 +179,36 @@ test('bounded horizon march creates directional grazing microshadows only', () =
   assert.notDeepEqual(left.luminance, right.luminance);
   assert.deepEqual(left.albedo, right.albedo);
   assert.equal(left.maxHorizonSteps, 8);
+});
+
+test('R3 granular material stays isotropic and reverses local light-shadow pairs', () => {
+  const probe = realizeGraniteGranularProbeReference(IDENTITY, {
+    resolution: 64,
+    footprint: 0.0015,
+  });
+
+  assert.ok(probe.orientationEnergyRatio < 1.28);
+  assert.ok(probe.peakFraction > 0.04 && probe.peakFraction < 0.32);
+  assert.ok(probe.pitFraction > 0.025 && probe.pitFraction < 0.24);
+  assert.ok(probe.leftShadowFraction > 0.18);
+  assert.ok(probe.rightShadowFraction > 0.18);
+  assert.ok(probe.overheadShadowFraction < 0.025);
+  assert.ok(probe.pairedReversalFraction > 0.32);
+  assert.ok(probe.minimumRoughness >= 0.7);
+  assert.ok(probe.maximumRoughness <= 0.93);
+  assert.equal(probe.maximumHorizonSteps, 8);
+});
+
+test('R3 granular shader leaves baseline geometry byte-identical', () => {
+  const baseline = createWeatheredGraniteSpecimenReference(IDENTITY);
+  const granular = createWeatheredGraniteSpecimenReference(IDENTITY, {
+    granularMicrorelief: true,
+  });
+
+  assert.deepEqual(granular.packet.vertices, baseline.packet.vertices);
+  assert.deepEqual(granular.packet.indices, baseline.packet.indices);
+  assert.equal(
+    granular.packet.rock_material_gpu.variant,
+    'weathered-granite-granular',
+  );
 });

@@ -17,6 +17,7 @@ const frameId = 'weathered_granite_specimen_frame';
 const specimen = createWeatheredGraniteSpecimenReference(identity, {
   microrelief: config.microrelief === true,
   microshadow: config.microshadow !== false,
+  granularMicrorelief: config.granularMicrorelief === true,
 });
 const groundVertices = new Float32Array([
   -7, -6, -0.035, 0, 0, 1, 0.16, 0.17, 0.16, 1,

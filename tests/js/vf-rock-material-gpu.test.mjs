@@ -111,6 +111,11 @@ test('main receiver shader evaluates filtered rock channels per fragment', async
   assert.match(rendererSource, /max\(length\(dpdx\(surfaceCoordinates\)\), length\(dpdy\(surfaceCoordinates\)\)\)/);
   assert.match(rendererSource, /0\.34 \* \(1\.0 - rock\.roughness\) \* \(1\.0 - rock\.roughness\)/);
   assert.match(rendererSource, /shadeLitBaseScaled\(rock\.base_color\.rgb,[\s\S]*rockSpecularScale\)/);
+  assert.match(ROCK_MATERIAL_WGSL, /vf_granite_noise3/);
+  assert.match(ROCK_MATERIAL_WGSL, /position\.xy[\s\S]*position\.yz[\s\S]*position\.zx/);
+  assert.match(ROCK_MATERIAL_WGSL, /vf_granite_granular_gradient/);
+  assert.match(ROCK_MATERIAL_WGSL, /stepIndex <= 8u/);
+  assert.match(rendererSource, /vf_granite_granular_visibility/);
 });
 
 test('rock GPU fixture packs the exact conditioned stream and CPU material oracle', () => {
