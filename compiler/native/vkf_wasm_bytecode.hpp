@@ -332,6 +332,18 @@ inline void validate_instruction(
                     + " requires a UTF-8 string field constant");
             }
             break;
+        case Opcode::PrintValue:
+            if (instruction.second == 1) {
+                require_constant(module, instruction.first, context);
+                if (module.constants[instruction.first].kind
+                    != ConstantKind::Utf8String) {
+                    throw BytecodeError(context
+                        + " requires a UTF-8 nominal-name constant");
+                }
+            } else if (instruction.second != 0) {
+                throw BytecodeError(context + " has invalid print display mode");
+            }
+            break;
         default:
             break;
     }

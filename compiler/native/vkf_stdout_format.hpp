@@ -144,6 +144,24 @@ public:
                     frame.payload = payload;
                     output += '(';
                     continue;
+                case 8: {
+                    // Compiler-private nominal stdout wrapper. The type name
+                    // and represented value both remain inside WASM memory.
+                    const auto name = length;
+                    range(name, 16);
+                    if (u32(name) != 3) {
+                        throw std::runtime_error("VKF stdout nominal name must be a string");
+                    }
+                    const auto name_length = u32(name + 4);
+                    const auto name_payload = u32(name + 8);
+                    range(name_payload, name_length);
+                    if (name_length) output.append(
+                        reinterpret_cast<const char*>(memory_ + name_payload), name_length);
+                    const auto child_precision = frame.precision;
+                    frames.pop_back();
+                    frames.push_back({payload, child_precision});
+                    continue;
+                }
                 default:
                     throw std::runtime_error("unknown VKF stdout value tag " + std::to_string(tag));
             }

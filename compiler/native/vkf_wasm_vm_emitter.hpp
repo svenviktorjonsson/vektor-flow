@@ -841,6 +841,23 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                     i32_const(body, static_cast<std::uint32_t>(values::Tag::UiEffect));
                     i32_store(body, values::tag_offset);
                 }
+                if (instruction.opcode == Opcode::PrintValue
+                    && instruction.second == 1) {
+                    i32_const(body, values::slot_size);
+                    body.u8(0x10); body.u32_leb(runtime.allocate);
+                    local_set(body, temp2);
+                    local_get(body, temp2);
+                    i32_const(body, static_cast<std::uint32_t>(values::Tag::NominalDisplay));
+                    i32_store(body, values::tag_offset);
+                    local_get(body, temp2);
+                    i32_const(body, image.string_constants.at(instruction.first));
+                    i32_store(body, values::length_offset);
+                    local_get(body, temp2);
+                    local_get(body, temp0);
+                    i32_store(body, values::payload_offset);
+                    local_get(body, temp2);
+                    local_set(body, temp0);
+                }
                 i32_const(body, 2U * values::pointer_size);
                 body.u8(0x10); body.u32_leb(runtime.allocate);
                 local_set(body, temp1);

@@ -28,6 +28,9 @@ enum class Tag : std::uint32_t {
     Record = 5,
     Tuple = 6,
     UiEffect = 7,
+    // Compiler-private stdout wrapper: length is a nominal-name string slot;
+    // payload is the represented value. JavaScript never decodes this tag.
+    NominalDisplay = 8,
 };
 
 inline constexpr std::uint32_t slot_alignment = 8;

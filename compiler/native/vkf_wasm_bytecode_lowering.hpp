@@ -384,6 +384,10 @@ private:
                 field(object, "params", "function " + declaration.name),
                 "function " + declaration.name + ".params"
             );
+            const auto* nominal_type = optional_field(object, "nominal_type");
+            if (nominal_type != nullptr && nominal_type->is_string()) {
+                nominal_types_.insert(nominal_type->as_string());
+            }
             const std::string return_type_name = string_field(
                 object,
                 "return_type",
@@ -1723,7 +1727,15 @@ private:
                 }
                 if (full_name == "io.print" && args.size() == 1) {
                     lower_expression(args.front(), state, context + ".args[0]");
-                    emit(state, Opcode::PrintValue, ValueType::Dynamic);
+                    const auto& argument = object_of(args.front(), context + ".args[0]");
+                    const std::string argument_type = string_field(
+                        argument, "type", context + ".args[0]");
+                    if (nominal_types_.count(argument_type)) {
+                        emit(state, Opcode::PrintValue, ValueType::Dynamic,
+                            intern_constant(Constant::utf8_string(argument_type)), 1);
+                    } else {
+                        emit(state, Opcode::PrintValue, ValueType::Dynamic);
+                    }
                     return ValueType::Dynamic;
                 }
                 if (full_name == "collections.list") {
@@ -3006,6 +3018,7 @@ private:
     Module module_;
     std::map<std::string, FunctionBinding> function_bindings_;
     std::map<std::string, ConstantBinding> constant_bindings_;
+    std::set<std::string> nominal_types_;
     std::set<std::string> referenced_globals_;
     std::deque<PendingDefaultThunk> pending_default_thunks_;
     std::map<std::pair<std::uint32_t, std::uint32_t>, std::string> default_call_targets_;
