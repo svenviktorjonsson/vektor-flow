@@ -452,15 +452,20 @@ TaggedNumericFunctionCall: (
     parameter_name:str,
     factor:num
 )
-TaggedNumericFunctionCursorModule: (
+TaggedCursorModule: (
     kind:str,
-    declaration_order:int,
-    call_order:int,
-    function_name:str,
-    parameter_name:str,
-    factor:num,
-    declaration_span:Span,
-    call_span:Span,
+    source:str,
+    token_rows:[num],
+    token_count:int,
+    statement_rows:[num],
+    statement_count:int,
+    span:Span
+)
+TaggedCursorStatement: (
+    order:int,
+    token_start:int,
+    token_stop:int,
+    token_count:int,
     span:Span
 )
 TaggedNumericConditionalCall: (
@@ -1618,36 +1623,63 @@ parse_module_from_cursor(
 
 parse_module_from_cursor(
     cursor:TaggedTapeParseCursor
-) -> TaggedNumericFunctionCursorModule:
-    (cursor.index = 0)?! "tagged function parser cursor must start at token zero"
-    parsed: parse_tagged_numeric_function_call(
-        cursor.source, cursor.rows, cursor.count
-    )
+) -> TaggedCursorModule:
+    (cursor.index = 0)?! "tagged parser cursor must start at token zero"
+    (cursor.count > 1 /\ cursor.rows.length() = cursor.count * 6)?! "tagged parser cursor has an invalid token tape"
+    (cursor.rows.((cursor.count - 1) * 6) = 5)?! "tagged parser cursor requires terminal EOF"
+    [num] statement_rows: []
+    token_index: 0
+    statement_start: 0
+    statement_count: 0
+    last_token: 0
+    (token_index < cursor.count)?>
+        kind: cursor.rows.(token_index * 6)
+        boundary: kind = 4 \/ kind = 5
+        (boundary /\ token_index > statement_start)?
+            .statement_rows: statement_rows & [statement_start] & [token_index - 1] & [token_index - statement_start] & [cursor.rows.(statement_start * 6 + 4)] & [cursor.rows.(statement_start * 6 + 5)] & [cursor.rows.((token_index - 1) * 6 + 4)] & [cursor.rows.((token_index - 1) * 6 + 5)]
+            .statement_count+: 1
+            .last_token: token_index - 1
+        boundary?
+            .statement_start: token_index + 1
+        .token_index+: 1
+    (statement_count > 0)?! "tagged parser cursor contains no statements"
     module_start: location(
-        "<self-hosted>", cursor.rows.(4), cursor.rows.(5)
+        "<self-hosted>", statement_rows.(3), statement_rows.(4)
     )
-    declaration_start: location(
-        "<self-hosted>", cursor.rows.(28), cursor.rows.(29)
-    )
-    declaration_stop: location(
-        "<self-hosted>", cursor.rows.(88), cursor.rows.(89)
-    )
-    call_start: location(
-        "<self-hosted>", cursor.rows.(100), cursor.rows.(101)
-    )
-    call_stop: location(
-        "<self-hosted>", cursor.rows.(142), cursor.rows.(143)
+    module_stop: location(
+        "<self-hosted>", cursor.rows.(last_token * 6 + 4),
+        cursor.rows.(last_token * 6 + 5)
     )
     (
-        kind:"numeric_function_module",
-        declaration_order:0,
-        call_order:1,
-        function_name:parsed.function_name,
-        parameter_name:parsed.parameter_name,
-        factor:parsed.factor,
-        declaration_span:span(declaration_start, declaration_stop),
-        call_span:span(call_start, call_stop),
-        span:span(module_start, call_stop)
+        kind:"module",
+        source:cursor.source,
+        token_rows:cursor.rows,
+        token_count:cursor.count,
+        statement_rows:statement_rows,
+        statement_count:statement_count,
+        span:span(module_start, module_stop)
+    )
+
+tagged_module_statement(
+    module:TaggedCursorModule, index:int
+) -> TaggedCursorStatement:
+    (index >= 0 /\ index < module.statement_count)?! "tagged parser statement index is out of bounds"
+    offset: index * 7
+    (
+        order:index,
+        token_start:module.statement_rows.(offset),
+        token_stop:module.statement_rows.(offset + 1),
+        token_count:module.statement_rows.(offset + 2),
+        span:span(
+            location(
+                "<self-hosted>", module.statement_rows.(offset + 3),
+                module.statement_rows.(offset + 4)
+            ),
+            location(
+                "<self-hosted>", module.statement_rows.(offset + 5),
+                module.statement_rows.(offset + 6)
+            )
+        )
     )
 
 parse_module_from_cursor(cursor:ParseCursor):
