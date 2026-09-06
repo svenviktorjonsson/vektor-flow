@@ -2920,7 +2920,9 @@ inline std::vector<std::uint8_t> emit_record_get_function(
 }
 
 inline std::vector<std::uint8_t> emit_record_set_function(
-    std::uint32_t allocate_index
+    std::uint32_t allocate_index,
+    std::uint32_t equal_index,
+    std::uint32_t truthy_index
 ) {
     Writer body;
     body.u32_leb(1);
@@ -2929,9 +2931,46 @@ inline std::vector<std::uint8_t> emit_record_set_function(
     local_get(body, 0);
     i32_load(body, values::length_offset);
     local_set(body, 4);
+    // Record updates preserve declaration order and copy the record value.
+    // Append only when the key is absent; an existing field keeps its slot.
+    i32_const(body, 0);
+    local_set(body, 5);
+    body.u8(0x02); // block: selected existing index or append position
+    body.u8(0x40);
+    body.u8(0x03); // loop: compare compiler-owned UTF-8 keys
+    body.u8(0x40);
+    local_get(body, 5);
+    local_get(body, 4);
+    body.u8(0x46);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    local_get(body, 0);
+    i32_load(body, values::payload_offset);
+    local_get(body, 5);
+    i32_const(body, values::record_entry_size);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    i32_load(body, values::record_key_offset);
+    local_get(body, 1);
+    body.u8(0x10);
+    body.u32_leb(equal_index);
+    body.u8(0x10);
+    body.u32_leb(truthy_index);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    local_get(body, 5);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, 5);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
     i32_const(body, values::slot_size);
     local_get(body, 4);
-    i32_const(body, 1);
+    local_get(body, 5);
+    local_get(body, 4);
+    body.u8(0x46);
     body.u8(0x6a);
     i32_const(body, values::record_entry_size);
     body.u8(0x6c);
@@ -2944,7 +2983,9 @@ inline std::vector<std::uint8_t> emit_record_set_function(
     i32_store(body, values::tag_offset);
     local_get(body, 3);
     local_get(body, 4);
-    i32_const(body, 1);
+    local_get(body, 5);
+    local_get(body, 4);
+    body.u8(0x46);
     body.u8(0x6a);
     i32_store(body, values::length_offset);
     local_get(body, 3);
@@ -2967,7 +3008,7 @@ inline std::vector<std::uint8_t> emit_record_set_function(
     local_get(body, 3);
     i32_const(body, values::slot_size);
     body.u8(0x6a);
-    local_get(body, 4);
+    local_get(body, 5);
     i32_const(body, values::record_entry_size);
     body.u8(0x6c);
     body.u8(0x6a);
@@ -2976,7 +3017,7 @@ inline std::vector<std::uint8_t> emit_record_set_function(
     local_get(body, 3);
     i32_const(body, values::slot_size);
     body.u8(0x6a);
-    local_get(body, 4);
+    local_get(body, 5);
     i32_const(body, values::record_entry_size);
     body.u8(0x6c);
     body.u8(0x6a);
@@ -5728,7 +5769,7 @@ inline EmittedModule emit(
         runtime.truthy,
         image.null_value
     ));
-    code.raw(detail::emit_record_set_function(runtime.allocate));
+    code.raw(detail::emit_record_set_function(runtime.allocate, runtime.equal, runtime.truthy));
     code.raw(detail::emit_identifier_start_function(runtime.make_boolean));
     code.raw(detail::emit_identifier_continue_function(runtime.make_boolean));
     code.raw(detail::emit_sine_function(runtime.make_number,

@@ -1,4 +1,5 @@
-// Deliberate independent REDs discovered while testing named-capture ownership.
+// Independent regressions discovered while testing named-capture ownership.
+// Native captured-tuple display remains an intentional RED.
 // Neither tuple/vector conflation nor append-instead-of-update is an acceptance path.
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
@@ -33,5 +34,25 @@ test('record field update replaces the existing field in place rather than appen
   const source='record:(points:[3,4],label:"original")\nrecord.points:[8,4]\n::record\n';
   const native=await nativeStdout(source);
   assert.equal(native,'(points:[8, 4], label:original)\n');
+  assert.deepEqual(compiler.run(source),{kind:'console',stdout:native,stderr:''});
+});
+
+test('first, middle, last and repeated field replacements retain snapshots and operand effects',async()=>{
+  const source=`mark(value:int)->int:
+    ::value
+    value
+record:(first:1,middle:2,last:3)
+snapshot:record
+record.middle:mark(8)
+record.first:mark(7)
+record.last:mark(9)
+record.middle:mark(6)
+::record
+::snapshot
+::record.middle
+`;
+  const native=await nativeStdout(source);
+  assert.equal(native,'8\n7\n9\n6\n(first:7, middle:6, last:9)\n(first:1, middle:2, last:3)\n6\n');
+  assert.deepEqual(compiler.run(source),{kind:'console',stdout:native,stderr:''});
   assert.deepEqual(compiler.run(source),{kind:'console',stdout:native,stderr:''});
 });

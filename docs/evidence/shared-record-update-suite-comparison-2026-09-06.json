@@ -1,0 +1,13 @@
+{
+  "scope": "Exact test order, source hashes, native result objects, WASM result/error objects and pass/fail reasons. No diagnostic or numeric normalization.",
+  "before": "docs/evidence/shared-named-variadic-native-wasm-2026-09-05.json",
+  "after": "docs/evidence/shared-record-update-native-wasm-2026-09-06.json",
+  "beforeCompilerWasmSha256": "a27c1f06227c31d269b2f868e415365647415f5753f80116c9b9382881c78878",
+  "afterCompilerWasmSha256": "bd4ec699e88ccbe3432333d427cb7d47a46ce015e0f9374d69b8a7c3763f098c",
+  "beforeNativeCompilerSha256": "4728738922848fc7e5a94fc90e7492ce6648dcd5e460834bba75d140be68c360",
+  "afterNativeCompilerSha256": "4728738922848fc7e5a94fc90e7492ce6648dcd5e460834bba75d140be68c360",
+  "entries": 451,
+  "failedCases": 318,
+  "exact": true,
+  "differences": []
+}
