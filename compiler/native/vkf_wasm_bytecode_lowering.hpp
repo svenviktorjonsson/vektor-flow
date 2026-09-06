@@ -406,13 +406,37 @@ private:
             );
             const auto* nominal_type = optional_field(object, "nominal_type");
             if (nominal_type != nullptr && nominal_type->is_string()) {
-                nominal_types_.insert(nominal_type->as_string());
+                nominal_display_names_.emplace(
+                    nominal_type->as_string(), nominal_type->as_string());
             }
             const std::string return_type_name = string_field(
                 object,
                 "return_type",
                 "function " + declaration.name
             );
+            const auto& function_body = object_of(
+                field(object, "body", "function " + declaration.name),
+                "function " + declaration.name + ".body");
+            if (string_field(function_body, "kind", "function " + declaration.name + ".body")
+                == "block") {
+                const auto& statements = array_of(
+                    field(function_body, "body", "function " + declaration.name + ".body"),
+                    "function " + declaration.name + ".body.body");
+                bool returns_scope_identity = false;
+                if (!statements.empty()) {
+                    const auto& tail = object_of(
+                        statements.back(), "function " + declaration.name + ".body.tail");
+                    const auto* expression = optional_field(tail, "expr");
+                    returns_scope_identity = expression != nullptr && expression->is_object()
+                        && string_field(expression->as_object(), "kind",
+                            "function " + declaration.name + ".body.tail.expr") == "scope_identity";
+                }
+                if (const auto display_name =
+                        runtime_value_semantics::nominal_constructor_display_name(
+                            declaration.name, return_type_name, returns_scope_identity)) {
+                    nominal_display_names_.emplace(return_type_name, *display_name);
+                }
+            }
             Function function;
             function.name_constant = intern_constant(
                 Constant::utf8_string(declaration.name)
@@ -2169,15 +2193,21 @@ private:
                     if (character == '*') right_path = "-." + right_path;
                 }
             }
-            if (opcode != Opcode::ArrayConcat && (!left_path.empty() || !right_path.empty())) {
+            if (opcode != Opcode::ArrayConcat
+                && !runtime_value_semantics::aggregate_comparison_is_structural(op)
+                && (!left_path.empty() || !right_path.empty())) {
                 const auto right_local = add_temporary_local(state, ValueType::Dynamic);
                 const auto left_local = add_temporary_local(state, ValueType::Dynamic);
                 emit(state, Opcode::StoreLocal, ValueType::Dynamic, right_local);
                 emit(state, Opcode::StoreLocal, ValueType::Dynamic, left_local);
                 lower_vector_map(state, {left_local, right_local}, {left_path, right_path}, context,
                     [&]() {
-                        emit(state, opcode, comparison_opcode(opcode)
-                            ? ValueType::Boolean : ValueType::Number);
+                        if (comparison_opcode(opcode)) {
+                            emit(state, opcode, ValueType::Boolean);
+                            emit(state, Opcode::BitAsNumber, ValueType::Number);
+                        } else {
+                            emit(state, opcode, ValueType::Number);
+                        }
                     });
                 return ValueType::Array;
             }
@@ -2195,6 +2225,11 @@ private:
             const ValueType result_type =
                 comparison_opcode(opcode) ? ValueType::Boolean : type;
             emit(state, opcode, result_type);
+            if (runtime_value_semantics::aggregate_comparison_is_structural(op)
+                && (!left_path.empty() || !right_path.empty())) {
+                emit(state, Opcode::BitAsNumber, ValueType::Number);
+                return ValueType::Number;
+            }
             return result_type;
         }
         if (kind == "unary_op") {
@@ -2265,9 +2300,10 @@ private:
                     const auto& argument = object_of(args.front(), context + ".args[0]");
                     const std::string argument_type = string_field(
                         argument, "type", context + ".args[0]");
-                    if (nominal_types_.count(argument_type)) {
+                    const auto nominal = nominal_display_names_.find(argument_type);
+                    if (nominal != nominal_display_names_.end()) {
                         emit(state, Opcode::PrintValue, ValueType::Dynamic,
-                            intern_constant(Constant::utf8_string(argument_type)), 1);
+                            intern_constant(Constant::utf8_string(nominal->second)), 1);
                     } else {
                         emit(state, Opcode::PrintValue, ValueType::Dynamic);
                     }
@@ -3905,7 +3941,7 @@ private:
     Module module_;
     std::map<std::string, FunctionBinding> function_bindings_;
     std::map<std::string, ConstantBinding> constant_bindings_;
-    std::set<std::string> nominal_types_;
+    std::map<std::string, std::string> nominal_display_names_;
     std::set<std::string> referenced_globals_;
     std::deque<PendingDefaultThunk> pending_default_thunks_;
     std::map<std::pair<std::uint32_t, std::uint32_t>, std::string> default_call_targets_;

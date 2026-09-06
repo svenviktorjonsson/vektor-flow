@@ -187,6 +187,7 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::ArrayLength:
         case Opcode::ArrayAsTuple:
         case Opcode::ErrorMaskMatches:
+        case Opcode::BitAsNumber:
         case Opcode::AllocateArray:
         case Opcode::OperatorKind:
         case Opcode::PlotBuilderFinish:
@@ -1038,6 +1039,15 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 body.u8(0x9a);
                 body.u8(0x10);
                 body.u32_leb(runtime.make_number);
+                emit_finish_push(body, sp_local);
+                break;
+            case Opcode::BitAsNumber:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp0);
+                body.u8(0x10); body.u32_leb(runtime.truthy);
+                body.u8(0xb7); // f64.convert_i32_s
+                body.u8(0x10); body.u32_leb(runtime.make_number);
                 emit_finish_push(body, sp_local);
                 break;
             case Opcode::Equal:

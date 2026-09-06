@@ -74,4 +74,23 @@ inline std::optional<std::vector<RecordField>> record_fields(std::string_view ty
     return fields;
 }
 
+// Scope identity returns synthesize a record from the function parameters.
+// Native display retains the function spelling as that value's constructor
+// identity even though the canonical value type is structural.
+inline std::optional<std::string> nominal_constructor_display_name(
+    std::string_view function_name,
+    std::string_view representation_type,
+    bool returns_scope_identity
+) {
+    if (!returns_scope_identity || display_family(representation_type) != DisplayFamily::Record
+        || function_name.empty()) {
+        return std::nullopt;
+    }
+    return std::string(function_name);
+}
+
+inline bool aggregate_comparison_is_structural(std::string_view op) {
+    return op == "EXACT_EQ" || op == "NEQ" || op == "STRUCT_NEQ";
+}
+
 } // namespace vkf::runtime_value_semantics
