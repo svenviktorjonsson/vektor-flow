@@ -3342,7 +3342,7 @@ fn fs(i: Vout) -> @location(0) vec4f {
         graniteCoordinates, max(graniteFootprint, sc.rock_material_filter.x),
         lightCoordinates, incidence, sc.rock_material_stream.xy, sc.rock_material_stream.zw,
       );
-      let cavityBounce = rock.base_color.rgb * 0.36 + vec3<f32>(0.018, 0.014, 0.010);
+      let cavityBounce = rock.base_color.rgb * 0.42 + vec3<f32>(0.018, 0.014, 0.010);
       let directAndSpecular = max(shaded.rgb - cavityBounce, vec3<f32>(0.0));
       shaded = vec4<f32>(cavityBounce + directAndSpecular * visibility, shaded.a);
     }

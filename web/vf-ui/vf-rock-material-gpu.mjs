@@ -306,6 +306,62 @@ fn vf_granite_noise3(
   return (xy + yz + zx) * 0.57735026919;
 }
 
+fn vf_granite_crystal2(
+  position: vec2<f32>,
+  wavelength: f32,
+  salt: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> vec2<f32> {
+  let scaled = position / wavelength;
+  let cell = vec2<i32>(floor(scaled));
+  let local = fract(scaled);
+  let saltCell = i32(salt * 101.0);
+  var best = 1e9;
+  var second = 1e9;
+  var value = 0.0;
+  for (var oy: i32 = -1; oy <= 1; oy += 1) {
+    for (var ox: i32 = -1; ox <= 1; ox += 1) {
+      let neighbor = cell + vec2<i32>(ox, oy);
+      let salted = neighbor + vec2<i32>(saltCell, -saltCell);
+      let jitter = vec2<f32>(
+        vf_rock_corner_uniform(salted, counter_prefix, key),
+        vf_rock_corner_uniform(salted + vec2<i32>(173, -227), counter_prefix, key),
+      ) * 0.5 + vec2<f32>(0.5);
+      let delta = vec2<f32>(f32(ox), f32(oy)) + jitter - local;
+      let distance = dot(delta, delta);
+      if (distance < best) {
+        second = best;
+        best = distance;
+        value = vf_rock_corner_uniform(salted + vec2<i32>(317, 419), counter_prefix, key);
+      } else if (distance < second) {
+        second = distance;
+      }
+    }
+  }
+  let gap = sqrt(second) - sqrt(best);
+  let edge = 1.0 - smoothstep(0.005, 0.030, gap);
+  return vec2<f32>(value, edge);
+}
+
+fn vf_granite_crystal_cell(
+  position: vec3<f32>,
+  wavelength: f32,
+  salt: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> vec2<f32> {
+  let xy = vf_granite_crystal2(
+    vec2<f32>(position.x + position.z * 0.37, position.y - position.z * 0.21),
+    wavelength, salt, counter_prefix, key,
+  );
+  let yz = vf_granite_crystal2(
+    vec2<f32>(position.y + position.x * 0.29, position.z - position.x * 0.41),
+    wavelength, salt + 7.9, counter_prefix, key,
+  );
+  return vec2<f32>((xy.x + yz.x) * 0.70710678118, max(xy.y, yz.y * 0.8));
+}
+
 fn vf_granite_granular_height(
   position: vec3<f32>,
   footprint: f32,
@@ -318,11 +374,14 @@ fn vf_granite_granular_height(
   let broad = vf_granite_noise3(position, 0.052, 2.3, counter_prefix, key);
   let grain = vf_granite_noise3(position, 0.025, 7.1, counter_prefix, key);
   let fine = vf_granite_noise3(position, 0.0125, 13.7, counter_prefix, key);
+  let micro = vf_granite_noise3(position, 0.0045, 59.9, counter_prefix, key);
   let peak = pow(max(grain - 0.20, 0.0), 2.0) * 0.012;
   let pit = pow(max(-fine - 0.38, 0.0), 2.0) * 0.009;
+  let microPeak = pow(max(micro - 0.05, 0.0), 2.0) * 0.0022;
   return broadWeight * broad * 0.0035
     + grainWeight * (grain * 0.0045 + peak)
-    + fineWeight * (fine * 0.0012 - pit);
+    + fineWeight * (fine * 0.0012 - pit)
+    + vf_rock_filter_weight(0.0045, footprint) * (micro * 0.00045 + microPeak);
 }
 
 fn vf_granite_granular_gradient(
@@ -349,15 +408,21 @@ fn vf_weathered_granite_granular_sample(
   key: vec2<u32>,
 ) -> VfRockMaterialSample {
   let broad = vf_granite_noise3(position, 0.31, 1.1, counter_prefix, key);
+  let feldsparCell = vf_granite_crystal_cell(
+    position, 0.022, 23.7, counter_prefix, key,
+  );
+  let quartzCell = vf_granite_crystal_cell(
+    position, 0.016, 31.1, counter_prefix, key,
+  );
   let feldspar = smoothstep(
     -0.20, 0.25,
-    vf_granite_noise3(position, 0.055, 23.7, counter_prefix, key)
-      * vf_rock_filter_weight(0.055, footprint),
+    (vf_granite_noise3(position, 0.038, 23.7, counter_prefix, key) * 0.55
+      + feldsparCell.x * 0.45) * vf_rock_filter_weight(0.038, footprint),
   );
   let quartz = smoothstep(
     0.15, 0.48,
-    vf_granite_noise3(position, 0.034, 31.1, counter_prefix, key)
-      * vf_rock_filter_weight(0.034, footprint),
+    (vf_granite_noise3(position, 0.026, 31.1, counter_prefix, key) * 0.58
+      + quartzCell.x * 0.42) * vf_rock_filter_weight(0.026, footprint),
   );
   let mica = smoothstep(
     0.72, 0.94,
@@ -368,17 +433,21 @@ fn vf_weathered_granite_granular_sample(
   granite = mix(granite, vec3<f32>(0.72, 0.595, 0.53), feldspar * 0.62);
   granite = mix(granite, vec3<f32>(0.76, 0.75, 0.72), quartz * 0.66);
   granite = mix(granite, vec3<f32>(0.23, 0.24, 0.25), mica * 0.55);
+  let crystalEdge = max(feldsparCell.y, quartzCell.y * 0.82);
+  granite = mix(granite, vec3<f32>(0.69, 0.675, 0.65), crystalEdge * 0.075);
   let roughNoise = vf_granite_noise3(position, 0.030, 19.1, counter_prefix, key)
     * vf_rock_filter_weight(0.030, footprint);
   let height = vf_granite_granular_height(position, footprint, counter_prefix, key);
+  let mineralRoughness = clamp(
+    0.82 + roughNoise * 0.055 + feldspar * 0.025 - quartz * 0.15
+      + mica * 0.045 + crystalEdge * 0.035,
+    0.64, 0.93,
+  );
   return VfRockMaterialSample(
     broad,
     clamp(0.5 + broad * 0.5, 0.0, 1.0),
     vec4<f32>(clamp(granite, vec3<f32>(0.20), vec3<f32>(0.82)), 1.0),
-    clamp(
-      0.82 + roughNoise * 0.055 + feldspar * 0.025 - quartz * 0.15 + mica * 0.045,
-      0.64, 0.93,
-    ),
+    mineralRoughness,
     clamp(height, -0.04, 0.04),
     vec2<f32>(0.0),
     vec3<f32>(0.0, 0.0, 1.0),

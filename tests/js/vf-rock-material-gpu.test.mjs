@@ -120,6 +120,8 @@ test('main receiver shader evaluates filtered rock channels per fragment', async
   assert.match(ROCK_MATERIAL_WGSL, /quartz/);
   assert.match(ROCK_MATERIAL_WGSL, /mica/);
   assert.match(rendererSource, /cavityBounce/);
+  assert.match(ROCK_MATERIAL_WGSL, /vf_granite_crystal_cell/);
+  assert.match(ROCK_MATERIAL_WGSL, /crystalEdge/);
 });
 
 test('rock GPU fixture packs the exact conditioned stream and CPU material oracle', () => {

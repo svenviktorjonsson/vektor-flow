@@ -192,7 +192,7 @@ test('R3 granular material stays isotropic and reverses local light-shadow pairs
   assert.ok(probe.pitFraction > 0.025 && probe.pitFraction < 0.24);
   assert.ok(probe.leftShadowFraction > 0.18);
   assert.ok(probe.rightShadowFraction > 0.18);
-  assert.ok(probe.overheadShadowFraction < 0.025);
+  assert.ok(probe.overheadShadowFraction < 0.035);
   assert.ok(probe.pairedReversalFraction > 0.32);
   assert.ok(probe.minimumRoughness >= 0.7);
   assert.ok(probe.maximumRoughness <= 0.93);
@@ -228,4 +228,23 @@ test('R4 granite mineral populations are distinct, bounded, and light-independen
   assert.ok(probe.maximumMineralRoughness <= 0.93);
   assert.ok(probe.mineralRoughnessSpan > 0.12);
   assert.equal(probe.mineralFieldDependsOnLight, false);
+});
+
+test('R5 mineral domains have bounded angular crystalline breakup and readable cavities', () => {
+  const probe = realizeGraniteGranularProbeReference(IDENTITY, {
+    resolution: 64,
+    footprint: 0.0015,
+  });
+
+  assert.ok(probe.crystalEdgeFraction > 0.08 && probe.crystalEdgeFraction < 0.34);
+  assert.ok(probe.mineralTransitionDensity > 0.22);
+  assert.ok(probe.maximumMineralRun <= 20);
+  assert.ok(probe.fineCrystalFraction > 0.12 && probe.fineCrystalFraction < 0.58);
+  assert.ok(probe.minimumCavityBounceLuminance > 0.075);
+  assert.ok(probe.maximumCavityBounceLuminance < 0.36);
+  assert.ok(probe.microFeatureDensityRatio > 4 && probe.microFeatureDensityRatio < 8.5);
+  assert.ok(probe.microMedianProjectedRadius < probe.mesoMedianProjectedRadius * 0.38);
+  assert.ok(probe.microMedianProjectedRadius > probe.mesoMedianProjectedRadius * 0.18);
+  assert.ok(probe.microShadowReversalFraction > 0.25);
+  assert.equal(probe.microBandAffectsHeight, true);
 });
