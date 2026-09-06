@@ -16,6 +16,7 @@ struct SelectorField {
 struct RecordSelectorPlan {
     std::vector<SelectorField> fields;
     std::string result_type;
+    std::optional<std::string> fallback_symbol;
 };
 
 // The frontend-provided field sequence is semantic: first matching real field
@@ -23,13 +24,17 @@ struct RecordSelectorPlan {
 inline std::optional<RecordSelectorPlan> record_selector_plan(
     std::string_view selector_type,
     std::string result_type,
-    std::vector<SelectorField> fields
+    std::vector<SelectorField> fields,
+    std::optional<std::string> fallback_symbol
 ) {
-    if (selector_type != "str" || fields.empty()) return std::nullopt;
+    if (selector_type != "str" || (fields.empty() && !fallback_symbol)) {
+        return std::nullopt;
+    }
     for (const auto& field : fields) {
         if (field.name.empty() || field.type.empty()) return std::nullopt;
     }
-    return RecordSelectorPlan{std::move(fields), std::move(result_type)};
+    return RecordSelectorPlan{
+        std::move(fields), std::move(result_type), std::move(fallback_symbol)};
 }
 
 inline constexpr std::string_view missing_record_selector_message =

@@ -1275,10 +1275,19 @@ private:
                 string_field(candidate, "type", field_context),
             });
         }
+        const auto* fallback = optional_field(object, "fallback_symbol");
+        std::optional<std::string> fallback_symbol;
+        if (fallback != nullptr) {
+            if (!fallback->is_string() || fallback->as_string().empty()) {
+                throw BytecodeLoweringError(
+                    "record selector fallback symbol must be a string in " + context);
+            }
+            fallback_symbol = fallback->as_string();
+        }
         const auto plan = runtime_value_semantics::record_selector_plan(
             string_field(selector, "type", context + ".selector"),
             string_field(object, "type", context),
-            std::move(selector_fields));
+            std::move(selector_fields), std::move(fallback_symbol));
         if (!plan) {
             throw BytecodeLoweringError(
                 "record selector requires ordered fields and a string selector in " + context);
@@ -1309,6 +1318,29 @@ private:
                 "record selector next field");
             emit(state, Opcode::Nop, ValueType::Void);
             patch_jump(state, next_field, next_target);
+        }
+        if (plan->fallback_symbol) {
+            const auto target = function_bindings_.find(*plan->fallback_symbol);
+            if (target == function_bindings_.end()) {
+                throw BytecodeLoweringError(
+                    "unknown record selector fallback " + *plan->fallback_symbol
+                    + " in " + context);
+            }
+            if (target->second.arity != 2 || target->second.return_type != result_type) {
+                throw BytecodeLoweringError(
+                    "record selector fallback signature is incompatible (arity "
+                    + std::to_string(target->second.arity) + ", return "
+                    + std::to_string(static_cast<unsigned>(target->second.return_type))
+                    + ", result " + std::to_string(static_cast<unsigned>(result_type))
+                    + ") in " + context);
+            }
+            emit(state, Opcode::LoadLocal, ValueType::Object, base_local);
+            emit(state, Opcode::LoadLocal, ValueType::String, selector_local);
+            emit(state, Opcode::Call, result_type,
+                target->second.function_index, target->second.arity);
+            emit(state, Opcode::StoreLocal, result_type, result_local);
+            finish_jumps.push_back(state.function->instructions.size());
+            emit(state, Opcode::Jump, ValueType::Void);
         }
         on_missing();
         const auto finish_target = checked_index(state.function->instructions.size(),

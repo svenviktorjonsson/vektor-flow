@@ -33,6 +33,15 @@ inline void collect_function_loads(
         && discovered.insert(name->second.as_string()).second) {
         pending.push_back(name->second.as_string());
     }
+    if (kind != object.end() && kind->second.is_string()
+        && kind->second.as_string() == "record_selector") {
+        const auto fallback = object.find("fallback_symbol");
+        if (fallback != object.end() && fallback->second.is_string()
+            && functions.count(fallback->second.as_string())
+            && discovered.insert(fallback->second.as_string()).second) {
+            pending.push_back(fallback->second.as_string());
+        }
+    }
     for (const auto& [field, child] : object) {
         (void)field;
         collect_function_loads(child, functions, discovered, pending);

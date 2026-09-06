@@ -40,3 +40,15 @@ point.(name)!?
 :: message
 `,'unknown record selector key\n');
 });
+
+test('dynamic record selectors prefer real fields before compiler-resolved fallback',()=>{
+  compareNativeOutput(compiler,`FallbackPair: (x:num, y:num)
+.(pair:FallbackPair, key:str) -> num:
+    key == "left"? @: pair.x
+    @: 0
+select(pair:FallbackPair, key:str) -> num:
+    pair.(key)
+FallbackPair pair: (x:9, y:10)
+:: [select(pair, "x"), select(pair, "left"), select(pair, "missing")]
+`,'[9, 9, 0]\n');
+});
