@@ -1393,13 +1393,97 @@ private:
                     checked_index(indices.size(), "gather index count"));
                 return ValueType::Array;
             }
+            const auto shaped_index = std::find_if(indices.begin(), indices.end(), [&](const auto& value) {
+                const auto& candidate = object_of(value, context + ".shaped_index");
+                return string_field(candidate, "kind", context + ".shaped_index") == "list";
+            });
+            if (nested && indices.size() > 1 && shaped_index != indices.end()) {
+                const auto base = add_temporary_local(state, ValueType::Array);
+                emit(state, Opcode::StoreLocal, ValueType::Array, base);
+                std::vector<std::uint32_t> index_locals;
+                std::vector<bool> index_arrays;
+                for (std::size_t index = 0; index < indices.size(); ++index) {
+                    const auto index_context = context + ".indices[" + std::to_string(index) + "]";
+                    const auto type = lower_expression(indices[index], state, index_context);
+                    const auto local = add_temporary_local(state, type);
+                    emit(state, Opcode::StoreLocal, type, local);
+                    index_locals.push_back(local);
+                    index_arrays.push_back(type == ValueType::Array);
+                }
+                std::function<void(const vf::JsonValue&, std::vector<std::size_t>)> emit_gather;
+                emit_gather = [&](const vf::JsonValue& shape, std::vector<std::size_t> path) {
+                    const auto& shape_object = object_of(shape, context + ".gather_shape");
+                    const auto& items = array_of(field(shape_object, "items", context + ".gather_shape"),
+                        context + ".gather_shape.items");
+                    const bool nested_shape = !items.empty() && object_of(items.front(),
+                        context + ".gather_shape.item").find("items")
+                        != object_of(items.front(), context + ".gather_shape.item").end();
+                    for (std::size_t item = 0; item < items.size(); ++item) {
+                        auto item_path = path;
+                        item_path.push_back(item);
+                        if (nested_shape) {
+                            emit_gather(items[item], std::move(item_path));
+                            continue;
+                        }
+                        emit(state, Opcode::LoadLocal, ValueType::Array, base);
+                        for (std::size_t index = 0; index < index_locals.size(); ++index) {
+                            if (index_arrays[index]) {
+                                emit(state, Opcode::LoadLocal, ValueType::Array, index_locals[index]);
+                                for (const auto component : item_path) {
+                                    emit_number(state, static_cast<double>(component));
+                                    emit(state, Opcode::ArrayGet, ValueType::Dynamic);
+                                }
+                            } else {
+                                emit(state, Opcode::LoadLocal, ValueType::Number, index_locals[index]);
+                            }
+                            emit(state, Opcode::ArrayGet, ValueType::Dynamic);
+                        }
+                    }
+                    emit(state, Opcode::MakeArray, ValueType::Array,
+                        checked_index(items.size(), "gather result count"));
+                };
+                emit_gather(*shaped_index, {});
+                return ValueType::Array;
+            }
+            const auto& expanded_count_value = field(object, "expanded_index_count", context);
+            if (!expanded_count_value.is_number() || expanded_count_value.as_number() < 0
+                || std::floor(expanded_count_value.as_number()) != expanded_count_value.as_number()) {
+                throw BytecodeLoweringError("index expression requires a fixed expanded count in " + context);
+            }
+            const auto expanded_count = static_cast<std::size_t>(expanded_count_value.as_number());
+            std::size_t expanded_index = 0;
             for (std::size_t index = 0; index < indices.size(); ++index) {
+                const auto index_context = context + ".indices[" + std::to_string(index) + "]";
+                const auto& index_object = object_of(indices[index], index_context);
+                if (string_field(index_object, "kind", index_context) == "spread_index") {
+                    const auto count_value = field(index_object, "count", index_context);
+                    if (!count_value.is_number() || count_value.as_number() < 0
+                        || std::floor(count_value.as_number()) != count_value.as_number()) {
+                        throw BytecodeLoweringError("spread index requires a fixed count in " + index_context);
+                    }
+                    const auto spread_count = static_cast<std::size_t>(count_value.as_number());
+                    const auto spread = add_temporary_local(state, ValueType::Array);
+                    lower_expression(field(index_object, "value", index_context), state,
+                        index_context + ".value");
+                    emit(state, Opcode::StoreLocal, ValueType::Array, spread);
+                    for (std::size_t component = 0; component < spread_count; ++component) {
+                        emit(state, Opcode::LoadLocal, ValueType::Array, spread);
+                        emit_number(state, static_cast<double>(component));
+                        emit(state, Opcode::ArrayGet, ValueType::Number);
+                        ++expanded_index;
+                        result_type = expanded_index == expanded_count
+                            ? expression_type(object, context) : ValueType::Dynamic;
+                        emit(state, Opcode::ArrayGet, result_type);
+                    }
+                    continue;
+                }
                 lower_expression(
                     indices[index],
                     state,
-                    context + ".indices[" + std::to_string(index) + "]"
+                    index_context
                 );
-                result_type = index + 1 == indices.size()
+                ++expanded_index;
+                result_type = expanded_index == expanded_count
                     ? expression_type(object, context)
                     : ValueType::Dynamic;
                 emit(state, Opcode::ArrayGet, result_type);
