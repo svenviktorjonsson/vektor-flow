@@ -1171,13 +1171,18 @@ private:
                     ++emitted_items;
                 }
             }
+            const bool spread_tuple = kind == "tuple" && std::any_of(
+                items.begin(), items.end(), [&](const vf::JsonValue& item) {
+                    return string_field(object_of(item, context + ".item"),
+                        "kind", context + ".item") == "spread";
+                });
             emit(
                 state,
-                kind == "tuple" ? Opcode::MakeTuple : Opcode::MakeArray,
-                kind == "tuple" ? ValueType::Dynamic : ValueType::Array,
+                kind == "tuple" && !spread_tuple ? Opcode::MakeTuple : Opcode::MakeArray,
+                kind == "tuple" && !spread_tuple ? ValueType::Dynamic : ValueType::Array,
                 checked_index(emitted_items, "array item count")
             );
-            return kind == "tuple" ? ValueType::Dynamic : ValueType::Array;
+            return kind == "tuple" && !spread_tuple ? ValueType::Dynamic : ValueType::Array;
         }
         if (kind == "multiset") {
             const auto& pairs = array_of(field(object, "pairs", context),
@@ -2553,6 +2558,95 @@ private:
             "kind",
             context + ".source"
         );
+        const std::string source_surface = string_field(source, "type", context + ".source");
+        const std::string result_surface = string_field(object, "type", context);
+
+        const bool source_is_string = source_surface == "str" || source_surface == "string";
+        const bool source_is_collection = source_kind == "range"
+            || source_surface.rfind("list<", 0) == 0
+            || source_surface.rfind("tuple<", 0) == 0
+            || (!source_surface.empty() && source_surface.front() == '[');
+        if (!source_is_collection && !source_is_string) {
+            ValueType current_type = expression_type(source, context + ".source");
+            auto current = add_temporary_local(state, current_type);
+            lower_expression(field(object, "source", context), state, context + ".source");
+            emit(state, Opcode::StoreLocal, current_type, current);
+            for (std::size_t index = 0; index < segments.size(); ++index) {
+                const auto previous_dollar = state.locals.find("$");
+                const bool had_previous_dollar = previous_dollar != state.locals.end();
+                const auto previous_dollar_index = had_previous_dollar ? previous_dollar->second : 0;
+                state.locals["$"] = current;
+                const ValueType next_type = lower_expression(segments[index], state,
+                    context + ".segments[" + std::to_string(index) + "]");
+                const auto next = add_temporary_local(state, next_type);
+                emit(state, Opcode::StoreLocal, next_type, next);
+                if (had_previous_dollar) state.locals["$"] = previous_dollar_index;
+                else state.locals.erase("$");
+                current = next;
+                current_type = next_type;
+            }
+            emit(state, Opcode::LoadLocal, current_type, current);
+            return current_type;
+        }
+        if (source_is_string) {
+            auto current = add_temporary_local(state, ValueType::String);
+            lower_expression(field(object, "source", context), state, context + ".source");
+            emit(state, Opcode::StoreLocal, ValueType::String, current);
+            for (std::size_t segment_index = 0; segment_index < segments.size(); ++segment_index) {
+                const auto output = add_temporary_local(state, ValueType::String);
+                const auto index = add_temporary_local(state, ValueType::Number);
+                const auto length = add_temporary_local(state, ValueType::Number);
+                const auto scalar = add_temporary_local(state, ValueType::String);
+                emit(state, Opcode::PushConstant, ValueType::String,
+                    intern_constant(Constant::utf8_string("")));
+                emit(state, Opcode::StoreLocal, ValueType::String, output);
+                emit_number(state, 0.0);
+                emit(state, Opcode::StoreLocal, ValueType::Number, index);
+                emit(state, Opcode::LoadLocal, ValueType::String, current);
+                emit(state, Opcode::Utf8Length, ValueType::Number);
+                emit(state, Opcode::StoreLocal, ValueType::Number, length);
+                const auto loop_start = checked_index(state.function->instructions.size(),
+                    "string pipe loop");
+                emit(state, Opcode::LoadLocal, ValueType::Number, index);
+                emit(state, Opcode::LoadLocal, ValueType::Number, length);
+                emit(state, Opcode::Less, ValueType::Boolean);
+                const auto loop_end_jump = state.function->instructions.size();
+                emit(state, Opcode::JumpIfFalse, ValueType::Void);
+                emit(state, Opcode::LoadLocal, ValueType::String, current);
+                emit(state, Opcode::LoadLocal, ValueType::Number, index);
+                emit(state, Opcode::Utf8PeekScalar, ValueType::String);
+                emit(state, Opcode::StoreLocal, ValueType::String, scalar);
+                const auto previous_dollar = state.locals.find("$");
+                const bool had_previous_dollar = previous_dollar != state.locals.end();
+                const auto previous_dollar_index = had_previous_dollar ? previous_dollar->second : 0;
+                state.locals["$"] = scalar;
+                const auto segment_type = lower_expression(segments[segment_index], state,
+                    context + ".segments[" + std::to_string(segment_index) + "]");
+                if (segment_type != ValueType::String) {
+                    throw BytecodeLoweringError("string pipe segment must produce text in " + context);
+                }
+                const auto segment_value = add_temporary_local(state, ValueType::String);
+                emit(state, Opcode::StoreLocal, ValueType::String, segment_value);
+                emit(state, Opcode::LoadLocal, ValueType::String, output);
+                emit(state, Opcode::LoadLocal, ValueType::String, segment_value);
+                emit(state, Opcode::StringConcat, ValueType::String);
+                emit(state, Opcode::StoreLocal, ValueType::String, output);
+                if (had_previous_dollar) state.locals["$"] = previous_dollar_index;
+                else state.locals.erase("$");
+                emit(state, Opcode::LoadLocal, ValueType::String, current);
+                emit(state, Opcode::LoadLocal, ValueType::Number, index);
+                emit(state, Opcode::Utf8Advance, ValueType::Number);
+                emit(state, Opcode::StoreLocal, ValueType::Number, index);
+                emit(state, Opcode::Jump, ValueType::Void, loop_start);
+                const auto loop_end = checked_index(state.function->instructions.size(),
+                    "string pipe continuation");
+                emit(state, Opcode::Nop, ValueType::Void);
+                patch_jump(state, loop_end_jump, loop_end);
+                current = output;
+            }
+            emit(state, Opcode::LoadLocal, ValueType::String, current);
+            return ValueType::String;
+        }
         std::uint32_t current_array = 0;
         std::size_t first_segment = 0;
 
@@ -2751,6 +2845,10 @@ private:
         }
 
         emit(state, Opcode::LoadLocal, ValueType::Array, current_array);
+        if (result_surface.rfind("tuple<", 0) == 0) {
+            emit(state, Opcode::ArrayAsTuple, ValueType::Dynamic);
+            return ValueType::Dynamic;
+        }
         return ValueType::Array;
     }
 
