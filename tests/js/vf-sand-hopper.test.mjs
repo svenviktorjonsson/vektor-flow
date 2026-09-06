@@ -5,11 +5,13 @@ import test from 'node:test';
 
 import {
   createDrySandHopperReference,
+  createDrySandEllipsoidRenderPacketReference,
   createDrySandRenderPacketReference,
   resetDrySandHopperReference,
   runDrySandHopperTrialReference,
   stepDrySandHopperReference,
   syncDrySandRenderPacketReference,
+  syncDrySandEllipsoidRenderPacketReference,
 } from '../../web/vf-ui/vf-sand-hopper-reference.mjs';
 
 const hash = (view) => createHash('sha256')
@@ -98,13 +100,47 @@ test('grain state is bounded, mildly nonspherical, and fixed-step replay exact',
   assert.ok(first.fixedStep > 0 && first.solverIterations >= 2);
 });
 
+test('contact-driven grain rotation stays normalized and replay exact', () => {
+  const realize = () => {
+    const world = createDrySandHopperReference({ seed: 0x4a21, grainCount: 192, outletDiameterInGrains: 4.2 });
+    stepDrySandHopperReference(world, 420);
+    return world;
+  };
+  const first = realize();
+  const replay = realize();
+  assert.equal(hash(first.state.orientations), hash(replay.state.orientations));
+  assert.equal(hash(first.state.angularVelocities), hash(replay.state.angularVelocities));
+  assert.ok(first.state.angularVelocities.some(value => Math.abs(value) > 0.01));
+  assert.notEqual(hash(first.state.orientations), hash(first.initial.orientations));
+  for (let grain = 0; grain < first.count; grain += 1) {
+    const q = first.state.orientations.subarray(grain * 4, grain * 4 + 4);
+    assert.ok(Math.abs(Math.hypot(...q) - 1) < 2e-6);
+  }
+});
+
+test('oriented ellipsoid mesh is a dynamic view of the authoritative grain SoA', () => {
+  const world = createDrySandHopperReference({ seed: 0x4a22, grainCount: 96, outletDiameterInGrains: 4.2 });
+  const packet = createDrySandEllipsoidRenderPacketReference(world, { latitudeSegments: 5, longitudeSegments: 8 });
+  const before = hash(packet.vertices);
+  stepDrySandHopperReference(world, 180);
+  syncDrySandEllipsoidRenderPacketReference(world, packet);
+  assert.notEqual(hash(packet.vertices), before);
+  assert.equal(packet.sourcePositions, world.state.positions);
+  assert.equal(packet.sourceOrientations, world.state.orientations);
+  assert.equal(packet.static_vertices, false);
+  assert.ok(packet.vertices.every(Number.isFinite));
+  assert.ok(packet.indices.every(index => index < packet.vertices.length / 10));
+  assert.equal(packet.indices.length / 3, world.count * 5 * 8 * 2);
+  assert.ok(packet.vectorBytes < 2 * 1024 * 1024);
+});
+
 test('WebGPU fixture renders the stepped SoA state without a canvas fallback', () => {
   const scene = readFileSync(new URL('../fixtures/dry-sand-hopper-scene.mjs', import.meta.url), 'utf8');
   const html = readFileSync(new URL('../fixtures/dry-sand-hopper.html', import.meta.url), 'utf8');
   assert.match(html, /vf-runtime-shell\.js/);
   assert.match(scene, /unified_renderer:\s*true/);
   assert.match(scene, /stepDrySandHopperReference\(world, 1\)/);
-  assert.match(scene, /syncDrySandRenderPacketReference\(world, grains\)/);
+  assert.match(scene, /syncDrySandEllipsoidRenderPacketReference\(world, grains\)/);
   assert.match(scene, /segments = 64/);
   assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
 });

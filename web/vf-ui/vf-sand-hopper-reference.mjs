@@ -172,6 +172,7 @@ function projectBoundaries(world, previous) {
 function applyGrainFriction(world) {
   const p = world.state.positions;
   const v = world.state.velocities;
+  const omega = world.state.angularVelocities;
   const inverse = 1 / world.diameter;
   const cells = new Map();
   for (let index = 0; index < world.count; index += 1) {
@@ -200,11 +201,35 @@ function applyGrainFriction(world) {
         const scale = Math.min(0.49, world.friction * 0.82);
         v[offset] -= tx * scale; v[offset + 1] -= ty * scale; v[offset + 2] -= tz * scale;
         v[oo] += tx * scale; v[oo + 1] += ty * scale; v[oo + 2] += tz * scale;
+        const torqueX = ny * tz - nz * ty;
+        const torqueY = nz * tx - nx * tz;
+        const torqueZ = nx * ty - ny * tx;
+        const spin = scale * 0.36 / world.radius;
+        omega[offset] += torqueX * spin; omega[offset + 1] += torqueY * spin; omega[offset + 2] += torqueZ * spin;
+        omega[oo] -= torqueX * spin; omega[oo + 1] -= torqueY * spin; omega[oo + 2] -= torqueZ * spin;
       }
     }
     const key = `${cx}:${cy}:${cz}`;
     const bucket = cells.get(key);
     if (bucket) bucket.push(index); else cells.set(key, [index]);
+  }
+}
+
+function integrateOrientations(world, dt) {
+  const q = world.state.orientations;
+  const omega = world.state.angularVelocities;
+  for (let index = 0; index < world.count; index += 1) {
+    const qo = index * 4; const vo = index * 3;
+    const x = q[qo]; const y = q[qo + 1]; const z = q[qo + 2]; const w = q[qo + 3];
+    const wx = omega[vo]; const wy = omega[vo + 1]; const wz = omega[vo + 2];
+    const half = dt * 0.5;
+    const nx = x + half * (wx * w + wy * z - wz * y);
+    const ny = y + half * (-wx * z + wy * w + wz * x);
+    const nz = z + half * (wx * y - wy * x + wz * w);
+    const nw = w + half * (-wx * x - wy * y - wz * z);
+    const inverse = 1 / Math.hypot(nx, ny, nz, nw);
+    q[qo] = nx * inverse; q[qo + 1] = ny * inverse;
+    q[qo + 2] = nz * inverse; q[qo + 3] = nw * inverse;
   }
 }
 
@@ -318,6 +343,17 @@ export function stepDrySandHopperReference(world, steps = 1) {
       }
     }
     applyGrainFriction(world);
+    for (let index = 0; index < world.count; index += 1) {
+      const offset = index * 3;
+      if (p[offset + 2] <= world.radius * 1.04) {
+        const blend = world.friction * 0.055;
+        world.state.angularVelocities[offset] += (-v[offset + 1] / world.radius
+          - world.state.angularVelocities[offset]) * blend;
+        world.state.angularVelocities[offset + 1] += (v[offset] / world.radius
+          - world.state.angularVelocities[offset + 1]) * blend;
+      }
+    }
+    integrateOrientations(world, dt);
     if (!world.archLocked && world.outletRadius / world.radius < 2.55 && world.time >= 0.12) {
       let throatCount = 0;
       for (let index = 0; index < world.count; index += 1) {
@@ -485,4 +521,80 @@ export function createDrySandRenderPacketReference(world) {
   };
   world.render.instances = instances;
   return syncDrySandRenderPacketReference(world, packet);
+}
+
+function rotateByQuaternion(x, y, z, q, offset) {
+  const qx = q[offset]; const qy = q[offset + 1]; const qz = q[offset + 2]; const qw = q[offset + 3];
+  const tx = 2 * (qy * z - qz * y);
+  const ty = 2 * (qz * x - qx * z);
+  const tz = 2 * (qx * y - qy * x);
+  return [x + qw * tx + qy * tz - qz * ty,
+    y + qw * ty + qz * tx - qx * tz,
+    z + qw * tz + qx * ty - qy * tx];
+}
+
+export function syncDrySandEllipsoidRenderPacketReference(world, packet) {
+  const directions = packet._directions;
+  const verticesPerGrain = directions.length / 3;
+  for (let grain = 0; grain < world.count; grain += 1) {
+    const source = grain * 3; const qo = grain * 4;
+    const warm = unit(world.seed, grain * 13);
+    const color = [0.58 + warm * 0.16, 0.42 + warm * 0.13, 0.20 + warm * 0.08];
+    for (let vertex = 0; vertex < verticesPerGrain; vertex += 1) {
+      const direction = vertex * 3; const target = (grain * verticesPerGrain + vertex) * 10;
+      const dx = directions[direction]; const dy = directions[direction + 1]; const dz = directions[direction + 2];
+      const ax = world.state.aspects[source]; const ay = world.state.aspects[source + 1]; const az = world.state.aspects[source + 2];
+      const local = [dx * world.radius * ax, dy * world.radius * ay, dz * world.radius * az];
+      const rotated = rotateByQuaternion(...local, world.state.orientations, qo);
+      const normalLocal = [dx / ax, dy / ay, dz / az];
+      const inverse = 1 / Math.hypot(...normalLocal);
+      const normal = rotateByQuaternion(normalLocal[0] * inverse, normalLocal[1] * inverse,
+        normalLocal[2] * inverse, world.state.orientations, qo);
+      packet.vertices.set([world.state.positions[source] + rotated[0],
+        world.state.positions[source + 1] + rotated[1], world.state.positions[source + 2] + rotated[2],
+        ...normal, ...color, 1], target);
+    }
+  }
+  return packet;
+}
+
+export function createDrySandEllipsoidRenderPacketReference(world, {
+  latitudeSegments = 6, longitudeSegments = 10,
+} = {}) {
+  const latitudes = Math.trunc(latitudeSegments); const longitudes = Math.trunc(longitudeSegments);
+  if (latitudes < 4 || latitudes > 12 || longitudes < 6 || longitudes > 18) {
+    throw new RangeError('sand ellipsoid tessellation is outside bounded detail');
+  }
+  const verticesPerGrain = (latitudes + 1) * (longitudes + 1);
+  const directions = new Float32Array(verticesPerGrain * 3);
+  let cursor = 0;
+  for (let latitude = 0; latitude <= latitudes; latitude += 1) {
+    const phi = latitude / latitudes * Math.PI;
+    for (let longitude = 0; longitude <= longitudes; longitude += 1) {
+      const theta = longitude / longitudes * Math.PI * 2;
+      directions.set([Math.sin(phi) * Math.cos(theta), Math.sin(phi) * Math.sin(theta), Math.cos(phi)], cursor);
+      cursor += 3;
+    }
+  }
+  const indices = new Uint32Array(world.count * latitudes * longitudes * 6);
+  cursor = 0;
+  for (let grain = 0; grain < world.count; grain += 1) {
+    const base = grain * verticesPerGrain; const row = longitudes + 1;
+    for (let latitude = 0; latitude < latitudes; latitude += 1) for (let longitude = 0; longitude < longitudes; longitude += 1) {
+      const a = base + latitude * row + longitude; const b = a + 1; const c = a + row; const d = c + 1;
+      indices.set([a, c, b, b, c, d], cursor); cursor += 6;
+    }
+  }
+  const packet = {
+    type:'field_mesh', id:'sand:oriented-active-grains', object_id:1, mode3d:true,
+    topology:'triangle-list', static_vertices:false, static_indices:true,
+    transparent:false, depth_write:true, receives_lighting:true, casts_shadow:true,
+    receives_shadow:false, specular_strength:0.09,
+    vertices:new Float32Array(world.count * verticesPerGrain * 10), indices,
+    sourcePositions:world.state.positions, sourceOrientations:world.state.orientations,
+    _directions:directions,
+  };
+  packet.vectorBytes = packet.vertices.byteLength + packet.indices.byteLength + directions.byteLength;
+  world.render.ellipsoidVertices = packet.vertices;
+  return syncDrySandEllipsoidRenderPacketReference(world, packet);
 }

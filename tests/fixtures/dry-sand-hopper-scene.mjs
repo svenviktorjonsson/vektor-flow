@@ -1,8 +1,8 @@
 import {
   createDrySandHopperReference,
-  createDrySandRenderPacketReference,
+  createDrySandEllipsoidRenderPacketReference,
   stepDrySandHopperReference,
-  syncDrySandRenderPacketReference,
+  syncDrySandEllipsoidRenderPacketReference,
 } from '../../web/vf-ui/vf-sand-hopper-reference.mjs';
 import {
   createDrySandAggregateReference,
@@ -15,7 +15,7 @@ const frameId = 'dry_sand_hopper_frame';
 const world = createDrySandHopperReference({
   seed: 0x5a17, grainCount: 320, outletDiameterInGrains: 4.2, fillHeightInGrains: 18,
 });
-const grains = createDrySandRenderPacketReference(world);
+const grains = createDrySandEllipsoidRenderPacketReference(world);
 const aggregate = createDrySandAggregateReference(world, { resolution: 33, extent: 1.0 });
 let aggregatePacket = createDrySandAggregateRenderPacketReference(aggregate, { distance: 2 });
 
@@ -74,7 +74,7 @@ try {
   stepDrySandBcreReference(aggregate, 20);
   window.__drySandEvidence = { world, aggregate, grains, frames: 0, wgpuErrors: [] };
   window.VfDisplay.mountDynamicGeomFrame(frameId, () => {
-    syncDrySandRenderPacketReference(world, grains);
+    syncDrySandEllipsoidRenderPacketReference(world, grains);
     aggregatePacket = createDrySandAggregateRenderPacketReference(aggregate, { distance: 2 });
     return {
       meshes: [ground, aggregatePacket, grains, funnelMesh()],
