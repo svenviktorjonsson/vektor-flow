@@ -32,3 +32,14 @@ test('unchanged primitive guide executes compiler-owned scalar conversions',asyn
     },
   });
 });
+
+test('unchanged literal-spread guide expands fixed items in the compiler',async()=>{
+  const [wasm,source]=await Promise.all([
+    readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url)),
+    readFile(new URL('../../examples/generated/readme/core/22b-literal-spreads.vkf',import.meta.url),'utf8'),
+  ]);
+  const module=new WebAssembly.Module(wasm);
+  assert.deepEqual(runInlineWorkerRequest({type:'run',id:3,source,module}),{
+    id:3,status:'ok',output:{kind:'console',stdout:'(1, 2, 3, 4)\n4\n',stderr:''},
+  });
+});

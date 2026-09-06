@@ -1099,18 +1099,35 @@ private:
                 field(object, "items", context),
                 context + ".items"
             );
+            std::size_t emitted_items = 0;
             for (std::size_t index = 0; index < items.size(); ++index) {
-                lower_expression(
-                    items[index],
-                    state,
-                    context + ".items[" + std::to_string(index) + "]"
-                );
+                const auto item_context = context + ".items[" + std::to_string(index) + "]";
+                const auto& item = object_of(items[index], item_context);
+                if (string_field(item, "kind", item_context) == "spread") {
+                    const auto& literal = object_of(field(item, "value", item_context),
+                        item_context + ".value");
+                    const auto literal_kind = string_field(literal, "kind", item_context + ".value");
+                    if (literal_kind != "list" && literal_kind != "tuple") {
+                        throw BytecodeLoweringError(
+                            "WASM literal spread requires a fixed list or tuple in " + item_context);
+                    }
+                    const auto& spread_items = array_of(field(literal, "items", item_context + ".value"),
+                        item_context + ".value.items");
+                    for (std::size_t spread_index = 0; spread_index < spread_items.size(); ++spread_index) {
+                        lower_expression(spread_items[spread_index], state,
+                            item_context + ".value.items[" + std::to_string(spread_index) + "]");
+                    }
+                    emitted_items += spread_items.size();
+                } else {
+                    lower_expression(items[index], state, item_context);
+                    ++emitted_items;
+                }
             }
             emit(
                 state,
                 kind == "tuple" ? Opcode::MakeTuple : Opcode::MakeArray,
                 kind == "tuple" ? ValueType::Dynamic : ValueType::Array,
-                checked_index(items.size(), "array item count")
+                checked_index(emitted_items, "array item count")
             );
             return kind == "tuple" ? ValueType::Dynamic : ValueType::Array;
         }
