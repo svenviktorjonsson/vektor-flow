@@ -4,6 +4,9 @@ import test from 'node:test';
 import {
   createWeatheredGraniteSpecimenReference,
 } from '../../web/vf-ui/vf-weathered-granite-specimen.mjs';
+import {
+  realizeGraniteMicroreliefProbeReference,
+} from '../../web/vf-ui/vf-granite-microrelief-reference.mjs';
 
 const IDENTITY = Object.freeze({
   generator: 'vkf.conditioned',
@@ -80,4 +83,96 @@ test('one geology identity deterministically couples shape and granite material'
   assert.ok(first.metrics.mineralFleckFraction < 0.24);
   assert.ok(first.metrics.crackFraction > 0.01);
   assert.ok(first.metrics.crackFraction < 0.16);
+});
+
+test('microrelief changes only the material variant, never geometry bytes', () => {
+  const baseline = createWeatheredGraniteSpecimenReference(IDENTITY, {
+    microrelief: false,
+  });
+  const enabled = createWeatheredGraniteSpecimenReference(IDENTITY, {
+    microrelief: true,
+  });
+
+  assert.deepEqual(enabled.packet.vertices, baseline.packet.vertices);
+  assert.deepEqual(enabled.packet.indices, baseline.packet.indices);
+  assert.equal(enabled.packet.vertices.byteLength, baseline.packet.vertices.byteLength);
+  assert.equal(enabled.packet.indices.byteLength, baseline.packet.indices.byteLength);
+  assert.deepEqual(
+    enabled.packet.rock_material_gpu.streamWords,
+    baseline.packet.rock_material_gpu.streamWords,
+  );
+  assert.equal(baseline.packet.rock_material_gpu.variant, 'weathered-granite');
+  assert.equal(enabled.packet.rock_material_gpu.variant, 'weathered-granite-microrelief');
+});
+
+test('conditioned microrelief is deterministic, directional, bounded, and filtered', () => {
+  const options = { resolution: 48, footprint: 0.002 };
+  const lightA = [0.35, -0.42, 0.84];
+  const lightB = [-0.61, 0.19, 0.77];
+  const first = realizeGraniteMicroreliefProbeReference(IDENTITY, {
+    ...options,
+    lightDirection: lightA,
+    enabled: true,
+  });
+  const replay = realizeGraniteMicroreliefProbeReference(IDENTITY, {
+    ...options,
+    lightDirection: lightA,
+    enabled: true,
+  });
+  const relit = realizeGraniteMicroreliefProbeReference(IDENTITY, {
+    ...options,
+    lightDirection: lightB,
+    enabled: true,
+  });
+  const disabled = realizeGraniteMicroreliefProbeReference(IDENTITY, {
+    ...options,
+    lightDirection: lightA,
+    enabled: false,
+  });
+  const distant = realizeGraniteMicroreliefProbeReference(IDENTITY, {
+    resolution: 24,
+    footprint: 0.055,
+    lightDirection: lightA,
+    enabled: true,
+  });
+
+  assert.deepEqual(first, replay);
+  assert.deepEqual(first.albedo, relit.albedo);
+  assert.deepEqual(first.materialIdentity, relit.materialIdentity);
+  assert.notDeepEqual(first.luminance, relit.luminance);
+  assert.ok(first.highFrequencyLightingEnergy > disabled.highFrequencyLightingEnergy * 4);
+  assert.ok(distant.highFrequencyLightingEnergy < first.highFrequencyLightingEnergy * 0.45);
+  assert.ok(first.highlightSpan > 0.015);
+  assert.ok(first.normalLengthError < 1e-6);
+  assert.ok(first.maximumSlope <= 0.48);
+  assert.ok(first.minimumRoughness >= 0.48);
+  assert.ok(first.maximumRoughness <= 0.9);
+  assert.ok([...first.luminance, ...first.highlight].every(Number.isFinite));
+});
+
+test('bounded horizon march creates directional grazing microshadows only', () => {
+  const probe = (lightDirection, microshadow = true) => (
+    realizeGraniteMicroreliefProbeReference(IDENTITY, {
+      resolution: 48,
+      footprint: 0.002,
+      lightDirection,
+      enabled: true,
+      microshadow,
+    })
+  );
+  const overhead = probe([0.1, 0.1, 0.99]);
+  const left = probe([-0.96, 0, 0.28]);
+  const right = probe([0.96, 0, 0.28]);
+  const disabled = probe([-0.96, 0, 0.28], false);
+
+  assert.equal(overhead.shadowedPixelFraction, 0);
+  assert.equal(disabled.shadowedPixelFraction, 0);
+  assert.ok(left.shadowedPixelFraction > 0.15);
+  assert.ok(right.shadowedPixelFraction > 0.15);
+  assert.ok(left.highFrequencyLightingEnergy > overhead.highFrequencyLightingEnergy * 1.15);
+  assert.ok(right.highFrequencyLightingEnergy > overhead.highFrequencyLightingEnergy * 1.2);
+  assert.ok(left.highFrequencyLightingEnergy > disabled.highFrequencyLightingEnergy * 2.4);
+  assert.notDeepEqual(left.luminance, right.luminance);
+  assert.deepEqual(left.albedo, right.albedo);
+  assert.equal(left.maxHorizonSteps, 8);
 });

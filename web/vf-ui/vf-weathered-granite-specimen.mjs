@@ -84,7 +84,10 @@ function createTopology() {
   return new Uint32Array(indices);
 }
 
-export function createWeatheredGraniteSpecimenReference(identity) {
+export function createWeatheredGraniteSpecimenReference(
+  identity,
+  { microrelief = false, microshadow = true } = {},
+) {
   const root = createConditionedRoot(identity);
   const formNode = conditionChild(root, {
     segment: 'stone:weathered-granite:v1',
@@ -239,7 +242,11 @@ export function createWeatheredGraniteSpecimenReference(identity) {
     specular_strength: 1 - roughness.reduce((sum, value) => sum + value, 0) / roughness.length,
     rock_material_gpu: Object.freeze({
       kind: 'rock-geology-weathering-gpu:v1',
-      variant: 'weathered-granite',
+      variant: microrelief
+        ? (microshadow
+          ? 'weathered-granite-microrelief'
+          : 'weathered-granite-microrelief-no-shadow')
+        : 'weathered-granite',
       streamWords: Object.freeze((() => {
         const stream = conditionedNodeStreamReference(detailNode);
         return [...stream.counterPrefix, ...stream.key];

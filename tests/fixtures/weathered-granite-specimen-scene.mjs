@@ -14,7 +14,10 @@ const identity = Object.freeze({
 
 const config = window.__stoneSpecimenView;
 const frameId = 'weathered_granite_specimen_frame';
-const specimen = createWeatheredGraniteSpecimenReference(identity);
+const specimen = createWeatheredGraniteSpecimenReference(identity, {
+  microrelief: config.microrelief === true,
+  microshadow: config.microshadow !== false,
+});
 const groundVertices = new Float32Array([
   -7, -6, -0.035, 0, 0, 1, 0.16, 0.17, 0.16, 1,
    7, -6, -0.035, 0, 0, 1, 0.16, 0.17, 0.16, 1,
@@ -44,13 +47,17 @@ try {
   panel.root.style.top = '2%';
   panel.root.style.width = '96%';
   panel.root.style.height = '96%';
-  const lights = config.neutral ? [
+  const lights = config.light ? [{
+    id: 'microrelief_proof', kind: 'point', pos: config.light,
+    target: [0, 0, 0.85], color: [1, 1, 1, 1],
+    intensity: config.intensity ?? 30, range: 22,
+  }] : (config.neutral ? [
     { id: 'neutral_key', kind: 'point', pos: [3, -4, 6], target: [0, 0, 0.8], color: [1, 1, 1, 1], intensity: 26, range: 18 },
     { id: 'neutral_fill', kind: 'point', pos: [-4, -1, 3], target: [0, 0, 0.8], color: [1, 1, 1, 1], intensity: 15, range: 16 },
   ] : [
     { id: 'warm_key', kind: 'point', pos: [4, -5, 6], target: [0, 0, 0.8], color: [1, 0.91, 0.78, 1], intensity: 36, range: 20 },
     { id: 'cool_fill', kind: 'point', pos: [-4, -1, 3], target: [0, 0, 0.8], color: [0.60, 0.72, 1, 1], intensity: 13, range: 18 },
-  ];
+  ]);
   window.__weatheredGraniteEvidence = {
     kind: specimen.kind,
     metrics: specimen.metrics,

@@ -3294,21 +3294,46 @@ fn fs(i: Vout) -> @location(0) vec4f {
       surfaceCoordinates, footprint, u32(max(sc.rock_material_filter.y, 0.0)),
       sc.rock_material_stream.xy, sc.rock_material_stream.zw,
     );
+    var graniteCoordinates = vec2<f32>(0.0);
+    var graniteFootprint = footprint;
     if (sc.rock_material_filter.w > 1.5) {
       let graniteLocal = i.local_pos / max(sc.rock_material_radii_enabled.xyz, vec3<f32>(0.001));
-      let graniteCoordinates = vec2<f32>(
+      graniteCoordinates = vec2<f32>(
         dot(graniteLocal, vec3<f32>(0.73, 0.19, 0.41)),
         dot(graniteLocal, vec3<f32>(-0.27, 0.81, 0.52)),
       );
-      let graniteFootprint = max(length(dpdx(graniteCoordinates)), length(dpdy(graniteCoordinates)));
+      graniteFootprint = max(length(dpdx(graniteCoordinates)), length(dpdy(graniteCoordinates)));
       rock = vf_weathered_granite_sample(
         graniteCoordinates, max(graniteFootprint, sc.rock_material_filter.x), u32(max(sc.rock_material_filter.y, 0.0)),
         sc.rock_material_stream.xy, sc.rock_material_stream.zw,
       );
+      if (sc.rock_material_filter.w > 2.5) {
+        rock = vf_weathered_granite_microrelief_sample(
+          graniteCoordinates, max(graniteFootprint, sc.rock_material_filter.x), u32(max(sc.rock_material_filter.y, 0.0)),
+          sc.rock_material_stream.xy, sc.rock_material_stream.zw,
+        );
+      }
     }
     let rockNormal = vfRockWorldNormal(i.normal, rock.tangent_normal);
     let rockSpecularScale = 0.34 * (1.0 - rock.roughness) * (1.0 - rock.roughness);
-    return shadeLitBaseScaled(rock.base_color.rgb, i.color.a, i.world_pos, rockNormal, false, rockSpecularScale);
+    var shaded = shadeLitBaseScaled(rock.base_color.rgb, i.color.a, i.world_pos, rockNormal, false, rockSpecularScale);
+    if (sc.rock_material_filter.w > 2.5 && sc.rock_material_filter.w < 3.5 && sc.light_count > 0u) {
+      let lightWorld = normalize(sc.light0_pos - i.world_pos);
+      let lightLocal = lightWorld / max(sc.rock_material_radii_enabled.xyz, vec3<f32>(0.001));
+      let lightCoordinates = vec2<f32>(
+        dot(lightLocal, vec3<f32>(0.73, 0.19, 0.41)),
+        dot(lightLocal, vec3<f32>(-0.27, 0.81, 0.52)),
+      );
+      let incidence = max(dot(normalize(i.normal), lightWorld), 0.0);
+      let visibility = vf_granite_micro_visibility(
+        graniteCoordinates, max(graniteFootprint, sc.rock_material_filter.x),
+        lightCoordinates, incidence, sc.rock_material_stream.xy, sc.rock_material_stream.zw,
+      );
+      let ambientFloor = rock.base_color.rgb * 0.20;
+      let directAndSpecular = max(shaded.rgb - ambientFloor, vec3<f32>(0.0));
+      shaded = vec4<f32>(ambientFloor + directAndSpecular * visibility, shaded.a);
+    }
+    return shaded;
   }
   let materialFootprint = max(length(dpdx(i.local_pos)), length(dpdy(i.local_pos))) * max(sc.texture_params.y, sc.texture_params.z);
   if (sc.texture_params.x > 3.5) {
@@ -4747,7 +4772,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[rockMaterialBase + 8] = minimumFootprint;
       f32[rockMaterialBase + 9] = Math.min(0xffffff, rockMaterial.detailLevel);
       f32[rockMaterialBase + 10] = 6.0;
-      f32[rockMaterialBase + 11] = rockMaterial.variant === "weathered-granite" ? 2.0 : 1.0;
+      f32[rockMaterialBase + 11] = rockMaterial.variant === "weathered-granite"
+        ? 2.0
+        : (rockMaterial.variant === "weathered-granite-microrelief"
+          ? 3.0
+          : (rockMaterial.variant === "weathered-granite-microrelief-no-shadow" ? 4.0 : 1.0));
       // Per-fragment roughness owns the energy-safe specular scale.
       f32[75] = 1.0;
     }

@@ -206,6 +206,86 @@ fn vf_weathered_granite_sample(
     tangentNormal,
   );
 }
+
+fn vf_granite_micro_height(
+  coordinates: vec2<f32>,
+  footprint: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> f32 {
+  let weight0 = vf_rock_filter_weight(0.045, footprint);
+  let weight1 = vf_rock_filter_weight(0.0225, footprint);
+  let weight2 = vf_rock_filter_weight(0.01125, footprint);
+  return
+    0.0080 * weight0 * vf_rock_spatial(coordinates, 0.045, counter_prefix, key)
+    + 0.0042 * weight1 * vf_rock_spatial(coordinates, 0.0225, counter_prefix, key)
+    + 0.0021 * weight2 * vf_rock_spatial(coordinates, 0.01125, counter_prefix, key);
+}
+
+fn vf_weathered_granite_microrelief_sample(
+  coordinates: vec2<f32>,
+  footprint: f32,
+  detail_level: u32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> VfRockMaterialSample {
+  let base = vf_weathered_granite_sample(
+    coordinates, footprint, detail_level, counter_prefix, key,
+  );
+  let step = 0.0007;
+  let center = vf_granite_micro_height(coordinates, footprint, counter_prefix, key);
+  let derivative = vec2<f32>(
+    vf_granite_micro_height(coordinates + vec2<f32>(step, 0.0), footprint, counter_prefix, key)
+      - vf_granite_micro_height(coordinates - vec2<f32>(step, 0.0), footprint, counter_prefix, key),
+    vf_granite_micro_height(coordinates + vec2<f32>(0.0, step), footprint, counter_prefix, key)
+      - vf_granite_micro_height(coordinates - vec2<f32>(0.0, step), footprint, counter_prefix, key),
+  ) / (2.0 * step);
+  let boundedSlope = clamp(derivative * 0.12, vec2<f32>(-0.48), vec2<f32>(0.48));
+  let roughnessWeight = vf_rock_filter_weight(0.028, footprint);
+  let roughnessNoise = vf_rock_spatial(
+    coordinates + vec2<f32>(11.7, -6.2), 0.028, counter_prefix, key,
+  ) * roughnessWeight;
+  return VfRockMaterialSample(
+    base.geology,
+    base.weathering,
+    base.base_color,
+    clamp(base.roughness + roughnessNoise * 0.13, 0.48, 0.90),
+    clamp(base.displacement + center, -0.08, 0.08),
+    boundedSlope,
+    normalize(vec3<f32>(-boundedSlope, 1.0)),
+  );
+}
+
+fn vf_granite_micro_visibility(
+  coordinates: vec2<f32>,
+  footprint: f32,
+  light_coordinates: vec2<f32>,
+  incidence: f32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> f32 {
+  let horizontal = length(light_coordinates);
+  let fade = smoothstep(0.04, 0.14, incidence)
+    * (1.0 - smoothstep(0.28, 0.86, incidence))
+    * vf_rock_filter_weight(0.045, footprint);
+  if (horizontal <= 0.000001 || fade <= 0.0) {
+    return 1.0;
+  }
+  let direction = light_coordinates / horizontal;
+  let origin = vf_granite_micro_height(coordinates, footprint, counter_prefix, key);
+  let step_distance = max(0.0018, footprint * 1.05);
+  for (var step_index = 1u; step_index <= 8u; step_index += 1u) {
+    let travel = step_distance * f32(step_index);
+    let terrain = vf_granite_micro_height(
+      coordinates + direction * travel, footprint, counter_prefix, key,
+    );
+    let ray_height = origin + travel * max(incidence, 0.0) / max(horizontal, 0.08);
+    if (terrain > ray_height + 0.00005) {
+      return 1.0 - 0.86 * fade;
+    }
+  }
+  return 1.0;
+}
 `;
 
 function requireRecord(record, index) {
