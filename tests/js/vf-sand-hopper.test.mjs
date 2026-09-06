@@ -73,6 +73,27 @@ test('outlet sweep scales discharge and resolves a near-grain arch regime', () =
   assert.ok(trials[2].meanDischargeRate >= trials[1].meanDischargeRate * 1.35);
 });
 
+test('too-small outlet reports a deterministic persistent no-flow arch', () => {
+  const realize = () => {
+    const world = createDrySandHopperReference({
+      seed: 0x3130, grainCount: 256, outletDiameterInGrains: 1.8,
+    });
+    stepDrySandHopperReference(world, 60);
+    const dischargedAtObservation = world.state.discharged.reduce((sum, value) => sum + value, 0);
+    stepDrySandHopperReference(world, 240);
+    return { world, dischargedAtObservation };
+  };
+  const first = realize(); const replay = realize();
+  assert.equal(first.world.flowDiagnostic.status, 'no-flow-arch');
+  assert.equal(first.world.flowDiagnostic.outletDiameterInMeanGrains, 1.8);
+  assert.ok(first.world.flowDiagnostic.throatGrainCount >= 3);
+  assert.ok(first.world.flowDiagnostic.lockedAtStep > 0);
+  assert.equal(first.world.flowDiagnostic.dischargedCount, first.dischargedAtObservation);
+  assert.equal(first.world.state.discharged.reduce((sum, value) => sum + value, 0),
+    first.dischargedAtObservation);
+  assert.deepEqual(first.world.flowDiagnostic, replay.world.flowDiagnostic);
+});
+
 test('discharge is fill-height independent above the Janssen regime', () => {
   const low = runDrySandHopperTrialReference({
     seed: 0x9c41, grainCount: 384, fillHeightInGrains: 15,
@@ -264,6 +285,17 @@ test('fine/coarse comparison fixture renders both authoritative preset states in
   const html = readFileSync(new URL('../fixtures/dry-sand-presets.html', import.meta.url), 'utf8');
   assert.match(scene, /preset:\s*'fine'/);
   assert.match(scene, /preset:\s*'coarse'/);
+  assert.match(scene, /unified_renderer:\s*true/);
+  assert.match(scene, /createDrySandEllipsoidRenderPacketReference/);
+  assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
+});
+
+test('outlet regime fixture compares blocked and flowing authoritative states in WebGPU', () => {
+  const scene = readFileSync(new URL('../fixtures/dry-sand-outlet-regimes-scene.mjs', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../fixtures/dry-sand-outlet-regimes.html', import.meta.url), 'utf8');
+  assert.match(scene, /outletDiameterInGrains:\s*1\.8/);
+  assert.match(scene, /outletDiameterInGrains:\s*4\.2/);
+  assert.match(scene, /flowDiagnostic/);
   assert.match(scene, /unified_renderer:\s*true/);
   assert.match(scene, /createDrySandEllipsoidRenderPacketReference/);
   assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);

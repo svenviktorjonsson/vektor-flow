@@ -118,6 +118,7 @@ export function createDrySandHopperReference({
     kind: 'dry-sand-hopper-reference:v1', seed: seed >>> 0, count,
     radius, diameter, maximumDiameter: diameter * (1 + profile.sizeSpread),
     hopperBottom, hopperTop, hopperRadius, outletRadius,
+    outletDiameterInMeanGrains: outletRadius / radius,
     fixedStep: FIXED_STEP, solverIterations: SOLVER_ITERATIONS, time: 0,
     preset: profile,
     friction: profile.friction, rollingResistance: profile.rollingResistance, restitution: profile.restitution,
@@ -132,6 +133,9 @@ export function createDrySandHopperReference({
     }),
     maxPersistentPenetration: 0,
     archLocked: false,
+    _archLastDischargedCount: 0,
+    _archStableSteps: 0,
+    flowDiagnostic: Object.freeze({ status: 'flowing', outletDiameterInMeanGrains: outletRadius / radius }),
   };
 }
 
@@ -148,6 +152,11 @@ export function resetDrySandHopperReference(world) {
   world.time = 0;
   world.maxPersistentPenetration = 0;
   world.archLocked = false;
+  world._archLastDischargedCount = 0;
+  world._archStableSteps = 0;
+  world.flowDiagnostic = Object.freeze({
+    status: 'flowing', outletDiameterInMeanGrains: world.outletDiameterInMeanGrains,
+  });
   return world;
 }
 
@@ -183,7 +192,8 @@ function projectBoundaries(world, previous) {
       const radialNow = Math.hypot(x, y);
       const wasAbove = previous[offset + 2] >= world.hopperBottom + r;
       const plateBlocks = radialNow + r > world.outletRadius || world.archLocked;
-      if (z < world.hopperBottom + r && wasAbove && plateBlocks) {
+      if (z < world.hopperBottom + r && plateBlocks
+          && (wasAbove || (world.archLocked && !world.state.discharged[index]))) {
         maxPenetration = Math.max(maxPenetration, world.hopperBottom + r - z);
         z = world.hopperBottom + r;
       }
@@ -461,6 +471,31 @@ export function stepDrySandHopperReference(world, steps = 1) {
             && radial < world.outletRadius + radius) throatCount += 1;
       }
       world.archLocked = throatCount >= 3;
+      if (world.archLocked) {
+        world._archLastDischargedCount = world.state.discharged.reduce((sum, value) => sum + value, 0);
+        world._archStableSteps = 0;
+        world.flowDiagnostic = Object.freeze({
+          status: 'arching',
+          outletDiameterInMeanGrains: world.outletDiameterInMeanGrains,
+          throatGrainCount: throatCount,
+          lockedAtStep: Math.round(world.time / world.fixedStep),
+          lockedAtTime: world.time,
+          dischargedCount: world._archLastDischargedCount,
+        });
+      }
+    }
+    if (world.archLocked) {
+      const dischargedCount = world.state.discharged.reduce((sum, value) => sum + value, 0);
+      if (dischargedCount === world._archLastDischargedCount) world._archStableSteps += 1;
+      else { world._archLastDischargedCount = dischargedCount; world._archStableSteps = 0; }
+      if (world._archStableSteps >= 24 && world.flowDiagnostic.status !== 'no-flow-arch') {
+        world.flowDiagnostic = Object.freeze({
+          ...world.flowDiagnostic, status: 'no-flow-arch',
+          confirmedAtStep: Math.round(world.time / world.fixedStep),
+          confirmedAtTime: world.time,
+          dischargedCount,
+        });
+      }
     }
     world.time += dt;
   }
@@ -549,6 +584,7 @@ export function runDrySandHopperTrialReference(options = {}) {
     reposeAngleDegrees: reposeAngle(world),
     settledSpeedRms: Math.sqrt(speedSquared / Math.max(1, settledCount)),
     clogged: world.archLocked,
+    flowDiagnostic: world.flowDiagnostic,
     stateHash: stateHash(world), minimumAspectRatio, maximumAspectRatio,
     vectorBytes: world.state.positions.byteLength + world.state.velocities.byteLength
       + world.state.orientations.byteLength + world.state.angularVelocities.byteLength
