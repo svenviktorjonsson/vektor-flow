@@ -703,3 +703,51 @@ materialize_code_section(
         updated & _zero_bytes(raw_offset - template_length, high_bytes) &
         _zero_bytes(raw_size, high_bytes)
     )
+
+materialize_composed_code_section(
+    template:str, code:[num], entry_offset:num, high_bytes:[str]
+):
+    (code.length() > 0 /\ entry_offset >= 0 /\ entry_offset < code.length() /\
+        entry_offset % 1 = 0)?! "x64 composed code entry is outside the image"
+    section: code_section(template, code.length(), high_bytes)
+    artifact: materialize_code_section(
+        template,
+        section.existing,
+        section.append,
+        section.middle,
+        section.header_offset,
+        section.virtual_size,
+        section.virtual_address,
+        section.raw_size,
+        section.raw_offset,
+        section.template_length,
+        high_bytes
+    )
+    body: ""
+    index: 0
+    value: 0
+    (index < code.length())?>
+        .value: code.(index)
+        (value >= 0 /\ value <= 255 /\ value % 1 = 0)?! "x64 composed code contains an invalid byte"
+        .body: body & _byte(value, high_bytes)
+        .index+: 1
+    section.raw_size >= code.length() ?! "x64 composed code exceeds its PE section"
+    .body: body & _zero_bytes(section.raw_size - code.length(), high_bytes)
+    .artifact: _replace_bytes(
+        artifact,
+        section.raw_offset,
+        section.raw_offset + section.raw_size,
+        body
+    )
+    pe_offset: _u32(artifact, 60, high_bytes)
+    optional_header_offset: pe_offset + 24
+    entry_rva: section.virtual_address + entry_offset
+    .artifact: _replace_u32(
+        artifact, optional_header_offset + 16, entry_rva, high_bytes
+    )
+    (
+        artifact:artifact,
+        raw_offset:section.raw_offset,
+        raw_size:section.raw_size,
+        entry_rva:entry_rva
+    )
