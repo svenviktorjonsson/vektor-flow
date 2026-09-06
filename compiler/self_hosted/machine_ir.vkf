@@ -2019,6 +2019,7 @@ _mir_concrete_tagged_function(
 mir_assemble_tagged_resolved_module(
     function_name:str,
     parameter_names:[str],
+    parameter_types:[str],
     body_kinds:[str],
     body_names:[str],
     body_ops:[str],
@@ -2028,13 +2029,15 @@ mir_assemble_tagged_resolved_module(
     argument_kinds:[str],
     argument_names:[str],
     argument_ops:[str],
-    argument_values:[num]
+    argument_values:[num],
+    argument_element_counts:[int],
+    argument_collection_values:[num]
 ) -> ConcreteTaggedMachineModule:
     (callee = function_name)?! "concrete Machine IR call target does not match function"
     body_count: body_kinds.length()
     (body_names.length() = body_count /\ body_ops.length() = body_count /\ body_values.length() = body_count /\ body_depths.length() = body_count)?! "concrete Machine IR body arenas are not parallel"
     argument_count: argument_kinds.length()
-    (argument_count = parameter_names.length() /\ argument_names.length() = argument_count /\ argument_ops.length() = argument_count /\ argument_values.length() = argument_count)?! "concrete Machine IR argument arenas are not parallel"
+    (parameter_types.length() = parameter_names.length() /\ argument_count = parameter_names.length() /\ argument_names.length() = argument_count /\ argument_ops.length() = argument_count /\ argument_values.length() = argument_count /\ argument_element_counts.length() = argument_count)?! "concrete Machine IR argument arenas are not parallel"
     provided_parameter_mask: 0
     int mask_index: 0
     (mask_index < argument_count)?>
@@ -2043,9 +2046,15 @@ mir_assemble_tagged_resolved_module(
     [str] empty_strings: []
     [bit] empty_bits: []
     [num] empty_numbers: []
+    [num] string_data: []
     [ConcreteTaggedMachineInstruction] entry_instructions: []
     int argument_index: 0
+    int collection_offset: 0
     str argument_kind: ""
+    literal_offset: 0
+    element_count: 0
+    int element_index: 0
+    literal: _bootstrap_f64_bytes(0)
     (argument_index < argument_count)?>
         .argument_kind: argument_kinds.(argument_index)
         argument_kind = "call"?
@@ -2060,8 +2069,20 @@ mir_assemble_tagged_resolved_module(
             ]
         argument_kind = "const"?
             .entry_instructions: entry_instructions & [_mir_concrete_tagged_instruction("push_f64", value:argument_values.(argument_index))]
-        (argument_kind = "call" \/ argument_kind = "binary_op" \/ argument_kind = "const")?! "concrete Machine IR argument expression is unsupported"
+        argument_kind = "collection"?
+            .literal_offset: string_data.length()
+            .element_count: argument_element_counts.(argument_index)
+            .element_index: 0
+            (element_index < element_count)?>
+                .literal: _bootstrap_f64_bytes(argument_collection_values.(collection_offset + element_index))
+                literal.valid?! "concrete collection argument contains an unsupported number"
+                .string_data: string_data & literal.bytes
+                .element_index+: 1
+            .collection_offset+: element_count
+            .entry_instructions: entry_instructions & [_mir_concrete_tagged_instruction("make_owned_f64_list_literal", index:literal_offset, argument_count:element_count)]
+        (argument_kind = "call" \/ argument_kind = "binary_op" \/ argument_kind = "const" \/ argument_kind = "collection")?! "concrete Machine IR argument expression is unsupported"
         .argument_index+: 1
+    (collection_offset = argument_collection_values.length())?! "concrete collection argument values are not parallel"
     .entry_instructions: entry_instructions & [
         _mir_concrete_tagged_instruction("call", symbol:callee, argument_count:argument_count, result_count:1, provided_parameter_mask:provided_parameter_mask),
         _mir_concrete_tagged_instruction("return_f64")
@@ -2082,7 +2103,7 @@ mir_assemble_tagged_resolved_module(
     [bit] numeric_parameter_classes: []
     int parameter_index: 0
     (parameter_index < parameter_names.length())?>
-        .numeric_parameter_classes: numeric_parameter_classes & [true]
+        .numeric_parameter_classes: numeric_parameter_classes & [parameter_types.(parameter_index) = "num"]
         .parameter_index+: 1
     [ConcreteTaggedMachineInstruction] numeric_instructions: []
     int body_index: 0
@@ -2127,7 +2148,7 @@ mir_assemble_tagged_resolved_module(
         output_count:1,
         outputs:empty_strings,
         output_tokens:empty_strings,
-        string_data:empty_numbers,
+        string_data:string_data,
         entry:entry,
         functions:functions
     )
@@ -2136,8 +2157,10 @@ mir_tagged_resolved_module_matches(
     module:ConcreteTaggedMachineModule,
     function_name:str,
     parameter_names:[str],
+    parameter_types:[str],
     argument_count:int,
-    conditional:bit
+    conditional:bit,
+    collection_count:int
 ) -> bit:
     numeric_function: module.functions.(1)
     entry_call: module.entry.instructions.(module.entry.instructions.length() - 2)
@@ -2147,11 +2170,25 @@ mir_tagged_resolved_module_matches(
         numeric_function.parameters.(parameter_index) != parameter_names.(parameter_index)?
             .parameters_match: false
         .parameter_index+: 1
+    bit parameter_classes_match: numeric_function.parameter_is_numeric_scalar.length() = parameter_types.length()
+    .parameter_index: 0
+    (parameter_index < parameter_types.length())?>
+        numeric_function.parameter_is_numeric_scalar.(parameter_index) != (parameter_types.(parameter_index) = "num")?
+            .parameter_classes_match: false
+        .parameter_index+: 1
+    bit collection_matches: collection_count = 0
+    int instruction_index: 0
+    entry_instruction: module.entry.instructions.(0)
+    (instruction_index < module.entry.instructions.length())?>
+        .entry_instruction: module.entry.instructions.(instruction_index)
+        entry_instruction.kind = "make_owned_f64_list_literal"?
+            .collection_matches: entry_instruction.index = 0 /\ entry_instruction.argument_count = collection_count /\ module.string_data.length() = collection_count * 8
+        .instruction_index+: 1
     (module.entry.name = "\$entry" /\
         entry_call.symbol = function_name /\
         entry_call.argument_count = argument_count /\
         numeric_function.name = function_name /\
-        parameters_match /\ numeric_function.parameters.length() = argument_count /\
+        parameters_match /\ parameter_classes_match /\ collection_matches /\ numeric_function.parameters.length() = argument_count /\
         ((conditional /\ numeric_function.instructions.(2).kind = "ordered_greater_f64" /\ numeric_function.instructions.(3).kind = "jump_if_false" /\ numeric_function.instructions.(6).kind = "label") \/
          (conditional = false /\ numeric_function.instructions.(2).kind = "multiply_f64")))
 

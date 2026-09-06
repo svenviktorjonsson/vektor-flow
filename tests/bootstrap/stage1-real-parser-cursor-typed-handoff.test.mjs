@@ -256,7 +256,7 @@ test("real parser cursor preserves a typed numeric function declaration and call
   }
 });
 
-test("general typed cursor lowers nested control flow and arbitrary call arenas into Machine IR", () => {
+test("general typed cursor lowers nested control flow and collection arguments into Machine IR", () => {
   const workRoot = resolve(process.env.VKF_TEST_WORK_ROOT ?? join(root, "build/bootstrap-tests"));
   mkdirSync(workRoot, { recursive: true });
   const work = mkdtempSync(join(workRoot, "real-parser-expression-dispatch-"));
@@ -271,7 +271,7 @@ test("general typed cursor lowers nested control flow and arbitrary call arenas 
       "parser: .parser",
       "typed: .typed_ir",
       "mir: .machine_ir",
-      'source: ": .system\\ncombine(first:num, second:num, third:num):\\n    first > 0?\\n        @: 1\\n    @: 0\\n:: combine(cpu_count(), cpu_count() * 2, 7)\\n"',
+      'source: ": .system\\ncombine(first:num, second:num, third:[num]):\\n    first > 0?\\n        @: 1\\n    @: 0\\n:: combine(cpu_count(), cpu_count() * 2, [1, 2, 3])\\n"',
       "tokens: lexer.tagged_numeric_function_token_tape(source)",
       "cursor: parser.tagged_tape_cursor(tokens.source, tokens.rows, tokens.count)",
       "parsed: parser.parse_module_from_cursor(cursor)",
@@ -305,9 +305,9 @@ test("general typed cursor lowers nested control flow and arbitrary call arenas 
       "second_argument: typed.typed_tagged_argument(arguments, 1)",
       "third_argument: typed.typed_tagged_argument(arguments, 2)",
       "argument_binary_mir: mir.mir_lower_tagged_scalar_expression(second_argument.expression_kind, second_argument.name, second_argument.op, second_argument.value, second_argument.type)",
-      "argument_const_mir: mir.mir_lower_tagged_scalar_expression(third_argument.expression_kind, third_argument.name, third_argument.op, third_argument.value, third_argument.type)",
       "concrete_machine: mir.mir_assemble_tagged_resolved_module(",
       "    function_symbol.name, [parameter.name, second_parameter.name, third_parameter.name],",
+      "    [parameter.type, second_parameter.type, third_parameter.type],",
       "    [typed_condition.expression_kind, typed_then_return.expression_kind, typed_final_return.expression_kind],",
       "    [typed_condition.first_text, typed_then_return.first_text, typed_final_return.first_text],",
       "    [typed_condition.op, typed_then_return.op, typed_final_return.op],",
@@ -316,9 +316,10 @@ test("general typed cursor lowers nested control flow and arbitrary call arenas 
       "    [argument.expression_kind, second_argument.expression_kind, third_argument.expression_kind],",
       "    [argument.name, second_argument.name, third_argument.name],",
       "    [argument.op, second_argument.op, third_argument.op],",
-      "    [argument.value, second_argument.value, third_argument.value]",
+      "    [argument.value, second_argument.value, third_argument.value],",
+      "    [0, 0, third_argument.values.length()], third_argument.values",
       ")",
-      "machine_body_matches: mir.mir_tagged_resolved_module_matches(concrete_machine, function_symbol.name, [parameter.name, second_parameter.name, third_parameter.name], arguments.count, true)",
+      "machine_body_matches: mir.mir_tagged_resolved_module_matches(concrete_machine, function_symbol.name, [parameter.name, second_parameter.name, third_parameter.name], [parameter.type, second_parameter.type, third_parameter.type], arguments.count, true, third_argument.values.length())",
       "ast_matches: (ast.node_count = 6 /\\ ast.block_count = 2 /\\",
       "    block.owner_order = 1 /\\ block.first_child_order = 2 /\\",
       "    block.child_count = 2 /\\ conditional_block.owner_order = 2 /\\",
@@ -328,11 +329,11 @@ test("general typed cursor lowers nested control flow and arbitrary call arenas 
       'ast_matches?! "general parser lost conditional block nesting"',
       "typed_matches: (body.count = 3 /\\ typed_condition.kind = \"if_stmt\" /\\ typed_condition.expression_kind = \"binary_op\" /\\ typed_condition.type = \"bit\" /\\ typed_condition.first_text = \"first\" /\\ typed_condition.op = \"GT\" /\\ typed_condition.value = 0 /\\ typed_condition.depth = 1 /\\ typed_then_return.kind = \"return\" /\\ typed_then_return.expression_kind = \"const\" /\\ typed_then_return.value = 1 /\\ typed_then_return.depth = 2 /\\ typed_then_return.parent_order = 2 /\\ typed_final_return.kind = \"return\" /\\ typed_final_return.value = 0 /\\ typed_final_return.depth = 1 /\\ typed_final_return.parent_order = 1)",
       'typed_matches?! "typed control-flow nodes lost kind, payload, or nesting"',
-      "resolution_matches: (function_symbol.arity = 3 /\\ resolved_call.callee = \"combine\" /\\ resolved_call.callee_type = \"fn(num,num,num)->num\" /\\ resolved_call.argument_count = 3 /\\ resolved_call.span.start.line = 6 /\\ resolved_call.span.stop.column = 43)",
+      "resolution_matches: (function_symbol.arity = 3 /\\ resolved_call.callee = \"combine\" /\\ resolved_call.callee_type = \"fn(num,num,[num])->num\" /\\ resolved_call.argument_count = 3 /\\ resolved_call.span.start.line = 6 /\\ resolved_call.span.stop.column = 51)",
       'resolution_matches?! "control-flow function signature or call resolution failed"',
-      "arena_matches: (parameters.count = 3 /\\ parameter.name = \"first\" /\\ second_parameter.name = \"second\" /\\ third_parameter.name = \"third\" /\\ arguments.count = 3 /\\ argument.expression_kind = \"call\" /\\ second_argument.expression_kind = \"binary_op\" /\\ second_argument.op = \"STAR\" /\\ second_argument.value = 2 /\\ third_argument.expression_kind = \"const\" /\\ third_argument.value = 7)",
+      "arena_matches: (parameters.count = 3 /\\ parameter.name = \"first\" /\\ second_parameter.name = \"second\" /\\ third_parameter.name = \"third\" /\\ third_parameter.type = \"[num]\" /\\ arguments.count = 3 /\\ argument.expression_kind = \"call\" /\\ second_argument.expression_kind = \"binary_op\" /\\ second_argument.op = \"STAR\" /\\ second_argument.value = 2 /\\ third_argument.expression_kind = \"collection\" /\\ third_argument.type = \"[num]\" /\\ third_argument.values.length() = 3 /\\ third_argument.values.(0) = 1 /\\ third_argument.values.(1) = 2 /\\ third_argument.values.(2) = 3)",
       'arena_matches?! "control-flow tracer lost general parameter or argument arenas"',
-      "expression_mir_matches: (argument_binary_mir.instruction_count = 4 /\\ argument_binary_mir.instructions.2.kind = \"multiply_f64\" /\\ argument_const_mir.instruction_count = 2 /\\ argument_const_mir.instructions.0.value = 7)",
+      "expression_mir_matches: (argument_binary_mir.instruction_count = 4 /\\ argument_binary_mir.instructions.2.kind = \"multiply_f64\")",
       'expression_mir_matches?! "argument expressions lost scalar Machine IR dispatch"',
       "machine_matches: (concrete_machine.schema = \"vektorflow.machine_ir\" /\\ concrete_machine.version = 4 /\\ concrete_machine.output_kind = \"f64\" /\\ machine_body_matches)",
       'machine_matches?! "nested conditional did not lower into concrete MachineModule"',

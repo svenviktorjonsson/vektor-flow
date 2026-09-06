@@ -260,6 +260,7 @@ TypedTaggedArgument: (
     type:str,
     has_value:bit,
     value:num,
+    values:[num],
     token_start:int,
     token_stop:int
 )
@@ -883,6 +884,7 @@ _typed_tagged_call_argument_rows(
     token_index: module.node_rows.(node_offset)
     token_stop: module.node_rows.(node_offset + 1)
     depth: 0
+    bracket_depth: 0
     argument_start: -1
     token_kind: 0
     [int] rows: []
@@ -892,7 +894,11 @@ _typed_tagged_call_argument_rows(
             .depth+: 1
             depth = 1?
                 .argument_start: token_index + 1
-        (token_kind = 24 /\ depth = 1)?
+        token_kind = 22?
+            .bracket_depth+: 1
+        token_kind = 23?
+            .bracket_depth-: 1
+        (token_kind = 24 /\ depth = 1 /\ bracket_depth = 0)?
             (argument_start >= 0 /\ token_index > argument_start)?! "concrete call has an empty argument"
             .rows: rows & [argument_start, token_index - 1]
             .argument_start: token_index + 1
@@ -903,7 +909,7 @@ _typed_tagged_call_argument_rows(
                 .argument_start: -1
             .depth-: 1
         .token_index+: 1
-    (depth = 0 /\ argument_start = -1)?! "concrete call argument list is unbalanced"
+    (depth = 0 /\ bracket_depth = 0 /\ argument_start = -1)?! "concrete call argument list is unbalanced"
     rows
 
 _typed_tagged_declaration_signature(
@@ -985,6 +991,22 @@ typed_tagged_parameter_arena(
         count:rows.length() / 2
     )
 
+_typed_tagged_parameter_type(
+    module:TypedTaggedConcreteModule, type_token:int
+) -> str:
+    type_kind: module.token_rows.(type_token * 6)
+    type_kind = 1?
+        @: typed_tagged_concrete_payload_text(module, type_token)
+    type_kind = 22?
+        (module.token_rows.((type_token + 1) * 6) = 1 /\ module.token_rows.((type_token + 2) * 6) = 23)?! "concrete vector parameter type is malformed"
+        @: vkf_utf8_slice(
+            module.source,
+            module.token_rows.(type_token * 6 + 1),
+            module.token_rows.((type_token + 2) * 6 + 2)
+        )
+    false?! "concrete parameter type token is missing"
+    ""
+
 typed_tagged_parameter(
     arena:TypedTaggedParameterArena, index:int
 ) -> TypedTaggedParameter:
@@ -1012,7 +1034,9 @@ typed_tagged_parameter(
         .token_index+: 1
     (parameter_token >= 0)?! "concrete parameter token is missing"
     type_token: parameter_token + 2
-    (arena.declarations.module.token_rows.(type_token * 6) = 1)?! "concrete parameter type token is missing"
+    parameter_type: _typed_tagged_parameter_type(
+        arena.declarations.module, type_token
+    )
     (
         kind:"parameter",
         declaration_order:declaration.node_order,
@@ -1020,9 +1044,7 @@ typed_tagged_parameter(
         name:typed_tagged_concrete_payload_text(
             arena.declarations.module, parameter_token
         ),
-        type:typed_tagged_concrete_payload_text(
-            arena.declarations.module, type_token
-        )
+        type:parameter_type
     )
 
 typed_tagged_argument_arena(
@@ -1054,6 +1076,7 @@ typed_tagged_argument(
     str op: "UNKNOWN"
     bit has_value: false
     num value: 0
+    [num] values: []
     first_kind = 1?
         .name: typed_tagged_concrete_payload_text(arena.module, token_start)
         (token_start < token_stop /\ arena.module.token_rows.((token_start + 1) * 6) = 13)?
@@ -1064,6 +1087,8 @@ typed_tagged_argument(
         .expression_kind: "const"
         .has_value: true
         .value: arena.module.token_rows.(token_start * 6 + 3)
+    first_kind = 22?
+        .expression_kind: "collection"
     int token_index: token_start
     token_kind: 0
     (token_index <= token_stop)?>
@@ -1071,6 +1096,7 @@ typed_tagged_argument(
         token_kind = 3?
             .has_value: true
             .value: arena.module.token_rows.(token_index * 6 + 3)
+            .values: values & [value]
         typed_tagged_cursor_operator_kind(token_kind) != "UNKNOWN"?
             .op: typed_tagged_cursor_operator_kind(token_kind)
         .token_index+: 1
@@ -1080,6 +1106,8 @@ typed_tagged_argument(
     str argument_type: "num"
     expression_kind = "call"?
         .argument_type: "int"
+    expression_kind = "collection"?
+        .argument_type: "[num]"
     (
         kind:"argument",
         call_order:arena.call.node_order,
@@ -1090,6 +1118,7 @@ typed_tagged_argument(
         type:argument_type,
         has_value:has_value,
         value:value,
+        values:values,
         token_start:token_start,
         token_stop:token_stop
     )
