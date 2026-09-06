@@ -1,5 +1,6 @@
 #include "native/VfOverlay/vf/json.hpp"
 #include "compiler/native/vkf_native_frontend.hpp"
+#include "compiler/native/vkf_private_compilation_form.hpp"
 #include "compiler/native/vkf_symbolic_lowering.hpp"
 #include "compiler/native/vkf_capture_pattern.hpp"
 #include "compiler/native/vkf_csv_demand_source_scanner.hpp"
@@ -1875,9 +1876,7 @@ struct WorldRef {
 
 class Lowerer {
 public:
-#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
     explicit Lowerer(bool retain_ui_effects = false) : retain_ui_effects_(retain_ui_effects) {}
-#endif
     vf::JsonValue lower_module(const vf::JsonValue& ast) {
         const auto& object = object_of(ast, "module");
         const std::string kind = string_field(object, "kind", "module");
@@ -2019,7 +2018,6 @@ public:
     }
 
 private:
-#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
     bool retain_ui_effects_ = false;
 
     vf::JsonValue private_ui_effect(vf::JsonValue result,
@@ -2041,7 +2039,6 @@ private:
         effect["result"] = std::move(result);
         return vf::JsonValue(std::move(effect));
     }
-#endif
     std::string inferred_ui_handle_type(const std::string& kind, std::uint64_t id) const {
         std::uint64_t display_id = id;
         if (kind == "frame") {
@@ -2089,11 +2086,9 @@ private:
             if (binding != ui_handle_bindings_.end() && binding->second.kind == handle_kind) {
                 type->second = vf::JsonValue(inferred_ui_handle_type(handle_kind, binding->second.id));
             }
-#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
         } else if (kind->second.as_string() == "retained_ui_effect") {
             type->second = field(object_of(field(object, "result", "private UI effect"),
                 "private UI result"), "type", "private UI result");
-#endif
         } else if (kind->second.as_string() == "store_binding") {
             const auto bound_value = object.find("value");
             if (bound_value != object.end() && bound_value->second.is_object()) {
@@ -2782,16 +2777,12 @@ private:
                 else env.declare(name, environment_type);
                 if (value_type == "Display<2>" || value_type == "Frame<2>" ||
                     value_type == "Layer") {
-#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
                     const vf::JsonValue* handle_value = &value;
                     if (retain_ui_effects_ &&
                         string_field(value.as_object(), "kind", "UI handle") == "retained_ui_effect") {
                         handle_value = &field(value.as_object(), "result", "private UI effect");
                     }
                     const auto& handle = object_of(*handle_value, "UI handle");
-#else
-                    const auto& handle = object_of(value, "UI handle");
-#endif
                     if (!retained_alias) {
                         const auto& raw_handle = field(handle, "value", "UI handle");
                         if (string_field(handle, "kind", "UI handle") != "const" ||
@@ -4236,10 +4227,7 @@ private:
                 vf::JsonValue handle = num_const(
                     static_cast<double>(ui_displays_.size() - 1));
                 handle.as_object()["type"] = vf::JsonValue("Display<2>");
-#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
                 return private_ui_effect(std::move(handle), named_args, "display_id", ui_displays_.size() - 1);
-#endif
-                return handle;
             }
             if (string_field(callee_ast, "kind", "call.callee") == "attribute") {
                 const auto& owner_ast = object_of(
@@ -4481,14 +4469,12 @@ private:
                             ui_result_type_ = "Layer";
                             vf::JsonValue layer = num_const(static_cast<double>(layer_id));
                             layer.as_object()["type"] = vf::JsonValue("Layer");
-#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
                             // Only the ordinary add frontend slice is retained here.
-                            // Production lowering and temporal/indexed paths stay unchanged.
+                            // Canonical lowering and temporal/indexed paths stay unchanged.
                             if (retain_ui_effects_ && !temporal_add && !indexed_add) {
                                 return private_ui_effect(std::move(layer), named_args,
                                     "operation_index", ui_operations_.size() - 1);
                             }
-#endif
                             return layer;
                         }
                         ui_operations_.emplace_back(std::move(operation));
@@ -4724,10 +4710,7 @@ private:
                         ui_result_type_ = "Frame<2>";
                         vf::JsonValue frame = num_const(static_cast<double>(frame_index));
                         frame.as_object()["type"] = vf::JsonValue("Frame<2>");
-#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
                         return private_ui_effect(std::move(frame), named_args, "operation_index", ui_operations_.size() - 1);
-#endif
-                        return frame;
                     }
                     if (starts_with(queue_type, "queue<")) {
                         if (!named_args.empty() || !spread_args.empty()) {
@@ -8317,11 +8300,57 @@ vf::JsonValue vkf::native_frontend::lower_value(const vf::JsonValue& ast) {
     return lowerer.lower_module(ast);
 }
 
+namespace vkf::native_frontend::private_compilation {
+namespace {
+bool has_private_effects(const vf::JsonValue& value) {
+    if (value.is_array()) {
+        for (const auto& child : value.as_array()) if (has_private_effects(child)) return true;
+    } else if (value.is_object()) {
+        const auto& object = value.as_object();
+        const auto kind = object.find("kind");
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "retained_ui_effect") return true;
+        for (const auto& [name, child] : object) {
+            (void)name;
+            if (has_private_effects(child)) return true;
+        }
+    }
+    return false;
+}
+void erase_private_effects(vf::JsonValue& value) {
+    if (value.is_array()) {
+        for (auto& child : value.as_array()) erase_private_effects(child);
+    } else if (value.is_object()) {
+        auto& object = value.as_object();
+        const auto kind = object.find("kind");
+        if (kind != object.end() && kind->second.is_string() &&
+            kind->second.as_string() == "retained_ui_effect") {
+            auto result = object.at("result");
+            value = std::move(result);
+            erase_private_effects(value);
+            return;
+        }
+        for (auto& [name, child] : object) {
+            (void)name;
+            erase_private_effects(child);
+        }
+    }
+}
+}
+Module lower_module(const vf::JsonValue& ast) {
+    auto execution = Lowerer(true).lower_module(ast);
+    if (!has_private_effects(execution)) return {std::move(execution), vf::JsonValue(nullptr)};
+    auto canonical = execution;
+    erase_private_effects(canonical);
+    return {std::move(canonical), std::move(execution)};
+}
+}
+
 #ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
 namespace vkf::native_frontend::private_ui_probe {
 vf::JsonValue lower_execution_value(const vf::JsonValue& ast) {
-    Lowerer lowerer(true);
-    return lowerer.lower_module(ast);
+    auto form = private_compilation::lower_module(ast);
+    return form.execution_ir.is_null() ? std::move(form.canonical_ir) : std::move(form.execution_ir);
 }
 }
 #endif

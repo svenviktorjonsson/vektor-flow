@@ -4,6 +4,10 @@ Status: all five source-level prerequisites GREEN, including canonical retained
 handle alias acceptance. Not evidence of runtime UI execution. Receipts:
 [initial private frontend](../evidence/shared-ui-private-frontend-2026-09-05.md)
 and [alias production parity](../evidence/shared-ui-handle-alias-2026-09-05.md).
+The production-owned C++ private compilation form is now verified separately:
+[compilation-form receipt](../evidence/shared-ui-compilation-form-2026-09-06.md).
+Public canonical responses are unchanged. Runtime effect consumption is still
+the next gate; retaining a form does not make UI examples executable.
 
 Observed RED: all five tests fail on the current shared artifacts, with native
 and WASM responses equal. The first four compile successfully but contain zero

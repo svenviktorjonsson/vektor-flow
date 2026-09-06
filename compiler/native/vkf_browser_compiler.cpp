@@ -1,5 +1,6 @@
 #include "compiler/native/vkf_native_frontend.hpp"
 #include "compiler/native/vkf_private_ui_frontend_probe.hpp"
+#include "compiler/native/vkf_private_compilation_form.hpp"
 #include "compiler/native/vkf_module_snapshots.hpp"
 #include "compiler/native/vkf_test_suite.hpp"
 #include "compiler/native/vkf_output_effects.hpp"
@@ -16,6 +17,7 @@
 namespace {
 std::string result;
 vf::JsonValue typed_ir;
+vf::JsonValue execution_ir;
 bool compiled = false;
 bool ordered_stdout = false;
 std::vector<std::uint8_t> program;
@@ -26,21 +28,23 @@ std::vector<std::uint8_t> program;
 extern "C" int vkf_compile_source(const char* source, std::uint32_t length) {
     compiled = false;
     program.clear();
+    execution_ir = vf::JsonValue(nullptr);
     try {
         // Match the native driver's source normalization before lexing.
         std::string text(source, length);
         text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
         const auto tokens = vkf::native_frontend::lex_value(text, "<browser>");
         const auto ast = vkf::native_frontend::parse_value(tokens);
-        typed_ir = vkf::native_frontend::lower_value(
+        auto form = vkf::native_frontend::private_compilation::lower_module(
             vkf::module_linker::link_packaged_modules(ast, "<browser>"));
+        typed_ir = std::move(form.canonical_ir);
+        execution_ir = std::move(form.execution_ir);
         compiled = true;
         vf::JsonValue::Object response;
         response["ok"] = vf::JsonValue(true);
         response["typed_ir"] = typed_ir;
 #ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
-        response["execution_ir"] = vkf::native_frontend::private_ui_probe::lower_execution_value(
-            vkf::module_linker::link_packaged_modules(ast, "<browser>"));
+        response["execution_ir"] = execution_ir.is_null() ? typed_ir : execution_ir;
 #endif
         result = vf::json_stringify(vf::JsonValue(std::move(response)), -1);
         return 0;
