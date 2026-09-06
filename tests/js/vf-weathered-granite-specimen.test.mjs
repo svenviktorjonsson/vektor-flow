@@ -285,3 +285,21 @@ test('R7 micro craters have steep bounded rims while meso mounds stay rounded', 
   assert.equal(probe.r7MicroProfileKind, 'smooth-rim-narrow-bowl');
   assert.equal(probe.r7MesoProfileKind, 'broad-smooth-mound');
 });
+
+test('R8 lower-contrast fine relief covers every full-surface tile', () => {
+  const probe = realizeGraniteGranularProbeReference(IDENTITY, {
+    resolution: 64,
+    footprint: 0.0015,
+  });
+
+  assert.equal(probe.r8EmptyCoverageTileFraction, 0);
+  assert.ok(probe.r8MinimumTileCoverage > 0.72);
+  assert.ok(probe.r8TileCoverageCoefficientVariation < 0.10);
+  assert.ok(probe.r8AmplitudeRatioToR7 >= 0.60);
+  assert.ok(probe.r8AmplitudeRatioToR7 <= 0.75);
+  assert.ok(probe.r8ResolvedFootprintAmplitudeRatio > 0.72);
+  assert.ok(probe.r8MicroShadowReversalFraction > 0.25);
+  assert.equal(probe.r8DensityRatioToR5, probe.r6MicroFeatureDensityRatioToR5);
+  assert.equal(probe.r8RadiusRatioToR5, probe.r6MicroMedianRadiusRatioToR5);
+  assert.equal(probe.r8FineCoordinates, 'object-triplanar-global');
+});

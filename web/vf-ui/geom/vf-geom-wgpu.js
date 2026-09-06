@@ -3319,6 +3319,10 @@ fn fs(i: Vout) -> @location(0) vec4f {
           graniteLocal, max(graniteFootprint, sc.rock_material_filter.x),
           sc.rock_material_stream.xy, sc.rock_material_stream.zw,
         );
+        rock = vf_stone_species_sample(
+          rock, graniteLocal, u32(max(sc.rock_material_filter.z, 0.0)),
+          sc.rock_material_stream.xy, sc.rock_material_stream.zw,
+        );
       }
     }
     var rockNormal = vfRockWorldNormal(i.normal, rock.tangent_normal);
@@ -4798,7 +4802,11 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[rockMaterialBase + 7] = 1.0;
       f32[rockMaterialBase + 8] = minimumFootprint;
       f32[rockMaterialBase + 9] = Math.min(0xffffff, rockMaterial.detailLevel);
-      f32[rockMaterialBase + 10] = 6.0;
+      var speciesIndex = Number(rockMaterial.speciesIndex || 0);
+      if (!Number.isSafeInteger(speciesIndex) || speciesIndex < 0 || speciesIndex > 4) {
+        failFast("rock_material_gpu species index must be from 0 through 4");
+      }
+      f32[rockMaterialBase + 10] = speciesIndex;
       f32[rockMaterialBase + 11] = rockMaterial.variant === "weathered-granite"
         ? 2.0
         : (rockMaterial.variant === "weathered-granite-microrelief"

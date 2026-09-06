@@ -90,6 +90,7 @@ export function createWeatheredGraniteSpecimenReference(
     microrelief = false,
     microshadow = true,
     granularMicrorelief = false,
+    roundedUnderside = false,
   } = {},
 ) {
   const root = createConditionedRoot(identity);
@@ -146,9 +147,11 @@ export function createWeatheredGraniteSpecimenReference(
   const flecks = [false];
   const cracks = [false];
   for (let ring = 0; ring < RINGS; ring += 1) {
-    const path = ring / RINGS;
-    const t = 1 - ((1 - path) ** 1.55);
-    const profile = ((1 - t) ** 0.58) * (0.82 + 0.54 * t);
+    const path = roundedUnderside ? (ring + 1) / (RINGS + 1) : ring / RINGS;
+    const t = roundedUnderside ? path : 1 - ((1 - path) ** 1.55);
+    const profile = roundedUnderside
+      ? Math.sin(Math.PI * t) ** 0.62 * (0.94 + 0.08 * t)
+      : ((1 - t) ** 0.58) * (0.82 + 0.54 * t);
     let previousRadius = null;
     for (let sector = 0; sector < SECTORS; sector += 1) {
       const u = sector / SECTORS;
@@ -177,7 +180,7 @@ export function createWeatheredGraniteSpecimenReference(
       positions.push([
         centerX + Math.cos(angle) * radiusX * radial,
         centerY + Math.sin(angle) * radiusY * radial,
-        height * t + (ring === 0 ? baseLifts[sector] : 0),
+        height * t + (ring === 0 && !roundedUnderside ? baseLifts[sector] : 0),
       ]);
       surfaceCoordinates.push([u, t]);
       radialValues.push(radialScale);
@@ -333,6 +336,7 @@ export function createWeatheredGraniteSpecimenReference(
       minimumZ: Math.min(...positions.map((position) => position[2])),
       baseVertexCount: baseContactSectors.length,
       baseHeightSpan: range(baseHeights),
+      undersideHeightSpan: range([positions[0][2], ...baseHeights]),
       baseContactAngularBins,
       supportRadius: Math.min(...baseRadii),
       maximumRadius: Math.max(...allRadii),

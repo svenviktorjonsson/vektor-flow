@@ -200,6 +200,14 @@ function graniteMicroBump(node, position, footprint) {
   const micro = granularNoise3(node, position, 0.0027, 59.9);
   const rim = smoothstep(0.02, 0.16, micro) - smoothstep(0.22, 0.38, micro);
   const bowl = smoothstep(0.20, 0.62, micro);
+  return filterWeight(0.0040, footprint)
+    * (micro * 0.00016 + rim * 0.00038 - bowl * bowl * 0.00090);
+}
+
+function graniteR7MicroBump(node, position, footprint) {
+  const micro = granularNoise3(node, position, 0.0027, 59.9);
+  const rim = smoothstep(0.02, 0.16, micro) - smoothstep(0.22, 0.38, micro);
+  const bowl = smoothstep(0.20, 0.62, micro);
   return filterWeight(0.0032, footprint)
     * (micro * 0.00012 + rim * 0.00055 - bowl * bowl * 0.00130);
 }
@@ -471,6 +479,13 @@ export function realizeGraniteGranularProbeReference(identity, {
   const r7MicroRimSlopes = [];
   const r7MesoCurvatures = [];
   const r6MesoCurvatures = [];
+  const r8TileAxis = 8;
+  const r8TileSamples = new Uint16Array(r8TileAxis * r8TileAxis);
+  const r8TileCovered = new Uint16Array(r8TileAxis * r8TileAxis);
+  let maximumR8MicroAmplitude = 0;
+  let maximumR7MicroAmplitude = 0;
+  let summedR8ResolvedAmplitude = 0;
+  let summedR8FullAmplitude = 0;
   const mineralClasses = new Uint8Array(resolution * resolution);
   const directions = [[1, 0], [0, 1], [Math.SQRT1_2, Math.SQRT1_2], [Math.SQRT1_2, -Math.SQRT1_2]];
   const derivativeStep = 0.0007;
@@ -492,6 +507,20 @@ export function realizeGraniteGranularProbeReference(identity, {
       );
       const r7Micro = graniteMicroBump(node, position, 0);
       minimumR7MicroHeight = Math.min(minimumR7MicroHeight, r7Micro);
+      const r8FullAmplitude = Math.abs(r7Micro);
+      const r8ResolvedAmplitude = Math.abs(graniteMicroBump(node, position, footprint));
+      maximumR8MicroAmplitude = Math.max(maximumR8MicroAmplitude, r8FullAmplitude);
+      maximumR7MicroAmplitude = Math.max(
+        maximumR7MicroAmplitude,
+        Math.abs(graniteR7MicroBump(node, position, 0)),
+      );
+      summedR8FullAmplitude += r8FullAmplitude;
+      summedR8ResolvedAmplitude += r8ResolvedAmplitude;
+      const r8TileX = Math.min(r8TileAxis - 1, Math.floor(x / resolution * r8TileAxis));
+      const r8TileY = Math.min(r8TileAxis - 1, Math.floor(y / resolution * r8TileAxis));
+      const r8TileIndex = r8TileY * r8TileAxis + r8TileX;
+      r8TileSamples[r8TileIndex] += 1;
+      r8TileCovered[r8TileIndex] += r8ResolvedAmplitude > 0.000010 ? 1 : 0;
       if ((x & 1) === 0 && (y & 1) === 0) {
         const microStep = 0.00025;
         const microDx = (graniteMicroBump(node, [position[0] + microStep, position[1], position[2]], 0)
@@ -565,6 +594,15 @@ export function realizeGraniteGranularProbeReference(identity, {
   const percentile95 = (values) => values[Math.floor((values.length - 1) * 0.95)] ?? 0;
   const r7MesoCurvatureP95 = percentile95(r7MesoCurvatures);
   const r6MesoCurvatureP95 = percentile95(r6MesoCurvatures);
+  const r8TileCoverage = Array.from(r8TileCovered, (covered, index) => (
+    covered / r8TileSamples[index]
+  ));
+  const r8MeanTileCoverage = r8TileCoverage.reduce((sum, value) => sum + value, 0)
+    / r8TileCoverage.length;
+  const r8TileCoverageVariance = r8TileCoverage.reduce(
+    (sum, value) => sum + (value - r8MeanTileCoverage) ** 2,
+    0,
+  ) / r8TileCoverage.length;
   const minimumOrientationEnergy = Math.min(...gradientEnergies);
   const r6MicroStats = measuredPeakStats(node, 0.0027, 59.9, -0.10, 0.12, 4);
   const r5MicroStats = measuredPeakStats(node, 0.0045, 59.9, 0.08, 0.05, 2);
@@ -639,9 +677,21 @@ export function realizeGraniteGranularProbeReference(identity, {
     r7MesoCurvatureP95,
     r7MesoCurvatureRatioToR6: r7MesoCurvatureP95 / r6MesoCurvatureP95,
     r7EmptyTileFraction: r6MicroStats.emptyTileFraction,
-    r7FilteredMicroAmplitude: graniteMicroBump(node, [0.31, 0.47, 0.19], 0.0032),
+    r7FilteredMicroAmplitude: graniteMicroBump(node, [0.31, 0.47, 0.19], 0.0040),
     r7MicroProfileKind: 'smooth-rim-narrow-bowl',
     r7MesoProfileKind: 'broad-smooth-mound',
+    r8EmptyCoverageTileFraction:
+      r8TileCoverage.filter((value) => value === 0).length / r8TileCoverage.length,
+    r8MinimumTileCoverage: Math.min(...r8TileCoverage),
+    r8TileCoverageCoefficientVariation:
+      Math.sqrt(r8TileCoverageVariance) / r8MeanTileCoverage,
+    r8AmplitudeRatioToR7: maximumR8MicroAmplitude / maximumR7MicroAmplitude,
+    r8ResolvedFootprintAmplitudeRatio:
+      summedR8ResolvedAmplitude / summedR8FullAmplitude,
+    r8MicroShadowReversalFraction: pairedReversals / count,
+    r8DensityRatioToR5: r6MicroStats.count / r5MicroStats.count,
+    r8RadiusRatioToR5: r6MicroStats.medianRadius / r5MicroStats.medianRadius,
+    r8FineCoordinates: 'object-triplanar-global',
     maximumHorizonSteps: MAX_HORIZON_STEPS,
   });
 }

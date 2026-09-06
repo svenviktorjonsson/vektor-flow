@@ -378,12 +378,12 @@ fn vf_granite_granular_height(
   let pit = pow(max(-fine - 0.38, 0.0), 2.0) * 0.009;
   let microRim = smoothstep(0.02, 0.16, micro) - smoothstep(0.22, 0.38, micro);
   let microBowl = smoothstep(0.20, 0.62, micro);
-  let microCrater = micro * 0.00012 + microRim * 0.00055
-    - microBowl * microBowl * 0.00130;
+  let microCrater = micro * 0.00016 + microRim * 0.00038
+    - microBowl * microBowl * 0.00090;
   return broadWeight * broad * 0.0035
     + grainWeight * grain * 0.0032
     + fineWeight * (fine * 0.0012 - pit)
-    + vf_rock_filter_weight(0.0032, footprint) * microCrater;
+    + vf_rock_filter_weight(0.0040, footprint) * microCrater;
 }
 
 fn vf_granite_granular_gradient(
@@ -453,6 +453,47 @@ fn vf_weathered_granite_granular_sample(
     clamp(height, -0.04, 0.04),
     vec2<f32>(0.0),
     vec3<f32>(0.0, 0.0, 1.0),
+  );
+}
+
+fn vf_stone_species_sample(
+  sample: VfRockMaterialSample,
+  position: vec3<f32>,
+  species: u32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> VfRockMaterialSample {
+  let luminance = dot(sample.base_color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+  let grain = vf_granite_noise3(position, 0.018, 73.1, counter_prefix, key);
+  var color = sample.base_color.rgb;
+  var roughness = sample.roughness;
+  if (species == 0u) {
+    color = mix(vec3<f32>(luminance), color, 0.18) * vec3<f32>(0.98, 1.0, 1.03);
+    roughness = clamp(roughness + 0.025, 0.70, 0.94);
+  } else if (species == 1u) {
+    color = mix(color, vec3<f32>(0.59 + grain * 0.035, 0.34, 0.31), 0.48);
+    roughness = clamp(roughness + 0.015, 0.68, 0.93);
+  } else if (species == 2u) {
+    color = mix(color, vec3<f32>(0.76 + grain * 0.025, 0.75, 0.72), 0.76);
+    roughness = clamp(roughness - 0.035, 0.66, 0.90);
+  } else if (species == 3u) {
+    color = mix(vec3<f32>(0.13, 0.15, 0.16), vec3<f32>(0.27, 0.29, 0.30),
+      clamp(0.5 + grain * 0.24, 0.0, 1.0));
+    roughness = clamp(0.86 + grain * 0.025, 0.80, 0.94);
+  } else if (species == 4u) {
+    let band = 0.5 + 0.5 * sin((position.z + position.x * 0.24) * 31.0 + grain * 0.65);
+    color = mix(vec3<f32>(0.38, 0.37, 0.35), vec3<f32>(0.59, 0.49, 0.39), band * 0.72);
+    color += vec3<f32>(grain * 0.025);
+    roughness = clamp(0.78 + (band - 0.5) * 0.08, 0.70, 0.90);
+  }
+  return VfRockMaterialSample(
+    sample.geology,
+    sample.weathering,
+    vec4<f32>(clamp(color, vec3<f32>(0.07), vec3<f32>(0.84)), sample.base_color.a),
+    roughness,
+    sample.displacement,
+    sample.derivative,
+    sample.tangent_normal,
   );
 }
 
