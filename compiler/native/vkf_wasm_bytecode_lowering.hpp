@@ -2,6 +2,7 @@
 
 #include "vkf_stdlib_classification.hpp"
 #include "vkf_runtime_value_semantics.hpp"
+#include "vkf_record_selector_plan.hpp"
 
 #include "compiler/native/vkf_wasm_bytecode.hpp"
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
@@ -1254,6 +1255,70 @@ private:
         return ValueType::String;
     }
 
+    ValueType lower_record_selector(
+        const vf::JsonValue::Object& object,
+        FunctionState& state,
+        const std::string& context,
+        const std::function<void()>& on_missing
+    ) {
+        const auto& selector = object_of(field(object, "selector", context),
+            context + ".selector");
+        const auto& fields = array_of(field(object, "fields", context),
+            context + ".fields");
+        std::vector<runtime_value_semantics::SelectorField> selector_fields;
+        selector_fields.reserve(fields.size());
+        for (std::size_t index = 0; index < fields.size(); ++index) {
+            const auto field_context = context + ".fields[" + std::to_string(index) + "]";
+            const auto& candidate = object_of(fields[index], field_context);
+            selector_fields.push_back({
+                string_field(candidate, "name", field_context),
+                string_field(candidate, "type", field_context),
+            });
+        }
+        const auto plan = runtime_value_semantics::record_selector_plan(
+            string_field(selector, "type", context + ".selector"),
+            string_field(object, "type", context),
+            std::move(selector_fields));
+        if (!plan) {
+            throw BytecodeLoweringError(
+                "record selector requires ordered fields and a string selector in " + context);
+        }
+        const auto base_local = add_temporary_local(state, ValueType::Object);
+        const auto selector_local = add_temporary_local(state, ValueType::String);
+        const auto result_type = expression_type(object, context);
+        const auto result_local = add_temporary_local(state, result_type);
+        lower_expression(field(object, "base", context), state, context + ".base");
+        emit(state, Opcode::StoreLocal, ValueType::Object, base_local);
+        lower_expression(field(object, "selector", context), state, context + ".selector");
+        emit(state, Opcode::StoreLocal, ValueType::String, selector_local);
+        std::vector<std::size_t> finish_jumps;
+        for (const auto& candidate : plan->fields) {
+            emit(state, Opcode::LoadLocal, ValueType::String, selector_local);
+            emit(state, Opcode::PushConstant, ValueType::String,
+                intern_constant(Constant::utf8_string(candidate.name)));
+            emit(state, Opcode::Equal, ValueType::Boolean);
+            const auto next_field = state.function->instructions.size();
+            emit(state, Opcode::JumpIfFalse, ValueType::Void);
+            emit(state, Opcode::LoadLocal, ValueType::Object, base_local);
+            emit(state, Opcode::ObjectGet, result_type,
+                intern_constant(Constant::utf8_string(candidate.name)));
+            emit(state, Opcode::StoreLocal, result_type, result_local);
+            finish_jumps.push_back(state.function->instructions.size());
+            emit(state, Opcode::Jump, ValueType::Void);
+            const auto next_target = checked_index(state.function->instructions.size(),
+                "record selector next field");
+            emit(state, Opcode::Nop, ValueType::Void);
+            patch_jump(state, next_field, next_target);
+        }
+        on_missing();
+        const auto finish_target = checked_index(state.function->instructions.size(),
+            "record selector continuation");
+        emit(state, Opcode::Nop, ValueType::Void);
+        for (const auto jump : finish_jumps) patch_jump(state, jump, finish_target);
+        emit(state, Opcode::LoadLocal, result_type, result_local);
+        return result_type;
+    }
+
     ValueType lower_expression(
         const vf::JsonValue& expression,
         FunctionState& state,
@@ -1587,6 +1652,11 @@ private:
                 ))
             );
             return result_type;
+        }
+        if (kind == "record_selector") {
+            return lower_record_selector(object, state, context, [&] {
+                emit(state, Opcode::Trap, ValueType::Void);
+            });
         }
         if (kind == "dotted_index") {
             ValueType result_type = lower_expression(
@@ -3421,7 +3491,33 @@ private:
             const auto error_value = add_temporary_local(state, ValueType::Dynamic);
             const auto error_mask = add_temporary_local(state, ValueType::Number);
             bool caught = false;
-            if (discriminant_kind == "raise_expr") {
+            std::optional<std::size_t> no_error_jump;
+            std::optional<std::size_t> selector_error_jump;
+            if (discriminant_kind == "record_selector") {
+                lower_record_selector(discriminant, state,
+                    context + ".discriminant", [&] {
+                        emit(state, Opcode::MakeObject, ValueType::Object);
+                        emit(state, Opcode::PushConstant, ValueType::String,
+                            intern_constant(Constant::utf8_string(std::string(
+                                runtime_value_semantics::missing_record_selector_message))));
+                        emit(state, Opcode::ObjectSet, ValueType::String,
+                            intern_constant(Constant::utf8_string("message")));
+                        emit(state, Opcode::StoreLocal, ValueType::Dynamic, error_value);
+                        emit_number(state, static_cast<double>(
+                            runtime_value_semantics::missing_record_selector_error_mask));
+                        emit(state, Opcode::StoreLocal, ValueType::Number, error_mask);
+                        selector_error_jump = state.function->instructions.size();
+                        emit(state, Opcode::Jump, ValueType::Void);
+                    });
+                emit(state, Opcode::Pop, ValueType::Void);
+                no_error_jump = state.function->instructions.size();
+                emit(state, Opcode::Jump, ValueType::Void);
+                const auto catch_target = checked_index(state.function->instructions.size(),
+                    "record selector catch entry");
+                emit(state, Opcode::Nop, ValueType::Void);
+                patch_jump(state, *selector_error_jump, catch_target);
+                caught = true;
+            } else if (discriminant_kind == "raise_expr") {
                 lower_expression(field(discriminant, "value", context + ".discriminant"),
                     state, context + ".discriminant.value");
                 emit(state, Opcode::StoreLocal, ValueType::Dynamic, error_value);
@@ -3498,6 +3594,7 @@ private:
                 "catch continuation");
             emit(state, Opcode::Nop, ValueType::Void);
             for (const auto jump : end_jumps) patch_jump(state, jump, end_target);
+            if (no_error_jump) patch_jump(state, *no_error_jump, end_target);
             if (had_previous_dollar) state.locals["$"] = previous_dollar_index;
             else state.locals.erase("$");
             emit(state, Opcode::PushNull, ValueType::Dynamic);
