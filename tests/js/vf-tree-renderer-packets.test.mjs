@@ -62,6 +62,10 @@ test('tree renderer adapter batches aligned geometry and materials with zero ste
   assert.deepEqual(Array.from(first.packets[0].baseColors), Array.from(materials.baseColors));
   assert.deepEqual(Array.from(first.packets[0].surfaceParams), Array.from(materials.surfaceParams));
   assert.deepEqual(Array.from(first.packets[0].parents), Array.from(geometry.parents));
+  assert.equal(first.packets[0].curves.length, geometry.primitiveCount);
+  assert.ok(first.packets[0].curves.filter(Boolean).every((curve) => curve.points.length > 2));
+  assert.ok(first.packets[0].curveBytes > 0);
+  assert.ok(first.packets[0].curveBytes <= geometry.primitiveCount * 512);
   assert.equal(first.packets[0].vectorBytes, geometry.primitiveCount * 71);
   assert.deepEqual(first.delta.upload, {
     packets: 1,

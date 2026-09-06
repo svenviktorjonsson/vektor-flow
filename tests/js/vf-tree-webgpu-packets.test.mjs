@@ -128,14 +128,14 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
   assert.ok(result.meshes[1].vertices.some((value, index) => (
     index % 10 === 7 && value > 0.15
   )));
-  const trunkCenterZ = source.transforms[2];
-  const trunkLength = source.transforms[6];
-  const trunkZ = Array.from(
-    { length: 82 },
-    (_, vertex) => result.meshes[0].vertices[vertex * 10 + 2],
-  );
-  assert.ok(Math.abs(Math.min(...trunkZ) - (trunkCenterZ - trunkLength * 0.5)) < 1e-5);
-  assert.ok(Math.abs(Math.max(...trunkZ) - (trunkCenterZ + trunkLength * 0.5)) < 1e-5);
+  assert.ok(distance(
+    Array.from(result.meshes[0].vertices.slice(80 * 10, 80 * 10 + 3)),
+    source.curves[0].points[0],
+  ) < 1e-5);
+  assert.ok(distance(
+    Array.from(result.meshes[0].vertices.slice(81 * 10, 81 * 10 + 3)),
+    source.curves[0].points.at(-1),
+  ) < 1e-5);
 });
 
 test('tree WebGPU meshes replay exactly and reject incomplete or exceeded packets', () => {
@@ -240,9 +240,11 @@ test('conditioned leaves form bounded petioles and pointed ovate nondegenerate b
   const petioleRatios = [];
   const camberRatios = [];
   const colorVariation = [];
+  const bladeAreas = [];
   for (let leaf = 0; leaf < result.counts.leaves; leaf += 1) {
     const offset = leaf * stride;
     const length = result.leafParameters[offset];
+    bladeAreas.push(length * result.leafParameters[offset + 1]);
     ratios.push(result.leafParameters[offset + 1] / length);
     roundness.push(result.leafParameters[offset + 2]);
     asymmetry.push(result.leafParameters[offset + 3]);
@@ -263,6 +265,8 @@ test('conditioned leaves form bounded petioles and pointed ovate nondegenerate b
   assert.ok(Math.abs(mean(camberRatios)) < 0.02);
   assert.ok(colorVariation.every((value) => value >= -0.06 - 1e-6 && value <= 0.06 + 1e-6));
   assert.ok(Math.abs(mean(colorVariation)) < 0.01);
+  assert.ok(mean(bladeAreas) < 0.035);
+  assert.ok(Math.max(...bladeAreas) < 0.095);
 });
 
 test('static tree fixture uses the full deterministic producer chain and real renderer', async () => {
@@ -278,5 +282,10 @@ test('static tree fixture uses the full deterministic producer chain and real re
     'adaptTreeRenderPacketToWebGpuMeshesReference',
     'mountDynamicGeomFrame',
   ]) assert.match(source, new RegExp(symbol, 'u'));
+  const key = Number(source.match(/intensity: span \* span \* (\d+(?:\.\d+)?),/u)?.[1]);
+  const fillMatches = [...source.matchAll(/intensity: span \* span \* (\d+(?:\.\d+)?),/gu)];
+  const fill = Number(fillMatches[1]?.[1]);
+  assert.ok(key >= 1.8 && key <= 2.4);
+  assert.ok(fill >= 1 && fill <= 1.5);
   assert.doesNotMatch(source, /requestAnimationFrame|\b(?:physics|motion|wind)\b/iu);
 });

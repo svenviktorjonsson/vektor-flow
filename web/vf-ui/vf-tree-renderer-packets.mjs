@@ -83,6 +83,7 @@ function sameReferences(left, right) {
 function createPacket(geometry, materials, source) {
   const count = source.indices.length;
   const primitiveIds = [];
+  const curves = [];
   const primitiveKinds = new Uint8Array(count);
   const detailLevels = new Uint8Array(count);
   const parents = new Int32Array(count);
@@ -96,6 +97,7 @@ function createPacket(geometry, materials, source) {
 
   source.indices.forEach((globalIndex, localIndex) => {
     primitiveIds.push(geometry.primitiveIds[globalIndex]);
+    curves.push(source.primitiveRefs[localIndex].curve ?? null);
     primitiveKinds[localIndex] = geometry.kinds[globalIndex];
     detailLevels[localIndex] = geometry.levels[globalIndex];
     const globalParent = geometry.parents[globalIndex];
@@ -126,6 +128,10 @@ function createPacket(geometry, materials, source) {
     + materialKinds.byteLength
     + baseColors.byteLength
     + surfaceParams.byteLength;
+  const curveBytes = curves.reduce((sum, curve) => sum + (curve === null ? 0 : (
+    curve.points.length * 3 + curve.tangents.length * 3 + curve.turns.length
+      + curve.turnSignals.length * 2
+  ) * 8), 0);
   return Object.freeze({
     kind: 'tree-render-packet:v1',
     id: `tree:render:${source.tree.id}`,
@@ -139,6 +145,8 @@ function createPacket(geometry, materials, source) {
     terminalRadius: source.tree.terminalRadius,
     primitiveCount: count,
     primitiveIds: Object.freeze(primitiveIds),
+    curves: Object.freeze(curves),
+    curveBytes,
     primitiveKinds,
     detailLevels,
     parents,

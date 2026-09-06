@@ -30,6 +30,15 @@ const PROFILES = Object.freeze([
     mainBudgetRatio: Object.freeze([0.88, 0.98]),
     lateralBudgetRatio: Object.freeze([0.66, 0.88]),
   }),
+  curvature: Object.freeze({
+    meanTurn: 0,
+    trunkDeviation: 0.004,
+    radiusDeviationRise: 0.052 + speciesIndex * 0.0015,
+    radiusExponent: 1.25,
+    correlation: 0.82,
+    maximumTurn: 0.14,
+    steps: Object.freeze({ trunk: 7, branch: 5, twig: 3 }),
+  }),
   crownEnvelope: Object.freeze({
     axisScaleMean: Object.freeze([values[6], values[7], values[8]]),
     axisScaleDeviation: Object.freeze([0.08, 0.08, 0.045]),
@@ -52,7 +61,8 @@ const PROFILES = Object.freeze([
     leafCountMean: 13,
     leafCountDeviation: 2,
     leafCountBounds: Object.freeze([9, 17]),
-    attachmentBounds: Object.freeze([0.08, 0.94]),
+    attachmentBounds: Object.freeze([0.05, 0.82]),
+    leafScaleBounds: Object.freeze([0.038, 0.065]),
   }),
   bark: Object.freeze({
     ridgeCountMean: values[10],

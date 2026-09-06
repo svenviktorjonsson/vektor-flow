@@ -1,9 +1,9 @@
 # Deterministic static tree WebGPU demonstration
 
-Date: 2026-09-06. Base: `a441f64f511875340a0cd2ca6bc64e45abe20d25`.
+Date: 2026-09-06. Base: `694798ca31ac122c8d0564dd3561bb60557d1f95`.
 Branch: `pre-gen`.
 
-![Static deterministic tree rendered by WebGPU](060-static-tree-webgpu-review3.png)
+![Static deterministic curved tree rendered by WebGPU](060-static-tree-webgpu-review4.png)
 
 ## Scope
 
@@ -28,6 +28,13 @@ parent remainder. A sampled rotated ellipsoid bounds growth. A candidate that
 would escape is shortened or terminated deterministically. This prevents
 horizontal paths from escaping a height-only budget.
 
+Woody paths are no longer straight chords. Each trunk, branch, and twig is a
+seven-, five-, or three-step curve respectively. Deterministic correlated
+yaw/pitch turn signals persist from step to step, remain below a profile-owned
+maximum turn, and have monotonically greater variance as radius decreases.
+Ring centers and averaged tangents follow the same retained curve in the real
+WebGPU tube mesh, giving smooth tangent transitions without a jagged zigzag.
+
 The selected tree has 1,157 retained primitives: one trunk, one non-rendered
 coarse crown envelope, fourteen structural branches, seventy-nine thin twigs,
 and 1,062 individual leaf sites. Forty-eight twigs are recursive terminal
@@ -39,8 +46,10 @@ frequent than thin-parent shoots, and pinned tree 3 has a trunk-origin shoot.
 
 Leaves never attach directly to trunk or structural branch. Each leaf is one
 continuously positioned, stratified site along an eligible twig arc, rather
-than a multi-leaf terminal cluster anchor. More than 70% of the pinned tree's
-leaves lie before the terminal 20% of their twig. The 1,062 leaves use real pointed-ovate meshes:
+than a multi-leaf terminal cluster anchor. More than 80% of the pinned tree's
+leaves lie before normalized twig position 0.72, while some terminal leaves
+remain. Blade scale is reduced from the previous capture and bounded to
+0.038--0.065 of sampled crown height. The 1,062 leaves use real pointed-ovate meshes:
 a thin petiole, rounded broad blade body, and sharp apex. Conditioned
 approximately-normal samples vary dimensions, roundness, asymmetry, petiole,
 camber, attachment, orientation, and color within finite physical bounds.
@@ -75,6 +84,11 @@ fixed attachment/count model. The replacement tests now prove:
   angular bins, eliminating terminal-only pom-pom placement;
 - finite nondegenerate pointed-ovate leaf triangles, normals, UVs, and centered
   bounded distribution statistics;
+- multi-step nonzero curved paths, monotonically rising radius-band turn
+  variance, correlated turns, bounded per-step angles, and envelope-contained
+  endpoints under the original arc-length budgets;
+- reduced bounded blade area and a pinned majority of leaves before the
+  terminal twig band;
 - nonuniform procedural bark color/roughness, periodic seam continuity, and
   hard primitive/vertex/index/RAM bounds.
 
@@ -82,24 +96,26 @@ fixed attachment/count model. The replacement tests now prove:
 
 | Gate | Result |
 | --- | --- |
-| Geometry/species tests | 7/7 GREEN |
-| Focused geometry + renderer-packet + WebGPU tests | 14/14 GREEN |
-| All tree/forest JavaScript tests | 30/30 GREEN |
+| Geometry/species tests | 8/8 GREEN |
+| Focused geometry + renderer-packet + WebGPU + wood tests | 18/18 GREEN |
+| All tree/forest/wood JavaScript tests | 34/34 GREEN |
 | Headless Edge real WebGPU capture | GREEN |
 | `git diff --check` | GREEN |
 
-Headless Edge initialized WebGPU at 1,263 by 760 with two lit renderer parts
-and two active clustered lights. Initialization failures, provider errors,
+Headless Edge initialized WebGPU at 1,263 by 760 with two lit renderer parts,
+4x MSAA, and two active clustered lights. A warm key at 2.25 and front fill at
+1.25 reveal bark ridges and leaf silhouettes without visible clipping.
+Initialization failures, provider errors,
 runtime failures, and WebGPU errors were empty. Both parts reported no physics
-runtime; physics particles and steps were zero. The tracked 98,223-byte PNG is
-`docs/evidence/060-static-tree-webgpu-review3.png`, SHA-256
-`115A09F8091A4D6DC8BC4D035C8B6E943CE4D6FD42285AC3B30B759FAB2575D1`.
+runtime; physics particles and steps were zero. The tracked 100,689-byte PNG is
+`docs/evidence/060-static-tree-webgpu-review4.png`, SHA-256
+`B61EFC6FA3C3102ED400FCCB61223FF5B22CB9D4C31C975DF5AE3CB9FDEE4E59`.
 
 Reproduce:
 
 ```text
 node --test tests/js/vf-tree-geometry-plan.test.mjs tests/js/vf-tree-renderer-packets.test.mjs tests/js/vf-tree-webgpu-packets.test.mjs
-node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review3.png 0 9364 tree_webgpu_static_frame
+node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review4.png 0 9366 tree_webgpu_static_frame
 ```
 
 ## Static review boundary

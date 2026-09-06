@@ -184,6 +184,130 @@ function constrainToEnvelope(tree, node, origin, direction, desiredLength, radiu
   };
 }
 
+function distance(left, right) {
+  return Math.hypot(...left.map((value, axis) => value - right[axis]));
+}
+
+function angleBetween(left, right) {
+  return Math.acos(clamp(
+    left.reduce((sum, value, axis) => sum + value * right[axis], 0), -1, 1,
+  ));
+}
+
+function insideEnvelope(tree, point, radius) {
+  const local = ellipsoidCoordinates(tree.envelope, point);
+  return local.reduce((sum, value, axis) => {
+    const safeAxis = Math.max(tree.envelope.axes[axis] - radius * 1.2,
+      tree.envelope.axes[axis] * 0.35);
+    return sum + (value / safeAxis) ** 2;
+  }, 0) <= 1;
+}
+
+function curvedPath(tree, node, origin, direction, maximumArcLength, radius, kind) {
+  const profile = tree.profile.curvature;
+  const relativeRadius = clamp(radius / tree.growth[0], 0, 1);
+  const turnDeviation = profile.trunkDeviation
+    + profile.radiusDeviationRise * Math.pow(1 - relativeRadius, profile.radiusExponent);
+  const stepKey = kind === KIND_TRUNK ? 'trunk' : kind === KIND_TWIG ? 'twig' : 'branch';
+  const stepCount = profile.steps[stepKey];
+  const [first, second] = directionBasis(direction);
+  const innovations = [];
+  let yaw = 0;
+  let pitch = 0;
+  const innovationScale = Math.sqrt(1 - profile.correlation ** 2);
+  for (let step = 1; step < stepCount; step += 1) {
+    yaw = profile.correlation * yaw + innovationScale * sampleNormalReference(
+      node, [step, 20], { mean: profile.meanTurn, standardDeviation: turnDeviation },
+    );
+    pitch = profile.correlation * pitch + innovationScale * sampleNormalReference(
+      node, [step, 21], { mean: profile.meanTurn, standardDeviation: turnDeviation },
+    );
+    innovations.push([yaw, pitch]);
+  }
+  function realize(deviationScale) {
+    const points = [origin];
+    for (let step = 1; step < stepCount; step += 1) {
+      const along = step / stepCount;
+      const envelope = Math.sin(Math.PI * along);
+      const [stepYaw, stepPitch] = innovations[step - 1];
+      points.push(origin.map((value, axis) => (
+        value
+        + direction[axis] * maximumArcLength * along
+        + first[axis] * maximumArcLength * stepYaw * envelope * deviationScale
+        + second[axis] * maximumArcLength * stepPitch * envelope * deviationScale
+      )));
+    }
+    points.push(origin.map((value, axis) => value + direction[axis] * maximumArcLength));
+    return points;
+  }
+  let deviationScale = 1;
+  let points = realize(deviationScale);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const tangents = points.slice(1).map((point, index) => normalize(
+      point.map((value, axis) => value - points[index][axis]),
+    ));
+    const turns = tangents.slice(1).map((tangent, index) => angleBetween(tangents[index], tangent));
+    const maximumTurn = Math.max(0, ...turns);
+    const contained = points.every((point) => insideEnvelope(tree, point, radius));
+    if (maximumTurn <= profile.maximumTurn && contained) break;
+    deviationScale *= Math.min(0.72, profile.maximumTurn / Math.max(maximumTurn, 1e-9) * 0.88);
+    points = realize(deviationScale);
+  }
+  let arcLength = points.slice(1).reduce((sum, point, index) => (
+    sum + distance(points[index], point)
+  ), 0);
+  if (arcLength > maximumArcLength) {
+    const scaleDown = maximumArcLength / arcLength;
+    points = points.map((point) => origin.map((value, axis) => (
+      value + (point[axis] - value) * scaleDown
+    )));
+    arcLength = maximumArcLength;
+  }
+  const tangents = points.slice(1).map((point, index) => normalize(
+    point.map((value, axis) => value - points[index][axis]),
+  ));
+  const turns = tangents.slice(1).map((tangent, index) => angleBetween(tangents[index], tangent));
+  return Object.freeze({
+    points: Object.freeze(points.map((point) => Object.freeze(point))),
+    tangents: Object.freeze(tangents.map((tangent) => Object.freeze(tangent))),
+    turns: Object.freeze(turns),
+    turnSignals: Object.freeze(innovations.map((turn) => Object.freeze(turn))),
+    turnDeviation,
+    correlation: profile.correlation,
+    maximumTurn: profile.maximumTurn,
+    arcLength,
+    chordLength: distance(points[0], points.at(-1)),
+  });
+}
+
+function primitiveEndpoint(primitive) {
+  if (primitive.curve) return primitive.curve.points.at(-1);
+  return pointAlong(primitive.transform, 1, primitive.kind === KIND_TRUNK);
+}
+
+function pointAlongPrimitive(primitive, along) {
+  if (!primitive.curve) {
+    return { point: pointAlong(primitive.transform, along, primitive.kind === KIND_TRUNK),
+      tangent: primitive.transform.slice(3, 6) };
+  }
+  const target = primitive.curve.arcLength * along;
+  let consumed = 0;
+  for (let segment = 0; segment < primitive.curve.tangents.length; segment += 1) {
+    const start = primitive.curve.points[segment];
+    const end = primitive.curve.points[segment + 1];
+    const segmentLength = distance(start, end);
+    if (consumed + segmentLength >= target || segment === primitive.curve.tangents.length - 1) {
+      const fraction = clamp((target - consumed) / segmentLength, 0, 1);
+      return {
+        point: start.map((value, axis) => value + (end[axis] - value) * fraction),
+        tangent: primitive.curve.tangents[segment],
+      };
+    }
+    consumed += segmentLength;
+  }
+  throw new RangeError('tree curve must contain at least one segment');
+}
+
 function pointAlong(transform, along, centered = false) {
   const start = centered
     ? transform.slice(0, 3).map((value, axis) => (
@@ -247,6 +371,9 @@ function treeRealization(state, forest, treeIndex) {
     profile.crownEnvelope.centerHeightDeviation, 0.42, 0.62,
   );
   const horizontalBias = profile.crownEnvelope.centerHorizontalDeviation * growth[2];
+  axes[0] = Math.max(axes[0], horizontalBias + growth[0] * 1.4);
+  axes[1] = Math.max(axes[1], horizontalBias + growth[0] * 1.4);
+  axes[2] = Math.max(axes[2], growth[1] * centerHeight + growth[0] * 1.4);
   const centerAzimuth = sample(traitsNode, 0, 5, 0, Math.PI * 2);
   const tree = {
     id: treeId,
@@ -288,16 +415,29 @@ function realizeCoarse(tree) {
     tree.profile.pathLength.rootConsumptionDeviation,
     0.24, 0.38,
   );
-  const remaining = tree.targetPathLength - trunkLength;
+  const trunkCurve = curvedPath(tree, trunkNode, [x, y, z], [0, 0, 1],
+    trunkLength, trunkRadius, KIND_TRUNK);
+  const trunkEnd = trunkCurve.points.at(-1);
+  const trunkDirection = normalize(trunkEnd.map((value, axis) => value - tree.position[axis]));
+  const remaining = tree.targetPathLength - trunkCurve.arcLength;
   return Object.freeze([
     primitive(
       `${tree.id}:trunk`,
       KIND_TRUNK,
       0,
       null,
-      [x, y, z + trunkLength * 0.5, 0, 0, 1, trunkLength, trunkRadius],
+      [
+        (x + trunkEnd[0]) * 0.5,
+        (y + trunkEnd[1]) * 0.5,
+        (z + trunkEnd[2]) * 0.5,
+        ...trunkDirection,
+        trunkCurve.chordLength,
+        trunkRadius,
+      ],
       {
         generation: 0,
+        curve: trunkCurve,
+        arcLength: trunkCurve.arcLength,
         pathTarget: tree.targetPathLength,
         pathRemainingBefore: tree.targetPathLength,
         pathRemainingAfter: remaining,
@@ -315,7 +455,7 @@ function realizeCoarse(tree) {
 
 function splitChildren(tree, parent, path, generation) {
   const node = branchNode(tree, ['split', ...path]);
-  const parentDirection = parent.transform.slice(3, 6);
+  const parentDirection = parent.curve?.tangents.at(-1) ?? parent.transform.slice(3, 6);
   const profile = tree.profile;
   const mainAngle = boundedNormal(
     node, 1, profile.split.mainAngleMean, profile.split.mainAngleDeviation,
@@ -335,7 +475,7 @@ function splitChildren(tree, parent, path, generation) {
     ...profile.split.mainAreaShareBounds,
   );
   const parentRadius = parent.transform[7];
-  const origin = pointAlong(parent.transform, 1, parent.kind === KIND_TRUNK);
+  const origin = primitiveEndpoint(parent);
   const childKind = generation >= SPLIT_DEPTH - 1 ? KIND_TWIG : KIND_BRANCH;
   const childLevel = generation === 1 ? 1 : 2;
   const roles = [
@@ -355,7 +495,9 @@ function splitChildren(tree, parent, path, generation) {
       tree, node, origin, rotateFrom(parentDirection, angle, childAzimuth),
       desiredLength, allocatedRadius,
     );
-    const pathAfter = Math.max(0, pathBefore - constrained.length);
+    const curve = curvedPath(tree, node, origin, constrained.direction,
+      constrained.length, allocatedRadius, childKind);
+    const pathAfter = Math.max(0, pathBefore - curve.arcLength);
     const radiusFactor = clamp(Math.sqrt(pathAfter / tree.targetPathLength) * 1.55, 0, 1);
     const radius = Math.max(tree.terminalRadius, allocatedRadius * Math.max(0.04, radiusFactor));
     const splitAngle = Math.acos(clamp(
@@ -367,9 +509,11 @@ function splitChildren(tree, parent, path, generation) {
       childKind,
       childLevel,
       parent.id,
-      [...origin, ...constrained.direction, constrained.length, radius],
+      [...origin, ...constrained.direction, curve.chordLength, radius],
       {
         generation,
+        curve,
+        arcLength: curve.arcLength,
         splitRole: role,
         splitAngle,
         splitLoss: loss,
@@ -398,7 +542,8 @@ function lateralTwigShoots(tree, parent, parentIndex) {
     if (sample(node, 0, 0, 0, 1) >= probability) continue;
     const attachmentMinimum = parent.kind === KIND_TRUNK ? 0.55 : 0.12;
     const attachment = sample(node, 0, 1, attachmentMinimum, 0.9);
-    const origin = pointAlong(parent.transform, attachment, parent.kind === KIND_TRUNK);
+    const attachmentFrame = pointAlongPrimitive(parent, attachment);
+    const origin = attachmentFrame.point;
     const angle = boundedNormal(
       node, 2, profile.shootAngleMean, profile.shootAngleDeviation,
       ...profile.shootAngleBounds,
@@ -413,19 +558,23 @@ function lateralTwigShoots(tree, parent, parentIndex) {
       tree,
       node,
       origin,
-      rotateFrom(parent.transform.slice(3, 6), angle, azimuth),
+      rotateFrom(attachmentFrame.tangent, angle, azimuth),
       pathBefore * sample(node, 0, 6, ...profile.shootLengthRatioBounds),
       radius,
     );
     if (!(constrained.length > tree.targetPathLength * 1e-5)) continue;
+    const curve = curvedPath(tree, node, origin, constrained.direction,
+      constrained.length, radius, KIND_TWIG);
     shoots.push(primitive(
       `${tree.id}:branch:shoot:${parentIndex}:${slot}`,
       KIND_TWIG,
       2,
       parent.id,
-      [...origin, ...constrained.direction, constrained.length, radius],
+      [...origin, ...constrained.direction, curve.chordLength, radius],
       {
         generation: parent.generation + 1,
+        curve,
+        arcLength: curve.arcLength,
         twigClass: 'lateral-shoot',
         emergenceProbability: probability,
         normalizedParentPosition: attachment,
@@ -433,7 +582,7 @@ function lateralTwigShoots(tree, parent, parentIndex) {
         envelopeLimited: constrained.envelopeLimited,
         pathTarget: tree.targetPathLength,
         pathRemainingBefore: pathBefore,
-        pathRemainingAfter: Math.max(0, pathBefore - constrained.length),
+        pathRemainingAfter: Math.max(0, pathBefore - curve.arcLength),
       },
     ));
   }
@@ -467,22 +616,25 @@ function realizeFine(tree, firstGeneration) {
       tree.profile.twig.leafCountDeviation,
       ...tree.profile.twig.leafCountBounds,
     ));
-    const radius = crownHeight * sample(node, 0, 5, 0.045, 0.085);
+    const radius = crownHeight * sample(node, 0, 5, ...tree.profile.twig.leafScaleBounds);
     for (let foliageIndex = 0; foliageIndex < foliageCount; foliageIndex += 1) {
       const foliageNode = branchNode(tree, ['foliage', twigIndex, foliageIndex]);
+      const attachment = tree.profile.twig.attachmentBounds[0]
+        + (tree.profile.twig.attachmentBounds[1] - tree.profile.twig.attachmentBounds[0])
+          * (foliageIndex + sample(foliageNode, 0, 1, 0.16, 0.84)) / foliageCount;
+      const attachmentFrame = pointAlongPrimitive(twig, attachment);
       foliage.push(primitive(
         `${twig.id}:foliage:${foliageIndex}`,
         KIND_FOLIAGE,
         2,
         twig.id,
         [
-          ...pointAlong(twig.transform, tree.profile.twig.attachmentBounds[0]
-            + (tree.profile.twig.attachmentBounds[1] - tree.profile.twig.attachmentBounds[0])
-              * (foliageIndex + sample(foliageNode, 0, 1, 0.16, 0.84)) / foliageCount),
-          ...twig.transform.slice(3, 6),
+          ...attachmentFrame.point,
+          ...attachmentFrame.tangent,
           twig.transform[6] * sample(foliageNode, 0, 2, 0.12, 0.24),
           radius,
         ],
+        { normalizedTwigPosition: attachment },
       ));
     }
   });

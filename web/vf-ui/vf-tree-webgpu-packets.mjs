@@ -81,6 +81,7 @@ function requirePacket(packet) {
     || !Number.isSafeInteger(packet.primitiveCount)
     || packet.primitiveCount < 1
     || !Array.isArray(packet.primitiveIds)
+    || !Array.isArray(packet.curves)
     || !(packet.primitiveKinds instanceof Uint8Array)
     || !(packet.detailLevels instanceof Uint8Array)
     || !(packet.parents instanceof Int32Array)
@@ -88,6 +89,7 @@ function requirePacket(packet) {
     || !(packet.baseColors instanceof Float32Array)
     || !(packet.surfaceParams instanceof Float32Array)
     || packet.primitiveIds.length !== packet.primitiveCount
+    || packet.curves.length !== packet.primitiveCount
     || packet.primitiveKinds.length !== packet.primitiveCount
     || packet.detailLevels.length !== packet.primitiveCount
     || packet.parents.length !== packet.primitiveCount
@@ -198,6 +200,7 @@ function meshBuilder(vertexBudget, indexBudget, usage) {
 
 function appendCylinder(
   builder, transform, color, roughness, sides, taper, bark, axialRings, centered = false,
+  curve = null,
 ) {
   let origin = Array.from(transform.slice(0, 3));
   const direction = normalize(Array.from(transform.slice(3, 6)));
@@ -207,12 +210,22 @@ function appendCylinder(
     throw new RangeError('tree WebGPU cylinder dimensions must be positive');
   }
   if (centered) origin = add(origin, scale(direction, length * -0.5));
-  builder.reserve(sides * axialRings + 2, sides * axialRings * 6);
-  const [first, second] = basis(direction);
+  const centers = curve?.points ?? Array.from({ length: axialRings }, (_, ring) => (
+    add(origin, scale(direction, length * ring / (axialRings - 1)))
+  ));
+  const ringCount = centers.length;
+  const segmentTangents = curve?.tangents ?? Array.from({ length: ringCount - 1 }, () => direction);
+  const ringTangents = centers.map((_, ring) => {
+    if (ring === 0) return segmentTangents[0];
+    if (ring === ringCount - 1) return segmentTangents.at(-1);
+    return normalize(add(segmentTangents[ring - 1], segmentTangents[ring]));
+  });
+  builder.reserve(sides * ringCount + 2, sides * ringCount * 6);
   const base = builder.vertices.length / 10;
-  for (let ring = 0; ring < axialRings; ring += 1) {
-    const along = ring / (axialRings - 1);
-    const center = add(origin, scale(direction, length * along));
+  for (let ring = 0; ring < ringCount; ring += 1) {
+    const along = ring / (ringCount - 1);
+    const center = centers[ring];
+    const [first, second] = basis(ringTangents[ring]);
     const nominalRadius = radius * (1 + (taper - 1) * along);
     for (let side = 0; side < sides; side += 1) {
       const angle = 2 * Math.PI * side / sides;
@@ -233,10 +246,10 @@ function appendCylinder(
       );
     }
   }
-  const end = add(origin, scale(direction, length));
-  const bottom = builder.vertex(origin, scale(direction, -1), color, roughness, [0.5, 0.5]);
-  const top = builder.vertex(end, direction, color, roughness, [0.5, 0.5]);
-  for (let ring = 0; ring < axialRings - 1; ring += 1) {
+  const end = centers.at(-1);
+  const bottom = builder.vertex(centers[0], scale(ringTangents[0], -1), color, roughness, [0.5, 0.5]);
+  const top = builder.vertex(end, ringTangents.at(-1), color, roughness, [0.5, 0.5]);
+  for (let ring = 0; ring < ringCount - 1; ring += 1) {
     for (let side = 0; side < sides; side += 1) {
       const next = (side + 1) % sides;
       const lower = base + ring * sides + side;
@@ -249,7 +262,7 @@ function appendCylinder(
   for (let side = 0; side < sides; side += 1) {
     const next = (side + 1) % sides;
     builder.indices.push(bottom, base + next, base + side);
-    const upper = base + (axialRings - 1) * sides;
+    const upper = base + (ringCount - 1) * sides;
     builder.indices.push(top, upper + side, upper + next);
   }
 }
@@ -439,11 +452,14 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     const color = Array.from(packet.baseColors.subarray(primitive * 4, primitive * 4 + 4));
     const roughness = packet.surfaceParams[primitive * 4];
     if (kind === KIND_TRUNK) {
-      appendCylinder(wood, transform, color, roughness, TRUNK_SIDES, 0.72, bark, 8, true);
+      appendCylinder(wood, transform, color, roughness, TRUNK_SIDES, 0.72, bark, 8, true,
+        packet.curves[primitive]);
     } else if (kind === KIND_BRANCH) {
-      appendCylinder(wood, transform, color, roughness, BRANCH_SIDES, 0.58, bark, 6);
+      appendCylinder(wood, transform, color, roughness, BRANCH_SIDES, 0.58, bark, 6, false,
+        packet.curves[primitive]);
     } else if (kind === KIND_TWIG) {
-      appendCylinder(wood, transform, color, roughness, TWIG_SIDES, 0.42, bark, 4);
+      appendCylinder(wood, transform, color, roughness, TWIG_SIDES, 0.42, bark, 4, false,
+        packet.curves[primitive]);
     } else if (kind === KIND_FOLIAGE) {
       appendLeaves(
         foliage,

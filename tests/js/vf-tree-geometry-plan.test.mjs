@@ -105,8 +105,9 @@ test('arc-length budgets consume and terminate inside bounded ellipsoid', () => 
   const wood = tree.primitives.filter((p) => [0, 2, 4].includes(p.kind));
   for (const p of wood) {
     assert.ok(p.pathRemainingAfter < p.pathRemainingBefore);
-    assert.ok(p.pathRemainingAfter >= 0); assert.ok(p.transform[6] <= p.pathRemainingBefore + 1e-9);
+    assert.ok(p.pathRemainingAfter >= 0); assert.ok(p.curve.arcLength <= p.pathRemainingBefore + 1e-9);
     assert.ok(envelopeMetric(tree.envelope, endpoint(p)) <= 1.00001);
+    assert.ok(p.curve.points.every((point) => envelopeMetric(tree.envelope, point) <= 1.00001));
     if (p.parentId !== null) assert.ok(p.pathRemainingBefore <= byParent(tree, p).pathRemainingAfter);
   }
   assert.ok(wood.filter((p) => p.kind === 4)
@@ -115,6 +116,29 @@ test('arc-length budgets consume and terminate inside bounded ellipsoid', () => 
   assert.ok(wood.filter((p) => p.pathRemainingAfter / tree.targetPathLength < 0.01)
     .every((p) => p.transform[7] < rootRadius * 0.2));
   assert.ok(wood.flatMap((p) => p.transform).every(Number.isFinite));
+});
+
+test('persistent curve steps stay smooth while turn variance rises as radius falls', () => {
+  const tree = fullPlan().trees[0];
+  const rootRadius = tree.primitives.find((p) => p.kind === 0).transform[7];
+  const bands = [[], [], []];
+  for (const primitive of tree.primitives.filter((p) => p.curve)) {
+    assert.ok(primitive.curve.points.length > 2);
+    assert.equal(primitive.curve.tangents.length, primitive.curve.points.length - 1);
+    assert.equal(primitive.curve.turns.length, primitive.curve.tangents.length - 1);
+    assert.ok(primitive.curve.turns.some((turn) => turn > 1e-7));
+    assert.ok(primitive.curve.turns.every((turn) => turn <= primitive.curve.maximumTurn + 1e-9));
+    assert.ok(primitive.curve.correlation >= 0.75);
+    const radiusRatio = primitive.transform[7] / rootRadius;
+    const band = radiusRatio > 0.7 ? 0 : radiusRatio > 0.18 ? 1 : 2;
+    bands[band].push(...primitive.curve.turns);
+  }
+  const rms = (values) => Math.sqrt(
+    values.reduce((sum, value) => sum + value ** 2, 0) / values.length,
+  );
+  const curvature = bands.map(rms);
+  assert.ok(curvature[0] < curvature[1]);
+  assert.ok(curvature[1] < curvature[2]);
 });
 
 test('leaves use varied nonterminal twig positions; replay exact and seed varies', () => {
@@ -127,14 +151,13 @@ test('leaves use varied nonterminal twig positions; replay exact and seed varies
   const positions = [];
   for (const leaf of tree.primitives.filter((p) => p.kind === 3)) {
     const twig = byId.get(leaf.parentId); assert.equal(twig.kind, 4);
-    const offset = leaf.transform.slice(0, 3).map((v, axis) => v - twig.transform[axis]);
-    const along = offset.reduce((sum, v, axis) => sum + v * twig.transform[axis + 3], 0) / twig.transform[6];
+    const along = leaf.normalizedTwigPosition;
     positions.push(along);
     assert.ok(along >= tree.profile.twig.attachmentBounds[0] - 1e-5);
     assert.ok(along <= tree.profile.twig.attachmentBounds[1] + 1e-5);
   }
-  assert.ok(positions.some((v) => v < 0.7));
-  assert.ok(positions.filter((v) => v < 0.8).length / positions.length > 0.7);
+  assert.ok(positions.some((v) => v > 0.75));
+  assert.ok(positions.filter((v) => v < 0.72).length / positions.length > 0.8);
   assert.ok(new Set(positions.map((v) => v.toFixed(4))).size > 8);
   const envelope = tree.envelope;
   const heightBins = new Set(); const radialBins = new Set(); const angularBins = new Set();
