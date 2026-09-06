@@ -14,6 +14,7 @@
 #include "compiler/native/vkf_value_layout.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -1731,12 +1732,52 @@ private:
                     field(object, "args", context),
                     context + ".args"
                 );
+                const auto& direct_named = array_of(
+                    field(object, "named_args", context), context + ".named_args");
+                const auto& direct_spreads = array_of(
+                    field(object, "spread_args", context), context + ".spread_args");
+                if (name == "num" && args.size() == 1
+                    && direct_named.empty() && direct_spreads.empty()) {
+                    lower_expression(args.front(), state, context + ".args[0]");
+                    return ValueType::Number;
+                }
+                if (name == "chr" && args.size() == 1
+                    && direct_named.empty() && direct_spreads.empty()) {
+                    const auto& argument = object_of(args.front(), context + ".args[0]");
+                    const auto* literal = optional_field(argument, "value");
+                    if (string_field(argument, "kind", context + ".args[0]") != "const"
+                        || literal == nullptr || !literal->is_number()) {
+                        throw BytecodeLoweringError(
+                            "WASM chr currently requires a constant Unicode scalar in " + context);
+                    }
+                    const auto raw = literal->as_number();
+                    if (!std::isfinite(raw) || std::floor(raw) != raw || raw < 0
+                        || raw > 0x10ffff || (raw >= 0xd800 && raw <= 0xdfff)) {
+                        throw BytecodeLoweringError(
+                            "chr requires a valid Unicode scalar in " + context);
+                    }
+                    const auto scalar = static_cast<std::uint32_t>(raw);
+                    std::string encoded;
+                    if (scalar <= 0x7f) encoded.push_back(static_cast<char>(scalar));
+                    else if (scalar <= 0x7ff) {
+                        encoded.push_back(static_cast<char>(0xc0 | (scalar >> 6)));
+                        encoded.push_back(static_cast<char>(0x80 | (scalar & 0x3f)));
+                    } else if (scalar <= 0xffff) {
+                        encoded.push_back(static_cast<char>(0xe0 | (scalar >> 12)));
+                        encoded.push_back(static_cast<char>(0x80 | ((scalar >> 6) & 0x3f)));
+                        encoded.push_back(static_cast<char>(0x80 | (scalar & 0x3f)));
+                    } else {
+                        encoded.push_back(static_cast<char>(0xf0 | (scalar >> 18)));
+                        encoded.push_back(static_cast<char>(0x80 | ((scalar >> 12) & 0x3f)));
+                        encoded.push_back(static_cast<char>(0x80 | ((scalar >> 6) & 0x3f)));
+                        encoded.push_back(static_cast<char>(0x80 | (scalar & 0x3f)));
+                    }
+                    emit(state, Opcode::PushConstant, ValueType::String,
+                        intern_constant(Constant::utf8_string(std::move(encoded))));
+                    return ValueType::String;
+                }
                 if (name == "int") {
-                    const auto& named = array_of(
-                        field(object, "named_args", context), context + ".named_args");
-                    const auto& spreads = array_of(
-                        field(object, "spread_args", context), context + ".spread_args");
-                    if (args.size() != 1 || !named.empty() || !spreads.empty()) {
+                    if (args.size() != 1 || !direct_named.empty() || !direct_spreads.empty()) {
                         throw BytecodeLoweringError(
                             "int conversion requires one positional argument in " + context);
                     }

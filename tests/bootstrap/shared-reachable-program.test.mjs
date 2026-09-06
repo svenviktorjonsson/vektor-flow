@@ -19,3 +19,16 @@ test('unchanged random guide omits unreachable clock capability functions',async
     },
   });
 });
+
+test('unchanged primitive guide executes compiler-owned scalar conversions',async()=>{
+  const [wasm,source]=await Promise.all([
+    readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url)),
+    readFile(new URL('../../examples/generated/readme/core/06-primitives.vkf',import.meta.url),'utf8'),
+  ]);
+  const module=new WebAssembly.Module(wasm);
+  assert.deepEqual(runInlineWorkerRequest({type:'run',id:2,source,module}),{
+    id:2,status:'ok',output:{
+      kind:'console',stdout:'true\nA\n1.5\n7\nnull\n',stderr:'',
+    },
+  });
+});
