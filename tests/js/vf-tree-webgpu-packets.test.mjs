@@ -104,11 +104,12 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
   assert.deepEqual(result.counts, {
     trunks: 1,
     crowns: 0,
-    branches: 30,
+    branches: 62,
     twigs: twigCount,
     foliageClusters: foliageCount,
-    leaves: foliageCount,
+    leaves: foliageCount * 2,
   });
+  assert.ok(result.counts.leaves > 1965);
   assert.ok(result.meshes.every((mesh) => (
     mesh.type === 'field_mesh'
     && mesh.topology === 'triangle-list'
@@ -289,7 +290,7 @@ test('procedural bark has coherent periodic grain and nonuniform color and rough
   assert.ok(result.bark.ridgeCount >= source.profile.bark.ridgeCountBounds[0]);
   assert.ok(result.bark.ridgeCount <= source.profile.bark.ridgeCountBounds[1]);
   assert.ok(result.bark.textureVariant >= 0 && result.bark.textureVariant < 3);
-  assert.equal(result.bark.materialChannels, 'albedo+roughness+radial-displacement');
+  assert.equal(result.bark.materialChannels, 'albedo+roughness+normal+radial-displacement');
   assert.deepEqual(result.bark.features, ['ridge', 'furrow', 'fissure', 'lenticel']);
   assert.ok(Math.max(...wood.roughness) - Math.min(...wood.roughness) > 0.08);
   const colors = new Set();
@@ -312,6 +313,28 @@ test('procedural bark has coherent periodic grain and nonuniform color and rough
   }
 });
 
+test('procedural bark perturbs surface normals with bounded multiscale relief', () => {
+  const result = adaptTreeRenderPacketToWebGpuMeshesReference(sourcePacket(), {
+    vertexBudget: 65536,
+    indexBudget: 393216,
+  });
+  assert.match(result.bark.materialChannels, /normal/u);
+  assert.ok(result.woodTopology.trunkBarkSides >= 24);
+  assert.ok(result.bark.normalStrength >= 0.2 && result.bark.normalStrength <= 0.8);
+  const wood = result.meshes[0];
+  const normals = Array.from({ length: 12 }, (_, vertex) => (
+    Array.from(wood.vertices.slice(vertex * 10 + 3, vertex * 10 + 6))
+  ));
+  const angularTurns = normals.map((normal, index) => {
+    const next = normals[(index + 1) % normals.length];
+    return Math.acos(Math.max(-1, Math.min(1,
+      normal.reduce((sum, value, axis) => sum + value * next[axis], 0),
+    )));
+  });
+  assert.ok(Math.max(...angularTurns) - Math.min(...angularTurns) > 0.08);
+  assert.ok(angularTurns.every((turn) => turn < 1.25));
+});
+
 test('conditioned leaves form bounded petioles and pointed ovate nondegenerate blades', () => {
   const result = adaptTreeRenderPacketToWebGpuMeshesReference(sourcePacket(), {
     vertexBudget: 65536,
@@ -321,18 +344,17 @@ test('conditioned leaves form bounded petioles and pointed ovate nondegenerate b
   const stride = result.leafParameterStride;
   assert.equal(stride, 9);
   assert.equal(result.leafParameters.length, result.counts.leaves * stride);
-  assert.equal(foliage.vertices.length / 10, result.counts.leaves * 16);
-  assert.equal(foliage.indices.length, result.counts.leaves * 72);
+  assert.equal(foliage.vertices.length / 10, result.counts.leaves * 12);
+  assert.equal(foliage.indices.length, result.counts.leaves * 66);
 
   const point = (vertex) => Array.from(foliage.vertices.slice(vertex * 10, vertex * 10 + 3));
   const petioleWidth = distance(point(0), point(1));
-  const interiorWidths = [5, 7, 9, 11, 13].map((vertex) => (
-    distance(point(vertex), point(vertex + 1))
+  const interiorWidths = [[5, 7], [8, 10]].map(([left, right]) => (
+    distance(point(left), point(right))
   ));
   assert.ok(petioleWidth < Math.max(...interiorWidths) * 0.25);
-  assert.ok(interiorWidths[0] < Math.max(...interiorWidths));
   assert.ok(interiorWidths.at(-1) < Math.max(...interiorWidths));
-  assert.ok(distance(point(15), point(13)) > 0);
+  assert.ok(distance(point(11), point(9)) > 0);
 
   for (let triangle = 0; triangle < foliage.indices.length; triangle += 3) {
     const a = point(foliage.indices[triangle]);
@@ -379,8 +401,27 @@ test('conditioned leaves form bounded petioles and pointed ovate nondegenerate b
   assert.ok(Math.abs(mean(camberRatios)) < 0.02);
   assert.ok(colorVariation.every((value) => value >= -0.06 - 1e-6 && value <= 0.06 + 1e-6));
   assert.ok(Math.abs(mean(colorVariation)) < 0.01);
-  assert.ok(mean(bladeAreas) < 0.035);
-  assert.ok(Math.max(...bladeAreas) < 0.095);
+  assert.ok(mean(bladeAreas) < 0.02);
+  assert.ok(Math.max(...bladeAreas) < 0.055);
+});
+
+test('leaf mesh carries deterministic vein albedo roughness and normal channels', () => {
+  const result = adaptTreeRenderPacketToWebGpuMeshesReference(sourcePacket(), {
+    vertexBudget: 65536,
+    indexBudget: 393216,
+  });
+  assert.equal(result.leafMaterial.channels, 'albedo+roughness+normal');
+  assert.equal(result.leafMaterial.translucency, 'unsupported-double-sided');
+  const foliage = result.meshes[1];
+  const reds = []; const roughness = []; const normals = [];
+  for (let vertex = 0; vertex < Math.min(140, foliage.vertices.length / 10); vertex += 1) {
+    reds.push(foliage.vertices[vertex * 10 + 6]);
+    roughness.push(foliage.roughness[vertex]);
+    normals.push(foliage.vertices[vertex * 10 + 3]);
+  }
+  assert.ok(Math.max(...reds) - Math.min(...reds) > 0.04);
+  assert.ok(Math.max(...roughness) - Math.min(...roughness) > 0.06);
+  assert.ok(Math.max(...normals) - Math.min(...normals) > 0.15);
 });
 
 test('static tree fixture uses the full deterministic producer chain and real renderer', async () => {

@@ -233,14 +233,18 @@
           })
           .sort((left, right) => right.clearance - left.clearance)[0].candidate;
         const twigRadius = twigJunction.ports.find((port) => port.role === 'incoming').radius;
-        const twigOutwardLength = Math.max(
-          Math.hypot(twigJunction.point[0] - center[0], twigJunction.point[1] - center[1]),
-          1e-6,
-        );
-        const twigOutward = [
-          (twigJunction.point[0] - center[0]) / twigOutwardLength,
-          (twigJunction.point[1] - center[1]) / twigOutwardLength,
+        const twigIncoming = twigJunction.ports.find((port) => port.role === 'incoming').tangent;
+        const twigChild = twigJunction.ports.find((port) => (
+          port.role === 'child'
+          && retained.packets[0].primitiveIds[port.primitive].includes(':branch:shoot:')
+        )).tangent;
+        const twigViewRaw = [
+          twigIncoming[1] * twigChild[2] - twigIncoming[2] * twigChild[1],
+          twigIncoming[2] * twigChild[0] - twigIncoming[0] * twigChild[2],
+          twigIncoming[0] * twigChild[1] - twigIncoming[1] * twigChild[0],
         ];
+        const twigViewLength = Math.max(Math.hypot(...twigViewRaw), 1e-6);
+        const twigView = twigViewRaw.map((value) => value / twigViewLength);
         const twigWood = tree.meshes[0];
         const twigIndices = [];
         for (let triangle = 0; triangle < twigWood.indices.length; triangle += 3) {
@@ -256,7 +260,7 @@
         }
         const isolatedTwigWood = Object.freeze({
           ...twigWood,
-          indices: new Uint32Array(twigIndices),
+          indices: twigWood.indices,
           casts_shadow: false,
           receives_shadow: false,
         });
@@ -276,13 +280,13 @@
           meshes: [isolatedTwigWood],
           camera: {
             pos: [
-              twigJunction.point[0] + twigOutward[0] * twigRadius * 18,
-              twigJunction.point[1] + twigOutward[1] * twigRadius * 18,
-              twigJunction.point[2] + twigRadius * 6,
+              twigJunction.point[0] + twigView[0] * twigRadius * 15,
+              twigJunction.point[1] + twigView[1] * twigRadius * 15,
+              twigJunction.point[2] + twigView[2] * twigRadius * 15,
             ],
             target: twigJunction.point,
-            up: [0, 0, 1],
-            fov: 28,
+            up: twigIncoming,
+            fov: 34,
           },
           lights: [
             { id: 'twig_key', kind: 'point',
@@ -329,11 +333,11 @@
           lights: [
             { id: 'bark_even_left', kind: 'point',
               pos: [barkPoint[0] - barkRadius * 5, barkPoint[1] - barkRadius * 6, barkPoint[2] + barkRadius * 3],
-              target: barkPoint, color: [1, 1, 1, 1], intensity: barkRadius * barkRadius * 120,
+              target: barkPoint, color: [1, 1, 1, 1], intensity: barkRadius * barkRadius * 180,
               range: barkRadius * 18 },
             { id: 'bark_even_right', kind: 'point',
               pos: [barkPoint[0] + barkRadius * 5, barkPoint[1] - barkRadius * 6, barkPoint[2] - barkRadius * 3],
-              target: barkPoint, color: [1, 1, 1, 1], intensity: barkRadius * barkRadius * 120,
+              target: barkPoint, color: [1, 1, 1, 1], intensity: barkRadius * barkRadius * 48,
               range: barkRadius * 18 },
           ],
           background: [0.12, 0.12, 0.12, 1],

@@ -69,8 +69,8 @@ test('binary topology ends parent at split, orders deviation, and loses area', (
   const branches = wood.filter((p) => p.kind === 2);
   const twigs = wood.filter((p) => p.kind === 4);
   const foliage = tree.primitives.filter((p) => p.kind === 3);
-  assert.equal(branches.length, 30); assert.ok(twigs.length >= 160 && twigs.length <= 300);
-  assert.ok(foliage.length >= twigs.length * 5 && foliage.length <= twigs.length * 9);
+  assert.equal(branches.length, 62); assert.ok(twigs.length >= 220 && twigs.length <= 420);
+  assert.ok(foliage.length >= twigs.length * 3 && foliage.length <= twigs.length * 7);
   assert.ok(plan.primitiveCount <= 2400);
   const children = new Map();
   for (const p of wood) if (p.parentId !== null) {
@@ -79,7 +79,7 @@ test('binary topology ends parent at split, orders deviation, and loses area', (
   }
   for (const parent of wood) {
     const offspring = (children.get(parent.id) ?? []).filter((child) => child.splitRole);
-    if (parent.kind === 4 && (parent.generation === 6 || parent.twigClass === 'lateral-shoot')) {
+    if (parent.kind === 4 && (parent.generation === 7 || parent.twigClass === 'lateral-shoot')) {
       assert.equal(offspring.length, 0); continue;
     }
     assert.equal(offspring.length, 2);
@@ -94,7 +94,8 @@ test('binary topology ends parent at split, orders deviation, and loses area', (
   for (const shoot of twigs.filter((p) => p.twigClass === 'lateral-shoot')) {
     const parent = tree.primitives.find((p) => p.id === shoot.parentId);
     assert.ok(parent.kind === 0 || parent.kind === 2);
-    assert.ok(shoot.transform[7] < parent.transform[7] * 0.1);
+    const graftRatio = shoot.transform[7] / parent.transform[7];
+    assert.ok(graftRatio >= 0.07 && graftRatio <= 0.13);
     assert.ok(shoot.normalizedParentPosition >= (parent.kind === 0 ? 0.55 : 0.12));
     assert.ok(shoot.normalizedParentPosition <= 0.9);
     if (!shootsByParent.has(parent.id)) shootsByParent.set(parent.id, []);
@@ -103,7 +104,7 @@ test('binary topology ends parent at split, orders deviation, and loses area', (
   for (const [parentId, shoots] of shootsByParent) {
     const parent = tree.primitives.find((p) => p.id === parentId);
     assert.ok(shoots.reduce((sum, shoot) => sum + shoot.transform[7] ** 2, 0)
-      < parent.transform[7] ** 2 * 0.04);
+      < parent.transform[7] ** 2 * 0.1);
   }
 });
 

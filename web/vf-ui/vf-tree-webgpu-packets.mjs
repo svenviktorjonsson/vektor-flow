@@ -5,11 +5,14 @@ const KIND_CROWN = 1;
 const KIND_BRANCH = 2;
 const KIND_FOLIAGE = 3;
 const KIND_TWIG = 4;
-const LEAVES_PER_CLUSTER = 1;
+const LEAVES_PER_CLUSTER = 2;
 const LEAF_PARAMETER_STRIDE = 9;
-const LEAF_VERTEX_COUNT = 16;
-const LEAF_INDEX_COUNT = 72;
+const LEAF_VERTEX_COUNT = 12;
+const LEAF_INDEX_COUNT = 66;
 const WOOD_RING_SIDES = 12;
+const TRUNK_BARK_RING_SIDES = 30;
+const BRANCH_RING_SIDES = 10;
+const TWIG_RING_SIDES = 8;
 
 function add(left, right) {
   return left.map((value, axis) => value + right[axis]);
@@ -125,10 +128,10 @@ function requirePacket(packet) {
   if (
     counts.trunks !== 1
     || counts.crowns !== 1
-    || counts.branches !== 30
-    || counts.twigs < 160
-    || counts.twigs > 300
-    || counts.foliageClusters < counts.twigs * 5
+    || counts.branches !== 62
+    || counts.twigs < 220
+    || counts.twigs > 420
+    || counts.foliageClusters < counts.twigs * 3
     || counts.foliageClusters > counts.twigs * 9
   ) {
     throw new RangeError('complete tree detail packet is required');
@@ -524,42 +527,73 @@ function appendWoodyNetwork(builder, packet, bark) {
     return record.transform[7]
       + (record.endRadius - record.transform[7]) * along / record.path.length;
   }
-  function ring(record, along, port = -1) {
-    const key = `${record.primitive}:${along.toFixed(10)}`;
+  function barkSample(angle, barkAlong) {
+    const ridge = Math.sin(bark.ridgeCount * angle + bark.phase + barkAlong * bark.grainTurns)
+      + 0.35 * Math.sin((bark.ridgeCount + 3) * angle - bark.phase * 0.7 + barkAlong * 9);
+    const ridgeNoise = ridge / 1.35;
+    const fissure = Math.pow(Math.max(0, Math.cos(
+      (bark.ridgeCount - 1) * angle - bark.phase * 0.43 + barkAlong * 73,
+    )), 4);
+    const grain = Math.sin(barkAlong * 190 + angle * 2 + bark.phase * 1.7);
+    const microRidge = Math.sin(
+      (bark.ridgeCount + 5) * angle + barkAlong * 47 - bark.phase * 0.35,
+    );
+    return {
+      ridgeNoise,
+      fissure,
+      materialNoise: clamp(
+        ridgeNoise * 0.44 + grain * 0.16 + microRidge * 0.22 - fissure * 1.18,
+        -1,
+        1,
+      ),
+      displacement: bark.ridgeAmplitude * (ridgeNoise + microRidge * 0.18 - fissure * 0.38),
+    };
+  }
+  function ring(record, along, sides = WOOD_RING_SIDES) {
+    const key = `${record.primitive}:${along.toFixed(10)}:${sides}`;
     if (ringCache.has(key)) return ringCache.get(key);
     const state = samplePath(record.path, along);
     const [first, second] = parallelTransportBasis(record.path, along);
     const radius = radiusAt(record, along);
     const indices = [];
     const positions = [];
-    builder.reserve(WOOD_RING_SIDES, 0);
-    for (let side = 0; side < WOOD_RING_SIDES; side += 1) {
-      const angle = Math.PI * 2 * side / WOOD_RING_SIDES;
+    builder.reserve(sides, 0);
+    for (let side = 0; side < sides; side += 1) {
+      const angle = Math.PI * 2 * side / sides;
       const radial = add(scale(first, Math.cos(angle)), scale(second, Math.sin(angle)));
       const barkAlong = record.baseBarkV + along / packet.targetPathLength;
-      const ridge = Math.sin(bark.ridgeCount * angle + bark.phase + barkAlong * bark.grainTurns)
-        + 0.35 * Math.sin((bark.ridgeCount + 3) * angle - bark.phase * 0.7 + barkAlong * 9);
-      const ridgeNoise = ridge / 1.35;
-      const fissure = Math.pow(Math.max(0, Math.cos(
-        (bark.ridgeCount - 1) * angle - bark.phase * 0.43 + barkAlong * 73,
-      )), 7);
-      const grain = Math.sin(barkAlong * 190 + angle * 2 + bark.phase * 1.7);
-      const materialNoise = clamp(ridgeNoise * 0.52 + grain * 0.18 - fissure * 1.08, -1, 1);
-      const ringRadius = radius * (1 + bark.ridgeAmplitude * (ridgeNoise - fissure * 0.32));
+      const field = barkSample(angle, barkAlong);
+      const angleStep = 0.018;
+      const alongStep = 0.0015;
+      const angularSlope = (
+        barkSample(angle + angleStep, barkAlong).displacement
+        - barkSample(angle - angleStep, barkAlong).displacement
+      ) / (2 * angleStep);
+      const axialSlope = (
+        barkSample(angle, barkAlong + alongStep).displacement
+        - barkSample(angle, barkAlong - alongStep).displacement
+      ) / (2 * alongStep) * radius / packet.targetPathLength;
+      const circumferential = normalize(cross(state.tangent, radial));
+      const surfaceNormal = normalize(add(
+        add(radial, scale(circumferential, -angularSlope * bark.normalStrength)),
+        scale(state.tangent, -axialSlope * bark.normalStrength),
+      ));
+      const ringRadius = radius * (1 + field.displacement);
       const axialOffset = 0;
       const position = add(
         add(state.point, scale(radial, ringRadius)),
         scale(state.tangent, axialOffset),
       );
       const vertexColor = record.color.map((value, channel) => (
-        channel === 3 ? value : clamp(value + bark.colorVariation * materialNoise, 0, 1)
+        channel === 3 ? value : clamp(value + bark.colorVariation * field.materialNoise, 0, 1)
       ));
       indices.push(builder.vertex(
         position,
-        radial,
+        surfaceNormal,
         vertexColor,
-        clamp(record.roughness + bark.roughnessVariation * (fissure - ridgeNoise * 0.32), 0.42, 0.98),
-        [side / WOOD_RING_SIDES, barkAlong],
+        clamp(record.roughness + bark.roughnessVariation
+          * (field.fissure - field.ridgeNoise * 0.32), 0.42, 0.98),
+        [side / sides, barkAlong],
       ));
       positions.push(position);
     }
@@ -568,21 +602,40 @@ function appendWoodyNetwork(builder, packet, bark) {
     return created;
   }
   function connectRings(first, second) {
-    builder.reserve(0, WOOD_RING_SIDES * 6);
-    for (let side = 0; side < WOOD_RING_SIDES; side += 1) {
-      const next = (side + 1) % WOOD_RING_SIDES;
-      builder.indices.push(
-        first.indices[side], first.indices[next], second.indices[side],
-        first.indices[next], second.indices[next], second.indices[side],
-      );
+    const firstCount = first.indices.length;
+    const secondCount = second.indices.length;
+    builder.reserve(0, (firstCount + secondCount) * 3);
+    let firstSide = 0;
+    let secondSide = 0;
+    while (firstSide < firstCount || secondSide < secondCount) {
+      const firstNext = (firstSide + 1) / firstCount;
+      const secondNext = (secondSide + 1) / secondCount;
+      const firstIndex = first.indices[firstSide % firstCount];
+      const secondIndex = second.indices[secondSide % secondCount];
+      if (Math.abs(firstNext - secondNext) < 1e-10) {
+        const firstNextIndex = first.indices[(firstSide + 1) % firstCount];
+        const secondNextIndex = second.indices[(secondSide + 1) % secondCount];
+        builder.indices.push(
+          firstIndex, firstNextIndex, secondIndex,
+          firstNextIndex, secondNextIndex, secondIndex,
+        );
+        firstSide += 1;
+        secondSide += 1;
+      } else if (firstNext < secondNext) {
+        builder.indices.push(firstIndex, first.indices[(firstSide + 1) % firstCount], secondIndex);
+        firstSide += 1;
+      } else {
+        builder.indices.push(firstIndex, second.indices[(secondSide + 1) % secondCount], secondIndex);
+        secondSide += 1;
+      }
     }
   }
   function capRing(target, direction) {
-    builder.reserve(1, WOOD_RING_SIDES * 3);
+    builder.reserve(1, target.indices.length * 3);
     const center = target.state.point;
     const centerIndex = builder.vertex(center, direction, [0.25, 0.13, 0.055, 1], 0.82, [0.5, target.barkV]);
-    for (let side = 0; side < WOOD_RING_SIDES; side += 1) {
-      const next = (side + 1) % WOOD_RING_SIDES;
+    for (let side = 0; side < target.indices.length; side += 1) {
+      const next = (side + 1) % target.indices.length;
       if (dot(direction, target.state.tangent) < 0) {
         builder.indices.push(centerIndex, target.indices[next], target.indices[side]);
       } else {
@@ -603,7 +656,7 @@ function appendWoodyNetwork(builder, packet, bark) {
     }
     if (cursor < record.path.length - 1e-8) spans.push([cursor, record.path.length]);
     for (const [start, end] of spans) {
-      const barkSteps = record.kind === KIND_TRUNK ? 64 : record.kind === KIND_BRANCH ? 4 : 1;
+      const barkSteps = record.kind === KIND_TRUNK ? 64 : record.kind === KIND_BRANCH ? 2 : 1;
       const uniformStations = Array.from({ length: barkSteps - 1 }, (_, step) => (
         start + (end - start) * (step + 1) / barkSteps
       ));
@@ -612,8 +665,12 @@ function appendWoodyNetwork(builder, packet, bark) {
       )), ...uniformStations, end].sort((left, right) => left - right)
         .filter((value, index, values) => index === 0 || value - values[index - 1] > 1e-8);
       let prior = ring(record, stations[0]);
-      for (const station of stations.slice(1)) {
-        const next = ring(record, station);
+      for (let stationIndex = 1; stationIndex < stations.length; stationIndex += 1) {
+        const station = stations[stationIndex];
+        const sides = stationIndex === stations.length - 1 ? WOOD_RING_SIDES
+          : record.kind === KIND_TRUNK ? TRUNK_BARK_RING_SIDES
+            : record.kind === KIND_BRANCH ? BRANCH_RING_SIDES : TWIG_RING_SIDES;
+        const next = ring(record, station, sides);
         connectRings(prior, next);
         prior = next;
       }
@@ -635,7 +692,7 @@ function appendWoodyNetwork(builder, packet, bark) {
     }
     const portTargets = [];
     const metadataPorts = ports.map((port, portIndex) => {
-      const target = ring(port.record, port.along, junctionIndex * 8 + portIndex);
+      const target = ring(port.record, port.along);
       portTargets.push(target);
       return Object.freeze({
         role: port.role,
@@ -683,6 +740,9 @@ function appendWoodyNetwork(builder, packet, bark) {
     junctions: Object.freeze(junctions),
     topology: Object.freeze({
       ringSides: WOOD_RING_SIDES,
+      trunkBarkSides: TRUNK_BARK_RING_SIDES,
+      branchSides: BRANCH_RING_SIDES,
+      twigSides: TWIG_RING_SIDES,
       boundaryEdges: [...edgeUse.values()].filter((count) => count === 1).length,
       nonManifoldEdges: [...edgeUse.values()].filter((count) => count > 2).length,
       internalCaps: 0,
@@ -753,16 +813,19 @@ function appendOvateLeaf(builder, transform, color, roughness, parameters, leafI
   const leafColor = color.map((value, channel) => (
     channel === 3 ? value : clamp(value + parameters[8], 0, 1)
   ));
+  const veinColor = leafColor.map((value, channel) => (
+    channel === 3 ? value : clamp(value + (channel === 1 ? 0.065 : -0.025), 0, 1)
+  ));
   const petioleHalfWidth = Math.max(bladeWidth * 0.025, bladeLength * 0.008);
   const bladeBase = add(attachment, scale(longAxis, petioleLength));
   const base = builder.vertices.length / 10;
-  builder.vertex(add(attachment, scale(wideAxis, -petioleHalfWidth)), normal, leafColor, roughness, [0.48, 0]);
-  builder.vertex(add(attachment, scale(wideAxis, petioleHalfWidth)), normal, leafColor, roughness, [0.52, 0]);
-  builder.vertex(add(bladeBase, scale(wideAxis, -petioleHalfWidth)), normal, leafColor, roughness, [0.48, 0.16]);
-  builder.vertex(add(bladeBase, scale(wideAxis, petioleHalfWidth)), normal, leafColor, roughness, [0.52, 0.16]);
-  builder.vertex(bladeBase, normal, leafColor, roughness, [0.5, 0.18]);
-  const stations = [0.12, 0.28, 0.48, 0.68, 0.84];
-  for (const station of stations) {
+  builder.vertex(add(attachment, scale(wideAxis, -petioleHalfWidth)), normal, veinColor, roughness - 0.04, [0.48, 0]);
+  builder.vertex(add(attachment, scale(wideAxis, petioleHalfWidth)), normal, veinColor, roughness - 0.04, [0.52, 0]);
+  builder.vertex(add(bladeBase, scale(wideAxis, -petioleHalfWidth)), normal, veinColor, roughness - 0.04, [0.48, 0.16]);
+  builder.vertex(add(bladeBase, scale(wideAxis, petioleHalfWidth)), normal, veinColor, roughness - 0.04, [0.52, 0.16]);
+  builder.vertex(bladeBase, normal, veinColor, roughness - 0.08, [0.5, 0.16]);
+  const stations = [0.42, 0.76];
+  stations.forEach((station, stationIndex) => {
     const profile = Math.pow(Math.sin(Math.PI * station), baseRoundness)
       * (1 - station * 0.12);
     const halfWidth = bladeWidth * 0.5 * profile;
@@ -773,28 +836,34 @@ function appendOvateLeaf(builder, transform, color, roughness, parameters, leafI
         scale(normal, camber * Math.sin(Math.PI * station)),
       ),
     );
-    builder.vertex(add(center, scale(wideAxis, -halfWidth)), normal, leafColor, roughness, [0, 0.18 + station * 0.82]);
-    builder.vertex(add(center, scale(wideAxis, halfWidth)), normal, leafColor, roughness, [1, 0.18 + station * 0.82]);
-  }
+    const secondaryVein = (stationIndex % 2 === 0 ? 1 : -1) * 0.035;
+    const edgeColor = leafColor.map((value, channel) => (
+      channel === 3 ? value : clamp(value + (channel === 1 ? secondaryVein : secondaryVein * 0.35), 0, 1)
+    ));
+    const veinNormal = normalize(add(normal, scale(wideAxis, secondaryVein * 2.4)));
+    builder.vertex(add(center, scale(wideAxis, -halfWidth)), normal, edgeColor, roughness + secondaryVein, [0, 0.18 + station * 0.82]);
+    builder.vertex(center, veinNormal, veinColor, roughness - 0.08, [0.5, 0.18 + station * 0.82]);
+    builder.vertex(add(center, scale(wideAxis, halfWidth)), normal, edgeColor, roughness - secondaryVein, [1, 0.18 + station * 0.82]);
+  });
   const apex = add(
     add(bladeBase, scale(longAxis, bladeLength)),
     scale(normal, camber * 0.18),
   );
-  builder.vertex(apex, normal, leafColor, roughness, [0.5, 1]);
+  builder.vertex(apex, normal, veinColor, roughness - 0.06, [0.5, 1]);
   addDoubleSidedQuad(builder.indices, base, base + 1, base + 3, base + 2);
-  addDoubleSidedTriangle(builder.indices, base + 4, base + 5, base + 6);
+  addDoubleSidedTriangle(builder.indices, base + 4, base + 5, base + 7);
+  addDoubleSidedTriangle(builder.indices, base + 2, base + 5, base + 4);
+  addDoubleSidedTriangle(builder.indices, base + 3, base + 4, base + 7);
   for (let station = 0; station < stations.length - 1; station += 1) {
-    const firstPair = base + 5 + station * 2;
-    const nextPair = firstPair + 2;
-    addDoubleSidedQuad(
-      builder.indices,
-      firstPair,
-      nextPair,
-      nextPair + 1,
-      firstPair + 1,
-    );
+    const first = base + 5 + station * 3;
+    const next = first + 3;
+    addDoubleSidedQuad(builder.indices, first, next, next + 1, first + 1);
+    addDoubleSidedQuad(builder.indices, first + 1, next + 1, next + 2, first + 2);
   }
-  addDoubleSidedTriangle(builder.indices, base + 13, base + 15, base + 14);
+  const lastPair = base + 5 + (stations.length - 1) * 3;
+  const apexIndex = base + LEAF_VERTEX_COUNT - 1;
+  addDoubleSidedTriangle(builder.indices, lastPair, apexIndex, lastPair + 1);
+  addDoubleSidedTriangle(builder.indices, lastPair + 1, apexIndex, lastPair + 2);
 }
 
 function appendLeaves(builder, transform, color, roughness, clusterNode, parameterBuffer) {
@@ -859,7 +928,7 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     textureVariant += 1;
   }
   const bark = Object.freeze({
-    materialChannels: 'albedo+roughness+radial-displacement',
+    materialChannels: 'albedo+roughness+normal+radial-displacement',
     features: barkProfile.featureGrammar,
     textureVariant,
     ridgeCount: Math.round(boundedNormal(
@@ -874,6 +943,7 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     grainTurns: boundedNormal(barkNode, 3, 4.5, 0.8, 2.5, 6.5),
     roughnessVariation: barkProfile.roughnessVariation,
     colorVariation: barkProfile.colorVariation,
+    normalStrength: barkProfile.normalStrength,
   });
   const woodNetwork = appendWoodyNetwork(wood, packet, bark);
   const leafParameterValues = [];
@@ -922,6 +992,11 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     leafParameterStride: LEAF_PARAMETER_STRIDE,
     leafParameters: new Float32Array(leafParameterValues),
     bark,
+    leafMaterial: Object.freeze({
+      channels: 'albedo+roughness+normal',
+      features: Object.freeze(['central-vein', 'secondary-veins', 'multiscale-green']),
+      translucency: 'unsupported-double-sided',
+    }),
     junctions: woodNetwork.junctions,
     woodTopology: woodNetwork.topology,
     vertexCount,
