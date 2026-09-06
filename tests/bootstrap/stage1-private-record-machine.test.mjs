@@ -32,6 +32,9 @@ test("private record producer matches the complete native MachineFunction", () =
     const actual = readFileSync(join(root, "compiler/self_hosted/compiler.vkf"), "utf8").replace(/\r\n/g, "\n")
       .match(/^_compile_locked_valid_source_graph\(sources:\[str\]\):\n[^\n]+/m)?.[0];
     assert.ok(actual);
+    const artifactResult = readFileSync(join(root, "compiler/self_hosted/compiler.vkf"), "utf8").replace(/\r\n/g, "\n")
+      .match(/^artifact_result\(manifest_path:str, artifact_path:str, status:str\):\n[^\n]+/m)?.[0];
+    assert.ok(artifactResult);
     for (const { source, invocation, field } of [
       { source: `${actual}\n`, invocation: '_compile_locked_valid_source_graph(["a", "b"])', field: "source_count" },
       { source: `${actual.replace("sources.length()", "sources.length()+1")}\n`, invocation: '_compile_locked_valid_source_graph(["a", "b"])', field: "source_count" },
@@ -40,6 +43,7 @@ test("private record producer matches the complete native MachineFunction", () =
       { source: "single_vector(items:[num]):\n    (saved:(items),)\n", invocation: "single_vector([1, 2])", field: "saved" },
       { source: "constants(items:[int]):\n    (integer:7, decimal:1.0, length:items.length())\n", invocation: "constants([1, 2])", field: "length" },
       { source: "folded(items:[num]):\n    (first:2.5+1+4, mixed:items.length()+(2+3), original:items)\n", invocation: "folded([1, 2])", field: "mixed" },
+      { source: `${artifactResult}\n`, invocation: 'artifact_result("manifest", "artifact", "ready")', field: "status" },
     ]) {
       const input = join(work, "input.vkf"), oracle = join(work, "oracle.vkf");
       writeFileSync(input, source);
@@ -59,7 +63,11 @@ test("private record producer matches the complete native MachineFunction", () =
       assert.equal(lines[0], "true", run.stdout);
       const opcodes = JSON.parse(lines[3]), operands = JSON.parse(lines[4]);
       const starts = JSON.parse(lines[6]), stops = JSON.parse(lines[7]), bytes = Buffer.from(source);
-      const parameters = starts.map((start, index) => bytes.subarray(start, stops[index]).toString());
+      const parameters = starts.flatMap((start, index) => {
+        const name = bytes.subarray(start, stops[index]).toString();
+        return bytes.subarray(stops[index], stops[index] + 4).toString() === ":str"
+          ? [`${name}.0`, `${name}.1`] : [name];
+      });
       assert.equal(opcodes.length, operands.length);
       const instructions = opcodes.map((opcode, index) => {
         if (opcode === 1) return { kind: "push_f64", value: operands[index] };
@@ -70,6 +78,7 @@ test("private record producer matches the complete native MachineFunction", () =
         if (opcode === 6) return { kind: "clone_f64_list" };
         if (opcode === 7) return { kind: "return_values", result_count: operands[index] };
         if (opcode === 8) return { kind: "return_f64" };
+        if (opcode === 9) return { kind: "clone_string" };
         assert.fail(`unknown private opcode ${opcode}`);
       });
       assert.deepEqual({

@@ -429,7 +429,9 @@ _bootstrap_lower_owned_result(
         parameters.length() != types.length() \/ type_starts.length() != type_stops.length())?
         @: fragment
     root: types.length() - 1
-    types.(root) != 3?
+    local: 0
+    prior: 0
+    (types.(root) != 3 /\ types.(root) != 5)?
         @: fragment
     child: 0
     (nodes.(root * 5) = 6)?>
@@ -438,16 +440,28 @@ _bootstrap_lower_owned_result(
             @: fragment
         .root: child
     fragment.error_index: nodes.(root * 5 + 1)
-    (nodes.(root * 5) != 1 \/ types.(root) != 3)?
+    (nodes.(root * 5) != 1 \/ (types.(root) != 3 /\ types.(root) != 5))?
         @: fragment
     parameter: parameters.(root)
     (parameter < 0 \/ parameter % 1 != 0 \/ parameter >= type_starts.length())?
         @: fragment
-    _bootstrap_vector_stride(source, rows, type_starts.(parameter), type_stops.(parameter)) = 0?
-        @: fragment
-    fragment.opcodes: fragment.opcodes & [2, 6]
-    fragment.operands: fragment.operands & [parameter, 0]
-    fragment.max_stack: 1
+    types.(root) = 3?
+        _bootstrap_vector_stride(source, rows, type_starts.(parameter), type_stops.(parameter)) = 0?
+            @: fragment
+        fragment.opcodes: fragment.opcodes & [2, 6]
+        fragment.operands: fragment.operands & [parameter, 0]
+        fragment.max_stack: 1
+    types.(root) = 5?
+        .local: 0
+        .prior: 0
+        (prior < parameter)?>
+            .local+: 1
+            vkf_utf8_slice(source, type_starts.(prior), type_stops.(prior)) = "str"?
+                .local+: 1
+            .prior+: 1
+        fragment.opcodes: fragment.opcodes & [2, 2, 9]
+        fragment.operands: fragment.operands & [local, local + 1, 0]
+        fragment.max_stack: 2
     fragment.valid: true
     fragment
 

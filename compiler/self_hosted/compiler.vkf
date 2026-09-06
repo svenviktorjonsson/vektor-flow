@@ -25,6 +25,7 @@ _bootstrap_record_function_machine(source:str):
     ~shape.valid?
         @: function
     field: 0
+    result_count: 0
     (field < shape.expression_starts.length())?>
         tree: parser._bootstrap_expression_tree(source, tokens.rows, tokens.count,
             shape.expression_starts.(field), shape.expression_stops.(field))
@@ -43,15 +44,19 @@ _bootstrap_record_function_machine(source:str):
             @: function
         function.opcodes: function.opcodes & fragment.opcodes
         function.operands: function.operands & fragment.operands
-        field + fragment.max_stack > function.max_stack?
-            function.max_stack: field + fragment.max_stack
+        result_count + fragment.max_stack > function.max_stack?
+            function.max_stack: result_count + fragment.max_stack
+        fragment.opcodes.(fragment.opcodes.length() - 1) = 9?
+            .result_count+: 2
+        fragment.opcodes.(fragment.opcodes.length() - 1) != 9?
+            .result_count+: 1
         .field+: 1
-    field = 1?
+    result_count = 1?
         function.opcodes: function.opcodes & [8]
         function.operands: function.operands & [0]
-    field > 1?
+    result_count > 1?
         function.opcodes: function.opcodes & [7]
-        function.operands: function.operands & [field]
+        function.operands: function.operands & [result_count]
     function.valid: true
     function
 

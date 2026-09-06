@@ -84,20 +84,25 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
             @: shape
         .index+: 1
         .type_start: index
-        (_bootstrap_shape_kind(rows, count, index, source_stop) != 22)?
-            shape.error_index: index
-            @: shape
-        .index+: 1
-        (_bootstrap_shape_kind(rows, count, index, source_stop) != 1)?
-            shape.error_index: index
-            @: shape
-        .index+: 1
-        (_bootstrap_shape_kind(rows, count, index, source_stop) != 23)?
+        _bootstrap_shape_kind(rows, count, index, source_stop) = 22?
+            .index+: 1
+            (_bootstrap_shape_kind(rows, count, index, source_stop) != 1)?
+                shape.error_index: index
+                @: shape
+            .index+: 1
+            (_bootstrap_shape_kind(rows, count, index, source_stop) != 23)?
+                shape.error_index: index
+                @: shape
+            .index+: 1
+        (_bootstrap_shape_kind(rows, count, type_start, source_stop) = 1 /\ index = type_start)?
+            .index+: 1
+        (index = type_start \/
+            (_bootstrap_shape_kind(rows, count, type_start, source_stop) != 1 /\
+             _bootstrap_shape_kind(rows, count, type_start, source_stop) != 22))?
             shape.error_index: index
             @: shape
         shape.type_starts: shape.type_starts & [rows.(type_start * 6 + 1)]
-        shape.type_stops: shape.type_stops & [rows.(index * 6 + 2)]
-        .index+: 1
+        shape.type_stops: shape.type_stops & [rows.((index - 1) * 6 + 2)]
         (_bootstrap_shape_kind(rows, count, index, source_stop) = 24)?
             .index+: 1
         (_bootstrap_shape_kind(rows, count, index, source_stop) != 14 /\

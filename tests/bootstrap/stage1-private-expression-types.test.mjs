@@ -41,6 +41,7 @@ test("private expression facts match native typed IR", () => {
       "_compile_locked_valid_source_graph(sources:[str]):\n    (sources:sources, source_count:sources.length()+1)\n",
       "offset(items:[num]):\n    (mixed:items.length()+1.0, grouped:(2+3)+4.5, reverse:2.5+items.length())\n",
       "# Unicode: café\nspaced(items:[ num ]):\n    (call:(items.length)(), original:items)\n",
+      "artifact_result(manifest_path:str, artifact_path:str, status:str):\n    (manifest_path:manifest_path, artifact_path:artifact_path, status:status)\n",
     ]) {
       const input = join(work, "input.vkf");
       writeFileSync(input, source);
@@ -96,6 +97,13 @@ test("private expression facts match native typed IR", () => {
             return { kind: "binary_op", op: "PLUS", left: lhs, right: rhs, left_type: lhs.type, right_type: rhs.type, type: types[index] === 1 ? "int" : "num" };
           }
           assert.equal(kind, 1);
+          if (types[index] === 5) {
+            return {
+              kind: "load",
+              name: bytes.subarray(rows[token * 6 + 1], rows[token * 6 + 2]).toString(),
+              type: "str",
+            };
+          }
           assert.equal(types[index], 3);
           const parameter = parameters[index];
           assert.ok(Number.isInteger(parameter) && parameter >= 0 && parameter < typeStarts.length);

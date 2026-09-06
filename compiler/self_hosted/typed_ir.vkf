@@ -4,7 +4,8 @@
 # consumes normalized parser AST JSON and emits deterministic typed IR JSON.
 
 # Private facts over a validated private expression arena and declaration spans.
-# Type codes: 1 int, 2 num, 3 vector parameter, 4 zero-argument vector length.
+# Type codes: 1 int, 2 num, 3 vector parameter, 4 zero-argument vector length,
+# 5 borrowed string parameter.
 # Public typed IR schemas and existing manifest-callable helpers are unchanged.
 _bootstrap_expression_types(
     source:str, rows:[num], nodes:[num], arguments:[num],
@@ -57,6 +58,8 @@ _bootstrap_expression_types(
             match < 0?
                 @: facts
             .type: 3
+            vkf_utf8_slice(source, type_starts.(match), type_stops.(match)) = "str"?
+                .type: 5
         kind = 2?
             (nodes.(index * 5 + 3) != 0 /\ nodes.(index * 5 + 3) != 1)?
                 @: facts

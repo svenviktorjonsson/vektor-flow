@@ -39,6 +39,7 @@ test("private parser reads general vector-parameter record shape from runtime to
       { source: "# λ location prefix\ncollect_42(values_7:[Widget]):\n    (nested:pair(values_7, [values_7, values_7]), original:values_7)\n", expressions: ["pair(values_7, [values_7, values_7])", "values_7"] },
       { source: "single(items:[str]):\n    (original:items,)\n", expressions: ["items"] },
       { source: "single_nested(items:[str]):\n    (value:pair(items, items),)\n", expressions: ["pair(items, items)"] },
+      { source: "artifact_result(manifest_path:str, artifact_path:str, status:str):\n    (manifest_path:manifest_path, artifact_path:artifact_path, status:status)\n", expressions: ["manifest_path", "artifact_path", "status"] },
     ];
     for (const fixture of cases) {
       const input = join(work, "input.vkf");
