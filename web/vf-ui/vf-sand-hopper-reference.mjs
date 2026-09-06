@@ -113,6 +113,7 @@ export function createDrySandHopperReference({
     discharged: new Uint8Array(count),
     dischargedAt: new Float32Array(count).fill(-1),
     aggregated: new Uint8Array(count),
+    obstacleContacted: new Uint8Array(count),
   };
   return {
     kind: 'dry-sand-hopper-reference:v1', seed: seed >>> 0, count,
@@ -137,6 +138,7 @@ export function createDrySandHopperReference({
     _archLastDischargedCount: 0,
     _archStableSteps: 0,
     flowDiagnostic: Object.freeze({ status: 'flowing', outletDiameterInMeanGrains: outletRadius / radius }),
+    receivingObstacle: null,
   };
 }
 
@@ -150,6 +152,7 @@ export function resetDrySandHopperReference(world) {
   world.state.discharged.fill(0);
   world.state.dischargedAt.fill(-1);
   world.state.aggregated.fill(0);
+  world.state.obstacleContacted.fill(0);
   world.time = 0;
   world.maxPersistentPenetration = 0;
   world.baseTilt = Object.freeze({ degrees: 0, azimuthRadians: 0, slopeX: 0, slopeY: 0, inverseNormal: 1 });
@@ -159,6 +162,21 @@ export function resetDrySandHopperReference(world) {
   world.flowDiagnostic = Object.freeze({
     status: 'flowing', outletDiameterInMeanGrains: world.outletDiameterInMeanGrains,
   });
+  return world;
+}
+
+export function setDrySandReceivingObstacleReference(world, { center, radii } = {}) {
+  if (!Array.isArray(center) || center.length !== 3 || !center.every(Number.isFinite)) {
+    throw new RangeError('receiving obstacle center must contain three finite coordinates');
+  }
+  if (!Array.isArray(radii) || radii.length !== 3
+      || !radii.every(value => Number.isFinite(value) && value > 0)) {
+    throw new RangeError('receiving obstacle radii must contain three finite positive values');
+  }
+  world.receivingObstacle = Object.freeze({
+    kind: 'ellipsoid', center: Object.freeze([...center]), radii: Object.freeze([...radii]),
+  });
+  world.state.obstacleContacted.fill(0);
   return world;
 }
 
@@ -231,6 +249,36 @@ function projectBoundaries(world, previous) {
         const nx = -slopeX * inverseNormal; const ny = -slopeY * inverseNormal;
         x += nx * penetration; y += ny * penetration; z += inverseNormal * penetration;
         maxPenetration = Math.max(maxPenetration, penetration);
+      }
+    }
+    const obstacle = world.receivingObstacle;
+    if (obstacle && z < world.hopperBottom - r) {
+      const [cx, cy, cz] = obstacle.center;
+      const ex = obstacle.radii[0] + r;
+      const ey = obstacle.radii[1] + r;
+      const ez = obstacle.radii[2] + r;
+      const dx = x - cx; const dy = y - cy; const dz = z - cz;
+      const normalized = Math.hypot(dx / ex, dy / ey, dz / ez);
+      if (normalized < 1) {
+        if (normalized < 1e-12) {
+          x = cx - ex;
+        } else {
+          const scale = 1 / normalized;
+          const targetZ = cz + dz * scale;
+          if (targetZ >= r) {
+            x = cx + dx * scale; y = cy + dy * scale; z = targetZ;
+          } else {
+            z = r;
+            const vertical = Math.max(-1, Math.min(1, (z - cz) / ez));
+            const crossSection = Math.sqrt(Math.max(0, 1 - vertical * vertical));
+            const radial = Math.hypot(dx / ex, dy / ey);
+            const directionX = radial > 1e-12 ? dx / ex / radial : -1;
+            const directionY = radial > 1e-12 ? dy / ey / radial : 0;
+            x = cx + directionX * ex * crossSection;
+            y = cy + directionY * ey * crossSection;
+          }
+        }
+        world.state.obstacleContacted[index] = 1;
       }
     }
     if (z >= world.hopperBottom - r && z <= world.hopperTop + r) {
@@ -639,6 +687,33 @@ export function measureDrySandPileStabilityReference(world) {
   });
 }
 
+export function measureDrySandPileInteractionReference(world) {
+  if (!world.receivingObstacle) throw new Error('receiving obstacle is not configured');
+  const [cx, cy, cz] = world.receivingObstacle.center;
+  const [rx, ry, rz] = world.receivingObstacle.radii;
+  let grainCount = 0; let centroidX = 0; let meanRadialDistance = 0;
+  let contactCount = 0; let minimumNormalizedClearance = Infinity;
+  for (let index = 0; index < world.count; index += 1) {
+    contactCount += world.state.obstacleContacted[index];
+    if (!world.state.discharged[index]) continue;
+    grainCount += 1;
+    const offset = index * 3; const r = grainRadius(world, index);
+    const x = world.state.positions[offset]; const y = world.state.positions[offset + 1];
+    const z = world.state.positions[offset + 2];
+    centroidX += x; meanRadialDistance += Math.hypot(x, y);
+    minimumNormalizedClearance = Math.min(minimumNormalizedClearance, Math.hypot(
+      (x - cx) / (rx + r), (y - cy) / (ry + r), (z - cz) / (rz + r),
+    ));
+  }
+  const activeCount = world.count - grainCount;
+  return Object.freeze({
+    grainCount, activeCount, massError: (world.count - activeCount - grainCount) / world.count,
+    contactCount, minimumNormalizedClearance,
+    centroidX: centroidX / Math.max(1, grainCount),
+    meanRadialDistance: meanRadialDistance / Math.max(1, grainCount),
+  });
+}
+
 const TRIAL_CACHE = new Map();
 
 export function runDrySandHopperTrialReference(options = {}) {
@@ -753,6 +828,34 @@ export function createDrySandRenderPacketReference(world) {
   };
   world.render.instances = instances;
   return syncDrySandRenderPacketReference(world, packet);
+}
+
+export function createDrySandObstacleRenderPacketReference(world, {
+  latitudeSegments = 16, longitudeSegments = 24,
+} = {}) {
+  if (!world.receivingObstacle) throw new Error('receiving obstacle is not configured');
+  const template = sphereTemplate(latitudeSegments, longitudeSegments);
+  const vertices = template.vertices.slice();
+  const [cx, cy, cz] = world.receivingObstacle.center;
+  const [rx, ry, rz] = world.receivingObstacle.radii;
+  for (let offset = 0; offset < vertices.length; offset += 10) {
+    const dx = vertices[offset]; const dy = vertices[offset + 1]; const dz = vertices[offset + 2];
+    vertices[offset] = cx + dx * rx; vertices[offset + 1] = cy + dy * ry;
+    vertices[offset + 2] = cz + dz * rz;
+    const nx = dx / rx; const ny = dy / ry; const nz = dz / rz;
+    const inverse = 1 / Math.hypot(nx, ny, nz);
+    vertices[offset + 3] = nx * inverse; vertices[offset + 4] = ny * inverse;
+    vertices[offset + 5] = nz * inverse;
+    vertices[offset + 6] = 0.29; vertices[offset + 7] = 0.31;
+    vertices[offset + 8] = 0.32; vertices[offset + 9] = 1;
+  }
+  return Object.freeze({
+    type: 'field_mesh', id: 'sand:receiving-ellipsoid', object_id: 6, mode3d: true,
+    topology: 'triangle-list', static_vertices: true, static_indices: true,
+    transparent: false, depth_write: true, receives_lighting: true,
+    casts_shadow: true, receives_shadow: false, specular_strength: 0.18,
+    vertices, indices: template.indices,
+  });
 }
 
 function rotateByQuaternion(x, y, z, q, offset) {

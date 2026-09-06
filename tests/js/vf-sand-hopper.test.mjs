@@ -7,11 +7,14 @@ import {
   createDrySandHopperReference,
   createDrySandEllipsoidRenderPacketReference,
   createDrySandHopperHardwarePacketsReference,
+  createDrySandObstacleRenderPacketReference,
   createDrySandRenderPacketReference,
   resetDrySandHopperReference,
   setDrySandBaseTiltReference,
   measureDrySandPileStabilityReference,
+  measureDrySandPileInteractionReference,
   runDrySandHopperTrialReference,
+  setDrySandReceivingObstacleReference,
   stepDrySandHopperReference,
   syncDrySandRenderPacketReference,
   syncDrySandEllipsoidRenderPacketReference,
@@ -19,6 +22,55 @@ import {
 
 const hash = (view) => createHash('sha256')
   .update(Buffer.from(view.buffer, view.byteOffset, view.byteLength)).digest('hex');
+
+test('receiving ellipsoid deterministically deflects a conserved sand pile', () => {
+  const realize = () => {
+    const world = createDrySandHopperReference({
+      seed: 0xb01d, grainCount: 256, outletDiameterInGrains: 4.5,
+    });
+    setDrySandReceivingObstacleReference(world, {
+      center: [0.10, 0, 0.13], radii: [0.23, 0.17, 0.13],
+    });
+    stepDrySandHopperReference(world, 600);
+    return { world, metrics: measureDrySandPileInteractionReference(world) };
+  };
+  const first = realize(); const replay = realize();
+  assert.ok(first.metrics.contactCount > 12);
+  assert.ok(first.metrics.minimumNormalizedClearance >= 0.999);
+  assert.ok(first.metrics.centroidX < -0.01);
+  assert.equal(first.metrics.grainCount, 256);
+  assert.equal(first.metrics.massError, 0);
+  assert.deepEqual(first.metrics, replay.metrics);
+  assert.equal(hash(first.world.state.positions), hash(replay.world.state.positions));
+});
+
+test('receiving obstacle packet renders the exact configured collision ellipsoid', () => {
+  const world = createDrySandHopperReference({ grainCount: 32 });
+  setDrySandReceivingObstacleReference(world, {
+    center: [0.10, 0, 0.13], radii: [0.23, 0.17, 0.13],
+  });
+  const packet = createDrySandObstacleRenderPacketReference(world);
+  const xs = []; const ys = []; const zs = [];
+  for (let offset = 0; offset < packet.vertices.length; offset += 10) {
+    xs.push(packet.vertices[offset]); ys.push(packet.vertices[offset + 1]);
+    zs.push(packet.vertices[offset + 2]);
+  }
+  assert.ok(Math.abs(Math.min(...xs) - (-0.13)) < 1e-6);
+  assert.ok(Math.abs(Math.max(...xs) - 0.33) < 1e-6);
+  assert.ok(Math.abs(Math.min(...ys) - (-0.17)) < 1e-6);
+  assert.ok(Math.abs(Math.max(...zs) - 0.26) < 1e-6);
+  assert.ok(packet.vertices.every(Number.isFinite));
+});
+
+test('obstacle interaction fixture renders canonical collision and grain state in WebGPU', () => {
+  const scene = readFileSync(new URL('../fixtures/dry-sand-obstacle-interaction-scene.mjs', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../fixtures/dry-sand-obstacle-interaction.html', import.meta.url), 'utf8');
+  assert.match(scene, /setDrySandReceivingObstacleReference/);
+  assert.match(scene, /createDrySandObstacleRenderPacketReference/);
+  assert.match(scene, /syncDrySandEllipsoidRenderPacketReference/);
+  assert.match(scene, /unified_renderer:\s*true/);
+  assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
+});
 
 test('fixed-step hopper reset is byte deterministic and rendering shares particle state', () => {
   const world = createDrySandHopperReference({ seed: 0x5a17, grainCount: 384 });
