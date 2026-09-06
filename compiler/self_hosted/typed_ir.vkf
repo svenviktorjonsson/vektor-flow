@@ -140,6 +140,23 @@ TypedTaggedBinaryOp: (
 )
 TaggedAstLocation: (file:str, line:num, column:num)
 TaggedAstSpan: (start:TaggedAstLocation, stop:TaggedAstLocation)
+TypedTaggedCursorModule: (
+    kind:str,
+    source:str,
+    node_rows:[num],
+    node_count:int,
+    block_rows:[num],
+    block_count:int,
+    span:TaggedAstSpan
+)
+TypedTaggedCursorNode: (
+    kind:str,
+    order:int,
+    depth:int,
+    parent_order:int,
+    type:str,
+    span:TaggedAstSpan
+)
 TypedTaggedIntConst: (kind:str, value:num, type:str)
 TypedTaggedAstBinaryOp: (
     kind:str,
@@ -393,6 +410,62 @@ typed_tagged_module_statement(
         right:typed_const(module.statements.(offset + 3), "int"),
         right_type:"int",
         type:"any"
+    )
+
+typed_tagged_cursor_kind(kind_code:num) -> str:
+    kind_code??
+        1 => "store_binding"
+        2 => "function"
+        3 => "expr_stmt"
+        4 => "expr_stmt"
+        5 => "store_binding"
+        "unsupported"
+
+typed_tagged_cursor_ast_module(
+    source:str, node_rows:[num], node_count:int,
+    block_rows:[num], block_count:int, file:str,
+    start_line:num, start_column:num, stop_line:num, stop_column:num
+) -> TypedTaggedCursorModule:
+    (node_rows.length() = node_count * 10)?! "typed tagged AST node arena has an invalid shape"
+    (block_rows.length() = block_count * 8)?! "typed tagged AST block arena has an invalid shape"
+    (
+        kind:"typed_module",
+        source:source,
+        node_rows:node_rows,
+        node_count:node_count,
+        block_rows:block_rows,
+        block_count:block_count,
+        span:(
+            start:(file:file, line:start_line, column:start_column),
+            stop:(file:file, line:stop_line, column:stop_column)
+        )
+    )
+
+typed_tagged_cursor_node(
+    module:TypedTaggedCursorModule, index:int
+) -> TypedTaggedCursorNode:
+    (index >= 0 /\ index < module.node_count)?! "typed tagged AST node index is out of bounds"
+    offset: index * 10
+    kind: typed_tagged_cursor_kind(module.node_rows.(offset + 3))
+    (kind != "unsupported")?! "typed tagged AST contains an unsupported statement kind"
+    (
+        kind:kind,
+        order:index,
+        depth:module.node_rows.(offset + 4),
+        parent_order:module.node_rows.(offset + 5),
+        type:"any",
+        span:(
+            start:(
+                file:module.span.start.file,
+                line:module.node_rows.(offset + 6),
+                column:module.node_rows.(offset + 7)
+            ),
+            stop:(
+                file:module.span.start.file,
+                line:module.node_rows.(offset + 8),
+                column:module.node_rows.(offset + 9)
+            )
+        )
     )
 
 typed_tagged_ast_binary_expression(

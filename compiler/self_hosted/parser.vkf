@@ -471,6 +471,24 @@ TaggedCursorStatement: (
     token_count:int,
     span:Span
 )
+TaggedCursorAstModule: (
+    kind:str,
+    source:str,
+    token_rows:[num],
+    token_count:int,
+    node_rows:[num],
+    node_count:int,
+    block_rows:[num],
+    block_count:int,
+    span:Span
+)
+TaggedCursorBlock: (
+    owner_order:int,
+    depth:int,
+    first_child_order:int,
+    child_count:int,
+    span:Span
+)
 TaggedNumericConditionalCall: (
     function_name:str,
     parameter_name:str
@@ -1751,6 +1769,125 @@ tagged_module_statement(
             location(
                 "<self-hosted>", module.statement_rows.(offset + 8),
                 module.statement_rows.(offset + 9)
+            )
+        )
+    )
+
+tagged_cursor_block_index(
+    block_rows:[num], block_count:num, owner_order:num
+) -> int:
+    index: 0
+    (index < block_count)?>
+        block_rows.(index * 8) = owner_order?
+            @: index
+        .index+: 1
+    -1
+
+tagged_cursor_block_row(
+    module:TaggedCursorModule, owner_order:num
+) -> [num:8]:
+    node_index: 0
+    first_child_order: -1
+    child_count: 0
+    start_line: 0
+    start_column: 0
+    stop_line: 0
+    stop_column: 0
+    (node_index < module.statement_count)?>
+        offset: node_index * 10
+        module.statement_rows.(offset + 5) = owner_order?
+            first_child_order < 0?
+                .first_child_order: node_index
+                .start_line: module.statement_rows.(offset + 6)
+                .start_column: module.statement_rows.(offset + 7)
+            .child_count+: 1
+            .stop_line: module.statement_rows.(offset + 8)
+            .stop_column: module.statement_rows.(offset + 9)
+        .node_index+: 1
+    (child_count > 0)?! "tagged AST block owner has no children"
+    owner_offset: owner_order * 10
+    [
+        owner_order,
+        module.statement_rows.(owner_offset + 4) + 1,
+        first_child_order,
+        child_count,
+        start_line,
+        start_column,
+        stop_line,
+        stop_column
+    ]
+
+tagged_cursor_ast(module:TaggedCursorModule) -> TaggedCursorAstModule:
+    [num] block_rows: []
+    block_count: 0
+    node_index: 0
+    (node_index < module.statement_count)?>
+        parent_order: module.statement_rows.(node_index * 10 + 5)
+        new_parent: (parent_order >= 0 /\
+            tagged_cursor_block_index(
+                block_rows, block_count, parent_order
+            ) < 0)
+        new_parent?
+            .block_rows: block_rows & tagged_cursor_block_row(
+                module, parent_order
+            )
+            .block_count+: 1
+        .node_index+: 1
+    (
+        kind:"module",
+        source:module.source,
+        token_rows:module.token_rows,
+        token_count:module.token_count,
+        node_rows:module.statement_rows,
+        node_count:module.statement_count,
+        block_rows:block_rows,
+        block_count:block_count,
+        span:module.span
+    )
+
+tagged_cursor_ast_node(
+    ast:TaggedCursorAstModule, index:int
+) -> TaggedCursorStatement:
+    (index >= 0 /\ index < ast.node_count)?! "tagged AST node index is out of bounds"
+    offset: index * 10
+    (
+        kind:tagged_cursor_statement_kind(ast.node_rows.(offset + 3)),
+        order:index,
+        depth:ast.node_rows.(offset + 4),
+        parent_order:ast.node_rows.(offset + 5),
+        token_start:ast.node_rows.(offset),
+        token_stop:ast.node_rows.(offset + 1),
+        token_count:ast.node_rows.(offset + 2),
+        span:span(
+            location(
+                "<self-hosted>", ast.node_rows.(offset + 6),
+                ast.node_rows.(offset + 7)
+            ),
+            location(
+                "<self-hosted>", ast.node_rows.(offset + 8),
+                ast.node_rows.(offset + 9)
+            )
+        )
+    )
+
+tagged_cursor_block(
+    ast:TaggedCursorAstModule, index:int
+) -> TaggedCursorBlock:
+    (index >= 0 /\ index < ast.block_count)?! "tagged AST block index is out of bounds"
+    offset: index * 8
+    (
+        owner_order:ast.block_rows.(offset),
+        depth:ast.block_rows.(offset + 1),
+        first_child_order:ast.block_rows.(offset + 2),
+        child_count:ast.block_rows.(offset + 3),
+        span:span(
+            location(
+                "<self-hosted>", ast.block_rows.(offset + 4),
+                ast.block_rows.(offset + 5)
+            ),
+            location(
+                "<self-hosted>", ast.block_rows.(offset + 6),
+                ast.block_rows.(offset + 7)
             )
         )
     )
