@@ -50,6 +50,7 @@ for (const [id,example,stdout] of [
   [13,'34-errors','specific value\n'],
   [15,'32-match','exact three\nanother integer\n'],
   [16,'33-loops','10\n2\n'],
+  [18,'13-updates-aliases','[3, 4]\n(x:5, y:6, name:my point)\n'],
 ]) {
   test(`unchanged ${example} guide preserves compiler-owned pipe result shape`,async()=>{
     const [wasm,source]=await Promise.all([

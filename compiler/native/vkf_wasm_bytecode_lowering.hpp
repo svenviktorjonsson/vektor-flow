@@ -699,8 +699,16 @@ private:
                 }
                 local_index = local->second;
             }
+            const auto& update_value = field(object, "value", context);
+            const auto& update_value_object = object_of(update_value, context + ".value");
+            const auto* update_left = optional_field(update_value_object, "left");
+            const bool compound_self_update = update
+                && string_field(update_value_object, "kind", context + ".value") == "binary_op"
+                && update_left != nullptr && update_left->is_object()
+                && string_field(update_left->as_object(), "kind", context + ".value.left") == "load"
+                && string_field(update_left->as_object(), "name", context + ".value.left") == name;
             const ValueType value_type = lower_expression(
-                field(object, "value", context),
+                update_value,
                 state,
                 context + ".value"
             );
@@ -711,6 +719,58 @@ private:
                     string_field(object, "type", context), context);
                 add_local(state, name, type, context);
                 local_index = state.locals.at(name);
+            }
+            if (compound_self_update && value_type == ValueType::Array
+                && state.function->local_types.at(local_index) == ValueType::Array) {
+                const auto replacement = add_temporary_local(state, ValueType::Array);
+                const auto index = add_temporary_local(state, ValueType::Number);
+                emit(state, Opcode::StoreLocal, ValueType::Array, replacement);
+                emit(state, Opcode::LoadLocal, ValueType::Array, local_index);
+                emit(state, Opcode::ArrayLength, ValueType::Number);
+                emit(state, Opcode::LoadLocal, ValueType::Array, replacement);
+                emit(state, Opcode::ArrayLength, ValueType::Number);
+                emit(state, Opcode::Equal, ValueType::Boolean);
+                const auto rebind_jump = state.function->instructions.size();
+                emit(state, Opcode::JumpIfFalse, ValueType::Void);
+                emit_number(state, 0.0);
+                emit(state, Opcode::StoreLocal, ValueType::Number, index);
+                const auto loop_start = checked_index(state.function->instructions.size(),
+                    "array update loop");
+                emit(state, Opcode::LoadLocal, ValueType::Number, index);
+                emit(state, Opcode::LoadLocal, ValueType::Array, replacement);
+                emit(state, Opcode::ArrayLength, ValueType::Number);
+                emit(state, Opcode::Less, ValueType::Boolean);
+                const auto loop_end_jump = state.function->instructions.size();
+                emit(state, Opcode::JumpIfFalse, ValueType::Void);
+                emit(state, Opcode::LoadLocal, ValueType::Array, local_index);
+                emit(state, Opcode::LoadLocal, ValueType::Number, index);
+                emit(state, Opcode::LoadLocal, ValueType::Array, replacement);
+                emit(state, Opcode::LoadLocal, ValueType::Number, index);
+                emit(state, Opcode::ArrayGet, ValueType::Dynamic);
+                emit(state, Opcode::ArraySet, ValueType::Array);
+                emit(state, Opcode::Pop, ValueType::Void);
+                emit(state, Opcode::LoadLocal, ValueType::Number, index);
+                emit_number(state, 1.0);
+                emit(state, Opcode::Add, ValueType::Number);
+                emit(state, Opcode::StoreLocal, ValueType::Number, index);
+                emit(state, Opcode::Jump, ValueType::Void, loop_start);
+                const auto loop_end = checked_index(state.function->instructions.size(),
+                    "array update continuation");
+                emit(state, Opcode::Nop, ValueType::Void);
+                patch_jump(state, loop_end_jump, loop_end);
+                const auto end_jump = state.function->instructions.size();
+                emit(state, Opcode::Jump, ValueType::Void);
+                const auto rebind_target = checked_index(state.function->instructions.size(),
+                    "array update rebind");
+                emit(state, Opcode::Nop, ValueType::Void);
+                patch_jump(state, rebind_jump, rebind_target);
+                emit(state, Opcode::LoadLocal, ValueType::Array, replacement);
+                emit(state, Opcode::StoreLocal, ValueType::Array, local_index);
+                const auto end_target = checked_index(state.function->instructions.size(),
+                    "array update end");
+                emit(state, Opcode::Nop, ValueType::Void);
+                patch_jump(state, end_jump, end_target);
+                return;
             }
             emit(
                 state,
@@ -1706,7 +1766,10 @@ private:
                 emit(state, Opcode::StoreLocal, ValueType::Dynamic, right_local);
                 emit(state, Opcode::StoreLocal, ValueType::Dynamic, left_local);
                 lower_vector_map(state, {left_local, right_local}, {left_path, right_path}, context,
-                    [&]() { emit(state, opcode, comparison_opcode(opcode) ? ValueType::Boolean : ValueType::Number); });
+                    [&]() {
+                        emit(state, opcode, comparison_opcode(opcode)
+                            ? ValueType::Boolean : ValueType::Number);
+                    });
                 return ValueType::Array;
             }
             if (left_type == ValueType::String
