@@ -37,9 +37,18 @@ int main() {
   try{deserialize(bytes);return 7;}catch(const BytecodeError& error){
     if(std::string(error.what())!="private tuple retag opcode requires bytecode version 3")return 8;
   }
-  module.functions[0].instructions[1].opcode=Opcode::MakeArray;
+  module.functions[0].instructions[1].opcode=Opcode::ErrorMaskMatches;
+  module.functions[0].instructions[1].first=161;
   bytes=serialize(module);
-  if(bytes[8]!=2||bytes[9]!=0||!(deserialize(bytes)==module))return 9;
+  if(bytes[8]!=3||bytes[9]!=0||!(deserialize(bytes)==module))return 9;
+  bytes[8]=2;
+  try{deserialize(bytes);return 10;}catch(const BytecodeError& error){
+    if(std::string(error.what())!="private error mask opcode requires bytecode version 3")return 11;
+  }
+  module.functions[0].instructions[1].opcode=Opcode::MakeArray;
+  module.functions[0].instructions[1].first=1;
+  bytes=serialize(module);
+  if(bytes[8]!=2||bytes[9]!=0||!(deserialize(bytes)==module))return 12;
   std::cout<<"private-v3 and legacy-v2 round trips; v2 tuple rejected\n";
 }
 `);

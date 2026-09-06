@@ -123,6 +123,8 @@ enum class Opcode : std::uint16_t {
     MultisetAlgebra = 85,
     // Private emitted-program array-to-tuple retag for runtime-sized pipes.
     ArrayAsTuple = 86,
+    // Private emitted-program error hierarchy mask match; first is arm mask.
+    ErrorMaskMatches = 87,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -224,7 +226,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::ArrayAsTuple);
+        <= static_cast<std::uint16_t>(Opcode::ErrorMaskMatches);
 }
 
 inline bool is_valid_utf8(const std::string& value) {
@@ -541,7 +543,8 @@ inline bool uses_private_tuple_operations(const Module& module) {
                 || instruction.opcode == Opcode::CaptureUiEffect
                 || instruction.opcode == Opcode::MakeMultiset
                 || instruction.opcode == Opcode::MultisetAlgebra
-                || instruction.opcode == Opcode::ArrayAsTuple;
+                || instruction.opcode == Opcode::ArrayAsTuple
+                || instruction.opcode == Opcode::ErrorMaskMatches;
     return private_tuple;
 }
 
@@ -688,6 +691,10 @@ inline Module deserialize(const std::vector<std::uint8_t>& bytes) {
             if (version == detail::format_version &&
                 function.instructions.back().opcode == Opcode::ArrayAsTuple) {
                 throw BytecodeError("private tuple retag opcode requires bytecode version 3");
+            }
+            if (version == detail::format_version &&
+                function.instructions.back().opcode == Opcode::ErrorMaskMatches) {
+                throw BytecodeError("private error mask opcode requires bytecode version 3");
             }
         }
         module.functions.push_back(std::move(function));

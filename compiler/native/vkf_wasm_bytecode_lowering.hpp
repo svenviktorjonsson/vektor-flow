@@ -1240,11 +1240,12 @@ private:
                     context + ".fields[" + std::to_string(index) + "]";
                 const auto& record_field =
                     object_of(fields[index], field_context);
-                if (string_field(
+                const std::string record_field_kind = string_field(
                         record_field,
                         "kind",
                         field_context
-                    ) != "field") {
+                    );
+                if (record_field_kind != "field" && record_field_kind != "record_field") {
                     throw BytecodeLoweringError(
                         "unsupported record field in " + field_context
                     );
@@ -2914,6 +2915,99 @@ private:
         FunctionState& state,
         const std::string& context
     ) {
+        const auto* catch_field = optional_field(object, "catch");
+        const bool catches = catch_field != nullptr && catch_field->is_boolean()
+            && catch_field->as_boolean();
+        if (catches) {
+            const auto& discriminant = object_of(field(object, "discriminant", context),
+                context + ".discriminant");
+            const std::string discriminant_kind = string_field(discriminant, "kind",
+                context + ".discriminant");
+            const auto error_value = add_temporary_local(state, ValueType::Dynamic);
+            const auto error_mask = add_temporary_local(state, ValueType::Number);
+            bool caught = false;
+            if (discriminant_kind == "raise_expr") {
+                lower_expression(field(discriminant, "value", context + ".discriminant"),
+                    state, context + ".discriminant.value");
+                emit(state, Opcode::StoreLocal, ValueType::Dynamic, error_value);
+                emit(state, Opcode::LoadLocal, ValueType::Dynamic, error_value);
+                emit(state, Opcode::ObjectGet, ValueType::Number,
+                    intern_constant(Constant::utf8_string("mask")));
+                emit(state, Opcode::StoreLocal, ValueType::Number, error_mask);
+                caught = true;
+            } else if (discriminant_kind == "call") {
+                const auto& callee = object_of(field(discriminant, "callee",
+                    context + ".discriminant"), context + ".discriminant.callee");
+                const auto& args = array_of(field(discriminant, "args",
+                    context + ".discriminant"), context + ".discriminant.args");
+                if (string_field(callee, "kind", context + ".discriminant.callee") == "load"
+                    && string_field(callee, "name", context + ".discriminant.callee") == "int"
+                    && args.size() == 1) {
+                    const auto& argument = object_of(args.front(), context + ".discriminant.args[0]");
+                    const auto* literal = optional_field(argument, "value");
+                    if (string_field(argument, "kind", context + ".discriminant.args[0]") == "const"
+                        && literal != nullptr && literal->is_number()
+                        && std::floor(literal->as_number()) != literal->as_number()) {
+                        emit(state, Opcode::PushNull, ValueType::Dynamic);
+                        emit(state, Opcode::StoreLocal, ValueType::Dynamic, error_value);
+                        emit_number(state, 161.0);
+                        emit(state, Opcode::StoreLocal, ValueType::Number, error_mask);
+                        caught = true;
+                    }
+                }
+            }
+            if (!caught) {
+                lower_expression(field(object, "discriminant", context), state,
+                    context + ".discriminant");
+                emit(state, Opcode::Pop, ValueType::Void);
+                emit(state, Opcode::PushNull, ValueType::Dynamic);
+                return ValueType::Dynamic;
+            }
+
+            const auto& arms = array_of(field(object, "arms", context), context + ".arms");
+            std::vector<std::size_t> end_jumps;
+            const auto previous_dollar = state.locals.find("$");
+            const bool had_previous_dollar = previous_dollar != state.locals.end();
+            const auto previous_dollar_index = had_previous_dollar ? previous_dollar->second : 0;
+            state.locals["$"] = error_value;
+            for (std::size_t index = 0; index < arms.size(); ++index) {
+                const auto arm_context = context + ".arms[" + std::to_string(index) + "]";
+                const auto& arm = object_of(arms[index], arm_context);
+                const auto& condition = object_of(field(arm, "condition", arm_context),
+                    arm_context + ".condition");
+                if (string_field(condition, "kind", arm_context + ".condition") != "error_type") {
+                    throw BytecodeLoweringError("catch arm requires an error type in " + arm_context);
+                }
+                const auto& mask = field(condition, "mask", arm_context + ".condition");
+                if (!mask.is_number() || mask.as_number() < 0
+                    || std::floor(mask.as_number()) != mask.as_number()) {
+                    throw BytecodeLoweringError("catch arm requires an integer error mask in " + arm_context);
+                }
+                emit(state, Opcode::LoadLocal, ValueType::Number, error_mask);
+                emit(state, Opcode::ErrorMaskMatches, ValueType::Boolean,
+                    static_cast<std::uint32_t>(mask.as_number()));
+                const auto next_arm = state.function->instructions.size();
+                emit(state, Opcode::JumpIfFalse, ValueType::Void);
+                const auto body_type = lower_expression(field(arm, "body", arm_context), state,
+                    arm_context + ".body");
+                if (body_type != ValueType::Void) emit(state, Opcode::Pop, ValueType::Void);
+                end_jumps.push_back(state.function->instructions.size());
+                emit(state, Opcode::Jump, ValueType::Void);
+                const auto next_target = checked_index(state.function->instructions.size(),
+                    "catch arm continuation");
+                emit(state, Opcode::Nop, ValueType::Void);
+                patch_jump(state, next_arm, next_target);
+            }
+            emit(state, Opcode::Trap, ValueType::Void);
+            const auto end_target = checked_index(state.function->instructions.size(),
+                "catch continuation");
+            emit(state, Opcode::Nop, ValueType::Void);
+            for (const auto jump : end_jumps) patch_jump(state, jump, end_target);
+            if (had_previous_dollar) state.locals["$"] = previous_dollar_index;
+            else state.locals.erase("$");
+            emit(state, Opcode::PushNull, ValueType::Dynamic);
+            return ValueType::Dynamic;
+        }
         lower_expression(
             field(object, "discriminant", context),
             state,

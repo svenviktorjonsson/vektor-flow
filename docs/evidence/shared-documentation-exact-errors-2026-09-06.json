@@ -1,0 +1,2113 @@
+{
+  "scope": "Execution smoke only. Successful return does not verify stdout, UI, edits, refresh, or native parity.",
+  "compilerWasmSha256": "1f9f6e90736bfbd7b582191bd4ca5ec1614641809820be70800439a43d51a59e",
+  "uniqueSources": 87,
+  "executed": 63,
+  "exact": 57,
+  "entries": [
+    {
+      "locations": [
+        {
+          "document": "INSTALL.md",
+          "line": 49
+        },
+        {
+          "document": "vscode/README.md",
+          "line": 154
+        },
+        {
+          "document": "vscode/README.md",
+          "line": 186
+        },
+        {
+          "document": "vscode/README.md",
+          "line": 200
+        }
+      ],
+      "sourceSha256": "71f4248c52dcce590e8ec1c67efc894782df7bf67d220e7422d6a1cef900506f",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "hello, world\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "hello, world\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/adr/0001-ui-runtime-shared-memory-gpu.md",
+          "line": 104
+        }
+      ],
+      "sourceSha256": "5d22507ba126611c97f795fad4d2b849b4d4d07227f5abe227b07371eec46542",
+      "executed": false,
+      "diagnostic": "unknown scalar binding ui in function $vkf_main.body.body[1].value.object.object",
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: stdlib module 'ui' is not included in the strict native release; no compatibility fallback is available\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 24,
+          "sourcePath": "examples/generated/readme/core/01-bindings.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 25
+        }
+      ],
+      "sourceSha256": "1a692e29ebcfe2cbdb3486cc44bf390ff39e4b0f11732942a86b218aeb265324",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "7\n6\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "7\n6\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 47,
+          "sourcePath": "examples/generated/readme/core/02-bind-expression.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 48
+        }
+      ],
+      "sourceSha256": "3053708ebf0df7c8eb9a3304dca3c081224269beba850fb61f5ec0185c9f1000",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "3\n4\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "3\n4\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 69,
+          "sourcePath": "examples/generated/readme/core/03-blocks.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 70
+        }
+      ],
+      "sourceSha256": "f729c4f80d516f738b6c81d5a57e5a63620aa50b147ceb88f6ecd9cd5788fe49",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "hello world\n(x:3, y:4)\n3\nred\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "hello world\nmake_base(x:3, y:4)\n3\nred\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 112,
+          "sourcePath": "examples/generated/readme/core/04-output-assert.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 113
+        }
+      ],
+      "sourceSha256": "6133307be018524d3d6e9d346644bc6d633197a981c5a29630a445215087022b",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "42\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "42\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 140,
+          "sourcePath": "examples/generated/readme/core/49-semicolon-pipes.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 141
+        }
+      ],
+      "sourceSha256": "e7a83488ce50b309da8cfc81f435114d9c0eb3d89b183bdc64aa19607fd204aa",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "5\n[9, 25, 49]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "5\n[9, 25, 49]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 175,
+          "sourcePath": "examples/generated/readme/core/05-tagged-test.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 176
+        }
+      ],
+      "sourceSha256": "c89c185feb14f66475689d8a09597d7fb81bcb7fb3bede649574fa8bad72ecf1",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 194,
+          "sourcePath": "examples/generated/readme/core/06-primitives.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 195
+        }
+      ],
+      "sourceSha256": "9db213eba249a00f60296ac68f37168fe191cda643089a27bbd267f32cd5aedf",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "true\nA\n1.5\n7\nnull\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "true\nA\n1.5\n7\nnull\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 227,
+          "sourcePath": "examples/generated/readme/core/07-reflection.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 228
+        }
+      ],
+      "sourceSha256": "77521b190822276fc9da8b34e2cd93d062c8b31d7863957fcc992b07c6912bd8",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "4\ntype\n[int:2]\nTypeScope(reflected:type)\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "4\ntype\n[int:2]\nTypeScope(reflected:type)\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 265,
+          "sourcePath": "examples/generated/readme/core/08-strings.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 266
+        }
+      ],
+      "sourceSha256": "cac592d6dbef73c0ee610d897d940ef9554e32ebac482a7e732598dbaeac6b65",
+      "executed": false,
+      "diagnostic": "unsupported expression kind interpolated_string in function $vkf_main.body.body[5].expr.args[0]",
+      "native": {
+        "status": 0,
+        "stdout": "Hej världen\nvalue=4.23\nsum=5 point=(x:2, y:false) cost=$5\n😀\ntrue\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 303,
+          "sourcePath": "examples/generated/readme/core/09-tuples-records.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 304
+        }
+      ],
+      "sourceSha256": "0f3e3ed467848ffd14b84adbc15dd88c6d007757c5eedeb1fa648c981ceea7bd",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "12\norigin\n12\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "12\norigin\n12\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 337,
+          "sourcePath": "examples/generated/readme/core/11-vectors.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 338
+        }
+      ],
+      "sourceSha256": "91ba75d0c02154ddf7ec7041b1421c95ee3f83238d0da6d202ef37db6244e7a9",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[1, 2, 3]\n[4, 20, 6]\n[7, 7, 7, 7, 9, 9]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[1, 2, 3]\n[4, 20, 6]\n[7, 7, 7, 7, 9, 9]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 364,
+          "sourcePath": "examples/generated/readme/core/12-vector-concat.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 365
+        }
+      ],
+      "sourceSha256": "6ec65ae4b634d2b85562d3e0b5d9a7f5ca7d781cd1c04ce2c590457eccf1b722",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[1, 2, 3]\n[1, 2, 3]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[1, 2, 3]\n[1, 2, 3]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 394,
+          "sourcePath": "examples/generated/readme/core/11b-multidimensional-indexing.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 395
+        }
+      ],
+      "sourceSha256": "b33f27a8ca29d12b0eee52a4f24b747407720db2542def34d36636be948f3937",
+      "executed": false,
+      "diagnostic": "unsupported expression kind spread_index in function $vkf_main.body.body[4].expr.args[0].indices[0]",
+      "native": {
+        "status": 0,
+        "stdout": "11\n11\n[1, 13, 21]\n[[2, 12], [22, 32]]\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 427,
+          "sourcePath": "examples/generated/readme/core/12b-container-stress.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 428
+        }
+      ],
+      "sourceSha256": "bf3c965556890065ef1fe81d6b8166dd5ce685a436546991236b4b1c5d7d7efb",
+      "executed": false,
+      "diagnostic": "unreachable",
+      "native": {
+        "status": 0,
+        "stdout": "10000000\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 462,
+          "sourcePath": "examples/generated/readme/core/13-updates-aliases.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 463
+        }
+      ],
+      "sourceSha256": "8ccd577e29054c40404ad032afa2ee093381dcd44ef8fb64a1b4c81a3652a596",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[1, 2]\n(x:5, y:6, name:my point)\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[3, 4]\n(x:5, y:6, name:my point)\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 507,
+          "sourcePath": "examples/generated/readme/core/14-multisets.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 508
+        }
+      ],
+      "sourceSha256": "8dd5f741ac6308aaa8c8970ec3693dd0fa0abae94ad5045e186f16d758178387",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "{a:7, b:1, c:2}\n{a:1, b:1}\n{a:2}\n{a:1}\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "{a:7, b:1, c:2}\n{a:1, b:1}\n{a:2}\n{a:1}\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 540,
+          "sourcePath": "examples/generated/readme/core/15-ranges.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 541
+        }
+      ],
+      "sourceSha256": "d0bade9480353ce3267722d323c8f402b4f78c7193d632087aafb5574f11a6c2",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[0, 1, 2, 3]\n[3, 2, 1, 0]\n(1, 2, 3, 4)\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[0, 1, 2, 3]\n[3, 2, 1, 0]\n(1, 2, 3, 4)\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 563,
+          "sourcePath": "examples/generated/readme/core/16-complex.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 564
+        }
+      ],
+      "sourceSha256": "69e222aee88f9423ab9f56b71081077f7428da7f70ba87abeb2b013286426fca",
+      "executed": false,
+      "diagnostic": "unknown direct function num in function $vkf_main.body.body[1].value",
+      "native": {
+        "status": 0,
+        "stdout": "1 + 2i\n-3 + 4i\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 585,
+          "sourcePath": "examples/generated/readme/core/17-equality.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 586
+        }
+      ],
+      "sourceSha256": "72aed102ae5056895331aad9a9b3724886654f712c12392f356651a2a152d325",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[true, true]\n[false, true]\n[true, true]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "1\n1\n[1, 1]\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 642,
+          "sourcePath": "examples/generated/readme/core/46-member-reflection.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 643
+        }
+      ],
+      "sourceSha256": "238ff6045b325531f541ba4c38624c09760be8e2145150571a2461a51171eefa",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "(x:int, y:int)\n[x, y]\n[x, y]\n{x:1, y:1}\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "(x:int, y:int)\n[x, y]\n[x, y]\n{x:1, y:1}\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 669,
+          "sourcePath": "examples/generated/readme/core/47-primitive-spill.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 670
+        }
+      ],
+      "sourceSha256": "2eaa791cfb4aa0b87d12028158197dbd65112ec268b80a4fbf1a396b37addb1b",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "64\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "64\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 691,
+          "sourcePath": "examples/generated/readme/core/18-functions.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 692
+        }
+      ],
+      "sourceSha256": "167cc9055ffb0c16cebaed677cbc92bebb03317be462ba19ecd9333261946321",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "7\n3\nnull\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "7\n3\nnull\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 721,
+          "sourcePath": "examples/generated/readme/core/19-call-arguments.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 722
+        }
+      ],
+      "sourceSha256": "3cab3ee2dce888d362ea449b6326761a50814f7ce0314782b53a1bf0113ad10a",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "234\n345\n345\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "234\n345\n345\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 746,
+          "sourcePath": "examples/generated/readme/core/20-recursion-closures.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 747
+        }
+      ],
+      "sourceSha256": "a87292281f84e72801d7ac887bd350bc4d5cdfef0f5c20f1b3c0176b204c7e7f",
+      "executed": false,
+      "diagnostic": "unsupported type fn(num)->num in function make_offset.return_type",
+      "native": {
+        "status": 0,
+        "stdout": "720\n7\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 778,
+          "sourcePath": "examples/generated/readme/core/21-lambdas.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 779
+        }
+      ],
+      "sourceSha256": "3259192f9d957e21db61bfb66b74a4231454fa5aee601e280dec7e1bff7cd752",
+      "executed": false,
+      "diagnostic": "unsupported type fn(int)->int in function apply_twice.params[0]",
+      "native": {
+        "status": 0,
+        "stdout": "10\n25\n9\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 807,
+          "sourcePath": "examples/generated/readme/core/22-variadics-spreads.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 808
+        }
+      ],
+      "sourceSha256": "be46ca658c33fa2c75db14201b4575876637b7413fa9f721b3a4889566f4dc2d",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "10\n7\n(flag:true, mode:fast)\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "10\n7\n(flag:true, mode:fast)\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 839,
+          "sourcePath": "examples/generated/readme/core/22b-literal-spreads.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 840
+        }
+      ],
+      "sourceSha256": "8132a06e57a169e7f1ab019ce632c654bd653d5db4f2d2f6541ef1daa8b91d8f",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[1, 2, 3, 4]\n4\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[1, 2, 3, 4]\n4\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 861,
+          "sourcePath": "examples/generated/readme/core/23-shape-parameters.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 862
+        }
+      ],
+      "sourceSha256": "0f45ab27e53bb269311b6ab5c741577069baa4177349841ab20ca320ac478149",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[1, 2, 3, 4, 5]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[1, 2, 3, 4, 5]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 893,
+          "sourcePath": "examples/generated/readme/core/50-generic-types.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 894
+        }
+      ],
+      "sourceSha256": "39dbd3c5416f4bcdc3853c35285957c5f51608d3217ea55a58881f6aab8284d0",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "vkf\n4\n[int:3]\n6\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "vkf\n4\n[int:3]\n6\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 931,
+          "sourcePath": "examples/generated/readme/core/24-open-any.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 932
+        }
+      ],
+      "sourceSha256": "0cb1ba44763160750756dd7b5b9844977af81830b793e69ba568f35b3c80e32e",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "2\n7\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "2\n7\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 969,
+          "sourcePath": "examples/generated/readme/core/49-nominal-constructors.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 970
+        }
+      ],
+      "sourceSha256": "833d24804bd21ab74e6da1f1b11714eab2867ecdd26b308ffe9714afd69ea7ae",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "Point\n(x:num, y:num)\n(x:num, y:num)\ntype\n[x, y]\ntrue\n[int:3]\n(x:num, y:num)\ninteger\nnumber\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "Point\n(x:num, y:num)\n(x:num, y:num)\ntype\n[x, y]\ntrue\n[int:3]\n(x:num, y:num)\ninteger\nnumber\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1027,
+          "sourcePath": "examples/generated/readme/core/25-structural-compatibility.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1028
+        },
+        {
+          "document": "docs/site/getting-started.md",
+          "line": 14,
+          "sourcePath": "examples/introduction/vector-functions.vkf"
+        },
+        {
+          "document": "docs/site/guide.md",
+          "line": 21,
+          "sourcePath": "examples/introduction/vector-functions.vkf"
+        },
+        {
+          "document": "docs/site/origins.md",
+          "line": 26,
+          "sourcePath": "examples/introduction/vector-functions.vkf"
+        }
+      ],
+      "sourceSha256": "fac28a35734ce3674204629f8c04d07c9a6ba0ac792149bf71120f12c9124710",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[2, 4, 6]\n[[2, 4], [6, 8]]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[2, 4, 6]\n[[2, 4], [6, 8]]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1056,
+          "sourcePath": "examples/generated/readme/core/26-structural-conversions.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1057
+        }
+      ],
+      "sourceSha256": "c6b8cbd1b0ecc0a0f8e0d8a6ed9fc07093dd5426264d89669382dfe14f191072",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[4, 1.5, -2]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[4, 1.5, -2]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1080,
+          "sourcePath": "examples/generated/readme/core/27-structural-recursion.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1081
+        }
+      ],
+      "sourceSha256": "29509002b289765897e97d417f5f257607779edb503b0e2ef3417a25493c57d2",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[(x:11, y:-8), (x:13, y:-6)]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[(x:11, y:-8), (x:13, y:-6)]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1108,
+          "sourcePath": "examples/generated/readme/core/28-structural-records.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1109
+        }
+      ],
+      "sourceSha256": "65edf8c60ec57176a6c5c9e8255e6e2b5695b82aba787c356d078b2b273786a5",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[3, 7, 11]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[3, 7, 11]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1131,
+          "sourcePath": "examples/generated/readme/core/29-structural-exact-match.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1132
+        }
+      ],
+      "sourceSha256": "925f350b82a1254d740016f808beea34b2630644508805664d1152e3f3902aca",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[2, 3, 1]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[2, 3, 1]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1154,
+          "sourcePath": "examples/generated/readme/core/30-math-structural.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1155
+        }
+      ],
+      "sourceSha256": "ae69a2867ce49f9b7f3bd2d11815a0fc00c911d52f41f02ab0bb02503bded644",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[[1, 4], [9, 16]]\n[[1, 2], [3, 4]]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[[1, 4], [9, 16]]\n[[1, 2], [3, 4]]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1182,
+          "sourcePath": "examples/generated/readme/core/31-conditionals.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1183
+        }
+      ],
+      "sourceSha256": "04878c1f51acb3b4e2af4e45503b835e38c82f74237d82e401f7b17bd47266bf",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "1\nnan\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "1\nnan\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1225,
+          "sourcePath": "examples/generated/readme/core/32-match.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1226
+        }
+      ],
+      "sourceSha256": "bd02267c4033d780fa49db68f9ec98acd9d365050d3681adf8ac6f3cde89a5a6",
+      "executed": false,
+      "diagnostic": "unsupported expression kind type_pattern in function classify.body.body[0].expr.arms[1].condition",
+      "native": {
+        "status": 0,
+        "stdout": "exact three\nanother integer\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1254,
+          "sourcePath": "examples/generated/readme/core/33-loops.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1255
+        }
+      ],
+      "sourceSha256": "7a27f1ac8b63ede227f0690005eec0523ebef10aee6b1c5bdfbe9a55ac8da3ae",
+      "executed": false,
+      "diagnostic": "unsupported statement kind continue in function switch_loop.body.body[1].expr.arms[0].body.body[1]",
+      "native": {
+        "status": 0,
+        "stdout": "10\n2\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1304,
+          "sourcePath": "examples/generated/readme/core/34-errors.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1305
+        }
+      ],
+      "sourceSha256": "3373c890f6e39682fd9b54acf5fa4778a41b3b6ae77cc137dc8cbd5e2edc25c3",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "specific value\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "specific value\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1346,
+          "sourcePath": "examples/generated/readme/core/35-pipes.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1347
+        }
+      ],
+      "sourceSha256": "dfff52f9d9f51c5739f09c4b5ab93ca20971d93b0112bb842c7180be3ca1cc0b",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[2, 4, 6]\n(11, 12, 13)\n16\nååAA\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[2, 4, 6]\n(11, 12, 13)\n16\nååAA\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1376,
+          "sourcePath": "examples/generated/readme/core/36-pipe-blocks.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1377
+        }
+      ],
+      "sourceSha256": "698e3a016927b20f0a94512a50e2670bceace0c2c71f1b2a0657519b6bec777c",
+      "executed": false,
+      "diagnostic": "expected object for function $vkf_main.body.body[1].value.source.end",
+      "native": {
+        "status": 0,
+        "stdout": "[1, 20, 3, 4]\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1404,
+          "sourcePath": "examples/generated/readme/core/36b-pipe-assignment.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1405
+        }
+      ],
+      "sourceSha256": "2b5b7a746079ef5b6dcca90393711be73a4c5f0a0cb31d406f47cddc19e914d5",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[4, 3, 2, 1]\n(40, 30, 20, 10)\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[4, 3, 2, 1]\n(40, 30, 20, 10)\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1431,
+          "sourcePath": "examples/generated/readme/core/37-operators.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1432
+        }
+      ],
+      "sourceSha256": "0d68eaedc20c2c30e6fe95fddebec88c87c9d079bfca6cb19a8dd9e3cccd39bd",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "14\n3\n2\n256\ntrue\ntrue\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "14\n3\n2\n256\ntrue\ntrue\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1462,
+          "sourcePath": "examples/generated/readme/core/38-absolute-norm.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1463
+        }
+      ],
+      "sourceSha256": "e4e29d93d9e886e007965e7fe290ec3196b59023c2c65ab9c7ec3fd25429be66",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "5\n5\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "5\n5\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1483,
+          "sourcePath": "examples/generated/readme/core/39-overloads.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1484
+        }
+      ],
+      "sourceSha256": "239a436a9f0ae2b70c7f96335ec0393c136757533b05a095756a96f32ce17153",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "(x:4, y:6)\n(x:-3, y:-4)\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "(x:4, y:6)\n(x:-3, y:-4)\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1512,
+          "sourcePath": "examples/generated/readme/core/48-dot-overload.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1513
+        }
+      ],
+      "sourceSha256": "71956fe08206241b4e1259a2372fd86205eff328de903726ac91e87869e76fab",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "null\n4\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "3\n4\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1549,
+          "sourcePath": "examples/generated/readme/core/40-fixed-shapes.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1550
+        }
+      ],
+      "sourceSha256": "5ea529ea1088f52a5eccaf05db3fe50b4411b5d6086aae6a60caaa1403cf2260",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "5\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "5\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1574,
+          "sourcePath": "examples/generated/readme/core/41-indexing.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1575
+        }
+      ],
+      "sourceSha256": "4beb9d01a8d0f2434ff6eebd94caa12fe617bee1c02d05f7abc06b81d7964165",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "20\n[10, 30]\n[10, 21, 30, 41]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "20\n[10, 30]\n[10, 21, 30, 41]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1603,
+          "sourcePath": "examples/generated/readme/core/42-axes.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1604
+        },
+        {
+          "document": "docs/site/concepts.md",
+          "line": 27,
+          "sourcePath": "examples/introduction/named-axes.vkf"
+        },
+        {
+          "document": "docs/site/guide.md",
+          "line": 30,
+          "sourcePath": "examples/introduction/named-axes.vkf"
+        }
+      ],
+      "sourceSha256": "eb4f7f399e29ee754730eb5125b422690aff47802f6b454fe59f534a22434d85",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "[[1, 2, 3], [2, 4, 6], [3, 6, 9]]\n[4, 10, 18]\n[[[15, 18], [20, 24]], [[30, 36], [40, 48]]]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "[[1, 2, 3], [2, 4, 6], [3, 6, 9]]\n[4, 10, 18]\n[[[15, 18], [20, 24]], [[30, 36], [40, 48]]]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1663,
+          "sourcePath": "examples/generated/readme/core/43-modules.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1664
+        }
+      ],
+      "sourceSha256": "88c88a727af79c8ad4ee03833db0158d700dc330d75fc15e77d67e8eefa01b58",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "3\n1\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "3\n1\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1687,
+          "sourcePath": "examples/generated/readme/core/44-shadowing.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1688
+        }
+      ],
+      "sourceSha256": "423f2dd12735fb7ab14c6303620a8c50fd4e2c87f6b40628dd10fdc6143f45e9",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "0\n4\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "0\n4\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1718,
+          "sourcePath": "examples/generated/readme/core/45-overloads-dispatch.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1719
+        }
+      ],
+      "sourceSha256": "ddec50d82d6d27dcb4af403648d78949c2ffc41b02310dd59d095e4301bd2231",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "integer\ntext\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "integer\ntext\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1751,
+          "sourcePath": "examples/generated/readme/stdlib/01-math.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1752
+        }
+      ],
+      "sourceSha256": "648f56448a3be2717fdae38bde63f532fc0fe43307f681513deefb3772e3809f",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "9\n1\n3\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "9\n1\n3\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1777,
+          "sourcePath": "examples/generated/readme/stdlib/02-stat.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1778
+        }
+      ],
+      "sourceSha256": "1ecf8a7365dd728a0ef780087e1e6f542969bfc325ad715bae4fa87834c30bec",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "5\n4\n2\n7\n21\n[5, 7, 9]\n[6, 15]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "5\n4\n2\n7\n21\n[5, 7, 9]\n[6, 15]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1816,
+          "sourcePath": "examples/generated/readme/stdlib/03-random.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1817
+        }
+      ],
+      "sourceSha256": "c0f6c8514b4afedc7f727ac7a45dbe83c3492a26355866a61c5d3e0a4683f9c9",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "0.009626434189093501\n1.791479416094478\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "0.009626434189093501\n1.791479416094478\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1840,
+          "sourcePath": "examples/generated/readme/stdlib/04-time.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1841
+        }
+      ],
+      "sourceSha256": "51823bfc80b32b779ef5a52be6f4ca6539808ee478fb5829527147e513bec960",
+      "executed": false,
+      "diagnostic": "WASM math intrinsic requires one argument in function __vkf_module_time__wall_time.body.body[0].expr",
+      "native": {
+        "status": 0,
+        "stdout": "1970-01-01 00:00:00\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1864,
+          "sourcePath": "examples/generated/readme/stdlib/05-io.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1865
+        }
+      ],
+      "sourceSha256": "4acc12b3b0ae173316afd56b158a13cdc2e79a606e2282182afbd7de42df1157",
+      "executed": false,
+      "diagnostic": "WASM math intrinsic requires one argument in function $vkf_main.body.body[1].expr",
+      "native": {
+        "status": 0,
+        "stdout": "hello world\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1888,
+          "sourcePath": "examples/generated/readme/stdlib/06-collections.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1889
+        }
+      ],
+      "sourceSha256": "1882a6ec40607edeaa9fa54db82d6a21aa6d40e572be70e57947d6bceda0742a",
+      "executed": false,
+      "diagnostic": "unsupported type queue<num> in function $vkf_main.body.body[3]",
+      "native": {
+        "status": 0,
+        "stdout": "[1, 2, 3]\norigin\n10\ntrue\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1921,
+          "sourcePath": "examples/generated/readme/stdlib/07-errors.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1922
+        }
+      ],
+      "sourceSha256": "8fea9dd54b580913802ea5173fe75c6b0f401c3cd104c548a57a07180571b7ab",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "true\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "true\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1944,
+          "sourcePath": "examples/generated/readme/stdlib/08-system.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1945
+        }
+      ],
+      "sourceSha256": "d8799b0ba15364abc91002d6a4fe0c2f62100dd0ddf4e3e1bbaf27a6acd76268",
+      "executed": false,
+      "diagnostic": "WASM math intrinsic requires one argument in function __vkf_module_system__os.body.body[0].expr",
+      "native": {
+        "status": 0,
+        "stdout": "linux\nx86_64\n16\n/tmp/vkf-documentation-exact-L1sK7s\ntrue\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 1997,
+          "sourcePath": "examples/generated/readme/stdlib/09-process.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 1998
+        }
+      ],
+      "sourceSha256": "f11a54f8f0759cc03d369311cf188d07bf34b657563a977d03717ace236db5cc",
+      "executed": false,
+      "diagnostic": "WASM math intrinsic requires one argument in function __vkf_module_process__run.body.body[0].expr",
+      "native": {
+        "status": 0,
+        "stdout": "0\ngit version 2.34.1\n\n\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 2045,
+          "sourcePath": "examples/generated/readme/stdlib/10-regex.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 2046
+        }
+      ],
+      "sourceSha256": "e5e8411698b53871f0d7035a2845f9bef69974f60caa2f47b92b8f74d21ab6d5",
+      "executed": false,
+      "diagnostic": "WASM math intrinsic requires one argument in function $vkf_main.body.body[1].value",
+      "native": {
+        "status": 0,
+        "stdout": "vektor\nvkf\n101\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 2080,
+          "sourcePath": "examples/generated/readme/stdlib/11-linalg.vkf"
+        },
+        {
+          "document": "docs/language-guide.md",
+          "line": 2081
+        }
+      ],
+      "sourceSha256": "4fae95a6440fb0cd610437afb6ab13ca974475956ac66ddcb39a43f9a45c1bd3",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "32\n[0, 0, 1]\n[[19, 22], [43, 50]]\n-2\n[2, 1]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: direct x64 backend unsupported: in function _linalg_abs: typed structural call is missing compatibility paths\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 2114
+        }
+      ],
+      "sourceSha256": "7809067a744ac674ea9aee4f3333d2445dde810b806a8b075823a760a3678072",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "6\n[0, 0, 1]\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "6\n[0, 0, 1]\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 2161
+        }
+      ],
+      "sourceSha256": "85ac51f283e387f15cebd0c4f7cc0ca2f32a1e12edbf709bf9054f574b9fd93b",
+      "executed": false,
+      "diagnostic": "WASM chr currently requires a constant Unicode scalar in function _symbolic_symbol_latex.body.body[0].expr.segments[0].body[0].value.right.args[0]",
+      "native": {
+        "status": 0,
+        "stdout": "y = \\sin\\left(x\\right) \\Rightarrow y \\le 1\n",
+        "stderr": ""
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 2180
+        }
+      ],
+      "sourceSha256": "eae1278c5c02be549f608383dc6801ee63747a83804d37108c84af4bd5b9af93",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "4\n27\n27\n0.125\n2\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "4\n27\n27\n0.125\n2\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/language-guide.md",
+          "line": 2223
+        }
+      ],
+      "sourceSha256": "94c5d062de5ed183e9bbdf029f61aa098e805532d91c30b069aeb88e647cc7f6",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "25\n25\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "25\n25\n",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/plans/0.4.0.md",
+          "line": 55
+        }
+      ],
+      "sourceSha256": "3cf991364b5106f85327ef73b6557d5dfcfe271203f93cb6d7d43119b742f393",
+      "executed": false,
+      "diagnostic": "could not resolve linked module import v",
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: could not resolve linked module import v\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/plans/0.4.0.md",
+          "line": 84
+        }
+      ],
+      "sourceSha256": "64e1a2311bcc5ab0cbfaf263bcf73b181c4fe59c335b2177414a5b6e307471e1",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/releases/0.1.8.md",
+          "line": 13
+        }
+      ],
+      "sourceSha256": "0ea15cdd32539e93e30c32eefb65eee4166e08f526bc32175eae8b35bcb5e9a9",
+      "executed": false,
+      "diagnostic": "unsupported token INDENT",
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: unsupported token INDENT\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/site/concepts.md",
+          "line": 54,
+          "sourcePath": "examples/introduction/geometry.vkf"
+        },
+        {
+          "document": "docs/site/getting-started.md",
+          "line": 28,
+          "sourcePath": "examples/introduction/geometry.vkf"
+        },
+        {
+          "document": "docs/site/guide.md",
+          "line": 42,
+          "sourcePath": "examples/introduction/geometry.vkf"
+        }
+      ],
+      "sourceSha256": "f1b0d7ac53e936d41ea2d337b8eae9b73d25658452e258e56cb36f4b7c03922a",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "",
+        "stderr": ""
+      },
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: UI application packaging is unavailable in this build\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 16
+        }
+      ],
+      "sourceSha256": "205012ef012975e4bb60499dd267425fe2905a12a9526221d2ef7f2e0f7a6268",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 23
+        }
+      ],
+      "sourceSha256": "127a98d313c84022ac5bc778eb0939b5b8fc0cc82f6b5f89fee495c757043f74",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 30
+        }
+      ],
+      "sourceSha256": "4dfbe6351c80a2286746494971b13b61e6da147e3363d77a7103f588ca328fac",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 40
+        }
+      ],
+      "sourceSha256": "6032b0efdd54e37f0ff20963b76c1f0d825c55266668324185a2384773227395",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 48
+        }
+      ],
+      "sourceSha256": "b668f0b06016e005f70447eabef0c321b3cd1c8cd250575fb9cee0195b29b641",
+      "executed": false,
+      "diagnostic": "expected token RPAREN",
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: expected token RPAREN\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 55
+        }
+      ],
+      "sourceSha256": "63ad668f2c14f33bc5e582eae79c1b5b2468a575c0f363d37336f19e49af6111",
+      "executed": false,
+      "diagnostic": "runtime pipe requires a statically shaped element type",
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: runtime pipe requires a statically shaped element type\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 70
+        }
+      ],
+      "sourceSha256": "fd709fd41d8187339093b4220791690175d1a7f199389d9c7966f2bb53511602",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 82
+        }
+      ],
+      "sourceSha256": "7a1c51b88818d365abd3b9c51c9c84f49f51d770bd4f08f100444e78058ce002",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      "exact": true
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 92
+        }
+      ],
+      "sourceSha256": "c95fe7e7a21aadf16076e774646e25729e7f6cde344c82cda401c103617dfb3e",
+      "executed": false,
+      "diagnostic": "unsupported token DOT",
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: unsupported token DOT\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 105
+        }
+      ],
+      "sourceSha256": "a57abca823b291eed01ea3ebdbe769e3a5cc561872c3db50aa8550554065ac45",
+      "executed": false,
+      "diagnostic": "Cannot update unknown name .position; declare it first with position:value",
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: Cannot update unknown name .position; declare it first with position:value\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "docs/style-guide.md",
+          "line": 117
+        }
+      ],
+      "sourceSha256": "80be6c36515fc3743110f6b3e0b27efe10e01d5658c6224a566a400322f79854",
+      "executed": false,
+      "diagnostic": "update requires existing local point in function $vkf_main.body.body[3]",
+      "native": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "<driver-smoke>:1:1: direct x64 backend unsupported: unknown binding point\n"
+      },
+      "exact": false
+    },
+    {
+      "locations": [
+        {
+          "document": "vscode/README.md",
+          "line": 227
+        }
+      ],
+      "sourceSha256": "bb1d852fbac5a0bd46960b714ab57799b3800f58c9b88cc59f65eed3a166dcfb",
+      "executed": true,
+      "result": {
+        "kind": "console",
+        "stdout": "0\n9\n",
+        "stderr": ""
+      },
+      "native": {
+        "status": 0,
+        "stdout": "0\n9\n",
+        "stderr": ""
+      },
+      "exact": true
+    }
+  ]
+}

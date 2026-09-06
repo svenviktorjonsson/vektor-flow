@@ -47,6 +47,7 @@ test('unchanged literal-spread guide expands fixed items in the compiler',async(
 for (const [id,example,stdout] of [
   [11,'35-pipes','[2, 4, 6]\n(11, 12, 13)\n16\nååAA\n'],
   [12,'36b-pipe-assignment','[4, 3, 2, 1]\n(40, 30, 20, 10)\n'],
+  [13,'34-errors','specific value\n'],
 ]) {
   test(`unchanged ${example} guide preserves compiler-owned pipe result shape`,async()=>{
     const [wasm,source]=await Promise.all([
@@ -60,6 +61,18 @@ for (const [id,example,stdout] of [
     });
   });
 }
+
+test('unchanged stdlib error guide catches compiler-owned conversion failures',async()=>{
+  const [wasm,source]=await Promise.all([
+    readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url)),
+    readFile(new URL('../../examples/generated/readme/stdlib/07-errors.vkf',import.meta.url),'utf8'),
+  ]);
+  const module=new WebAssembly.Module(wasm);
+  assert.deepEqual(WebAssembly.Module.imports(module),[]);
+  assert.deepEqual(runInlineWorkerRequest({type:'run',id:14,source,module}),{
+    id:14,status:'ok',output:{kind:'console',stdout:'true\n',stderr:''},
+  });
+});
 
 test('unchanged indexing guide gathers and scatters selected lanes',async()=>{
   const [wasm,source]=await Promise.all([
