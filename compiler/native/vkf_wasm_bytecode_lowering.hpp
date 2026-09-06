@@ -244,6 +244,10 @@ public:
 
 private:
     struct FunctionState {
+        struct LoopControl {
+            std::uint32_t continue_target = 0;
+            std::vector<std::size_t> break_jumps;
+        };
         Function* function = nullptr;
         std::map<std::string, std::uint32_t> locals;
         std::string context;
@@ -252,6 +256,7 @@ private:
         std::size_t scope_local_begin = 0;
         const vf::JsonValue::Object* forwarded_named_call = nullptr;
         std::optional<std::uint32_t> forwarded_named_local;
+        std::vector<LoopControl> loop_controls;
     };
 
     struct PendingDefaultThunk {
@@ -853,6 +858,20 @@ private:
             emit(state, Opcode::ObjectSet, ValueType::Object,
                 intern_constant(Constant::utf8_string(string_field(object, "field", context))));
             emit(state, Opcode::StoreLocal, ValueType::Object, local->second);
+            return;
+        }
+        if (kind == "continue" || kind == "break") {
+            if (state.loop_controls.empty()) {
+                throw BytecodeLoweringError(kind + " requires an enclosing loop in " + context);
+            }
+            if (kind == "continue") {
+                emit(state, Opcode::Jump, ValueType::Void,
+                    state.loop_controls.back().continue_target);
+            } else {
+                state.loop_controls.back().break_jumps.push_back(
+                    state.function->instructions.size());
+                emit(state, Opcode::Jump, ValueType::Void);
+            }
             return;
         }
         if (kind == "update_index") {
@@ -3057,6 +3076,12 @@ private:
             emit(state, Opcode::PushNull, ValueType::Dynamic);
             return ValueType::Dynamic;
         }
+        const auto* loop_field = optional_field(object, "loop");
+        const bool loop = loop_field != nullptr && loop_field->is_boolean()
+            && loop_field->as_boolean();
+        const auto loop_start = checked_index(state.function->instructions.size(),
+            "match loop condition");
+        if (loop) state.loop_controls.push_back({loop_start, {}});
         const auto& discriminant = object_of(field(object, "discriminant", context),
             context + ".discriminant");
         const std::string discriminant_surface = string_field(discriminant, "type",
@@ -3111,6 +3136,7 @@ private:
                 state,
                 arm_context + ".body"
             );
+            if (loop) emit(state, Opcode::Pop, ValueType::Void);
             end_jumps.push_back(state.function->instructions.size());
             emit(state, Opcode::Jump, ValueType::Void);
 
@@ -3121,10 +3147,26 @@ private:
             emit(state, Opcode::Nop, ValueType::Void);
             patch_jump(state, next_arm, next_target);
         }
-        if (!has_default) {
+        if (!has_default && !loop) {
             throw BytecodeLoweringError(
                 "match expression requires a default arm in " + context
             );
+        }
+        if (loop) {
+            emit(state, Opcode::Pop, ValueType::Void);
+            const auto repeat_target = checked_index(
+                state.function->instructions.size(), "match loop repeat");
+            emit(state, Opcode::Nop, ValueType::Void);
+            for (const auto jump : end_jumps) patch_jump(state, jump, repeat_target);
+            emit(state, Opcode::Jump, ValueType::Void, loop_start);
+            auto control = std::move(state.loop_controls.back());
+            state.loop_controls.pop_back();
+            const auto break_target = checked_index(
+                state.function->instructions.size(), "match loop continuation");
+            emit(state, Opcode::Nop, ValueType::Void);
+            for (const auto jump : control.break_jumps) patch_jump(state, jump, break_target);
+            emit(state, Opcode::PushNull, ValueType::Dynamic);
+            return ValueType::Dynamic;
         }
         const auto end_target = checked_index(
             state.function->instructions.size(),
