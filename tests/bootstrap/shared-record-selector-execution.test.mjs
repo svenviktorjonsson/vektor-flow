@@ -52,3 +52,12 @@ FallbackPair pair: (x:9, y:10)
 :: [select(pair, "x"), select(pair, "left"), select(pair, "missing")]
 `,'[9, 9, 0]\n');
 });
+
+test('heterogeneous and reflected selectors retain tuple value equality',()=>{
+  compareNativeOutput(compiler,`SelectorRow(label:str, count:num): (label:label, count:count)
+row: SelectorRow("three", 3)
+(row.(["count", "label"]) == (3.0, "three"))?!
+(row.([:row]) == ("three", 3.0))?!
+:: "ok"
+`,'ok\n');
+});

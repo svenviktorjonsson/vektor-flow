@@ -1878,7 +1878,8 @@ inline std::vector<std::uint8_t> emit_truthy_function() {
 }
 
 inline std::vector<std::uint8_t> emit_equal_function(
-    std::uint32_t make_boolean_index
+    std::uint32_t make_boolean_index,
+    std::uint32_t equal_index
 ) {
     Writer body;
     body.u32_leb(1);
@@ -1892,6 +1893,79 @@ inline std::vector<std::uint8_t> emit_equal_function(
     body.u8(0x04);
     body.u8(0x40);
     i32_const(body, 0);
+    body.u8(0x10);
+    body.u32_leb(make_boolean_index);
+    body.u8(0x0f);
+    body.u8(0x0b);
+    local_get(body, 0);
+    i32_load(body, values::tag_offset);
+    i32_const(body, static_cast<std::uint32_t>(values::Tag::Array));
+    body.u8(0x46);
+    local_get(body, 0);
+    i32_load(body, values::tag_offset);
+    i32_const(body, static_cast<std::uint32_t>(values::Tag::Tuple));
+    body.u8(0x46);
+    body.u8(0x72);
+    body.u8(0x04);
+    body.u8(0x40);
+    local_get(body, 0);
+    i32_load(body, values::length_offset);
+    local_tee(body, 3);
+    local_get(body, 1);
+    i32_load(body, values::length_offset);
+    body.u8(0x47);
+    body.u8(0x04);
+    body.u8(0x40);
+    i32_const(body, 0);
+    body.u8(0x10);
+    body.u32_leb(make_boolean_index);
+    body.u8(0x0f);
+    body.u8(0x0b);
+    i32_const(body, 0);
+    local_set(body, 2);
+    body.u8(0x02);
+    body.u8(0x40);
+    body.u8(0x03);
+    body.u8(0x40);
+    local_get(body, 2);
+    local_get(body, 3);
+    body.u8(0x4f);
+    body.u8(0x0d);
+    body.u32_leb(1);
+    local_get(body, 0);
+    i32_load(body, values::payload_offset);
+    local_get(body, 2);
+    i32_const(body, values::pointer_size);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    i32_load(body);
+    local_get(body, 1);
+    i32_load(body, values::payload_offset);
+    local_get(body, 2);
+    i32_const(body, values::pointer_size);
+    body.u8(0x6c);
+    body.u8(0x6a);
+    i32_load(body);
+    body.u8(0x10);
+    body.u32_leb(equal_index);
+    i32_load(body, values::payload_offset);
+    body.u8(0x45);
+    body.u8(0x04);
+    body.u8(0x40);
+    i32_const(body, 0);
+    body.u8(0x10);
+    body.u32_leb(make_boolean_index);
+    body.u8(0x0f);
+    body.u8(0x0b);
+    local_get(body, 2);
+    i32_const(body, 1);
+    body.u8(0x6a);
+    local_set(body, 2);
+    body.u8(0x0c);
+    body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    i32_const(body, 1);
     body.u8(0x10);
     body.u32_leb(make_boolean_index);
     body.u8(0x0f);
@@ -6024,7 +6098,7 @@ inline EmittedModule emit(
     code.raw(detail::emit_make_boolean_function(runtime.allocate));
     code.raw(detail::emit_make_number_function(runtime.allocate));
     code.raw(detail::emit_truthy_function());
-    code.raw(detail::emit_equal_function(runtime.make_boolean));
+    code.raw(detail::emit_equal_function(runtime.make_boolean, runtime.equal));
     code.raw(detail::emit_multiset_algebra_function(
         runtime.allocate, runtime.make_number, runtime.equal, runtime.truthy));
     code.raw(detail::emit_string_order_function(
