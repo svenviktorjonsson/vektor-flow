@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   createDrySandHopperReference,
   createDrySandEllipsoidRenderPacketReference,
+  createDrySandHopperHardwarePacketsReference,
   createDrySandRenderPacketReference,
   resetDrySandHopperReference,
   runDrySandHopperTrialReference,
@@ -134,6 +135,26 @@ test('oriented ellipsoid mesh is a dynamic view of the authoritative grain SoA',
   assert.ok(packet.vectorBytes < 2 * 1024 * 1024);
 });
 
+test('visible circular plate hole is the exact physics outlet boundary', () => {
+  const world = createDrySandHopperReference({ grainCount: 96, outletDiameterInGrains: 4.2 });
+  const hardware = createDrySandHopperHardwarePacketsReference(world);
+  assert.deepEqual(hardware.map(packet => packet.id), ['sand:circular-hopper', 'sand:outlet-plate']);
+  const plate = hardware[1];
+  const radii = [];
+  for (let vertex = 0; vertex < plate.vertices.length; vertex += 10) {
+    const x = plate.vertices[vertex]; const y = plate.vertices[vertex + 1];
+    assert.ok(Math.abs(plate.vertices[vertex + 2] - world.hopperBottom) < 1e-7);
+    radii.push(Math.hypot(x, y));
+  }
+  assert.ok(Math.abs(Math.min(...radii) - world.outletRadius) < 1e-7);
+  assert.ok(Math.max(...radii) > world.outletRadius * 2.5);
+  assert.ok(plate.indices.every(index => index < plate.vertices.length / 10));
+  for (let offset = 0; offset < plate.indices.length; offset += 3) {
+    const triangleRadii = Array.from(plate.indices.slice(offset, offset + 3), index => radii[index]);
+    assert.ok(triangleRadii.some(radius => Math.abs(radius - world.outletRadius) < 1e-7));
+  }
+});
+
 test('WebGPU fixture renders the stepped SoA state without a canvas fallback', () => {
   const scene = readFileSync(new URL('../fixtures/dry-sand-hopper-scene.mjs', import.meta.url), 'utf8');
   const html = readFileSync(new URL('../fixtures/dry-sand-hopper.html', import.meta.url), 'utf8');
@@ -141,6 +162,6 @@ test('WebGPU fixture renders the stepped SoA state without a canvas fallback', (
   assert.match(scene, /unified_renderer:\s*true/);
   assert.match(scene, /stepDrySandHopperReference\(world, 1\)/);
   assert.match(scene, /syncDrySandEllipsoidRenderPacketReference\(world, grains\)/);
-  assert.match(scene, /segments = 64/);
+  assert.match(scene, /createDrySandHopperHardwarePacketsReference/);
   assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
 });

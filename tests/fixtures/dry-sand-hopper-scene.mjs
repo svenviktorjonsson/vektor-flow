@@ -1,5 +1,6 @@
 import {
   createDrySandHopperReference,
+  createDrySandHopperHardwarePacketsReference,
   createDrySandEllipsoidRenderPacketReference,
   stepDrySandHopperReference,
   syncDrySandEllipsoidRenderPacketReference,
@@ -13,39 +14,12 @@ import {
 
 const frameId = 'dry_sand_hopper_frame';
 const world = createDrySandHopperReference({
-  seed: 0x5a17, grainCount: 320, outletDiameterInGrains: 4.2, fillHeightInGrains: 18,
+  seed: 0x5a17, grainCount: 384, outletDiameterInGrains: 4.2, fillHeightInGrains: 20,
 });
-const grains = createDrySandEllipsoidRenderPacketReference(world);
+const grains = createDrySandEllipsoidRenderPacketReference(world, { latitudeSegments: 5, longitudeSegments: 8 });
 const aggregate = createDrySandAggregateReference(world, { resolution: 33, extent: 1.0 });
 let aggregatePacket = createDrySandAggregateRenderPacketReference(aggregate, { distance: 2 });
-
-function funnelMesh() {
-  const segments = 64; const vertices = new Float32Array((segments + 1) * 2 * 10);
-  const indices = new Uint32Array(segments * 6); const slope = world.hopperRadius - world.outletRadius;
-  let vertexOffset = 0; let indexOffset = 0;
-  for (let segment = 0; segment <= segments; segment += 1) {
-    const angle = segment / segments * Math.PI * 2;
-    const cosine = Math.cos(angle); const sine = Math.sin(angle);
-    const normalLength = Math.hypot(world.hopperTop - world.hopperBottom, slope);
-    const nx = cosine * (world.hopperTop - world.hopperBottom) / normalLength;
-    const ny = sine * (world.hopperTop - world.hopperBottom) / normalLength;
-    const nz = -slope / normalLength;
-    for (const [radius, z] of [[world.outletRadius, world.hopperBottom], [world.hopperRadius, world.hopperTop]]) {
-      vertices.set([radius * cosine, radius * sine, z, nx, ny, nz, 0.36, 0.39, 0.42, 0.31], vertexOffset);
-      vertexOffset += 10;
-    }
-    if (segment < segments) {
-      const a = segment * 2; const b = a + 1; const c = a + 2; const d = a + 3;
-      indices.set([a, c, b, b, c, d], indexOffset); indexOffset += 6;
-    }
-  }
-  return {
-    type: 'field_mesh', id: 'sand:circular-hopper', object_id: 2, mode3d: true,
-    topology: 'triangle-list', transparent: true, depth_write: false,
-    receives_lighting: true, casts_shadow: false, receives_shadow: false,
-    specular_strength: 0.34, vertices, indices,
-  };
-}
+const hardware = createDrySandHopperHardwarePacketsReference(world);
 
 const ground = {
   type: 'field_mesh', id: 'sand:plane', object_id: 3, mode3d: true,
@@ -69,7 +43,7 @@ try {
   });
   panel.root.style.left = '2%'; panel.root.style.top = '2%';
   panel.root.style.width = '96%'; panel.root.style.height = '96%';
-  stepDrySandHopperReference(world, 200);
+  stepDrySandHopperReference(world, 240);
   settleDrySandIntoAggregateReference(world, aggregate, { speedThreshold: 0.08 });
   stepDrySandBcreReference(aggregate, 20);
   window.__drySandEvidence = { world, aggregate, grains, frames: 0, wgpuErrors: [] };
@@ -77,8 +51,8 @@ try {
     syncDrySandEllipsoidRenderPacketReference(world, grains);
     aggregatePacket = createDrySandAggregateRenderPacketReference(aggregate, { distance: 2 });
     return {
-      meshes: [ground, aggregatePacket, grains, funnelMesh()],
-      camera: { pos: [3.0, -4.8, 3.0], target: [0, 0, 1.03], up: [0, 0, 1], fov: 32 },
+      meshes: [ground, aggregatePacket, grains, ...hardware],
+      camera: { pos: [2.7, -4.4, 2.7], target: [0, 0, 0.95], up: [0, 0, 1], fov: 31 },
       lights: [
         { id: 'sand_key', kind: 'point', pos: [3, -3, 5], target: [0, 0, 0.8], color: [1, 0.88, 0.68, 1], intensity: 48, range: 16 },
         { id: 'sand_fill', kind: 'point', pos: [-3, -1, 3], target: [0, 0, 0.7], color: [0.70, 0.76, 1, 1], intensity: 24, range: 14 },

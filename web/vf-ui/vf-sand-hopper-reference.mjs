@@ -598,3 +598,53 @@ export function createDrySandEllipsoidRenderPacketReference(world, {
   world.render.ellipsoidVertices = packet.vertices;
   return syncDrySandEllipsoidRenderPacketReference(world, packet);
 }
+
+export function createDrySandHopperHardwarePacketsReference(world, { segments = 64 } = {}) {
+  const count = Math.trunc(segments);
+  if (!Number.isSafeInteger(count) || count < 24 || count > 128) {
+    throw new RangeError('sand hopper hardware segments must be in 24..128');
+  }
+  const funnelVertices = new Float32Array((count + 1) * 2 * 10);
+  const funnelIndices = new Uint32Array(count * 6);
+  const slope = world.hopperRadius - world.outletRadius;
+  const normalLength = Math.hypot(world.hopperTop - world.hopperBottom, slope);
+  let vertexOffset = 0; let indexOffset = 0;
+  for (let segment = 0; segment <= count; segment += 1) {
+    const angle = segment / count * Math.PI * 2;
+    const cosine = Math.cos(angle); const sine = Math.sin(angle);
+    const nx = cosine * (world.hopperTop - world.hopperBottom) / normalLength;
+    const ny = sine * (world.hopperTop - world.hopperBottom) / normalLength;
+    const nz = -slope / normalLength;
+    for (const [radius, z] of [[world.outletRadius, world.hopperBottom], [world.hopperRadius, world.hopperTop]]) {
+      funnelVertices.set([radius*cosine,radius*sine,z,nx,ny,nz,.36,.39,.42,.31],vertexOffset);
+      vertexOffset += 10;
+    }
+    if (segment < count) {
+      const a=segment*2,b=a+1,c=a+2,d=a+3;
+      funnelIndices.set([a,c,b,b,c,d],indexOffset); indexOffset += 6;
+    }
+  }
+  const outerRadius = Math.max(world.outletRadius * 2.75, world.hopperRadius * 0.72);
+  const plateVertices = new Float32Array((count + 1) * 2 * 10);
+  const plateIndices = new Uint32Array(count * 6);
+  vertexOffset=0; indexOffset=0;
+  for (let segment=0;segment<=count;segment+=1) {
+    const angle=segment/count*Math.PI*2; const cosine=Math.cos(angle); const sine=Math.sin(angle);
+    for (const radius of [world.outletRadius,outerRadius]) {
+      plateVertices.set([radius*cosine,radius*sine,world.hopperBottom,0,0,1,.28,.30,.32,.92],vertexOffset);
+      vertexOffset+=10;
+    }
+    if (segment<count) {
+      const a=segment*2,b=a+1,c=a+2,d=a+3;
+      plateIndices.set([a,b,c,c,b,d],indexOffset); indexOffset+=6;
+    }
+  }
+  const common = { type:'field_mesh',mode3d:true,topology:'triangle-list',static_vertices:true,
+    static_indices:true,receives_lighting:true,casts_shadow:false,receives_shadow:false };
+  return Object.freeze([
+    Object.freeze({ ...common,id:'sand:circular-hopper',object_id:2,transparent:true,depth_write:false,
+      specular_strength:.34,vertices:funnelVertices,indices:funnelIndices }),
+    Object.freeze({ ...common,id:'sand:outlet-plate',object_id:5,transparent:false,depth_write:true,
+      specular_strength:.26,vertices:plateVertices,indices:plateIndices }),
+  ]);
+}
