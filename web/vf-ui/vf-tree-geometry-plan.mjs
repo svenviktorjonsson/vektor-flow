@@ -13,7 +13,6 @@ const MAX_DEMANDED_TREES = 4096;
 const MAX_PRIMITIVE_BUDGET = 65536;
 const MAX_CACHED_TREES = MAX_DEMANDED_TREES * 2;
 const SPLIT_DEPTH = 5;
-const MAX_FOLIAGE_PER_TWIG = 4;
 const KIND_TRUNK = 0;
 const KIND_CROWN = 1;
 const KIND_BRANCH = 2;
@@ -388,6 +387,59 @@ function realizeBranches(tree) {
   return splitChildren(tree, realizeLevel(tree, 0)[0], [0], 1);
 }
 
+function lateralTwigShoots(tree, parent, parentIndex) {
+  const shoots = [];
+  const profile = tree.profile.twig;
+  const relativeRadius = clamp(parent.transform[7] / tree.growth[0], 0, 1);
+  const probability = profile.shootProbabilityFloor
+    + profile.shootProbabilityRise * Math.pow(1 - relativeRadius, profile.shootProbabilityExponent);
+  for (let slot = 0; slot < profile.shootSlots; slot += 1) {
+    const node = branchNode(tree, ['shoot', parentIndex, slot]);
+    if (sample(node, 0, 0, 0, 1) >= probability) continue;
+    const attachmentMinimum = parent.kind === KIND_TRUNK ? 0.55 : 0.12;
+    const attachment = sample(node, 0, 1, attachmentMinimum, 0.9);
+    const origin = pointAlong(parent.transform, attachment, parent.kind === KIND_TRUNK);
+    const angle = boundedNormal(
+      node, 2, profile.shootAngleMean, profile.shootAngleDeviation,
+      ...profile.shootAngleBounds,
+    );
+    const azimuth = sample(node, 0, 3, 0, Math.PI * 2);
+    const pathBefore = parent.pathRemainingAfter * sample(node, 0, 4, 0.14, 0.22);
+    const radius = Math.max(
+      tree.terminalRadius,
+      parent.transform[7] * sample(node, 0, 5, ...profile.shootRadiusRatioBounds),
+    );
+    const constrained = constrainToEnvelope(
+      tree,
+      node,
+      origin,
+      rotateFrom(parent.transform.slice(3, 6), angle, azimuth),
+      pathBefore * sample(node, 0, 6, ...profile.shootLengthRatioBounds),
+      radius,
+    );
+    if (!(constrained.length > tree.targetPathLength * 1e-5)) continue;
+    shoots.push(primitive(
+      `${tree.id}:branch:shoot:${parentIndex}:${slot}`,
+      KIND_TWIG,
+      2,
+      parent.id,
+      [...origin, ...constrained.direction, constrained.length, radius],
+      {
+        generation: parent.generation + 1,
+        twigClass: 'lateral-shoot',
+        emergenceProbability: probability,
+        normalizedParentPosition: attachment,
+        localAttraction: constrained.attraction,
+        envelopeLimited: constrained.envelopeLimited,
+        pathTarget: tree.targetPathLength,
+        pathRemainingBefore: pathBefore,
+        pathRemainingAfter: Math.max(0, pathBefore - constrained.length),
+      },
+    ));
+  }
+  return shoots;
+}
+
 function realizeFine(tree, firstGeneration) {
   const [, , , crownHeight] = tree.growth;
   const branches = [];
@@ -403,13 +455,17 @@ function realizeFine(tree, firstGeneration) {
     else branches.push(...next);
     frontier = next;
   }
+  const structuralParents = [realizeLevel(tree, 0)[0], ...firstGeneration, ...branches];
+  structuralParents.forEach((parent, parentIndex) => {
+    twigs.push(...lateralTwigShoots(tree, parent, parentIndex));
+  });
   twigs.forEach((twig, twigIndex) => {
     const node = branchNode(tree, ['foliage', twigIndex]);
     const foliageCount = Math.round(boundedNormal(
       node, 0,
-      tree.profile.twig.foliageCountMean,
-      tree.profile.twig.foliageCountDeviation,
-      ...tree.profile.twig.foliageCountBounds,
+      tree.profile.twig.leafCountMean,
+      tree.profile.twig.leafCountDeviation,
+      ...tree.profile.twig.leafCountBounds,
     ));
     const radius = crownHeight * sample(node, 0, 5, 0.045, 0.085);
     for (let foliageIndex = 0; foliageIndex < foliageCount; foliageIndex += 1) {
@@ -420,9 +476,9 @@ function realizeFine(tree, firstGeneration) {
         2,
         twig.id,
         [
-          ...pointAlong(twig.transform, sample(
-            foliageNode, 0, 1, ...tree.profile.twig.attachmentBounds,
-          )),
+          ...pointAlong(twig.transform, tree.profile.twig.attachmentBounds[0]
+            + (tree.profile.twig.attachmentBounds[1] - tree.profile.twig.attachmentBounds[0])
+              * (foliageIndex + sample(foliageNode, 0, 1, 0.16, 0.84)) / foliageCount),
           ...twig.transform.slice(3, 6),
           twig.transform[6] * sample(foliageNode, 0, 2, 0.12, 0.24),
           radius,

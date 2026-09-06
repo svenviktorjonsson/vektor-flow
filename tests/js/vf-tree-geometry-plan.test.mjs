@@ -34,7 +34,7 @@ function envelopeMetric(e, p) {
 function fullPlan(identity = IDENTITY) {
   const forest = forestWorkingSet(identity);
   return planTreeGeometryReference(createTreeGeometryPlannerReference(identity), forest, {
-    treeIndices: [0], detailLevels: [2], primitiveBudget: 256,
+    treeIndices: [0], detailLevels: [2], primitiveBudget: 1800,
   });
 }
 
@@ -62,16 +62,19 @@ test('binary topology ends parent at split, orders deviation, and loses area', (
   const branches = wood.filter((p) => p.kind === 2);
   const twigs = wood.filter((p) => p.kind === 4);
   const foliage = tree.primitives.filter((p) => p.kind === 3);
-  assert.equal(branches.length, 14); assert.equal(twigs.length, 48);
-  assert.ok(foliage.length >= 96 && foliage.length <= 192); assert.ok(plan.primitiveCount <= 256);
+  assert.equal(branches.length, 14); assert.ok(twigs.length >= 48 && twigs.length <= 93);
+  assert.ok(foliage.length >= twigs.length * 9 && foliage.length <= twigs.length * 17);
+  assert.ok(plan.primitiveCount <= 1690);
   const children = new Map();
   for (const p of wood) if (p.parentId !== null) {
     if (!children.has(p.parentId)) children.set(p.parentId, []);
     children.get(p.parentId).push(p);
   }
   for (const parent of wood) {
-    const offspring = children.get(parent.id) ?? [];
-    if (parent.kind === 4 && parent.generation === 5) { assert.equal(offspring.length, 0); continue; }
+    const offspring = (children.get(parent.id) ?? []).filter((child) => child.splitRole);
+    if (parent.kind === 4 && (parent.generation === 5 || parent.twigClass === 'lateral-shoot')) {
+      assert.equal(offspring.length, 0); continue;
+    }
     assert.equal(offspring.length, 2);
     assert.ok(offspring.every((child) => distance(child.transform.slice(0, 3), endpoint(parent)) < 1e-5));
     assert.ok(offspring.every((child) => child.splitAngle > 0.001));
@@ -79,6 +82,21 @@ test('binary topology ends parent at split, orders deviation, and loses area', (
     assert.ok(ordered[0].splitAngle <= ordered[1].splitAngle + 1e-10);
     assert.ok(offspring.reduce((sum, child) => sum + child.transform[7] ** 2, 0)
       < parent.transform[7] ** 2);
+  }
+  const shootsByParent = new Map();
+  for (const shoot of twigs.filter((p) => p.twigClass === 'lateral-shoot')) {
+    const parent = tree.primitives.find((p) => p.id === shoot.parentId);
+    assert.ok(parent.kind === 0 || parent.kind === 2);
+    assert.ok(shoot.transform[7] < parent.transform[7] * 0.1);
+    assert.ok(shoot.normalizedParentPosition >= (parent.kind === 0 ? 0.55 : 0.12));
+    assert.ok(shoot.normalizedParentPosition <= 0.9);
+    if (!shootsByParent.has(parent.id)) shootsByParent.set(parent.id, []);
+    shootsByParent.get(parent.id).push(shoot);
+  }
+  for (const [parentId, shoots] of shootsByParent) {
+    const parent = tree.primitives.find((p) => p.id === parentId);
+    assert.ok(shoots.reduce((sum, shoot) => sum + shoot.transform[7] ** 2, 0)
+      < parent.transform[7] ** 2 * 0.04);
   }
 });
 
@@ -116,7 +134,54 @@ test('leaves use varied nonterminal twig positions; replay exact and seed varies
     assert.ok(along <= tree.profile.twig.attachmentBounds[1] + 1e-5);
   }
   assert.ok(positions.some((v) => v < 0.7));
+  assert.ok(positions.filter((v) => v < 0.8).length / positions.length > 0.7);
   assert.ok(new Set(positions.map((v) => v.toFixed(4))).size > 8);
+  const envelope = tree.envelope;
+  const heightBins = new Set(); const radialBins = new Set(); const angularBins = new Set();
+  for (const leaf of tree.primitives.filter((p) => p.kind === 3)) {
+    const [x, y, z] = leaf.transform;
+    const height = (z - (envelope.center[2] - envelope.axes[2])) / (2 * envelope.axes[2]);
+    const dx = x - envelope.center[0]; const dy = y - envelope.center[1];
+    const radius = Math.hypot(dx / envelope.axes[0], dy / envelope.axes[1]);
+    const angle = (Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2);
+    heightBins.add(Math.max(0, Math.min(5, Math.floor(height * 6))));
+    radialBins.add(Math.max(0, Math.min(4, Math.floor(radius * 5))));
+    angularBins.add(Math.floor(angle / (Math.PI * 2) * 8));
+  }
+  assert.ok(heightBins.size >= 3); assert.ok(radialBins.size >= 3); assert.ok(angularBins.size >= 4);
+});
+
+test('lateral twig frequency is nonzero on trunks and rises toward thin parents', () => {
+  let thickParents = 0; let thinParents = 0; let thickShoots = 0; let thinShoots = 0;
+  let trunkShoots = 0; let pinnedTreeThreeTrunkShoots = 0;
+  for (let seedIndex = 0; seedIndex < 4; seedIndex += 1) {
+    const identity = Object.freeze({ ...IDENTITY,
+      seed: Object.freeze([IDENTITY.seed[0], (IDENTITY.seed[1] + seedIndex * 0x9e3779b9) >>> 0]) });
+    const forest = forestWorkingSet(identity);
+    for (let treeIndex = 0; treeIndex < Math.min(8, forest.treeCount); treeIndex += 1) {
+      const plan = planTreeGeometryReference(createTreeGeometryPlannerReference(identity), forest, {
+        treeIndices: [treeIndex], detailLevels: [2], primitiveBudget: 1800,
+      });
+      const tree = plan.trees[0]; const byId = new Map(tree.primitives.map((p) => [p.id, p]));
+      const rootRadius = tree.primitives.find((p) => p.kind === 0).transform[7];
+      for (const parent of tree.primitives.filter((p) => p.kind === 0 || p.kind === 2)) {
+        if (parent.transform[7] / rootRadius > 0.35) thickParents += 1; else thinParents += 1;
+      }
+      for (const shoot of tree.primitives.filter((p) => p.twigClass === 'lateral-shoot')) {
+        const parent = byId.get(shoot.parentId);
+        if (parent.kind === 0) {
+          trunkShoots += 1;
+          if (seedIndex === 0 && treeIndex === 3) pinnedTreeThreeTrunkShoots += 1;
+        }
+        if (parent.transform[7] / rootRadius > 0.35) thickShoots += 1; else thinShoots += 1;
+      }
+    }
+  }
+  const slots = treeSpeciesProfileReference(0).twig.shootSlots;
+  const thickFrequency = thickShoots / (thickParents * slots);
+  const thinFrequency = thinShoots / (thinParents * slots);
+  assert.ok(trunkShoots > 0); assert.ok(thickFrequency > 0); assert.ok(thickFrequency < thinFrequency);
+  assert.ok(pinnedTreeThreeTrunkShoots > 0);
 });
 
 test('whole-tree envelopes and path-local budgets vary under hard RAM bounds', () => {
@@ -124,7 +189,7 @@ test('whole-tree envelopes and path-local budgets vary under hard RAM bounds', (
   const plan = planTreeGeometryReference(createTreeGeometryPlannerReference(IDENTITY), forest, {
     treeIndices: indices, detailLevels: indices.map(() => 2), primitiveBudget: 4096,
   });
-  assert.ok(plan.primitiveCount <= forest.treeCount * 256); assert.equal(plan.vectorBytes, plan.primitiveCount * 42);
+  assert.ok(plan.primitiveCount <= 4096); assert.equal(plan.vectorBytes, plan.primitiveCount * 42);
   assert.ok(new Set(plan.trees.map((t) => t.targetPathLength.toFixed(5))).size > 4);
   assert.ok(new Set(plan.trees.map((t) => t.envelope.axes.join(','))).size > 4);
   const ratios = plan.trees[0].primitives.filter((p) => p.kind === 2)

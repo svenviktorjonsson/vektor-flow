@@ -8,7 +8,7 @@ const KIND_TWIG = 4;
 const TRUNK_SIDES = 10;
 const BRANCH_SIDES = 7;
 const TWIG_SIDES = 5;
-const LEAVES_PER_CLUSTER = 8;
+const LEAVES_PER_CLUSTER = 1;
 const LEAF_PARAMETER_STRIDE = 9;
 const LEAF_VERTEX_COUNT = 16;
 const LEAF_INDEX_COUNT = 72;
@@ -110,9 +110,10 @@ function requirePacket(packet) {
     counts.trunks !== 1
     || counts.crowns !== 1
     || counts.branches !== 14
-    || counts.twigs !== 48
-    || counts.foliageClusters < 96
-    || counts.foliageClusters > 192
+    || counts.twigs < 48
+    || counts.twigs > 93
+    || counts.foliageClusters < counts.twigs * 9
+    || counts.foliageClusters > counts.twigs * 17
   ) {
     throw new RangeError('complete tree detail packet is required');
   }
@@ -146,7 +147,7 @@ function requirePacket(packet) {
   }
   for (let index = 0; index < packet.primitiveCount; index += 1) {
     if (packet.primitiveKinds[index] === KIND_TWIG
-      && ((leafParents.get(index) ?? 0) < 2 || leafParents.get(index) > 4)) {
+      && ((leafParents.get(index) ?? 0) < 9 || leafParents.get(index) > 17)) {
       throw new RangeError('complete tree detail packet is required');
     }
   }

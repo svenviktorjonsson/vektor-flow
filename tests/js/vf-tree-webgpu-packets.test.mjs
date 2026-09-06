@@ -58,13 +58,13 @@ function sourcePacket(detailLevel = 2, identity = IDENTITY) {
   const geometry = planTreeGeometryReference(
     createTreeGeometryPlannerReference(identity),
     forest,
-    { treeIndices: [0], detailLevels: [detailLevel], primitiveBudget: 256 },
+    { treeIndices: [0], detailLevels: [detailLevel], primitiveBudget: 1800 },
   );
   const materials = realizeTreeMaterialsReference(
     createTreeMaterialFieldReference(identity),
     forest,
     geometry,
-    { materialBudget: 256 },
+    { materialBudget: 1800 },
   );
   return adaptTreeWorkingSetsToRetainedPacketsReference(
     geometry,
@@ -81,7 +81,7 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
   const twigCount = Array.from(source.primitiveKinds).filter((kind) => kind === 4).length;
   const foliageCount = Array.from(source.primitiveKinds).filter((kind) => kind === 3).length;
 
-  assert.ok(source.primitiveCount >= 160 && source.primitiveCount <= 256);
+  assert.ok(source.primitiveCount >= 480 && source.primitiveCount <= 1690);
   assert.equal(result.kind, 'tree-webgpu-mesh-state:v1');
   assert.strictEqual(result.source, source);
   assert.equal(result.meshes.length, 2);
@@ -95,7 +95,7 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
     branches: 14,
     twigs: twigCount,
     foliageClusters: foliageCount,
-    leaves: foliageCount * 8,
+    leaves: foliageCount,
   });
   assert.ok(result.meshes.every((mesh) => (
     mesh.type === 'field_mesh'

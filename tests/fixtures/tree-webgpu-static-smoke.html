@@ -64,13 +64,13 @@
         const geometry = planTreeGeometryReference(
           createTreeGeometryPlannerReference(identity),
           forest,
-          { treeIndices: [0], detailLevels: [2], primitiveBudget: 256 },
+          { treeIndices: [0], detailLevels: [2], primitiveBudget: 1800 },
         );
         const materials = realizeTreeMaterialsReference(
           createTreeMaterialFieldReference(identity),
           forest,
           geometry,
-          { materialBudget: 256 },
+          { materialBudget: 1800 },
         );
         const retained = adaptTreeWorkingSetsToRetainedPacketsReference(
           geometry,
