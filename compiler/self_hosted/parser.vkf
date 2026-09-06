@@ -406,6 +406,7 @@ TaggedParseCursor: (
     line:num,
     column:num
 )
+TaggedTapeParseCursor: (source:str, rows:[num], count:int, index:int)
 
 ModuleNode: (kind:str, body:any, span:Span)
 BindNode: (kind:str, target:any, annotation:any, value:any, span:Span)
@@ -451,6 +452,17 @@ TaggedNumericFunctionCall: (
     parameter_name:str,
     factor:num
 )
+TaggedNumericFunctionCursorModule: (
+    kind:str,
+    declaration_order:int,
+    call_order:int,
+    function_name:str,
+    parameter_name:str,
+    factor:num,
+    declaration_span:Span,
+    call_span:Span,
+    span:Span
+)
 TaggedNumericConditionalCall: (
     function_name:str,
     parameter_name:str
@@ -492,7 +504,7 @@ diagnostic(code:str, message:str, where:Location, stop:Location):
         span: span(where, stop)
     )
 
-cursor(envelope:TokenStreamEnvelope):
+cursor(envelope:TokenStreamEnvelope) -> ParseCursor:
     (envelope: envelope, tokens: envelope.tokens, index: 0, diagnostics: [])
 
 tagged_cursor(first:TaggedParserToken) -> TaggedParseCursor:
@@ -522,6 +534,11 @@ tagged_advance(
         line:next.location.line,
         column:next.location.column
     )
+
+tagged_tape_cursor(
+    source:str, rows:[num], count:int
+) -> TaggedTapeParseCursor:
+    (source:source, rows:rows, count:count, index:0)
 
 peek(cursor:ParseCursor):
     cursor.tokens.(cursor.index)
@@ -1598,6 +1615,40 @@ parse_module_from_cursor(
     )
     parsed_module: (kind:"module", body:[binding], span:span(start, stop))
     (module:parsed_module, diagnostics:[])
+
+parse_module_from_cursor(
+    cursor:TaggedTapeParseCursor
+) -> TaggedNumericFunctionCursorModule:
+    (cursor.index = 0)?! "tagged function parser cursor must start at token zero"
+    parsed: parse_tagged_numeric_function_call(
+        cursor.source, cursor.rows, cursor.count
+    )
+    module_start: location(
+        "<self-hosted>", cursor.rows.(4), cursor.rows.(5)
+    )
+    declaration_start: location(
+        "<self-hosted>", cursor.rows.(28), cursor.rows.(29)
+    )
+    declaration_stop: location(
+        "<self-hosted>", cursor.rows.(88), cursor.rows.(89)
+    )
+    call_start: location(
+        "<self-hosted>", cursor.rows.(100), cursor.rows.(101)
+    )
+    call_stop: location(
+        "<self-hosted>", cursor.rows.(142), cursor.rows.(143)
+    )
+    (
+        kind:"numeric_function_module",
+        declaration_order:0,
+        call_order:1,
+        function_name:parsed.function_name,
+        parameter_name:parsed.parameter_name,
+        factor:parsed.factor,
+        declaration_span:span(declaration_start, declaration_stop),
+        call_span:span(call_start, call_stop),
+        span:span(module_start, call_stop)
+    )
 
 parse_module_from_cursor(cursor:ParseCursor):
     first: peek(cursor)

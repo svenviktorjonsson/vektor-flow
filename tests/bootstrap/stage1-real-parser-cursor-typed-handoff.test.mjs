@@ -113,3 +113,60 @@ test("real parser cursor preserves a numeric binding into typed IR", () => {
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("real parser cursor preserves a typed numeric function declaration and call", () => {
+  const workRoot = resolve(process.env.VKF_TEST_WORK_ROOT ?? join(root, "build/bootstrap-tests"));
+  mkdirSync(workRoot, { recursive: true });
+  const work = mkdtempSync(join(workRoot, "real-parser-function-typed-"));
+  try {
+    for (const name of ["lexer", "parser", "typed_ir"]) {
+      copyFileSync(join(root, `compiler/self_hosted/${name}.vkf`), join(work, `${name}.vkf`));
+    }
+    const source = join(work, "probe.vkf");
+    const artifact = join(work, `probe${suffix}`);
+    writeFileSync(source, [
+      "lexer: .lexer",
+      "parser: .parser",
+      "typed: .typed_ir",
+      'source: ": .system\\ntwice(value:num):\\n    value * 2\\n:: twice(cpu_count())\\n"',
+      "tokens: lexer.tagged_numeric_function_token_tape(source)",
+      "cursor: parser.tagged_tape_cursor(tokens.source, tokens.rows, tokens.count)",
+      "parsed: parser.parse_module_from_cursor(cursor)",
+      "typed_module: typed.typed_numeric_parameter_multiply_application(",
+      "    parsed.function_name, parsed.parameter_name, parsed.factor",
+      ")",
+      "function: typed_module.body.0",
+      "call: typed_module.body.1.expr.args.0",
+      "matches: (parsed.kind = \"numeric_function_module\" /\\",
+      "    parsed.declaration_order = 0 /\\ parsed.call_order = 1 /\\",
+      "    parsed.function_name = \"twice\" /\\ parsed.parameter_name = \"value\" /\\",
+      "    parsed.factor = 2 /\\ parsed.declaration_span.start.line = 2 /\\",
+      "    parsed.declaration_span.start.column = 1 /\\",
+      "    parsed.declaration_span.stop.line = 3 /\\",
+      "    parsed.declaration_span.stop.column = 13 /\\",
+      "    parsed.call_span.start.line = 4 /\\ parsed.call_span.start.column = 1 /\\",
+      "    parsed.call_span.stop.line = 4 /\\ parsed.call_span.stop.column = 21 /\\",
+      "    function.kind = \"function\" /\\ function.name = \"twice\" /\\",
+      "    function.params.0.name = \"value\" /\\ function.params.0.type = \"num\" /\\",
+      "    function.body.body.0.expr.op = \"STAR\" /\\",
+      "    function.body.body.0.expr.right.value = 2 /\\",
+      "    call.kind = \"call\" /\\ call.callee.name = \"twice\" /\\",
+      "    call.args.0.callee.name = \"cpu_count\")",
+      'matches?! "real parser cursor lost function/call order, spans, or typed IR"',
+      ":: function.body.body.0.expr.right.value",
+      "",
+    ].join("\n"), "utf8");
+
+    const compiled = spawnSync(compiler, ["-b", source, "-o", artifact, "--optimizer-policy", "mask-0"], {
+      cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true,
+    });
+    assert.equal(compiled.status, 0, compiled.stderr);
+    const executed = spawnSync(artifact, [], {
+      cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true,
+    });
+    assert.equal(executed.status, 0, executed.stderr);
+    assert.equal(executed.stdout.trim(), "2");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
