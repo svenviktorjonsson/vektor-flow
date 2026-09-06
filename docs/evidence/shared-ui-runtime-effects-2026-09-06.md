@@ -19,6 +19,12 @@ calls separated by `.y:y+1`. It verifies two packets in source order, unchanged
 x bounds, y bounds shifted by exactly one, distinct authored IDs, empty console
 output, and byte-for-byte-equivalent JSON from a fresh execution.
 
+The follow-up checkpoint executes ordered side-effecting operands, an untaken
+conditional effect, a retained-handle alias, and two adds separated by an
+in-place vector mutation. `CaptureUiEffect` recursively clones the compiler's
+private effect array inside emitted WASM; immutable scalar/string leaves may be
+shared, while nested arrays are owned by the captured effect.
+
 ## RED to GREEN
 
 - RED: `tests/bootstrap/shared-ui-runtime-effects.test.mjs` failed 0/1 because
@@ -31,8 +37,8 @@ output, and byte-for-byte-equivalent JSON from a fresh execution.
 Pinned toolchain: `emscripten/emsdk:4.0.14` via the repository's
 `vkf-trig-toolchain:14` image.
 
-- focused runtime UI fixture: 1/1
-- UI/frontend bootstrap group: 38/38
+- focused runtime UI fixtures: 5/5
+- UI/frontend bootstrap group: 42/42
 - execution/public-boundary group: 91/91
 - fresh strict native suite: 451/451
 - full native/WASM comparison: 133/451 pass, 318 known failures
@@ -45,9 +51,7 @@ unchanged; the packet formatter is exported only by `scripts/shared-ui-probe.mk`
 ## Remaining RED gates
 
 - connect compiler-owned versioned packets to the production browser runner;
-- prove earlier effects own deep snapshots when operands are mutated in place;
-- execute the source-order marker, failure-short-circuit, conditional, and alias
-  fixtures in WASM;
+- execute the failure-short-circuit fixture with the exact native diagnostic;
 - implement and verify the corresponding native effect execution path;
 - complete every README and linked-guide example through the same client-side
   compiler/WASM pipeline.

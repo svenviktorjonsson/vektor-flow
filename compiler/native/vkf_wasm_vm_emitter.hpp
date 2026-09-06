@@ -577,6 +577,7 @@ struct RuntimeIndexes {
     std::uint32_t pairwise_system_energy = 0;
     std::uint32_t stat_visitor = 0;
     std::uint32_t stat_sum = 0;
+    std::uint32_t snapshot_ui_effect = 0;
 };
 
 inline void emit_stack_address(
@@ -833,6 +834,9 @@ inline std::vector<std::uint8_t> emit_tagged_function(
             case Opcode::CaptureUiEffect:
                 emit_pop_to(body, frame_local, sp_local, local_count, temp0);
                 if (instruction.opcode == Opcode::CaptureUiEffect) {
+                    local_get(body, temp0);
+                    body.u8(0x10); body.u32_leb(runtime.snapshot_ui_effect);
+                    local_set(body, temp0);
                     local_get(body, temp0);
                     i32_const(body, static_cast<std::uint32_t>(values::Tag::UiEffect));
                     i32_store(body, values::tag_offset);
@@ -5258,6 +5262,74 @@ inline std::vector<std::uint8_t> emit_i32_constant_function(
     return encoded.take();
 }
 
+inline std::vector<std::uint8_t> emit_ui_effect_snapshot_function(
+    std::uint32_t allocate_index,
+    std::uint32_t snapshot_index
+) {
+    Writer body;
+    body.u32_leb(1);
+    body.u32_leb(5);
+    body.u8(wasm_i32);
+
+    local_get(body, 0);
+    i32_load(body, values::tag_offset);
+    i32_const(body, static_cast<std::uint32_t>(values::Tag::Array));
+    body.u8(0x47);
+    body.u8(0x04); body.u8(0x40);
+    local_get(body, 0);
+    body.u8(0x0f);
+    body.u8(0x0b);
+
+    local_get(body, 0);
+    i32_load(body, values::payload_offset);
+    local_set(body, 1);
+    local_get(body, 0);
+    i32_load(body, values::length_offset);
+    local_set(body, 2);
+    local_get(body, 2);
+    i32_const(body, values::pointer_size);
+    body.u8(0x6c);
+    i32_const(body, values::slot_size);
+    body.u8(0x6a);
+    body.u8(0x10); body.u32_leb(allocate_index);
+    local_set(body, 3);
+    local_get(body, 3);
+    i32_const(body, static_cast<std::uint32_t>(values::Tag::Array));
+    i32_store(body, values::tag_offset);
+    local_get(body, 3); local_get(body, 2);
+    i32_store(body, values::length_offset);
+    local_get(body, 3); local_get(body, 3);
+    i32_const(body, values::slot_size);
+    body.u8(0x6a);
+    local_tee(body, 4);
+    i32_store(body, values::payload_offset);
+    i32_const(body, 0);
+    local_set(body, 5);
+
+    body.u8(0x02); body.u8(0x40);
+    body.u8(0x03); body.u8(0x40);
+    local_get(body, 5); local_get(body, 2);
+    body.u8(0x4f);
+    body.u8(0x0d); body.u32_leb(1);
+    local_get(body, 4);
+    local_get(body, 5); i32_const(body, values::pointer_size); body.u8(0x6c);
+    body.u8(0x6a);
+    local_get(body, 1);
+    local_get(body, 5); i32_const(body, values::pointer_size); body.u8(0x6c);
+    body.u8(0x6a);
+    i32_load(body);
+    body.u8(0x10); body.u32_leb(snapshot_index);
+    i32_store(body);
+    local_get(body, 5); i32_const(body, 1); body.u8(0x6a);
+    local_set(body, 5);
+    body.u8(0x0c); body.u32_leb(0);
+    body.u8(0x0b);
+    body.u8(0x0b);
+    local_get(body, 3);
+    body.u8(0x0b);
+    return encoded_body(std::move(body));
+}
+
 inline std::vector<std::uint8_t> emit_invoke_function(
     const bytecode::Module& module,
     const ModuleLayout& layout
@@ -5508,7 +5580,8 @@ inline EmittedModule emit(
     runtime.pairwise_system_energy = runtime.permutation_reduction + 1;
     runtime.stat_visitor = runtime.pairwise_system_energy + 1;
     runtime.stat_sum = runtime.stat_visitor + 1;
-    const std::uint32_t runtime_count = 49;
+    runtime.snapshot_ui_effect = runtime.stat_sum + 6;
+    const std::uint32_t runtime_count = 50;
     const std::uint32_t getter_count = 9;
     const std::uint32_t getter_base = function_count + runtime_count;
     const std::uint32_t heap_pointer_index = getter_base + getter_count;
@@ -5631,6 +5704,7 @@ inline EmittedModule emit(
     for (std::uint32_t index = 0; index < 6; ++index) {
         emit_type({detail::wasm_i32, detail::wasm_i32, detail::wasm_i32}, {detail::wasm_i32});
     }
+    emit_type({detail::wasm_i32}, {detail::wasm_i32});
     for (std::uint32_t index = 0; index < getter_count + 2; ++index) {
         emit_type({}, {detail::wasm_i32});
     }
@@ -5661,6 +5735,7 @@ inline EmittedModule emit(
     for (const auto& function : module.functions) {
         for (const auto& instruction : function.instructions) {
             if (instruction.opcode == bytecode::Opcode::PrintValue
+                || instruction.opcode == bytecode::Opcode::CaptureUiEffect
                 || instruction.opcode == bytecode::Opcode::OutputValues
                 || instruction.opcode == bytecode::Opcode::ResetOutput) has_program_output = true;
         }
@@ -5843,6 +5918,8 @@ inline EmittedModule emit(
         code.raw(stat_kernels::emit_reduction_function<detail::Writer>(
             runtime.allocate, runtime.make_number, runtime.stat_visitor, operation));
     }
+    code.raw(detail::emit_ui_effect_snapshot_function(
+        runtime.allocate, runtime.snapshot_ui_effect));
     const std::uint32_t getter_values[] = {
         emitted.layout.bytecode_ptr,
         emitted.layout.bytecode_len,
