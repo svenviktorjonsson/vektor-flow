@@ -11,6 +11,9 @@ using TerrainWaterlineSegment = std::array<TerrainWaterlinePoint, 2>;
 struct TerrainWaterline {
     std::shared_ptr<const TerrainTriangulation> source;
     std::vector<TerrainWaterlineSegment> segments;
+    // Segment-parallel ordinal of the first emitted triangle that produced the
+    // unique segment. Duplicate suppression retains the earlier provenance.
+    std::vector<std::size_t> triangle_ordinals;
     bool truncated;
 };
 
@@ -28,8 +31,9 @@ inline TerrainWaterline ExtractTerrainWaterlineReference(
     for (const auto& triangle : mesh->triangles)
         for (const auto index : triangle)
             if (index >= mesh->source->vertices.size()) throw std::invalid_argument("terrain waterline triangle index is invalid");
-    TerrainWaterline result{std::move(mesh), {}, false};
+    TerrainWaterline result{std::move(mesh), {}, {}, false};
     result.segments.reserve(std::min(segment_budget, result.source->triangles.size()));
+    result.triangle_ordinals.reserve(std::min(segment_budget, result.source->triangles.size()));
     std::set<TerrainWaterlineSegment> seen;
     const auto intersect = [&](std::uint32_t first, std::uint32_t second) {
         const auto& vertices = result.source->source->vertices;
@@ -53,7 +57,8 @@ inline TerrainWaterline ExtractTerrainWaterlineReference(
             if (!std::isfinite(value)) throw std::range_error("terrain waterline interpolation must be finite");
         return point;
     };
-    for (const auto& triangle : result.source->triangles) {
+    for (std::size_t triangle_ordinal = 0; triangle_ordinal < result.source->triangles.size(); ++triangle_ordinal) {
+        const auto& triangle = result.source->triangles[triangle_ordinal];
         TerrainWaterlineSegment segment{};
         std::size_t crossings = 0;
         for (std::size_t edge = 0; edge < 3; ++edge) {
@@ -71,6 +76,7 @@ inline TerrainWaterline ExtractTerrainWaterlineReference(
         }
         seen.insert(segment);
         result.segments.push_back(segment);
+        result.triangle_ordinals.push_back(triangle_ordinal);
     }
     return result;
 }

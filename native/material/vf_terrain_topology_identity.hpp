@@ -1,6 +1,6 @@
 #pragma once
 
-#include "native/material/vf_terrain_triangulation.hpp"
+#include "native/material/vf_terrain_waterline.hpp"
 
 namespace vf::material {
 
@@ -41,6 +41,16 @@ inline TerrainTriangleIdentity ResolveTerrainTriangleIdentityReference(
         throw std::range_error("terrain triangle ordinal exceeds emitted topology");
     return {identity.source, identity.cells.at(ordinal / 2), static_cast<std::uint32_t>(ordinal % 2),
         identity.source->triangles.at(ordinal)};
+}
+
+inline TerrainTriangleIdentity ResolveTerrainWaterlineSegmentIdentityReference(
+    const TerrainTopologyIdentity& identity, const TerrainWaterline& waterline, std::size_t segment_ordinal
+) {
+    if (waterline.source != identity.source)
+        throw std::invalid_argument("terrain waterline and topology identity must share emitted topology");
+    if (segment_ordinal >= waterline.segments.size())
+        throw std::range_error("terrain waterline segment ordinal exceeds emitted waterline");
+    return ResolveTerrainTriangleIdentityReference(identity, waterline.triangle_ordinals.at(segment_ordinal));
 }
 
 } // namespace vf::material
