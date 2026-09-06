@@ -248,3 +248,21 @@ test('R5 mineral domains have bounded angular crystalline breakup and readable c
   assert.ok(probe.microShadowReversalFraction > 0.25);
   assert.equal(probe.microBandAffectsHeight, true);
 });
+
+test('R6 fine relief is uniformly dense, smaller, filtered, and directional', () => {
+  const probe = realizeGraniteGranularProbeReference(IDENTITY, {
+    resolution: 64,
+    footprint: 0.0015,
+  });
+
+  assert.ok(probe.r6MicroFeatureDensityRatioToR5 >= 3);
+  assert.ok(probe.r6MicroFeatureDensityRatioToR5 <= 4);
+  assert.ok(probe.r6MicroMedianRadiusRatioToR5 >= 0.4);
+  assert.ok(probe.r6MicroMedianRadiusRatioToR5 <= 0.5);
+  assert.ok(probe.r6TileDensityCoefficientVariation < 0.22);
+  assert.equal(probe.r6EmptyTileFraction, 0);
+  assert.ok(probe.r6MicroAmplitudeRatioToR5 < 0.72);
+  assert.ok(probe.r6MicroShadowReversalFraction > 0.25);
+  assert.equal(probe.r6MicroBandAffectsHeight, true);
+  assert.equal(probe.r6MicroPlacementKind, 'conditioned-isotropic-octave');
+});

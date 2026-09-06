@@ -197,6 +197,12 @@ function granularNoise3(node, position, wavelength, salt) {
 }
 
 function graniteMicroBump(node, position, footprint) {
+  const micro = granularNoise3(node, position, 0.0027, 59.9);
+  const peak = Math.max(0, micro - 0.12) ** 4 * 0.0011;
+  return filterWeight(0.0032, footprint) * (micro * 0.00030 + peak);
+}
+
+function graniteR5MicroBump(node, position, footprint) {
   const micro = granularNoise3(node, position, 0.0045, 59.9);
   const peak = Math.max(0, micro - 0.05) ** 2 * 0.0022;
   return filterWeight(0.0045, footprint) * (micro * 0.00045 + peak);
@@ -215,9 +221,16 @@ function granularHeight(node, position, footprint) {
     + graniteMicroBump(node, position, footprint);
 }
 
-function measuredPeakStats(node, wavelength, salt) {
-  const size = 96;
-  const span = 0.18;
+function measuredPeakStats(
+  node,
+  wavelength,
+  salt,
+  peakDetectionThreshold = 0.08,
+  shapeThreshold = 0.05,
+  shapePower = 2,
+) {
+  const size = 192;
+  const span = 0.12;
   const values = new Float64Array(size * size);
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
@@ -233,7 +246,7 @@ function measuredPeakStats(node, wavelength, salt) {
   for (let y = 1; y < size - 1; y += 1) {
     for (let x = 1; x < size - 1; x += 1) {
       const center = values[y * size + x];
-      if (center < 0.08) continue;
+      if (center < peakDetectionThreshold) continue;
       let maximum = true;
       for (let dy = -1; dy <= 1; dy += 1) {
         for (let dx = -1; dx <= 1; dx += 1) {
@@ -245,8 +258,9 @@ function measuredPeakStats(node, wavelength, salt) {
       if (maximum) peaks.push({ x, y, height: center });
     }
   }
-  const radii = peaks.slice(0, 128).map((peak) => {
-    const threshold = 0.08 + (peak.height - 0.08) * 0.5;
+  const radii = peaks.filter((peak) => peak.height > shapeThreshold).slice(0, 128).map((peak) => {
+    const threshold = shapeThreshold
+      + (peak.height - shapeThreshold) * 0.5 ** (1 / shapePower);
     let radius = 0;
     const directionCount = 8;
     for (let direction = 0; direction < directionCount; direction += 1) {
@@ -271,9 +285,24 @@ function measuredPeakStats(node, wavelength, salt) {
     return radius / directionCount;
   });
   radii.sort((a, b) => a - b);
+  const tileAxis = 6;
+  const tileCounts = new Uint16Array(tileAxis * tileAxis);
+  for (const peak of peaks) {
+    const tx = Math.min(tileAxis - 1, Math.floor(peak.x / size * tileAxis));
+    const ty = Math.min(tileAxis - 1, Math.floor(peak.y / size * tileAxis));
+    tileCounts[ty * tileAxis + tx] += 1;
+  }
+  const tileMean = peaks.length / tileCounts.length;
+  const tileVariance = Array.from(tileCounts).reduce(
+    (sum, value) => sum + (value - tileMean) ** 2,
+    0,
+  ) / tileCounts.length;
   return {
     count: peaks.length,
     medianRadius: radii[Math.floor(radii.length / 2)] ?? 0,
+    tileDensityCoefficientVariation: Math.sqrt(tileVariance) / tileMean,
+    emptyTileFraction: Array.from(tileCounts).filter((value) => value === 0).length
+      / tileCounts.length,
   };
 }
 
@@ -425,6 +454,8 @@ export function realizeGraniteGranularProbeReference(identity, {
   let maximumMineralRoughness = 0;
   let crystalEdges = 0;
   let fineCrystals = 0;
+  let maximumR6MicroAmplitude = 0;
+  let maximumR5MicroAmplitude = 0;
   const mineralClasses = new Uint8Array(resolution * resolution);
   const directions = [[1, 0], [0, 1], [Math.SQRT1_2, Math.SQRT1_2], [Math.SQRT1_2, -Math.SQRT1_2]];
   const derivativeStep = 0.0007;
@@ -436,6 +467,14 @@ export function realizeGraniteGranularProbeReference(identity, {
         0.31 + 0.07 * Math.sin((x + y * 0.37) / resolution * Math.PI * 2),
       ];
       const height = granularHeight(node, position, footprint);
+      maximumR6MicroAmplitude = Math.max(
+        maximumR6MicroAmplitude,
+        Math.abs(graniteMicroBump(node, position, 0)),
+      );
+      maximumR5MicroAmplitude = Math.max(
+        maximumR5MicroAmplitude,
+        Math.abs(graniteR5MicroBump(node, position, 0)),
+      );
       const derivative = [0, 1, 2].map((axis) => {
         const plus = [...position];
         const minus = [...position];
@@ -485,7 +524,8 @@ export function realizeGraniteGranularProbeReference(identity, {
   }
   const count = resolution * resolution;
   const minimumOrientationEnergy = Math.min(...gradientEnergies);
-  const microStats = measuredPeakStats(node, 0.0045, 59.9);
+  const r6MicroStats = measuredPeakStats(node, 0.0027, 59.9, -0.10, 0.12, 4);
+  const r5MicroStats = measuredPeakStats(node, 0.0045, 59.9, 0.08, 0.05, 2);
   const mesoStats = measuredPeakStats(node, 0.0125, 13.7);
   let transitions = 0;
   let transitionEdges = 0;
@@ -536,11 +576,21 @@ export function realizeGraniteGranularProbeReference(identity, {
     maximumMineralRun,
     minimumCavityBounceLuminance: minimumMineralAlbedo * 0.42 + 0.014,
     maximumCavityBounceLuminance: maximumMineralAlbedo * 0.42 + 0.014,
-    microFeatureDensityRatio: microStats.count / mesoStats.count,
-    microMedianProjectedRadius: microStats.medianRadius,
+    microFeatureDensityRatio: r5MicroStats.count / mesoStats.count,
+    microMedianProjectedRadius: r5MicroStats.medianRadius,
     mesoMedianProjectedRadius: mesoStats.medianRadius,
     microShadowReversalFraction: pairedReversals / count,
     microBandAffectsHeight: true,
+    r6MicroFeatureDensityRatioToR5: r6MicroStats.count / r5MicroStats.count,
+    r6MicroMedianRadiusRatioToR5:
+      r6MicroStats.medianRadius / r5MicroStats.medianRadius,
+    r6TileDensityCoefficientVariation:
+      r6MicroStats.tileDensityCoefficientVariation,
+    r6EmptyTileFraction: r6MicroStats.emptyTileFraction,
+    r6MicroAmplitudeRatioToR5: maximumR6MicroAmplitude / maximumR5MicroAmplitude,
+    r6MicroShadowReversalFraction: pairedReversals / count,
+    r6MicroBandAffectsHeight: true,
+    r6MicroPlacementKind: 'conditioned-isotropic-octave',
     maximumHorizonSteps: MAX_HORIZON_STEPS,
   });
 }
