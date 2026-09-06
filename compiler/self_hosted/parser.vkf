@@ -56,6 +56,8 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
     depth: 0
     closing_kind: 0
     scanning: false
+    parameter_comma: false
+    field_comma: false
     record_comma: false
     kind: 0
     (count < 1 \/ rows.length() != count * 6)?
@@ -72,7 +74,10 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
         shape.error_index: index
         @: shape
     .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
+        .index+: 1
     (_bootstrap_shape_kind(rows, count, index, source_stop) != 14)?>
+        .parameter_comma: false
         (_bootstrap_shape_kind(rows, count, index, source_stop) != 1)?
             shape.error_index: index
             @: shape
@@ -104,9 +109,14 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
         shape.type_starts: shape.type_starts & [rows.(type_start * 6 + 1)]
         shape.type_stops: shape.type_stops & [rows.((index - 1) * 6 + 2)]
         (_bootstrap_shape_kind(rows, count, index, source_stop) = 24)?
+            .parameter_comma: true
+            .index+: 1
+            (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
+                .index+: 1
+        (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
             .index+: 1
         (_bootstrap_shape_kind(rows, count, index, source_stop) != 14 /\
-            _bootstrap_shape_kind(rows, count, index - 1, source_stop) != 24)?
+            ~parameter_comma)?
             shape.error_index: index
             @: shape
     .index+: 1
@@ -120,10 +130,13 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
         shape.error_index: index
         @: shape
     .index+: 1
+    (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
+        .index+: 1
     (_bootstrap_shape_kind(rows, count, index, source_stop) = 14)?
         shape.error_index: index
         @: shape
     (_bootstrap_shape_kind(rows, count, index, source_stop) != 14)?>
+        .field_comma: false
         (_bootstrap_shape_kind(rows, count, index, source_stop) != 1)?
             shape.error_index: index
             @: shape
@@ -143,7 +156,7 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
             (kind = 0 \/ kind = 5)?
                 shape.error_index: index
                 @: shape
-            ((kind = 14 \/ kind = 24) /\ depth = 0)?
+            ((kind = 4 \/ kind = 14 \/ kind = 24) /\ depth = 0)?
                 .scanning: false
             scanning?
                 (kind = 13 \/ kind = 22)?
@@ -167,9 +180,17 @@ _bootstrap_record_function_shape(source:str, rows:[num], count:int):
             @: shape
         shape.expression_starts: shape.expression_starts & [rows.(expression_start * 6 + 1)]
         shape.expression_stops: shape.expression_stops & [rows.((index - 1) * 6 + 2)]
+        (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
+            .index+: 1
         (_bootstrap_shape_kind(rows, count, index, source_stop) = 24)?
+            .field_comma: true
             .record_comma: true
             .index+: 1
+            (_bootstrap_shape_kind(rows, count, index, source_stop) = 4)?>
+                .index+: 1
+        (_bootstrap_shape_kind(rows, count, index, source_stop) != 14 /\ ~field_comma)?
+            shape.error_index: index
+            @: shape
     ~record_comma?
         shape.error_index: index
         @: shape

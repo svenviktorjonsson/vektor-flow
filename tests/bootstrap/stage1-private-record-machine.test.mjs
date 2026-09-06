@@ -35,6 +35,11 @@ test("private record producer matches the complete native MachineFunction", () =
     const artifactResult = readFileSync(join(root, "compiler/self_hosted/compiler.vkf"), "utf8").replace(/\r\n/g, "\n")
       .match(/^artifact_result\(manifest_path:str, artifact_path:str, status:str\):\n[^\n]+/m)?.[0];
     assert.ok(artifactResult);
+    const compilerSource = readFileSync(join(root, "compiler/self_hosted/compiler.vkf"), "utf8").replace(/\r\n/g, "\n");
+    const manifestStart = compilerSource.indexOf("\nmanifest(\n");
+    const manifestStop = compilerSource.indexOf("\n\nartifact_result(", manifestStart);
+    const manifestFunction = compilerSource.slice(manifestStart + 1, manifestStop);
+    assert.ok(manifestStart >= 0 && manifestStop > manifestStart);
     for (const { source, invocation, field } of [
       { source: `${actual}\n`, invocation: '_compile_locked_valid_source_graph(["a", "b"])', field: "source_count" },
       { source: `${actual.replace("sources.length()", "sources.length()+1")}\n`, invocation: '_compile_locked_valid_source_graph(["a", "b"])', field: "source_count" },
@@ -44,6 +49,7 @@ test("private record producer matches the complete native MachineFunction", () =
       { source: "constants(items:[int]):\n    (integer:7, decimal:1.0, length:items.length())\n", invocation: "constants([1, 2])", field: "length" },
       { source: "folded(items:[num]):\n    (first:2.5+1+4, mixed:items.length()+(2+3), original:items)\n", invocation: "folded([1, 2])", field: "mixed" },
       { source: `${artifactResult}\n`, invocation: 'artifact_result("manifest", "artifact", "ready")', field: "status" },
+      { source: `${manifestFunction}\n`, invocation: 'manifest("source", "source-hash", "typed-hash", "version", "artifact", "artifact-hash", "runtime-hash", "manifest-hash", "ready")', field: "status" },
     ]) {
       const input = join(work, "input.vkf"), oracle = join(work, "oracle.vkf");
       writeFileSync(input, source);
@@ -95,6 +101,8 @@ test("private record producer matches the complete native MachineFunction", () =
       ["check(items:[num]):\n    (first:items.length(1), second:missing)\n", 16],
       ["check(items:[num]):\n    (first:items)\n", 14],
       ["check(items:[str], items:[num]):\n    (first:missing, second:items)\n", 8],
+      ["check(\n    items:[num]\n    other:[num]\n):\n    (first:items, second:other)\n", 9],
+      ["check(items:[num]):\n    (first:items\n        .length(), second:items)\n", 15],
     ]) {
       const input = join(work, "invalid.vkf");
       writeFileSync(input, source);
