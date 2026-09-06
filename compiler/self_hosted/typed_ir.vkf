@@ -228,11 +228,7 @@ TypedTaggedResolvedCall: (
     node_order:int,
     callee:str,
     callee_type:str,
-    argument_callee:str,
-    argument_type:str,
     argument_count:int,
-    has_second_value:bit,
-    second_value:num,
     result_type:str,
     span:TaggedAstSpan
 )
@@ -258,10 +254,14 @@ TypedTaggedArgument: (
     kind:str,
     call_order:int,
     position:int,
-    callee:str,
+    expression_kind:str,
+    name:str,
+    op:str,
     type:str,
     has_value:bit,
-    value:num
+    value:num,
+    token_start:int,
+    token_stop:int
 )
 TypedTaggedStoreBinding: (
     kind:str,
@@ -825,11 +825,14 @@ typed_tagged_declaration(
     )
     (parameter_type = "num")?! "concrete declaration parameter type is unsupported"
     (table.rows.(offset + 5) = 1)?! "concrete declaration return type is unsupported"
-    str declaration_type: "unsupported"
-    table.rows.(offset + 4) = 1?
-        .declaration_type: "fn(num)->num"
-    table.rows.(offset + 4) = 2?
-        .declaration_type: "fn(num,num)->num"
+    str declaration_type: "fn("
+    int signature_index: 0
+    (signature_index < table.rows.(offset + 4))?>
+        signature_index > 0?
+            .declaration_type: declaration_type & ","
+        .declaration_type: declaration_type & "num"
+        .signature_index+: 1
+    .declaration_type: declaration_type & ")->num"
     (
         kind:"function_symbol",
         node_order:table.rows.(offset),
@@ -853,6 +856,55 @@ typed_tagged_declaration_name(
         table.module, table.rows.(index * 6 + 1)
     )
 
+_typed_tagged_call_argument_rows(
+    module:TypedTaggedConcreteModule, node_index:int
+) -> [int]:
+    node_offset: node_index * 10
+    token_index: module.node_rows.(node_offset)
+    token_stop: module.node_rows.(node_offset + 1)
+    depth: 0
+    argument_start: -1
+    token_kind: 0
+    [int] rows: []
+    (token_index <= token_stop)?>
+        .token_kind: module.token_rows.(token_index * 6)
+        token_kind = 13?
+            .depth+: 1
+            depth = 1?
+                .argument_start: token_index + 1
+        (token_kind = 24 /\ depth = 1)?
+            (argument_start >= 0 /\ token_index > argument_start)?! "concrete call has an empty argument"
+            .rows: rows & [argument_start, token_index - 1]
+            .argument_start: token_index + 1
+        token_kind = 14?
+            depth = 1?
+                argument_start >= 0 /\ token_index > argument_start?
+                    .rows: rows & [argument_start, token_index - 1]
+                .argument_start: -1
+            .depth-: 1
+        .token_index+: 1
+    (depth = 0 /\ argument_start = -1)?! "concrete call argument list is unbalanced"
+    rows
+
+_typed_tagged_declaration_signature(
+    declarations:TypedTaggedDeclarationTable, declaration_index:int
+) -> str:
+    declaration: typed_tagged_declaration(declarations, declaration_index)
+    parameters: typed_tagged_parameter_arena(declarations)
+    str signature: "fn("
+    int parameter_index: 0
+    int matched_count: 0
+    (parameter_index < parameters.count)?>
+        parameter: typed_tagged_parameter(parameters, parameter_index)
+        parameter.declaration_order = declaration.node_order?
+            matched_count > 0?
+                .signature: signature & ","
+            .signature: signature & parameter.type
+            .matched_count+: 1
+        .parameter_index+: 1
+    (matched_count = declaration.arity)?! "concrete declaration signature lost parameter identity"
+    signature & ")->" & declaration.return_type
+
 typed_tagged_resolve_output_call(
     module:TypedTaggedConcreteModule,
     declarations:TypedTaggedDeclarationTable,
@@ -860,7 +912,6 @@ typed_tagged_resolve_output_call(
 ) -> TypedTaggedResolvedCall:
     output: typed_tagged_cursor_concrete_node(module, node_index)
     (output.expression_kind = "call")?! "concrete output node is not a call"
-    (output.second_text = "cpu_count")?! "concrete nested call is not a supported system function"
     declarations.imports_system?! "concrete nested system call has no system import"
     int declaration_index: 0
     int resolved_index: -1
@@ -872,18 +923,15 @@ typed_tagged_resolve_output_call(
         .declaration_index+: 1
     (resolved_index >= 0)?! "concrete call target is not declared"
     symbol: typed_tagged_declaration(declarations, resolved_index)
-    ((symbol.arity = 1 \/ symbol.arity = 2) /\ symbol.parameter_type = "num")?! "concrete call argument does not match declaration"
-    ((symbol.arity = 1 /\ output.has_number = false) \/ (symbol.arity = 2 /\ output.has_number))?! "concrete call argument does not match declaration"
+    argument_rows: _typed_tagged_call_argument_rows(module, node_index)
+    argument_count: argument_rows.length() / 2
+    (symbol.parameter_type = "num" /\ symbol.arity = argument_count)?! "concrete call argument does not match declaration"
     (
         kind:"call",
         node_order:node_index,
         callee:symbol.name,
-        callee_type:symbol.type,
-        argument_callee:output.second_text,
-        argument_type:"int",
-        argument_count:symbol.arity,
-        has_second_value:output.has_number,
-        second_value:output.value,
+        callee_type:_typed_tagged_declaration_signature(declarations, resolved_index),
+        argument_count:argument_count,
         result_type:symbol.return_type,
         span:output.span
     )
@@ -963,14 +1011,13 @@ typed_tagged_argument_arena(
 ) -> TypedTaggedArgumentArena:
     (call.node_order >= 0 /\ call.node_order < module.node_count)?! "concrete argument call order is out of bounds"
     [int] rows: []
-    .rows: rows & [call.node_order, 0]
-    call.argument_count > 1?
-        .rows: rows & [call.node_order, 1]
+    .rows: _typed_tagged_call_argument_rows(module, call.node_order)
+    (rows.length() / 2 = call.argument_count)?! "concrete argument arena count does not match resolved call"
     (
         module:module,
         call:call,
         rows:rows,
-        count:call.argument_count
+        count:rows.length() / 2
     )
 
 typed_tagged_argument(
@@ -978,22 +1025,53 @@ typed_tagged_argument(
 ) -> TypedTaggedArgument:
     (index >= 0 /\ index < arena.count)?! "concrete argument index is out of bounds"
     offset: index * 2
-    (arena.rows.(offset) = arena.call.node_order)?! "concrete argument arena row is invalid"
-    position: arena.rows.(offset + 1)
-    str argument_callee: ""
-    position = 0?
-        .argument_callee: arena.call.argument_callee
-    num argument_value: 0
-    position = 1?
-        .argument_value: arena.call.second_value
+    token_start: arena.rows.(offset)
+    token_stop: arena.rows.(offset + 1)
+    position: index
+    first_kind: arena.module.token_rows.(token_start * 6)
+    str expression_kind: "unsupported"
+    str name: ""
+    str op: "UNKNOWN"
+    bit has_value: false
+    num value: 0
+    first_kind = 1?
+        .name: typed_tagged_concrete_payload_text(arena.module, token_start)
+        (token_start < token_stop /\ arena.module.token_rows.((token_start + 1) * 6) = 13)?
+            .expression_kind: "call"
+        (token_start < token_stop /\ arena.module.token_rows.((token_start + 1) * 6) != 13)?
+            .expression_kind: "binary_op"
+    first_kind = 3?
+        .expression_kind: "const"
+        .has_value: true
+        .value: arena.module.token_rows.(token_start * 6 + 3)
+    int token_index: token_start
+    token_kind: 0
+    (token_index <= token_stop)?>
+        .token_kind: arena.module.token_rows.(token_index * 6)
+        token_kind = 3?
+            .has_value: true
+            .value: arena.module.token_rows.(token_index * 6 + 3)
+        typed_tagged_cursor_operator_kind(token_kind) != "UNKNOWN"?
+            .op: typed_tagged_cursor_operator_kind(token_kind)
+        .token_index+: 1
+    op != "UNKNOWN"?
+        .expression_kind: "binary_op"
+    (expression_kind != "unsupported")?! "concrete call argument expression is unsupported"
+    str argument_type: "num"
+    expression_kind = "call"?
+        .argument_type: "int"
     (
         kind:"argument",
-        call_order:arena.rows.(offset),
+        call_order:arena.call.node_order,
         position:position,
-        callee:argument_callee,
-        type:arena.call.argument_type,
-        has_value:position = 1 /\ arena.call.has_second_value,
-        value:argument_value
+        expression_kind:expression_kind,
+        name:name,
+        op:op,
+        type:argument_type,
+        has_value:has_value,
+        value:value,
+        token_start:token_start,
+        token_stop:token_stop
     )
 
 typed_tagged_ast_binary_expression(
