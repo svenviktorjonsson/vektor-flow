@@ -101,6 +101,53 @@ test('grain state is bounded, mildly nonspherical, and fixed-step replay exact',
   assert.ok(first.fixedStep > 0 && first.solverIterations >= 2);
 });
 
+test('conditioned fine and coarse presets realize bounded reproducible size and shape populations', () => {
+  const fine = createDrySandHopperReference({ seed: 0x174e, grainCount: 192, preset: 'fine' });
+  const replay = createDrySandHopperReference({ seed: 0x174e, grainCount: 192, preset: 'fine' });
+  const coarse = createDrySandHopperReference({ seed: 0x174e, grainCount: 192, preset: 'coarse' });
+  const coefficientOfVariation = (values) => {
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+    return Math.sqrt(variance) / mean;
+  };
+  assert.equal(fine.preset.id, 'fine');
+  assert.equal(coarse.preset.id, 'coarse');
+  assert.equal(hash(fine.state.sizeScales), hash(replay.state.sizeScales));
+  assert.equal(fine.render.sizeScales, fine.state.sizeScales);
+  assert.ok(Math.min(...fine.state.sizeScales) >= 0.86);
+  assert.ok(Math.max(...coarse.state.sizeScales) <= 1.24);
+  assert.ok(coefficientOfVariation(coarse.state.sizeScales)
+    > coefficientOfVariation(fine.state.sizeScales) * 1.35);
+  assert.ok(Math.min(...coarse.state.aspects) < Math.min(...fine.state.aspects) - 0.06);
+});
+
+test('grain contacts resolve the conditioned pair radius from authoritative size state', () => {
+  const world = createDrySandHopperReference({ seed: 0x174f, grainCount: 2, preset: 'coarse' });
+  world.state.sizeScales.set([1.20, 1.20]);
+  world.state.positions.set([-0.525 * world.diameter, 0, 2.8, 0.525 * world.diameter, 0, 2.8]);
+  world.state.velocities.fill(0);
+  stepDrySandHopperReference(world, 1);
+  const distance = Math.hypot(
+    world.state.positions[3] - world.state.positions[0],
+    world.state.positions[4] - world.state.positions[1],
+    world.state.positions[5] - world.state.positions[2],
+  );
+  const pairRadius = world.radius * (world.state.sizeScales[0] + world.state.sizeScales[1]);
+  assert.ok(distance >= pairRadius * 0.99);
+});
+
+test('fine and coarse presets materially separate discharge and repose behavior', () => {
+  const options = { seed: 0x8123, grainCount: 384, outletDiameterInGrains: 4.2, duration: 6 };
+  const fine = runDrySandHopperTrialReference({ ...options, preset: 'fine' });
+  const coarse = runDrySandHopperTrialReference({ ...options, preset: 'coarse' });
+  assert.ok(coarse.meanDischargeRate < fine.meanDischargeRate * 0.80);
+  assert.ok(coarse.reposeAngleDegrees > fine.reposeAngleDegrees + 1);
+  assert.ok(fine.reposeAngleDegrees >= 22 && fine.reposeAngleDegrees <= 38);
+  assert.ok(coarse.reposeAngleDegrees >= 22 && coarse.reposeAngleDegrees <= 38);
+  assert.ok(fine.meanGrainDiameter < coarse.meanGrainDiameter * 0.70);
+  assert.notEqual(fine.stateHash, coarse.stateHash);
+});
+
 test('contact-driven grain rotation stays normalized and replay exact', () => {
   const realize = () => {
     const world = createDrySandHopperReference({ seed: 0x4a21, grainCount: 192, outletDiameterInGrains: 4.2 });
@@ -173,6 +220,7 @@ test('oriented ellipsoid mesh is a dynamic view of the authoritative grain SoA',
   assert.notEqual(hash(packet.vertices), before);
   assert.equal(packet.sourcePositions, world.state.positions);
   assert.equal(packet.sourceOrientations, world.state.orientations);
+  assert.equal(packet.sourceSizeScales, world.state.sizeScales);
   assert.equal(packet.static_vertices, false);
   assert.ok(packet.vertices.every(Number.isFinite));
   assert.ok(packet.indices.every(index => index < packet.vertices.length / 10));
@@ -208,5 +256,15 @@ test('WebGPU fixture renders the stepped SoA state without a canvas fallback', (
   assert.match(scene, /stepDrySandHopperReference\(world, 1\)/);
   assert.match(scene, /syncDrySandEllipsoidRenderPacketReference\(world, grains\)/);
   assert.match(scene, /createDrySandHopperHardwarePacketsReference/);
+  assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
+});
+
+test('fine/coarse comparison fixture renders both authoritative preset states in WebGPU', () => {
+  const scene = readFileSync(new URL('../fixtures/dry-sand-presets-scene.mjs', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../fixtures/dry-sand-presets.html', import.meta.url), 'utf8');
+  assert.match(scene, /preset:\s*'fine'/);
+  assert.match(scene, /preset:\s*'coarse'/);
+  assert.match(scene, /unified_renderer:\s*true/);
+  assert.match(scene, /createDrySandEllipsoidRenderPacketReference/);
   assert.doesNotMatch(scene + html, /CanvasRenderingContext2D|drawImage|putImageData/);
 });

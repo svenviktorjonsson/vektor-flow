@@ -2,6 +2,18 @@ const FIXED_STEP = 1 / 120;
 const SOLVER_ITERATIONS = 4;
 const GRAVITY = -9.82;
 
+export const DRY_SAND_PRESETS = Object.freeze({
+  standard: Object.freeze({ id: 'standard', diameter: 0.052, sizeSpread: 0,
+    aspectMin: 0.78, aspectRange: 0.44, transverseMin: 0.88, transverseRange: 0.20,
+    friction: 0.58, rollingResistance: 0.12, restitution: 0.04 }),
+  fine: Object.freeze({ id: 'fine', diameter: 0.042, sizeSpread: 0.12,
+    aspectMin: 0.86, aspectRange: 0.24, transverseMin: 0.92, transverseRange: 0.12,
+    friction: 0.52, rollingResistance: 0.08, restitution: 0.05 }),
+  coarse: Object.freeze({ id: 'coarse', diameter: 0.065, sizeSpread: 0.22,
+    aspectMin: 0.72, aspectRange: 0.48, transverseMin: 0.82, transverseRange: 0.28,
+    friction: 0.66, rollingResistance: 0.16, restitution: 0.03 }),
+});
+
 function mix32(value) {
   let word = value >>> 0;
   word ^= word >>> 16;
@@ -22,12 +34,13 @@ function finitePositive(value, name) {
   return number;
 }
 
-function initialGrains({ seed, grainCount, radius, fillHeightInGrains, hopperBottom, hopperTop, hopperRadius, outletRadius }) {
+function initialGrains({ seed, grainCount, radius, fillHeightInGrains, hopperBottom, hopperTop, hopperRadius, outletRadius, preset }) {
   const positions = new Float32Array(grainCount * 3);
   const velocities = new Float32Array(grainCount * 3);
   const orientations = new Float32Array(grainCount * 4);
   const angularVelocities = new Float32Array(grainCount * 3);
   const aspects = new Float32Array(grainCount * 3);
+  const sizeScales = new Float32Array(grainCount);
   const spacing = radius * 2.08;
   const verticalSpacing = spacing * 0.84;
   const requestedTop = hopperBottom + Math.max(8, fillHeightInGrains) * radius * 2;
@@ -51,10 +64,13 @@ function initialGrains({ seed, grainCount, radius, fillHeightInGrains, hopperBot
         positions[offset + 2] = cappedZ + (unit(seed, index * 7 + 2) - 0.5) * jitter;
         orientations[index * 4 + 2] = Math.sin(unit(seed, index * 7 + 3) * Math.PI);
         orientations[index * 4 + 3] = Math.cos(unit(seed, index * 7 + 3) * Math.PI);
-        const stretch = 0.78 + unit(seed, index * 7 + 4) * 0.44;
+        const normal = (unit(seed, index * 11 + 7) + unit(seed, index * 11 + 8)
+          + unit(seed, index * 11 + 9) + unit(seed, index * 11 + 10) - 2) * 0.5;
+        sizeScales[index] = 1 + normal * preset.sizeSpread;
+        const stretch = preset.aspectMin + unit(seed, index * 7 + 4) * preset.aspectRange;
         aspects[offset] = stretch;
-        aspects[offset + 1] = 0.88 + unit(seed, index * 7 + 5) * 0.20;
-        aspects[offset + 2] = 0.88 + unit(seed, index * 7 + 6) * 0.20;
+        aspects[offset + 1] = preset.transverseMin + unit(seed, index * 7 + 5) * preset.transverseRange;
+        aspects[offset + 2] = preset.transverseMin + unit(seed, index * 7 + 6) * preset.transverseRange;
         index += 1;
         emitted = true;
       }
@@ -63,18 +79,21 @@ function initialGrains({ seed, grainCount, radius, fillHeightInGrains, hopperBot
       throw new RangeError('grain count exceeds bounded hopper fill capacity');
     }
   }
-  return { positions, velocities, orientations, angularVelocities, aspects };
+  return { positions, velocities, orientations, angularVelocities, aspects, sizeScales };
 }
 
 export function createDrySandHopperReference({
   seed = 0x5a17,
   grainCount = 384,
-  grainDiameter = 0.052,
+  grainDiameter,
   outletDiameterInGrains = 4,
   fillHeightInGrains = 20,
+  preset = 'standard',
 } = {}) {
+  const profile = DRY_SAND_PRESETS[preset];
+  if (!profile) throw new RangeError('sand preset must be standard, fine, or coarse');
   const count = Math.trunc(finitePositive(grainCount, 'grainCount'));
-  const diameter = finitePositive(grainDiameter, 'grainDiameter');
+  const diameter = finitePositive(grainDiameter ?? profile.diameter, 'grainDiameter');
   const radius = diameter * 0.5;
   const hopperBottom = 0.72;
   const hopperTop = 2.45;
@@ -82,7 +101,7 @@ export function createDrySandHopperReference({
   const outletRadius = diameter * finitePositive(outletDiameterInGrains, 'outletDiameterInGrains') * 0.5;
   const initial = initialGrains({
     seed: seed >>> 0, grainCount: count, radius, fillHeightInGrains,
-    hopperBottom, hopperTop, hopperRadius, outletRadius,
+    hopperBottom, hopperTop, hopperRadius, outletRadius, preset: profile,
   });
   const state = {
     positions: initial.positions.slice(),
@@ -90,21 +109,26 @@ export function createDrySandHopperReference({
     orientations: initial.orientations.slice(),
     angularVelocities: initial.angularVelocities.slice(),
     aspects: initial.aspects.slice(),
+    sizeScales: initial.sizeScales.slice(),
     discharged: new Uint8Array(count),
     dischargedAt: new Float32Array(count).fill(-1),
     aggregated: new Uint8Array(count),
   };
   return {
     kind: 'dry-sand-hopper-reference:v1', seed: seed >>> 0, count,
-    radius, diameter, hopperBottom, hopperTop, hopperRadius, outletRadius,
+    radius, diameter, maximumDiameter: diameter * (1 + profile.sizeSpread),
+    hopperBottom, hopperTop, hopperRadius, outletRadius,
     fixedStep: FIXED_STEP, solverIterations: SOLVER_ITERATIONS, time: 0,
-    friction: 0.58, rollingResistance: 0.12, restitution: 0.04,
+    preset: profile,
+    friction: profile.friction, rollingResistance: profile.rollingResistance, restitution: profile.restitution,
     state,
-    render: { positions: state.positions, orientations: state.orientations, aspects: state.aspects },
+    render: { positions: state.positions, orientations: state.orientations,
+      aspects: state.aspects, sizeScales: state.sizeScales },
     initial: Object.freeze({
       positions: initial.positions, velocities: initial.velocities,
       orientations: initial.orientations, angularVelocities: initial.angularVelocities,
       aspects: initial.aspects,
+      sizeScales: initial.sizeScales,
     }),
     maxPersistentPenetration: 0,
     archLocked: false,
@@ -117,6 +141,7 @@ export function resetDrySandHopperReference(world) {
   world.state.orientations.set(world.initial.orientations);
   world.state.angularVelocities.set(world.initial.angularVelocities);
   world.state.aspects.set(world.initial.aspects);
+  world.state.sizeScales.set(world.initial.sizeScales);
   world.state.discharged.fill(0);
   world.state.dischargedAt.fill(-1);
   world.state.aggregated.fill(0);
@@ -126,13 +151,17 @@ export function resetDrySandHopperReference(world) {
   return world;
 }
 
+function grainRadius(world, index) {
+  return world.radius * world.state.sizeScales[index];
+}
+
 function projectBoundaries(world, previous) {
   const p = world.state.positions;
   const v = world.state.velocities;
-  const r = world.radius;
   let maxPenetration = 0;
   for (let index = 0; index < world.count; index += 1) {
     const offset = index * 3;
+    const r = grainRadius(world, index);
     let x = p[offset]; let y = p[offset + 1]; let z = p[offset + 2];
     if (z < r) {
       maxPenetration = Math.max(maxPenetration, r - z);
@@ -159,7 +188,7 @@ function projectBoundaries(world, previous) {
         z = world.hopperBottom + r;
       }
       if (!world.state.discharged[index] && z < world.hopperBottom + world.diameter * 4) {
-        const effectiveOpening = Math.max(world.radius, world.outletRadius - world.radius * 1.5);
+        const effectiveOpening = Math.max(r, world.outletRadius - r * 1.5);
         const terminalSpeed = Math.sqrt(Math.abs(GRAVITY) * effectiveOpening) * 0.72;
         z = Math.max(z, previous[offset + 2] - terminalSpeed * world.fixedStep);
       }
@@ -173,7 +202,7 @@ function applyGrainFriction(world, incoming) {
   const p = world.state.positions;
   const v = world.state.velocities;
   const omega = world.state.angularVelocities;
-  const inverse = 1 / world.diameter;
+  const inverse = 1 / world.maximumDiameter;
   const cells = new Map();
   for (let index = 0; index < world.count; index += 1) {
     const offset = index * 3;
@@ -189,14 +218,21 @@ function applyGrainFriction(world, incoming) {
         const ny0 = p[offset + 1] - p[oo + 1];
         const nz0 = p[offset + 2] - p[oo + 2];
         const distance = Math.hypot(nx0, ny0, nz0);
-        if (distance > world.diameter * 1.025 || distance < 1e-9) continue;
+        const radius = grainRadius(world, index); const otherRadius = grainRadius(world, other);
+        if (distance > (radius + otherRadius) * 1.025 || distance < 1e-9) continue;
         const nx = nx0 / distance; const ny = ny0 / distance; const nz = nz0 / distance;
         const spinX = omega[offset] + omega[oo];
         const spinY = omega[offset + 1] + omega[oo + 1];
         const spinZ = omega[offset + 2] + omega[oo + 2];
-        const rvx = v[offset] - v[oo] - world.radius * (spinY * nz - spinZ * ny);
-        const rvy = v[offset + 1] - v[oo + 1] - world.radius * (spinZ * nx - spinX * nz);
-        const rvz = v[offset + 2] - v[oo + 2] - world.radius * (spinX * ny - spinY * nx);
+        const rvx = v[offset] - v[oo]
+          - (radius * omega[offset + 1] + otherRadius * omega[oo + 1]) * nz
+          + (radius * omega[offset + 2] + otherRadius * omega[oo + 2]) * ny;
+        const rvy = v[offset + 1] - v[oo + 1]
+          - (radius * omega[offset + 2] + otherRadius * omega[oo + 2]) * nx
+          + (radius * omega[offset] + otherRadius * omega[oo]) * nz;
+        const rvz = v[offset + 2] - v[oo + 2]
+          - (radius * omega[offset] + otherRadius * omega[oo]) * ny
+          + (radius * omega[offset + 1] + otherRadius * omega[oo + 1]) * nx;
         const normalSpeed = rvx * nx + rvy * ny + rvz * nz;
         const tx = rvx - normalSpeed * nx;
         const ty = rvy - normalSpeed * ny;
@@ -216,7 +252,7 @@ function applyGrainFriction(world, incoming) {
         const torqueX = ny * tz - nz * ty;
         const torqueY = nz * tx - nx * tz;
         const torqueZ = nx * ty - ny * tx;
-        const spin = scale * 0.36 / world.radius;
+        const spin = scale * 0.36 / Math.max(radius, otherRadius);
         omega[offset] += torqueX * spin; omega[offset + 1] += torqueY * spin; omega[offset + 2] += torqueZ * spin;
         omega[oo] -= torqueX * spin; omega[oo + 1] -= torqueY * spin; omega[oo + 2] -= torqueZ * spin;
         const rolling = 1 - world.rollingResistance * 0.5;
@@ -233,7 +269,7 @@ function applyGrainFriction(world, incoming) {
 function applyGrainRestitution(world, incoming) {
   const p = world.state.positions;
   const v = world.state.velocities;
-  const inverse = 1 / world.diameter;
+  const inverse = 1 / world.maximumDiameter;
   const cells = new Map();
   for (let index = 0; index < world.count; index += 1) {
     const offset = index * 3;
@@ -249,7 +285,8 @@ function applyGrainRestitution(world, incoming) {
         const ny0 = p[offset + 1] - p[oo + 1];
         const nz0 = p[offset + 2] - p[oo + 2];
         const distance = Math.hypot(nx0, ny0, nz0);
-        if (distance > world.diameter * 1.025 || distance < 1e-9) continue;
+        const pairRadius = grainRadius(world, index) + grainRadius(world, other);
+        if (distance > pairRadius * 1.025 || distance < 1e-9) continue;
         const nx = nx0 / distance; const ny = ny0 / distance; const nz = nz0 / distance;
         const incomingNormal = (incoming[offset] - incoming[oo]) * nx
           + (incoming[offset + 1] - incoming[oo + 1]) * ny
@@ -289,7 +326,7 @@ function integrateOrientations(world, dt) {
 
 function remainingPenetration(world) {
   const p = world.state.positions;
-  const inverse = 1 / world.diameter;
+  const inverse = 1 / world.maximumDiameter;
   const cells = new Map();
   let maximum = 0;
   for (let index = 0; index < world.count; index += 1) {
@@ -302,7 +339,7 @@ function remainingPenetration(world) {
       if (!bucket) continue;
       for (const other of bucket) {
         const oo = other * 3;
-        maximum = Math.max(maximum, world.diameter - Math.hypot(
+        maximum = Math.max(maximum, grainRadius(world, index) + grainRadius(world, other) - Math.hypot(
           p[offset] - p[oo], p[offset + 1] - p[oo + 1], p[offset + 2] - p[oo + 2],
         ));
       }
@@ -316,8 +353,7 @@ function remainingPenetration(world) {
 
 function projectGrains(world) {
   const p = world.state.positions;
-  const diameter = world.diameter;
-  const inverse = 1 / diameter;
+  const inverse = 1 / world.maximumDiameter;
   const cells = new Map();
   let maxPenetration = 0;
   for (let index = 0; index < world.count; index += 1) {
@@ -334,12 +370,13 @@ function projectGrains(world) {
         let ny = p[offset + 1] - p[oo + 1];
         let nz = p[offset + 2] - p[oo + 2];
         let distance = Math.hypot(nx, ny, nz);
-        if (distance >= diameter) continue;
+        const pairRadius = grainRadius(world, index) + grainRadius(world, other);
+        if (distance >= pairRadius) continue;
         if (distance < 1e-9) {
           const angle = unit(world.seed, index * 4099 + other) * Math.PI * 2;
           nx = Math.cos(angle); ny = Math.sin(angle); nz = 0; distance = 1;
         } else { nx /= distance; ny /= distance; nz /= distance; }
-        const penetration = diameter - distance;
+        const penetration = pairRadius - distance;
         maxPenetration = Math.max(maxPenetration, penetration);
         const correction = penetration * 0.5;
         p[offset] += nx * correction; p[offset + 1] += ny * correction; p[offset + 2] += nz * correction;
@@ -379,10 +416,11 @@ export function stepDrySandHopperReference(world, steps = 1) {
     world.maxPersistentPenetration = persistentPenetration;
     for (let index = 0; index < world.count; index += 1) {
       const offset = index * 3;
+      const radius = grainRadius(world, index);
       v[offset] = (p[offset] - previous[offset]) / dt * 0.985;
       v[offset + 1] = (p[offset + 1] - previous[offset + 1]) / dt * 0.985;
       v[offset + 2] = (p[offset + 2] - previous[offset + 2]) / dt * 0.992;
-      if (p[offset + 2] <= world.radius * 1.02) {
+      if (p[offset + 2] <= radius * 1.02) {
         v[offset] *= 0.03;
         v[offset + 1] *= 0.03;
         if (v[offset + 2] < 0) v[offset + 2] = 0;
@@ -390,7 +428,7 @@ export function stepDrySandHopperReference(world, steps = 1) {
         v[offset] *= 0.42;
         v[offset + 1] *= 0.42;
       }
-      if (!world.state.discharged[index] && p[offset + 2] < world.hopperBottom - world.radius) {
+      if (!world.state.discharged[index] && p[offset + 2] < world.hopperBottom - radius) {
         world.state.discharged[index] = 1;
         world.state.dischargedAt[index] = world.time + dt;
       }
@@ -399,14 +437,15 @@ export function stepDrySandHopperReference(world, steps = 1) {
     applyGrainFriction(world, incoming);
     for (let index = 0; index < world.count; index += 1) {
       const offset = index * 3;
-      if (p[offset + 2] <= world.radius * 1.04) {
+      const radius = grainRadius(world, index);
+      if (p[offset + 2] <= radius * 1.04) {
         world.state.angularVelocities[offset] *= 1 - world.rollingResistance;
         world.state.angularVelocities[offset + 1] *= 1 - world.rollingResistance;
         world.state.angularVelocities[offset + 2] *= 1 - world.rollingResistance;
         const blend = world.friction * 0.055;
-        world.state.angularVelocities[offset] += (-v[offset + 1] / world.radius
+        world.state.angularVelocities[offset] += (-v[offset + 1] / radius
           - world.state.angularVelocities[offset]) * blend;
-        world.state.angularVelocities[offset + 1] += (v[offset] / world.radius
+        world.state.angularVelocities[offset + 1] += (v[offset] / radius
           - world.state.angularVelocities[offset + 1]) * blend;
       }
     }
@@ -415,10 +454,11 @@ export function stepDrySandHopperReference(world, steps = 1) {
       let throatCount = 0;
       for (let index = 0; index < world.count; index += 1) {
         const offset = index * 3;
+        const radius = grainRadius(world, index);
         const radial = Math.hypot(p[offset], p[offset + 1]);
         if (!world.state.discharged[index]
             && p[offset + 2] < world.hopperBottom + world.diameter * 1.8
-            && radial < world.outletRadius + world.radius) throatCount += 1;
+            && radial < world.outletRadius + radius) throatCount += 1;
       }
       world.archLocked = throatCount >= 3;
     }
@@ -429,7 +469,8 @@ export function stepDrySandHopperReference(world, steps = 1) {
 
 function stateHash(world) {
   let value = 0x811c9dc5;
-  for (const view of [world.state.positions, world.state.velocities, world.state.orientations]) {
+  for (const view of [world.state.positions, world.state.velocities, world.state.orientations,
+    world.state.angularVelocities, world.state.aspects, world.state.sizeScales]) {
     const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
     for (const byte of bytes) value = Math.imul(value ^ byte, 0x01000193) >>> 0;
   }
@@ -442,7 +483,7 @@ function reposeAngle(world) {
   for (let index = 0; index < world.count; index += 1) {
     if (!world.state.discharged[index]) continue;
     const offset = index * 3;
-    samples.push([Math.hypot(p[offset], p[offset + 1]), p[offset + 2] + world.radius]);
+    samples.push([Math.hypot(p[offset], p[offset + 1]), p[offset + 2] + grainRadius(world, index)]);
   }
   if (samples.length < 8) return 0;
   const binWidth = world.diameter * 0.75;
@@ -491,6 +532,7 @@ export function runDrySandHopperTrialReference(options = {}) {
   }
   const minimumAspectRatio = Math.min(...world.state.aspects);
   const maximumAspectRatio = Math.max(...world.state.aspects);
+  const meanSizeScale = world.state.sizeScales.reduce((sum, value) => sum + value, 0) / world.count;
   dischargeTimes.sort((a, b) => a - b);
   const q1 = dischargeTimes[Math.floor(dischargeTimes.length * 0.25)] ?? 0;
   const q3 = dischargeTimes[Math.floor(dischargeTimes.length * 0.75)] ?? duration;
@@ -503,14 +545,15 @@ export function runDrySandHopperTrialReference(options = {}) {
     massError: (world.count - (world.count - dischargedCount) - dischargedCount) / world.count,
     meanDischargeRate: steadyCount / Math.max(world.fixedStep, q3 - q1),
     maxPersistentPenetration: world.maxPersistentPenetration,
-    meanGrainDiameter: world.diameter,
+    meanGrainDiameter: world.diameter * meanSizeScale,
     reposeAngleDegrees: reposeAngle(world),
     settledSpeedRms: Math.sqrt(speedSquared / Math.max(1, settledCount)),
     clogged: world.archLocked,
     stateHash: stateHash(world), minimumAspectRatio, maximumAspectRatio,
     vectorBytes: world.state.positions.byteLength + world.state.velocities.byteLength
       + world.state.orientations.byteLength + world.state.angularVelocities.byteLength
-      + world.state.aspects.byteLength + world.state.discharged.byteLength,
+      + world.state.aspects.byteLength + world.state.sizeScales.byteLength
+      + world.state.discharged.byteLength,
     fixedStep: world.fixedStep, solverIterations: world.solverIterations,
     world,
   });
@@ -552,7 +595,7 @@ export function syncDrySandRenderPacketReference(world, packet) {
     instances[target] = world.state.positions[source];
     instances[target + 1] = world.state.positions[source + 1];
     instances[target + 2] = world.state.positions[source + 2];
-    instances[target + 3] = world.state.aggregated[index] ? 0 : world.radius * (world.state.aspects[source]
+    instances[target + 3] = world.state.aggregated[index] ? 0 : grainRadius(world, index) * (world.state.aspects[source]
       + world.state.aspects[source + 1] + world.state.aspects[source + 2]) / 3;
   }
   return packet;
@@ -601,7 +644,8 @@ export function syncDrySandEllipsoidRenderPacketReference(world, packet) {
       const direction = vertex * 3; const target = (grain * verticesPerGrain + vertex) * 10;
       const dx = directions[direction]; const dy = directions[direction + 1]; const dz = directions[direction + 2];
       const ax = world.state.aspects[source]; const ay = world.state.aspects[source + 1]; const az = world.state.aspects[source + 2];
-      const local = [dx * world.radius * ax, dy * world.radius * ay, dz * world.radius * az];
+      const radius = grainRadius(world, grain);
+      const local = [dx * radius * ax, dy * radius * ay, dz * radius * az];
       const rotated = rotateByQuaternion(...local, world.state.orientations, qo);
       const normalLocal = [dx / ax, dy / ay, dz / az];
       const inverse = 1 / Math.hypot(...normalLocal);
@@ -649,6 +693,7 @@ export function createDrySandEllipsoidRenderPacketReference(world, {
     receives_shadow:false, specular_strength:0.09,
     vertices:new Float32Array(world.count * verticesPerGrain * 10), indices,
     sourcePositions:world.state.positions, sourceOrientations:world.state.orientations,
+    sourceSizeScales:world.state.sizeScales,
     _directions:directions,
   };
   packet.vectorBytes = packet.vertices.byteLength + packet.indices.byteLength + directions.byteLength;
