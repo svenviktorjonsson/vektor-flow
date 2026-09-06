@@ -168,6 +168,17 @@ TypedTaggedAstBinaryOp: (
     type:str,
     span:TaggedAstSpan
 )
+TypedTaggedScalarExpression: (
+    kind:str,
+    order:int,
+    depth:int,
+    parent_order:int,
+    left_name:str,
+    op:str,
+    value:num,
+    type:str,
+    span:TaggedAstSpan
+)
 TypedTaggedStoreBinding: (
     kind:str,
     name:str,
@@ -483,6 +494,46 @@ typed_tagged_cursor_numeric_expression(
         op:operator_kind,
         right:(kind:"const", value:value, type:"int"),
         right_type:"int",
+        type:parameter_type,
+        span:(
+            start:(file:file, line:start_line, column:start_column),
+            stop:(file:file, line:stop_line, column:stop_column)
+        )
+    )
+
+typed_tagged_scalar_expression_kind(
+    identifier_count:int, operator_kind:str
+) -> str:
+    (identifier_count = 0 /\ operator_kind = "UNKNOWN")?
+        @: "const"
+    (identifier_count = 1 /\ operator_kind != "UNKNOWN")?
+        @: "binary_op"
+    false?! "typed tagged scalar expression shape is unsupported"
+    "unsupported"
+
+typed_tagged_cursor_scalar_expression(
+    statement_kind:str, order:int, depth:int, parent_order:int,
+    identifier_count:int, first_text:str, operator_kind:str,
+    has_number:bit, value:num, parameter_name:str, parameter_type:str,
+    file:str, start_line:num, start_column:num,
+    stop_line:num, stop_column:num
+) -> TypedTaggedScalarExpression:
+    (statement_kind = "expression")?! "typed tagged scalar node is not an expression"
+    has_number?! "typed tagged scalar expression has no numeric value"
+    (parameter_type != "")?! "typed tagged scalar expression type is empty"
+    expression_kind: typed_tagged_scalar_expression_kind(
+        identifier_count, operator_kind
+    )
+    (expression_kind = "binary_op")?
+        (first_text = parameter_name)?! "typed tagged expression identifier is not a declared parameter"
+    (
+        kind:expression_kind,
+        order:order,
+        depth:depth,
+        parent_order:parent_order,
+        left_name:first_text,
+        op:operator_kind,
+        value:value,
         type:parameter_type,
         span:(
             start:(file:file, line:start_line, column:start_column),

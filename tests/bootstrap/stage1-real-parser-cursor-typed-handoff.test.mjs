@@ -255,3 +255,102 @@ test("real parser cursor preserves a typed numeric function declaration and call
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("general typed cursor dispatches constant and binary expressions into Machine IR", () => {
+  const workRoot = resolve(process.env.VKF_TEST_WORK_ROOT ?? join(root, "build/bootstrap-tests"));
+  mkdirSync(workRoot, { recursive: true });
+  const work = mkdtempSync(join(workRoot, "real-parser-expression-dispatch-"));
+  try {
+    for (const name of ["lexer", "parser", "typed_ir", "machine_ir"]) {
+      copyFileSync(join(root, `compiler/self_hosted/${name}.vkf`), join(work, `${name}.vkf`));
+    }
+    const source = join(work, "probe.vkf");
+    const artifact = join(work, `probe${suffix}`);
+    writeFileSync(source, [
+      "lexer: .lexer",
+      "parser: .parser",
+      "typed: .typed_ir",
+      "mir: .machine_ir",
+      'source: ": .system\\ntwice(value:num):\\n    1\\n    value * 2\\n:: twice(cpu_count())\\n"',
+      "tokens: lexer.tagged_numeric_function_token_tape(source)",
+      "cursor: parser.tagged_tape_cursor(tokens.source, tokens.rows, tokens.count)",
+      "parsed: parser.parse_module_from_cursor(cursor)",
+      "ast: parser.tagged_cursor_ast(parsed)",
+      "constant_node: parser.tagged_cursor_ast_node(ast, 2)",
+      "binary_node: parser.tagged_cursor_ast_node(ast, 3)",
+      "block: parser.tagged_cursor_block(ast, 0)",
+      "header_payload: parser.tagged_cursor_ast_payload(ast, 1)",
+      "constant_payload: parser.tagged_cursor_ast_payload(ast, 2)",
+      "binary_payload: parser.tagged_cursor_ast_payload(ast, 3)",
+      "typed_constant: typed.typed_tagged_cursor_scalar_expression(",
+      "    constant_payload.kind, constant_node.order, constant_node.depth,",
+      "    constant_node.parent_order, constant_payload.identifier_count,",
+      "    constant_payload.first_text, constant_payload.operator_kind,",
+      "    constant_payload.has_number, constant_payload.number_value,",
+      "    header_payload.second_text, header_payload.third_text,",
+      "    constant_payload.span.start.file, constant_payload.span.start.line,",
+      "    constant_payload.span.start.column, constant_payload.span.stop.line,",
+      "    constant_payload.span.stop.column",
+      ")",
+      "typed_binary: typed.typed_tagged_cursor_scalar_expression(",
+      "    binary_payload.kind, binary_node.order, binary_node.depth,",
+      "    binary_node.parent_order, binary_payload.identifier_count,",
+      "    binary_payload.first_text, binary_payload.operator_kind,",
+      "    binary_payload.has_number, binary_payload.number_value,",
+      "    header_payload.second_text, header_payload.third_text,",
+      "    binary_payload.span.start.file, binary_payload.span.start.line,",
+      "    binary_payload.span.start.column, binary_payload.span.stop.line,",
+      "    binary_payload.span.stop.column",
+      ")",
+      "constant_mir: mir.mir_lower_tagged_scalar_expression(",
+      "    typed_constant.kind, typed_constant.left_name, typed_constant.op,",
+      "    typed_constant.value, typed_constant.type",
+      ")",
+      "binary_mir: mir.mir_lower_tagged_scalar_expression(",
+      "    typed_binary.kind, typed_binary.left_name, typed_binary.op,",
+      "    typed_binary.value, typed_binary.type",
+      ")",
+      "ast_matches: (ast.node_count = 5 /\\ ast.block_count = 1 /\\",
+      "    block.owner_order = 1 /\\ block.first_child_order = 2 /\\",
+      "    block.child_count = 2 /\\ constant_node.order = 2 /\\",
+      "    binary_node.order = 3 /\\ constant_node.parent_order = 1 /\\",
+      "    binary_node.parent_order = 1)",
+      'ast_matches?! "general parser lost expression order or nesting"',
+      "typed_matches: (typed_constant.kind = \"const\" /\\",
+      "    typed_constant.type = \"num\" /\\ typed_constant.value = 1 /\\",
+      "    typed_constant.order = 2 /\\ typed_constant.span.start.line = 3 /\\",
+      "    typed_constant.span.start.column = 5 /\\ typed_constant.span.stop.column = 5 /\\",
+      "    typed_binary.kind = \"binary_op\" /\\ typed_binary.type = \"num\" /\\",
+      "    typed_binary.left_name = \"value\" /\\ typed_binary.op = \"STAR\" /\\",
+      "    typed_binary.value = 2 /\\ typed_binary.order = 3 /\\",
+      "    typed_binary.span.start.line = 4 /\\ typed_binary.span.start.column = 5 /\\",
+      "    typed_binary.span.stop.column = 13)",
+      'typed_matches?! "general typed AST lost concrete expression variants"',
+      "mir_matches: (constant_mir.instruction_count = 2 /\\",
+      "    constant_mir.instructions.0.kind = \"push_f64\" /\\",
+      "    constant_mir.instructions.0.value = 1 /\\",
+      "    constant_mir.instructions.1.kind = \"return_f64\" /\\",
+      "    binary_mir.instruction_count = 4 /\\",
+      "    binary_mir.instructions.0.kind = \"load_local\" /\\",
+      "    binary_mir.instructions.1.kind = \"push_f64\" /\\",
+      "    binary_mir.instructions.1.value = 2 /\\",
+      "    binary_mir.instructions.2.kind = \"multiply_f64\" /\\",
+      "    binary_mir.instructions.3.kind = \"return_f64\")",
+      'mir_matches?! "typed expression kind dispatch lost Machine IR"',
+      ":: binary_mir.instructions.1.value",
+      "",
+    ].join("\n"), "utf8");
+
+    const compiled = spawnSync(compiler, ["-b", source, "-o", artifact, "--optimizer-policy", "mask-0"], {
+      cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true,
+    });
+    assert.equal(compiled.status, 0, compiled.stderr);
+    const executed = spawnSync(artifact, [], {
+      cwd: work, encoding: "utf8", timeout: 3_000, windowsHide: true,
+    });
+    assert.equal(executed.status, 0, `${executed.stderr}\n${executed.stdout}`);
+    assert.equal(executed.stdout.trim(), "2");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});

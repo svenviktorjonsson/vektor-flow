@@ -891,6 +891,11 @@ TaggedMachineInstruction: (kind:str, index:num, value:num)
 TaggedMachineInstructions: [TaggedMachineInstruction:4]
 TaggedNestedMachineInstructions: [TaggedMachineInstruction:6]
 TaggedDependencyMachineInstructions: [TaggedMachineInstruction:8]
+TaggedScalarMachineInstructions: (
+    instructions:[TaggedMachineInstruction:4],
+    instruction_count:int,
+    max_stack:num
+)
 TaggedMachineStatement: (
     name:str,
     instructions:TaggedMachineInstructions,
@@ -1001,6 +1006,58 @@ _mir_tagged_binary_kind(operator_code:num) -> str:
         7 => "power_f64"
         8 => "floor_divide_f64"
         "unknown"
+
+_mir_tagged_typed_binary_kind(operator_kind:str) -> str:
+    operator_kind??
+        "PLUS" => "add_f64"
+        "MINUS" => "subtract_f64"
+        "STAR" => "multiply_f64"
+        "SLASH" => "divide_f64"
+        "PERCENT" => "remainder_f64"
+        "CARET" => "power_f64"
+        "FLOORDIV" => "floor_divide_f64"
+        "unknown"
+
+_mir_tagged_scalar_constant(value:num) -> TaggedScalarMachineInstructions:
+    (
+        instructions:[
+            _mir_tagged_instruction("push_f64", value:value),
+            _mir_tagged_instruction("return_f64"),
+            _mir_tagged_instruction("unused"),
+            _mir_tagged_instruction("unused")
+        ],
+        instruction_count:2,
+        max_stack:1
+    )
+
+_mir_tagged_scalar_binary(
+    operator_kind:str, value:num
+) -> TaggedScalarMachineInstructions:
+    (
+        instructions:[
+            _mir_tagged_instruction("load_local", 0),
+            _mir_tagged_instruction("push_f64", value:value),
+            _mir_tagged_instruction(
+                _mir_tagged_typed_binary_kind(operator_kind)
+            ),
+            _mir_tagged_instruction("return_f64")
+        ],
+        instruction_count:4,
+        max_stack:2
+    )
+
+mir_lower_tagged_scalar_expression(
+    expression_kind:str, left_name:str, operator_kind:str,
+    value:num, expression_type:str
+) -> TaggedScalarMachineInstructions:
+    (expression_type = "num")?! "tagged scalar expression must have num type"
+    expression_kind = "const"?
+        @: _mir_tagged_scalar_constant(value)
+    expression_kind = "binary_op"?
+        (left_name != "")?! "tagged binary expression has no left identifier"
+        @: _mir_tagged_scalar_binary(operator_kind, value)
+    false?! "tagged scalar expression kind is unsupported"
+    _mir_tagged_scalar_constant(value)
 
 mir_tagged_module_statement(
     module:TaggedMachineModule, index:int
