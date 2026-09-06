@@ -117,6 +117,8 @@ enum class Opcode : std::uint16_t {
     MakeTuple = 82,
     // Private runtime UI operand capture; requires bytecode version 3.
     CaptureUiEffect = 83,
+    // Private emitted-program multiset construction; requires bytecode version 3.
+    MakeMultiset = 84,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -218,7 +220,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::CaptureUiEffect);
+        <= static_cast<std::uint16_t>(Opcode::MakeMultiset);
 }
 
 inline bool is_valid_utf8(const std::string& value) {
@@ -527,7 +529,8 @@ inline bool uses_private_tuple_operations(const Module& module) {
     for (const auto& function : module.functions)
         for (const auto& instruction : function.instructions)
             private_tuple = private_tuple || instruction.opcode == Opcode::MakeTuple
-                || instruction.opcode == Opcode::CaptureUiEffect;
+                || instruction.opcode == Opcode::CaptureUiEffect
+                || instruction.opcode == Opcode::MakeMultiset;
     return private_tuple;
 }
 
@@ -662,6 +665,10 @@ inline Module deserialize(const std::vector<std::uint8_t>& bytes) {
             if (version == detail::format_version &&
                 function.instructions.back().opcode == Opcode::CaptureUiEffect) {
                 throw BytecodeError("private UI effect opcode requires bytecode version 3");
+            }
+            if (version == detail::format_version &&
+                function.instructions.back().opcode == Opcode::MakeMultiset) {
+                throw BytecodeError("private multiset opcode requires bytecode version 3");
             }
         }
         module.functions.push_back(std::move(function));

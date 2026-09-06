@@ -59,8 +59,9 @@ test('unchanged indexing guide gathers and scatters selected lanes',async()=>{
 
 for (const [id,example,stdout] of [
   [5,'07-reflection','4\ntype\n[int:2]\nTypeScope(reflected:type)\n'],
-  [6,'50-generic-types','vkf\n4\n[int:3]\n6\n'],
-  [7,'49-nominal-constructors',
+  [6,'46-member-reflection','(x:int, y:int)\n[x, y]\n[x, y]\n{x:1, y:1}\n'],
+  [7,'50-generic-types','vkf\n4\n[int:3]\n6\n'],
+  [8,'49-nominal-constructors',
     'Point\n(x:num, y:num)\n(x:num, y:num)\ntype\n[x, y]\ntrue\n[int:3]\n(x:num, y:num)\ninteger\nnumber\n'],
 ]) {
   test(`unchanged ${example} guide executes reflected type descriptors`,async()=>{

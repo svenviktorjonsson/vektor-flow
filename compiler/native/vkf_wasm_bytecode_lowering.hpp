@@ -146,6 +146,9 @@ inline ValueType lower_type(
     if (type.rfind("list<", 0) == 0 || (!type.empty() && type.front() == '[')) {
         return ValueType::Array;
     }
+    if (type.rfind("multiset<", 0) == 0) {
+        return ValueType::Dynamic;
+    }
     if (type.rfind("record{", 0) == 0) {
         return ValueType::Object;
     }
@@ -1174,6 +1177,25 @@ private:
                 checked_index(emitted_items, "array item count")
             );
             return kind == "tuple" ? ValueType::Dynamic : ValueType::Array;
+        }
+        if (kind == "multiset") {
+            const auto& pairs = array_of(field(object, "pairs", context),
+                context + ".pairs");
+            for (std::size_t index = 0; index < pairs.size(); ++index) {
+                const auto pair_context = context + ".pairs[" + std::to_string(index) + "]";
+                const auto& pair = object_of(pairs[index], pair_context);
+                if (string_field(pair, "kind", pair_context) != "multiset_pair") {
+                    throw BytecodeLoweringError(
+                        "WASM multiset requires key/count pairs in " + pair_context);
+                }
+                lower_expression(field(pair, "key", pair_context), state,
+                    pair_context + ".key");
+                lower_expression(field(pair, "count", pair_context), state,
+                    pair_context + ".count");
+            }
+            emit(state, Opcode::MakeMultiset, ValueType::Dynamic,
+                checked_index(pairs.size(), "multiset pair count"));
+            return ValueType::Dynamic;
         }
         if (kind == "scope_identity") {
             using Validation = vkf::stat_semantics::Validation<BytecodeLoweringError>;

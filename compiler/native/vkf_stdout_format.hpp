@@ -61,6 +61,8 @@ public:
             bool opened = false;
             bool record = false;
             bool tuple = false;
+            bool multiset = false;
+            bool multiset_count = false;
             std::uint32_t length = 0;
             std::uint32_t payload = 0;
             std::uint32_t next = 0;
@@ -73,12 +75,15 @@ public:
             auto& frame = frames.back();
             if (frame.opened) {
                 if (frame.next == frame.length) {
-                    output += frame.record || frame.tuple ? ')' : ']';
+                    output += frame.multiset ? '}'
+                        : frame.record || frame.tuple ? ')' : ']';
                     active.erase(frame.pointer);
                     frames.pop_back();
                     continue;
                 }
-                if (frame.next != 0) output += ", ";
+                if (frame.next != 0 && (!frame.multiset || !frame.multiset_count)) {
+                    output += ", ";
+                }
                 if (frame.record) {
                     const auto entry = frame.payload + 8 * frame.next++;
                     const auto key = u32(entry);
@@ -97,6 +102,19 @@ public:
                     }
                     output += ':';
                     frames.push_back({u32(entry + 4), 15});
+                    continue;
+                }
+                if (frame.multiset) {
+                    const auto entry = frame.payload + 8 * frame.next;
+                    if (!frame.multiset_count) {
+                        frame.multiset_count = true;
+                        frames.push_back({u32(entry), 15});
+                    } else {
+                        output += ':';
+                        frame.multiset_count = false;
+                        ++frame.next;
+                        frames.push_back({u32(entry + 4), 15});
+                    }
                     continue;
                 }
                 const auto child = u32(frame.payload + 4 * frame.next++);
@@ -162,6 +180,20 @@ public:
                     frames.push_back({payload, child_precision});
                     continue;
                 }
+                case 9:
+                    if (!active.insert(frame.pointer).second) {
+                        throw std::runtime_error("cyclic VKF values cannot cross the stdout ABI");
+                    }
+                    if (length > (size_ / 8)) {
+                        throw std::runtime_error("VKF stdout value addressed invalid WASM memory");
+                    }
+                    range(payload, static_cast<std::size_t>(length) * 8);
+                    frame.opened = true;
+                    frame.multiset = true;
+                    frame.length = length;
+                    frame.payload = payload;
+                    output += '{';
+                    continue;
                 default:
                     throw std::runtime_error("unknown VKF stdout value tag " + std::to_string(tag));
             }

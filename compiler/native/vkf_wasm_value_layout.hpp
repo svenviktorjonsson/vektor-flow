@@ -31,6 +31,8 @@ enum class Tag : std::uint32_t {
     // Compiler-private stdout wrapper: length is a nominal-name string slot;
     // payload is the represented value. JavaScript never decodes this tag.
     NominalDisplay = 8,
+    // Compiler-private multiset entries use record-style {key,count} pairs.
+    Multiset = 9,
 };
 
 inline constexpr std::uint32_t slot_alignment = 8;

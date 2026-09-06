@@ -238,6 +238,7 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::ArraySet:
             return {3, 1};
         case Opcode::MakeObject:
+        case Opcode::MakeMultiset:
             return {instruction.first * 2U, 1};
         case Opcode::ObjectGet:
             return {1, 1};
@@ -1357,7 +1358,8 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 local_get(body, temp2);
                 emit_finish_push(body, sp_local);
                 break;
-            case Opcode::MakeObject: {
+            case Opcode::MakeObject:
+            case Opcode::MakeMultiset: {
                 const std::uint32_t count = instruction.first;
                 i32_const(
                     body,
@@ -1367,7 +1369,9 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 body.u32_leb(runtime.allocate);
                 local_set(body, temp0);
                 local_get(body, temp0);
-                i32_const(body, static_cast<std::uint32_t>(values::Tag::Record));
+                i32_const(body, static_cast<std::uint32_t>(
+                    instruction.opcode == Opcode::MakeMultiset
+                        ? values::Tag::Multiset : values::Tag::Record));
                 i32_store(body, values::tag_offset);
                 local_get(body, temp0);
                 i32_const(body, count);
