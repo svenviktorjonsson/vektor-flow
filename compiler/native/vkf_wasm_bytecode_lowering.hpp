@@ -4,6 +4,7 @@
 #include "compiler/native/vkf_wasm_typed_ir.hpp"
 #include "compiler/native/vkf_call_binding_plan.hpp"
 #include "compiler/native/vkf_fixed_spread_plan.hpp"
+#include "compiler/native/vkf_named_variadic_plan.hpp"
 #include "compiler/native/vkf_wasm_default_call_thunk.hpp"
 #include "compiler/native/vkf_wasm_record_argument_plan.hpp"
 #include "compiler/native/vkf_symbolic_value_encoding.hpp"
@@ -211,6 +212,7 @@ struct FunctionBinding {
     bool has_variadic_parameters = false;
     std::vector<bool> inferred_parameters;
     std::optional<std::size_t> variadic_positional_index;
+    std::optional<std::size_t> variadic_named_index;
 };
 
 class Lowerer {
@@ -235,11 +237,14 @@ private:
         bool returned = false;
         std::uint32_t next_temporary = 0;
         std::size_t scope_local_begin = 0;
+        const vf::JsonValue::Object* forwarded_named_call = nullptr;
+        std::optional<std::uint32_t> forwarded_named_local;
     };
 
     struct PendingDefaultThunk {
         FunctionDeclaration declaration;
         Function function;
+        std::optional<std::string> forwarded_named_parameter;
     };
 
     const FunctionBinding& default_call_target(
@@ -271,7 +276,10 @@ private:
         function.name_constant = intern_constant(Constant::utf8_string(private_name));
         function.parameter_count = binding.arity;
         function.return_type = binding.return_type;
-        pending_default_thunks_.push_back({std::move(declaration), std::move(function)});
+        const auto forwarded_named_parameter = original.variadic_named_index
+            ? std::optional<std::string>(original.parameters[*original.variadic_named_index].name)
+            : std::nullopt;
+        pending_default_thunks_.push_back({std::move(declaration), std::move(function), forwarded_named_parameter});
         default_call_targets_.emplace(key, private_name);
         return function_bindings_.emplace(private_name, std::move(binding)).first->second;
     }
@@ -398,6 +406,7 @@ private:
             std::vector<bool> inferred_parameters;
             bool has_variadic_parameters = false;
             std::optional<std::size_t> variadic_positional_index;
+            std::optional<std::size_t> variadic_named_index;
             for (std::size_t param_index = 0;
                  param_index < params.size();
                  ++param_index) {
@@ -420,6 +429,10 @@ private:
                     if (variadic_positional_index) throw BytecodeLoweringError("direct machine IR supports one variadic positional parameter");
                     variadic_positional_index = param_index;
                 }
+                const auto* variadic_named = optional_field(param, "variadic_named");
+                if (variadic_named != nullptr && variadic_named->is_boolean() && variadic_named->as_boolean()) {
+                    variadic_named_index = param_index;
+                }
                 if (default_value != nullptr && !default_value->is_null()) {
                     default_arguments[param_index] = default_value;
                     minimum_arity = std::min(minimum_arity, param_index);
@@ -437,6 +450,7 @@ private:
                     has_variadic_parameters,
                     std::move(inferred_parameters),
                     variadic_positional_index,
+                    variadic_named_index,
                 }
             );
             module_.functions.push_back(std::move(function));
@@ -502,7 +516,7 @@ private:
         for (std::size_t index = 0; index < pending_default_thunks_.size(); ++index) {
             auto& pending = pending_default_thunks_[index];
             module_.functions.push_back(std::move(pending.function));
-            lower_function(pending.declaration, module_.functions.back());
+            lower_function(pending.declaration, module_.functions.back(), pending.forwarded_named_parameter);
         }
     }
 
@@ -532,7 +546,8 @@ private:
 
     void lower_function(
         const FunctionDeclaration& declaration,
-        Function& function
+        Function& function,
+        const std::optional<std::string>& forwarded_named_parameter = std::nullopt
     ) {
         const std::string context = "function " + declaration.name;
         const auto& object = object_of(declaration.declaration, context);
@@ -561,6 +576,16 @@ private:
                 ),
                 param_context
             );
+        }
+        if (forwarded_named_parameter) {
+            // Only the factory-owned thunk's final call forwards the captured
+            // record. Default expressions may call the same function too; do
+            // not identify this site by callee spelling or replay its fields.
+            const auto& body = object_of(field(object, "body", context), context);
+            const auto& statements = array_of(field(body, "body", context), context);
+            state.forwarded_named_call = &object_of(
+                field(object_of(statements.back(), context), "expr", context), context);
+            state.forwarded_named_local = state.locals.at(*forwarded_named_parameter);
         }
         lower_function_body(field(object, "body", context), state);
         if (!state.returned) {
@@ -1740,9 +1765,8 @@ private:
             const auto& named_args = array_of(field(object, "named_args", context), context + ".named_args");
             const auto& spread_args = array_of(field(object, "spread_args", context), context + ".spread_args");
             const auto variadic_index = function->second.variadic_positional_index;
-            if (function->second.has_variadic_parameters && !variadic_index) {
-                throw BytecodeLoweringError("WASM call binding does not yet support variadic parameters for " + name);
-            }
+            const auto variadic_named_index = function->second.variadic_named_index;
+            std::map<std::string, std::size_t> captured_named;
             call_binding::FixedCallPlan call_plan;
             call_binding::PositionalCallPlacement positional_placement;
             try {
@@ -1759,11 +1783,28 @@ private:
                 }
                 for (std::size_t index = 0; index < named_args.size(); ++index) {
                     const auto& named = object_of(named_args[index], context + ".named_args");
-                    if (variadic_index && string_field(named, "name", context) == function->second.parameters[*variadic_index].name) {
+                    const auto argument_name = string_field(named, "name", context);
+                    const auto parameter = std::find_if(function->second.parameters.begin(), function->second.parameters.end(),
+                        [&](const auto& item) { return item.name == argument_name; });
+                    if (variadic_named_index && parameter == function->second.parameters.end()) {
+                        if (!captured_named.emplace(argument_name, index).second) {
+                            throw call_binding::Error("multiple values for variadic named argument " + argument_name);
+                        }
+                        continue;
+                    }
+                    if (variadic_index && argument_name == function->second.parameters[*variadic_index].name) {
                         throw call_binding::Error("variadic positional argument must be positional for " + name);
                     }
                     call_binding::bind_named_argument(call_plan, function->second.parameters,
                         string_field(named, "name", context), index, name);
+                }
+                if (variadic_named_index) {
+                    call_plan.parameters[*variadic_named_index] = call_binding::OperandReference{
+                        call_binding::OperandKind::PackedNamed, 0};
+                    const auto mask = std::uint32_t{1} << *variadic_named_index;
+                    call_plan.provided_mask |= mask;
+                    call_plan.defaulted_mask &= ~mask;
+                    call_plan.missing_required_mask &= ~mask;
                 }
             } catch (const call_binding::Error& error) {
                 throw BytecodeLoweringError(error.what());
@@ -1787,7 +1828,8 @@ private:
                 std::vector<call_binding::FixedSpreadParameter> parameters;
                 for (std::size_t index = 0; index < function->second.arity; ++index) {
                     parameters.push_back({function->second.parameters[index].name,
-                        signature->second.parameters[index], call_plan.parameters[index].has_value(), false});
+                        signature->second.parameters[index], call_plan.parameters[index].has_value(),
+                        variadic_named_index && index == *variadic_named_index});
                 }
                 fixed_spread = call_binding::plan_fixed_spread(source, parameters, name);
                 if (fixed_spread->dynamic_list) {
@@ -1815,6 +1857,36 @@ private:
             for (std::size_t index = 0; index < function->second.arity; ++index) {
                 if (call_plan.parameters[index]) {
                     const auto operand = *call_plan.parameters[index];
+                    if (operand.kind == call_binding::OperandKind::PackedNamed) {
+                        if (&object == state.forwarded_named_call) {
+                            const auto local = *state.forwarded_named_local;
+                            emit(state, Opcode::LoadLocal, state.function->local_types[local], local);
+                            continue;
+                        }
+                        if (!inferred_layouts_) inferred_layouts_ = value_layout::infer_module_layouts(typed_module_.inference_source);
+                        const auto& signature = inferred_layouts_->signatures.at(name);
+                        const auto& parameter_layout = signature.parameters[index];
+                        emit(state, Opcode::MakeObject, ValueType::Object);
+                        for (const auto& [field_name, slice] : call_binding::named_variadic_fields(parameter_layout)) {
+                            const auto supplied = captured_named.find(field_name);
+                            if (supplied == captured_named.end()) {
+                                throw BytecodeLoweringError("missing captured named argument " + field_name + " for " + name);
+                            }
+                            const auto& argument = field(object_of(named_args[supplied->second], context), "value", context);
+                            const auto type = lower_expression(argument, state, context + ".captured." + field_name);
+                            const auto layout = machine_ir::detail::layout_from_expression_shape(
+                                object_of(argument, context), inferred_layouts_->signatures);
+                            const auto expected = machine_ir::detail::record_field_layout(parameter_layout, field_name, slice);
+                            if (!machine_ir::detail::same_layout(layout, expected)) {
+                                throw BytecodeLoweringError("variadic named argument layout mismatch for " + name + "." + field_name);
+                            }
+                            const auto shape = machine_ir::detail::fixed_numeric_vector_shape(
+                                string_field(object_of(argument, context), "type", context));
+                            if (shape) copy_named_numeric_vector(shape->dimensions, 0, state, context);
+                            emit(state, Opcode::ObjectSet, type, intern_constant(Constant::utf8_string(field_name)));
+                        }
+                        continue;
+                    }
                     if (operand.kind == call_binding::OperandKind::FixedSpread) {
                         const auto& selection = fixed_spread->parameters.at(index);
                         const auto& expected = inferred_layouts_->signatures.at(name).parameters[index];
@@ -2023,6 +2095,27 @@ private:
             path += '*';
         }
         return path;
+    }
+
+    void copy_named_numeric_vector(
+        const std::vector<std::size_t>& dimensions,
+        std::size_t depth,
+        FunctionState& state,
+        const std::string& context
+    ) {
+        // Native fixed aggregates cross the call boundary as copied components.
+        // Preserve that value isolation without evaluating the source again.
+        const auto source = add_temporary_local(state, ValueType::Array);
+        emit(state, Opcode::StoreLocal, ValueType::Array, source);
+        for (std::size_t index = 0; index < dimensions.at(depth); ++index) {
+            emit(state, Opcode::LoadLocal, ValueType::Array, source);
+            emit_number(state, static_cast<double>(index));
+            emit(state, Opcode::ArrayGet, ValueType::Dynamic);
+            if (depth + 1 < dimensions.size()) {
+                copy_named_numeric_vector(dimensions, depth + 1, state, context);
+            }
+        }
+        emit(state, Opcode::MakeArray, ValueType::Array, checked_index(dimensions.at(depth), context));
     }
 
     ValueType emit_record_argument_plan(

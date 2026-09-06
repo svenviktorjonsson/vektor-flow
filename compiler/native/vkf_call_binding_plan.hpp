@@ -20,7 +20,7 @@ struct Parameter {
     bool has_default = false;
 };
 
-enum class OperandKind { Positional, Named, PackedPositional, FixedSpread };
+enum class OperandKind { Positional, Named, PackedPositional, FixedSpread, PackedNamed };
 
 struct OperandReference {
     OperandKind kind;

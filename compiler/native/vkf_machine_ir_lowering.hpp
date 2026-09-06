@@ -4,6 +4,7 @@
 #include "compiler/native/vkf_value_layout.hpp"
 #include "compiler/native/vkf_call_binding_plan.hpp"
 #include "compiler/native/vkf_fixed_spread_plan.hpp"
+#include "compiler/native/vkf_named_variadic_plan.hpp"
 #include "compiler/native/vkf_math_primitives.hpp"
 #include "compiler/native/vkf_output_effects.hpp"
 #include "compiler/native/vkf_stat_semantics.hpp"
@@ -8908,13 +8909,7 @@ inline ValueLayout lower_expression(
         for (std::size_t index = 0; index < parameter_values.size(); ++index) {
             const auto parameter_layout = signature->second.parameters[index];
             if (variadic_named_index && index == *variadic_named_index) {
-                std::vector<std::pair<std::string, ValueSlice>> fields;
-                for (const auto& [name, slice] : parameter_layout.selectors) {
-                    if (name.find('.') == std::string::npos) fields.push_back({name, slice});
-                }
-                std::stable_sort(fields.begin(), fields.end(), [](const auto& left, const auto& right) {
-                    return left.second.offset < right.second.offset;
-                });
+                const auto fields = call_binding::named_variadic_fields(parameter_layout);
                 for (const auto& [name, slice] : fields) {
                     const auto supplied = variadic_named_values.find(name);
                     if (supplied == variadic_named_values.end()) {

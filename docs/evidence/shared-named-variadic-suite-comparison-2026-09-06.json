@@ -1,0 +1,500 @@
+{
+  "scope": "Exact test order, source hashes, native result objects, WASM result/error objects and pass/fail reasons. No diagnostic or numeric normalization.",
+  "before": "docs/evidence/shared-trig-production-full-suite-2026-09-05.json",
+  "after": "docs/evidence/shared-named-variadic-native-wasm-2026-09-05.json",
+  "beforeCompilerWasmSha256": "63b0f126f2c606dec39240845e660a63aaeb95abe1e6daeb69cf54340acfafc0",
+  "afterCompilerWasmSha256": "a27c1f06227c31d269b2f868e415365647415f5753f80116c9b9382881c78878",
+  "beforeNativeCompilerSha256": "b7c6632499e2793f6a5f7b2f16ee74912f5e01df0b24cde81e3de0356b739816",
+  "afterNativeCompilerSha256": "4728738922848fc7e5a94fc90e7492ce6648dcd5e460834bba75d140be68c360",
+  "entries": 451,
+  "failedCases": 318,
+  "exact": false,
+  "differences": [
+    {
+      "index": 17,
+      "file": "tests/vkf/calls.vkf",
+      "name": "default_arguments_are_used",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 17,
+      "file": "tests/vkf/calls.vkf",
+      "name": "default_arguments_are_used",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 17,
+      "file": "tests/vkf/calls.vkf",
+      "name": "default_arguments_are_used",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 18,
+      "file": "tests/vkf/calls.vkf",
+      "name": "named_arguments_bind_by_name",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 18,
+      "file": "tests/vkf/calls.vkf",
+      "name": "named_arguments_bind_by_name",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 18,
+      "file": "tests/vkf/calls.vkf",
+      "name": "named_arguments_bind_by_name",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 19,
+      "file": "tests/vkf/calls.vkf",
+      "name": "defaults_use_earlier_parameters",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 19,
+      "file": "tests/vkf/calls.vkf",
+      "name": "defaults_use_earlier_parameters",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 19,
+      "file": "tests/vkf/calls.vkf",
+      "name": "defaults_use_earlier_parameters",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 20,
+      "file": "tests/vkf/calls.vkf",
+      "name": "positional_and_named_arguments_mix",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 20,
+      "file": "tests/vkf/calls.vkf",
+      "name": "positional_and_named_arguments_mix",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 20,
+      "file": "tests/vkf/calls.vkf",
+      "name": "positional_and_named_arguments_mix",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 21,
+      "file": "tests/vkf/calls.vkf",
+      "name": "provided_argument_skips_default",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 21,
+      "file": "tests/vkf/calls.vkf",
+      "name": "provided_argument_skips_default",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 21,
+      "file": "tests/vkf/calls.vkf",
+      "name": "provided_argument_skips_default",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 22,
+      "file": "tests/vkf/calls.vkf",
+      "name": "string_defaults_are_owned",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 22,
+      "file": "tests/vkf/calls.vkf",
+      "name": "string_defaults_are_owned",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 22,
+      "file": "tests/vkf/calls.vkf",
+      "name": "string_defaults_are_owned",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 23,
+      "file": "tests/vkf/calls.vkf",
+      "name": "list_defaults_are_owned",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 23,
+      "file": "tests/vkf/calls.vkf",
+      "name": "list_defaults_are_owned",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 23,
+      "file": "tests/vkf/calls.vkf",
+      "name": "list_defaults_are_owned",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 24,
+      "file": "tests/vkf/calls.vkf",
+      "name": "variadic_numeric_arguments_pack_list",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 24,
+      "file": "tests/vkf/calls.vkf",
+      "name": "variadic_numeric_arguments_pack_list",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 24,
+      "file": "tests/vkf/calls.vkf",
+      "name": "variadic_numeric_arguments_pack_list",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 25,
+      "file": "tests/vkf/calls.vkf",
+      "name": "variadic_spread_expands_numeric_list",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 25,
+      "file": "tests/vkf/calls.vkf",
+      "name": "variadic_spread_expands_numeric_list",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 25,
+      "file": "tests/vkf/calls.vkf",
+      "name": "variadic_spread_expands_numeric_list",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 26,
+      "file": "tests/vkf/calls.vkf",
+      "name": "integer_variadic_sum_preserves_integer_leaf_type",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 26,
+      "file": "tests/vkf/calls.vkf",
+      "name": "integer_variadic_sum_preserves_integer_leaf_type",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 26,
+      "file": "tests/vkf/calls.vkf",
+      "name": "integer_variadic_sum_preserves_integer_leaf_type",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 27,
+      "file": "tests/vkf/calls.vkf",
+      "name": "fixed_vector_spread_binds_positional_parameters",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 27,
+      "file": "tests/vkf/calls.vkf",
+      "name": "fixed_vector_spread_binds_positional_parameters",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 27,
+      "file": "tests/vkf/calls.vkf",
+      "name": "fixed_vector_spread_binds_positional_parameters",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 28,
+      "file": "tests/vkf/calls.vkf",
+      "name": "fixed_record_spread_binds_by_field_name",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 28,
+      "file": "tests/vkf/calls.vkf",
+      "name": "fixed_record_spread_binds_by_field_name",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 28,
+      "file": "tests/vkf/calls.vkf",
+      "name": "fixed_record_spread_binds_by_field_name",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 29,
+      "file": "tests/vkf/calls.vkf",
+      "name": "variadic_named_arguments_capture_record",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 29,
+      "file": "tests/vkf/calls.vkf",
+      "name": "variadic_named_arguments_capture_record",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 29,
+      "file": "tests/vkf/calls.vkf",
+      "name": "variadic_named_arguments_capture_record",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "index": 30,
+      "file": "tests/vkf/calls.vkf",
+      "name": "recursive_call_returns_value",
+      "field": "wasm",
+      "before": {
+        "ok": false,
+        "phase": "lowering",
+        "diagnostic": "WASM call binding does not yet support variadic parameters for _capture_named"
+      },
+      "after": {
+        "ok": true,
+        "result": {
+          "kind": "console",
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "index": 30,
+      "file": "tests/vkf/calls.vkf",
+      "name": "recursive_call_returns_value",
+      "field": "passed",
+      "before": false,
+      "after": true
+    },
+    {
+      "index": 30,
+      "file": "tests/vkf/calls.vkf",
+      "name": "recursive_call_returns_value",
+      "field": "reason",
+      "before": "WASM lowering: WASM call binding does not yet support variadic parameters for _capture_named"
+    },
+    {
+      "field": "passed",
+      "before": 119,
+      "after": 133
+    },
+    {
+      "field": "failed",
+      "before": 332,
+      "after": 318
+    }
+  ]
+}

@@ -32,11 +32,14 @@ inline FunctionDeclaration make_default_call_thunk(
         const auto original_type = detail::require_non_empty_string(parameter, "type", original.name);
         const auto variadic = parameter.find("variadic_positional");
         const bool packed_positional = variadic != parameter.end() && variadic->second.is_boolean() && variadic->second.as_boolean();
+        const auto named_variadic = parameter.find("variadic_named");
+        const bool packed_named = named_variadic != parameter.end() && named_variadic->second.is_boolean() && named_variadic->second.as_boolean();
         const auto parameter_type = packed_positional ? "list<" + original_type + ">" : original_type;
         if (plan.parameters[index]) {
             if (!supplied_parameters.empty()) type += ",";
             type += parameter_type;
             parameter["default"] = vf::JsonValue(nullptr);
+            if (packed_named) parameter["variadic_named"] = vf::JsonValue(false);
             if (packed_positional) {
                 // The wrapper receives the already packed list as one value.
                 // Its final source-equivalent call spreads that list once.
