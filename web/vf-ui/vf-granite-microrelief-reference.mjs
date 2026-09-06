@@ -10,6 +10,10 @@ const BAND_WAVELENGTHS = Object.freeze([0.045, 0.0225, 0.01125]);
 const BAND_AMPLITUDES = Object.freeze([0.008, 0.0042, 0.0021]);
 const MAX_HORIZON_STEPS = 8;
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+const smoothstep = (low, high, value) => {
+  const t = clamp((value - low) / (high - low), 0, 1);
+  return t * t * (3 - 2 * t);
+};
 const normalize = (value) => {
   const length = Math.hypot(...value);
   if (!(length > 1e-12)) throw new RangeError('microrelief direction must be non-zero');
@@ -225,6 +229,37 @@ function granularHorizon(
   return false;
 }
 
+function graniteMinerals(node, position, footprint) {
+  const mineralWeight = filterWeight(0.055, footprint);
+  const feldspar = smoothstep(
+    -0.20, 0.25,
+    granularNoise3(node, position, 0.055, 23.7) * mineralWeight,
+  );
+  const quartz = smoothstep(
+    0.15, 0.48,
+    granularNoise3(node, position, 0.034, 31.1) * filterWeight(0.034, footprint),
+  );
+  const mica = smoothstep(
+    0.72, 0.94,
+    granularNoise3(node, position, 0.009, 47.3) * filterWeight(0.009, footprint),
+  );
+  let color = [0.50, 0.485, 0.47];
+  const mixColor = (target, amount) => {
+    color = color.map((channel, index) => channel * (1 - amount) + target[index] * amount);
+  };
+  mixColor([0.72, 0.595, 0.53], feldspar * 0.62);
+  mixColor([0.76, 0.75, 0.72], quartz * 0.66);
+  mixColor([0.23, 0.24, 0.25], mica * 0.55);
+  const roughNoise = granularNoise3(node, position, 0.030, 19.1)
+    * filterWeight(0.030, footprint);
+  const roughness = clamp(
+    0.82 + roughNoise * 0.055 + feldspar * 0.025 - quartz * 0.15 + mica * 0.045,
+    0.64,
+    0.93,
+  );
+  return { feldspar, quartz, mica, color, roughness };
+}
+
 export function realizeGraniteGranularProbeReference(identity, {
   resolution,
   footprint,
@@ -245,6 +280,15 @@ export function realizeGraniteGranularProbeReference(identity, {
   let pairedReversals = 0;
   let minimumRoughness = 1;
   let maximumRoughness = 0;
+  let feldsparCount = 0;
+  let quartzCount = 0;
+  let micaCount = 0;
+  let minimumMineralAlbedo = 1;
+  let maximumMineralAlbedo = 0;
+  let minimumMineralChroma = 1;
+  let maximumMineralChroma = 0;
+  let minimumMineralRoughness = 1;
+  let maximumMineralRoughness = 0;
   const directions = [[1, 0], [0, 1], [Math.SQRT1_2, Math.SQRT1_2], [Math.SQRT1_2, -Math.SQRT1_2]];
   const derivativeStep = 0.0007;
   for (let y = 0; y < resolution; y += 1) {
@@ -284,6 +328,19 @@ export function realizeGraniteGranularProbeReference(identity, {
       );
       minimumRoughness = Math.min(minimumRoughness, roughness);
       maximumRoughness = Math.max(maximumRoughness, roughness);
+      const mineral = graniteMinerals(node, position, footprint);
+      feldsparCount += mineral.feldspar > 0.5 ? 1 : 0;
+      quartzCount += mineral.quartz > 0.5 ? 1 : 0;
+      micaCount += mineral.mica > 0.5 ? 1 : 0;
+      const luminance = 0.2126 * mineral.color[0]
+        + 0.7152 * mineral.color[1] + 0.0722 * mineral.color[2];
+      const chroma = Math.max(...mineral.color) - Math.min(...mineral.color);
+      minimumMineralAlbedo = Math.min(minimumMineralAlbedo, luminance);
+      maximumMineralAlbedo = Math.max(maximumMineralAlbedo, luminance);
+      minimumMineralChroma = Math.min(minimumMineralChroma, chroma);
+      maximumMineralChroma = Math.max(maximumMineralChroma, chroma);
+      minimumMineralRoughness = Math.min(minimumMineralRoughness, mineral.roughness);
+      maximumMineralRoughness = Math.max(maximumMineralRoughness, mineral.roughness);
     }
   }
   const count = resolution * resolution;
@@ -299,6 +356,15 @@ export function realizeGraniteGranularProbeReference(identity, {
     pairedReversalFraction: pairedReversals / count,
     minimumRoughness,
     maximumRoughness,
+    feldsparFraction: feldsparCount / count,
+    quartzFraction: quartzCount / count,
+    micaFraction: micaCount / count,
+    mineralAlbedoSpan: maximumMineralAlbedo - minimumMineralAlbedo,
+    mineralChromaSpan: maximumMineralChroma - minimumMineralChroma,
+    minimumMineralRoughness,
+    maximumMineralRoughness,
+    mineralRoughnessSpan: maximumMineralRoughness - minimumMineralRoughness,
+    mineralFieldDependsOnLight: false,
     maximumHorizonSteps: MAX_HORIZON_STEPS,
   });
 }

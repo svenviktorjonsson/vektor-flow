@@ -349,16 +349,25 @@ fn vf_weathered_granite_granular_sample(
   key: vec2<u32>,
 ) -> VfRockMaterialSample {
   let broad = vf_granite_noise3(position, 0.31, 1.1, counter_prefix, key);
-  let grainWeight = vf_rock_filter_weight(0.035, footprint);
-  let grain = vf_granite_noise3(position, 0.035, 5.7, counter_prefix, key) * grainWeight;
-  let fine = vf_granite_noise3(position, 0.0175, 11.3, counter_prefix, key)
-    * vf_rock_filter_weight(0.0175, footprint);
-  let quartz = smoothstep(0.42, 0.68, grain);
-  let mica = 1.0 - smoothstep(-0.70, -0.43, grain);
-  let pit = 1.0 - smoothstep(-0.67, -0.48, fine);
-  var granite = vec3<f32>(0.57, 0.555, 0.535) + broad * vec3<f32>(0.010, 0.009, 0.008);
-  granite = mix(granite, vec3<f32>(0.70, 0.69, 0.67), quartz * 0.08);
-  granite = mix(granite, vec3<f32>(0.38, 0.39, 0.40), mica * 0.06);
+  let feldspar = smoothstep(
+    -0.20, 0.25,
+    vf_granite_noise3(position, 0.055, 23.7, counter_prefix, key)
+      * vf_rock_filter_weight(0.055, footprint),
+  );
+  let quartz = smoothstep(
+    0.15, 0.48,
+    vf_granite_noise3(position, 0.034, 31.1, counter_prefix, key)
+      * vf_rock_filter_weight(0.034, footprint),
+  );
+  let mica = smoothstep(
+    0.72, 0.94,
+    vf_granite_noise3(position, 0.009, 47.3, counter_prefix, key)
+      * vf_rock_filter_weight(0.009, footprint),
+  );
+  var granite = vec3<f32>(0.50, 0.485, 0.47) + broad * vec3<f32>(0.012, 0.011, 0.010);
+  granite = mix(granite, vec3<f32>(0.72, 0.595, 0.53), feldspar * 0.62);
+  granite = mix(granite, vec3<f32>(0.76, 0.75, 0.72), quartz * 0.66);
+  granite = mix(granite, vec3<f32>(0.23, 0.24, 0.25), mica * 0.55);
   let roughNoise = vf_granite_noise3(position, 0.030, 19.1, counter_prefix, key)
     * vf_rock_filter_weight(0.030, footprint);
   let height = vf_granite_granular_height(position, footprint, counter_prefix, key);
@@ -366,7 +375,10 @@ fn vf_weathered_granite_granular_sample(
     broad,
     clamp(0.5 + broad * 0.5, 0.0, 1.0),
     vec4<f32>(clamp(granite, vec3<f32>(0.20), vec3<f32>(0.82)), 1.0),
-    clamp(0.80 + roughNoise * 0.075 + pit * 0.035, 0.70, 0.93),
+    clamp(
+      0.82 + roughNoise * 0.055 + feldspar * 0.025 - quartz * 0.15 + mica * 0.045,
+      0.64, 0.93,
+    ),
     clamp(height, -0.04, 0.04),
     vec2<f32>(0.0),
     vec3<f32>(0.0, 0.0, 1.0),

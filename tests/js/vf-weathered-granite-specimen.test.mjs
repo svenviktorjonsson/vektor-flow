@@ -212,3 +212,20 @@ test('R3 granular shader leaves baseline geometry byte-identical', () => {
     'weathered-granite-granular',
   );
 });
+
+test('R4 granite mineral populations are distinct, bounded, and light-independent', () => {
+  const probe = realizeGraniteGranularProbeReference(IDENTITY, {
+    resolution: 64,
+    footprint: 0.0015,
+  });
+
+  assert.ok(probe.feldsparFraction > 0.18 && probe.feldsparFraction < 0.62);
+  assert.ok(probe.quartzFraction > 0.08 && probe.quartzFraction < 0.42);
+  assert.ok(probe.micaFraction > 0.003 && probe.micaFraction < 0.04);
+  assert.ok(probe.mineralAlbedoSpan > 0.16);
+  assert.ok(probe.mineralChromaSpan > 0.045);
+  assert.ok(probe.minimumMineralRoughness >= 0.64);
+  assert.ok(probe.maximumMineralRoughness <= 0.93);
+  assert.ok(probe.mineralRoughnessSpan > 0.12);
+  assert.equal(probe.mineralFieldDependsOnLight, false);
+});
