@@ -425,6 +425,14 @@ TaggedBinaryOpNode: (
 )
 TaggedSingleStatementModule: (kind:str, body:[TaggedBinaryOpNode:1], span:Span)
 TaggedSingleStatementResult: (module:TaggedSingleStatementModule, diagnostics:any)
+TaggedBindNode: (
+    kind:str,
+    target:IdentifierNode,
+    value:NumberLiteralNode,
+    span:Span
+)
+TaggedSingleBindingModule: (kind:str, body:[TaggedBindNode:1], span:Span)
+TaggedSingleBindingResult: (module:TaggedSingleBindingModule, diagnostics:any)
 TaggedTwoStatementModule: (kind:str, body:[TaggedBinaryOpNode:2], span:Span)
 TaggedTwoStatementResult: (module:TaggedTwoStatementModule, diagnostics:any)
 TaggedThreeStatementModule: (kind:str, body:[TaggedBinaryOpNode:3], span:Span)
@@ -1567,6 +1575,28 @@ parse_module_from_cursor(
         body:[expression],
         span:span(start, stop)
     )
+    (module:parsed_module, diagnostics:[])
+
+parse_module_from_cursor(
+    target:TaggedParseCursor,
+    colon:TaggedParseCursor,
+    value:TaggedParseCursor,
+    newline:TaggedParseCursor
+) -> TaggedSingleBindingResult:
+    valid_shape: (target.kind = "IDENT" /\ target.value_tag = "text" /\
+        colon.kind = "COLON" /\ colon.value_tag = "null" /\
+        value.kind = "NUMBER" /\ value.value_tag = "number" /\
+        newline.kind = "NEWLINE")
+    valid_shape?! "tagged parser binding cursor expects IDENT COLON NUMBER NEWLINE"
+    start: location(target.file, target.line, target.column)
+    stop: location(value.file, value.line, value.column)
+    binding: (
+        kind:"bind",
+        target:parse_tagged_cursor_identifier(target),
+        value:parse_tagged_cursor_number(value),
+        span:span(start, stop)
+    )
+    parsed_module: (kind:"module", body:[binding], span:span(start, stop))
     (module:parsed_module, diagnostics:[])
 
 parse_module_from_cursor(cursor:ParseCursor):

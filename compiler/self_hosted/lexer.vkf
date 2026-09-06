@@ -375,6 +375,43 @@ bounded_parser_expression_stream(source:str):
     ]
     (schema:"vektorflow.token_stream", version:1, tokens:tokens)
 
+bounded_parser_binding_stream(source:str):
+    target_start: _lexer_skip_layout(StringCursor(source))
+    target: identifier_token(source, target_start.position)
+    colon_start: _lexer_skip_identifier(target_start)
+    (colon_start.peek() = ":")?! "bounded binding stream requires a colon"
+    value_start: _lexer_skip_layout(colon_start.advance())
+    value: number_token(source, value_start.position)
+    stream_end: _lexer_skip_number(value_start)
+    stream_end.eof?! "bounded binding stream must end after the number"
+    tokens: [
+        _tagged_parser_token(
+            target.kind,
+            _tagged_parser_value("text", target.value, 0),
+            target.line,
+            target.column
+        ),
+        _tagged_parser_token(
+            "COLON",
+            _tagged_parser_value("null", "", 0),
+            colon_start.line,
+            colon_start.column
+        ),
+        _tagged_parser_token(
+            value.kind,
+            _tagged_parser_value("number", "", value.value),
+            value.line,
+            value.column
+        ),
+        _tagged_parser_token(
+            "NEWLINE",
+            _tagged_parser_value("null", "", 0),
+            stream_end.line,
+            stream_end.column
+        )
+    ]
+    (schema:"vektorflow.token_stream", version:1, tokens:tokens)
+
 two_identifier_plus_number_stream(source:str):
     first_left_start: _lexer_skip_layout(StringCursor(source))
     first_left: identifier_token(source, first_left_start.position)

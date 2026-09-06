@@ -151,6 +151,13 @@ TypedTaggedAstBinaryOp: (
     type:str,
     span:TaggedAstSpan
 )
+TypedTaggedStoreBinding: (
+    kind:str,
+    name:str,
+    value:TypedTaggedIntConst,
+    type:str,
+    span:TaggedAstSpan
+)
 FunctionSymbol: (name:str, param_types:any, return_type:str, signature:str)
 SymbolicTypeFacts: (symbolic:bit, shape:str, surface:str, scalar_domain:str, base_surface:str, exponent_surface:str, domain_surface:str, codomain_surface:str)
 TypedExpressionFacts: (mode:str, value_type:str, symbolic_type:SymbolicTypeFacts, symbolic_node_kind:str, free_variables:any)
@@ -400,6 +407,21 @@ typed_tagged_ast_binary_expression(
         right:(kind:"const", value:value, type:"int"),
         right_type:"int",
         type:"any",
+        span:(
+            start:(file:file, line:start_line, column:start_column),
+            stop:(file:file, line:stop_line, column:stop_column)
+        )
+    )
+
+typed_tagged_ast_numeric_binding(
+    name:str, value:num, file:str,
+    start_line:num, start_column:num, stop_line:num, stop_column:num
+) -> TypedTaggedStoreBinding:
+    (
+        kind:"store_binding",
+        name:name,
+        value:(kind:"const", value:value, type:"int"),
+        type:"int",
         span:(
             start:(file:file, line:start_line, column:start_column),
             stop:(file:file, line:stop_line, column:stop_column)
