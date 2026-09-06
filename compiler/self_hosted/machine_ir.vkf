@@ -281,6 +281,123 @@ _bootstrap_x64_borrowed_scalar_function(opcodes:[num], operands:[num], parameter
     result.bytes: bytes
     result
 
+# Non-entry owned-string records from validated borrowed-string parameters.
+_bootstrap_x64_borrowed_string_record_function(
+    opcodes:[num], operands:[num], parameter_count:num, maximum:num, windows:bit
+):
+    [num] bytes: []
+    [num] types: []
+    [num] origins: []
+    result: (valid:false, bytes:bytes)
+    (opcodes.length() = 0 \/ opcodes.length() != operands.length() \/
+        parameter_count < 1 \/ parameter_count % 1 != 0)?
+        @: result
+    cell_count: parameter_count * 2
+    frame: _bootstrap_x64_frame(cell_count, maximum, windows)
+    ~frame.valid?
+        @: result
+    .bytes: _bootstrap_x64_prologue(frame.frame_bytes, frame.xmm_slot, frame.gpr_slot, windows)
+    .bytes: bytes & [76, 137, 157] & _bootstrap_x64_word(-(frame.context + 1) * 8)
+    index: 0
+    (index < cell_count)?>
+        .bytes: bytes & [242, 65, 15, 16, 130] & _bootstrap_x64_word(-index * 8)
+        .bytes: bytes & [242, 15, 17, 133] & _bootstrap_x64_word(-(index + 1) * 8)
+        .index+: 1
+    .index: 0
+    depth: 0
+    code: 0
+    operand: 0
+    returned: false
+    saw_clone: false
+    field: 0
+    (index < opcodes.length())?>
+        .code: opcodes.(index)
+        .operand: operands.(index)
+        (code != 2 /\ code != 7 /\ code != 9)?
+            @: result
+        code = 2?
+            (operand < 0 \/ operand >= cell_count \/ operand % 1 != 0)?
+                @: result
+            .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(operand + 1) * 8)
+            .bytes: bytes & [242, 15, 17, 133] & _bootstrap_x64_word(-(cell_count + depth + 1) * 8)
+            depth = types.length()?
+                .types: types & [0]
+                .origins: origins & [0]
+            types.(depth): 4
+            operand % 2 = 1? types.(depth): 5
+            origins.(depth): operand
+            .depth+: 1
+        code = 9?
+            (operand != 0 \/ depth < 2 \/ types.(depth - 2) != 4 \/
+                types.(depth - 1) != 5 \/ origins.(depth - 1) != origins.(depth - 2) + 1)?
+                @: result
+            first: depth - 2
+            .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(cell_count + first + 2) * 8)
+            .bytes: bytes & [242, 72, 15, 44, 200, 72, 133, 201, 15, 137]
+            decoded_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0, 72, 247, 217, 72, 255, 201]
+            .bytes: _bootstrap_x64_patch_relative(bytes, decoded_reference, bytes.length())
+            .bytes: bytes & [72, 137, 200, 72, 131, 192, 9, 15, 131]
+            size_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+            .bytes: _bootstrap_x64_patch_relative(bytes, size_reference, bytes.length())
+            windows? .bytes: bytes & [72, 137, 193]
+            ~windows? .bytes: bytes & [72, 137, 199]
+            .bytes: bytes & [65, 255, 84, 36, 64, 72, 133, 192, 15, 133]
+            allocated_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+            .bytes: _bootstrap_x64_patch_relative(bytes, allocated_reference, bytes.length())
+            .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(cell_count + first + 2) * 8)
+            .bytes: bytes & [242, 72, 15, 44, 200, 72, 133, 201, 15, 137]
+            length_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0, 72, 247, 217, 72, 255, 201]
+            .bytes: _bootstrap_x64_patch_relative(bytes, length_reference, bytes.length())
+            .bytes: bytes & [72, 137, 8, 76, 141, 88, 8, 76, 139, 149]
+            .bytes: bytes & _bootstrap_x64_word(-(cell_count + first + 1) * 8)
+            .bytes: bytes & [73, 137, 200, 72, 133, 201, 15, 132]
+            empty_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0]
+            copy: bytes.length()
+            .bytes: bytes & [65, 138, 18, 65, 136, 19, 73, 255, 194,
+                73, 255, 195, 72, 255, 201, 15, 133]
+            repeat_reference: bytes.length()
+            .bytes: bytes & [0, 0, 0, 0]
+            .bytes: _bootstrap_x64_patch_relative(bytes, repeat_reference, copy)
+            .bytes: _bootstrap_x64_patch_relative(bytes, empty_reference, bytes.length())
+            .bytes: bytes & [65, 198, 3, 0, 72, 131, 192, 8, 72, 137, 133]
+            .bytes: bytes & _bootstrap_x64_word(-(cell_count + first + 1) * 8)
+            .bytes: bytes & [73, 141, 72, 1, 72, 247, 217, 242, 72, 15, 42, 193]
+            .bytes: bytes & [242, 15, 17, 133] & _bootstrap_x64_word(-(cell_count + first + 2) * 8)
+            types.(first): 6
+            types.(first + 1): 7
+            .saw_clone: true
+        code = 7?
+            (operand < 2 \/ operand >= 8 \/ operand % 1 != 0 \/
+                depth != operand \/ index + 1 != opcodes.length())?
+                @: result
+            .field: 0
+            (field < operand)?>
+                (field + 1 >= operand \/ types.(field) != 6 \/ types.(field + 1) != 7)?
+                    @: result
+                .field+: 2
+            .bytes: bytes & [76, 139, 157] & _bootstrap_x64_word(-(frame.context + 1) * 8)
+            .field: 0
+            (field < operand)?>
+                .bytes: bytes & [242, 15, 16, 133] & _bootstrap_x64_word(-(cell_count + field + 1) * 8)
+                .bytes: bytes & [242, 65, 15, 17, 131] & _bootstrap_x64_word(-field * 8)
+                .field+: 1
+            .bytes: bytes & _bootstrap_x64_epilogue(frame.xmm_slot, frame.gpr_slot, windows)
+            .depth: 0
+            .returned: true
+        depth > maximum?
+            @: result
+        .index+: 1
+    ~(returned /\ saw_clone)?
+        @: result
+    result.valid: true
+    result.bytes: bytes
+    result
+
 # Private scalar expression fragment over validated parser/type facts.
 # Private opcodes: 1 push_f64, 2 load_local, 3 count_f64_list (borrowed),
 # 4 divide_f64, 5 add_f64. Public opcode/schema bytes are fixed.
