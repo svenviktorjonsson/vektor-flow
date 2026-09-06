@@ -2,6 +2,7 @@
 #include "compiler/native/vkf_private_ui_frontend_probe.hpp"
 #include "compiler/native/vkf_private_compilation_form.hpp"
 #include "compiler/native/vkf_module_snapshots.hpp"
+#include "compiler/native/vkf_machine_ir_lowering.hpp"
 #include "compiler/native/vkf_test_suite.hpp"
 #include "compiler/native/vkf_output_effects.hpp"
 #include "compiler/native/vkf_ui_effect_packets.hpp"
@@ -66,7 +67,13 @@ extern "C" int vkf_emit_program() {
         const auto captured = vkf::module_snapshots::capture_module_literal_snapshots(runtime_ir);
         const auto& prepared = captured ? *captured : runtime_ir;
         ordered_stdout = vkf::output_effects::has_nested_output_effect(prepared);
-        const auto module = vkf::wasm::lower_program_entry(prepared);
+        const auto stored_closures = vkf::machine_ir::specialize_stored_closures(prepared);
+        const auto& closure_prepared = stored_closures ? *stored_closures : prepared;
+        const auto immediate_closures =
+            vkf::machine_ir::specialize_immediate_closures(closure_prepared);
+        const auto& callable_prepared = immediate_closures
+            ? *immediate_closures : closure_prepared;
+        const auto module = vkf::wasm::lower_program_entry(callable_prepared);
         const auto bytecode = vkf::wasm::bytecode::lower_typed_module_to_bytecode(module);
         vkf::wasm::vm::EmitterOptions emitter_options;
         emitter_options.arena_capacity = 64U * 1024U * 1024U;
