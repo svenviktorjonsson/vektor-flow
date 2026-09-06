@@ -162,6 +162,7 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
             return {1, 2};
         case Opcode::Negate:
         case Opcode::PrintValue:
+        case Opcode::CaptureUiEffect:
         case Opcode::StatSum:
         case Opcode::StatMean:
         case Opcode::StatVariance:
@@ -829,7 +830,13 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 emit_finish_push(body, sp_local);
                 break;
             case Opcode::PrintValue:
+            case Opcode::CaptureUiEffect:
                 emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                if (instruction.opcode == Opcode::CaptureUiEffect) {
+                    local_get(body, temp0);
+                    i32_const(body, static_cast<std::uint32_t>(values::Tag::UiEffect));
+                    i32_store(body, values::tag_offset);
+                }
                 i32_const(body, 2U * values::pointer_size);
                 body.u8(0x10); body.u32_leb(runtime.allocate);
                 local_set(body, temp1);

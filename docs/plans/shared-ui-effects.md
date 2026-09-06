@@ -1,13 +1,20 @@
 # Shared compiler UI effects
 
 Status: all five source-level prerequisites GREEN, including canonical retained
-handle alias acceptance. Not evidence of runtime UI execution. Receipts:
+handle alias acceptance. The first WASM runtime slice (ordinary add/update/add)
+is also GREEN through a private packet extractor; it executes the emitted
+program, evaluates operands at each effect site, and builds retained-scene
+packets from WASM memory. This is not yet production UI execution. Receipts:
 [initial private frontend](../evidence/shared-ui-private-frontend-2026-09-05.md)
 and [alias production parity](../evidence/shared-ui-handle-alias-2026-09-05.md).
 The production-owned C++ private compilation form is now verified separately:
 [compilation-form receipt](../evidence/shared-ui-compilation-form-2026-09-06.md).
-Public canonical responses are unchanged. Runtime effect consumption is still
-the next gate; retaining a form does not make UI examples executable.
+Public canonical responses are unchanged. See the
+[first WASM runtime receipt](../evidence/shared-ui-runtime-effects-2026-09-06.md).
+The production browser bridge, immutable snapshots under in-place mutation,
+native effect execution, and the remaining four runtime fixtures are still
+gates; retaining and privately extracting packets does not make UI examples
+executable in the site.
 
 Observed RED: all five tests fail on the current shared artifacts, with native
 and WASM responses equal. The first four compile successfully but contain zero

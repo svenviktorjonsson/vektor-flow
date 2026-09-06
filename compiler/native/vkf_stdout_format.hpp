@@ -161,7 +161,10 @@ public:
         range(payload, static_cast<std::size_t>(length) * 4);
         std::string output;
         for (std::uint32_t index = 0; index < length; ++index) {
-            output += value(u32(payload + index * 4), ordered ? 15 : 17);
+            const auto value_pointer = u32(payload + index * 4);
+            range(value_pointer, 16);
+            if (u32(value_pointer) == 7) continue;
+            output += value(value_pointer, ordered ? 15 : 17);
             output += '\n';
         }
         return output;

@@ -4,6 +4,7 @@
 #include "compiler/native/vkf_module_snapshots.hpp"
 #include "compiler/native/vkf_test_suite.hpp"
 #include "compiler/native/vkf_output_effects.hpp"
+#include "compiler/native/vkf_ui_effect_packets.hpp"
 #include "compiler/native/vkf_stdout_format.hpp"
 #include "compiler/native/vkf_wasm_artifact_manifest.hpp"
 #include "compiler/native/vkf_wasm_program_lowering.hpp"
@@ -61,8 +62,9 @@ extern "C" int vkf_emit_program() {
     program.clear();
     try {
         if (!compiled) throw std::runtime_error("No successfully compiled VKF source");
-        const auto captured = vkf::module_snapshots::capture_module_literal_snapshots(typed_ir);
-        const auto& prepared = captured ? *captured : typed_ir;
+        const auto& runtime_ir = execution_ir.is_null() ? typed_ir : execution_ir;
+        const auto captured = vkf::module_snapshots::capture_module_literal_snapshots(runtime_ir);
+        const auto& prepared = captured ? *captured : runtime_ir;
         ordered_stdout = vkf::output_effects::has_nested_output_effect(prepared);
         const auto module = vkf::wasm::lower_program_entry(prepared);
         const auto bytecode = vkf::wasm::bytecode::lower_typed_module_to_bytecode(module);
@@ -141,6 +143,23 @@ extern "C" int vkf_format_stdout(const std::uint8_t* memory, std::uint32_t lengt
         return 1;
     }
 }
+
+#ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
+extern "C" int vkf_format_ui_packets(const std::uint8_t* memory, std::uint32_t length,
+                                      std::uint32_t output_pointer,
+                                      double width, double height) {
+    try {
+        result = vf::json_stringify(vf::JsonValue::Object{
+            {"ok", true}, {"packets", vkf::ui_effect_packets::extract(
+                memory, length, output_pointer, width, height)}}, -1);
+        return 0;
+    } catch (const std::exception& error) {
+        result = vf::json_stringify(vf::JsonValue::Object{
+            {"ok", false}, {"message", error.what()}}, -1);
+        return 1;
+    }
+}
+#endif
 
 extern "C" const std::uint8_t* vkf_program_pointer() { return program.data(); }
 extern "C" std::uint32_t vkf_program_length() {

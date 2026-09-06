@@ -117,7 +117,8 @@ inline ValueType lower_type(
         if (separator != std::string::npos) return lower_type(type.substr(separator + 2), context);
     }
     if (type == "num" || type == "f32" || type == "f64"
-        || type == "i32" || type == "i64") {
+        || type == "i32" || type == "i64" || type == "Layer"
+        || type.rfind("Display<", 0) == 0 || type.rfind("Frame<", 0) == 0) {
         return ValueType::Number;
     }
     if (type == "bool") {
@@ -918,6 +919,29 @@ private:
         if (kind == "wasm_output_values") {
             emit(state, Opcode::OutputValues, ValueType::Array);
             return ValueType::Array;
+        }
+        if (kind == "retained_ui_effect") {
+            emit(state, Opcode::PushConstant, ValueType::String,
+                intern_constant(Constant::utf8_string(
+                    string_field(object, "effect_kind", context))));
+            const auto& arguments = array_of(field(object, "arguments", context),
+                context + ".arguments");
+            for (std::size_t index = 0; index < arguments.size(); ++index) {
+                const auto argument_context = context + ".arguments[" +
+                    std::to_string(index) + "]";
+                const auto& argument = object_of(arguments[index], argument_context);
+                emit(state, Opcode::PushConstant, ValueType::String,
+                    intern_constant(Constant::utf8_string(
+                        string_field(argument, "name", argument_context))));
+                lower_expression(field(argument, "value", argument_context), state,
+                    argument_context + ".value");
+            }
+            emit(state, Opcode::MakeArray, ValueType::Array,
+                checked_index(1 + arguments.size() * 2, "UI effect operand count"));
+            emit(state, Opcode::CaptureUiEffect, ValueType::Dynamic);
+            emit(state, Opcode::Pop, ValueType::Void);
+            return lower_expression(field(object, "result", context), state,
+                context + ".result");
         }
         if (kind == "const") {
             const ValueType type = expression_type(object, context);

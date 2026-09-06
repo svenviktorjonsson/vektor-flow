@@ -1,0 +1,53 @@
+# Shared UI runtime effects: first WASM slice
+
+Date: 2026-09-06
+
+Base: `92155d9a feat(wasm): retain private UI compilation form`
+
+## Scope
+
+This packet lowers compiler-private `retained_ui_effect` nodes into the emitted
+WASM program and captures executed operands in source order. A private compiler
+probe reads only the program's WASM memory and passes evaluated numeric vectors
+to the existing compiler-owned retained-scene geometry packer. UI-effect values
+are excluded from console formatting. No host import, JavaScript evaluation,
+metadata replay, source rewrite, fallback, public export, or canonical response
+field is introduced.
+
+The focused fixture executes a Display/Frame program containing two `add`
+calls separated by `.y:y+1`. It verifies two packets in source order, unchanged
+x bounds, y bounds shifted by exactly one, distinct authored IDs, empty console
+output, and byte-for-byte-equivalent JSON from a fresh execution.
+
+## RED to GREEN
+
+- RED: `tests/bootstrap/shared-ui-runtime-effects.test.mjs` failed 0/1 because
+  `vkf_format_ui_packets` did not exist in the isolated private probe.
+- GREEN: the same focused test passes 1/1 after emitted-program execution and
+  compiler-owned packet extraction were implemented.
+
+## Regression gates
+
+Pinned toolchain: `emscripten/emsdk:4.0.14` via the repository's
+`vkf-trig-toolchain:14` image.
+
+- focused runtime UI fixture: 1/1
+- UI/frontend bootstrap group: 38/38
+- execution/public-boundary group: 91/91
+- fresh strict native suite: 451/451
+- full native/WASM comparison: 133/451 pass, 318 known failures
+- exact comparison with the compilation-form baseline: 451 entries,
+  0 differences
+
+The public shared compiler export boundary and canonical compile response remain
+unchanged; the packet formatter is exported only by `scripts/shared-ui-probe.mk`.
+
+## Remaining RED gates
+
+- connect compiler-owned versioned packets to the production browser runner;
+- prove earlier effects own deep snapshots when operands are mutated in place;
+- execute the source-order marker, failure-short-circuit, conditional, and alias
+  fixtures in WASM;
+- implement and verify the corresponding native effect execution path;
+- complete every README and linked-guide example through the same client-side
+  compiler/WASM pipeline.

@@ -115,6 +115,8 @@ enum class Opcode : std::uint16_t {
     StatCount = 81,
     // Private emitted-program construction; requires bytecode version 3.
     MakeTuple = 82,
+    // Private runtime UI operand capture; requires bytecode version 3.
+    CaptureUiEffect = 83,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -216,7 +218,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::MakeTuple);
+        <= static_cast<std::uint16_t>(Opcode::CaptureUiEffect);
 }
 
 inline bool is_valid_utf8(const std::string& value) {
@@ -512,7 +514,8 @@ inline bool uses_private_tuple_operations(const Module& module) {
     bool private_tuple = false;
     for (const auto& function : module.functions)
         for (const auto& instruction : function.instructions)
-            private_tuple = private_tuple || instruction.opcode == Opcode::MakeTuple;
+            private_tuple = private_tuple || instruction.opcode == Opcode::MakeTuple
+                || instruction.opcode == Opcode::CaptureUiEffect;
     return private_tuple;
 }
 
@@ -643,6 +646,10 @@ inline Module deserialize(const std::vector<std::uint8_t>& bytes) {
             if (version == detail::format_version &&
                 function.instructions.back().opcode == Opcode::MakeTuple) {
                 throw BytecodeError("private tuple opcode requires bytecode version 3");
+            }
+            if (version == detail::format_version &&
+                function.instructions.back().opcode == Opcode::CaptureUiEffect) {
+                throw BytecodeError("private UI effect opcode requires bytecode version 3");
             }
         }
         module.functions.push_back(std::move(function));

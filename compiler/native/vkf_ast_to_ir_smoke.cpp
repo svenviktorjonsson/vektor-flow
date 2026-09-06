@@ -2022,9 +2022,11 @@ private:
 
     vf::JsonValue private_ui_effect(vf::JsonValue result,
                                     const vf::JsonValue::Array& named_args,
+                                    const std::string& effect_kind,
                                     const std::string& identity, std::size_t index) const {
         if (!retain_ui_effects_) return result;
         auto effect = node("retained_ui_effect");
+        effect["effect_kind"] = vf::JsonValue(effect_kind);
         effect[identity] = vf::JsonValue(static_cast<double>(index));
         vf::JsonValue::Array operands;
         for (const auto& argument : named_args) {
@@ -4227,7 +4229,8 @@ private:
                 vf::JsonValue handle = num_const(
                     static_cast<double>(ui_displays_.size() - 1));
                 handle.as_object()["type"] = vf::JsonValue("Display<2>");
-                return private_ui_effect(std::move(handle), named_args, "display_id", ui_displays_.size() - 1);
+                return private_ui_effect(std::move(handle), named_args, "display",
+                    "display_id", ui_displays_.size() - 1);
             }
             if (string_field(callee_ast, "kind", "call.callee") == "attribute") {
                 const auto& owner_ast = object_of(
@@ -4472,7 +4475,7 @@ private:
                             // Only the ordinary add frontend slice is retained here.
                             // Canonical lowering and temporal/indexed paths stay unchanged.
                             if (retain_ui_effects_ && !temporal_add && !indexed_add) {
-                                return private_ui_effect(std::move(layer), named_args,
+                                return private_ui_effect(std::move(layer), named_args, "add",
                                     "operation_index", ui_operations_.size() - 1);
                             }
                             return layer;
@@ -4710,7 +4713,8 @@ private:
                         ui_result_type_ = "Frame<2>";
                         vf::JsonValue frame = num_const(static_cast<double>(frame_index));
                         frame.as_object()["type"] = vf::JsonValue("Frame<2>");
-                        return private_ui_effect(std::move(frame), named_args, "operation_index", ui_operations_.size() - 1);
+                        return private_ui_effect(std::move(frame), named_args, "add_frame",
+                            "operation_index", ui_operations_.size() - 1);
                     }
                     if (starts_with(queue_type, "queue<")) {
                         if (!named_args.empty() || !spread_args.empty()) {
