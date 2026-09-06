@@ -45,6 +45,7 @@
       } from '../../web/vf-ui/vf-tree-webgpu-packets.mjs';
 
       const frameId = 'tree_webgpu_static_frame';
+      const requestedView = new URLSearchParams(location.search).get('view') || 'full';
       const identity = Object.freeze({
         generator: 'vkf.conditioned',
         version: 1,
@@ -110,7 +111,7 @@
           resizable: false,
           closable: false,
         });
-        panel.root.style.left = '4%';
+        panel.root.style.left = requestedView === 'full' ? '4%' : '-400%';
         panel.root.style.top = '3%';
         panel.root.style.width = '92%';
         panel.root.style.height = '94%';
@@ -165,7 +166,7 @@
           resizable: false,
           closable: false,
         });
-        junctionPanel.root.style.left = '104%';
+        junctionPanel.root.style.left = requestedView === 'junction' ? '4%' : '-400%';
         junctionPanel.root.style.top = '3%';
         junctionPanel.root.style.width = '92%';
         junctionPanel.root.style.height = '94%';
@@ -272,7 +273,7 @@
           resizable: false,
           closable: false,
         });
-        twigPanel.root.style.left = '204%';
+        twigPanel.root.style.left = requestedView === 'twig' ? '4%' : '-400%';
         twigPanel.root.style.top = '3%';
         twigPanel.root.style.width = '92%';
         twigPanel.root.style.height = '94%';
@@ -317,7 +318,7 @@
           resizable: false,
           closable: false,
         });
-        barkPanel.root.style.left = '304%';
+        barkPanel.root.style.left = requestedView === 'bark' ? '4%' : '-400%';
         barkPanel.root.style.top = '3%';
         barkPanel.root.style.width = '92%';
         barkPanel.root.style.height = '94%';

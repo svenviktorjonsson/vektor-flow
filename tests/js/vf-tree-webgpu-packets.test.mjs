@@ -319,7 +319,8 @@ test('procedural bark perturbs surface normals with bounded multiscale relief', 
     indexBudget: 393216,
   });
   assert.match(result.bark.materialChannels, /normal/u);
-  assert.ok(result.woodTopology.trunkBarkSides >= 24);
+  assert.ok(result.woodTopology.trunkBarkSides >= 30);
+  assert.ok(result.woodTopology.trunkBarkSteps >= 64);
   assert.ok(result.bark.normalStrength >= 0.2 && result.bark.normalStrength <= 0.8);
   const wood = result.meshes[0];
   const normals = Array.from({ length: 12 }, (_, vertex) => (
@@ -333,6 +334,24 @@ test('procedural bark perturbs surface normals with bounded multiscale relief', 
   });
   assert.ok(Math.max(...angularTurns) - Math.min(...angularTurns) > 0.08);
   assert.ok(angularTurns.every((turn) => turn < 1.25));
+});
+
+test('neutral-light bark exposes species-owned fissure and micro-ridge bandwidth', () => {
+  const result = adaptTreeRenderPacketToWebGpuMeshesReference(sourcePacket(), {
+    vertexBudget: 65536,
+    indexBudget: 393216,
+  });
+  const detail = result.bark.detailProfile;
+  assert.ok(result.bark.ridgeCount >= 10 && result.bark.ridgeCount <= 18);
+  assert.ok(detail.fissureSharpness >= 6 && detail.fissureSharpness <= 10);
+  assert.ok(detail.grainAxialFrequency >= detail.fissureAxialFrequency * 2);
+  assert.ok(detail.microRidgeWeight >= 0.20 && detail.microRidgeWeight <= 0.34);
+  const roughness = result.meshes[0].roughness;
+  let transitions = 0;
+  for (let index = 1; index < roughness.length; index += 1) {
+    if (Math.abs(roughness[index] - roughness[index - 1]) > 0.025) transitions += 1;
+  }
+  assert.ok(transitions / roughness.length > 0.12);
 });
 
 test('conditioned leaves form bounded petioles and pointed ovate nondegenerate blades', () => {

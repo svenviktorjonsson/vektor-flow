@@ -11,6 +11,7 @@ const LEAF_VERTEX_COUNT = 12;
 const LEAF_INDEX_COUNT = 66;
 const WOOD_RING_SIDES = 12;
 const TRUNK_BARK_RING_SIDES = 30;
+const TRUNK_BARK_STEPS = 64;
 const BRANCH_RING_SIDES = 10;
 const TWIG_RING_SIDES = 8;
 
@@ -528,25 +529,31 @@ function appendWoodyNetwork(builder, packet, bark) {
       + (record.endRadius - record.transform[7]) * along / record.path.length;
   }
   function barkSample(angle, barkAlong) {
+    const detail = bark.detailProfile;
     const ridge = Math.sin(bark.ridgeCount * angle + bark.phase + barkAlong * bark.grainTurns)
       + 0.35 * Math.sin((bark.ridgeCount + 3) * angle - bark.phase * 0.7 + barkAlong * 9);
     const ridgeNoise = ridge / 1.35;
     const fissure = Math.pow(Math.max(0, Math.cos(
-      (bark.ridgeCount - 1) * angle - bark.phase * 0.43 + barkAlong * 73,
-    )), 4);
-    const grain = Math.sin(barkAlong * 190 + angle * 2 + bark.phase * 1.7);
+      (bark.ridgeCount - 1) * angle - bark.phase * 0.43
+        + barkAlong * detail.fissureAxialFrequency,
+    )), detail.fissureSharpness);
+    const grain = Math.sin(barkAlong * detail.grainAxialFrequency + angle * 2 + bark.phase * 1.7);
     const microRidge = Math.sin(
-      (bark.ridgeCount + 5) * angle + barkAlong * 47 - bark.phase * 0.35,
+      (bark.ridgeCount + 5) * angle + barkAlong * detail.microRidgeAxialFrequency
+        - bark.phase * 0.35,
     );
     return {
       ridgeNoise,
       fissure,
       materialNoise: clamp(
-        ridgeNoise * 0.44 + grain * 0.16 + microRidge * 0.22 - fissure * 1.18,
+        ridgeNoise * 0.44 + grain * 0.16 + microRidge * detail.microRidgeWeight
+          - fissure * 1.18,
         -1,
         1,
       ),
-      displacement: bark.ridgeAmplitude * (ridgeNoise + microRidge * 0.18 - fissure * 0.38),
+      displacement: bark.ridgeAmplitude * (
+        ridgeNoise + microRidge * detail.microRidgeWeight - fissure * 0.38
+      ),
     };
   }
   function ring(record, along, sides = WOOD_RING_SIDES) {
@@ -656,7 +663,8 @@ function appendWoodyNetwork(builder, packet, bark) {
     }
     if (cursor < record.path.length - 1e-8) spans.push([cursor, record.path.length]);
     for (const [start, end] of spans) {
-      const barkSteps = record.kind === KIND_TRUNK ? 64 : record.kind === KIND_BRANCH ? 2 : 1;
+      const barkSteps = record.kind === KIND_TRUNK ? TRUNK_BARK_STEPS
+        : record.kind === KIND_BRANCH ? 2 : 1;
       const uniformStations = Array.from({ length: barkSteps - 1 }, (_, step) => (
         start + (end - start) * (step + 1) / barkSteps
       ));
@@ -741,6 +749,7 @@ function appendWoodyNetwork(builder, packet, bark) {
     topology: Object.freeze({
       ringSides: WOOD_RING_SIDES,
       trunkBarkSides: TRUNK_BARK_RING_SIDES,
+      trunkBarkSteps: TRUNK_BARK_STEPS,
       branchSides: BRANCH_RING_SIDES,
       twigSides: TWIG_RING_SIDES,
       boundaryEdges: [...edgeUse.values()].filter((count) => count === 1).length,
@@ -944,6 +953,13 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     roughnessVariation: barkProfile.roughnessVariation,
     colorVariation: barkProfile.colorVariation,
     normalStrength: barkProfile.normalStrength,
+    detailProfile: Object.freeze({
+      fissureSharpness: barkProfile.fissureSharpness,
+      fissureAxialFrequency: barkProfile.fissureAxialFrequency,
+      grainAxialFrequency: barkProfile.grainAxialFrequency,
+      microRidgeWeight: barkProfile.microRidgeWeight,
+      microRidgeAxialFrequency: barkProfile.microRidgeAxialFrequency,
+    }),
   });
   const woodNetwork = appendWoodyNetwork(wood, packet, bark);
   const leafParameterValues = [];
