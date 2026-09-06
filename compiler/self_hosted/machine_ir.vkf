@@ -292,6 +292,48 @@ _bootstrap_x64_empty_string_record_entry(
     result.bytes: bytes
     result
 
+# Private runner entry for a source-produced compiler function accepting one
+# borrowed list and returning `(owned_list, count)`. The list contains empty
+# string cells; only its structural length is observed by this bounded seam.
+_bootstrap_x64_string_list_count_entry(
+    element_count:num, result_count:num, windows:bit
+):
+    [num] bytes: []
+    result: (valid:false, bytes:bytes, relocation_offset:0)
+    (element_count < 1 \/ element_count > 16383 \/ element_count % 1 != 0 \/
+        result_count != 2 \/ ~windows)?
+        @: result
+    cell_count: element_count * 2
+    allocation_size: cell_count * 8 + 16
+    frame: _bootstrap_x64_frame(0, 3, windows)
+    ~frame.valid?
+        @: result
+    .bytes: _bootstrap_x64_prologue(frame.frame_bytes, frame.xmm_slot, frame.gpr_slot, windows)
+    .bytes: bytes & [76, 137, 165] & _bootstrap_x64_word(-(frame.context + 1) * 8)
+    .bytes: bytes & [73, 137, 204, 185] & _bootstrap_x64_word(allocation_size)
+    .bytes: bytes & [65, 255, 84, 36, 64, 72, 133, 192, 15, 133]
+    allocated_reference: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0, 65, 255, 84, 36, 80, 204]
+    .bytes: _bootstrap_x64_patch_relative(bytes, allocated_reference, bytes.length())
+    .bytes: bytes & [72, 199, 0] & _bootstrap_x64_word(cell_count)
+    .bytes: bytes & [72, 199, 64, 8] & _bootstrap_x64_word(cell_count)
+    .bytes: bytes & [73, 137, 195, 72, 141, 120, 16, 72, 49, 192, 185]
+    .bytes: bytes & _bootstrap_x64_word(cell_count)
+    .bytes: bytes & [243, 72, 171, 76, 137, 157, 248, 255, 255, 255]
+    .bytes: bytes & [76, 141, 149, 248, 255, 255, 255]
+    .bytes: bytes & [76, 141, 157, 240, 255, 255, 255, 232]
+    result.relocation_offset: bytes.length()
+    .bytes: bytes & [0, 0, 0, 0]
+    # Free returned clone then borrowed-call input; preserve count in its slot.
+    .bytes: bytes & [72, 139, 141, 240, 255, 255, 255, 65, 255, 84, 36, 72]
+    .bytes: bytes & [72, 139, 141, 248, 255, 255, 255, 65, 255, 84, 36, 72]
+    .bytes: bytes & [242, 15, 16, 133, 232, 255, 255, 255]
+    .bytes: bytes & [76, 139, 165] & _bootstrap_x64_word(-(frame.context + 1) * 8)
+    .bytes: bytes & _bootstrap_x64_epilogue(frame.xmm_slot, frame.gpr_slot, windows)
+    result.valid: true
+    result.bytes: bytes
+    result
+
 # Complete scalar-constant entry bytes, still without an executable container.
 _bootstrap_x64_entry_constant(local_count:num, maximum:num, value:num, windows:bit):
     result: _bootstrap_x64_entry_prefix(local_count, maximum, value, windows)
