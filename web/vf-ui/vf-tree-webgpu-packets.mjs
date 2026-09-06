@@ -4,10 +4,14 @@ const KIND_TRUNK = 0;
 const KIND_CROWN = 1;
 const KIND_BRANCH = 2;
 const KIND_FOLIAGE = 3;
+const KIND_TWIG = 4;
 const TRUNK_SIDES = 10;
 const BRANCH_SIDES = 7;
-const LEAVES_PER_CLUSTER = 12;
-const CROWN_LEAVES = 768;
+const TWIG_SIDES = 5;
+const LEAVES_PER_CLUSTER = 24;
+const LEAF_PARAMETER_STRIDE = 9;
+const LEAF_VERTEX_COUNT = 16;
+const LEAF_INDEX_COUNT = 72;
 
 function add(left, right) {
   return left.map((value, axis) => value + right[axis]);
@@ -39,6 +43,38 @@ function basis(direction) {
   return [first, normalize(cross(direction, first))];
 }
 
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function hashString(value, initial = 0x811c9dc5) {
+  let hash = initial >>> 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 0x01000193) >>> 0;
+  }
+  return hash;
+}
+
+function leafRoot(packet) {
+  return createConditionedRoot({
+    generator: 'vkf.conditioned',
+    version: 1,
+    seed: [hashString(packet.treeId), hashString(packet.id, 0x9e3779b9)],
+    domain: 'material',
+    hierarchy: ['tree:webgpu-leaves', packet.treeId],
+    lod: packet.detailLevel,
+    channel: 'leaf-mesh',
+  });
+}
+
+function boundedNormal(node, lane, mean, standardDeviation, minimum, maximum) {
+  return clamp(
+    sampleNormalReference(node, [0, lane], { mean, standardDeviation }),
+    minimum,
+    maximum,
+  );
+}
+
 function requirePacket(packet) {
   if (
     packet?.kind !== 'tree-render-packet:v1'
@@ -46,32 +82,68 @@ function requirePacket(packet) {
     || packet.primitiveCount < 1
     || !Array.isArray(packet.primitiveIds)
     || !(packet.primitiveKinds instanceof Uint8Array)
+    || !(packet.detailLevels instanceof Uint8Array)
+    || !(packet.parents instanceof Int32Array)
     || !(packet.transforms instanceof Float32Array)
     || !(packet.baseColors instanceof Float32Array)
     || !(packet.surfaceParams instanceof Float32Array)
     || packet.primitiveIds.length !== packet.primitiveCount
     || packet.primitiveKinds.length !== packet.primitiveCount
+    || packet.detailLevels.length !== packet.primitiveCount
+    || packet.parents.length !== packet.primitiveCount
     || packet.transforms.length !== packet.primitiveCount * 8
     || packet.baseColors.length !== packet.primitiveCount * 4
     || packet.surfaceParams.length !== packet.primitiveCount * 4
   ) {
     throw new TypeError('tree render packet is required');
   }
-  const counts = { trunks: 0, crowns: 0, branches: 0, foliageClusters: 0 };
+  const counts = { trunks: 0, crowns: 0, branches: 0, twigs: 0, foliageClusters: 0 };
   for (const kind of packet.primitiveKinds) {
     if (kind === KIND_TRUNK) counts.trunks += 1;
     else if (kind === KIND_CROWN) counts.crowns += 1;
     else if (kind === KIND_BRANCH) counts.branches += 1;
     else if (kind === KIND_FOLIAGE) counts.foliageClusters += 1;
+    else if (kind === KIND_TWIG) counts.twigs += 1;
     else throw new RangeError('tree WebGPU primitive kind is unsupported');
   }
   if (
     counts.trunks !== 1
     || counts.crowns !== 1
-    || counts.branches !== 4
-    || counts.foliageClusters !== 16
+    || counts.branches !== 18
+    || counts.twigs < 24
+    || counts.twigs > 54
+    || counts.foliageClusters !== counts.twigs
   ) {
     throw new RangeError('complete tree detail packet is required');
+  }
+  for (let index = 0; index < packet.primitiveCount; index += 1) {
+    const kind = packet.primitiveKinds[index];
+    const parent = packet.parents[index];
+    if (kind === KIND_BRANCH && !(
+      parent >= 0
+      && parent < index
+      && (packet.primitiveKinds[parent] === KIND_TRUNK
+        || packet.primitiveKinds[parent] === KIND_BRANCH)
+    )) throw new RangeError('complete tree detail packet is required');
+    if (kind === KIND_FOLIAGE && !(
+      parent >= 0
+      && parent < index
+      && packet.primitiveKinds[parent] === KIND_TWIG
+    )) throw new RangeError('complete tree detail packet is required');
+    if (kind === KIND_TWIG && !(
+      parent >= 0
+      && parent < index
+      && packet.primitiveKinds[parent] === KIND_BRANCH
+    )) throw new RangeError('complete tree detail packet is required');
+  }
+  const leafParents = new Set();
+  for (let index = 0; index < packet.primitiveCount; index += 1) {
+    if (packet.primitiveKinds[index] === KIND_FOLIAGE) leafParents.add(packet.parents[index]);
+  }
+  for (let index = 0; index < packet.primitiveCount; index += 1) {
+    if (packet.primitiveKinds[index] === KIND_TWIG && !leafParents.has(index)) {
+      throw new RangeError('complete tree detail packet is required');
+    }
   }
   return counts;
 }
@@ -96,6 +168,7 @@ function requireBudgets(vertexBudget, indexBudget) {
 function meshBuilder(vertexBudget, indexBudget, usage) {
   const vertices = [];
   const indices = [];
+  const uvs = [];
   const roughness = [];
   function reserve(vertexCount, indexCount) {
     if (usage.vertices + vertexCount > vertexBudget) {
@@ -107,13 +180,14 @@ function meshBuilder(vertexBudget, indexBudget, usage) {
     usage.vertices += vertexCount;
     usage.indices += indexCount;
   }
-  function vertex(position, normal, color, surfaceRoughness) {
+  function vertex(position, normal, color, surfaceRoughness, uv = [0, 0]) {
     const index = vertices.length / 10;
     vertices.push(...position, ...normal, ...color);
+    uvs.push(...uv);
     roughness.push(surfaceRoughness);
     return index;
   }
-  return { vertices, indices, roughness, reserve, vertex };
+  return { vertices, indices, uvs, roughness, reserve, vertex };
 }
 
 function appendCylinder(builder, transform, color, roughness, sides, taper, centered = false) {
@@ -135,11 +209,17 @@ function appendCylinder(builder, transform, color, roughness, sides, taper, cent
     for (let side = 0; side < sides; side += 1) {
       const angle = 2 * Math.PI * side / sides;
       const normal = add(scale(first, Math.cos(angle)), scale(second, Math.sin(angle)));
-      builder.vertex(add(center, scale(normal, ringRadius)), normal, color, roughness);
+      builder.vertex(
+        add(center, scale(normal, ringRadius)),
+        normal,
+        color,
+        roughness,
+        [side / sides, ring],
+      );
     }
   }
-  const bottom = builder.vertex(origin, scale(direction, -1), color, roughness);
-  const top = builder.vertex(end, direction, color, roughness);
+  const bottom = builder.vertex(origin, scale(direction, -1), color, roughness, [0.5, 0.5]);
+  const top = builder.vertex(end, direction, color, roughness, [0.5, 0.5]);
   for (let side = 0; side < sides; side += 1) {
     const next = (side + 1) % sides;
     const lower = base + side;
@@ -151,72 +231,124 @@ function appendCylinder(builder, transform, color, roughness, sides, taper, cent
   }
 }
 
-function appendLeaves(builder, transform, color, roughness) {
-  const origin = Array.from(transform.slice(0, 3));
-  const direction = normalize(Array.from(transform.slice(3, 6)));
-  const length = transform[6];
-  const width = transform[7];
-  if (!(length > 0) || !(width > 0)) {
-    throw new RangeError('tree WebGPU leaf dimensions must be positive');
-  }
-  builder.reserve(LEAVES_PER_CLUSTER * 4, LEAVES_PER_CLUSTER * 12);
-  const [first, second] = basis(direction);
-  for (let leaf = 0; leaf < LEAVES_PER_CLUSTER; leaf += 1) {
-    const angle = 2 * Math.PI * leaf / LEAVES_PER_CLUSTER + 0.31;
-    const radial = add(scale(first, Math.cos(angle)), scale(second, Math.sin(angle)));
-    const longAxis = normalize(add(radial, scale(direction, 0.38 + 0.08 * (leaf % 2))));
-    const wideAxis = normalize(cross(direction, radial));
-    const normal = normalize(cross(longAxis, wideAxis));
-    const center = add(
-      add(origin, scale(direction, length * (0.08 * (leaf - 2.5)))),
-      scale(radial, width * 0.35),
-    );
-    const halfLength = length * (0.18 + 0.012 * (leaf % 3));
-    const halfWidth = width * (0.24 + 0.02 * (leaf % 2));
-    const base = builder.vertices.length / 10;
-    builder.vertex(add(center, scale(longAxis, halfLength)), normal, color, roughness);
-    builder.vertex(add(center, scale(wideAxis, halfWidth)), normal, color, roughness);
-    builder.vertex(add(center, scale(longAxis, -halfLength)), normal, color, roughness);
-    builder.vertex(add(center, scale(wideAxis, -halfWidth)), normal, color, roughness);
-    builder.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    builder.indices.push(base + 2, base + 1, base, base + 3, base + 2, base);
-  }
+function addDoubleSidedTriangle(indices, first, second, third) {
+  indices.push(first, second, third, third, second, first);
 }
 
-function appendCrownLeaves(builder, transform, color, roughness) {
-  const center = Array.from(transform.slice(0, 3));
+function addDoubleSidedQuad(indices, first, second, third, fourth) {
+  addDoubleSidedTriangle(indices, first, second, third);
+  addDoubleSidedTriangle(indices, first, third, fourth);
+}
+
+function leafParameters(leafNode, transform) {
+  const scaleHint = transform[7];
+  const bladeLength = boundedNormal(
+    leafNode, 0, scaleHint * 0.9, scaleHint * 0.12, scaleHint * 0.6, scaleHint * 1.2,
+  );
+  const widthRatio = boundedNormal(leafNode, 1, 0.46, 0.06, 0.28, 0.65);
+  const baseRoundness = boundedNormal(leafNode, 2, 0.72, 0.07, 0.5, 0.92);
+  const asymmetry = boundedNormal(leafNode, 3, 0, 0.05, -0.16, 0.16);
+  const petioleRatio = boundedNormal(leafNode, 4, 0.27, 0.04, 0.16, 0.4);
+  const camberRatio = boundedNormal(leafNode, 5, 0, 0.025, -0.08, 0.08);
+  const attachment = boundedNormal(leafNode, 6, 0.68, 0.18, 0.12, 0.98);
+  const orientationOffset = boundedNormal(leafNode, 7, 0, 0.34, -0.9, 0.9);
+  const colorVariation = boundedNormal(leafNode, 8, 0, 0.025, -0.06, 0.06);
+  return [
+    bladeLength,
+    bladeLength * widthRatio,
+    baseRoundness,
+    asymmetry,
+    bladeLength * petioleRatio,
+    bladeLength * camberRatio,
+    attachment,
+    orientationOffset,
+    colorVariation,
+  ];
+}
+
+function appendOvateLeaf(builder, transform, color, roughness, parameters, leafIndex) {
+  const origin = Array.from(transform.slice(0, 3));
   const direction = normalize(Array.from(transform.slice(3, 6)));
-  const height = transform[6];
-  const radius = transform[7];
-  if (!(height > 0) || !(radius > 0)) {
-    throw new RangeError('tree WebGPU crown dimensions must be positive');
-  }
-  builder.reserve(CROWN_LEAVES * 4, CROWN_LEAVES * 12);
   const [first, second] = basis(direction);
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  for (let leaf = 0; leaf < CROWN_LEAVES; leaf += 1) {
-    const vertical = 1 - 2 * ((leaf + 0.5) / CROWN_LEAVES);
-    const angle = leaf * goldenAngle;
-    const shell = Math.sqrt(Math.max(0, 1 - vertical * vertical));
-    const radial = add(scale(first, Math.cos(angle)), scale(second, Math.sin(angle)));
-    const tangent = add(scale(first, -Math.sin(angle)), scale(second, Math.cos(angle)));
-    const tilt = ((leaf % 5) - 2) * 0.34;
-    const longAxis = normalize(add(radial, scale(direction, tilt)));
-    const wideAxis = tangent;
-    const normal = normalize(cross(longAxis, wideAxis));
-    const leafCenter = add(
-      add(center, scale(radial, radius * shell * 0.72)),
-      scale(direction, height * vertical * 0.38),
+  const angle = leafIndex * goldenAngle + parameters[7];
+  const radial = add(scale(first, Math.cos(angle)), scale(second, Math.sin(angle)));
+  const wideAxis = normalize(cross(direction, radial));
+  const longAxis = normalize(add(radial, scale(direction, 0.24 + 0.06 * (leafIndex % 3))));
+  const normal = normalize(cross(longAxis, wideAxis));
+  const bladeLength = parameters[0];
+  const bladeWidth = parameters[1];
+  const baseRoundness = parameters[2];
+  const asymmetry = parameters[3];
+  const petioleLength = parameters[4];
+  const camber = parameters[5];
+  const attachment = add(
+    add(origin, scale(direction, transform[6] * parameters[6])),
+    scale(radial, transform[7] * 0.14),
+  );
+  const leafColor = color.map((value, channel) => (
+    channel === 3 ? value : clamp(value + parameters[8], 0, 1)
+  ));
+  const petioleHalfWidth = Math.max(bladeWidth * 0.025, bladeLength * 0.008);
+  const bladeBase = add(attachment, scale(longAxis, petioleLength));
+  const base = builder.vertices.length / 10;
+  builder.vertex(add(attachment, scale(wideAxis, -petioleHalfWidth)), normal, leafColor, roughness, [0.48, 0]);
+  builder.vertex(add(attachment, scale(wideAxis, petioleHalfWidth)), normal, leafColor, roughness, [0.52, 0]);
+  builder.vertex(add(bladeBase, scale(wideAxis, -petioleHalfWidth)), normal, leafColor, roughness, [0.48, 0.16]);
+  builder.vertex(add(bladeBase, scale(wideAxis, petioleHalfWidth)), normal, leafColor, roughness, [0.52, 0.16]);
+  builder.vertex(bladeBase, normal, leafColor, roughness, [0.5, 0.18]);
+  const stations = [0.12, 0.28, 0.48, 0.68, 0.84];
+  for (const station of stations) {
+    const profile = Math.pow(Math.sin(Math.PI * station), baseRoundness)
+      * (1 - station * 0.12);
+    const halfWidth = bladeWidth * 0.5 * profile;
+    const center = add(
+      add(bladeBase, scale(longAxis, bladeLength * station)),
+      add(
+        scale(wideAxis, bladeWidth * asymmetry * Math.sin(Math.PI * station)),
+        scale(normal, camber * Math.sin(Math.PI * station)),
+      ),
     );
-    const halfLength = Math.min(height * 0.04, radius * 0.055);
-    const halfWidth = radius * 0.038;
-    const base = builder.vertices.length / 10;
-    builder.vertex(add(leafCenter, scale(longAxis, halfLength)), normal, color, roughness);
-    builder.vertex(add(leafCenter, scale(wideAxis, halfWidth)), normal, color, roughness);
-    builder.vertex(add(leafCenter, scale(longAxis, -halfLength)), normal, color, roughness);
-    builder.vertex(add(leafCenter, scale(wideAxis, -halfWidth)), normal, color, roughness);
-    builder.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    builder.indices.push(base + 2, base + 1, base, base + 3, base + 2, base);
+    builder.vertex(add(center, scale(wideAxis, -halfWidth)), normal, leafColor, roughness, [0, 0.18 + station * 0.82]);
+    builder.vertex(add(center, scale(wideAxis, halfWidth)), normal, leafColor, roughness, [1, 0.18 + station * 0.82]);
+  }
+  const apex = add(
+    add(bladeBase, scale(longAxis, bladeLength)),
+    scale(normal, camber * 0.18),
+  );
+  builder.vertex(apex, normal, leafColor, roughness, [0.5, 1]);
+  addDoubleSidedQuad(builder.indices, base, base + 1, base + 3, base + 2);
+  addDoubleSidedTriangle(builder.indices, base + 4, base + 5, base + 6);
+  for (let station = 0; station < stations.length - 1; station += 1) {
+    const firstPair = base + 5 + station * 2;
+    const nextPair = firstPair + 2;
+    addDoubleSidedQuad(
+      builder.indices,
+      firstPair,
+      nextPair,
+      nextPair + 1,
+      firstPair + 1,
+    );
+  }
+  addDoubleSidedTriangle(builder.indices, base + 13, base + 15, base + 14);
+}
+
+function appendLeaves(builder, transform, color, roughness, clusterNode, parameterBuffer) {
+  if (!(transform[6] > 0) || !(transform[7] > 0)) {
+    throw new RangeError('tree WebGPU leaf dimensions must be positive');
+  }
+  builder.reserve(
+    LEAVES_PER_CLUSTER * LEAF_VERTEX_COUNT,
+    LEAVES_PER_CLUSTER * LEAF_INDEX_COUNT,
+  );
+  for (let leaf = 0; leaf < LEAVES_PER_CLUSTER; leaf += 1) {
+    const leafNode = conditionChild(clusterNode, {
+      segment: `leaf:${leaf}`,
+      channel: 'leaf-geometry',
+    });
+    const parameters = leafParameters(leafNode, transform);
+    parameterBuffer.push(...parameters);
+    appendOvateLeaf(builder, transform, color, roughness, parameters, leaf);
   }
 }
 
@@ -236,6 +368,7 @@ function finishMesh(packet, suffix, objectId, builder) {
     receives_shadow: true,
     specular_strength: Math.max(0.02, 0.12 * (1 - meanRoughness)),
     vertices: new Float32Array(builder.vertices),
+    uvs: new Float32Array(builder.uvs),
     indices: new Uint32Array(builder.indices),
   });
 }
@@ -249,6 +382,8 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
   const usage = { vertices: 0, indices: 0 };
   const wood = meshBuilder(vertexBudget, indexBudget, usage);
   const foliage = meshBuilder(vertexBudget, indexBudget, usage);
+  const root = leafRoot(packet);
+  const leafParameterValues = [];
   for (let primitive = 0; primitive < packet.primitiveCount; primitive += 1) {
     const kind = packet.primitiveKinds[primitive];
     const transform = packet.transforms.subarray(primitive * 8, primitive * 8 + 8);
@@ -256,12 +391,22 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     const roughness = packet.surfaceParams[primitive * 4];
     if (kind === KIND_TRUNK) {
       appendCylinder(wood, transform, color, roughness, TRUNK_SIDES, 0.72, true);
-    } else if (kind === KIND_CROWN) {
-      appendCrownLeaves(foliage, transform, color, roughness);
     } else if (kind === KIND_BRANCH) {
       appendCylinder(wood, transform, color, roughness, BRANCH_SIDES, 0.45);
+    } else if (kind === KIND_TWIG) {
+      appendCylinder(wood, transform, color, roughness, TWIG_SIDES, 0.32);
     } else if (kind === KIND_FOLIAGE) {
-      appendLeaves(foliage, transform, color, roughness);
+      appendLeaves(
+        foliage,
+        transform,
+        color,
+        roughness,
+        conditionChild(root, {
+          segment: packet.primitiveIds[primitive],
+          channel: 'leaf-cluster',
+        }),
+        leafParameterValues,
+      );
     }
   }
   const vertexCount = wood.vertices.length / 10 + foliage.vertices.length / 10;
@@ -281,14 +426,22 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     ]),
     counts: Object.freeze({
       trunks: sourceCounts.trunks,
-      crowns: sourceCounts.crowns,
+      crowns: 0,
       branches: sourceCounts.branches,
+      twigs: sourceCounts.twigs,
       foliageClusters: sourceCounts.foliageClusters,
-      leaves: CROWN_LEAVES + sourceCounts.foliageClusters * LEAVES_PER_CLUSTER,
+      leaves: sourceCounts.foliageClusters * LEAVES_PER_CLUSTER,
     }),
+    leafParameterStride: LEAF_PARAMETER_STRIDE,
+    leafParameters: new Float32Array(leafParameterValues),
     vertexCount,
     indexCount,
     vertexBudget,
     indexBudget,
   });
 }
+import {
+  conditionChild,
+  createConditionedRoot,
+  sampleNormalReference,
+} from './vf-conditioned-distribution.mjs';

@@ -35,13 +35,13 @@ function fullTreeWorkingSets() {
   const geometry = planTreeGeometryReference(
     createTreeGeometryPlannerReference(IDENTITY),
     forest,
-    { treeIndices: [0], detailLevels: [2], primitiveBudget: 64 },
+    { treeIndices: [0], detailLevels: [2], primitiveBudget: 128 },
   );
   const materials = realizeTreeMaterialsReference(
     createTreeMaterialFieldReference(IDENTITY),
     forest,
     geometry,
-    { materialBudget: 64 },
+    { materialBudget: 128 },
   );
   return { geometry, materials };
 }
@@ -54,7 +54,7 @@ test('tree renderer adapter batches aligned geometry and materials with zero ste
   assert.equal(first.packets.length, 1);
   assert.equal(first.packets[0].kind, 'tree-render-packet:v1');
   assert.equal(first.packets[0].treeId, geometry.trees[0].id);
-  assert.equal(first.packets[0].primitiveCount, 22);
+  assert.equal(first.packets[0].primitiveCount, geometry.primitiveCount);
   assert.deepEqual(first.packets[0].primitiveIds, geometry.primitiveIds);
   assert.deepEqual(Array.from(first.packets[0].primitiveKinds), Array.from(geometry.kinds));
   assert.deepEqual(Array.from(first.packets[0].materialKinds), Array.from(materials.materialKinds));
@@ -62,8 +62,12 @@ test('tree renderer adapter batches aligned geometry and materials with zero ste
   assert.deepEqual(Array.from(first.packets[0].baseColors), Array.from(materials.baseColors));
   assert.deepEqual(Array.from(first.packets[0].surfaceParams), Array.from(materials.surfaceParams));
   assert.deepEqual(Array.from(first.packets[0].parents), Array.from(geometry.parents));
-  assert.equal(first.packets[0].vectorBytes, 22 * 71);
-  assert.deepEqual(first.delta.upload, { packets: 1, primitives: 22, bytes: 22 * 71 });
+  assert.equal(first.packets[0].vectorBytes, geometry.primitiveCount * 71);
+  assert.deepEqual(first.delta.upload, {
+    packets: 1,
+    primitives: geometry.primitiveCount,
+    bytes: geometry.primitiveCount * 71,
+  });
 
   const steady = adaptTreeWorkingSetsToRetainedPacketsReference(geometry, materials, first);
   assert.strictEqual(steady.packets[0], first.packets[0]);
@@ -83,10 +87,10 @@ test('tree renderer adapter retains unchanged trees across refinement and locali
   const coarseGeometry = planTreeGeometryReference(planner, forest, {
     treeIndices: [0, 1],
     detailLevels: [0, 0],
-    primitiveBudget: 64,
+    primitiveBudget: 160,
   });
   const coarseMaterials = realizeTreeMaterialsReference(field, forest, coarseGeometry, {
-    materialBudget: 64,
+    materialBudget: 160,
   });
   const coarse = adaptTreeWorkingSetsToRetainedPacketsReference(
     coarseGeometry,
@@ -110,10 +114,14 @@ test('tree renderer adapter retains unchanged trees across refinement and locali
   assert.notStrictEqual(refined.packets[0], coarse.packets[0]);
   assert.strictEqual(refined.packets[1], coarse.packets[1]);
   assert.deepEqual(refined.delta.unchanged, [coarse.packets[1].id]);
-  assert.deepEqual(refined.delta.upload, { packets: 1, primitives: 22, bytes: 22 * 71 });
-  assert.deepEqual(Array.from(refined.packets[0].parents.slice(0, 6)), [-1, -1, 0, 0, 0, 0]);
-  assert.ok(Array.from(refined.packets[0].parents.slice(6)).every((parent) => (
-    parent >= 2 && parent <= 5
+  assert.deepEqual(refined.delta.upload, {
+    packets: 1,
+    primitives: refined.packets[0].primitiveCount,
+    bytes: refined.packets[0].primitiveCount * 71,
+  });
+  assert.deepEqual(Array.from(refined.packets[0].parents.slice(0, 2)), [-1, -1]);
+  assert.ok(Array.from(refined.packets[0].parents.slice(2)).every((parent, index) => (
+    parent >= 0 && parent < index + 2
   )));
 
   const remainingGeometry = planTreeGeometryReference(planner, forest, {

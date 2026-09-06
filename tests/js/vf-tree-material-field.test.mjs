@@ -34,12 +34,12 @@ function workingSet() {
   const coarse = planTreeGeometryReference(planner, forest, {
     treeIndices: [0],
     detailLevels: [0],
-    primitiveBudget: 64,
+    primitiveBudget: 128,
   });
   const refined = planTreeGeometryReference(planner, forest, {
     treeIndices: [0],
     detailLevels: [2],
-    primitiveBudget: 64,
+    primitiveBudget: 128,
   });
   return { forest, coarse, refined };
 }
@@ -48,21 +48,21 @@ test('tree materials lazily pack bark and foliage over demanded geometry only', 
   const { forest, refined } = workingSet();
   const field = createTreeMaterialFieldReference(IDENTITY);
   const materials = realizeTreeMaterialsReference(field, forest, refined, {
-    materialBudget: 64,
+    materialBudget: 128,
   });
 
   assert.equal(materials.kind, 'tree-material-working-set:v1');
-  assert.equal(materials.materialCount, 22);
-  assert.deepEqual(Array.from(materials.materialKinds), [
-    0, 1, 0, 0, 0, 0,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-  ]);
+  assert.equal(materials.materialCount, refined.primitiveCount);
+  assert.deepEqual(Array.from(materials.materialKinds), Array.from(
+    refined.kinds,
+    (kind) => (kind === 1 || kind === 3 ? 1 : 0),
+  ));
   assert.ok(materials.materialKinds instanceof Uint8Array);
   assert.ok(materials.baseColors instanceof Float32Array);
   assert.ok(materials.surfaceParams instanceof Float32Array);
   assert.equal(materials.baseColors.length, materials.materialCount * 4);
   assert.equal(materials.surfaceParams.length, materials.materialCount * 4);
-  assert.equal(materials.vectorBytes, 22 * 33);
+  assert.equal(materials.vectorBytes, materials.materialCount * 33);
   assert.deepEqual(materials.primitiveIds, refined.primitiveIds);
   assert.deepEqual(Array.from(materials.baseColors.slice(0, 8)), [
     0.2267715483903885,
@@ -90,16 +90,16 @@ test('coarse-to-fine material refinement preserves shared primitive identities',
   const { forest, coarse, refined } = workingSet();
   const field = createTreeMaterialFieldReference(IDENTITY);
   const coarseMaterials = realizeTreeMaterialsReference(field, forest, coarse, {
-    materialBudget: 64,
+    materialBudget: 128,
   });
   const refinedMaterials = realizeTreeMaterialsReference(field, forest, refined, {
-    materialBudget: 64,
+    materialBudget: 128,
   });
   const recreated = realizeTreeMaterialsReference(
     createTreeMaterialFieldReference(IDENTITY),
     forest,
     refined,
-    { materialBudget: 64 },
+    { materialBudget: 128 },
   );
 
   assert.strictEqual(refinedMaterials.materials[0], coarseMaterials.materials[0]);

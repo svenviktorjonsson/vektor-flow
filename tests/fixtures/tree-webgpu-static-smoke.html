@@ -64,13 +64,13 @@
         const geometry = planTreeGeometryReference(
           createTreeGeometryPlannerReference(identity),
           forest,
-          { treeIndices: [0], detailLevels: [2], primitiveBudget: 64 },
+          { treeIndices: [0], detailLevels: [2], primitiveBudget: 128 },
         );
         const materials = realizeTreeMaterialsReference(
           createTreeMaterialFieldReference(identity),
           forest,
           geometry,
-          { materialBudget: 64 },
+          { materialBudget: 128 },
         );
         const retained = adaptTreeWorkingSetsToRetainedPacketsReference(
           geometry,
@@ -78,12 +78,20 @@
         );
         const tree = adaptTreeRenderPacketToWebGpuMeshesReference(
           retained.packets[0],
-          { vertexBudget: 4096, indexBudget: 16384 },
+          { vertexBudget: 32768, indexBudget: 131072 },
         );
-        const x = forest.positions[0];
-        const y = forest.positions[1];
-        const height = forest.growth[1];
-        const crownRadius = forest.growth[2];
+        const minimum = [Infinity, Infinity, Infinity];
+        const maximum = [-Infinity, -Infinity, -Infinity];
+        for (const mesh of tree.meshes) {
+          for (let vertex = 0; vertex < mesh.vertices.length; vertex += 10) {
+            for (let axis = 0; axis < 3; axis += 1) {
+              minimum[axis] = Math.min(minimum[axis], mesh.vertices[vertex + axis]);
+              maximum[axis] = Math.max(maximum[axis], mesh.vertices[vertex + axis]);
+            }
+          }
+        }
+        const center = minimum.map((value, axis) => (value + maximum[axis]) * 0.5);
+        const span = Math.max(...minimum.map((value, axis) => maximum[axis] - value));
         window.__treeWebGpuStaticEvidence = {
           treeId: retained.packets[0].treeId,
           primitiveCount: retained.packets[0].primitiveCount,
@@ -111,11 +119,11 @@
           meshes: tree.meshes,
           camera: {
             pos: [
-              x + height * 0.9,
-              y - height * 1.55,
-              height * 0.65,
+              center[0] + span * 0.75,
+              center[1] - span * 1.4,
+              center[2] + span * 0.3,
             ],
-            target: [x, y, height * 0.52],
+            target: center,
             up: [0, 0, 1],
             fov: 42,
           },
@@ -123,20 +131,20 @@
             {
               id: 'tree_key',
               kind: 'point',
-              pos: [x - height * 0.35, y - height * 0.45, height * 1.25],
-              target: [x, y, height * 0.55],
+              pos: [center[0] - span * 0.45, center[1] - span * 0.55, maximum[2] + span * 0.35],
+              target: center,
               color: [1, 0.91, 0.72, 1],
-              intensity: height * height * 0.7,
-              range: height * 3,
+              intensity: span * span * 0.7,
+              range: span * 3,
             },
             {
               id: 'tree_fill',
               kind: 'point',
-              pos: [x + height * 0.4, y + height * 0.25, height * 0.72],
-              target: [x, y, height * 0.55],
+              pos: [center[0] + span * 0.55, center[1] + span * 0.35, center[2]],
+              target: center,
               color: [0.45, 0.62, 0.5, 1],
-              intensity: height * height * 0.2,
-              range: height * 2.5,
+              intensity: span * span * 0.2,
+              range: span * 2.5,
             },
           ],
           background: [0.12, 0.20, 0.28, 1],

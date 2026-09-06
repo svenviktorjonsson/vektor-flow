@@ -39,20 +39,20 @@ test('tree packet runtime bounds active memory and releases removed tree packets
   const materialField = createTreeMaterialFieldReference(IDENTITY);
   const renders = [];
   const runtime = createTreePacketRuntimeCacheReference({
-    byteBudget: 24 * 71,
+    byteBudget: 130 * 71,
     requestRender: (packets, receipt) => renders.push({ packets, receipt }),
   });
   const realize = (treeIndices, detailLevels, previous = null) => {
     const geometry = planTreeGeometryReference(planner, forest, {
       treeIndices,
       detailLevels,
-      primitiveBudget: 64,
+      primitiveBudget: 160,
     });
     const materials = realizeTreeMaterialsReference(
       materialField,
       forest,
       geometry,
-      { materialBudget: 64 },
+      { materialBudget: 160 },
     );
     return adaptTreeWorkingSetsToRetainedPacketsReference(
       geometry,
@@ -76,14 +76,17 @@ test('tree packet runtime bounds active memory and releases removed tree packets
     packetCount: 2,
     primitiveCount: 4,
     bytes: 4 * 71,
-    byteBudget: 24 * 71,
+    byteBudget: 130 * 71,
   });
 
   const refined = realize([0, 1], [2, 0], coarse);
   const refinedReceipt = runtime.applyDelta(refined.delta);
   assert.equal(refinedReceipt.packetCount, 2);
-  assert.equal(refinedReceipt.primitiveCount, 24);
-  assert.equal(refinedReceipt.bytes, 24 * 71);
+  assert.equal(refinedReceipt.primitiveCount, refined.packets.reduce(
+    (sum, packet) => sum + packet.primitiveCount,
+    0,
+  ));
+  assert.equal(refinedReceipt.bytes, refinedReceipt.primitiveCount * 71);
   assert.strictEqual(runtime.packets()[1], coarse.packets[1]);
 
   const remaining = realize([1], [0], refined);
@@ -93,7 +96,7 @@ test('tree packet runtime bounds active memory and releases removed tree packets
     packetCount: 1,
     primitiveCount: 2,
     bytes: 2 * 71,
-    byteBudget: 24 * 71,
+    byteBudget: 130 * 71,
   });
   assert.strictEqual(runtime.packets()[0], coarse.packets[1]);
   assert.equal(renders.length, 3);
@@ -122,13 +125,16 @@ test('tree packet runtime rejects over-budget deltas without mutating the active
     requestRender: (...args) => renders.push(args),
   });
 
-  assert.throws(() => runtime.applyDelta(state.delta), /requires 1562 bytes; budget is 1561/);
+  assert.throws(
+    () => runtime.applyDelta(state.delta),
+    new RegExp(`requires ${state.packets[0].vectorBytes} bytes; budget is ${state.packets[0].vectorBytes - 1}`),
+  );
   assert.deepEqual(runtime.packets(), []);
   assert.deepEqual(runtime.status(), {
     packetCount: 0,
     primitiveCount: 0,
     bytes: 0,
-    byteBudget: 1561,
+    byteBudget: state.packets[0].vectorBytes - 1,
   });
   assert.deepEqual(renders, []);
 });

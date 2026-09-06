@@ -57,7 +57,7 @@ function requireGeometryPlan(forest, plan) {
     if (plan.owners[index] >= forest.treeCount) {
       throw new RangeError(`tree material owner[${index}] is outside the forest working set`);
     }
-    if (plan.kinds[index] > 3) {
+    if (plan.kinds[index] > 4) {
       throw new RangeError(`tree material kind[${index}] is unsupported`);
     }
   }
@@ -135,7 +135,7 @@ function realizePrimitiveMaterial(tree, primitiveId, geometryKind) {
     segment: primitiveId,
     channel: 'surface-material',
   });
-  const materialKind = geometryKind === 0 || geometryKind === 2
+  const materialKind = geometryKind === 0 || geometryKind === 2 || geometryKind === 4
     ? MATERIAL_BARK
     : MATERIAL_FOLIAGE;
   const speciesColor = materialKind === MATERIAL_BARK

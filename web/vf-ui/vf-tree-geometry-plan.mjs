@@ -10,12 +10,16 @@ const floatBitsView = new DataView(floatBitsBuffer);
 const MAX_DEMANDED_TREES = 4096;
 const MAX_PRIMITIVE_BUDGET = 65536;
 const MAX_CACHED_TREES = MAX_DEMANDED_TREES * 2;
-const BRANCHES_PER_TREE = 4;
-const FOLIAGE_CLUSTERS_PER_BRANCH = 4;
+const PRIMARY_BRANCHES = 6;
+const CHILDREN_PER_BRANCH = 2;
+const TERMINAL_TWIGS_PER_BRANCH = 2;
+const PRIMARY_TWIG_SLOTS = 1;
+const SECONDARY_TWIG_SLOTS = 2;
 const KIND_TRUNK = 0;
 const KIND_CROWN = 1;
 const KIND_BRANCH = 2;
 const KIND_FOLIAGE = 3;
+const KIND_TWIG = 4;
 
 function float64Key(value) {
   floatBitsView.setFloat64(0, value, true);
@@ -75,6 +79,64 @@ function sample(node, sampleIndex, lane, minimum, maximum) {
     min: minimum,
     max: maximum,
   });
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function normalize(vector) {
+  const length = Math.hypot(...vector);
+  if (!(length > 1.0e-12)) throw new RangeError('tree branch direction must be non-zero');
+  return vector.map((value) => value / length);
+}
+
+function branchNode(tree, path) {
+  return conditionChild(tree.node, {
+    segment: `branch:${path.join('.')}`,
+    channel: 'branch-geometry',
+  });
+}
+
+function directionFromAngles(azimuth, elevation) {
+  const horizontal = Math.cos(elevation);
+  return [
+    Math.cos(azimuth) * horizontal,
+    Math.sin(azimuth) * horizontal,
+    Math.sin(elevation),
+  ];
+}
+
+function primaryDirection(node) {
+  return directionFromAngles(
+    sample(node, 0, 0, 0, Math.PI * 2),
+    sample(node, 0, 1, 0.24, 0.72),
+  );
+}
+
+function childDirection(node, parentDirection, generation) {
+  const parentAzimuth = Math.atan2(parentDirection[1], parentDirection[0]);
+  const parentElevation = Math.asin(clamp(parentDirection[2], -1, 1));
+  const azimuthSpread = generation === 1 ? 1.18 : 0.92;
+  const upwardBias = generation === 1 ? 0.08 : 0.12;
+  const maximumElevation = generation === 1 ? 1.02 : 1.18;
+  return normalize(directionFromAngles(
+    parentAzimuth + sample(node, 0, 0, -azimuthSpread, azimuthSpread),
+    clamp(
+      parentElevation + sample(node, 0, 1, -0.24, 0.24) + upwardBias,
+      0.14,
+      maximumElevation,
+    ),
+  ));
+}
+
+function pointAlong(transform, along, centered = false) {
+  const start = centered
+    ? transform.slice(0, 3).map((value, axis) => (
+      value - transform[axis + 3] * transform[6] * 0.5
+    ))
+    : transform.slice(0, 3);
+  return start.map((value, axis) => value + transform[axis + 3] * transform[6] * along);
 }
 
 function primitive(id, kind, level, parentId, transform) {
@@ -146,69 +208,135 @@ function realizeCoarse(tree) {
 }
 
 function realizeBranches(tree) {
-  const [x, y, z] = tree.position;
-  const [trunkRadius, height, crownRadius, crownHeight] = tree.growth;
+  const [trunkRadius, height, crownRadius] = tree.growth;
+  const trunk = realizeLevel(tree, 0)[0];
   const branches = [];
-  for (let branchIndex = 0; branchIndex < BRANCHES_PER_TREE; branchIndex += 1) {
-    const angle = 2 * Math.PI * (
-      branchIndex / BRANCHES_PER_TREE
-      + sample(tree.node, branchIndex, 0, -0.07, 0.07)
-    );
-    const elevation = sample(tree.node, branchIndex, 1, 0.22, 0.62);
-    const length = crownRadius * sample(tree.node, branchIndex, 2, 0.72, 1.18);
-    const originZ = z + height - crownHeight * sample(tree.node, branchIndex, 3, 0.28, 0.78);
+  for (let branchIndex = 0; branchIndex < PRIMARY_BRANCHES; branchIndex += 1) {
+    const node = branchNode(tree, [0, branchIndex]);
+    const direction = primaryDirection(node);
+    const origin = pointAlong(trunk.transform, sample(node, 0, 2, 0.32, 0.88), true);
     branches.push(primitive(
-      `${tree.id}:branch:${branchIndex}`,
+      `${tree.id}:branch:g0:${branchIndex}`,
       KIND_BRANCH,
       1,
-      `${tree.id}:trunk`,
+      trunk.id,
       [
-        x,
-        y,
-        originZ,
-        Math.cos(angle) * Math.cos(elevation),
-        Math.sin(angle) * Math.cos(elevation),
-        Math.sin(elevation),
-        length,
-        trunkRadius * sample(tree.node, branchIndex, 4, 0.12, 0.24),
+        ...origin,
+        ...direction,
+        crownRadius * sample(node, 0, 3, 0.72, 1.16),
+        trunkRadius * sample(node, 0, 4, 0.34, 0.52),
       ],
     ));
   }
   return Object.freeze(branches);
 }
 
-function realizeFoliage(tree, branches) {
+function childBranch(tree, parent, path, generation, childIndex) {
+  const node = branchNode(tree, path);
+  const direction = childDirection(node, parent.transform.slice(3, 6), generation);
+  const along = generation === 1
+    ? sample(node, 0, 2, 0.35, 0.82)
+    : sample(node, 0, 2, 0.42, 0.9);
+  return primitive(
+    `${parent.id}:g${generation}:${childIndex}`,
+    KIND_BRANCH,
+    2,
+    parent.id,
+    [
+      ...pointAlong(parent.transform, along),
+      ...direction,
+      parent.transform[6] * sample(node, 0, 3, generation === 1 ? 0.52 : 0.48, generation === 1 ? 0.72 : 0.68),
+      parent.transform[7] * sample(node, 0, 4, generation === 1 ? 0.52 : 0.48, generation === 1 ? 0.68 : 0.64),
+    ],
+  );
+}
+
+function twigProbability(tree, parent) {
+  const relativeRadius = parent.transform[7] / tree.growth[0];
+  return clamp((0.5 - relativeRadius) / 0.45, 0, 0.82);
+}
+
+function twigShoot(tree, parent, path, twigIndex, terminal) {
+  const node = branchNode(tree, path);
+  return primitive(
+    `${parent.id}:twig:${twigIndex}`,
+    KIND_TWIG,
+    2,
+    parent.id,
+    [
+      ...pointAlong(parent.transform, sample(node, 0, 2, terminal ? 0.55 : 0.28, 0.94)),
+      ...childDirection(node, parent.transform.slice(3, 6), 2),
+      parent.transform[6] * sample(node, 0, 3, terminal ? 0.42 : 0.32, terminal ? 0.62 : 0.54),
+      parent.transform[7] * sample(node, 0, 4, 0.28, 0.48),
+    ],
+  );
+}
+
+function optionalTwigs(tree, parent, path, slotCount, indexOffset = 0) {
+  const twigs = [];
+  const probability = twigProbability(tree, parent);
+  for (let slot = 0; slot < slotCount; slot += 1) {
+    const node = branchNode(tree, [...path, slot]);
+    if (sample(node, 0, 7, 0, 1) < probability) {
+      twigs.push(twigShoot(tree, parent, [...path, slot], indexOffset + slot, false));
+    }
+  }
+  return twigs;
+}
+
+function realizeFine(tree, primaries) {
   const [, , , crownHeight] = tree.growth;
+  const secondaries = [];
+  const twigs = [];
   const foliage = [];
-  branches.forEach((branch, branchIndex) => {
-    const [x, y, z, dx, dy, dz, length] = branch.transform;
-    for (
-      let clusterIndex = 0;
-      clusterIndex < FOLIAGE_CLUSTERS_PER_BRANCH;
-      clusterIndex += 1
-    ) {
-      const sampleIndex = branchIndex * FOLIAGE_CLUSTERS_PER_BRANCH + clusterIndex;
-      const along = sample(tree.node, sampleIndex, 5, 0.34, 1);
-      const radius = crownHeight * sample(tree.node, sampleIndex, 6, 0.06, 0.14);
-      foliage.push(primitive(
-        `${tree.id}:branch:${branchIndex}:foliage:${clusterIndex}`,
+  primaries.forEach((primary, primaryIndex) => {
+    for (let childIndex = 0; childIndex < CHILDREN_PER_BRANCH; childIndex += 1) {
+      secondaries.push(childBranch(
+        tree,
+        primary,
+        [1, primaryIndex, childIndex],
+        1,
+        childIndex,
+      ));
+    }
+  });
+  secondaries.forEach((secondary, secondaryIndex) => {
+    for (let twigIndex = 0; twigIndex < TERMINAL_TWIGS_PER_BRANCH; twigIndex += 1) {
+      twigs.push(twigShoot(tree, secondary, [2, secondaryIndex, twigIndex], twigIndex, true));
+    }
+    twigs.push(...optionalTwigs(
+      tree,
+      secondary,
+      [3, secondaryIndex],
+      SECONDARY_TWIG_SLOTS,
+      TERMINAL_TWIGS_PER_BRANCH,
+    ));
+  });
+  primaries.forEach((primary, primaryIndex) => {
+    twigs.push(...optionalTwigs(
+      tree,
+      primary,
+      [4, primaryIndex],
+      PRIMARY_TWIG_SLOTS,
+    ));
+  });
+  twigs.forEach((twig, twigIndex) => {
+    const node = branchNode(tree, [5, twigIndex]);
+    const radius = crownHeight * sample(node, 0, 5, 0.045, 0.085);
+    foliage.push(primitive(
+        `${twig.id}:foliage`,
         KIND_FOLIAGE,
         2,
-        branch.id,
+        twig.id,
         [
-          x + dx * length * along,
-          y + dy * length * along,
-          z + dz * length * along,
-          dx,
-          dy,
-          dz,
+          ...pointAlong(twig.transform, sample(node, 0, 6, 0.82, 1)),
+          ...twig.transform.slice(3, 6),
           radius * 1.8,
           radius,
         ],
       ));
-    }
   });
-  return Object.freeze(foliage);
+  return Object.freeze([...secondaries, ...twigs, ...foliage]);
 }
 
 function realizeLevel(tree, level) {
@@ -217,7 +345,7 @@ function realizeLevel(tree, level) {
   let records;
   if (level === 0) records = realizeCoarse(tree);
   else if (level === 1) records = realizeBranches(tree);
-  else records = realizeFoliage(tree, realizeLevel(tree, 1));
+  else records = realizeFine(tree, realizeLevel(tree, 1));
   tree.levels.set(level, records);
   return records;
 }
