@@ -119,7 +119,8 @@ inline ValueType lower_type(
     }
     if (type == "num" || type == "f32" || type == "f64"
         || type == "i32" || type == "i64" || type == "Layer"
-        || type.rfind("Display<", 0) == 0 || type.rfind("Frame<", 0) == 0) {
+        || type.rfind("Display<", 0) == 0 || type.rfind("Frame<", 0) == 0
+        || type.rfind("unit<", 0) == 0 || type.rfind("quantity<", 0) == 0) {
         return ValueType::Number;
     }
     if (type == "bool") {

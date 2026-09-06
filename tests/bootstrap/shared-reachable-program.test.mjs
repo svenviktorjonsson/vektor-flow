@@ -76,3 +76,21 @@ for (const [id,example,stdout] of [
     });
   });
 }
+
+test('unchanged linked-guide physics units execute as typed numeric values',async()=>{
+  const wasm=await readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url));
+  const module=new WebAssembly.Module(wasm);
+  const source=`:.physics
+:.physics.units
+
+force: 2kg * 3m / 1s^2
+normal: cross3([1, 0, 0], [0, 1, 0])
+
+:: force / 1N
+:: normal
+`;
+  assert.deepEqual(WebAssembly.Module.imports(module),[]);
+  assert.deepEqual(runInlineWorkerRequest({type:'run',id:9,source,module}),{
+    id:9,status:'ok',output:{kind:'console',stdout:'6\n[0, 0, 1]\n',stderr:''},
+  });
+});
