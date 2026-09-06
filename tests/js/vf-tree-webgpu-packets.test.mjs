@@ -70,13 +70,13 @@ function sourcePacket(detailLevel = 2, identity = IDENTITY) {
   const geometry = planTreeGeometryReference(
     createTreeGeometryPlannerReference(identity),
     forest,
-    { treeIndices: [0], detailLevels: [detailLevel], primitiveBudget: 1800 },
+    { treeIndices: [0], detailLevels: [detailLevel], primitiveBudget: 2400 },
   );
   const materials = realizeTreeMaterialsReference(
     createTreeMaterialFieldReference(identity),
     forest,
     geometry,
-    { materialBudget: 1800 },
+    { materialBudget: 2400 },
   );
   return adaptTreeWorkingSetsToRetainedPacketsReference(
     geometry,
@@ -87,13 +87,13 @@ function sourcePacket(detailLevel = 2, identity = IDENTITY) {
 test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf meshes', () => {
   const source = sourcePacket();
   const result = adaptTreeRenderPacketToWebGpuMeshesReference(source, {
-    vertexBudget: 32768,
-    indexBudget: 131072,
+    vertexBudget: 65536,
+    indexBudget: 393216,
   });
   const twigCount = Array.from(source.primitiveKinds).filter((kind) => kind === 4).length;
   const foliageCount = Array.from(source.primitiveKinds).filter((kind) => kind === 3).length;
 
-  assert.ok(source.primitiveCount >= 480 && source.primitiveCount <= 1690);
+  assert.ok(source.primitiveCount >= 720 && source.primitiveCount <= 2400);
   assert.equal(result.kind, 'tree-webgpu-mesh-state:v1');
   assert.strictEqual(result.source, source);
   assert.equal(result.meshes.length, 2);
@@ -104,7 +104,7 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
   assert.deepEqual(result.counts, {
     trunks: 1,
     crowns: 0,
-    branches: 14,
+    branches: 30,
     twigs: twigCount,
     foliageClusters: foliageCount,
     leaves: foliageCount,
@@ -150,8 +150,8 @@ test('complete deterministic tree becomes bounded WebGPU trunk branch and leaf m
 test('woody split ports share one open junction mesh without internal caps', () => {
   const source = sourcePacket();
   const result = adaptTreeRenderPacketToWebGpuMeshesReference(source, {
-    vertexBudget: 32768,
-    indexBudget: 131072,
+    vertexBudget: 65536,
+    indexBudget: 393216,
   });
   const wood = result.meshes[0];
   assert.ok(result.junctions.length > 0);
@@ -181,21 +181,22 @@ test('woody split ports share one open junction mesh without internal caps', () 
         const next = (side + 1) % port.ringVertices.length;
         const key = [port.ringVertices[side], port.ringVertices[next]]
           .sort((a, b) => a - b).join(':');
-        assert.equal(edgeUse.get(key), 2);
+        assert.equal(edgeUse.get(key), 2, JSON.stringify({ junction: junction.point, role: port.role, side }));
       }
     }
   }
 });
 
-test('every woody path tapers and junction collars keep bounded tangent radius and bark seams', () => {
+test('every woody path tapers and fork skins keep bounded tangent radius and bark seams', () => {
   const source = sourcePacket();
   const result = adaptTreeRenderPacketToWebGpuMeshesReference(source, {
-    vertexBudget: 32768,
-    indexBudget: 131072,
+    vertexBudget: 65536,
+    indexBudget: 393216,
   });
   const woodyCount = Array.from(source.primitiveKinds)
     .filter((kind) => kind === 0 || kind === 2 || kind === 4).length;
   assert.equal(result.woodTopology.taperedSegments, woodyCount);
+  assert.equal(result.woodTopology.frameTransport, 'parallel-transport');
   assert.ok(result.woodTopology.minimumTaper > 0);
   assert.ok(result.woodTopology.maximumTaper < 1);
   for (const junction of result.junctions) {
@@ -206,14 +207,17 @@ test('every woody path tapers and junction collars keep bounded tangent radius a
     assert.ok(outgoing.every((port) => Math.abs(port.barkV - junction.barkV) < 0.08));
     assert.ok(junction.maximumTangentTurn > 0 && junction.maximumTangentTurn < Math.PI * 0.7);
     assert.ok(junction.maximumNormalSeamAngle < 0.35);
+    assert.ok(junction.minimumRadialScale >= 0.9);
+    assert.ok(junction.maximumRadialScale <= 1.001);
+    assert.equal(junction.connectorComponents, 0);
   }
 });
 
 test('connected wood has only root and terminal boundaries with no degenerate or coplanar duplicates', () => {
   const source = sourcePacket();
   const result = adaptTreeRenderPacketToWebGpuMeshesReference(source, {
-    vertexBudget: 32768,
-    indexBudget: 131072,
+    vertexBudget: 65536,
+    indexBudget: 393216,
   });
   const wood = result.meshes[0];
   const woody = new Set();
@@ -233,7 +237,8 @@ test('connected wood has only root and terminal boundaries with no degenerate or
     const points = Array.from(wood.indices.slice(offset, offset + 3), point);
     const ab = subtract(points[1], points[0]);
     const ac = subtract(points[2], points[0]);
-    assert.ok(Math.hypot(...cross(ab, ac)) > 1e-9);
+    const doubledArea = Math.hypot(...cross(ab, ac));
+    assert.ok(doubledArea > 1e-12, `wood triangle doubled area ${doubledArea}`);
     const key = points.map((position) => position.map((value) => value.toFixed(7)).join(','))
       .sort().join(':');
     assert.equal(geometricTriangles.has(key), false);
@@ -243,7 +248,7 @@ test('connected wood has only root and terminal boundaries with no degenerate or
 
 test('tree WebGPU meshes replay exactly and reject incomplete or exceeded packets', () => {
   const source = sourcePacket();
-  const options = { vertexBudget: 32768, indexBudget: 131072 };
+  const options = { vertexBudget: 65536, indexBudget: 393216 };
   const first = adaptTreeRenderPacketToWebGpuMeshesReference(source, options);
   const replay = adaptTreeRenderPacketToWebGpuMeshesReference(source, options);
   assert.deepEqual(replay.meshes, first.meshes);
@@ -278,19 +283,25 @@ test('tree WebGPU meshes replay exactly and reject incomplete or exceeded packet
 test('procedural bark has coherent periodic grain and nonuniform color and roughness', () => {
   const source = sourcePacket();
   const result = adaptTreeRenderPacketToWebGpuMeshesReference(source, {
-    vertexBudget: 32768, indexBudget: 131072,
+    vertexBudget: 65536, indexBudget: 393216,
   });
   const wood = result.meshes[0];
   assert.ok(result.bark.ridgeCount >= source.profile.bark.ridgeCountBounds[0]);
   assert.ok(result.bark.ridgeCount <= source.profile.bark.ridgeCountBounds[1]);
   assert.ok(result.bark.textureVariant >= 0 && result.bark.textureVariant < 3);
-  assert.ok(Math.max(...wood.roughness) - Math.min(...wood.roughness) > 0.03);
+  assert.equal(result.bark.materialChannels, 'albedo+roughness+radial-displacement');
+  assert.deepEqual(result.bark.features, ['ridge', 'furrow', 'fissure', 'lenticel']);
+  assert.ok(Math.max(...wood.roughness) - Math.min(...wood.roughness) > 0.08);
   const colors = new Set();
   for (let vertex = 0; vertex < wood.vertices.length / 10; vertex += 1) {
     colors.add(Array.from(wood.vertices.slice(vertex * 10 + 6, vertex * 10 + 9)).join(','));
     assert.ok(envelopeMetric(source.envelope, wood.vertices.slice(vertex * 10, vertex * 10 + 3)) <= 1.00001);
   }
   assert.ok(colors.size > 20);
+  const red = Array.from({ length: wood.vertices.length / 10 }, (_, vertex) => (
+    wood.vertices[vertex * 10 + 6]
+  ));
+  assert.ok(Math.max(...red) - Math.min(...red) > 0.18);
   const grain = (angle, along) => (
     Math.sin(result.bark.ridgeCount * angle + result.bark.phase + along * result.bark.grainTurns)
       + 0.35 * Math.sin((result.bark.ridgeCount + 3) * angle
@@ -303,8 +314,8 @@ test('procedural bark has coherent periodic grain and nonuniform color and rough
 
 test('conditioned leaves form bounded petioles and pointed ovate nondegenerate blades', () => {
   const result = adaptTreeRenderPacketToWebGpuMeshesReference(sourcePacket(), {
-    vertexBudget: 32768,
-    indexBudget: 131072,
+    vertexBudget: 65536,
+    indexBudget: 393216,
   });
   const foliage = result.meshes[1];
   const stride = result.leafParameterStride;

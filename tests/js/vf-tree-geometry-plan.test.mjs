@@ -34,7 +34,7 @@ function envelopeMetric(e, p) {
 function fullPlan(identity = IDENTITY) {
   const forest = forestWorkingSet(identity);
   return planTreeGeometryReference(createTreeGeometryPlannerReference(identity), forest, {
-    treeIndices: [0], detailLevels: [2], primitiveBudget: 1800,
+    treeIndices: [0], detailLevels: [2], primitiveBudget: 2400,
   });
 }
 
@@ -50,7 +50,14 @@ test('internal species profiles expose bounded future-configurable statistics', 
     assert.ok(profile.pathLength.scaleMean < profile.pathLength.scaleBounds[1]);
     assert.ok(profile.split.mainAngleBounds[0] > 0);
     assert.ok(profile.split.areaLossBounds[1] < 1);
+    assert.equal(profile.split.allometricExponent, 2);
     assert.equal(profile.crownEnvelope.axisScaleMean.length, 3);
+    assert.ok(profile.colonization.attractionPointCount >= 64);
+    assert.ok(profile.colonization.directionBlend > 0 && profile.colonization.directionBlend < 0.6);
+    assert.ok(profile.colonization.lightWeight + profile.colonization.spaceWeight
+      + profile.colonization.alignmentWeight === 1);
+    assert.ok(Math.abs(profile.twig.phyllotaxisDivergence - Math.PI * (3 - Math.sqrt(5))) < 1e-12);
+    assert.deepEqual(profile.bark.featureGrammar, ['ridge', 'furrow', 'fissure', 'lenticel']);
     assert.equal(profile.bark.textureVariantWeights.length, 3);
   }
   assert.throws(() => treeSpeciesProfileReference(5), /must be in/);
@@ -62,9 +69,9 @@ test('binary topology ends parent at split, orders deviation, and loses area', (
   const branches = wood.filter((p) => p.kind === 2);
   const twigs = wood.filter((p) => p.kind === 4);
   const foliage = tree.primitives.filter((p) => p.kind === 3);
-  assert.equal(branches.length, 14); assert.ok(twigs.length >= 48 && twigs.length <= 93);
-  assert.ok(foliage.length >= twigs.length * 9 && foliage.length <= twigs.length * 17);
-  assert.ok(plan.primitiveCount <= 1690);
+  assert.equal(branches.length, 30); assert.ok(twigs.length >= 160 && twigs.length <= 300);
+  assert.ok(foliage.length >= twigs.length * 5 && foliage.length <= twigs.length * 9);
+  assert.ok(plan.primitiveCount <= 2400);
   const children = new Map();
   for (const p of wood) if (p.parentId !== null) {
     if (!children.has(p.parentId)) children.set(p.parentId, []);
@@ -72,7 +79,7 @@ test('binary topology ends parent at split, orders deviation, and loses area', (
   }
   for (const parent of wood) {
     const offspring = (children.get(parent.id) ?? []).filter((child) => child.splitRole);
-    if (parent.kind === 4 && (parent.generation === 5 || parent.twigClass === 'lateral-shoot')) {
+    if (parent.kind === 4 && (parent.generation === 6 || parent.twigClass === 'lateral-shoot')) {
       assert.equal(offspring.length, 0); continue;
     }
     assert.equal(offspring.length, 2);
@@ -110,7 +117,8 @@ test('arc-length budgets consume and terminate inside bounded ellipsoid', () => 
     assert.ok(p.curve.points.every((point) => envelopeMetric(tree.envelope, point) <= 1.00001));
     if (p.parentId !== null) assert.ok(p.pathRemainingBefore <= byParent(tree, p).pathRemainingAfter);
   }
-  assert.ok(wood.filter((p) => p.kind === 4)
+  const parentIds = new Set(wood.map((p) => p.parentId).filter(Boolean));
+  assert.ok(wood.filter((p) => p.kind === 4 && !parentIds.has(p.id))
     .every((p) => p.pathRemainingAfter / tree.targetPathLength < 0.04 || p.envelopeLimited));
   const rootRadius = wood.find((p) => p.kind === 0).transform[7];
   assert.ok(wood.filter((p) => p.pathRemainingAfter / tree.targetPathLength < 0.01)
@@ -149,13 +157,19 @@ test('leaves use varied nonterminal twig positions; replay exact and seed varies
   assert.deepEqual(replay, first); assert.notDeepEqual(Array.from(alternate.transforms), Array.from(first.transforms));
   const tree = first.trees[0]; const byId = new Map(tree.primitives.map((p) => [p.id, p]));
   const positions = [];
+  let shootLeaves = 0; let shootTwigs = 0; let terminalLeaves = 0; let terminalTwigs = 0;
+  for (const twig of tree.primitives.filter((p) => p.kind === 4)) {
+    if (twig.twigClass === 'lateral-shoot') shootTwigs += 1; else terminalTwigs += 1;
+  }
   for (const leaf of tree.primitives.filter((p) => p.kind === 3)) {
     const twig = byId.get(leaf.parentId); assert.equal(twig.kind, 4);
+    if (twig.twigClass === 'lateral-shoot') shootLeaves += 1; else terminalLeaves += 1;
     const along = leaf.normalizedTwigPosition;
     positions.push(along);
     assert.ok(along >= tree.profile.twig.attachmentBounds[0] - 1e-5);
     assert.ok(along <= tree.profile.twig.attachmentBounds[1] + 1e-5);
   }
+  assert.ok(shootLeaves / shootTwigs > terminalLeaves / terminalTwigs * 1.8);
   assert.ok(positions.some((v) => v > 0.75));
   assert.ok(positions.filter((v) => v < 0.72).length / positions.length > 0.8);
   assert.ok(new Set(positions.map((v) => v.toFixed(4))).size > 8);

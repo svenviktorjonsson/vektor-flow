@@ -1,148 +1,160 @@
-# Deterministic static tree WebGPU demonstration
+# R6 deterministic static tree WebGPU candidate (rejected)
 
-Date: 2026-09-06. Base: `001a322a16ff3cebfc4c842889f5dc86f4a3381d`.
+Date: 2026-09-06. Base: `6cbbb22d4162349782e4bc9b0f5e33237e1beffb`.
 Branch: `pre-gen`.
 
-![Static deterministic tree with connected junctions rendered by WebGPU](060-static-tree-webgpu-review5.png)
+Status: **CANDIDATE / REJECTED by independent visual QA.** The full-tree
+silhouette and main fork passed specimen review. The twig-graft proof failed
+because the shoot reads as a thin spike and a lower parent bump remains. The
+neutral-light bark proof failed because broad blurred albedo bands do not make
+the intended ridge/fissure relief readable. These captures are retained as
+negative evidence for R7, not as accepted static-tree proof.
 
-![Connected primary branch junction close-up](060-static-tree-webgpu-review5-junction.png)
+![R6 static deterministic tree](060-static-tree-webgpu-review6.png)
+
+![R6 shared main fork skin](060-static-tree-webgpu-review6-main-fork.png)
+
+![R6 flush lateral twig graft](060-static-tree-webgpu-review6-twig-junction.png)
+
+![R6 procedural bark under neutral light](060-static-tree-webgpu-review6-bark-neutral.png)
 
 ## Scope
 
-This private reference packet carries one tree through the existing conditioned
-forest population, tree geometry, tree material, retained packet, and real
+This private reference packet carries one deterministic specimen through the
+existing forest population, geometry, material, retained-packet, and real
 WebGPU renderer chain. It changes no VKF syntax, public constructor, schema,
-ABI, default, or diagnostic. Physics, wind, and animation remain excluded.
+ABI, default, or diagnostic. Physics, wind, motion, and animation remain zero.
 
-The generator is driven by an internal immutable species profile. Profiles
-contain distribution statistics for root-to-tip path length, split angles and
-ratios, apical dominance, cross-sectional area loss, crown ellipsoid axes and
-orientation, local attraction, twig and leaf density, and bark texture
-mixtures. The current five profiles are private implementation data intended to
-make later species configuration possible without hardcoding one species into
-the algorithms.
+The implementation is an evidence-backed subset, not a claimed reproduction of
+any paper. The immutable private species profile owns path-length, split,
+apical-control, area-loss, crown-envelope, curvature, shoot, leaf, and bark
+statistics so later species configuration is data-driven rather than embedded
+throughout the algorithms.
 
-Every woody parent ends at its split and has exactly two deviating children.
-The larger child deviates less. At every split, the sum of child squared radii
-is strictly less than the parent squared radius. Segment length consumes a
-deterministic root-to-tip arc-length budget; child budgets condition from the
-parent remainder. A sampled rotated ellipsoid bounds growth. A candidate that
-would escape is shortened or terminated deterministically. This prevents
-horizontal paths from escaping a height-only budget.
+## Growth model
 
-Woody paths are no longer straight chords. Each trunk, branch, and twig is a
-seven-, five-, or three-step curve respectively. Deterministic correlated
-yaw/pitch turn signals persist from step to step, remain below a profile-owned
-maximum turn, and have monotonically greater variance as radius decreases.
-Ring centers and averaged tangents follow the same retained curve in the real
-WebGPU tube mesh, giving smooth tangent transitions without a jagged zigzag.
+The generator samples 72 deterministic attraction points inside one sampled,
+rotated crown ellipsoid. Each bud selects nearby compatible points, scores
+light, free-space, incoming alignment, and species apical control, and steers
+toward their aggregate direction. Consumed branch-path arc length—not vertical
+height—is the termination budget. Candidate spans are shortened or bent at the
+ellipsoid boundary. Correlated bounded turn noise produces seven-step trunk,
+five-step branch, and three-step twig centerlines. The mesh transports its ring
+frame along those curves using parallel transport.
 
-Every woody path is now realized as tapered frustum spans in one indexed wood
-mesh. At each structural split or lateral-shoot attachment, the adjacent spans
-are trimmed back to shared collar rings. A direction-selected subdivided
-three-port junction core joins the incoming and outgoing rings using the same
-vertex indices. Internal end caps are absent; only the root and terminal tips
-are capped. The resulting wood mesh is closed: zero boundary edges, zero
-non-manifold edges, and zero duplicate geometric triangles. Connected collar
-vertices also carry the same normals and bark coordinates into adjacent spans.
+Every structural branch point ends the incoming segment and emits two
+non-collinear children. The continuation child receives the larger area share
+and the smaller deviation. Child radii use the generalized allometric relation
+with exponent 2 and a deterministic loss factor q strictly below 1, so
+`sum(r_child^2) < r_parent^2` at every split. Path-specific length budgets,
+bud vigor, taper, and envelope attraction vary deterministically while all
+paths remain finite.
 
-The selected tree has 1,157 retained primitives: one trunk, one non-rendered
-coarse crown envelope, fourteen structural branches, seventy-nine thin twigs,
-and 1,062 individual leaf sites. Forty-eight twigs are recursive terminal
-topology; thirty-one are much thinner lateral shoots from structural parents.
-The shoot probability is low but nonzero at trunk radius and rises smoothly as
-parent radius decreases; there is no hard eligibility threshold. Across the
-pinned four-seed cohort, trunk/thick-parent shoots occur but remain less
-frequent than thin-parent shoots, and pinned tree 3 has a trunk-origin shoot.
+Lateral shoots follow golden-angle phyllotaxis with bounded jitter. Their
+emission probability is low but nonzero on thick parents and increases
+monotonically as parent radius decreases. Leaves attach only to these shoots or
+terminal twig-class paths. Attachments are stratified continuously from 0.05
+through 0.82 of twig arc length, so proximal and middle leaves dominate while
+terminal leaves remain possible. Each leaf is a double-sided pointed-ovate mesh
+with a narrow petiole, broad interior, sharp apex, finite normals/UVs, and
+bounded approximately-normal variation.
 
-Leaves never attach directly to trunk or structural branch. Each leaf is one
-continuously positioned, stratified site along an eligible twig arc, rather
-than a multi-leaf terminal cluster anchor. More than 80% of the pinned tree's
-leaves lie before normalized twig position 0.72, while some terminal leaves
-remain. Blade scale is reduced from the previous capture and bounded to
-0.038--0.065 of sampled crown height. The 1,062 leaves use real pointed-ovate meshes:
-a thin petiole, rounded broad blade body, and sharp apex. Conditioned
-approximately-normal samples vary dimensions, roundness, asymmetry, petiole,
-camber, attachment, orientation, and color within finite physical bounds.
+## Connected fork skin and bark
 
-All visible wood uses procedural vertex geometry and material variation in the
-real WebGPU path. Periodic longitudinal grain/ridges deform multiple axial
-rings, while bounded vertex color and roughness vary from one coherent
-tree-wide bark field. No bark image, raster stand-in, canvas fallback, or fake
-renderer is used.
+All 270 woody paths are tapered conic/frustum spans. There are no sphere,
+collar, bead, ball, ring-cover, or other standalone connector primitives.
+At each of 206 junctions, the parent and child rings are partitioned and
+stitched into the same indexed fork skin. Internal caps are zero; boundary and
+non-manifold edges are zero. Junction radial scale stays from 0.96 through
+1.00 of the local port radius, connector component count is zero, and
+parallel-transported tangents/normals and path-relative bark V continue through
+the common surface.
 
-Exact output is 23,412 vertices and 114,972 indices: 6,420/38,508 wood and
-16,992/76,464 foliage. It remains below explicit 32,768-vertex and
-131,072-index fixture budgets. A complete tree is bounded to 1,690 retained
-primitives; the adapter independently caps 65,536 vertices and 393,216 indices.
+Bark is produced in the real material/mesh path from a species-weighted feature
+grammar of longitudinal ridge, furrow, fissure, and lenticel signals. Coupled
+multi-scale fields modulate albedo, roughness, and radial depth/displacement.
+The neutral-light capture disables cast/receive shadows and confirms numeric
+material variation reaches the renderer. Visual QA nevertheless rejects it:
+the current broad albedo bands do not resolve as readable bark relief.
+
+The pinned specimen contains 2,236 retained primitives: one trunk, one
+non-rendered coarse crown envelope, 30 structural branches, 239 twigs, and
+1,965 individual leaves. The WebGPU packet contains 63,628 vertices and
+334,596 indices: 32,188/193,116 wood and 31,440/141,480 foliage. It remains
+inside explicit 65,536-vertex, 393,216-index, and 2,400-primitive limits.
 
 ## RED to GREEN
 
-The review began at focused 3/9 GREEN: six assertions still described the old
-fixed attachment/count model. The replacement tests now prove:
+Focused tests prove:
 
-- exact end-of-parent binary linkage and no cylinder protrusion past a split;
-- nonzero child deviations and larger-radius child angle ordering;
-- strict squared-radius area loss and taper toward terminal epsilon;
-- strictly consumed finite arc-length budgets and bounded termination;
-- every segment endpoint and every emitted WebGPU vertex inside the ellipsoid;
-- deterministic replay, seed variation, whole-tree envelope variance, and
-  path-local conditioned variance;
-- leaf parents are eligible twigs and nonterminal attachment positions exist;
-- trunk and thick-parent lateral-twig frequency is nonzero yet below the
-  aggregate thin-parent frequency across a fixed multi-seed cohort;
-- leaf occupancy spans at least three height bins, three radial bins, and four
-  angular bins, eliminating terminal-only pom-pom placement;
-- finite nondegenerate pointed-ovate leaf triangles, normals, UVs, and centered
-  bounded distribution statistics;
-- multi-step nonzero curved paths, monotonically rising radius-band turn
-  variance, correlated turns, bounded per-step angles, and envelope-contained
-  endpoints under the original arc-length budgets;
-- reduced bounded blade area and a pinned majority of leaves before the
-  terminal twig band;
-- no internal cap triangles, shared indexed rings at all 62 three-port
-  junctions, and no gaps, floating child bases, or tube overlap;
-- 94 strictly tapered woody paths, child collar radii below incoming collar
-  radii, bounded tangent turns, shared normal seams, and continuous bark V;
-- a closed finite nondegenerate wood mesh with zero boundary/non-manifold
-  edges and no duplicate coplanar triangles;
-- nonuniform procedural bark color/roughness, periodic seam continuity, and
-  hard primitive/vertex/index/RAM bounds.
+- deterministic same-seed replay, visible alternate-seed variation, and bounded
+  inter-tree and intra-path variation;
+- attraction-point/bud metadata, finite consumed path budgets, and every path
+  endpoint and rendered vertex within its sampled ellipsoid;
+- exact parent-ending binary linkage, nonzero ordered child angles, strict
+  lossy allometric area decrease, taper, and terminal convergence;
+- multi-step correlated curvature with bounded per-step turns and monotonically
+  increasing turn variance as radius decreases;
+- nonzero thick-parent shoots, higher thin-parent frequency, a pinned
+  trunk-origin shoot, twig-only leaves, more than 80% nonterminal attachments,
+  and multi-bin height/radius/azimuth crown occupancy;
+- pointed-ovate non-card leaf topology, centered bounded variation, finite
+  normals/UVs, positive area, and bounded blade size;
+- zero internal caps, zero boundary/non-manifold edges, no duplicate coplanar
+  triangles, no standalone connector, 0.96--1.00 junction radial scale,
+  bounded tangent transition, and continuous bark coordinates;
+- bark albedo, roughness, and depth variation with periodic grain continuity
+  and explicit primitive/vertex/index/RAM ceilings.
 
 ## Gates and capture
 
 | Gate | Result |
 | --- | --- |
-| Geometry/species tests | 8/8 GREEN |
-| WebGPU junction/mesh tests | 8/8 GREEN |
-| Focused geometry + renderer-packet + WebGPU + wood tests | 21/21 GREEN |
-| All tree/forest/wood JavaScript tests | 37/37 GREEN |
-| Headless Edge real WebGPU capture | GREEN |
+| Geometry/species + retained packet + WebGPU tests | 18/18 GREEN |
+| All tree/forest/wood JavaScript tests | 77/82; five pre-existing wood-material identity/energy assertions fail independently of R6 tree modules |
 | `git diff --check` | GREEN |
+| Four Headless Edge real-WebGPU captures | Execution GREEN, exit 0 each; visual QA REJECTED twig graft and neutral bark |
 
-Headless Edge initialized WebGPU at 1,263 by 760 with two lit renderer parts,
-4x MSAA, and two active clustered lights. A warm key at 2.25 and front fill at
-1.25 reveal bark ridges and leaf silhouettes without visible clipping.
-Initialization failures, provider errors,
-runtime failures, and WebGPU errors were empty. Both parts reported no physics
-runtime; physics particles and steps were zero. The tracked 99,506-byte full
-tree PNG is `docs/evidence/060-static-tree-webgpu-review5.png`, SHA-256
-`B7588C859AB4A3B0609EBFD59ED5107A7E76C311298060507B60A34F1BC6354A`.
-The tracked 115,777-byte primary-junction close-up is
-`docs/evidence/060-static-tree-webgpu-review5-junction.png`, SHA-256
-`74F992D4FC3A314FA67359EB07DD7ED74192AE35A83650EC2D3E0DDB409CE82A`.
-Both captures are 1,263 by 760, use the real renderer at 4x MSAA, and reported
-empty initialization, provider, runtime, and WebGPU errors.
+All captures are 1,263 by 760 from the real WebGPU renderer at 4x MSAA.
+The full frame uses a 2.35 key and 1.45 fill to expose leaf form and bark
+without a fake canvas/image fallback. The twig and neutral-bark proofs disable
+cast/receive shadows on their isolated wood views. No capture uses physics.
+
+| Capture | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `060-static-tree-webgpu-review6.png` | 132,819 | `BA70FC7B003A1357F5D8E2C2BE12576521DF8873876273E1550DB3AE2324A16F` |
+| `060-static-tree-webgpu-review6-main-fork.png` | 155,849 | `C73CF25025900D1F1A3664D848CADE3BB2431EBFEEA2E9E9B9F243DB1657BAE0` |
+| `060-static-tree-webgpu-review6-twig-junction.png` | 99,943 | `44B69E779517D4E1EFFE147B036B253B56CB790B226309BE3BE724C87B21AEC2` |
+| `060-static-tree-webgpu-review6-bark-neutral.png` | 171,835 | `60801AC84532CFC036C89A98EB50259FD199A3C67422FEA136490E1BDDAA72F4` |
 
 Reproduce:
 
 ```text
 node --test tests/js/vf-tree-geometry-plan.test.mjs tests/js/vf-tree-renderer-packets.test.mjs tests/js/vf-tree-webgpu-packets.test.mjs
-node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review5.png 0 9380 tree_webgpu_static_frame
-node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review5-junction.png 0 9381 tree_webgpu_junction_frame
+node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review6.png 0 9380 tree_webgpu_static_frame
+node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review6-main-fork.png 0 9381 tree_webgpu_junction_frame
+node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review6-twig-junction.png 0 9382 tree_webgpu_twig_junction_frame
+node tests/helpers/capture_mirror_scene.js tests/fixtures/tree-webgpu-static-smoke.html docs/evidence/060-static-tree-webgpu-review6-bark-neutral.png 0 9383 tree_webgpu_bark_neutral_frame
 ```
+
+## Research basis
+
+- Runions, Lane, and Prusinkiewicz (2007), space colonization:
+  https://doi.org/10.2312/NPH/NPH07/063-070
+- Palubicki et al. (2009), self-organizing trees and bud competition:
+  https://algorithmicbotany.org/papers/selforg.sig2009.html
+- Eloy (2011), generalized Leonardo allometry:
+  https://www.irphe.fr/~eloy/assets/pdf/PRL2011.pdf
+- Mäkelä (2002), pipe-model taper and supported foliage:
+  https://pubmed.ncbi.nlm.nih.gov/12204846/
+- Smooth centerline/cross-section branch volumes:
+  https://arxiv.org/abs/2607.05421
+- Layered procedural bark feature grammar:
+  https://doi.org/10.13203/j.whugis20250189
 
 ## Static review boundary
 
-This packet stops at Viktor's requested static review gate. Branch elasticity,
-leaf motion, wind response, and physics coupling require separate approval.
+R6 is preserved as a rejected candidate. R7 must replace the spike-like twig
+graft and blurred bark proof before static acceptance. Branch elasticity, free
+leaf response, wind coupling, and all other physics remain prohibited pending
+later approval.

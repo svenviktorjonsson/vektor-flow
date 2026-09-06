@@ -5,14 +5,11 @@ const KIND_CROWN = 1;
 const KIND_BRANCH = 2;
 const KIND_FOLIAGE = 3;
 const KIND_TWIG = 4;
-const TRUNK_SIDES = 10;
-const BRANCH_SIDES = 7;
-const TWIG_SIDES = 5;
 const LEAVES_PER_CLUSTER = 1;
 const LEAF_PARAMETER_STRIDE = 9;
 const LEAF_VERTEX_COUNT = 16;
 const LEAF_INDEX_COUNT = 72;
-const WOOD_RING_SIDES = 8;
+const WOOD_RING_SIDES = 12;
 
 function add(left, right) {
   return left.map((value, axis) => value + right[axis]);
@@ -128,11 +125,11 @@ function requirePacket(packet) {
   if (
     counts.trunks !== 1
     || counts.crowns !== 1
-    || counts.branches !== 14
-    || counts.twigs < 48
-    || counts.twigs > 93
-    || counts.foliageClusters < counts.twigs * 9
-    || counts.foliageClusters > counts.twigs * 17
+    || counts.branches !== 30
+    || counts.twigs < 160
+    || counts.twigs > 300
+    || counts.foliageClusters < counts.twigs * 5
+    || counts.foliageClusters > counts.twigs * 9
   ) {
     throw new RangeError('complete tree detail packet is required');
   }
@@ -153,7 +150,8 @@ function requirePacket(packet) {
     if (kind === KIND_TWIG && !(
       parent >= 0
       && parent < index
-      && (packet.primitiveKinds[parent] === KIND_BRANCH
+      && (packet.primitiveKinds[parent] === KIND_TRUNK
+        || packet.primitiveKinds[parent] === KIND_BRANCH
         || packet.primitiveKinds[parent] === KIND_TWIG)
     )) throw new RangeError('complete tree detail packet is required');
   }
@@ -165,9 +163,15 @@ function requirePacket(packet) {
     }
   }
   for (let index = 0; index < packet.primitiveCount; index += 1) {
-    if (packet.primitiveKinds[index] === KIND_TWIG
-      && ((leafParents.get(index) ?? 0) < 9 || leafParents.get(index) > 17)) {
-      throw new RangeError('complete tree detail packet is required');
+    if (packet.primitiveKinds[index] === KIND_TWIG) {
+      const leafCount = leafParents.get(index) ?? 0;
+      const isLateralShoot = packet.primitiveIds[index].includes(':branch:shoot:');
+      const bounds = isLateralShoot
+        ? packet.profile.twig.shootLeafCountBounds
+        : packet.profile.twig.terminalLeafCountBounds;
+      if (leafCount < bounds[0] || leafCount > bounds[1]) {
+        throw new RangeError('complete tree detail packet is required');
+      }
     }
   }
   return counts;
@@ -273,101 +277,168 @@ function closestPathDistance(path, point) {
   return best.along;
 }
 
-function hullTriangles(points) {
-  const position = (index) => points[index].position;
-  const squaredDistance = (left, right) => dot(subtract(position(left), position(right)), subtract(position(left), position(right)));
-  const first = 0;
-  let second = 1;
-  for (let index = 2; index < points.length; index += 1) {
-    if (squaredDistance(first, index) > squaredDistance(first, second)) second = index;
+function parallelTransportBasis(path, along) {
+  let tangent = samplePath(path, 0).tangent;
+  let [first] = basis(tangent);
+  const stations = [...path.distances.filter((value) => value > 0 && value < along), along];
+  for (const station of stations) {
+    tangent = samplePath(path, station).tangent;
+    const projected = subtract(first, scale(tangent, dot(first, tangent)));
+    first = Math.hypot(...projected) > 1e-9 ? normalize(projected) : basis(tangent)[0];
   }
-  const line = subtract(position(second), position(first));
-  let third = -1;
-  let thirdDistance = -1;
-  for (let index = 0; index < points.length; index += 1) {
-    if (index === first || index === second) continue;
-    const area = Math.hypot(...cross(line, subtract(position(index), position(first))));
-    if (area > thirdDistance) {
-      thirdDistance = area;
-      third = index;
+  return [first, normalize(cross(tangent, first))];
+}
+
+function appendPartitionedFork(builder, ports, nodePoint) {
+  const ringSides = Array.from({ length: WOOD_RING_SIDES }, (_, side) => side);
+  const innerLoops = ports.map(({ target, record }) => {
+    const center = target.positions.reduce((sum, point) => add(sum, point), [0, 0, 0])
+      .map((value) => value / WOOD_RING_SIDES);
+    const innerCenter = add(scale(nodePoint, 0.72), scale(center, 0.28));
+    builder.reserve(WOOD_RING_SIDES, 0);
+    return ringSides.map((side) => {
+      const radial = subtract(target.positions[side], center);
+      const position = add(innerCenter, scale(radial, 0.96));
+      return builder.vertex(
+        position,
+        normalize(radial),
+        record.color,
+        record.roughness,
+        [side / WOOD_RING_SIDES, target.barkV],
+      );
+    });
+  });
+  const continuationIndex = ports[1].target.radius >= ports[2].target.radius ? 1 : 2;
+  const lateralIndex = continuationIndex === 1 ? 2 : 1;
+  const incoming = innerLoops[0];
+  const vertexPoint = (vertex) => builder.vertices.slice(vertex * 10, vertex * 10 + 3);
+  function alignCycle(outer, inner) {
+    const candidates = [];
+    for (const source of [inner, [...inner].reverse()]) {
+      for (let rotation = 0; rotation < source.length; rotation += 1) {
+        candidates.push([...source.slice(rotation), ...source.slice(0, rotation)]);
+      }
+    }
+    return candidates.reduce((best, candidate) => {
+      const score = outer.reduce((sum, vertex, side) => (
+        sum + distance(
+          vertexPoint(vertex),
+          vertexPoint(candidate[Math.floor(side * candidate.length / outer.length)]),
+        )
+      ), 0);
+      return score < best.score ? { value: candidate, score } : best;
+    }, { value: inner, score: Number.POSITIVE_INFINITY }).value;
+  }
+  const continuation = alignCycle(incoming, innerLoops[continuationIndex]);
+  const lateral = innerLoops[lateralIndex];
+  const triangles = [];
+  const lateralCenter = lateral.reduce((sum, vertex) => add(sum, vertexPoint(vertex)), [0, 0, 0])
+    .map((value) => value / WOOD_RING_SIDES);
+  let graftStart = 0;
+  let graftDistance = Number.POSITIVE_INFINITY;
+  for (let start = 0; start < WOOD_RING_SIDES; start += 1) {
+    const patchVertices = [];
+    for (let offset = 0; offset <= 1; offset += 1) {
+      patchVertices.push(incoming[(start + offset) % WOOD_RING_SIDES]);
+      patchVertices.push(continuation[(start + offset) % WOOD_RING_SIDES]);
+    }
+    const center = patchVertices.reduce((sum, vertex) => add(sum, vertexPoint(vertex)), [0, 0, 0])
+      .map((value) => value / patchVertices.length);
+    const candidate = distance(center, lateralCenter);
+    if (candidate < graftDistance) {
+      graftDistance = candidate;
+      graftStart = start;
     }
   }
-  const planeNormal = cross(subtract(position(second), position(first)), subtract(position(third), position(first)));
-  let fourth = -1;
-  let fourthDistance = -1;
-  for (let index = 0; index < points.length; index += 1) {
-    if ([first, second, third].includes(index)) continue;
-    const planeDistance = Math.abs(dot(planeNormal, subtract(position(index), position(first))));
-    if (planeDistance > fourthDistance) {
-      fourthDistance = planeDistance;
-      fourth = index;
-    }
+  const omitted = new Set([graftStart]);
+  for (let side = 0; side < WOOD_RING_SIDES; side += 1) {
+    if (omitted.has(side)) continue;
+    const next = (side + 1) % WOOD_RING_SIDES;
+    triangles.push(
+      [incoming[side], incoming[next], continuation[side]],
+      [incoming[next], continuation[next], continuation[side]],
+    );
   }
-  if (third < 0 || fourth < 0 || !(thirdDistance > 1e-12) || !(fourthDistance > 1e-12)) {
-    throw new RangeError('tree WebGPU junction ports must span a volume');
-  }
-  const inside = [first, second, third, fourth]
-    .reduce((sum, index) => add(sum, position(index)), [0, 0, 0])
-    .map((value) => value / 4);
-  function face(a, b, c) {
-    let vertices = [a, b, c];
-    let normal = cross(subtract(position(b), position(a)), subtract(position(c), position(a)));
-    if (dot(normal, subtract(inside, position(a))) > 0) {
-      vertices = [a, c, b];
-      normal = scale(normal, -1);
-    }
-    return { vertices, normal };
-  }
-  let faces = [
-    face(first, second, third),
-    face(first, fourth, second),
-    face(second, fourth, third),
-    face(third, fourth, first),
+  const graftBoundary = [
+    ...Array.from({ length: 2 }, (_, offset) => incoming[(graftStart + offset) % WOOD_RING_SIDES]),
+    ...Array.from({ length: 2 }, (_, offset) => (
+      continuation[(graftStart + 1 - offset) % WOOD_RING_SIDES]
+    )),
   ];
-  const initial = new Set([first, second, third, fourth]);
-  for (let candidate = 0; candidate < points.length; candidate += 1) {
-    if (initial.has(candidate)) continue;
-    const visible = faces.filter(({ vertices, normal }) => (
-      dot(normal, subtract(position(candidate), position(vertices[0]))) > 1e-11
-    ));
-    if (visible.length === 0) continue;
-    const visibleSet = new Set(visible);
-    const horizon = new Map();
-    for (const { vertices } of visible) {
-      for (let edge = 0; edge < 3; edge += 1) {
-        const a = vertices[edge];
-        const b = vertices[(edge + 1) % 3];
-        const key = [a, b].sort((left, right) => left - right).join(':');
-        if (horizon.has(key)) horizon.delete(key);
-        else horizon.set(key, [a, b]);
+  function stitch(outer, inner) {
+    const alignedInner = alignCycle(outer, inner);
+    let outerIndex = 0;
+    let innerIndex = 0;
+    while (outerIndex < outer.length || innerIndex < inner.length) {
+      const outerNext = (outerIndex + 1) / outer.length;
+      const innerNext = (innerIndex + 1) / inner.length;
+      if (outerIndex < outer.length && (innerIndex >= inner.length || outerNext <= innerNext)) {
+        triangles.push([
+          outer[outerIndex % outer.length],
+          outer[(outerIndex + 1) % outer.length],
+          alignedInner[innerIndex % alignedInner.length],
+        ]);
+        outerIndex += 1;
+      } else {
+        triangles.push([
+          outer[outerIndex % outer.length],
+          alignedInner[(innerIndex + 1) % alignedInner.length],
+          alignedInner[innerIndex % alignedInner.length],
+        ]);
+        innerIndex += 1;
       }
     }
-    faces = faces.filter((existing) => !visibleSet.has(existing));
-    for (const [a, b] of horizon.values()) faces.push(face(b, a, candidate));
   }
-  const openFaces = faces
-    .map(({ vertices }) => vertices)
-    .filter((vertices) => !(
-      points[vertices[0]].port === points[vertices[1]].port
-      && points[vertices[0]].port === points[vertices[2]].port
-    ));
-  const usedPortEdges = new Set();
-  const kept = [];
-  for (const vertices of openFaces) {
-    const portEdges = [];
+  stitch(graftBoundary, lateral);
+  ports.forEach(({ target }, portIndex) => stitch(target.indices, innerLoops[portIndex]));
+  const edgeTriangles = new Map();
+  triangles.forEach((triangle, triangleIndex) => {
     for (let edge = 0; edge < 3; edge += 1) {
-      const left = points[vertices[edge]];
-      const right = points[vertices[(edge + 1) % 3]];
-      const sideDelta = Math.abs(left.side - right.side);
-      if (left.port === right.port && (sideDelta === 1 || sideDelta === WOOD_RING_SIDES - 1)) {
-        portEdges.push([left.vertex, right.vertex].sort((a, b) => a - b).join(':'));
+      const left = triangle[edge];
+      const right = triangle[(edge + 1) % 3];
+      const key = [left, right].sort((a, b) => a - b).join(':');
+      if (!edgeTriangles.has(key)) edgeTriangles.set(key, []);
+      edgeTriangles.get(key).push({ triangleIndex, left, right });
+    }
+  });
+  const flips = new Array(triangles.length).fill(null);
+  flips[0] = false;
+  const pending = [0];
+  while (pending.length > 0) {
+    const triangleIndex = pending.pop();
+    const triangle = triangles[triangleIndex];
+    for (let edge = 0; edge < 3; edge += 1) {
+      const left = triangle[edge];
+      const right = triangle[(edge + 1) % 3];
+      const key = [left, right].sort((a, b) => a - b).join(':');
+      for (const neighbor of edgeTriangles.get(key)) {
+        if (neighbor.triangleIndex === triangleIndex || flips[neighbor.triangleIndex] !== null) continue;
+        const currentLeft = flips[triangleIndex] ? right : left;
+        const currentRight = flips[triangleIndex] ? left : right;
+        flips[neighbor.triangleIndex] = neighbor.left === currentLeft && neighbor.right === currentRight;
+        pending.push(neighbor.triangleIndex);
       }
     }
-    if (portEdges.some((key) => usedPortEdges.has(key))) continue;
-    kept.push(vertices);
-    portEdges.forEach((key) => usedPortEdges.add(key));
   }
-  return kept;
+  const oriented = triangles.map((triangle, index) => (
+    flips[index] ? [triangle[0], triangle[2], triangle[1]] : triangle
+  ));
+  const outwardScore = oriented.reduce((sum, triangle) => {
+    const points = triangle.map(vertexPoint);
+    const normal = cross(subtract(points[1], points[0]), subtract(points[2], points[0]));
+    const center = points.reduce((total, point) => add(total, point), [0, 0, 0])
+      .map((value) => value / 3);
+    return sum + dot(normal, subtract(center, nodePoint));
+  }, 0);
+  if (outwardScore < 0) oriented.forEach((triangle) => triangle.splice(1, 2, triangle[2], triangle[1]));
+  builder.reserve(0, oriented.length * 3);
+  builder.indices.push(...oriented.flat());
+  return Object.freeze({
+    triangleCount: oriented.length,
+    minimumRadialScale: 0.96,
+    maximumRadialScale: 1,
+    connectorComponents: 0,
+  });
 }
 
 function appendWoodyNetwork(builder, packet, bark) {
@@ -424,12 +495,12 @@ function appendWoodyNetwork(builder, packet, bark) {
         Math.max(before * 0.28, 1e-5),
         isTerminalSplit ? Number.POSITIVE_INFINITY : Math.max(after * 0.28, 1e-5),
       );
-      const half = Math.min(parentRadius * 1.35, available);
+      const half = Math.min(parentRadius * 1.35, available, group.parent.path.length * 0.08);
       const parentStart = Math.max(0, group.along - half);
       const parentEnd = isTerminalSplit ? group.along : Math.min(group.parent.path.length, group.along + half);
       group.parent.exclusions.push([parentStart, parentEnd]);
       const childStarts = group.children.map((child) => {
-        const cut = Math.min(Math.max(half, child.transform[7] * 1.5), child.path.length * 0.24);
+        const cut = Math.min(Math.max(half * 0.5, child.transform[7] * 0.75), child.path.length * 0.04);
         child.exclusions.push([0, cut]);
         return { child, cut };
       });
@@ -457,7 +528,7 @@ function appendWoodyNetwork(builder, packet, bark) {
     const key = `${record.primitive}:${along.toFixed(10)}`;
     if (ringCache.has(key)) return ringCache.get(key);
     const state = samplePath(record.path, along);
-    const [first, second] = basis(state.tangent);
+    const [first, second] = parallelTransportBasis(record.path, along);
     const radius = radiusAt(record, along);
     const indices = [];
     const positions = [];
@@ -468,21 +539,26 @@ function appendWoodyNetwork(builder, packet, bark) {
       const barkAlong = record.baseBarkV + along / packet.targetPathLength;
       const ridge = Math.sin(bark.ridgeCount * angle + bark.phase + barkAlong * bark.grainTurns)
         + 0.35 * Math.sin((bark.ridgeCount + 3) * angle - bark.phase * 0.7 + barkAlong * 9);
-      const noise = ridge / 1.35;
-      const ringRadius = radius * (1 + bark.ridgeAmplitude * noise);
+      const ridgeNoise = ridge / 1.35;
+      const fissure = Math.pow(Math.max(0, Math.cos(
+        (bark.ridgeCount - 1) * angle - bark.phase * 0.43 + barkAlong * 73,
+      )), 7);
+      const grain = Math.sin(barkAlong * 190 + angle * 2 + bark.phase * 1.7);
+      const materialNoise = clamp(ridgeNoise * 0.52 + grain * 0.18 - fissure * 1.08, -1, 1);
+      const ringRadius = radius * (1 + bark.ridgeAmplitude * (ridgeNoise - fissure * 0.32));
       const axialOffset = 0;
       const position = add(
         add(state.point, scale(radial, ringRadius)),
         scale(state.tangent, axialOffset),
       );
       const vertexColor = record.color.map((value, channel) => (
-        channel === 3 ? value : clamp(value + bark.colorVariation * noise, 0, 1)
+        channel === 3 ? value : clamp(value + bark.colorVariation * materialNoise, 0, 1)
       ));
       indices.push(builder.vertex(
         position,
         radial,
         vertexColor,
-        clamp(record.roughness + bark.roughnessVariation * noise, 0.42, 0.98),
+        clamp(record.roughness + bark.roughnessVariation * (fissure - ridgeNoise * 0.32), 0.42, 0.98),
         [side / WOOD_RING_SIDES, barkAlong],
       ));
       positions.push(position);
@@ -527,9 +603,14 @@ function appendWoodyNetwork(builder, packet, bark) {
     }
     if (cursor < record.path.length - 1e-8) spans.push([cursor, record.path.length]);
     for (const [start, end] of spans) {
+      const barkSteps = record.kind === KIND_TRUNK ? 64 : record.kind === KIND_BRANCH ? 4 : 1;
+      const uniformStations = Array.from({ length: barkSteps - 1 }, (_, step) => (
+        start + (end - start) * (step + 1) / barkSteps
+      ));
       const stations = [start, ...record.path.distances.filter((value) => (
         value > start + 1e-8 && value < end - 1e-8
-      )), end];
+      )), ...uniformStations, end].sort((left, right) => left - right)
+        .filter((value, index, values) => index === 0 || value - values[index - 1] > 1e-8);
       let prior = ring(record, stations[0]);
       for (const station of stations.slice(1)) {
         const next = ring(record, station);
@@ -568,209 +649,25 @@ function appendWoodyNetwork(builder, packet, bark) {
     if (portTargets.length !== 3) {
       throw new RangeError('tree WebGPU junction must have three connected ports');
     }
-    const icoVertices = [
-      [-1, 1.618, 0], [1, 1.618, 0], [-1, -1.618, 0], [1, -1.618, 0],
-      [0, -1, 1.618], [0, 1, 1.618], [0, -1, -1.618], [0, 1, -1.618],
-      [1.618, 0, -1], [1.618, 0, 1], [-1.618, 0, -1], [-1.618, 0, 1],
-    ];
-    const icoFaces = [
-      [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
-      [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
-      [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
-      [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
-    ];
-    const sphereVertices = icoVertices.map((vertex) => normalize(vertex));
-    const midpointCache = new Map();
-    function midpoint(left, right) {
-      const key = [left, right].sort((a, b) => a - b).join(':');
-      if (midpointCache.has(key)) return midpointCache.get(key);
-      const index = sphereVertices.length;
-      sphereVertices.push(normalize(add(sphereVertices[left], sphereVertices[right])));
-      midpointCache.set(key, index);
-      return index;
-    }
-    const sphereFaces = [];
-    icoFaces.forEach(([first, second, third]) => {
-      const firstSecond = midpoint(first, second);
-      const secondThird = midpoint(second, third);
-      const thirdFirst = midpoint(third, first);
-      sphereFaces.push(
-        [first, firstSecond, thirdFirst],
-        [second, secondThird, firstSecond],
-        [third, thirdFirst, secondThird],
-        [firstSecond, secondThird, thirdFirst],
-      );
-    });
-    const nodePoint = samplePath(plan.parent.path, plan.along).point;
-    const coreRadius = Math.max(...portTargets.map(({ radius }) => radius));
-    const portFrames = portTargets.map((target) => {
-      const center = target.positions.reduce((sum, point) => add(sum, point), [0, 0, 0])
-        .map((value) => value / WOOD_RING_SIDES);
-      return { center, outward: normalize(subtract(center, nodePoint)) };
-    });
-    const faceDirections = sphereFaces.map((face) => normalize(face.reduce(
-      (sum, vertex) => add(sum, sphereVertices[vertex]),
-      [0, 0, 0],
-    )));
-    const candidatesByPort = portFrames.map(({ outward }) => (
-      faceDirections.map((direction, faceIndex) => ({
-        faceIndex,
-        score: dot(direction, outward),
-      })).sort((left, right) => right.score - left.score).slice(0, 14)
-    ));
-    let selectedFaces = null;
-    let selectedScore = Number.NEGATIVE_INFINITY;
-    for (const { faceIndex: firstFace } of candidatesByPort[0]) {
-      for (const { faceIndex: secondFace } of candidatesByPort[1]) {
-        if (sphereFaces[firstFace].some((vertex) => sphereFaces[secondFace].includes(vertex))) continue;
-        for (const { faceIndex: thirdFace } of candidatesByPort[2]) {
-          const used = [...sphereFaces[firstFace], ...sphereFaces[secondFace]];
-          if (sphereFaces[thirdFace].some((vertex) => used.includes(vertex))) continue;
-          const candidates = [firstFace, secondFace, thirdFace];
-          const score = candidates.reduce((sum, faceIndex, portIndex) => (
-            sum + dot(faceDirections[faceIndex], portFrames[portIndex].outward)
-          ), 0);
-          if (score > selectedScore) {
-            selectedScore = score;
-            selectedFaces = candidates;
-          }
-        }
-      }
-    }
-    if (!selectedFaces) throw new RangeError('tree WebGPU junction ports cannot select disjoint collar faces');
-    const holeFaces = selectedFaces.map((faceIndex) => sphereFaces[faceIndex]);
-    const positions = sphereVertices.map((source) => add(
-      nodePoint,
-      scale(source, coreRadius * 0.72),
-    ));
-    holeFaces.forEach((face, portIndex) => {
-      const target = portTargets[portIndex];
-      const { outward } = portFrames[portIndex];
-      const [first, second] = basis(target.state.tangent);
-      const holeCenter = add(nodePoint, scale(outward, coreRadius * 0.62));
-      face.forEach((vertex, corner) => {
-        const angle = 2 * Math.PI * corner / 3;
-        positions[vertex] = add(holeCenter, add(
-          scale(first, target.radius * 0.7 * Math.cos(angle)),
-          scale(second, target.radius * 0.7 * Math.sin(angle)),
-        ));
-      });
-    });
-    builder.reserve(positions.length, 0);
-    const meanBarkV = metadataPorts.reduce((sum, port) => sum + port.barkV, 0) / metadataPorts.length;
-    const coreIndices = positions.map((position, index) => {
-      const normal = normalize(subtract(position, nodePoint));
-      const source = metadataPorts[index % metadataPorts.length];
-      const record = byPrimitive.get(source.primitive);
-      return builder.vertex(position, normal, record.color, record.roughness, [index / positions.length, meanBarkV]);
-    });
-    const junctionTriangles = [];
-    function queueTriangle(first, second, third) {
-      junctionTriangles.push([first, second, third]);
-    }
-    function triangleOutwardScore([first, second, third]) {
-      const point = (vertex) => builder.vertices.slice(vertex * 10, vertex * 10 + 3);
-      const points = [point(first), point(second), point(third)];
-      const normal = cross(subtract(points[1], points[0]), subtract(points[2], points[0]));
-      const centroid = points.reduce((sum, value) => add(sum, value), [0, 0, 0])
-        .map((value) => value / 3);
-      return dot(normal, subtract(centroid, nodePoint));
-    }
-    const holeKeys = new Set(holeFaces.map((face) => [...face].sort((a, b) => a - b).join(':')));
-    const coreFaces = sphereFaces.filter((face) => !holeKeys.has([...face].sort((a, b) => a - b).join(':')));
-    builder.reserve(0, coreFaces.length * 3);
-    coreFaces.forEach((face) => queueTriangle(...face.map((vertex) => coreIndices[vertex])));
-    function stitchCycles(outer, inner) {
-      let outerIndex = 0;
-      let innerIndex = 0;
-      builder.reserve(0, (outer.length + inner.length) * 3);
-      while (outerIndex < outer.length || innerIndex < inner.length) {
-        const outerNext = (outerIndex + 1) / outer.length;
-        const innerNext = (innerIndex + 1) / inner.length;
-        if (outerIndex < outer.length && (innerIndex >= inner.length || outerNext <= innerNext)) {
-          queueTriangle(
-            outer[outerIndex % outer.length],
-            outer[(outerIndex + 1) % outer.length],
-            inner[innerIndex % inner.length],
-          );
-          outerIndex += 1;
-        } else {
-          queueTriangle(
-            outer[outerIndex % outer.length],
-            inner[(innerIndex + 1) % inner.length],
-            inner[innerIndex % inner.length],
-          );
-          innerIndex += 1;
-        }
-      }
-    }
-    holeFaces.forEach((face, portIndex) => {
-      const outer = portTargets[portIndex].indices;
-      const inner = face.map((vertex) => coreIndices[vertex]);
-      const point = (vertex) => builder.vertices.slice(vertex * 10, vertex * 10 + 3);
-      const candidates = [];
-      for (const source of [inner, [...inner].reverse()]) {
-        for (let rotation = 0; rotation < source.length; rotation += 1) {
-          candidates.push([...source.slice(rotation), ...source.slice(0, rotation)]);
-        }
-      }
-      const aligned = candidates.reduce((best, candidate) => {
-        const score = outer.reduce((sum, vertex, side) => (
-          sum + distance(point(vertex), point(candidate[Math.floor(side * candidate.length / outer.length)]))
-        ), 0);
-        return score < best.score ? { candidate, score } : best;
-      }, { candidate: inner, score: Number.POSITIVE_INFINITY }).candidate;
-      stitchCycles(outer, aligned);
-    });
-    const edgeTriangles = new Map();
-    junctionTriangles.forEach((triangle, triangleIndex) => {
-      for (let edge = 0; edge < 3; edge += 1) {
-        const left = triangle[edge];
-        const right = triangle[(edge + 1) % 3];
-        const key = [left, right].sort((a, b) => a - b).join(':');
-        if (!edgeTriangles.has(key)) edgeTriangles.set(key, []);
-        edgeTriangles.get(key).push({ triangleIndex, left, right });
-      }
-    });
-    const flips = new Array(junctionTriangles.length).fill(null);
-    flips[0] = false;
-    const pending = [0];
-    while (pending.length > 0) {
-      const triangleIndex = pending.pop();
-      const triangle = junctionTriangles[triangleIndex];
-      for (let edge = 0; edge < 3; edge += 1) {
-        const left = triangle[edge];
-        const right = triangle[(edge + 1) % 3];
-        const key = [left, right].sort((a, b) => a - b).join(':');
-        for (const neighbor of edgeTriangles.get(key)) {
-          if (neighbor.triangleIndex === triangleIndex || flips[neighbor.triangleIndex] !== null) continue;
-          const currentLeft = flips[triangleIndex] ? right : left;
-          const currentRight = flips[triangleIndex] ? left : right;
-          const sameDirection = neighbor.left === currentLeft && neighbor.right === currentRight;
-          flips[neighbor.triangleIndex] = sameDirection;
-          pending.push(neighbor.triangleIndex);
-        }
-      }
-    }
-    const oriented = junctionTriangles.map((triangle, index) => (
-      flips[index] ? [triangle[0], triangle[2], triangle[1]] : triangle
-    ));
-    if (oriented.reduce((sum, triangle) => sum + triangleOutwardScore(triangle), 0) < 0) {
-      oriented.forEach((triangle) => triangle.splice(1, 2, triangle[2], triangle[1]));
-    }
-    builder.indices.push(...oriented.flat());
-    const triangleCount = coreFaces.length
-      + portTargets.reduce((sum, target) => sum + target.indices.length + 3, 0);
-    const incomingTangent = metadataPorts.find((port) => port.role === 'incoming').tangent;
-    const maximumTangentTurn = Math.max(...metadataPorts
-      .filter((port) => port.role !== 'incoming')
-      .map((port) => angleBetween(incomingTangent, port.tangent)));
+    const forkSkin = appendPartitionedFork(
+      builder,
+      ports.map((port, index) => ({ target: portTargets[index], record: port.record })),
+      samplePath(plan.parent.path, plan.along).point,
+    );
+    const partitionedBarkV = metadataPorts.reduce((sum, port) => sum + port.barkV, 0)
+      / metadataPorts.length;
+    const partitionedIncoming = metadataPorts.find((port) => port.role === 'incoming').tangent;
     junctions.push(Object.freeze({
-      point: Object.freeze([...nodePoint]),
+      point: Object.freeze([...samplePath(plan.parent.path, plan.along).point]),
       ports: Object.freeze(metadataPorts),
-      triangles: triangleCount,
-      barkV: meanBarkV,
-      maximumTangentTurn,
+      triangles: forkSkin.triangleCount,
+      minimumRadialScale: forkSkin.minimumRadialScale,
+      maximumRadialScale: forkSkin.maximumRadialScale,
+      connectorComponents: forkSkin.connectorComponents,
+      barkV: partitionedBarkV,
+      maximumTangentTurn: Math.max(...metadataPorts
+        .filter((port) => port.role !== 'incoming')
+        .map((port) => angleBetween(partitionedIncoming, port.tangent))),
       maximumNormalSeamAngle: 0,
     }));
   });
@@ -793,77 +690,9 @@ function appendWoodyNetwork(builder, packet, bark) {
       taperedSegments: woody.length,
       minimumTaper: Math.min(...woody.map((record) => record.endRadius / record.transform[7])),
       maximumTaper: Math.max(...woody.map((record) => record.endRadius / record.transform[7])),
+      frameTransport: 'parallel-transport',
     }),
   };
-}
-
-function appendCylinder(
-  builder, transform, color, roughness, sides, taper, bark, axialRings, centered = false,
-  curve = null,
-) {
-  let origin = Array.from(transform.slice(0, 3));
-  const direction = normalize(Array.from(transform.slice(3, 6)));
-  const length = transform[6];
-  const radius = transform[7];
-  if (!(length > 0) || !(radius > 0)) {
-    throw new RangeError('tree WebGPU cylinder dimensions must be positive');
-  }
-  if (centered) origin = add(origin, scale(direction, length * -0.5));
-  const centers = curve?.points ?? Array.from({ length: axialRings }, (_, ring) => (
-    add(origin, scale(direction, length * ring / (axialRings - 1)))
-  ));
-  const ringCount = centers.length;
-  const segmentTangents = curve?.tangents ?? Array.from({ length: ringCount - 1 }, () => direction);
-  const ringTangents = centers.map((_, ring) => {
-    if (ring === 0) return segmentTangents[0];
-    if (ring === ringCount - 1) return segmentTangents.at(-1);
-    return normalize(add(segmentTangents[ring - 1], segmentTangents[ring]));
-  });
-  builder.reserve(sides * ringCount + 2, sides * ringCount * 6);
-  const base = builder.vertices.length / 10;
-  for (let ring = 0; ring < ringCount; ring += 1) {
-    const along = ring / (ringCount - 1);
-    const center = centers[ring];
-    const [first, second] = basis(ringTangents[ring]);
-    const nominalRadius = radius * (1 + (taper - 1) * along);
-    for (let side = 0; side < sides; side += 1) {
-      const angle = 2 * Math.PI * side / sides;
-      const normal = add(scale(first, Math.cos(angle)), scale(second, Math.sin(angle)));
-      const ridge = Math.sin(bark.ridgeCount * angle + bark.phase + along * bark.grainTurns)
-        + 0.35 * Math.sin((bark.ridgeCount + 3) * angle - bark.phase * 0.7 + along * 9);
-      const noise = ridge / 1.35;
-      const ringRadius = nominalRadius * (1 + bark.ridgeAmplitude * noise);
-      const vertexColor = color.map((value, channel) => (
-        channel === 3 ? value : clamp(value + bark.colorVariation * noise, 0, 1)
-      ));
-      builder.vertex(
-        add(center, scale(normal, ringRadius)),
-        normal,
-        vertexColor,
-        clamp(roughness + bark.roughnessVariation * noise, 0.42, 0.98),
-        [side / sides, along],
-      );
-    }
-  }
-  const end = centers.at(-1);
-  const bottom = builder.vertex(centers[0], scale(ringTangents[0], -1), color, roughness, [0.5, 0.5]);
-  const top = builder.vertex(end, ringTangents.at(-1), color, roughness, [0.5, 0.5]);
-  for (let ring = 0; ring < ringCount - 1; ring += 1) {
-    for (let side = 0; side < sides; side += 1) {
-      const next = (side + 1) % sides;
-      const lower = base + ring * sides + side;
-      const lowerNext = base + ring * sides + next;
-      const upper = lower + sides;
-      const upperNext = lowerNext + sides;
-      builder.indices.push(lower, lowerNext, upper, lowerNext, upperNext, upper);
-    }
-  }
-  for (let side = 0; side < sides; side += 1) {
-    const next = (side + 1) % sides;
-    builder.indices.push(bottom, base + next, base + side);
-    const upper = base + (ringCount - 1) * sides;
-    builder.indices.push(top, upper + side, upper + next);
-  }
 }
 
 function addDoubleSidedTriangle(indices, first, second, third) {
@@ -1030,6 +859,8 @@ export function adaptTreeRenderPacketToWebGpuMeshesReference(
     textureVariant += 1;
   }
   const bark = Object.freeze({
+    materialChannels: 'albedo+roughness+radial-displacement',
+    features: barkProfile.featureGrammar,
     textureVariant,
     ridgeCount: Math.round(boundedNormal(
       barkNode, 0, barkProfile.ridgeCountMean, barkProfile.ridgeCountDeviation,

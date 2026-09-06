@@ -12,7 +12,7 @@ const floatBitsView = new DataView(floatBitsBuffer);
 const MAX_DEMANDED_TREES = 4096;
 const MAX_PRIMITIVE_BUDGET = 65536;
 const MAX_CACHED_TREES = MAX_DEMANDED_TREES * 2;
-const SPLIT_DEPTH = 5;
+const SPLIT_DEPTH = 6;
 const KIND_TRUNK = 0;
 const KIND_CROWN = 1;
 const KIND_BRANCH = 2;
@@ -167,6 +167,56 @@ function maximumEnvelopeRay(envelope, origin, direction, margin) {
   }
   const discriminant = Math.max(0, b * b - 4 * a * c);
   return Math.max(0, (-b + Math.sqrt(discriminant)) / (2 * a));
+}
+
+function spaceColonizedDirection(tree, origin, parentDirection, candidate, splitAngle, roleLane) {
+  const eligible = tree.attractionPoints
+    .filter((point) => point.index % 2 === roleLane % 2)
+    .map((point) => {
+      const delta = point.position.map((value, axis) => value - origin[axis]);
+      const range = Math.hypot(...delta);
+      const direction = range > 1e-9 ? delta.map((value) => value / range) : candidate;
+      const alignment = direction.reduce((sum, value, axis) => sum + value * candidate[axis], 0);
+      const local = ellipsoidCoordinates(tree.envelope, point.position);
+      const light = clamp((local[2] / tree.envelope.axes[2] + 1) * 0.5, 0, 1);
+      const space = clamp(range / Math.max(...tree.envelope.axes), 0, 1);
+      const vigor = light * tree.profile.colonization.lightWeight
+        + space * tree.profile.colonization.spaceWeight
+        + Math.max(0, alignment) * tree.profile.colonization.alignmentWeight;
+      return { ...point, direction, range, alignment, vigor };
+    })
+    .filter(({ alignment }) => alignment >= tree.profile.colonization.alignmentFloor)
+    .sort((left, right) => (
+      left.range / (0.35 + left.alignment) - right.range / (0.35 + right.alignment)
+      || left.index - right.index
+    ))
+    .slice(0, tree.profile.colonization.candidateCount);
+  if (eligible.length === 0) return { direction: candidate, attractionIndices: [], budVigor: 0.5 };
+  const aggregate = normalize(eligible.reduce((sum, point) => sum.map((value, axis) => (
+    value + point.direction[axis] / Math.max(point.range, 1e-6)
+  )), [0, 0, 0]));
+  const blend = tree.profile.colonization.directionBlend;
+  const attracted = normalize(candidate.map((value, axis) => (
+    value * (1 - blend) + aggregate[axis] * blend
+  )));
+  let radial = attracted.map((value, axis) => (
+    value - parentDirection[axis] * attracted.reduce(
+      (sum, component, innerAxis) => sum + component * parentDirection[innerAxis], 0,
+    )
+  ));
+  if (Math.hypot(...radial) <= 1e-9) radial = candidate.map((value, axis) => (
+    value - parentDirection[axis] * candidate.reduce(
+      (sum, component, innerAxis) => sum + component * parentDirection[innerAxis], 0,
+    )
+  ));
+  radial = normalize(radial);
+  return {
+    direction: normalize(parentDirection.map((value, axis) => (
+      value * Math.cos(splitAngle) + radial[axis] * Math.sin(splitAngle)
+    ))),
+    attractionIndices: eligible.map(({ index }) => index),
+    budVigor: eligible.reduce((sum, point) => sum + point.vigor, 0) / eligible.length,
+  };
 }
 
 function constrainToEnvelope(tree, node, origin, direction, desiredLength, radius) {
@@ -375,6 +425,37 @@ function treeRealization(state, forest, treeIndex) {
   axes[1] = Math.max(axes[1], horizontalBias + growth[0] * 1.4);
   axes[2] = Math.max(axes[2], growth[1] * centerHeight + growth[0] * 1.4);
   const centerAzimuth = sample(traitsNode, 0, 5, 0, Math.PI * 2);
+  const envelope = Object.freeze({
+    center: Object.freeze([
+      position[0] + Math.cos(centerAzimuth) * horizontalBias,
+      position[1] + Math.sin(centerAzimuth) * horizontalBias,
+      position[2] + growth[1] * centerHeight,
+    ]),
+    axes: Object.freeze(axes),
+    orientation: forest.rotations[treeIndex] + boundedNormal(
+      traitsNode, 6, 0, profile.crownEnvelope.orientationDeviation, -0.85, 0.85,
+    ),
+  });
+  const attractionNode = conditionChild(node, {
+    segment: 'crown-attraction-points', channel: 'space-colonization',
+  });
+  const attractionPoints = Object.freeze(Array.from(
+    { length: profile.colonization.attractionPointCount },
+    (_, index) => {
+      const z = sample(attractionNode, index, 0, -1, 1);
+      const azimuth = sample(attractionNode, index, 1, 0, Math.PI * 2);
+      const radial = Math.cbrt(sample(attractionNode, index, 2, 0.08, 1));
+      const planar = Math.sqrt(Math.max(0, 1 - z * z)) * radial;
+      const local = [Math.cos(azimuth) * planar * axes[0], Math.sin(azimuth) * planar * axes[1],
+        z * radial * axes[2]];
+      const cosine = Math.cos(envelope.orientation); const sine = Math.sin(envelope.orientation);
+      return Object.freeze({ index, position: Object.freeze([
+        envelope.center[0] + local[0] * cosine - local[1] * sine,
+        envelope.center[1] + local[0] * sine + local[1] * cosine,
+        envelope.center[2] + local[2],
+      ]) });
+    },
+  ));
   const tree = {
     id: treeId,
     treeIndex,
@@ -384,18 +465,9 @@ function treeRealization(state, forest, treeIndex) {
     position,
     growth,
     targetPathLength,
-    terminalRadius: growth[0] * 0.001,
-    envelope: Object.freeze({
-      center: Object.freeze([
-        position[0] + Math.cos(centerAzimuth) * horizontalBias,
-        position[1] + Math.sin(centerAzimuth) * horizontalBias,
-        position[2] + growth[1] * centerHeight,
-      ]),
-      axes: Object.freeze(axes),
-      orientation: forest.rotations[treeIndex] + boundedNormal(
-        traitsNode, 6, 0, profile.crownEnvelope.orientationDeviation, -0.85, 0.85,
-      ),
-    }),
+    terminalRadius: growth[0] * 0.000001,
+    envelope,
+    attractionPoints,
     levels: new Map(),
   };
   state.treeCache.set(cacheKey, tree);
@@ -488,17 +560,26 @@ function splitChildren(tree, parent, path, generation) {
     const terminal = generation === SPLIT_DEPTH;
     const desiredLength = pathBefore * boundedNormal(
       node, lane + 10, terminal ? 0.91 : 0.39 + generation * 0.065, 0.045,
-      terminal ? 0.82 : 0.34, terminal ? 0.98 : 0.66,
+      terminal ? 0.93 : 0.34, terminal ? 0.995 : 0.66,
     );
     const allocatedRadius = parentRadius * Math.sqrt(loss * share);
+    const sampledDirection = rotateFrom(parentDirection, angle, childAzimuth);
+    const colonized = spaceColonizedDirection(
+      tree, origin, parentDirection, sampledDirection, angle, role === 'main' ? 0 : 1,
+    );
+    const vigorLength = desiredLength * clamp(0.82 + colonized.budVigor * 0.3, 0.82, 1.12);
     const constrained = constrainToEnvelope(
-      tree, node, origin, rotateFrom(parentDirection, angle, childAzimuth),
-      desiredLength, allocatedRadius,
+      tree, node, origin, colonized.direction,
+      vigorLength, allocatedRadius,
     );
     const curve = curvedPath(tree, node, origin, constrained.direction,
       constrained.length, allocatedRadius, childKind);
     const pathAfter = Math.max(0, pathBefore - curve.arcLength);
-    const radiusFactor = clamp(Math.sqrt(pathAfter / tree.targetPathLength) * 1.55, 0, 1);
+    const radiusFactor = clamp(
+      0.12 + 0.88 * Math.pow(pathAfter / tree.targetPathLength, 0.05),
+      0.04,
+      1,
+    );
     const radius = Math.max(tree.terminalRadius, allocatedRadius * Math.max(0.04, radiusFactor));
     const splitAngle = Math.acos(clamp(
       parentDirection.reduce((sum, value, axis) => sum + value * constrained.direction[axis], 0),
@@ -517,7 +598,10 @@ function splitChildren(tree, parent, path, generation) {
         splitRole: role,
         splitAngle,
         splitLoss: loss,
+        allometricExponent: profile.split.allometricExponent,
+        budVigor: colonized.budVigor,
         localAttraction: constrained.attraction,
+        attractionIndices: Object.freeze(colonized.attractionIndices),
         envelopeLimited: constrained.envelopeLimited,
         pathTarget: tree.targetPathLength,
         pathRemainingBefore: pathBefore,
@@ -548,8 +632,13 @@ function lateralTwigShoots(tree, parent, parentIndex) {
       node, 2, profile.shootAngleMean, profile.shootAngleDeviation,
       ...profile.shootAngleBounds,
     );
-    const azimuth = sample(node, 0, 3, 0, Math.PI * 2);
-    const pathBefore = parent.pathRemainingAfter * sample(node, 0, 4, 0.14, 0.22);
+    const azimuth = (
+      slot * profile.phyllotaxisDivergence
+      + boundedNormal(node, 3, 0, profile.phyllotaxisJitterDeviation, -0.24, 0.24)
+    ) % (Math.PI * 2);
+    const pathBefore = parent.pathRemainingAfter * sample(
+      node, 0, 4, ...profile.shootPathBudgetRatioBounds,
+    );
     const radius = Math.max(
       tree.terminalRadius,
       parent.transform[7] * sample(node, 0, 5, ...profile.shootRadiusRatioBounds),
@@ -577,12 +666,13 @@ function lateralTwigShoots(tree, parent, parentIndex) {
         arcLength: curve.arcLength,
         twigClass: 'lateral-shoot',
         emergenceProbability: probability,
+        phyllotaxisAzimuth: azimuth,
         normalizedParentPosition: attachment,
         localAttraction: constrained.attraction,
         envelopeLimited: constrained.envelopeLimited,
         pathTarget: tree.targetPathLength,
-        pathRemainingBefore: pathBefore,
-        pathRemainingAfter: Math.max(0, pathBefore - curve.arcLength),
+        pathRemainingBefore: curve.arcLength,
+        pathRemainingAfter: 0,
       },
     ));
   }
@@ -610,13 +700,18 @@ function realizeFine(tree, firstGeneration) {
   });
   twigs.forEach((twig, twigIndex) => {
     const node = branchNode(tree, ['foliage', twigIndex]);
+    const leafDistribution = twig.twigClass === 'lateral-shoot'
+      ? ['shootLeafCountMean', 'shootLeafCountDeviation', 'shootLeafCountBounds']
+      : ['terminalLeafCountMean', 'terminalLeafCountDeviation', 'terminalLeafCountBounds'];
     const foliageCount = Math.round(boundedNormal(
       node, 0,
-      tree.profile.twig.leafCountMean,
-      tree.profile.twig.leafCountDeviation,
-      ...tree.profile.twig.leafCountBounds,
+      tree.profile.twig[leafDistribution[0]],
+      tree.profile.twig[leafDistribution[1]],
+      ...tree.profile.twig[leafDistribution[2]],
     ));
-    const radius = crownHeight * sample(node, 0, 5, ...tree.profile.twig.leafScaleBounds);
+    const leafScaleBias = twig.twigClass === 'lateral-shoot' ? 1.05 : 0.65;
+    const radius = crownHeight * leafScaleBias
+      * sample(node, 0, 5, ...tree.profile.twig.leafScaleBounds);
     for (let foliageIndex = 0; foliageIndex < foliageCount; foliageIndex += 1) {
       const foliageNode = branchNode(tree, ['foliage', twigIndex, foliageIndex]);
       const attachment = tree.profile.twig.attachmentBounds[0]
