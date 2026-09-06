@@ -3,8 +3,9 @@
 [Guide](guide.md) / How
 
 Start in the browser, make the result visible, then choose how to share it or
-work locally. No compiler installation or compilation backend is needed for
-the runnable examples here. The browser supports a subset of VKF.
+work locally. No installation or server backend is needed for the runnable
+examples. The browser runs the same VKF compiler as the desktop tools, compiled
+to WebAssembly; user code remains isolated from browser and host APIs.
 
 ## Run and change a program
 

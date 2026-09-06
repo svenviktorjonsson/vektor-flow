@@ -45,14 +45,14 @@ Semicolons are suitable for a short multi-row stage. Each semicolon begins a
 new row at the stage's current logical indentation; following spaces are
 ignored:
 
-```vkf
+```vkf static
 ret: (array >> doubled: $ * 2; doubled + 1)
 ```
 
 A parenthesized multiline pipeline is valid, but direct block evaluation is the
 canonical form. Align each following `>>` with the first stage:
 
-```vkf
+```vkf static
 ret:
     array >>
         doubled: $ * 2
@@ -89,7 +89,7 @@ y: sin(x * pi)
 
 Use a range pipe for fixed unit-step iteration:
 
-```vkf
+```vkf static
 total: 0
 ..9 >> .total+: $
 ```
@@ -102,7 +102,7 @@ than a fixed range.
 Use vector operations instead of manually separating components. A literal
 member or index uses `.name` or `.0`; a computed index uses `.(expression)`:
 
-```vkf
+```vkf static
 .position+: velocity * timestep
 value: positions.(index)
 first: positions.0
@@ -114,7 +114,7 @@ Declare with `name:`. Update the declared name with `.name:` or a compound form
 such as `.name+:`. Updating a selected record field or container element keeps
 the selection on the left:
 
-```vkf
+```vkf static
 count: 0
 .count+: 1
 point.x: 4

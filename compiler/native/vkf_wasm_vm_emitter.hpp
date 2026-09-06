@@ -188,6 +188,10 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::ArrayAsTuple:
         case Opcode::ErrorMaskMatches:
         case Opcode::BitAsNumber:
+        case Opcode::CloneNumber:
+        case Opcode::ComplexReal:
+        case Opcode::ComplexImag:
+        case Opcode::NumberToUtf8String:
         case Opcode::AllocateArray:
         case Opcode::OperatorKind:
         case Opcode::PlotBuilderFinish:
@@ -246,6 +250,15 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
             return {instruction.first * 2U, 1};
         case Opcode::ObjectGet:
             return {1, 1};
+        case Opcode::ArenaMark:
+            return {0, 1};
+        case Opcode::ArenaReset:
+            return {1, 0};
+        case Opcode::NumericSlotUpdate:
+        case Opcode::NumericArrayUpdate:
+        case Opcode::MakeComplex:
+        case Opcode::ComplexMultiply:
+            return {2, 1};
     }
     throw VmEmitterError("unknown bytecode opcode");
 }
@@ -1049,6 +1062,192 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                 body.u8(0xb7); // f64.convert_i32_s
                 body.u8(0x10); body.u32_leb(runtime.make_number);
                 emit_finish_push(body, sp_local);
+                break;
+            case Opcode::CloneNumber:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp0); f64_load(body);
+                body.u8(0x10); body.u32_leb(runtime.make_number);
+                emit_finish_push(body, sp_local);
+                break;
+            case Opcode::NumericSlotUpdate:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp1);
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                local_get(body, temp0);
+                local_get(body, temp0); f64_load(body);
+                local_get(body, temp1); f64_load(body);
+                body.u8(instruction.first == 0 ? 0xa0 : 0xa1);
+                f64_store(body);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp0);
+                emit_finish_push(body, sp_local);
+                break;
+            case Opcode::NumericArrayUpdate:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp1);
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                i32_const(body, 0); local_set(body, temp2);
+                body.u8(0x02); body.u8(0x40);
+                body.u8(0x03); body.u8(0x40);
+                local_get(body, temp2);
+                local_get(body, temp0); i32_load(body, values::length_offset);
+                body.u8(0x4f);
+                body.u8(0x0d); body.u32_leb(1);
+                local_get(body, temp0); i32_load(body, values::payload_offset);
+                local_get(body, temp2); i32_const(body, values::pointer_size);
+                body.u8(0x6c); body.u8(0x6a); i32_load(body); local_set(body, tuple_copy);
+                local_get(body, tuple_copy);
+                local_get(body, tuple_copy); f64_load(body);
+                local_get(body, temp1); i32_load(body, values::payload_offset);
+                local_get(body, temp2); i32_const(body, values::pointer_size);
+                body.u8(0x6c); body.u8(0x6a); i32_load(body); f64_load(body);
+                body.u8(instruction.first == 0 ? 0xa0 : 0xa1);
+                f64_store(body);
+                local_get(body, temp2); i32_const(body, 1); body.u8(0x6a);
+                local_set(body, temp2);
+                body.u8(0x0c); body.u32_leb(0);
+                body.u8(0x0b); body.u8(0x0b);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp0);
+                emit_finish_push(body, sp_local);
+                break;
+            case Opcode::MakeComplex:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp1);
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                i32_const(body, 24); body.u8(0x10); body.u32_leb(runtime.allocate);
+                local_set(body, temp2);
+                local_get(body, temp2);
+                i32_const(body, static_cast<std::uint32_t>(values::Tag::Complex));
+                i32_store(body, values::tag_offset);
+                local_get(body, temp2); local_get(body, temp0); f64_load(body);
+                f64_store(body, values::payload_offset);
+                local_get(body, temp2); local_get(body, temp1); f64_load(body);
+                f64_store(body, values::slot_size);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp2); emit_finish_push(body, sp_local);
+                break;
+            case Opcode::ComplexMultiply:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp1);
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                i32_const(body, 24); body.u8(0x10); body.u32_leb(runtime.allocate);
+                local_set(body, temp2);
+                local_get(body, temp2);
+                i32_const(body, static_cast<std::uint32_t>(values::Tag::Complex));
+                i32_store(body, values::tag_offset);
+                local_get(body, temp2);
+                local_get(body, temp0); f64_load(body, values::payload_offset);
+                local_get(body, temp1); f64_load(body, values::payload_offset); body.u8(0xa2);
+                local_get(body, temp0); f64_load(body, values::slot_size);
+                local_get(body, temp1); f64_load(body, values::slot_size); body.u8(0xa2);
+                body.u8(0xa1); f64_store(body, values::payload_offset);
+                local_get(body, temp2);
+                local_get(body, temp0); f64_load(body, values::payload_offset);
+                local_get(body, temp1); f64_load(body, values::slot_size); body.u8(0xa2);
+                local_get(body, temp0); f64_load(body, values::slot_size);
+                local_get(body, temp1); f64_load(body, values::payload_offset); body.u8(0xa2);
+                body.u8(0xa0); f64_store(body, values::slot_size);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp2); emit_finish_push(body, sp_local);
+                break;
+            case Opcode::ComplexReal:
+            case Opcode::ComplexImag:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp0);
+                f64_load(body, instruction.opcode == Opcode::ComplexReal
+                    ? values::payload_offset : values::slot_size);
+                body.u8(0x10); body.u32_leb(runtime.make_number);
+                emit_finish_push(body, sp_local);
+                break;
+            case Opcode::NumberToUtf8String: {
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                local_get(body, temp0); f64_load(body); body.u8(0xab);
+                local_set(body, temp1);
+                i32_const(body, values::slot_size + 4U);
+                body.u8(0x10); body.u32_leb(runtime.allocate);
+                local_set(body, temp2);
+                local_get(body, temp2);
+                i32_const(body, static_cast<std::uint32_t>(values::Tag::Utf8String));
+                i32_store(body, values::tag_offset);
+                local_get(body, temp2); local_get(body, temp2);
+                i32_const(body, values::slot_size); body.u8(0x6a);
+                i32_store(body, values::payload_offset);
+                const auto store_byte = [&](std::uint32_t offset,
+                                            const auto& emit_value) {
+                    local_get(body, temp2);
+                    i32_const(body, values::slot_size + offset);
+                    body.u8(0x6a);
+                    emit_value();
+                    body.u8(0x3a); body.u32_leb(0); body.u32_leb(0);
+                };
+                local_get(body, temp1); i32_const(body, 0x7f); body.u8(0x4d);
+                body.u8(0x04); body.u8(0x40);
+                i32_const(body, 1); local_set(body, tuple_copy);
+                store_byte(0, [&] { local_get(body, temp1); });
+                body.u8(0x05);
+                local_get(body, temp1); i32_const(body, 0x7ff); body.u8(0x4d);
+                body.u8(0x04); body.u8(0x40);
+                i32_const(body, 2); local_set(body, tuple_copy);
+                store_byte(0, [&] {
+                    local_get(body, temp1); i32_const(body, 6); body.u8(0x76);
+                    i32_const(body, 0xc0); body.u8(0x72);
+                });
+                store_byte(1, [&] {
+                    local_get(body, temp1); i32_const(body, 0x3f); body.u8(0x71);
+                    i32_const(body, 0x80); body.u8(0x72);
+                });
+                body.u8(0x05);
+                local_get(body, temp1); i32_const(body, 0xffff); body.u8(0x4d);
+                body.u8(0x04); body.u8(0x40);
+                i32_const(body, 3); local_set(body, tuple_copy);
+                store_byte(0, [&] {
+                    local_get(body, temp1); i32_const(body, 12); body.u8(0x76);
+                    i32_const(body, 0xe0); body.u8(0x72);
+                });
+                store_byte(1, [&] {
+                    local_get(body, temp1); i32_const(body, 6); body.u8(0x76);
+                    i32_const(body, 0x3f); body.u8(0x71);
+                    i32_const(body, 0x80); body.u8(0x72);
+                });
+                store_byte(2, [&] {
+                    local_get(body, temp1); i32_const(body, 0x3f); body.u8(0x71);
+                    i32_const(body, 0x80); body.u8(0x72);
+                });
+                body.u8(0x05);
+                i32_const(body, 4); local_set(body, tuple_copy);
+                store_byte(0, [&] {
+                    local_get(body, temp1); i32_const(body, 18); body.u8(0x76);
+                    i32_const(body, 0xf0); body.u8(0x72);
+                });
+                store_byte(1, [&] {
+                    local_get(body, temp1); i32_const(body, 12); body.u8(0x76);
+                    i32_const(body, 0x3f); body.u8(0x71);
+                    i32_const(body, 0x80); body.u8(0x72);
+                });
+                store_byte(2, [&] {
+                    local_get(body, temp1); i32_const(body, 6); body.u8(0x76);
+                    i32_const(body, 0x3f); body.u8(0x71);
+                    i32_const(body, 0x80); body.u8(0x72);
+                });
+                store_byte(3, [&] {
+                    local_get(body, temp1); i32_const(body, 0x3f); body.u8(0x71);
+                    i32_const(body, 0x80); body.u8(0x72);
+                });
+                body.u8(0x0b); body.u8(0x0b); body.u8(0x0b);
+                local_get(body, temp2); local_get(body, tuple_copy);
+                i32_store(body, values::length_offset);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp2); emit_finish_push(body, sp_local);
+                break;
+            }
+            case Opcode::ArenaMark:
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                body.u8(0x23); body.u32_leb(0);
+                emit_finish_push(body, sp_local);
+                break;
+            case Opcode::ArenaReset:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                local_get(body, temp0);
+                body.u8(0x24); body.u32_leb(0);
                 break;
             case Opcode::Equal:
             case Opcode::NotEqual:

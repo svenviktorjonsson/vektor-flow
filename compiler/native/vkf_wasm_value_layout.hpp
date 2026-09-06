@@ -33,6 +33,8 @@ enum class Tag : std::uint32_t {
     NominalDisplay = 8,
     // Compiler-private multiset entries use record-style {key,count} pairs.
     Multiset = 9,
+    // Compiler-private complex scalar: real f64 at +8, imaginary f64 at +16.
+    Complex = 10,
 };
 
 inline constexpr std::uint32_t slot_alignment = 8;

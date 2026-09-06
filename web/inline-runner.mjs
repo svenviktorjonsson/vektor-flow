@@ -1,13 +1,17 @@
 const WASM_URL = new URL("./playground/artifacts/vkf-shared-compiler.wasm", import.meta.url);
-const MANIFEST_URL = new URL("./playground/artifacts/vkf-browser-compiler.json", import.meta.url);
 const WORKER_URL = new URL("./inline-runner-worker.mjs", import.meta.url);
 
 function resultPackets(output) {
-  if (!Array.isArray(output?.packets) || output.packets.length === 0) return null;
-  if (!output.packets.every((packet) => packet instanceof ArrayBuffer || ArrayBuffer.isView(packet))) {
-    throw new TypeError("browser compiler returned an invalid UI packet buffer");
+  if (Array.isArray(output?.retained_scene_arenas) && output.retained_scene_arenas.length > 0) {
+    if (!output.retained_scene_arenas.every((packet) =>
+      packet?.schema === "vektor-flow/retained-scene-arena"
+      && packet.version === 1
+      && packet.arena instanceof Uint8Array)) {
+      throw new TypeError("browser compiler returned an invalid retained scene arena");
+    }
+    return output.retained_scene_arenas;
   }
-  return output.packets;
+  return null;
 }
 
 export function createInlineRunner({
@@ -21,22 +25,16 @@ export function createInlineRunner({
       || typeof WorkerClass !== "function") {
     throw new Error("inline browser execution is unavailable in this environment");
   }
-  const assets = Promise.all([
-    fetchImpl(WASM_URL).then((response) => {
-      if (!response.ok) throw new Error("browser compiler WASM is unavailable");
-      return response.arrayBuffer();
-    }).then(compileModule),
-    fetchImpl(MANIFEST_URL).then((response) => {
-      if (!response.ok) throw new Error("browser compiler manifest is unavailable");
-      return response.json();
-    }),
-  ]);
+  const compilerModule = fetchImpl(WASM_URL).then((response) => {
+    if (!response.ok) throw new Error("browser compiler WASM is unavailable");
+    return response.arrayBuffer();
+  }).then(compileModule);
   let sequence = 0;
 
   return Object.freeze({
     async run(source) {
       if (typeof source !== "string") throw new TypeError("inline VKF source must be a string");
-      const [module, manifest] = await assets;
+      const module = await compilerModule;
       const worker = new WorkerClass(WORKER_URL, { type: "module", name: "vkf-inline-runner" });
       const id = ++sequence;
       return new Promise((resolve, reject) => {
@@ -66,7 +64,7 @@ export function createInlineRunner({
             }
           });
         };
-        worker.postMessage({ type: "run", id, source, module, manifest });
+        worker.postMessage({ type: "run", id, source, module });
       });
     },
   });

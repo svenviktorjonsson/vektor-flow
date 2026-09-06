@@ -15,14 +15,14 @@ npm ci
 node tools/package-browser-compiler.mjs --output=dist/browser-vkf
 ```
 
-The output contains `vkf-browser-compiler.mjs` and an `artifacts/` directory.
+The output contains `vkf-shared-compiler.mjs` and an `artifacts/` directory.
 Keep them together beside the webpage that imports the compiler module.
 [Packaging source](../../tools/package-browser-compiler.mjs).
 
 ## Connect it to your page
 
-This minimal host compiles and runs supported VKF entirely client-side.
-The HTML and CSS remain yours to design. Add your own stylesheet as usual.
+This minimal host runs the same VKF compiler as the desktop tools, compiled to
+WebAssembly and executing entirely client-side. The HTML and CSS remain yours.
 
 ```html
 <textarea id="vkf-source">double(value:int) -> int: value * 2
@@ -31,17 +31,17 @@ The HTML and CSS remain yours to design. Add your own stylesheet as usual.
 <pre id="vkf-output"></pre>
 
 <script type="module">
-  import { loadPackagedBrowserCompiler } from "./vkf-browser-compiler.mjs";
+  import { loadSharedCompiler } from "./vkf-shared-compiler.mjs";
 
-  const compiler = await loadPackagedBrowserCompiler();
+  const compiler = await loadSharedCompiler();
   document.querySelector("#run-vkf").addEventListener("click", () => {
     const source = document.querySelector("#vkf-source").value;
     const output = document.querySelector("#vkf-output");
     try {
       const result = compiler.run(source);
       output.textContent = result.kind === "console"
-        ? result.values.map(value => JSON.stringify(value)).join("\n")
-        : JSON.stringify(result);
+        ? result.stdout
+        : "Program emitted UI output.";
     } catch (error) {
       output.textContent = error.message;
     }
@@ -56,8 +56,8 @@ Unsupported source fails clearly. The WASM module has no host imports.
 This small example runs synchronously. For an editor accepting arbitrary user
 input, use a disposable Web Worker with a timeout, as the
 [site runner](../../web/inline-runner.mjs) does, so a long calculation cannot
-block the interface. Visual results are structured packets; this snippet
-prints them rather than pretending to be a complete graphics host.
+block the interface. Visual results are compiler-owned retained-scene arenas;
+mount them through the VKF UI runtime as the site runner does.
 
 ## Serve the files
 

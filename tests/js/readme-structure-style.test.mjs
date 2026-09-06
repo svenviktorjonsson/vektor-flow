@@ -49,13 +49,8 @@ function proseWidthViolations() {
   return violations;
 }
 
-test("README has one material gallery visual rather than a duplicate still", () => {
-  assert.equal(
-    readme.match(/docs\/public\/images\/readme-ui\/material-ui-gallery\.(?:png|gif)/gu)?.length,
-    1,
-  );
-  assert.doesNotMatch(readme, /material-ui-gallery\.png/u);
-  assert.match(readme, /material-ui-gallery\.gif/u);
+test("README omits the retired static material gallery", () => {
+  assert.doesNotMatch(readme, /material-ui-gallery\.(?:png|gif)/u);
 });
 
 test("README fenced snippets have a stable nearby label", () => {
@@ -85,20 +80,11 @@ test("README fenced snippets have a stable nearby label", () => {
   }
 });
 
-test("README scene media immediately follows its linked source snippet", () => {
+test("README omits the retired static scene gallery", () => {
   const cards = [...readme.matchAll(
     /<!-- scene-example:([^:]+):start -->([\s\S]*?)<!-- scene-example:\1:end -->/gu,
   )];
-  assert.equal(cards.length, 20);
-
-  for (const [, id, card] of cards) {
-    assert.doesNotMatch(card, /<table>/u, `${id} still uses side-by-side layout`);
-    assert.match(
-      card,
-      /^### \d{2} · \[[^\]]+\]\(examples\/scene_gallery\/[^"]+\/app\.vkf\)\r?\n\r?\n```vkf[\s\S]+?```\r?\n\r?\n\[!\[[^\]]+\]\((docs\/public\/images\/scene-gallery\/[^)]+\.png)\)\]\(\1\)$/mu,
-      `${id} does not order source link, fenced VKF, then capture`,
-    );
-  }
+  assert.deepEqual(cards, []);
 });
 
 test("README prose follows the repository's 80-column documentation rule", () => {

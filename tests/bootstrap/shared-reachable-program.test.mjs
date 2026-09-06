@@ -34,6 +34,24 @@ test('unchanged time guide rejects its unreachable host capability without a fal
   });
 });
 
+for (const [id,example,message] of [
+  [23,'05-io','unsupported standard-library call io.write_text in function $vkf_main.body.body[1].expr'],
+  [24,'08-system','unsupported standard-library call system.os_name in function __vkf_module_system__os.body.body[0].expr'],
+  [25,'09-process','unsupported standard-library call process.run_native in function __vkf_module_process__run.body.body[0].expr'],
+]) {
+  test(`unchanged ${example} guide receives exact compiler-owned sandbox denial`,async()=>{
+    const [wasm,source]=await Promise.all([
+      readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url)),
+      readFile(new URL(`../../examples/generated/readme/stdlib/${example}.vkf`,import.meta.url),'utf8'),
+    ]);
+    const module=new WebAssembly.Module(wasm);
+    assert.deepEqual(WebAssembly.Module.imports(module),[]);
+    assert.deepEqual(runInlineWorkerRequest({type:'run',id,source,module}),{
+      id,status:'error',message,
+    });
+  });
+}
+
 test('unchanged primitive guide executes compiler-owned scalar conversions',async()=>{
   const [wasm,source]=await Promise.all([
     readFile(new URL('../../build/shared-compiler/vkf-compiler.wasm',import.meta.url)),

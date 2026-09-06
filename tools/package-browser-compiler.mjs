@@ -21,16 +21,12 @@ const artifactsSource = path.join(repositoryRoot, "web", "playground", "artifact
 await mkdir(artifactsOutput, { recursive: true });
 await Promise.all([
   copyFile(
-    path.join(artifactsSource, "vkf-browser-compiler.wasm"),
-    path.join(artifactsOutput, "vkf-browser-compiler.wasm"),
-  ),
-  copyFile(
-    path.join(artifactsSource, "vkf-browser-compiler.json"),
-    path.join(artifactsOutput, "vkf-browser-compiler.json"),
+    path.join(artifactsSource, "vkf-shared-compiler.wasm"),
+    path.join(artifactsOutput, "vkf-shared-compiler.wasm"),
   ),
   build({
-    entryPoints: [path.join(repositoryRoot, "web", "playground", "vkf-browser-compiler.mjs")],
-    outfile: path.join(output, "vkf-browser-compiler.mjs"),
+    entryPoints: [path.join(repositoryRoot, "web", "playground", "vkf-shared-compiler.mjs")],
+    outfile: path.join(output, "vkf-shared-compiler.mjs"),
     bundle: true,
     format: "esm",
     platform: "browser",

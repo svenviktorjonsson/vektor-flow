@@ -151,6 +151,28 @@ extern "C" int vkf_format_stdout(const std::uint8_t* memory, std::uint32_t lengt
     }
 }
 
+extern "C" int vkf_format_retained_ui_packets(
+    const std::uint8_t* memory,
+    std::uint32_t length,
+    std::uint32_t output_pointer
+) {
+    try {
+        if (!compiled || program.empty()) {
+            throw std::runtime_error("No successfully compiled VKF program");
+        }
+        result = vf::json_stringify(vf::JsonValue::Object{
+            {"ok", true},
+            {"retained_scene_arenas", vkf::ui_effect_packets::extract_retained(
+                memory, length, output_pointer, typed_ir)},
+        }, -1);
+        return 0;
+    } catch (const std::exception& error) {
+        result = vf::json_stringify(vf::JsonValue::Object{
+            {"ok", false}, {"message", error.what()}}, -1);
+        return 1;
+    }
+}
+
 #ifdef VKF_PRIVATE_UI_EFFECTS_TEST_PROBE
 extern "C" int vkf_format_ui_packets(const std::uint8_t* memory, std::uint32_t length,
                                       std::uint32_t output_pointer,

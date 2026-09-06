@@ -16,21 +16,29 @@ test("downloadable browser compiler package runs VKF through its public module",
     );
     assert.equal(packaged.status, 0, packaged.stderr || packaged.stdout);
 
-    const [{ createBrowserCompiler }, wasm, manifest] = await Promise.all([
-      import(pathToFileURL(path.join(output, "vkf-browser-compiler.mjs"))),
-      readFile(path.join(output, "artifacts", "vkf-browser-compiler.wasm")),
-      readFile(
-        path.join(output, "artifacts", "vkf-browser-compiler.json"),
-        "utf8",
-      ).then(JSON.parse),
+    const [{ createSharedCompiler, loadSharedCompiler }, wasm] = await Promise.all([
+      import(pathToFileURL(path.join(output, "vkf-shared-compiler.mjs"))),
+      readFile(path.join(output, "artifacts", "vkf-shared-compiler.wasm")),
     ]);
-    const { instance } = await WebAssembly.instantiate(wasm);
-    const compiler = createBrowserCompiler({ instance, manifest });
+    const module = new WebAssembly.Module(wasm);
+    assert.deepEqual(WebAssembly.Module.imports(module), []);
+    const compiler = createSharedCompiler({ instance: new WebAssembly.Instance(module) });
 
-    assert.deepEqual({ ...compiler.run("double(value:int) -> int: value * 2\n:: double([1, 2, 3])") }, {
+    assert.deepEqual(compiler.run("double(value:int) -> int: value * 2\n:: double([1, 2, 3])"), {
       kind: "console",
-      values: [[2, 4, 6]],
+      stdout: "[2, 4, 6]\n",
+      stderr: "",
     });
+    let requestedWasm;
+    const loaded = await loadSharedCompiler({
+      fetchImpl: async (url) => {
+        requestedWasm = String(url);
+        return { ok: true, arrayBuffer: async () => wasm };
+      },
+      compileModule: async (bytes) => new WebAssembly.Module(bytes),
+    });
+    assert.match(requestedWasm, /artifacts\/vkf-shared-compiler\.wasm$/u);
+    assert.equal(loaded.run(":: 40 + 2").stdout, "42\n");
   } finally {
     await rm(output, { recursive: true, force: true });
   }
@@ -57,9 +65,10 @@ test("the linked documentation explains browser integration without bloating the
   assert.match(readme, /vektorflow\.org\/guide\.html/u);
   assert.match(install, /docs\/site\/browser\.md/u);
   assert.match(guide, /vektor-flow-browser-wasm\.zip/u);
-  assert.match(guide, /import \{ loadPackagedBrowserCompiler \} from "\.\/vkf-browser-compiler\.mjs"/u);
-  assert.match(guide, /const compiler = await loadPackagedBrowserCompiler\(\)/u);
+  assert.match(guide, /import \{ loadSharedCompiler \} from "\.\/vkf-shared-compiler\.mjs"/u);
+  assert.match(guide, /const compiler = await loadSharedCompiler\(\)/u);
   assert.match(guide, /compiler\.run\(source\)/u);
+  assert.match(guide, /result\.stdout/u);
   assert.match(guide, /entirely client-side/u);
   assert.match(guide, /no\s+network, server, filesystem, process, DOM, localhost, or host API access/u);
 });

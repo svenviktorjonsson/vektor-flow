@@ -8,7 +8,7 @@ SOURCES := compiler/native/vkf_browser_compiler.cpp \
 WASM_OBJECTS := $(addprefix $(OUTPUT)/wasm/,$(SOURCES:.cpp=.o))
 NATIVE_OBJECTS := $(addprefix $(OUTPUT)/native/,$(SOURCES:.cpp=.o))
 COMMON := -std=c++17 -O1 -I. -Inative/VfOverlay -I$(OUTPUT) -DVKF_NATIVE_FRONTEND_LIBRARY
-EXPORTS := '["_vkf_compile_source","_vkf_emit_program","_vkf_describe_tests","_vkf_select_test_files","_vkf_format_stdout","_vkf_program_pointer","_vkf_program_length","_vkf_result_pointer","_vkf_result_length","_malloc","_free"]'
+EXPORTS := '["_vkf_compile_source","_vkf_emit_program","_vkf_describe_tests","_vkf_select_test_files","_vkf_format_stdout","_vkf_format_retained_ui_packets","_vkf_program_pointer","_vkf_program_length","_vkf_result_pointer","_vkf_result_length","_malloc","_free"]'
 
 .PHONY: all
 all: $(OUTPUT)/vkf-compiler.wasm $(OUTPUT)/vkf-compiler-probe

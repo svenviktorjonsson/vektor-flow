@@ -128,6 +128,17 @@ enum class Opcode : std::uint16_t {
     // Private aggregate-comparison result representation. Native aggregate
     // operators expose numeric bit lanes while scalar comparisons expose bit.
     BitAsNumber = 88,
+    // Private bounded-loop lifetime operations.
+    CloneNumber = 89,
+    NumericSlotUpdate = 90,
+    ArenaMark = 91,
+    ArenaReset = 92,
+    NumericArrayUpdate = 93,
+    MakeComplex = 94,
+    ComplexMultiply = 95,
+    ComplexReal = 96,
+    ComplexImag = 97,
+    NumberToUtf8String = 98,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -229,7 +240,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::BitAsNumber);
+        <= static_cast<std::uint16_t>(Opcode::NumberToUtf8String);
 }
 
 inline bool is_valid_utf8(const std::string& value) {
@@ -358,6 +369,12 @@ inline void validate_instruction(
         case Opcode::MultisetAlgebra:
             if (instruction.first > 3) {
                 throw BytecodeError(context + " has invalid multiset operation");
+            }
+            break;
+        case Opcode::NumericSlotUpdate:
+        case Opcode::NumericArrayUpdate:
+            if (instruction.first > 1) {
+                throw BytecodeError(context + " has invalid numeric update operation");
             }
             break;
         default:
@@ -548,7 +565,17 @@ inline bool uses_private_tuple_operations(const Module& module) {
                 || instruction.opcode == Opcode::MultisetAlgebra
                 || instruction.opcode == Opcode::ArrayAsTuple
                 || instruction.opcode == Opcode::ErrorMaskMatches
-                || instruction.opcode == Opcode::BitAsNumber;
+                || instruction.opcode == Opcode::BitAsNumber
+                || instruction.opcode == Opcode::CloneNumber
+                || instruction.opcode == Opcode::NumericSlotUpdate
+                || instruction.opcode == Opcode::ArenaMark
+                || instruction.opcode == Opcode::ArenaReset
+                || instruction.opcode == Opcode::NumericArrayUpdate
+                || instruction.opcode == Opcode::MakeComplex
+                || instruction.opcode == Opcode::ComplexMultiply
+                || instruction.opcode == Opcode::ComplexReal
+                || instruction.opcode == Opcode::ComplexImag
+                || instruction.opcode == Opcode::NumberToUtf8String;
     return private_tuple;
 }
 
@@ -703,6 +730,10 @@ inline Module deserialize(const std::vector<std::uint8_t>& bytes) {
             if (version == detail::format_version &&
                 function.instructions.back().opcode == Opcode::BitAsNumber) {
                 throw BytecodeError("private bit conversion opcode requires bytecode version 3");
+            }
+            if (version == detail::format_version &&
+                function.instructions.back().opcode >= Opcode::CloneNumber) {
+                throw BytecodeError("private arena opcode requires bytecode version 3");
             }
         }
         module.functions.push_back(std::move(function));

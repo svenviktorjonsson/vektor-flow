@@ -1,5 +1,4 @@
 import { createSharedCompiler } from "./playground/vkf-shared-compiler.mjs";
-import { materializeVisualOutput } from "./inline-result-packets.mjs";
 
 const NO_HOST_IMPORTS = Object.freeze({});
 
@@ -17,7 +16,7 @@ export function runInlineWorkerRequest(data) {
     }
     const instance = new WebAssembly.Instance(module, NO_HOST_IMPORTS);
     const compiler = createSharedCompiler({ instance });
-    const output = materializeVisualOutput(compiler.run(data.source));
+    const output = compiler.run(data.source);
     return { id: data.id, status: "ok", output };
   } catch (error) {
     return {
@@ -30,8 +29,8 @@ export function runInlineWorkerRequest(data) {
 
 globalThis.onmessage = ({ data }) => {
   const response = runInlineWorkerRequest(data);
-  const transfers = response.output?.packets
-    ? response.output.packets.map((packet) => packet.buffer)
+  const transfers = response.output?.retained_scene_arenas
+    ? response.output.retained_scene_arenas.map((packet) => packet.arena.buffer)
     : [];
   globalThis.postMessage(response, transfers);
 };

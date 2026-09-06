@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildSiteDocument, pageHtml } from "../../tools/build-site.mjs";
+import {
+  buildSiteDocument,
+  pageHtml,
+  RETAINED_RENDERER_SCRIPTS,
+  RETAINED_RENDERER_STYLES,
+} from "../../tools/build-site.mjs";
 const root = new URL("../../", import.meta.url);
 
 test("the static documentation has lightweight navigation and progressively enhanced examples", async () => {
@@ -19,13 +24,22 @@ test("the static documentation has lightweight navigation and progressively enha
   assert.match(client, /import\("\.\/inline-runner\.mjs"\)/u);
   assert.match(client, /runner\.prewarm\(\)/u);
   assert.match(client, /\.innerHTML\s*=\s*document\.html/u);
-  assert.match(client, /renderInlineResult\(canvas, packets, 0\)/u);
-  assert.match(client, /cancelAnimationFrame\(request\)/u);
+  assert.match(client, /mountRetainedSceneResult\(result, packets\)/u);
+  assert.doesNotMatch(client, /inline-result-(?:renderer|packets)|renderInlineResult/u);
   assert.doesNotMatch(client, /window\.open|fetch\("\.\/generated/u);
   assert.match(runner, /new WorkerClass\(/u);
   assert.match(runner, /worker\.terminate\(\)/u);
   assert.match(worker, /WebAssembly\.Module\.imports\(module\)/u);
   assert.match(worker, /Object\.freeze\(\{\}\)/u);
+  for (const asset of [...RETAINED_RENDERER_STYLES, ...RETAINED_RENDERER_SCRIPTS]) {
+    assert.ok(html.indexOf(asset) >= 0, `published renderer asset missing: ${asset}`);
+  }
+  for (let index = 1; index < RETAINED_RENDERER_SCRIPTS.length; index += 1) {
+    assert.ok(html.indexOf(RETAINED_RENDERER_SCRIPTS[index - 1]) <
+      html.indexOf(RETAINED_RENDERER_SCRIPTS[index]));
+  }
+  assert.ok(html.indexOf("vf-ui/vf-display.js") < html.indexOf("documentation.mjs"));
+  assert.doesNotMatch(html, /vf-runtime-shell\.js|vf-native-scene\.js/u);
   assert.match(workflow, /pages-readme-document\.test\.mjs/u);
   assert.match(workflow, /build-pages-readme\.mjs --output=web\/generated/u);
   assert.match(workflow, /PSNativeCommandUseErrorActionPreference/u);

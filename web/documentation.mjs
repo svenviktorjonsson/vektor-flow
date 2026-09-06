@@ -1,15 +1,11 @@
 import { highlightVkf } from "./editor/vkf-highlighter.mjs";
 import { createInlineExampleController } from "./inline-example-controller.mjs";
-let renderInlineResult;
+import { mountRetainedSceneResult } from "./inline-retained-scene-view.mjs";
 let runtime;
 let runtimePromise;
 function createLazyRunner() {
   const load = () => {
-    runtimePromise ??= Promise.all([
-      import("./inline-runner.mjs"),
-      import("./inline-result-renderer.mjs"),
-    ]).then(([runner, renderer]) => {
-      renderInlineResult = renderer.renderInlineResult;
+    runtimePromise ??= import("./inline-runner.mjs").then((runner) => {
       runtime = runner.createInlineRunner();
     }).catch((error) => { runtimePromise = null; throw error; });
     return runtimePromise;
@@ -72,30 +68,8 @@ function prepareExample(example, runner) {
         result.className = "readme-example-result";
         result.setAttribute("aria-label", "Result");
         result.dataset.packetCount = String(packets.length);
-        const canvas = globalThis.document.createElement("canvas");
-        canvas.width = 640;
-        canvas.height = 360;
-        canvas.setAttribute("aria-label", "VKF visual output");
-        result.append(canvas);
-        const started = globalThis.performance.now();
-        let request = 0;
-        let lastPaint = started;
-        const timing = renderInlineResult(canvas, packets, 0);
-        const paint = (now) => {
-          const interval = 1000 / timing.fps;
-          if (now - lastPaint >= interval) {
-            renderInlineResult(canvas, packets, now - started);
-            lastPaint = now;
-          }
-          request = globalThis.requestAnimationFrame(paint);
-        };
-        if (timing) {
-          request = globalThis.requestAnimationFrame(paint);
-          stopResultAnimation = () => {
-            if (request) globalThis.cancelAnimationFrame(request);
-          };
-        }
         layout.append(result);
+        stopResultAnimation = mountRetainedSceneResult(result, packets);
         layout.classList.add("has-result");
       },
       finish() { play.disabled = false; },

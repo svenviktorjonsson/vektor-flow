@@ -101,7 +101,7 @@ Events carry:
 interaction should anchor on `down` and compute transforms from absolute cursor
 position:
 
-```vkf
+```vkf static
 down_pos: ui.cursor.pos
 start: rect.transform
 

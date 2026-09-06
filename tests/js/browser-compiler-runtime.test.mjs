@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { createBrowserCompiler } from "../../web/playground/vkf-browser-compiler.mjs";
+import { createSharedCompiler } from "../../web/playground/vkf-shared-compiler.mjs";
 
 const artifacts = new URL("../../web/playground/artifacts/", import.meta.url);
 
@@ -123,6 +124,57 @@ test("procedural complex p coordinates retain at least 100 inferred 2D positions
     () => compiler.run(source.replaceAll("512", "2049")),
     /browser compiler could not run the VKF source/u,
   );
+});
+
+test("plain x and y arrays retain at least 100 inferred 2D positions", async () => {
+  const [wasm, source] = await Promise.all([
+    readFile(new URL("vkf-shared-compiler.wasm", artifacts)),
+    readFile(new URL("../../examples/introduction/geometry.vkf", import.meta.url), "utf8")
+      .then((source) => source.replaceAll("\r\n", "\n")),
+  ]);
+  const module = new WebAssembly.Module(wasm);
+  assert.deepEqual(WebAssembly.Module.imports(module), []);
+  const compiler = createSharedCompiler({ instance: new WebAssembly.Instance(module) });
+  const output = compiler.run(source);
+
+  assert.equal(output.kind, "visual");
+  assert.equal(output.retained_scene_arenas.length, 1);
+  const packet = output.retained_scene_arenas[0];
+  assert.equal(packet.metadata.schema, "vektor-flow/retained-scene-arena");
+  const mesh = packet.metadata.scene.meshes[0];
+  assert.equal(mesh.vertices.storage, "float32");
+  const vertices = new Float32Array(packet.arena.buffer,
+    packet.arena.byteOffset + mesh.vertices.byte_offset, mesh.vertices.length);
+  const columns = mesh.vertices.length / 10;
+  assert.equal(columns, 101);
+  assert.ok(columns >= 100);
+  assert.equal(vertices[0], 0);
+  assert.equal(vertices[50 * 10], 5);
+  assert.equal(vertices[100 * 10], 10);
+  assert.ok(Math.abs(vertices[1] - Math.sin(0)) < 1e-6);
+  assert.ok(Math.abs(vertices[50 * 10 + 1] - Math.sin(5)) < 1e-6);
+  assert.ok(Math.abs(vertices[100 * 10 + 1] - Math.sin(10)) < 1e-6);
+  for (let index = 0; index <= 100; index++) {
+    assert.ok(Math.abs(vertices[index * 10] - 0.1 * index) < 1e-6);
+    assert.ok(Math.abs(vertices[index * 10 + 1] - Math.sin(0.1 * index)) < 1e-6);
+  }
+  assert.equal(mesh.mode3d, false);
+  assert.deepEqual(mesh.axis_ticks, { enabled: true, x_label: "x", y_label: "y" });
+
+  const edited = compiler.run(source.replace("100", "50"));
+  const editedPacket = edited.retained_scene_arenas[0];
+  const editedMesh = editedPacket.metadata.scene.meshes[0];
+  const editedVertices = new Float32Array(editedPacket.arena.buffer,
+    editedPacket.arena.byteOffset + editedMesh.vertices.byte_offset, editedMesh.vertices.length);
+  assert.equal(editedMesh.vertices.length / 10, 51);
+  assert.deepEqual([
+    editedVertices[0], editedVertices[25 * 10], editedVertices[50 * 10],
+  ], [0, 2.5, 5]);
+  assert.ok(Math.abs(editedVertices[50 * 10 + 1] - Math.sin(5)) < 1e-6);
+  const renamed = source.replaceAll(/\bx\b/gu, "samples").replaceAll(/\by\b/gu, "heights");
+  assert.notEqual(renamed, source);
+  assert.deepEqual(compiler.run(renamed), output);
+  assert.deepEqual(compiler.run(source), output);
 });
 
 test("browser compiler fails clearly on unsupported source", async () => {

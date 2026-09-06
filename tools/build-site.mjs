@@ -22,6 +22,43 @@ export const SITE_PAGES = Object.freeze({
 const REPOSITORY = "https://github.com/svenviktorjonsson/vektor-flow";
 const ORIGIN = "https://vektorflow.org/";
 const REPORT = "benchmarks/core-comparison/results/linux-x64-030.md";
+export const RETAINED_RENDERER_STYLES = Object.freeze([
+  "vf-ui/katex/katex.min.css",
+  "vf-ui/vf-frame.css",
+]);
+export const RETAINED_RENDERER_SCRIPTS = Object.freeze([
+  "vf-ui/katex/katex.min.js",
+  "vf-ui/vf-startup-gate.js",
+  "vf-ui/vf-runtime-packet-contract.js",
+  "vf-ui/vf-retained-event-adapter.js",
+  "vf-ui/vf-runtime-source.js",
+  "vf-ui/vf-html-components.js",
+  "vf-ui/vf-runtime-scene.js",
+  "vf-ui/vf-runtime-flow.js",
+  "vf-ui/vf-compiled-runtime-bridge.js",
+  "vf-ui/vf-compiled-webgpu-adapter.js",
+  "vf-ui/vf-render-clock.js",
+  "vf-ui/vf-frame.js",
+  "vf-ui/vf-widgets.js",
+  "vf-ui/vf-static-html-loader.js",
+  "vf-ui/vf-shared-runtime.js",
+  "vf-ui/vf-gpu-runtime.js",
+  "vf-ui/vf-axis2d-ticks.js",
+  "vf-ui/vf-axis3d-kernel.js",
+  "vf-ui/vf-axis3d-kernel-adapter.js",
+  "vf-ui/vf-axis3d-projection-kernel.js",
+  "vf-ui/vf-axis3d-projection-kernel-adapter.js",
+  "vf-ui/geom/vf-geom-math.js",
+  "vf-ui/geom/vf-geom-core.js",
+  "vf-ui/geom/vf-geom-material-arena.js",
+  "vf-ui/geom/vf-geom-ledger-layout.js",
+  "vf-ui/geom/vf-geom-ledger-transport.js",
+  "vf-ui/geom/vf-geom-ledger.js",
+  "vf-ui/geom/vf-geom-parametric-surface.js",
+  "vf-ui/geom/vf-geom-frame-adapter.js",
+  "vf-ui/geom/vf-geom-wgpu.js",
+  "vf-ui/vf-display.js",
+]);
 const rootPath = (root) => root instanceof URL ? fileURLToPath(root) : resolve(root);
 export const escapeHtml = (text) => String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 const routeFor = (source) => SITE_PAGES[source] ?? `reference/${source.replace(/\.md$/iu, ".html")}`;
@@ -177,11 +214,11 @@ export async function buildSiteDocument(repoRoot, source = "README.md") {
     const fence = /^\s*(`{3,}|~{3,})(.*)$/u.exec(line);
     if (fence) {
       flush();
-      const [language = ""] = fence[2].trim().split(/\s+/u);
+      const [language = "", ...fenceFlags] = fence[2].trim().split(/\s+/u);
       const code = [];
       while (++index < lines.length && !lines[index].trimStart().startsWith(fence[1])) code.push(lines[index]);
       const sourceCode = code.join("\n");
-      if (language === "vkf") {
+      if (language === "vkf" && !fenceFlags.includes("static")) {
         const id = `example-${examples.length + 1}`;
         const hasDefaultOutput = evidenceOutputs.has(pendingExamplePath);
         const defaultOutput = hasDefaultOutput ? evidenceOutputs.get(pendingExamplePath) : "";
@@ -250,7 +287,14 @@ export function pageHtml(document) {
   const nav = [["Guide", "guide.html"], ["Reference", "reference.html"], ["Performance", "performance.html"], ["Download", "install.html"]];
   const sectionLinks = document.headings.filter((h) => h.level === 2);
   const toc = !home && sectionLinks.length > 4 ? `<details class="contents"><summary>On this page</summary><nav aria-label="On this page">${sectionLinks.map((h) => `<a href="#${escapeHtml(h.id)}">${escapeHtml(h.title)}</a>`).join("")}</nav></details>` : "";
-  return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="description" content="Vektor Flow: a few powerful principles for calculations, data and visual programs. Try supported examples in your browser."><title>${escapeHtml(title)}${home ? "" : " · Vektor Flow"}</title><link rel="canonical" href="${ORIGIN}${document.route === "index.html" ? "" : document.route}"><link rel="stylesheet" href="${prefix}/site.css"></head><body><a class="skip-link" href="#readme-documentation">Skip to content</a><header class="site-nav"><a class="wordmark" href="${prefix}/index.html">Vektor Flow</a><nav aria-label="Main navigation">${nav.map(([label, path]) => `<a${document.route === path ? ' aria-current="page"' : ""} href="${prefix}/${path}">${label}</a>`).join("")}</nav></header><main class="${home ? "landing" : "documentation"}">${toc}<article id="readme-documentation" class="readme">${document.html}</article></main><footer class="site-footer">Experimental software · <a href="${REPOSITORY}">Source</a> · <a href="${prefix}/origins.html">Origins</a></footer>${document.examples.length || document.html.includes("data-vkf-source") ? `<script type="module" src="${prefix}/documentation.mjs"></script>` : ""}</body></html>\n`;
+  const renderer = document.examples.length ? [
+    ...RETAINED_RENDERER_STYLES.map((asset) =>
+      `<link rel="stylesheet" href="${prefix}/${asset}">`),
+    "<script>window.__vfInlineRetainedScene=true;</script>",
+    ...RETAINED_RENDERER_SCRIPTS.map((asset) =>
+      `<script src="${prefix}/${asset}"></script>`),
+  ].join("") : "";
+  return `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="description" content="Vektor Flow: a few powerful principles for calculations, data and visual programs. Try supported examples in your browser."><title>${escapeHtml(title)}${home ? "" : " · Vektor Flow"}</title><link rel="canonical" href="${ORIGIN}${document.route === "index.html" ? "" : document.route}"><link rel="stylesheet" href="${prefix}/site.css">${renderer}</head><body><a class="skip-link" href="#readme-documentation">Skip to content</a><header class="site-nav"><a class="wordmark" href="${prefix}/index.html">Vektor Flow</a><nav aria-label="Main navigation">${nav.map(([label, path]) => `<a${document.route === path ? ' aria-current="page"' : ""} href="${prefix}/${path}">${label}</a>`).join("")}</nav></header><main class="${home ? "landing" : "documentation"}">${toc}<article id="readme-documentation" class="readme">${document.html}</article></main><footer class="site-footer">Experimental software · <a href="${REPOSITORY}">Source</a> · <a href="${prefix}/origins.html">Origins</a></footer>${document.examples.length || document.html.includes("data-vkf-source") ? `<script type="module" src="${prefix}/documentation.mjs"></script>` : ""}</body></html>\n`;
 }
 
 /** Publish each Markdown source once, with editable VKF examples. */

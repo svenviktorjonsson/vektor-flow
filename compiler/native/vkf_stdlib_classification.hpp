@@ -9,6 +9,7 @@ enum class CallFamily {
     Statistics,
     Output,
     Collection,
+    Regex,
     BrowserCapability,
     Unsupported,
 };
@@ -28,6 +29,7 @@ inline CallFamily classify_call(std::string_view name) {
     }
     if (name == "io.print") return CallFamily::Output;
     if (name == "collections.list") return CallFamily::Collection;
+    if (name == "regex.match" || name == "regex.groups") return CallFamily::Regex;
     if (starts_with("time.") || starts_with("io.")
         || starts_with("system.") || starts_with("process.")) {
         return CallFamily::BrowserCapability;

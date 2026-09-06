@@ -39,9 +39,7 @@ test("inline runner precompiles once and starts a fresh isolated worker per Play
     },
     fetchImpl: async (url) => {
       requests.push(String(url));
-      return String(url).endsWith(".wasm")
-        ? { ok: true, arrayBuffer: async () => new ArrayBuffer(8) }
-        : { ok: true, json: async () => ({ schema: "test" }) };
+      return { ok: true, arrayBuffer: async () => new ArrayBuffer(8) };
     },
     WorkerClass: WorkerStub,
     timeoutMs: 100,
@@ -49,15 +47,14 @@ test("inline runner precompiles once and starts a fresh isolated worker per Play
 
   assert.deepEqual(await runner.run(":: 40 + 2"), { output: 42, packets: null });
   assert.deepEqual(await runner.run(":: 40 + 3"), { output: 43, packets: null });
-  assert.equal(requests.length, 2);
-  assert.ok(requests.some((url) => /vkf-shared-compiler\.wasm$/u.test(url)));
-  assert.ok(requests.some((url) => /vkf-browser-compiler\.json$/u.test(url)));
+  assert.deepEqual(requests.map((url) => /vkf-shared-compiler\.wasm$/u.test(url)), [true]);
   assert.equal(compilationCount, 1);
   assert.equal(WorkerStub.instances.length, 2);
   assert.deepEqual(messages.map(({ type }) => type), ["run", "run"]);
   assert.equal(messages[0].module, compiledModule);
   assert.equal(messages[0].wasm, undefined);
   assert.equal(messages[0].imports, undefined);
+  assert.equal(messages[0].manifest, undefined);
   assert.equal(messages[0].source, ":: 40 + 2");
   assert.equal(messages[1].module, compiledModule);
   assert.equal(messages[1].wasm, undefined);
@@ -1168,8 +1165,8 @@ test("worker exposes no host capability imports or networking path", async () =>
 
   assert.match(worker, /WebAssembly\.Module\.imports\(module\)/u);
   assert.match(worker, /Object\.freeze\(\{\}\)/u);
-  assert.match(worker, /materializeVisualOutput\(compiler\.run\(data\.source\)\)/u);
-  assert.match(worker, /output\.packets\.map\(\(packet\) => packet\.buffer\)/u);
+  assert.doesNotMatch(worker, /materializeVisualOutput|inline-result-/u);
+  assert.match(worker, /retained_scene_arenas\.map\(\(packet\) => packet\.arena\.buffer\)/u);
   assert.doesNotMatch(worker, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|process|localhost)\b/u);
   assert.doesNotMatch(worker, /\b(?:window|document|navigator)\b/u);
 });

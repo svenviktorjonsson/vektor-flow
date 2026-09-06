@@ -4,6 +4,8 @@
 #include <cctype>
 #include <cstdint>
 #include <limits>
+#include <functional>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -311,5 +313,79 @@ private:
 }  // namespace detail
 
 inline Pattern parse(std::string_view source) { return detail::Parser(source).parse(); }
+
+struct Match {
+    std::vector<std::string> groups;
+};
+
+// Portable reference matcher shared by compiler targets for constant-folding
+// and semantic tests. Native code generators implement the same parsed-op
+// contract for runtime sources.
+inline std::optional<Match> match(const Pattern& pattern, std::string_view source) {
+    struct Capture { std::size_t begin = 0; std::size_t end = 0; bool open = false; };
+    const auto attempt = [&](std::size_t start) -> std::optional<Match> {
+        std::vector<Capture> captures(pattern.group_names.size());
+        std::size_t matched_end = start;
+        std::function<bool(std::size_t, std::size_t, std::vector<Capture>&)> visit;
+        visit = [&](std::size_t op_index, std::size_t position,
+                    std::vector<Capture>& state) -> bool {
+            if (op_index == pattern.ops.size()) {
+                if (pattern.anchor_end && position != source.size()) return false;
+                matched_end = position;
+                return true;
+            }
+            const auto& op = pattern.ops[op_index];
+            if (op.kind == OpKind::BeginCapture) {
+                auto next = state;
+                next[op.capture] = {position, position, true};
+                if (!visit(op_index + 1, position, next)) return false;
+                state = std::move(next);
+                return true;
+            }
+            if (op.kind == OpKind::EndCapture) {
+                auto next = state;
+                next[op.capture].end = position;
+                next[op.capture].open = false;
+                if (!visit(op_index + 1, position, next)) return false;
+                state = std::move(next);
+                return true;
+            }
+            std::size_t maximum = 0;
+            while (position + maximum < source.size()
+                && maximum < op.maximum
+                && op.bytes.contains(static_cast<unsigned char>(source[position + maximum]))) {
+                ++maximum;
+            }
+            if (maximum < op.minimum) return false;
+            for (std::size_t count = maximum;; --count) {
+                auto next = state;
+                if (visit(op_index + 1, position + count, next)) {
+                    state = std::move(next);
+                    return true;
+                }
+                if (count == op.minimum) break;
+            }
+            return false;
+        };
+        std::size_t end = start;
+        if (!visit(0, start, captures)) return std::nullopt;
+        if (pattern.synthetic_full_capture) {
+            return Match{{std::string(source.substr(start, matched_end - start))}};
+        }
+        Match result;
+        for (const auto& capture : captures) {
+            result.groups.emplace_back(source.substr(
+                capture.begin, capture.end - capture.begin));
+            end = std::max(end, capture.end);
+        }
+        (void)end;
+        return result;
+    };
+    if (pattern.anchor_start) return attempt(0);
+    for (std::size_t start = 0; start <= source.size(); ++start) {
+        if (auto result = attempt(start)) return result;
+    }
+    return std::nullopt;
+}
 
 }  // namespace vkf::capture

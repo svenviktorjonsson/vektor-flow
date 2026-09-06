@@ -88,8 +88,10 @@ export async function documentationSources(root = repository) {
       const [language, ...flags] = fence[2].trim().split(/\s+/u);
       const body = [];
       while (++index < lines.length && !lines[index].trimStart().startsWith(fence[1])) body.push(lines[index]);
-      if (language === "vkf") entries.push({ document, line, kind: "fence",
-        live: flags.includes("live"), source: body.join("\n") });
+      if (language === "vkf" && !flags.includes("static")) entries.push({
+        document, line, kind: "fence", live: flags.includes("live"),
+        source: body.join("\n"),
+      });
     }
   }
   return entries;

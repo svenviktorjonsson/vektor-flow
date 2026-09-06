@@ -1,5 +1,4 @@
 // Transport only. Parsing, typing, lowering and execution are owned by WASM.
-// This adapter is not connected to the published runner until parity passes.
 export function createSharedCompiler({instance}) {
   const api = instance.exports;
   api._initialize?.();
@@ -73,10 +72,43 @@ export function createSharedCompiler({instance}) {
       if (!pointer) throw new Error('browser compiler stdout allocation failed');
       try {
         new Uint8Array(api.memory.buffer, pointer, memory.length).set(memory);
+        const retained = checkedResponse(api.vkf_format_retained_ui_packets(
+          pointer, memory.length, programApi.vkf_vm_results_ptr()), 'output');
+        if (retained.retained_scene_arenas?.length) {
+          return {
+            kind: 'visual',
+            retained_scene_arenas: retained.retained_scene_arenas.map((packet) => ({
+              ...packet,
+              arena: Uint8Array.from(packet.arena),
+            })),
+          };
+        }
         const formatted = checkedResponse(api.vkf_format_stdout(pointer, memory.length,
           programApi.vkf_vm_results_ptr()), 'output');
         return {kind: 'console', stdout: formatted.stdout, stderr: ''};
       } finally { api.free(pointer); }
     },
   });
+}
+
+export const PACKAGED_SHARED_COMPILER_URL = new URL(
+  "./artifacts/vkf-shared-compiler.wasm",
+  import.meta.url,
+);
+
+export async function loadSharedCompiler({
+  wasm = PACKAGED_SHARED_COMPILER_URL,
+  fetchImpl = globalThis.fetch,
+  compileModule = globalThis.WebAssembly?.compile,
+} = {}) {
+  if (typeof fetchImpl !== "function" || typeof compileModule !== "function") {
+    throw new Error("WebAssembly compiler loading is unavailable");
+  }
+  const response = await fetchImpl(wasm);
+  if (!response.ok) throw new Error("VKF compiler WASM is unavailable");
+  const module = await compileModule(await response.arrayBuffer());
+  if (WebAssembly.Module.imports(module).length !== 0) {
+    throw new Error("VKF compiler WASM must not import host capabilities");
+  }
+  return createSharedCompiler({ instance: new WebAssembly.Instance(module) });
 }

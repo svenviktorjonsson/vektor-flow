@@ -12219,6 +12219,86 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
 
   // ── Main render from JSON ─────────────────────────────────────────────────
 
+  function retainedArenaView(reference, arena, expectedStorage, label) {
+    if (!reference || typeof reference !== "object" || Array.isArray(reference)) {
+      throw new TypeError(label + " retained arena reference is missing");
+    }
+    if (String(reference.storage || "") !== expectedStorage) {
+      throw new TypeError(label + " retained arena storage must be " + expectedStorage);
+    }
+    var byteOffset = Number(reference.byte_offset);
+    var length = Number(reference.length);
+    if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 ||
+        !Number.isSafeInteger(length) || length < 0 || (byteOffset & 3) !== 0) {
+      throw new RangeError(label + " retained arena range is invalid");
+    }
+    var byteLength = length * 4;
+    if (byteOffset > arena.byteLength || byteLength > arena.byteLength - byteOffset) {
+      throw new RangeError(label + " retained arena range exceeds its packet");
+    }
+    var absoluteOffset = arena.byteOffset + byteOffset;
+    if ((absoluteOffset & 3) !== 0) {
+      throw new RangeError(label + " retained arena range is not aligned");
+    }
+    return expectedStorage === "float32"
+      ? new Float32Array(arena.buffer, absoluteOffset, length)
+      : new Uint32Array(arena.buffer, absoluteOffset, length);
+  }
+
+  // Arena references are compiler-owned. This seam only creates zero-copy typed
+  // views; topology, material, axes, labels and interaction stay in VfDisplay.
+  function materializeRetainedSceneArena(packet) {
+    if (!packet || String(packet.schema || "") !== "vektor-flow/retained-scene-arena" ||
+        Number(packet.version) !== 1 || !packet.metadata ||
+        String(packet.metadata.schema || "") !== "vektor-flow/retained-scene-arena" ||
+        Number(packet.metadata.version) !== 1) {
+      throw new TypeError("retained scene arena schema is missing or unsupported");
+    }
+    var arena = packet.arena;
+    if (!(arena instanceof Uint8Array)) {
+      throw new TypeError("retained scene arena bytes must be Uint8Array");
+    }
+    var source = packet.metadata.scene;
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      throw new TypeError("retained scene arena metadata has no scene");
+    }
+    var frameId = String(source.frame || "");
+    if (!frameId) {
+      throw new TypeError("retained scene arena metadata has no Frame identity");
+    }
+    var scene = Object.assign({}, source);
+    ["surfaces", "meshes"].forEach(function (collectionName) {
+      var collection = source[collectionName];
+      if (collection == null) { return; }
+      if (!Array.isArray(collection)) {
+        throw new TypeError("retained scene " + collectionName + " must be an array");
+      }
+      scene[collectionName] = collection.map(function (geometry, index) {
+        if (!geometry || typeof geometry !== "object" || Array.isArray(geometry)) {
+          throw new TypeError("retained scene " + collectionName + " entry must be an object");
+        }
+        var materialized = Object.assign({}, geometry);
+        materialized.vertices = retainedArenaView(
+          geometry.vertices, arena, "float32", collectionName + "[" + index + "].vertices");
+        materialized.indices = retainedArenaView(
+          geometry.indices, arena, "uint32", collectionName + "[" + index + "].indices");
+        return materialized;
+      });
+    });
+    if (!Object.prototype.hasOwnProperty.call(scene, "background")) {
+      scene.background = null;
+    }
+    var geom = {};
+    geom[frameId] = scene;
+    return { geom: geom };
+  }
+
+  function renderRetainedSceneArena(packet) {
+    var display = materializeRetainedSceneArena(packet);
+    renderFromJson(display);
+    return display;
+  }
+
   function renderFromJson(data) {
     if (!data || typeof data !== "object") {
       vlog("warn", "renderFromJson: data is null or not an object");
@@ -12530,7 +12610,8 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
   }
 
   function ensureRuntimeShellLoaded() {
-    if (global.VfRuntimeShell || typeof document === "undefined") { return; }
+    if (global.__vfInlineRetainedScene === true || global.VfRuntimeShell ||
+        typeof document === "undefined") { return; }
     if (document.querySelector('script[data-vf-runtime-shell-module="true"]')) { return; }
     var script = document.createElement("script");
     script.src = resolveRuntimeShellScriptUrl();
@@ -12688,6 +12769,7 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
   installGlobalDragBridge();
   global.VfDisplay = {
     renderFromJson: renderFromJson,
+    renderRetainedSceneArena: renderRetainedSceneArena,
     loadAndRender: loadAndRender,
     applyRuntimePacket: applyRuntimePacket,
     redrawCurrentDisplay: redrawCurrentDisplay,
@@ -12716,6 +12798,9 @@ fn fsMain(in : VOut) -> @location(0) vec4<f32> {
       setAxisGridEnabled: setAxisGridEnabled,
       createAxisVisualStateApplier: createAxisVisualStateApplier,
       createAxisTickModeStateApplier: createAxisTickModeStateApplier,
+      materializeRetainedSceneArena: materializeRetainedSceneArena,
+      axisMathText: axisMathText,
+      renderMathText: renderMathText,
       buildSingleMesh: buildSingleMesh,
       buildCombinedTriangleMesh: buildCombinedTriangleMesh,
       buildCombinedTransparentMesh: buildCombinedTransparentMesh,

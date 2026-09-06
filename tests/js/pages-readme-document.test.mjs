@@ -4,14 +4,32 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { SITE_PAGES, buildSiteDocument, benchmarkSummary, pageHtml, writeSite } from "../../tools/build-site.mjs";
-import { createBrowserCompiler } from "../../web/playground/vkf-browser-compiler.mjs";
+import { createSharedCompiler } from "../../web/playground/vkf-shared-compiler.mjs";
 const root = new URL("../../", import.meta.url);
+const sharedCompilerWasm = new URL(
+  "../../web/playground/artifacts/vkf-shared-compiler.wasm",
+  import.meta.url,
+);
+
+async function loadShippedCompiler() {
+  const wasm = await readFile(sharedCompilerWasm);
+  const module = new WebAssembly.Module(wasm);
+  assert.deepEqual(WebAssembly.Module.imports(module), []);
+  return createSharedCompiler({ instance: new WebAssembly.Instance(module) });
+}
 
 const branches = [
   "docs/site/origins.md",
   "docs/site/getting-started.md",
   "docs/site/concepts.md",
 ];
+
+const exactBrowserSandboxDiagnostics = new Set([
+  "unsupported standard-library call time.wall_seconds in function __vkf_module_time__wall_time.body.body[0].expr",
+  "unsupported standard-library call io.write_text in function $vkf_main.body.body[1].expr",
+  "unsupported standard-library call system.os_name in function __vkf_module_system__os.body.body[0].expr",
+  "unsupported standard-library call process.run_native in function __vkf_module_process__run.body.body[0].expr",
+]);
 
 test("one short README supplies the complete static homepage", async () => {
   const [document, readme] = await Promise.all([buildSiteDocument(root), readFile(new URL("README.md", root), "utf8")]);
@@ -50,7 +68,8 @@ test("the guide introduces Why, How and What before descending through links", a
   assert.match(document.html, /href="\.\/performance\.html"/u);
   assert.match(document.html, /href="\.\/install\.html"/u);
   assert.match(document.html, /HTML and CSS/u);
-  assert.match(document.html, /subset/u);
+  assert.match(document.html, /same VKF compiler as the desktop tools/u);
+  assert.doesNotMatch(document.html, /subset of VKF/u);
   assert.doesNotMatch(document.html, /Recorded stdout|material-ui-gallery|readme-evidence/u);
 });
 
@@ -69,21 +88,17 @@ test("the geometry example infers a continuous 2D topology from indexed channels
 });
 
 test("the bindings feature is an editable reference example with one prefilled console", async () => {
-  const base = new URL("web/playground/artifacts/", root);
-  const [document, canonical, wasm, manifest] = await Promise.all([
+  const [document, canonical, compiler] = await Promise.all([
     buildSiteDocument(root, "docs/language-guide.md"),
     readFile(new URL("examples/generated/readme/core/01-bindings.vkf", root), "utf8"),
-    readFile(new URL("vkf-browser-compiler.wasm", base)),
-    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+    loadShippedCompiler(),
   ]);
-  const { instance } = await WebAssembly.instantiate(wasm);
-  const compiler = createBrowserCompiler({ instance, manifest });
   const canonicalSource = canonical.replace(/\r\n/gu, "\n").trimEnd();
   const example = document.examples.find(({ source }) => source === canonicalSource);
 
   assert.ok(example, "the canonical bindings source must be editable");
-  assert.deepEqual(compiler.run(example.source).values, [7, 6]);
-  assert.deepEqual(compiler.run(`${example.source}\n`).values, [7, 6]);
+  assert.equal(compiler.run(example.source).stdout, "7\n6\n");
+  assert.equal(compiler.run(`${example.source}\n`).stdout, "7\n6\n");
   assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>7\n6<\/pre>/u);
   const bindingsSection = document.html.split('data-vkf-example-id="example-1"')[1]
     .split('<p>Declarations and updates are expressions')[0];
@@ -91,42 +106,37 @@ test("the bindings feature is an editable reference example with one prefilled c
 });
 
 test("binding expressions are editable and run from current source", async () => {
-  const base = new URL("web/playground/artifacts/", root);
-  const [document, canonical, wasm, manifest] = await Promise.all([
+  const [document, canonical, compiler] = await Promise.all([
     buildSiteDocument(root, "docs/language-guide.md"),
     readFile(new URL("examples/generated/readme/core/02-bind-expression.vkf", root), "utf8"),
-    readFile(new URL("vkf-browser-compiler.wasm", base)),
-    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+    loadShippedCompiler(),
   ]);
-  const { instance } = await WebAssembly.instantiate(wasm);
-  const compiler = createBrowserCompiler({ instance, manifest });
   const canonicalSource = canonical.replace(/\r\n/gu, "\n").trimEnd();
   const example = document.examples.find(({ source }) => source === canonicalSource);
 
   assert.ok(example, "the canonical binding-expression source must be editable");
-  assert.deepEqual(compiler.run(example.source).values, [3, 4]);
-  assert.deepEqual(compiler.run(example.source.replace("+ 1", "+ 5")).values, [3, 8]);
+  assert.equal(compiler.run(example.source).stdout, "3\n4\n");
+  assert.equal(compiler.run(example.source.replace("+ 1", "+ 5")).stdout, "3\n8\n");
   assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>3\n4<\/pre>/u);
 });
 
 test("output and assertions are editable and run from current source", async () => {
-  const base = new URL("web/playground/artifacts/", root);
-  const [document, canonical, wasm, manifest] = await Promise.all([
+  const [document, canonical, compiler] = await Promise.all([
     buildSiteDocument(root, "docs/language-guide.md"),
     readFile(new URL("examples/generated/readme/core/04-output-assert.vkf", root), "utf8"),
-    readFile(new URL("vkf-browser-compiler.wasm", base)),
-    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+    loadShippedCompiler(),
   ]);
-  const { instance } = await WebAssembly.instantiate(wasm);
-  const compiler = createBrowserCompiler({ instance, manifest });
   const canonicalSource = canonical.replace(/\r\n/gu, "\n").trimEnd();
   const example = document.examples.find(({ source }) => source === canonicalSource);
 
   assert.ok(example, "the canonical output/assertion source must be editable");
-  assert.deepEqual(compiler.run(example.source).values, [42]);
+  assert.equal(compiler.run(example.source).stdout, "42\n");
   const edited = example.source.replace("6 * 7", "6 * 8").replace("== 42", "== 48");
-  assert.deepEqual(compiler.run(edited).values, [48]);
-  assert.throws(() => compiler.run(example.source.replace("== 42", "== 41")), /answer changed/u);
+  assert.equal(compiler.run(edited).stdout, "48\n");
+  assert.throws(
+    () => compiler.run(example.source.replace("== 42", "== 41")),
+    (error) => error instanceof WebAssembly.RuntimeError && error.message === "unreachable",
+  );
   assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>42<\/pre>/u);
   const outputSection = document.html.split('data-vkf-example-id="example-3"')[1]
     .split('<h3 id="14-semicolons-preserve-logical-indentation">')[0];
@@ -134,25 +144,21 @@ test("output and assertions are editable and run from current source", async () 
 });
 
 test("semicolon pipelines are editable and run from current source", async () => {
-  const base = new URL("web/playground/artifacts/", root);
-  const [document, canonical, wasm, manifest] = await Promise.all([
+  const [document, canonical, compiler] = await Promise.all([
     buildSiteDocument(root, "docs/language-guide.md"),
     readFile(new URL("examples/generated/readme/core/49-semicolon-pipes.vkf", root), "utf8"),
-    readFile(new URL("vkf-browser-compiler.wasm", base)),
-    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+    loadShippedCompiler(),
   ]);
-  const { instance } = await WebAssembly.instantiate(wasm);
-  const compiler = createBrowserCompiler({ instance, manifest });
   const canonicalSource = canonical.replace(/\r\n/gu, "\n").trimEnd();
   const example = document.examples.find(({ source }) => source === canonicalSource);
 
   assert.ok(example, "the canonical semicolon/pipeline source must be editable");
-  assert.deepEqual(compiler.run(example.source).values, [5, [9, 25, 49]]);
+  assert.equal(compiler.run(example.source).stdout, "5\n[9, 25, 49]\n");
   const edited = example.source.replace("c: 5", "c: 6").replace("$ * 2", "$ * 3");
-  assert.deepEqual(compiler.run(edited).values, [6, [16, 49, 100]]);
+  assert.equal(compiler.run(edited).stdout, "6\n[16, 49, 100]\n");
   assert.throws(
     () => compiler.run(example.source.replace("; c:", " c:")),
-    /browser compiler could not run the VKF source/u,
+    /named tuples require parentheses/u,
   );
   assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>5\n\[9, 25, 49\]<\/pre>/u);
   const semicolonSection = document.html.split('data-vkf-example-id="example-4"')[1]
@@ -161,20 +167,16 @@ test("semicolon pipelines are editable and run from current source", async () =>
 });
 
 test("the loops feature is an editable reference example with one prefilled console", async () => {
-  const base = new URL("web/playground/artifacts/", root);
-  const [document, canonical, wasm, manifest] = await Promise.all([
+  const [document, canonical, compiler] = await Promise.all([
     buildSiteDocument(root, "docs/language-guide.md"),
     readFile(new URL("examples/generated/readme/core/33-loops.vkf", root), "utf8"),
-    readFile(new URL("vkf-browser-compiler.wasm", base)),
-    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+    loadShippedCompiler(),
   ]);
-  const { instance } = await WebAssembly.instantiate(wasm);
-  const compiler = createBrowserCompiler({ instance, manifest });
   const canonicalSource = canonical.replace(/\r\n/gu, "\n").trimEnd();
   const example = document.examples.find(({ source }) => source === canonicalSource);
 
   assert.ok(example, "the canonical loops source must be editable");
-  assert.deepEqual(compiler.run(example.source).values, [10, 2]);
+  assert.equal(compiler.run(example.source).stdout, "10\n2\n");
   assert.match(document.html, /<span>Console<\/span><pre class="readme-example-output"[^>]*>10\n2<\/pre>/u);
   const loopsSection = document.html.split('data-vkf-example-id="example-5"')[1]
     .split('<h3 id="54-return-continue-and-break">')[0];
@@ -183,33 +185,34 @@ test("the loops feature is an editable reference example with one prefilled cons
 });
 
 test("every displayed browser example compiles and executes through the shipped WASM", async () => {
-  const base = new URL("web/playground/artifacts/", root);
-  const [document, wasm, manifest] = await Promise.all([
+  const [document, compiler] = await Promise.all([
     buildSiteDocument(root, "docs/site/guide.md"),
-    readFile(new URL("vkf-browser-compiler.wasm", base)),
-    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
+    loadShippedCompiler(),
   ]);
-  assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(wasm)), []);
-  const { instance } = await WebAssembly.instantiate(wasm);
-  const compiler = createBrowserCompiler({ instance, manifest });
   const results = document.examples.map(({ source }) => compiler.run(source));
-  assert.deepEqual(results[0].values, [[2, 4, 6], [[2, 4], [6, 8]]]);
-  assert.deepEqual(results[1].values, [
-    [[1, 2, 3], [2, 4, 6], [3, 6, 9]], [4, 10, 18],
-    [[[15, 18], [20, 24]], [[30, 36], [40, 48]]],
-  ]);
+  assert.equal(results[0].stdout, "[2, 4, 6]\n[[2, 4], [6, 8]]\n");
+  assert.equal(results[1].stdout,
+    "[[1, 2, 3], [2, 4, 6], [3, 6, 9]]\n[4, 10, 18]\n"
+    + "[[[15, 18], [20, 24]], [[30, 36], [40, 48]]]\n");
   assert.equal(results[2].kind, "visual");
-  assert.equal(results[2].packet_records.length, 1);
-  assert.deepEqual(compiler.run(document.examples[0].source.replace("* 2", "* 3")).values,
-    [[3, 6, 9], [[3, 6], [9, 12]]]);
+  assert.equal(results[2].retained_scene_arenas.length, 1);
+  assert.equal(compiler.run(document.examples[0].source.replace("* 2", "* 3")).stdout,
+    "[3, 6, 9]\n[[3, 6], [9, 12]]\n");
   const changedSource = document.examples[2].source.replace("0.1[..100]", "0.2[..100]");
   assert.notEqual(changedSource, document.examples[2].source);
   const changed = compiler.run(changedSource);
-  assert.equal(changed.packet_records[0].columns, 101);
-  assert.equal(changed.packet_records[0].x[0][50], 10);
-  assert.equal(changed.packet_records[0].x[0][100], 20);
-  assert.ok(Math.abs(changed.packet_records[0].y[0][50] - Math.sin(10)) < 1e-12);
-  assert.ok(Math.abs(changed.packet_records[0].y[0][100] - Math.sin(20)) < 1e-12);
+  const packet = changed.retained_scene_arenas[0];
+  const mesh = packet.metadata.scene.meshes[0];
+  const vertices = new Float32Array(
+    packet.arena.buffer,
+    packet.arena.byteOffset + mesh.vertices.byte_offset,
+    mesh.vertices.length,
+  );
+  assert.equal(mesh.vertices.length / 10, 101);
+  assert.ok(Math.abs(vertices[50 * 10] - 10) < 1e-6);
+  assert.ok(Math.abs(vertices[100 * 10] - 20) < 1e-6);
+  assert.ok(Math.abs(vertices[50 * 10 + 1] - Math.sin(10)) < 1e-6);
+  assert.ok(Math.abs(vertices[100 * 10 + 1] - Math.sin(20)) < 1e-6);
 });
 
 test("every editor published anywhere on the site executes through the shipped WASM", async (t) => {
@@ -225,35 +228,30 @@ test("every editor published anywhere on the site executes through the shipped W
     queue.push(...document.dependencies);
   }
 
-  const base = new URL("web/playground/artifacts/", root);
-  const [wasm, manifest] = await Promise.all([
-    readFile(new URL("vkf-browser-compiler.wasm", base)),
-    readFile(new URL("vkf-browser-compiler.json", base), "utf8").then(JSON.parse),
-  ]);
-  const module = new WebAssembly.Module(wasm);
-  assert.deepEqual(WebAssembly.Module.imports(module), []);
-  const instance = await WebAssembly.instantiate(module);
-  const compiler = createBrowserCompiler({ instance, manifest });
+  const compiler = await loadShippedCompiler();
   const editors = documents.flatMap((document) => document.examples.map((example) => ({
     page: document.source,
     ...example,
   })));
 
-  assert.equal(editors.length, 97);
-  assert.equal(new Set(editors.map(({ source }) => source)).size, 87);
+  assert.equal(editors.length, 89);
+  assert.equal(new Set(editors.map(({ source }) => source)).size, 79);
   for (const editor of editors) {
     await t.test(`${editor.page}: ${editor.id}: ${editor.title}`, () => {
       let result;
-      assert.doesNotThrow(
-        () => { result = compiler.run(editor.source); },
-        `${editor.page}: ${editor.title}`,
-      );
+      try {
+        result = compiler.run(editor.source);
+      } catch (error) {
+        assert.ok(exactBrowserSandboxDiagnostics.has(error.message),
+          `${editor.page}: ${editor.title}: ${error.message}`);
+        return;
+      }
       if (/\b(?:p|x|y)_[A-Za-z_][A-Za-z0-9_]*\s*:/u.test(editor.source)) {
-        const geometry = result.packet_records.filter(({ rows, columns }) => (
-          Number.isInteger(rows) && Number.isInteger(columns)
-        ));
+        const geometry = result.retained_scene_arenas?.flatMap(({ metadata }) => (
+          metadata.scene.meshes.filter(({ vertices }) => Number.isInteger(vertices?.length))
+        )) ?? [];
         assert.ok(geometry.length > 0, `${editor.page}: ${editor.title} must emit indexed geometry`);
-        assert.ok(geometry.every(({ rows, columns }) => rows * columns >= 100),
+        assert.ok(geometry.every(({ vertices }) => vertices.length / 10 >= 100),
           `${editor.page}: ${editor.title} must emit at least 100 positions`);
       }
     });
@@ -277,15 +275,11 @@ test("each guide branch links back and drills into the existing reference", asyn
 });
 
 test("branch examples reuse canonical sources and execute like the overview examples", async () => {
-  const base = new URL("web/playground/artifacts/", root);
   const overview = await buildSiteDocument(root, "docs/site/guide.md");
-  const wasm = await readFile(new URL("vkf-browser-compiler.wasm", base));
-  const manifest = JSON.parse(await readFile(new URL("vkf-browser-compiler.json", base), "utf8"));
-  const { instance } = await WebAssembly.instantiate(wasm);
-  const compiler = createBrowserCompiler({ instance, manifest });
+  const compiler = await loadShippedCompiler();
   const known = new Map(overview.examples.map(({ source }) => {
     const result = compiler.run(source);
-    return [source, { kind: result.kind, values: result.values }];
+    return [source, result];
   }));
   for (const source of branches) {
     const document = await buildSiteDocument(root, source);
@@ -294,8 +288,8 @@ test("branch examples reuse canonical sources and execute like the overview exam
     for (const example of document.examples) {
       assert.ok(known.has(example.source), `${source}: unexpected or duplicated example source`);
       const result = compiler.run(example.source);
-      assert.deepEqual({ kind: result.kind, values: result.values }, known.get(example.source));
-      if (result.kind === "visual") assert.equal(result.packet_records.length, 1);
+      assert.deepEqual(result, known.get(example.source));
+      if (result.kind === "visual") assert.equal(result.retained_scene_arenas.length, 1);
     }
   }
 });

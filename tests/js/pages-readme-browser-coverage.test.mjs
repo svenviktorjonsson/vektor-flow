@@ -5,10 +5,12 @@ import test from "node:test";
 import { buildReadmeDocument } from "../../tools/build-pages-readme.mjs";
 import { materializeVisualOutput } from "../../web/inline-result-packets.mjs";
 import { createBrowserCompiler } from "../../web/playground/vkf-browser-compiler.mjs";
+import { createSharedCompiler } from "../../web/playground/vkf-shared-compiler.mjs";
 
 const root = new URL("../../", import.meta.url);
 const artifacts = new URL("../../web/playground/artifacts/", import.meta.url);
 const rounded = (values) => values.map((value) => Math.round(value * 1e9) / 1e9);
+const roundedFloat32 = (values) => values.map((value) => Math.round(value * 1e6) / 1e6);
 
 async function compilerAndExamples() {
   const [document, wasm, manifest] = await Promise.all([
@@ -18,6 +20,25 @@ async function compilerAndExamples() {
   ]);
   const { instance } = await WebAssembly.instantiate(wasm);
   return { compiler: createBrowserCompiler({ instance, manifest }), examples: document.examples };
+}
+
+async function sharedCompilerAndExamples() {
+  const [document, wasm] = await Promise.all([
+    buildReadmeDocument(root),
+    readFile(new URL("vkf-shared-compiler.wasm", artifacts)),
+  ]);
+  const module = new WebAssembly.Module(wasm);
+  assert.deepEqual(WebAssembly.Module.imports(module), []);
+  return {
+    compiler: createSharedCompiler({ instance: new WebAssembly.Instance(module) }),
+    examples: document.examples,
+  };
+}
+
+function retainedVertices(packet, mesh) {
+  assert.equal(mesh.vertices.storage, "float32");
+  return new Float32Array(packet.arena.buffer,
+    packet.arena.byteOffset + mesh.vertices.byte_offset, mesh.vertices.length);
 }
 
 test("browser coverage matrix classifies every README VKF fence exactly once", async () => {
@@ -73,30 +94,38 @@ test("browser compiler runs the complete README named-axis tensor fence", async 
 });
 
 test("browser compiler emits retained geometry packets for the complete README display fence", async () => {
-  const { compiler, examples } = await compilerAndExamples();
+  const { compiler, examples } = await sharedCompilerAndExamples();
   const example = examples.find(({ id }) => id === "readme-03");
   const output = { ...compiler.run(example.source) };
 
   assert.equal(output.kind, "visual");
-  assert.equal(output.packet_records.length, 1);
-  const packet = { ...output.packet_records[0] };
-  assert.deepEqual([packet.magic, packet.version, packet.rows, packet.columns], [1447773766, 6, 1, 513]);
-  assert.deepEqual(rounded(packet.color), [0.12, 0.72, 1, 1]);
-  assert.deepEqual([0, 128, 256, 384, 512].map((index) => rounded([packet.x[0][index]])[0]),
-    [-1, -0.5, 0, 0.5, 1]);
-  assert.deepEqual([0, 128, 256, 384, 512].map((index) => rounded([packet.y[0][index]])[0]),
-    [-1.9e-8, -0.85, 0, 0.85, 1.9e-8]);
+  assert.equal(output.retained_scene_arenas.length, 1);
+  const packet = output.retained_scene_arenas[0];
+  assert.equal(packet.metadata.schema, "vektor-flow/retained-scene-arena");
+  const mesh = packet.metadata.scene.meshes[0];
+  const vertices = retainedVertices(packet, mesh);
+  assert.equal(mesh.vertices.length / 10, 101);
+  assert.deepEqual([0, 25, 50, 75, 100].map((index) => rounded([vertices[index * 10]])[0]),
+    [0, 2.5, 5, 7.5, 10]);
+  assert.deepEqual([0, 25, 50, 75, 100].map((index) => roundedFloat32([vertices[index * 10 + 1]])[0]),
+    [0, 0.598472, -0.958924, 0.938, -0.544021]);
+  assert.deepEqual(roundedFloat32([...vertices.slice(6, 10)]), [0.12, 0.72, 1, 1]);
 
   const changed = { ...compiler.run([
     ": .ui.display",
     "display: Display(dim:2)",
     "frame: display.add_frame(pos:[0, 0], size:[1, 1])",
-    "frame.add(x:[[1, 2]], y:[[3, 4]], z:[[5, 6]], id:\"probe\", color:[0.1, 0.2, 0.3, 1])",
+    "frame.add(x_u:[1, 2], y_u:[3, 4], id:\"probe\", color:[0.1, 0.2, 0.3, 1])",
   ].join("\n")) };
-  assert.equal(changed.packet_records.length, 1);
-  assert.deepEqual(rounded(changed.packet_records[0].color), [0.1, 0.2, 0.3, 1]);
-  assert.deepEqual(changed.packet_records[0].x, [[1, 2]]);
-  assert.deepEqual(changed.packet_records[0].y, [[3, 4]]);
+  assert.equal(changed.retained_scene_arenas.length, 1);
+  const changedPacket = changed.retained_scene_arenas[0];
+  const changedMesh = changedPacket.metadata.scene.meshes[0];
+  const changedVertices = retainedVertices(changedPacket, changedMesh);
+  assert.equal(changedMesh.vertices.length / 10, 2);
+  assert.deepEqual(rounded([
+    changedVertices[0], changedVertices[1], changedVertices[10], changedVertices[11],
+  ]), [1, 3, 2, 4]);
+  assert.deepEqual(roundedFloat32([...changedVertices.slice(6, 10)]), [0.1, 0.2, 0.3, 1]);
 });
 
 test("browser compiler retains background options and multiple meshes from README displays", async () => {
@@ -820,20 +849,25 @@ test("browser compiler runs the complete README fannkuch fence", { timeout: 10_0
 
 test("browser execution coverage is measured against all 26 README VKF fences", async () => {
   const [{ compiler, examples }, matrix] = await Promise.all([
-    compilerAndExamples(),
+    sharedCompilerAndExamples(),
     readFile(new URL("../fixtures/pages-readme-browser-coverage.json", import.meta.url), "utf8").then(JSON.parse),
   ]);
   const runnable = [];
+  const failures = [];
 
   for (const example of examples) {
     try {
       compiler.run(example.source);
       runnable.push(example.id);
     } catch (error) {
-      assert.match(error.message, /browser compiler could not run the VKF source/u);
+      failures.push([example.id, error.message]);
     }
   }
 
+  assert.deepEqual(failures, [[
+    "readme-11",
+    "unsupported type ui_component<Button> in function $vkf_main.body.body[10].value",
+  ]]);
   assert.deepEqual(runnable, matrix.browser_runnable_after_slice);
   assert.equal(runnable.length, 25);
   assert.equal(examples.length, 26);

@@ -1131,6 +1131,13 @@ inline vf::JsonValue material_mesh(
             {"no_lighting", vf::JsonValue(true)},
             {"casts_shadow", vf::JsonValue(false)},
         };
+        if (!mode3d) {
+            mesh["axis_ticks"] = vf::JsonValue(vf::JsonValue::Object{
+                {"enabled", vf::JsonValue(true)},
+                {"x_label", vf::JsonValue("x")},
+                {"y_label", vf::JsonValue("y")},
+            });
+        }
         for (const std::string& name : {
                  "representation", "render_mode", "alpha", "transparent", "depth_write",
                  "emission",

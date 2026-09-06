@@ -7,8 +7,9 @@
 **[What](concepts.md)** — the core ideas and measured performance.
 
 The examples below are editable. Press **Run** to execute them locally in your
-browser. Nothing to install; no compilation backend. The browser supports a
-subset of VKF; the linked guides distinguish browser and native capabilities.
+browser. Nothing to install; no server backend. The browser runs the same VKF
+compiler as the desktop tools, compiled to WebAssembly. Browser code remains
+sandboxed from network, filesystem, process, DOM and host APIs.
 
 ## Why
 
