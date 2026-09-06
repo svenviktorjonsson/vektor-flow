@@ -1462,6 +1462,21 @@ private:
         }
         if (kind == "binary_op") {
             const std::string op = string_field(object, "op", context);
+            const std::string left_multiset_type = string_field(object, "left_type", context);
+            const std::string right_multiset_type = string_field(object, "right_type", context);
+            if (left_multiset_type.rfind("multiset<", 0) == 0
+                && right_multiset_type.rfind("multiset<", 0) == 0) {
+                const std::map<std::string, std::uint32_t> operations{
+                    {"PLUS", 0}, {"MINUS", 1}, {"FLOORDIV", 2}, {"PERCENT", 3},
+                };
+                const auto operation = operations.find(op);
+                if (operation != operations.end()) {
+                    lower_expression(field(object, "left", context), state, context + ".left");
+                    lower_expression(field(object, "right", context), state, context + ".right");
+                    emit(state, Opcode::MultisetAlgebra, ValueType::Dynamic, operation->second);
+                    return ValueType::Dynamic;
+                }
+            }
             if (op == "XOR") {
                 lower_expression(field(object, "left", context), state, context + ".left");
                 emit_booleanize(state);

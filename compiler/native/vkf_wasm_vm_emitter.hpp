@@ -218,6 +218,7 @@ inline StackEffect stack_effect(const bytecode::Instruction& instruction) {
         case Opcode::ArrayGet:
         case Opcode::ArrayConcat:
         case Opcode::ObjectSet:
+        case Opcode::MultisetAlgebra:
         case Opcode::Utf8Eof:
         case Opcode::Utf8PeekScalar:
         case Opcode::Utf8Advance:
@@ -539,6 +540,7 @@ struct RuntimeIndexes {
     std::uint32_t make_number = 0;
     std::uint32_t truthy = 0;
     std::uint32_t equal = 0;
+    std::uint32_t multiset_algebra = 0;
     std::uint32_t string_less = 0;
     std::uint32_t string_less_equal = 0;
     std::uint32_t string_greater = 0;
@@ -1057,6 +1059,16 @@ inline std::vector<std::uint8_t> emit_tagged_function(
                     body.u32_leb(runtime.make_boolean);
                     emit_finish_push(body, sp_local);
                 }
+                break;
+            case Opcode::MultisetAlgebra:
+                emit_pop_to(body, frame_local, sp_local, local_count, temp1);
+                emit_pop_to(body, frame_local, sp_local, local_count, temp0);
+                emit_push_from_stack(body, frame_local, sp_local, local_count);
+                local_get(body, temp0);
+                local_get(body, temp1);
+                i32_const(body, instruction.first);
+                body.u8(0x10); body.u32_leb(runtime.multiset_algebra);
+                emit_finish_push(body, sp_local);
                 break;
             case Opcode::LogicalNot:
                 emit_pop_to(
@@ -1972,6 +1984,152 @@ inline std::vector<std::uint8_t> emit_equal_function(
     body.u8(0x10);
     body.u32_leb(make_boolean_index);
     body.u8(0x0b);
+    return encoded_body(std::move(body));
+}
+
+inline std::vector<std::uint8_t> emit_multiset_algebra_function(
+    std::uint32_t allocate_index,
+    std::uint32_t make_number_index,
+    std::uint32_t equal_index,
+    std::uint32_t truthy_index
+) {
+    Writer body;
+    // params: left, right, operation. i32 locals: result, output count,
+    // candidate count/index, scan index, key, seen, count slot. f64 locals:
+    // left count, right count, resulting count.
+    body.u32_leb(2);
+    body.u32_leb(8); body.u8(wasm_i32);
+    body.u32_leb(3); body.u8(wasm_f64);
+    const std::uint32_t result = 3, output_count = 4, candidate_count = 5;
+    const std::uint32_t candidate = 6, scan = 7, key = 8, seen = 9, count_slot = 10;
+    const std::uint32_t left_count = 11, right_count = 12, result_count = 13;
+    const auto f64_zero = [&]() { body.u8(0x44); body.f64(0.0); };
+    const auto entry_address = [&](std::uint32_t collection, std::uint32_t index) {
+        local_get(body, collection); i32_load(body, values::payload_offset);
+        local_get(body, index); i32_const(body, values::record_entry_size);
+        body.u8(0x6c); body.u8(0x6a);
+    };
+    const auto entry_key = [&](std::uint32_t collection, std::uint32_t index) {
+        entry_address(collection, index); i32_load(body, values::record_key_offset);
+    };
+    const auto entry_count = [&](std::uint32_t collection, std::uint32_t index) {
+        entry_address(collection, index); i32_load(body, values::record_value_offset);
+        f64_load(body);
+    };
+    const auto increment = [&](std::uint32_t local) {
+        local_get(body, local); i32_const(body, 1); body.u8(0x6a); local_set(body, local);
+    };
+    const auto sum_matching_counts = [&](std::uint32_t collection,
+                                         std::uint32_t destination) {
+        f64_zero(); local_set(body, destination);
+        i32_const(body, 0); local_set(body, scan);
+        body.u8(0x02); body.u8(0x40);
+        body.u8(0x03); body.u8(0x40);
+        local_get(body, scan); local_get(body, collection);
+        i32_load(body, values::length_offset); body.u8(0x4f);
+        body.u8(0x0d); body.u32_leb(1);
+        entry_key(collection, scan); local_get(body, key);
+        body.u8(0x10); body.u32_leb(equal_index);
+        body.u8(0x10); body.u32_leb(truthy_index);
+        body.u8(0x04); body.u8(0x40);
+        local_get(body, destination); entry_count(collection, scan);
+        body.u8(0xa0); local_set(body, destination);
+        body.u8(0x0b);
+        increment(scan);
+        body.u8(0x0c); body.u32_leb(0);
+        body.u8(0x0b); body.u8(0x0b);
+    };
+
+    local_get(body, 0); i32_load(body, values::length_offset);
+    local_get(body, 1); i32_load(body, values::length_offset);
+    body.u8(0x6a); local_tee(body, candidate_count);
+    i32_const(body, values::record_entry_size); body.u8(0x6c);
+    i32_const(body, values::slot_size); body.u8(0x6a);
+    body.u8(0x10); body.u32_leb(allocate_index); local_set(body, result);
+    local_get(body, result); i32_const(body, static_cast<std::uint32_t>(values::Tag::Multiset));
+    i32_store(body, values::tag_offset);
+    local_get(body, result); i32_const(body, 0); i32_store(body, values::length_offset);
+    local_get(body, result); local_get(body, result); i32_const(body, values::slot_size);
+    body.u8(0x6a); i32_store(body, values::payload_offset);
+    i32_const(body, 0); local_set(body, output_count);
+    i32_const(body, 0); local_set(body, candidate);
+
+    body.u8(0x02); body.u8(0x40);
+    body.u8(0x03); body.u8(0x40);
+    local_get(body, candidate); local_get(body, candidate_count); body.u8(0x4f);
+    body.u8(0x0d); body.u32_leb(1);
+    local_get(body, candidate); local_get(body, 0);
+    i32_load(body, values::length_offset); body.u8(0x49);
+    body.u8(0x04); body.u8(wasm_i32);
+    entry_key(0, candidate);
+    body.u8(0x05);
+    local_get(body, 1); i32_load(body, values::payload_offset);
+    local_get(body, candidate); local_get(body, 0); i32_load(body, values::length_offset);
+    body.u8(0x6b); i32_const(body, values::record_entry_size); body.u8(0x6c);
+    body.u8(0x6a); i32_load(body, values::record_key_offset);
+    body.u8(0x0b); local_set(body, key);
+
+    i32_const(body, 0); local_set(body, seen);
+    i32_const(body, 0); local_set(body, scan);
+    body.u8(0x02); body.u8(0x40);
+    body.u8(0x03); body.u8(0x40);
+    local_get(body, scan); local_get(body, output_count); body.u8(0x4f);
+    body.u8(0x0d); body.u32_leb(1);
+    entry_key(result, scan); local_get(body, key);
+    body.u8(0x10); body.u32_leb(equal_index);
+    body.u8(0x10); body.u32_leb(truthy_index);
+    body.u8(0x04); body.u8(0x40);
+    i32_const(body, 1); local_set(body, seen);
+    body.u8(0x0c); body.u32_leb(2);
+    body.u8(0x0b);
+    increment(scan); body.u8(0x0c); body.u32_leb(0);
+    body.u8(0x0b); body.u8(0x0b);
+    local_get(body, seen);
+    body.u8(0x04); body.u8(0x40);
+    increment(candidate); body.u8(0x0c); body.u32_leb(1);
+    body.u8(0x0b);
+
+    sum_matching_counts(0, left_count);
+    sum_matching_counts(1, right_count);
+    local_get(body, 2); i32_const(body, 0); body.u8(0x46);
+    body.u8(0x04); body.u8(wasm_f64);
+    local_get(body, left_count); local_get(body, right_count); body.u8(0xa0);
+    body.u8(0x05);
+    local_get(body, 2); i32_const(body, 1); body.u8(0x46);
+    body.u8(0x04); body.u8(wasm_f64);
+    local_get(body, left_count); local_get(body, right_count); body.u8(0xa1);
+    f64_zero(); body.u8(0x64);
+    body.u8(0x04); body.u8(wasm_f64);
+    local_get(body, left_count); local_get(body, right_count); body.u8(0xa1);
+    body.u8(0x05); f64_zero(); body.u8(0x0b);
+    body.u8(0x05);
+    local_get(body, right_count); f64_zero(); body.u8(0x64);
+    body.u8(0x04); body.u8(wasm_f64);
+    local_get(body, 2); i32_const(body, 2); body.u8(0x46);
+    body.u8(0x04); body.u8(wasm_f64);
+    local_get(body, left_count); local_get(body, right_count); body.u8(0xa3); body.u8(0x9c);
+    body.u8(0x05);
+    local_get(body, left_count); local_get(body, left_count); local_get(body, right_count);
+    body.u8(0xa3); body.u8(0x9c); local_get(body, right_count); body.u8(0xa2); body.u8(0xa1);
+    body.u8(0x0b);
+    body.u8(0x05); f64_zero(); body.u8(0x0b);
+    body.u8(0x0b); body.u8(0x0b); local_set(body, result_count);
+
+    local_get(body, result_count); f64_zero(); body.u8(0x64);
+    body.u8(0x04); body.u8(0x40);
+    local_get(body, result_count); body.u8(0x10); body.u32_leb(make_number_index);
+    local_set(body, count_slot);
+    entry_address(result, output_count); local_get(body, key);
+    i32_store(body, values::record_key_offset);
+    entry_address(result, output_count); local_get(body, count_slot);
+    i32_store(body, values::record_value_offset);
+    increment(output_count);
+    body.u8(0x0b);
+    increment(candidate); body.u8(0x0c); body.u32_leb(0);
+    body.u8(0x0b); body.u8(0x0b);
+    local_get(body, result); local_get(body, output_count);
+    i32_store(body, values::length_offset);
+    local_get(body, result); body.u8(0x0b);
     return encoded_body(std::move(body));
 }
 
@@ -5562,7 +5720,8 @@ inline EmittedModule emit(
     runtime.make_number = runtime.make_boolean + 1;
     runtime.truthy = runtime.make_number + 1;
     runtime.equal = runtime.truthy + 1;
-    runtime.string_less = runtime.equal + 1;
+    runtime.multiset_algebra = runtime.equal + 1;
+    runtime.string_less = runtime.multiset_algebra + 1;
     runtime.string_less_equal = runtime.string_less + 1;
     runtime.string_greater = runtime.string_less_equal + 1;
     runtime.string_greater_equal = runtime.string_greater + 1;
@@ -5602,7 +5761,7 @@ inline EmittedModule emit(
     runtime.stat_visitor = runtime.pairwise_system_energy + 1;
     runtime.stat_sum = runtime.stat_visitor + 1;
     runtime.snapshot_ui_effect = runtime.stat_sum + 6;
-    const std::uint32_t runtime_count = 50;
+    const std::uint32_t runtime_count = 51;
     const std::uint32_t getter_count = 9;
     const std::uint32_t getter_base = function_count + runtime_count;
     const std::uint32_t heap_pointer_index = getter_base + getter_count;
@@ -5650,6 +5809,10 @@ inline EmittedModule emit(
     emit_type({detail::wasm_i32}, {detail::wasm_i32});
     emit_type(
         {detail::wasm_i32, detail::wasm_i32},
+        {detail::wasm_i32}
+    );
+    emit_type(
+        {detail::wasm_i32, detail::wasm_i32, detail::wasm_i32},
         {detail::wasm_i32}
     );
     for (std::uint32_t index = 0; index < 4; ++index) {
@@ -5838,6 +6001,8 @@ inline EmittedModule emit(
     code.raw(detail::emit_make_number_function(runtime.allocate));
     code.raw(detail::emit_truthy_function());
     code.raw(detail::emit_equal_function(runtime.make_boolean));
+    code.raw(detail::emit_multiset_algebra_function(
+        runtime.allocate, runtime.make_number, runtime.equal, runtime.truthy));
     code.raw(detail::emit_string_order_function(
         runtime.make_boolean,
         bytecode::Opcode::StringLess

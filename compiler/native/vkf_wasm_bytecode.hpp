@@ -119,6 +119,8 @@ enum class Opcode : std::uint16_t {
     CaptureUiEffect = 83,
     // Private emitted-program multiset construction; requires bytecode version 3.
     MakeMultiset = 84,
+    // Private emitted-program multiset algebra; first selects +,-,//,%.
+    MultisetAlgebra = 85,
 };
 
 enum class ConstantKind : std::uint8_t {
@@ -220,7 +222,7 @@ inline bool is_value_type(ValueType type) {
 
 inline bool is_opcode(Opcode opcode) {
     return static_cast<std::uint16_t>(opcode)
-        <= static_cast<std::uint16_t>(Opcode::MakeMultiset);
+        <= static_cast<std::uint16_t>(Opcode::MultisetAlgebra);
 }
 
 inline bool is_valid_utf8(const std::string& value) {
@@ -344,6 +346,11 @@ inline void validate_instruction(
                 }
             } else if (instruction.second != 0) {
                 throw BytecodeError(context + " has invalid print display mode");
+            }
+            break;
+        case Opcode::MultisetAlgebra:
+            if (instruction.first > 3) {
+                throw BytecodeError(context + " has invalid multiset operation");
             }
             break;
         default:
@@ -530,7 +537,8 @@ inline bool uses_private_tuple_operations(const Module& module) {
         for (const auto& instruction : function.instructions)
             private_tuple = private_tuple || instruction.opcode == Opcode::MakeTuple
                 || instruction.opcode == Opcode::CaptureUiEffect
-                || instruction.opcode == Opcode::MakeMultiset;
+                || instruction.opcode == Opcode::MakeMultiset
+                || instruction.opcode == Opcode::MultisetAlgebra;
     return private_tuple;
 }
 
@@ -669,6 +677,10 @@ inline Module deserialize(const std::vector<std::uint8_t>& bytes) {
             if (version == detail::format_version &&
                 function.instructions.back().opcode == Opcode::MakeMultiset) {
                 throw BytecodeError("private multiset opcode requires bytecode version 3");
+            }
+            if (version == detail::format_version &&
+                function.instructions.back().opcode == Opcode::MultisetAlgebra) {
+                throw BytecodeError("private multiset algebra opcode requires bytecode version 3");
             }
         }
         module.functions.push_back(std::move(function));
