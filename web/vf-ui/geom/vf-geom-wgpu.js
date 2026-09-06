@@ -3290,13 +3290,22 @@ fn fs(i: Vout) -> @location(0) vec4f {
     let surfaceCoordinates = i.rock_surface_coordinates;
     let pixelFootprint = max(length(dpdx(surfaceCoordinates)), length(dpdy(surfaceCoordinates)));
     let footprint = max(pixelFootprint, max(sc.rock_material_filter.x, 0.0));
-    let rock = vf_rock_material_sample(
-      surfaceCoordinates,
-      footprint,
-      u32(max(sc.rock_material_filter.y, 0.0)),
-      sc.rock_material_stream.xy,
-      sc.rock_material_stream.zw,
+    var rock = vf_rock_material_sample(
+      surfaceCoordinates, footprint, u32(max(sc.rock_material_filter.y, 0.0)),
+      sc.rock_material_stream.xy, sc.rock_material_stream.zw,
     );
+    if (sc.rock_material_filter.w > 1.5) {
+      let graniteLocal = i.local_pos / max(sc.rock_material_radii_enabled.xyz, vec3<f32>(0.001));
+      let graniteCoordinates = vec2<f32>(
+        dot(graniteLocal, vec3<f32>(0.73, 0.19, 0.41)),
+        dot(graniteLocal, vec3<f32>(-0.27, 0.81, 0.52)),
+      );
+      let graniteFootprint = max(length(dpdx(graniteCoordinates)), length(dpdy(graniteCoordinates)));
+      rock = vf_weathered_granite_sample(
+        graniteCoordinates, max(graniteFootprint, sc.rock_material_filter.x), u32(max(sc.rock_material_filter.y, 0.0)),
+        sc.rock_material_stream.xy, sc.rock_material_stream.zw,
+      );
+    }
     let rockNormal = vfRockWorldNormal(i.normal, rock.tangent_normal);
     let rockSpecularScale = 0.34 * (1.0 - rock.roughness) * (1.0 - rock.roughness);
     return shadeLitBaseScaled(rock.base_color.rgb, i.color.a, i.world_pos, rockNormal, false, rockSpecularScale);
@@ -4738,7 +4747,7 @@ fn fs_flare(i: FlareVOut) -> @location(0) vec4<f32> {
       f32[rockMaterialBase + 8] = minimumFootprint;
       f32[rockMaterialBase + 9] = Math.min(0xffffff, rockMaterial.detailLevel);
       f32[rockMaterialBase + 10] = 6.0;
-      f32[rockMaterialBase + 11] = 1.0;
+      f32[rockMaterialBase + 11] = rockMaterial.variant === "weathered-granite" ? 2.0 : 1.0;
       // Per-fragment roughness owns the energy-safe specular scale.
       f32[75] = 1.0;
     }

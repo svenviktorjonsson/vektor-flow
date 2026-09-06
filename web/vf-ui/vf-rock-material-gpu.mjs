@@ -168,6 +168,44 @@ fn vf_rock_material_sample(
     tangent_normal,
   );
 }
+
+fn vf_weathered_granite_sample(
+  surface_coordinates: vec2<f32>,
+  footprint: f32,
+  detail_level: u32,
+  counter_prefix: vec2<u32>,
+  key: vec2<u32>,
+) -> VfRockMaterialSample {
+  let broad = vf_rock_raw_geology(surface_coordinates, footprint, detail_level, counter_prefix, key);
+  let grainWeight = 1.0 - smoothstep(0.018, 0.060, footprint);
+  let grain = vf_rock_spatial(surface_coordinates * 22.0 + vec2<f32>(7.3, -4.1), 0.18, counter_prefix, key) * grainWeight;
+  let quartz = smoothstep(0.55, 0.78, grain);
+  let mica = 1.0 - smoothstep(-0.78, -0.57, grain);
+  let veinField = vf_rock_spatial(surface_coordinates * 1.7 + vec2<f32>(3.7, 8.1), 0.31, counter_prefix, key) + broad * 0.20;
+  let vein = (1.0 - smoothstep(0.015, 0.052, abs(veinField))) * (1.0 - smoothstep(0.02, 0.08, footprint));
+  let crackField = vf_rock_spatial(surface_coordinates * 0.92 + vec2<f32>(-5.2, 2.6), 0.24, counter_prefix, key) + broad * 0.14;
+  let crack = (1.0 - smoothstep(0.006, 0.018, abs(crackField))) * (1.0 - smoothstep(0.025, 0.10, footprint));
+  var granite = vec3<f32>(0.58, 0.565, 0.545) + vec3<f32>(0.10, 0.09, 0.075) * broad;
+  granite = mix(granite, vec3<f32>(0.77, 0.75, 0.72), quartz * 0.60);
+  granite = mix(granite, vec3<f32>(0.23, 0.24, 0.25), mica * 0.48);
+  granite = mix(granite, vec3<f32>(0.68, 0.57, 0.53), vein * 0.24);
+  granite *= 1.0 - crack * 0.12;
+  let height = broad * 0.045 + grain * 0.018 * grainWeight - crack * 0.025;
+  let step = 0.0012;
+  let broadU = vf_rock_raw_geology(surface_coordinates + vec2<f32>(step, 0.0), footprint, detail_level, counter_prefix, key);
+  let broadV = vf_rock_raw_geology(surface_coordinates + vec2<f32>(0.0, step), footprint, detail_level, counter_prefix, key);
+  let derivative = vec2<f32>(broadU - broad, broadV - broad) / step;
+  let tangentNormal = normalize(vec3<f32>(-derivative * 0.055, 1.0));
+  return VfRockMaterialSample(
+    broad,
+    clamp(0.5 + broad * 0.5, 0.0, 1.0),
+    vec4<f32>(clamp(granite, vec3<f32>(0.04), vec3<f32>(0.88)), 1.0),
+    clamp(0.72 - broad * 0.10 + crack * 0.16 - quartz * 0.08, 0.48, 0.90),
+    clamp(height, -0.08, 0.08),
+    derivative,
+    tangentNormal,
+  );
+}
 `;
 
 function requireRecord(record, index) {
